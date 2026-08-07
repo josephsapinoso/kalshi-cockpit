@@ -312,15 +312,23 @@ class TestImpliedAndActualShareADenominator:
         price over all twenty would drag `implied` to 70c and manufacture a
         -20 point 'finding' out of games that have not finished.
         """
-        rows = [obs(500, win=i < 5) for i in range(10)]
-        rows += [obs(900) for _ in range(10)]
+        # Both prices must land in the SAME bucket (500..600), or the unsettled
+        # rows cannot contaminate the settled ones and the test proves nothing.
+        # The first version used 500 and 900 -- different buckets -- and passed
+        # with the fix reverted.
+        rows = [obs(510, win=i < 5) for i in range(10)]
+        rows += [obs(590) for _ in range(10)]
 
         bucket = next(
-            b for b in summarise(rows).buckets if b.low <= 500 < b.high
+            b for b in summarise(rows).buckets if b.low <= 510 < b.high
         )
+        assert bucket.n == 20
         assert bucket.actual_rate == pytest.approx(0.5)
-        assert bucket.implied_probability == pytest.approx(0.5)
-        assert bucket.gap_points == pytest.approx(0.0)
+        # Settled rows were all bought at 51c, so that is the price to compare
+        # against. Averaging in the unsettled 59c rows gives 0.55 and invents a
+        # -5 point gap from games that have not been played.
+        assert bucket.implied_probability == pytest.approx(0.51)
+        assert bucket.gap_points == pytest.approx(-1.0, abs=1e-9)
 
     def test_with_everything_settled_the_answer_is_unchanged(self):
         """The fix must not move the number in the ordinary case."""
