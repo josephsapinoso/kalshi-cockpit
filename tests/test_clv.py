@@ -8,6 +8,9 @@ observations reachable without 300 wagers.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from backend.analysis.clv import (
@@ -119,18 +122,95 @@ class TestSignConvention:
 
 
 class TestCandlestickParsing:
-    def test_whole_cent_closes_convert_to_tenths(self):
-        bid, ask = parse_candlestick({"yes_bid": {"close": 48}, "yes_ask": {"close": 52}})
-        assert (bid, ask) == (480, 520)
+    """Read against a real capture, not a hand-written dict.
+
+    The previous tests asserted `{"yes_bid": {"close": 48}}` -- a shape Kalshi
+    has never sent. The real field is `close_dollars`, a dollar string, so
+    `parse_candlestick` returned `None` for both sides of every candlestick it
+    ever saw. The caller correctly treats unreadable as unreadable, so this
+    surfaced on the live instance as `clv_lines_stored: 20,
+    unreadable_quotes: 20, scored: 0` -- closing lines fetched, none usable, and
+    the CLV counter pinned at zero while every other stage reported success.
+
+    Test and code were written from the same wrong mental model in the same
+    sitting, so the suite went green over it. Third occurrence of this exact
+    failure in this project, in the one module the whole measurement rests on.
+    """
+
+    @pytest.fixture(scope="class")
+    def captured(self):
+        path = (
+            Path(__file__).parent / "fixtures" / "candlesticks_mlb.json"
+        )
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_the_capture_is_real_and_has_the_shape_we_parse(self, captured):
+        """Guard the fixture, so a truncated re-capture fails loudly."""
+        markets = captured["markets"]
+        assert len(markets) >= 3
+        candles = [c for m in markets.values() for c in m["candlesticks"]]
+        assert len(candles) >= 40
+        assert all("yes_bid" in c and "yes_ask" in c for c in candles)
+
+    def test_the_field_is_close_dollars_not_close(self, captured):
+        """The bug, stated as a property of the wire rather than of the parser.
+
+        If this ever fails, Kalshi renamed the field and `parse_candlestick`
+        needs recapturing -- not patching from memory.
+        """
+        candle = next(
+            c for m in captured["markets"].values() for c in m["candlesticks"]
+        )
+        assert "close_dollars" in candle["yes_bid"]
+        assert "close" not in candle["yes_bid"]
+
+    def test_every_captured_candle_parses(self, captured):
+        """The assertion that would have caught it. Not one of them parsed."""
+        parsed = unreadable = 0
+        for market in captured["markets"].values():
+            for candle in market["candlesticks"]:
+                bid, ask = parse_candlestick(candle)
+                if bid is None or ask is None:
+                    unreadable += 1
+                else:
+                    assert 0 <= bid <= PRICE_MAX and 0 <= ask <= PRICE_MAX
+                    assert ask >= bid, "ask below bid in a real book"
+                    parsed += 1
+        assert parsed > 0, "no captured candle produced a readable quote"
+        assert unreadable == 0, f"{unreadable} of {parsed + unreadable} unreadable"
+
+    def test_a_readable_candle_yields_a_usable_mid(self, captured):
+        """What the scorer actually needs, end to end."""
+        candle = next(
+            c for m in captured["markets"].values() for c in m["candlesticks"]
+        )
+        bid, ask = parse_candlestick(candle)
+        line = ClosingLine("MKT", 1.0, NOW, bid, ask)
+        assert line.mid_tenths is not None
+        assert bid <= line.mid_tenths <= ask
 
     def test_a_missing_side_returns_none_not_zero(self):
         """A settled loser genuinely trades at 0, so a substituted zero is
         indistinguishable from real data."""
-        bid, ask = parse_candlestick({"yes_bid": {"close": None}, "yes_ask": {}})
+        bid, ask = parse_candlestick(
+            {"yes_bid": {"close_dollars": None}, "yes_ask": {}}
+        )
         assert bid is None and ask is None
 
     def test_a_malformed_candle_returns_none(self):
         assert parse_candlestick({}) == (None, None)
+
+    def test_the_old_key_is_not_silently_accepted(self):
+        """No fallback to `close`.
+
+        A silent second-guess is how the original error survived. If Kalshi
+        renames the field again, the caller must see unreadable quotes and
+        investigate rather than get a number from a key nobody verified.
+        """
+        assert parse_candlestick({"yes_bid": {"close": 48}, "yes_ask": {"close": 52}}) == (
+            None,
+            None,
+        )
 
 
 class TestScoring:

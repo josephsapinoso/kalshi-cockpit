@@ -84,19 +84,37 @@ class ClosingLine:
 def parse_candlestick(candle: dict) -> tuple[Optional[int], Optional[int]]:
     """Extract closing yes bid/ask from one candlestick, in tenths.
 
-    Kalshi's candlestick payload nests open/high/low/close per side. Missing
-    values return None rather than 0 -- a settled loser genuinely trades at 0,
-    so a zero substituted for "unreadable" is indistinguishable from real data.
+    Kalshi's candlestick payload nests open/high/low/close per side:
+
+        "yes_bid": {"close_dollars": "0.3300", "high_dollars": "0.3300", ...}
+
+    **The field is `close_dollars`, a dollar string. It is not `close`.** This
+    function read `close`, so it returned `None` for both sides of every
+    candlestick ever fetched -- and because the caller correctly treats an
+    unreadable quote as unreadable rather than substituting zero, the failure
+    surfaced as `unreadable_quotes: 20, scored: 0` on the live instance: closing
+    lines stored, none usable, the CLV counter pinned at zero while every other
+    stage reported success.
+
+    It was written from documentation. `tests/fixtures/candlesticks_mlb.json`
+    is a real capture, and the tests read it. This is `data["yes"]` versus
+    `yes_dollars_fp` for the third time in this project, in the one module the
+    entire measurement depends on.
+
+    Missing values return None rather than 0 -- a settled loser genuinely trades
+    at 0, so a zero substituted for "unreadable" is indistinguishable from real
+    data.
     """
     def _close(block) -> Optional[int]:
         if not isinstance(block, dict):
             return None
-        value = block.get("close")
+        value = block.get("close_dollars")
         if value is None:
+            # No legacy fallback to `close`. A silent second-guess is how the
+            # original error survived; if Kalshi renames this again, the caller
+            # must see unreadable quotes and investigate rather than get a
+            # number from a key nobody verified.
             return None
-        # Candlesticks quote whole cents on this endpoint.
-        if isinstance(value, (int, float)) and float(value).is_integer():
-            return int(value) * 10
         return dollars_to_tenths(value)
 
     return _close(candle.get("yes_bid")), _close(candle.get("yes_ask"))
