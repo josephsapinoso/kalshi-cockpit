@@ -299,8 +299,18 @@ def consensus_devig(
 
     # Width across books on the first outcome, using multiplicative as a
     # common yardstick. A wide market means the fair line is untrustworthy.
+    #
+    # **`None` when it cannot be measured, never 0.0.** One contributing book
+    # produces no disagreement to observe, and reporting that as zero says
+    # "every book agreed perfectly" -- so the least-evidenced consensus in the
+    # system passed the width suppression most easily, which is exactly
+    # backwards. Zero is also a legitimate *measured* value when two books
+    # happen to quote identically, so the two states must not share a
+    # representation. The caller refuses on `None` rather than substituting.
     first_values = [r.multiplicative[0] for r in selected.values()]
-    market_width = max(first_values) - min(first_values) if len(first_values) > 1 else 0.0
+    market_width = (
+        max(first_values) - min(first_values) if len(first_values) > 1 else None
+    )
 
     consensus = DevigResult(
         outcomes=tuple(outcomes),
@@ -321,5 +331,11 @@ def consensus_devig(
         "anchored_on_sharp": bool(sharp),
         "market_width": market_width,
         "books_rejected": sorted(set(quotes_by_book) - set(usable)),
+        # How many books COULD have contributed, before sharp anchoring narrowed
+        # the set. Without this, "1 book" is ambiguous between "only one book
+        # quotes this market" -- genuinely thin -- and "five books quoted it and
+        # we kept the one sharp one", which is a deliberate choice that discards
+        # the agreement evidence the width check exists to read.
+        "usable_book_count": len(usable),
     }
     return consensus, metadata

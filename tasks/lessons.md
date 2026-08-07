@@ -787,6 +787,48 @@ most likely to mean "did not reproduce" rather than "fixed".
 
 ---
 
+## 2026-08-07 — The zero that means "no measurement" passes every threshold
+
+`consensus_devig` reported `market_width = 0.0` when only one book contributed.
+Suppression then checked `market_width <= 0.06`, which `0.0` clears trivially —
+so the **least**-evidenced consensus the system can build passed the check
+designed to catch untrustworthy consensus most easily of all.
+
+This is [[unreadable-must-never-resolve-to-zero]], and the repo had that rule
+written down. It was applied at every *ingest* boundary and missed on a
+*derived* value, where the same logic holds: one book cannot disagree with
+itself, so there is no width to report, and `0.0` is a claim rather than an
+absence.
+
+What makes it worse than a plain missing value: `0.0` is also a **legitimate
+measurement**. Two books quoting identically genuinely have zero disagreement
+and should pass. So the two states shared one representation and no caller could
+separate them. The fix is `Optional[float]` with `None` for unmeasurable, and
+the test that matters is the *pair* — `None` must refuse and `0.0` must pass. If
+those two ever agree again, the states have been collapsed back together.
+
+**How it stayed hidden:** `min_book_count = 2` meant a one-book consensus was
+also caught by `too_few_books`, so the width bug never changed an outcome on its
+own. Defence in depth masking a defect is not defence in depth — it is one
+working guard and one that would silently become load-bearing the day the other
+threshold moved.
+
+**The related finding, which is larger.** Sharp-book anchoring *causes* the
+single-book case. Three books quoting and agreeing to within 3.1 points, with
+one of them sharp, produces `book_count = 1` and no measurable width: the
+anchoring discards the agreement evidence, and that agreement was the strongest
+available signal that the line was trustworthy. `book_count` alone cannot
+distinguish "only one book quotes this market" from "five did and we kept one",
+so `usable_book_count` is now reported alongside it.
+
+**How to apply:** the never-resolve-to-zero rule applies to *computed* values,
+not only parsed ones. When a statistic is undefined for a given input, say so;
+and check whether the sentinel you were about to use is also a valid answer.
+Related: [[two-limits-on-one-quantity]] — same shape, in that a guard which
+cannot fire is indistinguishable from one that is working.
+
+---
+
 ## 2026-08-07 — Code with no caller is not a feature, it is a plan
 
 `analysis/clv.py` has had `score_recommendations` since the evidence layer was

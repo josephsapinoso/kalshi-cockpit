@@ -129,6 +129,26 @@ button.
       closing line — the rule catching unrealistic test timing on its first run.
 
 
+- [x] ~~**`devig.market_width` reports `0.0` for a single book**~~ — **done
+      2026-08-07** (audit item 10). "No disagreement measurable" rendered as
+      "perfect agreement", so the least-evidenced consensus in the system passed
+      the width suppression most easily. Now `Optional[float]`: `None` when
+      fewer than two books contributed, and suppression **refuses** on it under
+      a distinct `no_market_width` code — "books disagree" and "there was no
+      second book to disagree with" call for different fixes.
+      A measured `0.0` (two books quoting identically) still passes, and that
+      pair is the test that matters: if `None` and `0.0` ever behave the same
+      again, the states have been collapsed back together.
+      **The larger finding underneath it:** sharp anchoring *causes* the
+      single-book case. Three books agreeing to within 3.1 points, one of them
+      sharp, yields `book_count = 1` and no measurable width — the anchoring
+      discards the agreement evidence, which was the strongest signal the line
+      was trustworthy. `usable_book_count` is now reported so the log can tell
+      "only one book quotes this" from "five did and we kept the sharp one".
+      Both guards verified by disabling. It had been masked by
+      `min_book_count = 2` catching the same rows — a working guard hiding a
+      broken one.
+
 These are open defects from the 2026-08-07 audit. Full detail with file:line in
 `tasks/audit-2026-08-07.md`. Ordered by how much they'd distort a money
 decision.

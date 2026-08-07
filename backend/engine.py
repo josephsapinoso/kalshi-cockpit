@@ -48,7 +48,10 @@ class Candidate:
     fair_price_id: Optional[int]
     devig: DevigResult
     book_count: int
-    market_width: float
+    # `None` when fewer than two books contributed, so it could not be
+    # measured. Suppression refuses on it rather than treating it as zero
+    # disagreement -- see `core.suppression`.
+    market_width: Optional[float]
     odds_age_ms: int
     commence_skew_ms: Optional[int]
 

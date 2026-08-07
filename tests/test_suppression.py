@@ -221,3 +221,58 @@ class TestTheTwoCommenceLimitsAgree:
         )
         assert result.suppressed
         assert "commence_skew" in result.reason
+
+
+class TestAnUnmeasurableWidthRefuses:
+    """`market_width is None` must reject, not sail through.
+
+    It arrived as `0.0` before, which passed the `<= 0.06` comparison trivially.
+    So a consensus built from a single book -- the least evidence the system can
+    act on -- cleared the check designed to catch untrustworthy consensus.
+    """
+
+    def _evaluate(self, *, market_width, book_count=5):
+        return evaluate_suppression(
+            config=SuppressionConfig(),
+            kalshi_quote_age_ms=1_000,
+            odds_age_ms=60_000,
+            commence_skew_ms=0,
+            depth_at_ask=500.0,
+            contracts=10,
+            market_width=market_width,
+            book_count=book_count,
+            edge_tenths=25.0,
+            method_spread_probability=0.004,
+        )
+
+    def test_none_is_suppressed(self):
+        result = self._evaluate(market_width=None)
+        assert result.suppressed
+        assert "no_market_width" in result.reason
+
+    def test_a_measured_zero_still_passes(self):
+        """The pair that discriminates.
+
+        Two books quoting identically is real agreement and must not be
+        punished. If this and the test above ever agree, the two states have
+        been collapsed back into one and the bug is back.
+        """
+        assert not self._evaluate(market_width=0.0).suppressed
+
+    def test_the_two_failures_are_named_differently(self):
+        """"Books disagree" and "there was no second book" need different fixes.
+
+        A suppression log that calls both `wide_market` cannot tell you whether
+        to distrust the consensus or to go and find more books.
+        """
+        unmeasurable = self._evaluate(market_width=None)
+        wide = self._evaluate(market_width=0.30)
+
+        assert "no_market_width" in unmeasurable.reason
+        assert "wide_market" not in unmeasurable.reason
+        assert "wide_market" in wide.reason
+        assert "no_market_width" not in wide.reason
+
+    def test_the_detail_says_why_it_could_not_be_measured(self):
+        detail = self._evaluate(market_width=None).detail
+        assert "fewer than two books" in detail

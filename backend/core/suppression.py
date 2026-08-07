@@ -115,7 +115,7 @@ def evaluate_suppression(
     commence_skew_ms: Optional[int],
     depth_at_ask: Optional[float],
     contracts: int,
-    market_width: float,
+    market_width: Optional[float],
     book_count: int,
     edge_tenths: float,
     method_spread_probability: float,
@@ -188,14 +188,31 @@ def evaluate_suppression(
             f"{book_count} book(s), need {config.min_book_count}",
         )
     )
-    checks.append(
-        Check(
-            "wide_market",
-            market_width <= config.max_market_width,
-            f"books disagree by {market_width * 100:.1f} points "
-            f"(limit {config.max_market_width * 100:.0f})",
+    # `None` means the width could not be measured -- fewer than two books
+    # contributed to the consensus -- and it must REFUSE, not pass. It used to
+    # arrive as `0.0`, which reads as "every book agreed perfectly", so the
+    # least-evidenced consensus in the system cleared this check most easily.
+    # Distinct from `wide_market` so the suppression log says which happened:
+    # "books disagree" and "there was no second book to disagree with" call for
+    # different fixes.
+    if market_width is None:
+        checks.append(
+            Check(
+                "no_market_width",
+                False,
+                "fewer than two books in the consensus, so book disagreement "
+                "could not be measured",
+            )
         )
-    )
+    else:
+        checks.append(
+            Check(
+                "wide_market",
+                market_width <= config.max_market_width,
+                f"books disagree by {market_width * 100:.1f} points "
+                f"(limit {config.max_market_width * 100:.0f})",
+            )
+        )
 
     # --- the edge itself --------------------------------------------------
     # Measured on real lines: the four devig methods spread ~0.18 points on an

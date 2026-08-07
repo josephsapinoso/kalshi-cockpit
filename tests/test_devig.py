@@ -239,3 +239,74 @@ class TestConsensus:
     def test_refuses_when_no_book_is_usable(self):
         with pytest.raises(DevigError):
             consensus_devig(["a", "b"], {"crossed": [2.50, 2.50]})
+
+
+class TestMarketWidthIsUnmeasurableNotZero:
+    """One contributing book cannot disagree with itself.
+
+    `market_width` used to fall back to `0.0` there, which reads as "every book
+    agreed perfectly" -- so the least-evidenced consensus in the system passed
+    the width suppression most easily, which is exactly backwards. It is the
+    unreadable-resolves-to-zero failure inside a money-path guard.
+    """
+
+    def test_a_single_book_reports_none(self):
+        _, meta = consensus_devig(["A", "B"], {"pinnacle": [2.10, 1.80]})
+        assert meta["market_width"] is None
+        assert meta["book_count"] == 1
+
+    def test_two_books_quoting_identically_report_a_measured_zero(self):
+        """The discriminating case. A real zero must NOT become `None`.
+
+        Zero disagreement between two books is a genuine measurement and should
+        pass the width check; "there was no second book" is not, and must
+        refuse. Collapsing them into one value is what caused the bug, so the
+        two states are asserted to differ.
+        """
+        _, meta = consensus_devig(
+            ["A", "B"], {"pinnacle": [2.10, 1.80], "matchbook": [2.10, 1.80]}
+        )
+        assert meta["market_width"] == pytest.approx(0.0)
+        assert meta["market_width"] is not None
+
+    def test_sharp_anchoring_can_collapse_the_consensus_to_one_book(self):
+        """The reproduction from the audit, and why it is easy to miss.
+
+        Three books quote and agree to within 3.1 points. Anchoring on the one
+        sharp book discards that agreement and leaves nothing to measure --
+        while the discarded evidence was the strongest signal available that the
+        line was trustworthy.
+        """
+        quotes = {
+            "pinnacle": [2.10, 1.80],
+            "draftkings": [2.05, 1.85],
+            "fanduel": [2.20, 1.75],
+        }
+        _, pooled = consensus_devig(["A", "B"], quotes)
+        _, anchored = consensus_devig(
+            ["A", "B"], quotes, sharp_books=frozenset({"pinnacle"})
+        )
+
+        assert pooled["market_width"] == pytest.approx(0.031, abs=0.002)
+        assert anchored["market_width"] is None
+
+    def test_the_discarded_books_are_still_counted(self):
+        """`book_count` of 1 is ambiguous without this.
+
+        "Only one book quotes this market" is genuinely thin; "five quoted it
+        and we kept the sharp one" is a deliberate choice. The suppression log
+        cannot tell them apart from `book_count` alone.
+        """
+        quotes = {
+            "pinnacle": [2.10, 1.80],
+            "draftkings": [2.05, 1.85],
+            "fanduel": [2.20, 1.75],
+        }
+        _, anchored = consensus_devig(
+            ["A", "B"], quotes, sharp_books=frozenset({"pinnacle"})
+        )
+        assert anchored["book_count"] == 1
+        assert anchored["usable_book_count"] == 3
+
+        _, thin = consensus_devig(["A", "B"], {"pinnacle": [2.10, 1.80]})
+        assert thin["book_count"] == thin["usable_book_count"] == 1
