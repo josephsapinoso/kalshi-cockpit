@@ -104,6 +104,14 @@ SCOPE_BY_SERIES: dict[str, ComboScope] = {
     "KXMVECBCHAMPIONSHIP": ComboScope.MULTI_GAME,
     "KXMVEOSCARS": ComboScope.NON_SPORT,
     "KXMVEGRAMMYS": ComboScope.NON_SPORT,
+    # Non-MVE series that also appear on the collections endpoint. These are the
+    # four the drift test used to skip -- it filtered on `startswith("KXMVE")`,
+    # which excluded precisely the rows that would have failed it. They are also
+    # the four whose `associated_events` is empty on the wire.
+    "KXCITIESWEATHER": ComboScope.NON_SPORT,
+    "KXOSCARWINNERS": ComboScope.NON_SPORT,
+    "KXOSCARNOMINEESPIC": ComboScope.NON_SPORT,
+    "KXGRAMMYWINNERS": ComboScope.NON_SPORT,
 }
 
 
@@ -115,6 +123,10 @@ class ComboLeg:
     is_yes_only: bool
     active_quoters: tuple[str, ...]
     size_max: Optional[int] = None
+    # True when this leg was built from `associated_event_tickers`, which
+    # carries no quoter or size information. Distinguishes "nobody quotes this"
+    # from "we were not told", which `is_quoted` alone cannot.
+    detail_missing: bool = False
 
     @property
     def series(self) -> str:
@@ -122,6 +134,14 @@ class ComboLeg:
 
     @property
     def is_quoted(self) -> bool:
+        """Whether a quoter is known to be active.
+
+        `False` when `detail_missing` -- the honest reading, since an absent
+        field is not evidence of an empty book. Callers counting liquidity
+        should check `detail_missing` before concluding a collection is dead;
+        the 2026-08-06 measurement of "0 of 13,806 legs quoted" was taken with
+        four whole collections parsing to zero legs for this reason.
+        """
         return bool(self.active_quoters)
 
 
@@ -165,9 +185,14 @@ class ComboCollection:
         `KXNBAGAME-26APR28PORSAS` -> `26APR28PORSAS`. This is what links a
         collection to a fixture already matched against sportsbook odds.
         """
-        if not self.is_same_game or not self.legs:
+        if not self.is_same_game:
             return None
-        _, _, suffix = self.legs[0].event_ticker.partition("-")
+        # From the COLLECTION ticker, which carries the suffix authoritatively.
+        # This used to read `legs[0]`, which made the answer depend on leg
+        # ordering and returned `None` for any collection whose legs failed to
+        # parse -- so a parsing gap silently became "this is not a same-game
+        # collection" rather than an error.
+        _, _, suffix = self.collection_ticker.partition("-")
         return suffix or None
 
     @property
@@ -186,15 +211,40 @@ def parse_collection(payload: dict[str, Any]) -> ComboCollection:
     Field names come from a captured payload, not from memory -- see
     `tests/fixtures/combo_collections.json`.
     """
-    legs = tuple(
-        ComboLeg(
-            event_ticker=event["ticker"],
-            is_yes_only=bool(event.get("is_yes_only")),
-            active_quoters=tuple(event.get("active_quoters") or ()),
-            size_max=event.get("size_max"),
+    # `associated_events` carries the rich per-leg detail, but it is **empty on
+    # the wire for real collections** -- measured on the captured payload,
+    # KXCITIESWEATHER has 0 against 7 tickers, KXOSCARWINNERS 0 against 10.
+    # Reading only that field undercounted `liquidity()` and left `fixture`
+    # None, so those collections vanished from `same_game_collections()`, which
+    # is the correlation source this project went to some trouble to obtain.
+    #
+    # `associated_event_tickers` is the field that is always populated. It
+    # carries no quoter or size detail, so legs built from it are marked
+    # `detail_missing` rather than silently reported as unquoted -- "we do not
+    # know whether anyone quotes this" and "nobody quotes this" are different
+    # claims, and the second is the one that would get a collection discarded.
+    events = payload.get("associated_events") or []
+    if events:
+        legs = tuple(
+            ComboLeg(
+                event_ticker=event["ticker"],
+                is_yes_only=bool(event.get("is_yes_only")),
+                active_quoters=tuple(event.get("active_quoters") or ()),
+                size_max=event.get("size_max"),
+            )
+            for event in events
         )
-        for event in payload.get("associated_events", [])
-    )
+    else:
+        legs = tuple(
+            ComboLeg(
+                event_ticker=ticker,
+                is_yes_only=False,
+                active_quoters=(),
+                size_max=None,
+                detail_missing=True,
+            )
+            for ticker in payload.get("associated_event_tickers") or []
+        )
     return ComboCollection(
         collection_ticker=payload["collection_ticker"],
         series_ticker=payload.get("series_ticker", ""),

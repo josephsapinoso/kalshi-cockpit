@@ -28,6 +28,7 @@ from backend.core.correlation import (
 )
 from backend.kalshi.combos import (
     COLLECTIONS_KEY,
+    fetch_collections,
     ComboScope,
     MarketCreationRefused,
     liquidity,
@@ -102,11 +103,51 @@ class TestTheProductExists:
 
 
 class TestWireFormat:
-    def test_the_response_key_is_not_the_path_name(self):
+    async def test_a_path_shaped_response_key_raises(self):
         """Reading `multivariate_event_collections` returns an empty list and
-        no error -- indistinguishable from "there are no combos"."""
-        assert COLLECTIONS_KEY == "multivariate_contracts"
-        assert COLLECTIONS_KEY != "multivariate_event_collections"
+        no error -- indistinguishable from "there are no combos".
+
+        This previously asserted `COLLECTIONS_KEY == "multivariate_contracts"`,
+        which compares a constant to its own literal and pins nothing: rename
+        both and the test still passes. What is pinned now is the *behaviour* --
+        an envelope using the plausible, path-shaped key must raise rather than
+        return empty.
+
+        **Honest limitation:** the literal itself is still not pinned against a
+        real envelope, because `tests/fixtures/combo_collections.json` is a
+        derived summary keyed by series and contains no response wrapper.
+        Closing that needs one captured raw page.
+        """
+        class _Api:
+            async def request(self, method, path, **kwargs):
+                return {"multivariate_event_collections": [], "cursor": ""}
+
+        with pytest.raises(KeyError, match="multivariate_contracts"):
+            await fetch_collections(_Api())
+
+    async def test_the_real_key_parses(self):
+        """The discriminating half. If both keys raised, the test above would
+        pass for the wrong reason."""
+        class _Api:
+            def __init__(self):
+                self.calls = 0
+
+            async def request(self, method, path, **kwargs):
+                self.calls += 1
+                if self.calls > 1:
+                    return {COLLECTIONS_KEY: [], "cursor": ""}
+                return {
+                    COLLECTIONS_KEY: [{
+                        "collection_ticker": "KXMVENBASINGLEGAME-26JUN13NYKSAS",
+                        "series_ticker": "KXMVENBASINGLEGAME",
+                        "associated_event_tickers": ["KXNBAGAME-26JUN13NYKSAS"],
+                    }],
+                    "cursor": "",
+                }
+
+        collections = await fetch_collections(_Api())
+        assert len(collections) == 1
+        assert collections[0].series_ticker == "KXMVENBASINGLEGAME"
 
     def test_every_captured_series_is_classified(self, collections):
         """Drift test. An unclassified series must not be silently bucketed --
@@ -114,10 +155,14 @@ class TestWireFormat:
         through the wrong correlation path."""
         from backend.kalshi.combos import SCOPE_BY_SERIES
 
+        # NO `startswith("KXMVE")` filter. It used to be here, and it excluded
+        # exactly the four series that were unclassified -- KXCITIESWEATHER,
+        # KXOSCARWINNERS, KXOSCARNOMINEESPIC, KXGRAMMYWINNERS, 4 of 16 captured
+        # series, all silently bucketed CROSS_CATEGORY. A drift test that
+        # filters out the drifting rows tests nothing at all.
         unclassified = [
             c.series_ticker for c in collections
-            if c.series_ticker.startswith("KXMVE")
-            and c.series_ticker not in SCOPE_BY_SERIES
+            if c.series_ticker not in SCOPE_BY_SERIES
         ]
         assert not unclassified, f"unclassified combo series: {unclassified}"
 
@@ -224,3 +269,78 @@ class TestImpliedCorrelation:
         rho = implied_correlation(legs, 0.36)
         priced = joint_probability_all(legs, overrides={("L0", "L1"): rho})
         assert priced == pytest.approx(0.36, abs=0.01)
+
+
+class TestCollectionsWithNoAssociatedEvents:
+    """`associated_events` is EMPTY on the wire for real collections.
+
+    Measured on the captured payload: KXCITIESWEATHER 0 against 7 tickers,
+    KXOSCARWINNERS 0 against 10, KXOSCARNOMINEESPIC 0 against 1,
+    KXGRAMMYWINNERS 0 against 4. Reading only that field parsed all four to zero
+    legs, so `liquidity()` undercounted and `fixture` returned `None` — and the
+    collections vanished from `same_game_collections()`, the correlation source
+    this project went to some trouble to obtain.
+
+    It also poisons the headline measurement: "0 of 13,806 legs quoted" was
+    taken with four whole collections contributing nothing at all.
+    """
+
+    def test_legs_are_recovered_from_the_ticker_list(self, captured):
+        recovered = {
+            name: len(parse_collection(payload).legs)
+            for name, payload in captured.items()
+            if not (payload.get("associated_events") or [])
+        }
+        assert recovered, "no collection in the capture has an empty events list"
+        assert all(n > 0 for n in recovered.values()), (
+            f"collections still parsing to zero legs: "
+            f"{[k for k, v in recovered.items() if not v]}"
+        )
+        assert sum(recovered.values()) == 22
+
+    def test_recovered_legs_are_marked_as_lacking_detail(self, captured):
+        """"Nobody quotes this" and "we were not told" are different claims.
+
+        The ticker list carries no quoter or size information, so a leg built
+        from it must not be reported as a confirmed-empty book — that is the
+        reading that would get a collection discarded as dead.
+        """
+        payload = captured["KXOSCARWINNERS"]
+        legs = parse_collection(payload).legs
+        assert legs
+        assert all(leg.detail_missing for leg in legs)
+        assert all(not leg.is_quoted for leg in legs)
+
+    def test_legs_with_full_detail_are_not_marked(self, captured):
+        """The discriminating half: the flag must not be set on everything."""
+        payload = captured["KXMVENBASINGLEGAME"]
+        legs = parse_collection(payload).legs
+        assert legs
+        assert not any(leg.detail_missing for leg in legs)
+
+
+class TestTheFixtureComesFromTheCollectionTicker:
+    """`fixture` derived from `legs[0].event_ticker`, so it depended on leg
+    ordering and returned `None` whenever the legs failed to parse.
+
+    That turned a parsing gap into "this is not a same-game collection" — a
+    silent reclassification rather than an error. The collection ticker carries
+    the suffix authoritatively.
+    """
+
+    def test_it_reads_the_collection_ticker(self, captured):
+        collection = parse_collection(captured["KXMVENBASINGLEGAME"])
+        assert collection.collection_ticker == "KXMVENBASINGLEGAME-26JUN13NYKSAS"
+        assert collection.fixture == "26JUN13NYKSAS"
+
+    def test_it_survives_legs_that_did_not_parse(self, captured):
+        """The failure mode being closed. With no legs at all the old code
+        returned None and the collection silently stopped being same-game."""
+        payload = dict(captured["KXMVENBASINGLEGAME"])
+        payload["associated_events"] = []
+        payload["associated_event_tickers"] = []
+
+        collection = parse_collection(payload)
+        assert collection.legs == ()
+        assert collection.is_same_game
+        assert collection.fixture == "26JUN13NYKSAS"
