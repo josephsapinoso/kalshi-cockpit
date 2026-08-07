@@ -178,9 +178,29 @@ decision.
       stops the frontend rebinding a raw column. Both verified by
       re-introducing the leak and watching them fail. 7 noise cells, 0
       reconstructable.
-- [ ] **`mart_multiple_comparisons` undercounts tests** (only counts one mart's,
-      ignores three other sources). Undercounting makes findings look *more*
-      significant — the flattering direction.
+- [x] ~~**`mart_multiple_comparisons` undercounts tests**~~ — **done
+      2026-08-07.** It counted `mart_calibration` alone while
+      `mart_clv_by_bucket` and `mart_suppression_audit` ran their own
+      two-standard-error tests uncounted. Measured on the seeded no-edge
+      history: 8 tests instead of 11 moves p from **0.401 to 0.311** — a 29%
+      improvement in apparent significance bought by forgetting to count. The
+      model that exists to catch multiplicity was committing it.
+      Findings are read from each mart's **own published conclusion** rather
+      than recomputed, because a counter that disagrees with the thing it counts
+      is worse than no counter. Both directions count in the suppression audit —
+      "REVIEW" and "protective" each cleared the bar; only "neutral" did not.
+      `generate_series(0, 200)` replaced with a series to `n_findings - 1`, so
+      the sum can no longer truncate (which pushed p toward 1 — the bug that
+      hides findings sat one edit from the bug that invents them).
+      `tests_by_source` is a column now and renders under the verdict, so the
+      total is checkable rather than asserted. A new dbt test names the three
+      sources independently and fails if one is dropped — verified by dropping
+      `suppression_audit` and watching it go red. `dbt build` 11 nodes green.
+      **Deliberately still not counted:** `gate.py`'s noise guard, which is
+      multiplicity along the *time* axis and already carries its own
+      always-valid bound (folding it in would apply two corrections to one
+      test), and `validate.py`, which tests the same observations these marts
+      do.
 - [x] ~~**Capture an Odds API fixture**~~ — **done 2026-08-07.** The capture
       already existed (`tests/fixtures/odds_mlb_h2h_spreads_totals.json`, 15
       events, 30 books) and **no test loaded it**, so the wire format was still
