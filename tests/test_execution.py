@@ -680,3 +680,91 @@ class TestFreshness:
 
     def test_a_missing_recommendation_is_reported_as_absent(self, gate_db):
         assert recommendation_freshness(_conn(gate_db), 99999)["found"] is False
+
+
+class TestTheGateCanActuallyOpen:
+    """`GateDecision.open` was never asserted `True` anywhere in the suite.
+
+    Every gate test checked that it stays shut. So `evaluate_gate` could have
+    returned a permanently-closed decision — a hardcoded `False`, a condition
+    that can never be satisfied, a typo in a threshold — and all of them would
+    have passed. A lock nobody has ever unlocked is not a verified lock; it is
+    an untested one that happens to be in the safe state.
+
+    This matters more than it sounds: several conditions here were tightened
+    today (clustering by game, the always-valid bound, the fee tolerance going
+    to 1e-9). Any of those could have made the gate unsatisfiable in principle,
+    and nothing would have said so.
+    """
+
+    def _fully_satisfied(self, conn):
+        """A record meeting every evidence condition.
+
+        400 distinct games with a consistent +2c CLV and a hair of spread, so it
+        clears the always-valid bound rather than merely two standard errors,
+        plus one fill whose predicted fee matches exactly.
+        """
+        for i in range(400):
+            _add_recommendation(
+                conn, clv_tenths=20.0 + (0.5 if i % 2 else -0.5), ticker=f"G{i}"
+            )
+        conn.execute(
+            "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "
+            "price_tenths, is_taker, fee_actual, fee_predicted, fee_model_used) "
+            "VALUES ('f1', 'G0', 1, 10, 500, 1, 0.35, 0.35, 'conservative')"
+        )
+        conn.commit()
+
+    def test_every_condition_can_be_satisfied_at_once(self, gate_db):
+        conn = _conn(gate_db)
+        self._fully_satisfied(conn)
+
+        decision = evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+        )
+        assert decision.open, f"gate stayed shut: {decision.reason}"
+        assert decision.unmet == ()
+
+    def test_removing_any_single_condition_shuts_it_again(self, gate_db):
+        """Proves the open state is earned rather than accidental.
+
+        If the gate opened for a reason unrelated to the conditions, knocking
+        one out would leave it open.
+        """
+        conn = _conn(gate_db)
+        self._fully_satisfied(conn)
+        assert evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+        ).open
+
+        # The human act, withheld.
+        assert not evaluate_gate(
+            conn, GateConfig(live_trading_enabled=False, min_scored_recommendations=300)
+        ).open
+
+        # The evidence floor, raised beyond the record.
+        assert not evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=500)
+        ).open
+
+        # A fee the model got wrong.
+        conn.execute("UPDATE fills SET fee_actual = 0.36")
+        conn.commit()
+        shut = evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+        )
+        assert not shut.open
+        assert any(c.name == "fee_model_verified" for c in shut.unmet)
+
+    def test_a_stale_quote_shuts_an_otherwise_open_gate(self, gate_db):
+        """Freshness is judged per order, so it is checked separately."""
+        conn = _conn(gate_db)
+        self._fully_satisfied(conn)
+        armed = GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+
+        assert evaluate_gate(
+            conn, armed, kalshi_quote_age_ms=1_000, odds_age_ms=60_000
+        ).open
+        assert not evaluate_gate(
+            conn, armed, kalshi_quote_age_ms=900_000, odds_age_ms=60_000
+        ).open

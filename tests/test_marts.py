@@ -184,9 +184,31 @@ class TestFreshness:
         assert payload["warehouse_built_ms"] > 0
         assert "lag" in payload["freshness_note"]
 
-    def test_the_connection_is_read_only(self, warehouse):
-        """The API process must not be able to mutate the warehouse."""
+    def test_the_connection_is_read_only(self, warehouse, monkeypatch):
+        """The API process must not be able to mutate the warehouse.
+
+        This test previously had **no assertions at all**. It called
+        `read_dashboards`, then opened a *separate* connection of its own and
+        created a table on it -- which proves something about the test's
+        connection and nothing whatever about the one under test. It would have
+        passed unchanged if `read_dashboards` opened read-write.
+
+        Asserted on the call itself, which is where the property lives. The
+        Dashboards screen is served by the same process that holds the live
+        credentials, and the warehouse is the evidence record; a writable handle
+        there is a path from a rendering bug to a corrupted measurement.
+        """
+        opened: list[dict] = []
+        real_connect = duckdb.connect
+
+        def spy(*args, **kwargs):
+            opened.append(kwargs)
+            return real_connect(*args, **kwargs)
+
+        monkeypatch.setattr(duckdb, "connect", spy)
         read_dashboards(warehouse)
-        conn = duckdb.connect(str(warehouse))
-        conn.execute("create table proof_it_is_unlocked as select 1")
-        conn.close()
+
+        assert opened, "read_dashboards opened no connection"
+        assert all(kw.get("read_only") for kw in opened), (
+            "the warehouse was opened writable by the process that serves the API"
+        )

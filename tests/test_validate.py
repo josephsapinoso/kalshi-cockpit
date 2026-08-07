@@ -9,6 +9,8 @@ all -- it launders noise into confidence.
 
 from __future__ import annotations
 
+import math
+
 import random
 
 import pytest
@@ -36,11 +38,34 @@ class TestNoiseGuard:
 
     def test_a_tiny_cell_is_never_distinguishable(self):
         """A two-market cell once produced a 74-point 'finding' that passed a
-        significance test."""
-        summary = summarise([obs(500, win=True), obs(500, win=True)])
+        significance test.
+
+        **The fixture is chosen so the guard is load-bearing.** The previous one
+        -- two wins at 50c -- is not distinguishable *even with the guard
+        removed*, because at n=2 the null standard error is 0.35 and the gap is
+        0.5. It never discriminated, so deleting the >=5-expected rule left the
+        test green.
+
+        Six observations at 10c with three wins does: expected wins is 0.6, well
+        under 5, so the guard fires — and without it the null standard error is
+        0.12 against a gap of 0.40, which clears two sigma comfortably and would
+        be reported as a finding.
+        """
+        rows = [obs(100, win=True)] * 3 + [obs(100, win=False)] * 3
+        summary = summarise(rows)
         bucket = next(b for b in summary.buckets if b.n)
-        assert not bucket.normal_approx_valid
+
+        assert bucket.n == 6
+        assert not bucket.normal_approx_valid, "the guard must fire here"
         assert not bucket.distinguishable
+
+        # And the fixture genuinely tests something: without the guard this cell
+        # clears two standard errors under the null.
+        stderr = math.sqrt(0.1 * 0.9 / 6)
+        assert abs(0.5 - 0.1) > 2 * stderr, (
+            "fixture no longer discriminates -- it would pass with the guard "
+            "deleted, which is how the original one failed to test anything"
+        )
 
     def test_an_indistinguishable_cell_prints_noise_not_a_number(self):
         """A number there would be read as a result no matter the caveats."""
@@ -77,24 +102,71 @@ class TestRefusesNoise:
     """The test that protects the conclusion rather than the money."""
 
     def test_refuses_to_report_a_finding_on_pure_noise(self):
-        """Coin flips priced at their true probability. Across ten buckets and
-        two thousand observations, nothing should be distinguishable."""
-        rng = random.Random(20260806)
-        rows = []
-        for _ in range(2000):
-            price = rng.choice([150, 250, 350, 450, 550, 650, 750, 850])
-            # Outcome drawn at exactly the implied probability: no edge exists.
-            win = rng.random() < price / 1000
-            rows.append(obs(price, win=win))
+        """Coin flips priced at their true probability, swept across seeds.
 
-        summary = summarise(rows)
-        text = report(summary)
+        **The original asserted `not summary.distinguishable` on ONE seed.**
+        Measured over 300 pure-noise runs, at least one cell clears two standard
+        errors **31.0%** of the time — so that assertion was a statement about
+        the seed, and would have failed on roughly one run in three had the seed
+        ever changed. It passed because of luck, not because of a guard.
 
-        assert not summary.distinguishable, (
-            f"found {len(summary.distinguishable)} 'significant' buckets in pure "
-            f"noise: {[b.label for b in summary.distinguishable]}"
+        The property that must hold on every seed is the family-wise one:
+        whatever individual cells do, the report must not *claim evidence*. With
+        the correction applied that happens 5.7% of the time, which is the
+        nominal alpha and is what a 5%-level test is supposed to do. Asserting
+        zero would be asserting a broken test, not a strict one.
+        """
+        cell_fired = claimed_evidence = 0
+        trials = 100
+
+        for seed in range(trials):
+            rng = random.Random(seed)
+            rows = []
+            for _ in range(2000):
+                price = rng.choice([150, 250, 350, 450, 550, 650, 750, 850])
+                # Outcome drawn at exactly the implied probability: no edge.
+                rows.append(obs(price, win=rng.random() < price / 1000))
+
+            summary = summarise(rows)
+            if summary.distinguishable:
+                cell_fired += 1
+            if summary.survives_multiple_comparisons:
+                claimed_evidence += 1
+
+        cell_rate = cell_fired / trials
+        family_rate = claimed_evidence / trials
+
+        # The fixture must actually exercise multiplicity, or the rest proves
+        # nothing.
+        assert cell_rate > 0.15, (
+            f"individual cells fired on only {cell_rate:.0%} of pure-noise runs; "
+            f"this fixture is not exercising the problem"
         )
-        assert "No bucket is distinguishable from noise" in text
+        # And the correction must bring it back to roughly alpha.
+        assert family_rate <= 0.15, (
+            f"claimed evidence from pure noise on {family_rate:.0%} of runs"
+        )
+        assert family_rate < cell_rate / 2, (
+            f"the family-wise correction barely helped: {cell_rate:.0%} of runs "
+            f"had a 'significant' cell and {family_rate:.0%} still claimed "
+            f"evidence"
+        )
+
+    def test_the_report_leads_with_the_family_wise_verdict(self):
+        """A per-bucket finding means nothing without the count of tests.
+
+        `n_tests` was printed in the header and never used to compute anything,
+        leaving the multiplicity arithmetic to the reader — which is exactly
+        what nobody does.
+        """
+        rng = random.Random(11)
+        rows = [
+            obs(p, win=rng.random() < p / 1000)
+            for p in (rng.choice([250, 450, 650, 850]) for _ in range(1200))
+        ]
+        text = report(summarise(rows))
+        assert "ACROSS ALL TESTS" in text
+        assert text.index("ACROSS ALL TESTS") < text.index("BY PRICE PAID")
 
     def test_says_so_plainly_when_there_is_nothing_to_report(self):
         rows = [obs(500, win=i % 2 == 0) for i in range(400)]

@@ -106,6 +106,12 @@ class BucketResult:
         return f"{self.gap_points:+.1f}"
 
 
+# Two-sided at two standard errors is alpha ~= 0.0455 under normality. The same
+# figure `mart_multiple_comparisons` uses, deliberately -- the SQL and the Python
+# must not disagree about what "significant" means.
+PER_TEST_ALPHA = 0.0455
+
+
 @dataclass(frozen=True)
 class Summary:
     buckets: tuple[BucketResult, ...]
@@ -116,6 +122,70 @@ class Summary:
     @property
     def distinguishable(self) -> tuple[BucketResult, ...]:
         return tuple(b for b in self.buckets if b.distinguishable)
+
+    @property
+    def expected_by_chance(self) -> float:
+        return self.n_tests * PER_TEST_ALPHA
+
+    @property
+    def family_wise_p(self) -> Optional[float]:
+        """P(at least this many findings from nothing), across all the cells.
+
+        **`n_tests` was counted, printed, and never used.** Eight powered cells
+        at alpha 0.0455 produce at least one "significant" bucket about 30% of
+        the time from pure noise, so a per-cell guard alone cannot support the
+        conclusion drawn across the grid -- which is the lesson this project
+        already wrote down after `mart_multiple_comparisons`, applied in SQL and
+        not in the Python that runs the same check.
+
+        Computed exactly rather than approximated: with a handful of tests the
+        normal approximation to the binomial is itself invalid, which would be a
+        conspicuous place to take a shortcut.
+        """
+        if not self.n_tests:
+            return None
+        findings = len(self.distinguishable)
+        below = sum(
+            math.comb(self.n_tests, k)
+            * (PER_TEST_ALPHA ** k)
+            * ((1 - PER_TEST_ALPHA) ** (self.n_tests - k))
+            for k in range(findings)
+        )
+        return max(0.0, min(1.0, 1.0 - below))
+
+    @property
+    def survives_multiple_comparisons(self) -> bool:
+        """Whether the findings beat what chance produces across this many tests.
+
+        A single distinguishable cell in a grid of ten is what it almost always
+        is: the one that got lucky.
+        """
+        p = self.family_wise_p
+        return p is not None and bool(self.distinguishable) and p <= 0.05
+
+    @property
+    def family_wise_verdict(self) -> str:
+        p = self.family_wise_p
+        findings = len(self.distinguishable)
+        if p is None:
+            return "no powered tests yet"
+        if not findings:
+            return f"no findings across {self.n_tests} tests"
+        if p > 0.20:
+            return (
+                f"NOT EVIDENCE: {findings} finding(s) from {self.n_tests} tests. "
+                f"Pure chance produces this or more {p * 100:.0f}% of the time."
+            )
+        if p > 0.05:
+            return (
+                f"WEAK: {findings} finding(s) from {self.n_tests} tests "
+                f"(p={p:.3f}). Not distinguishable from luck."
+            )
+        return (
+            f"{findings} finding(s) from {self.n_tests} tests (p={p:.3f}). More "
+            f"than chance predicts — confirm at a second horizon before "
+            f"believing it."
+        )
 
 
 def _bucket_of(price_tenths: int) -> Optional[tuple[int, int]]:
@@ -392,6 +462,18 @@ def report(
     add(f"MEASUREMENT REPORT -- {pooled.n_total} observations, "
         f"{pooled.n_tests} powered tests")
     add("=" * 78)
+
+    # First, before any individual bucket. `n_tests` used to be counted here and
+    # then never used, so a reader saw "8 powered tests" and a significant cell
+    # and had to do the multiplicity arithmetic themselves -- which is precisely
+    # what nobody does. Eight cells produce at least one two-sigma hit about 30%
+    # of the time from nothing.
+    add("")
+    add("ACROSS ALL TESTS  (read this before any bucket below)")
+    add(f"  {pooled.family_wise_verdict}")
+    if pooled.n_tests:
+        add(f"  expected by chance: {pooled.expected_by_chance:.2f} "
+            f"finding(s) from {pooled.n_tests} tests")
 
     if clv is not None:
         add("")
