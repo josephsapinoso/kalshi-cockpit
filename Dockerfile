@@ -59,6 +59,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 COPY --from=backend /opt/venv /opt/venv
 COPY backend/ ./backend/
+# The chain runner's entry point. The live entrypoint executes
+# `scripts/run_loop.py`, so omitting this builds an image that starts, reports
+# healthy, serves pages -- and cannot record anything, because the one process
+# that grows the evidence record is missing from the filesystem.
+COPY scripts/ ./scripts/
 
 # The standalone output ships its own minimal node_modules; static/ and public/
 # are not traced into it and must be copied alongside.

@@ -5,19 +5,25 @@
 # Holds real credentials and, eventually, real money. Same image as the demo;
 # everything that differs is here.
 #
-# Secrets are set OUT OF BAND and never appear in this file or the image:
+# Secrets are set OUT OF BAND and never appear in this file or the image.
+# All FOUR are mandatory -- the instance refuses to start without them, which is
+# deliberate: the backend rejects INSTANCE_MODE=live without APP_AUTH_TOKEN,
+# because an unauthenticated instance holding real credentials is not an
+# acceptable state to boot into.
 #
-#   fly secrets set -c fly.live.toml \
+#   fly secrets set -a kalshi-cockpit \
 #     KALSHI_API_KEY=... \
+#     KALSHI_PRIVATE_KEY_B64="$(base64 -w0 ~/.kalshi/private_key_2.pem)" \
 #     ODDS_API_KEY=... \
-#     ANTHROPIC_API_KEY=... \
-#     DISCORD_BOT_TOKEN=... \
 #     APP_AUTH_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
 #
-# The Kalshi RSA private key is a file rather than a string. Load it as a
-# secret too, base64-encoded, and have the entrypoint materialise it into a
-# tmpfs path -- never bake it into the image, and never put it on the volume,
-# where a snapshot would carry it.
+# ANTHROPIC_API_KEY and DISCORD_* are optional: the agent fleet and the notifier
+# are not wired into the runner, so nothing reads them yet.
+#
+# The Kalshi RSA private key is a file rather than a string, so it travels as
+# KALSHI_PRIVATE_KEY_B64 and `docker/entrypoint.sh` decodes it into /dev/shm --
+# tmpfs, RAM only. Never baked into the image, and deliberately NOT on the
+# volume below, where a snapshot would carry it forever.
 
 app = "kalshi-cockpit"
 primary_region = "ord"

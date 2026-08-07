@@ -41,6 +41,14 @@ warehouse/logs/
 tests/
 docs/
 tasks/
-scripts/
+
+# Dev and capture tooling stays out -- but `run_loop.py` is the live
+# entrypoint's own process, not a dev script. Excluding the whole directory
+# built an image that started, reported healthy and served pages while the one
+# process that grows the evidence record was simply absent from the filesystem.
+# Everything else here either hits the API or exists only to build fixtures.
+scripts/*
+!scripts/run_loop.py
+
 *.md
 !README.md

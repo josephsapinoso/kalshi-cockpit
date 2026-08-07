@@ -29,6 +29,61 @@ if [ "${INSTANCE_MODE}" = "demo" ]; then
   python -m backend.seed_demo --db "${DB_PATH}"
 fi
 
+# ---------------------------------------------------------------------------
+# Materialise the Kalshi RSA private key.
+#
+# The key has to be a FILE (`cryptography` loads PEM bytes) but must never be a
+# file that survives anything: not baked into the image, and not on the Fly
+# volume, where a snapshot would carry it forever. So it arrives as a
+# base64 secret and is written to /dev/shm, which is tmpfs -- RAM only, gone
+# when the machine stops.
+#
+# Nothing here echoes the key or any part of it. `set -x` must never be added to
+# this script.
+# ---------------------------------------------------------------------------
+if [ "${INSTANCE_MODE}" != "demo" ]; then
+  if [ -z "${KALSHI_PRIVATE_KEY_B64:-}" ]; then
+    echo "[entrypoint] KALSHI_PRIVATE_KEY_B64 is not set."
+    echo "[entrypoint] Set it with:"
+    echo "[entrypoint]   fly secrets set KALSHI_PRIVATE_KEY_B64=\"\$(base64 -w0 key.pem)\" -a kalshi-cockpit"
+    exit 1
+  fi
+
+  key_dir=/dev/shm/kalshi
+  key_path="${key_dir}/private_key.pem"
+
+  # 077 so the file is created 600 and is never briefly world-readable.
+  (
+    umask 077
+    mkdir -p "${key_dir}"
+    # Whitespace stripped first: a secret pasted from a terminal often carries
+    # newlines, and some base64 implementations reject them.
+    if ! printf '%s' "${KALSHI_PRIVATE_KEY_B64}" \
+         | tr -d '[:space:]' \
+         | base64 -d > "${key_path}" 2>/dev/null; then
+      echo "[entrypoint] KALSHI_PRIVATE_KEY_B64 is not valid base64."
+      exit 1
+    fi
+  ) || exit 1
+
+  # Validate the shape without printing any of it. An ED25519 or OpenSSH-format
+  # key decodes cleanly and then fails much later inside the signer, where the
+  # error says nothing about which key was loaded.
+  if ! grep -q -- "-----BEGIN \(RSA \)\?PRIVATE KEY-----" "${key_path}"; then
+    if grep -q -- "-----BEGIN OPENSSH PRIVATE KEY-----" "${key_path}"; then
+      echo "[entrypoint] the key is OpenSSH format. Kalshi needs an RSA PEM."
+      echo "[entrypoint] Convert it: ssh-keygen -p -m PEM -f key.pem"
+    else
+      echo "[entrypoint] decoded key is not a PEM private key."
+    fi
+    rm -f "${key_path}"
+    exit 1
+  fi
+
+  export KALSHI_PRIVATE_KEY_PATH="${key_path}"
+  echo "[entrypoint] Kalshi key materialised to tmpfs ($(wc -c < "${key_path}") bytes)"
+fi
+
 pids=""
 
 shutdown() {
