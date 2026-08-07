@@ -196,7 +196,14 @@ def score_recommendations(
         (horizon_hours,),
     ).fetchall()
 
-    counts = {"scored": 0, "skipped_no_mid": 0, "skipped_entry_after_close": 0}
+    counts = {
+        "scored": 0,
+        "skipped_no_mid": 0,
+        "skipped_entry_after_close": 0,
+        # Reported so "the join matched nothing" is distinguishable from
+        # "every match was skipped". Both show as scored=0 otherwise.
+        "rows_joined": len(rows),
+    }
 
     for row in rows:
         # **The entry must precede the close it is scored against.**

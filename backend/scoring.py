@@ -66,10 +66,32 @@ class ScoringCounts:
     unreadable_quotes: int = 0
     scored: int = 0
     skipped_no_mid: int = 0
+    skipped_entry_after_close: int = 0
+    # How many (recommendation, closing line) pairs the join produced at
+    # all. Zero here means no unscored recommendation shares a ticker and
+    # horizon with a stored line -- a different problem from every pair
+    # being skipped, and indistinguishable without this.
+    rows_joined: int = 0
     errors: list[str] = field(default_factory=list)
 
+    # Always reported, even at zero. `scored: 0` alone cannot distinguish "the
+    # join matched nothing" from "everything matched and was skipped", and those
+    # need completely different fixes. Hiding a zero skip-count made a live pass
+    # unreadable: 14 closing lines stored, 0 scored, and no way to tell which
+    # branch it took.
+    ALWAYS_REPORT = (
+        "scored",
+        "skipped_no_mid",
+        "skipped_entry_after_close",
+        "rows_joined",
+    )
+
     def as_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if v or k == "scored"}
+        return {
+            k: v
+            for k, v in self.__dict__.items()
+            if v or k in self.ALWAYS_REPORT
+        }
 
 
 def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
@@ -217,6 +239,8 @@ async def run_scoring_pass(
     scored = score_recommendations(conn, horizon_hours=primary_horizon, scored_ms=stamp)
     counts.scored = scored.get("scored", 0)
     counts.skipped_no_mid = scored.get("skipped_no_mid", 0)
+    counts.skipped_entry_after_close = scored.get("skipped_entry_after_close", 0)
+    counts.rows_joined = scored.get("rows_joined", 0)
 
     logger.info("scoring pass: %s", counts.as_dict())
     return counts
