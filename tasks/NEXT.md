@@ -75,20 +75,32 @@ button.
 
 ## 1b. Found by deploying live
 
-- [ ] **The live cockpit is fully public.** `kalshi-cockpit.fly.dev` serves
-      `/api/board`, `/api/ledger`, `/api/gate`, `/api/suppression` and every page
-      with **no authentication** — `require_auth` guards only mutating routes.
-      Nothing can be stolen or traded (the order path needs `APP_AUTH_TOKEN`),
-      but it publishes the evaluated markets, the fair-value estimates, the
-      edges, the suggested sizes and eventually the P&L record. For a tool
-      hunting a thin edge in the most bot-contested corner of the venue,
-      broadcasting the signal is how the edge stops existing — and the hostname
-      is guessable and named in `fly.live.toml`, which goes public with the repo.
-      **Not a one-line fix.** Requiring a bearer token on read routes breaks
-      browser access, because a browser cannot set a header — so it needs a
-      session-cookie login, and the Next server components need to pass the
-      token on their internal fetches too. Decide the approach before building:
-      a shared-secret login page is the phone-friendly option.
+- [x] ~~**The live cockpit is fully public**~~ — **done 2026-08-07.** A
+      shared-token login now gates every page and every proxied API route on
+      the live instance; the demo stays open, because it is the portfolio link.
+
+      **Gated in Next, not in the backend.** uvicorn binds `127.0.0.1:8000` and
+      is never published — `/api/*` is reachable only because `next.config.ts`
+      rewrites it, and middleware runs *before* rewrites. So one gate covers
+      pages and API together, and server components keep calling the backend
+      over loopback with no token to thread through.
+
+      **The cookie is not the token.** `APP_AUTH_TOKEN` authorises
+      `POST /api/orders`; the cookie carries `<expiry>.<HMAC(token, expiry)>`,
+      so a stolen cookie costs read access and cannot be replayed as order
+      authority. Tampered signatures and expired cookies both 401.
+
+      **The switch is the token's presence**, not `INSTANCE_MODE` — the backend
+      already refuses to boot in live mode without `APP_AUTH_TOKEN`, so
+      "live but unauthenticated" is unreachable rather than merely unlikely.
+
+      Three traps caught by testing the built image rather than the dev server:
+      `/api/health` must stay public or Fly's check fails and the machine
+      crash-loops; `process.env` in middleware had to be verified as
+      *runtime*-read, since the same image must gate with the token set and not
+      without; and `NextResponse.redirect` built its URL from the container's
+      bind address, which would have sent the browser to
+      `https://0.0.0.0:3000/ledger` — now a relative `Location`.
 
 ---
 
