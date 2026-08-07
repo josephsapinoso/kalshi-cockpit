@@ -1,0 +1,152 @@
+{
+  "captured_note": "Read-only GET capture. No lookup was performed, so no combo PRICE appears here -- pricing a specific combination requires POST .../lookup, which creates a market.",
+  "n_collections": 1389,
+  "n_legs": 13806,
+  "n_legs_with_active_quoters": 0,
+  "series": {
+    "KXCITIESWEATHER": {
+      "n_collections": 35,
+      "n_legs": 0,
+      "size_min": 2,
+      "size_max": 7,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES."
+    },
+    "KXGRAMMYWINNERS": {
+      "n_collections": 1,
+      "n_legs": 0,
+      "size_min": 2,
+      "size_max": 4,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES."
+    },
+    "KXMVECBCHAMPIONSHIP": {
+      "n_collections": 1,
+      "n_legs": 6,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVECROSSCATEGORY": {
+      "n_collections": 1,
+      "n_legs": 653,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVECROSSCATEGORY-SHARD1": {
+      "n_collections": 1,
+      "n_legs": 653,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVEGRAMMYS": {
+      "n_collections": 1,
+      "n_legs": 21,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVEMENTIONSSINGLE": {
+      "n_collections": 13,
+      "n_legs": 13,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVENBAMULTIGAMEEXTENDED": {
+      "n_collections": 1,
+      "n_legs": 9,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVENBASINGLEGAME": {
+      "n_collections": 1096,
+      "n_legs": 8622,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVENFLMULTIGAME": {
+      "n_collections": 2,
+      "n_legs": 96,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVENFLMULTIGAMEEXTENDED": {
+      "n_collections": 8,
+      "n_legs": 941,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVENFLSINGLEGAME": {
+      "n_collections": 223,
+      "n_legs": 1964,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVEOSCARS": {
+      "n_collections": 1,
+      "n_legs": 24,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXMVESPORTSMULTIGAMEEXTENDED": {
+      "n_collections": 3,
+      "n_legs": 804,
+      "size_min": 2,
+      "size_max": 0,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down)."
+    },
+    "KXOSCARNOMINEESPIC": {
+      "n_collections": 1,
+      "n_legs": 0,
+      "size_min": 10,
+      "size_max": 10,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES."
+    },
+    "KXOSCARWINNERS": {
+      "n_collections": 1,
+      "n_legs": 0,
+      "size_min": 2,
+      "size_max": 10,
+      "is_all_yes": false,
+      "is_single_market_per_event": false,
+      "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES."
+    }
+  }
+}

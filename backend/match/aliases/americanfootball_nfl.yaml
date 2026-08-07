@@ -1,0 +1,28 @@
+# NFL team-name overrides.
+#
+# Only needed where the deterministic token-prefix rule CANNOT resolve a name.
+# Most teams need no entry: Kalshi's "Kansas City" already resolves to The Odds
+# API's "Kansas City Chiefs" by prefix, and resolution happens within a single
+# fixture's two teams rather than against all 32.
+#
+# Keep this file SHORT. A long alias file means the deterministic rule has
+# stopped working and is being papered over one team at a time.
+#
+# Format:  <kalshi name>: <sportsbook name>
+# Both sides are normalised (casefold, accents and punctuation stripped) before
+# comparison, so exact spelling and capitalisation here do not matter.
+
+teams:
+  # The two-team cities are the interesting case. Kalshi truncates to a single
+  # disambiguating letter -- observed as "New York G" in the real capture.
+  # The prefix rule already handles these correctly ("new york g" is a token
+  # prefix of "new york giants" but not "new york jets"), so they are listed
+  # here only as documentation of the pattern, not because they are required.
+  New York G: New York Giants
+  New York J: New York Jets
+  Los Angeles R: Los Angeles Rams
+  Los Angeles C: Los Angeles Chargers
+
+  # Washington's name has changed twice in recent years and the two sources
+  # have historically lagged each other. This one is a genuine override.
+  Washington: Washington Commanders

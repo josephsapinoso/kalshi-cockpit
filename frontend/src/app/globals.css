@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design system ported from josephsapinoso/personal-website.
+   Tailwind v4 CSS-first: the theme lives here, there is no tailwind.config.
+
+   The eight base tokens, the .display class, .link-underline, the float-up
+   animation, the reduced-motion kill switch and the global border-color rule
+   are all carried over verbatim so the cockpit reads as part of the same site.
+
+   ONE deliberate addition: --positive and --negative. The source palette has
+   no semantic success/failure colours because a portfolio site does not need
+   them; a betting tool does. Everything else is unchanged.
+--------------------------------------------------------------------------- */
+
+:root {
+  --background: #fbfaf8;
+  --foreground: #14110f;
+  --muted: #6b625b;
+  --card: #ffffff;
+  --border: #e7e1da;
+  --accent: #aa0000;
+  --accent-2: #b3995d;
+  --accent-soft: #f8e6e6;
+
+  /* Added for this project. Green is warm-tuned to sit with the cream/crimson
+     palette rather than fighting it. --negative reuses the accent red: a
+     losing number rendering in the brand colour reads naturally. */
+  --positive: #1a7f52;
+  --negative: #aa0000;
+}
+
+/* Dark values, shared between "follow system" and "forced dark". */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #0c0a09;
+    --foreground: #f5f2ef;
+    --muted: #a49a91;
+    --card: #171412;
+    --border: #2a2521;
+    --accent: #ef4444;
+    --accent-2: #cbb279;
+    --accent-soft: #2a1315;
+    --positive: #4ade80;
+    --negative: #ef4444;
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #0c0a09;
+  --foreground: #f5f2ef;
+  --muted: #a49a91;
+  --card: #171412;
+  --border: #2a2521;
+  --accent: #ef4444;
+  --accent-2: #cbb279;
+  --accent-soft: #2a1315;
+  --positive: #4ade80;
+  --negative: #ef4444;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Bare `border` / `border-t` / `divide-y` classes pick up the themed colour,
+   which is why the markup rarely names a border colour. */
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* The signature heading treatment: very tight tracking, sub-1 line height. */
+.display {
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  font-weight: 800;
+}
+
+.link-underline {
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-size: 0% 2px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size 0.3s ease;
+}
+.link-underline:hover {
+  background-size: 100% 2px;
+}
+
+@keyframes float-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-in {
+  animation: float-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Cockpit-specific. Numbers are the content here, so they are set in mono and
+   given tabular figures -- without that, a column of prices jitters as digit
+   widths change and becomes noticeably harder to scan.
+--------------------------------------------------------------------------- */
+
+.tabular {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Freshness is a first-class signal in this tool, so it gets a visual
+   vocabulary rather than a number the eye has to parse. */
+.freshness-fresh {
+  color: var(--positive);
+}
+.freshness-aging {
+  color: var(--accent-2);
+}
+.freshness-stale {
+  color: var(--negative);
+}

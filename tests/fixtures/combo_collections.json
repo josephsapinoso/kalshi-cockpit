@@ -1,0 +1,1155 @@
+{
+  "KXMVESPORTSMULTIGAMEEXTENDED": {
+    "associated_event_tickers": [
+      "KXNFLGAME-26AUG13GBPIT",
+      "KXNFLGAME-26AUG13DETCIN",
+      "KXNFLGAME-26AUG13INDNE",
+      "KXNFLGAME-26AUG13LACHOU",
+      "KXNFLGAME-26AUG13ARILV",
+      "KXNFLGAME-26AUG13TENSF",
+      "KXNFLGAME-26AUG14MIAWAS",
+      "KXNFLGAME-26AUG14TBNYJ",
+      "KXNFLGAME-26AUG14DENATL",
+      "KXNFLGAME-26AUG15CLECHI",
+      "KXNFLGAME-26AUG15MINNYG",
+      "KXNFLGAME-26AUG15CARBUF"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13GBPIT"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13DETCIN"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13INDNE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13LACHOU"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13ARILV"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13TENSF"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14MIAWAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14TBNYJ"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14DENATL"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CLECHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15MINNYG"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CARBUF"
+      }
+    ],
+    "close_date": "2026-08-16T04:50:00Z",
+    "collection_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-08-07T00:10:38Z",
+    "series_ticker": "KXMVESPORTSMULTIGAMEEXTENDED",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen across all games?",
+    "_truncated_from": 653
+  },
+  "KXMVECROSSCATEGORY-SHARD1": {
+    "associated_event_tickers": [
+      "KXNFLGAME-26AUG13GBPIT",
+      "KXNFLGAME-26AUG13DETCIN",
+      "KXNFLGAME-26AUG13INDNE",
+      "KXNFLGAME-26AUG13LACHOU",
+      "KXNFLGAME-26AUG13ARILV",
+      "KXNFLGAME-26AUG13TENSF",
+      "KXNFLGAME-26AUG14MIAWAS",
+      "KXNFLGAME-26AUG14TBNYJ",
+      "KXNFLGAME-26AUG14DENATL",
+      "KXNFLGAME-26AUG15CLECHI",
+      "KXNFLGAME-26AUG15MINNYG",
+      "KXNFLGAME-26AUG15CARBUF"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13GBPIT"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13DETCIN"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13INDNE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13LACHOU"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13ARILV"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13TENSF"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14MIAWAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14TBNYJ"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14DENATL"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CLECHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15MINNYG"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CARBUF"
+      }
+    ],
+    "close_date": "2026-08-16T04:50:00Z",
+    "collection_ticker": "KXMVECROSSCATEGORY-SHARD1-R",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 1,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-08-07T00:10:38Z",
+    "series_ticker": "KXMVECROSSCATEGORY-SHARD1",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "Will multiple conditions be met?",
+    "_truncated_from": 653
+  },
+  "KXMVECROSSCATEGORY": {
+    "associated_event_tickers": [
+      "KXNFLGAME-26AUG13GBPIT",
+      "KXNFLGAME-26AUG13DETCIN",
+      "KXNFLGAME-26AUG13INDNE",
+      "KXNFLGAME-26AUG13LACHOU",
+      "KXNFLGAME-26AUG13ARILV",
+      "KXNFLGAME-26AUG13TENSF",
+      "KXNFLGAME-26AUG14MIAWAS",
+      "KXNFLGAME-26AUG14TBNYJ",
+      "KXNFLGAME-26AUG14DENATL",
+      "KXNFLGAME-26AUG15CLECHI",
+      "KXNFLGAME-26AUG15MINNYG",
+      "KXNFLGAME-26AUG15CARBUF"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13GBPIT"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13DETCIN"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13INDNE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13LACHOU"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13ARILV"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG13TENSF"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14MIAWAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14TBNYJ"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG14DENATL"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CLECHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15MINNYG"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26AUG15CARBUF"
+      }
+    ],
+    "close_date": "2026-08-16T04:50:00Z",
+    "collection_ticker": "KXMVECROSSCATEGORY-R",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-08-07T00:10:38Z",
+    "series_ticker": "KXMVECROSSCATEGORY",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "Will multiple conditions be met?",
+    "_truncated_from": 653
+  },
+  "KXMVENFLSINGLEGAME": {
+    "associated_event_tickers": [
+      "KXNFLGAME-26JAN18LACHI",
+      "KXNFLSPREAD-26JAN18LACHI",
+      "KXNFLTOTAL-26JAN18LACHI",
+      "KXNFLANYTD-26JAN18LACHI",
+      "KXNFLFIRSTTD-26JAN18LACHI",
+      "KXNFL2TD-26JAN18LACHI",
+      "KXNFLPASSYDS-26JAN18LACHI",
+      "KXNFLRECYDS-26JAN18LACHI",
+      "KXNFLRSHYDS-26JAN18LACHI",
+      "KXNFLREC-26JAN18LACHI",
+      "KXNFLPASSTDS-26JAN18LACHI"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLSPREAD-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLTOTAL-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLANYTD-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLFIRSTTD-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFL2TD-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLPASSYDS-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLRECYDS-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLRSHYDS-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLREC-26JAN18LACHI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLPASSTDS-26JAN18LACHI"
+      }
+    ],
+    "close_date": "2026-01-19T03:30:00Z",
+    "collection_ticker": "KXMVENFLSINGLEGAME-26JAN18LACHI",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-01-19T05:20:43Z",
+    "series_ticker": "KXMVENFLSINGLEGAME",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen in Los Angeles R at Chicago?",
+    "_truncated_from": 11
+  },
+  "KXMVENBASINGLEGAME": {
+    "associated_event_tickers": [
+      "KXNBAGAME-26JUN13NYKSAS",
+      "KXNBASPREAD-26JUN13NYKSAS",
+      "KXNBATOTAL-26JUN13NYKSAS",
+      "KXNBAPTS-26JUN13NYKSAS",
+      "KXNBAAST-26JUN13NYKSAS",
+      "KXNBAREB-26JUN13NYKSAS",
+      "KXNBA3PT-26JUN13NYKSAS",
+      "KXNBASTL-26JUN13NYKSAS",
+      "KXNBABLK-26JUN13NYKSAS"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNBAGAME-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBASPREAD-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBATOTAL-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBAPTS-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBAAST-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBAREB-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBA3PT-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBASTL-26JUN13NYKSAS"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNBABLK-26JUN13NYKSAS"
+      }
+    ],
+    "close_date": "2026-06-14T04:30:00Z",
+    "collection_ticker": "KXMVENBASINGLEGAME-26JUN13NYKSAS",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-06-14T03:51:17Z",
+    "series_ticker": "KXMVENBASINGLEGAME",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen in New York at San Antonio?",
+    "_truncated_from": 9
+  },
+  "KXMVECBCHAMPIONSHIP": {
+    "associated_event_tickers": [
+      "KXMARMAD-26",
+      "KXMARMADROUND-26T2",
+      "KXMARMADROUND-26F4",
+      "KXMARMADROUND-26E8",
+      "KXMARMADROUND-26S16",
+      "KXMARMADROUND-26RO32"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXMARMAD-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXMARMADROUND-26T2"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXMARMADROUND-26F4"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXMARMADROUND-26E8"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXMARMADROUND-26S16"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXMARMADROUND-26RO32"
+      }
+    ],
+    "close_date": "2026-04-21T18:00:00Z",
+    "collection_ticker": "KXMVECBCHAMPIONSHIP-R",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-03-06T16:25:32Z",
+    "series_ticker": "KXMVECBCHAMPIONSHIP",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "Will multiple conditions be met?",
+    "_truncated_from": 6
+  },
+  "KXMVEOSCARS": {
+    "associated_event_tickers": [
+      "KXOSCARPIC-26",
+      "KXOSCARDIR-26",
+      "KXOSCARACTO-26",
+      "KXOSCARACTR-26",
+      "KXOSCARSUPACTO-26",
+      "KXOSCARSUPACTR-26",
+      "KXOSCARANIMATED-26B",
+      "KXOSCARAS-26B",
+      "KXOSCARCASTING-26",
+      "KXOSCARCINE-26",
+      "KXOSCARCOSTUME-26",
+      "KXOSCARDOCU-26"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARPIC-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARDIR-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARACTO-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARACTR-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARSUPACTO-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARSUPACTR-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARANIMATED-26B"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARAS-26B"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARCASTING-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARCINE-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARCOSTUME-26"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXOSCARDOCU-26"
+      }
+    ],
+    "close_date": "2026-03-16T04:30:00Z",
+    "collection_ticker": "KXMVEOSCARS-26",
+    "description": "Choose who you think will win each category.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-02-27T13:45:29Z",
+    "series_ticker": "KXMVEOSCARS",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen in each game?",
+    "_truncated_from": 24
+  },
+  "KXMVEGRAMMYS": {
+    "associated_event_tickers": [
+      "KXGRAMAOTY-68",
+      "KXGRAMBNA-68",
+      "KXGRAMROTY-68",
+      "KXGRAMSOTY-68",
+      "KXGRAMBRA-68",
+      "KXGRAMBPS-68",
+      "KXGRAMBPDGP-68",
+      "KXGRAMBPVA-68",
+      "KXGRAMBROA-68",
+      "KXGRAMBRBS-68",
+      "KXGRAMPOTY-68",
+      "KXGRAMBCS-68"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMAOTY-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBNA-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMROTY-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMSOTY-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBRA-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBPS-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBPDGP-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBPVA-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBROA-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBRBS-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMPOTY-68"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXGRAMBCS-68"
+      }
+    ],
+    "close_date": "2026-02-09T02:30:00Z",
+    "collection_ticker": "KXMVEGRAMMYS-26",
+    "description": "Choose who you think will win each category.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2026-01-28T13:45:29Z",
+    "series_ticker": "KXMVEGRAMMYS",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen in each game?",
+    "_truncated_from": 21
+  },
+  "KXMVEMENTIONSSINGLE": {
+    "associated_event_tickers": [
+      "KXNFLMENTION-25DEC11ATLTB"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNFLMENTION-25DEC11ATLTB"
+      }
+    ],
+    "close_date": "2025-12-12T17:15:00Z",
+    "collection_ticker": "KXMVEMENTIONSSINGLE-NFLMENTION-25DEC11ATLTB",
+    "description": "Choose any combination of terms.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-12-11T03:32:49.161483Z",
+    "series_ticker": "KXMVEMENTIONSSINGLE",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will be mentioned?",
+    "_truncated_from": 1
+  },
+  "KXMVENFLMULTIGAMEEXTENDED": {
+    "associated_event_tickers": [
+      "KXNFLGAME-25NOV16WASMIA",
+      "KXNFLSPREAD-25NOV16WASMIA",
+      "KXNFLTOTAL-25NOV16WASMIA",
+      "KXNFLFIRSTTD-25NOV16WASMIA",
+      "KXNFLANYTD-25NOV16WASMIA",
+      "KXNFL2TD-25NOV16WASMIA",
+      "KXNFLRECYDS-25NOV16WASMIA",
+      "KXNFLPASSYDS-25NOV16WASMIA",
+      "KXNFLRSHYDS-25NOV16WASMIA",
+      "KXNFLREC-25NOV16WASMIA",
+      "KXNFLGAME-25NOV16GBNYG",
+      "KXNFLSPREAD-25NOV16GBNYG"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLSPREAD-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLTOTAL-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLFIRSTTD-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNFLANYTD-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "ticker": "KXNFL2TD-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLRECYDS-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLPASSYDS-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLRSHYDS-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "ticker": "KXNFLREC-25NOV16WASMIA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25NOV16GBNYG"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNFLSPREAD-25NOV16GBNYG"
+      }
+    ],
+    "close_date": "2025-11-18T04:15:00Z",
+    "collection_ticker": "KXMVENFLMULTIGAMEEXTENDED-W11",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-11-16T13:51:41Z",
+    "series_ticker": "KXMVENFLMULTIGAMEEXTENDED",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen in week 11?",
+    "_truncated_from": 140
+  },
+  "KXMVENBAMULTIGAMEEXTENDED": {
+    "associated_event_tickers": [
+      "KXNBAGAME-25NOV13TORCLE",
+      "KXNBASPREAD-25NOV13TORCLE",
+      "KXNBATOTAL-25NOV13TORCLE",
+      "KXNBAGAME-25NOV13INDPHX",
+      "KXNBASPREAD-25NOV13INDPHX",
+      "KXNBATOTAL-25NOV13INDPHX",
+      "KXNBAGAME-25NOV13ATLUTA",
+      "KXNBASPREAD-25NOV13ATLUTA",
+      "KXNBATOTAL-25NOV13ATLUTA"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNBAGAME-25NOV13TORCLE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBASPREAD-25NOV13TORCLE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBATOTAL-25NOV13TORCLE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNBAGAME-25NOV13INDPHX"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBASPREAD-25NOV13INDPHX"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBATOTAL-25NOV13INDPHX"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNBAGAME-25NOV13ATLUTA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBASPREAD-25NOV13ATLUTA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": false,
+        "size_max": 1,
+        "ticker": "KXNBATOTAL-25NOV13ATLUTA"
+      }
+    ],
+    "close_date": "2025-11-14T05:00:00Z",
+    "collection_ticker": "KXMVENBAMULTIGAMEEXTENDED-D20251113",
+    "description": "Choose any combination of game stats and props.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-11-05T22:51:05Z",
+    "series_ticker": "KXMVENBAMULTIGAMEEXTENDED",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "What will happen on 2025-11-13?",
+    "_truncated_from": 9
+  },
+  "KXMVENFLMULTIGAME": {
+    "associated_event_tickers": [
+      "KXNFLGAME-25SEP25SEAARI",
+      "KXNFLGAME-25SEP28MINPIT",
+      "KXNFLGAME-25SEP28LACNYG",
+      "KXNFLGAME-25SEP28CARNE",
+      "KXNFLGAME-25SEP28CLEDET",
+      "KXNFLGAME-25SEP28NOBUF",
+      "KXNFLGAME-25SEP28WASATL",
+      "KXNFLGAME-25SEP28PHITB",
+      "KXNFLGAME-25SEP28TENHOU",
+      "KXNFLGAME-25SEP28INDLA",
+      "KXNFLGAME-25SEP28JACSF",
+      "KXNFLGAME-25SEP28BALKC"
+    ],
+    "associated_events": [
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP25SEAARI"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28MINPIT"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28LACNYG"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28CARNE"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28CLEDET"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28NOBUF"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28WASATL"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28PHITB"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28TENHOU"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28INDLA"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28JACSF"
+      },
+      {
+        "active_quoters": [],
+        "is_yes_only": true,
+        "size_max": 1,
+        "ticker": "KXNFLGAME-25SEP28BALKC"
+      }
+    ],
+    "close_date": "2025-09-30T05:15:00Z",
+    "collection_ticker": "KXMVENFLMULTIGAME-2526W4",
+    "description": "Choose any combination of moneylines, spreads, and totals.",
+    "exchange_index": 0,
+    "functional_description": "The resulting market will only resolve to YES if every associated market resolves to YES. Scalar outcomes are multiplied (rounded down).",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-09-23T11:35:34Z",
+    "series_ticker": "KXMVENFLMULTIGAME",
+    "size_max": 0,
+    "size_min": 2,
+    "title": "Who will win each Pro Football game in Week 4?",
+    "_truncated_from": 48
+  },
+  "KXCITIESWEATHER": {
+    "associated_event_tickers": [
+      "KXHIGHCHI-25MAR04",
+      "KXHIGHNY-25MAR04",
+      "KXHIGHPHIL-25MAR04",
+      "KXHIGHDEN-25MAR04",
+      "KXHIGHHOU-25MAR04",
+      "KXHIGHAUS-25MAR04",
+      "KXHIGHMIA-25MAR04"
+    ],
+    "associated_events": [],
+    "close_date": "2025-03-04T17:00:00Z",
+    "collection_ticker": "KXCITIESWEATHER-25MAR04",
+    "description": "Choose a combination of cities and the high you expect each to reach on Mar 4th. The market closes at 12pm ET.",
+    "exchange_index": 0,
+    "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES.",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-03-03T17:30:00Z",
+    "series_ticker": "KXCITIESWEATHER",
+    "size_max": 7,
+    "size_min": 2,
+    "title": "High temps on Mar 4, 2024?",
+    "_truncated_from": 0
+  },
+  "KXOSCARWINNERS": {
+    "associated_event_tickers": [
+      "KXOSCARPIC-25",
+      "KXOSCARACTO-25",
+      "KXOSCARACTR-25",
+      "KXOSCARSUPACTO-25",
+      "KXOSCARSUPACTR-25",
+      "KXOSCARDIR-25",
+      "KXOSCARANIMATED-25",
+      "KXOSCARINTLFILM-25",
+      "KXOSCARSPLAY-25",
+      "KXOSCARASPLAY-25"
+    ],
+    "associated_events": [],
+    "close_date": "2025-03-02T17:00:00Z",
+    "collection_ticker": "KXOSCARWINNERS-25",
+    "description": "Choose a combination of award winners.",
+    "exchange_index": 0,
+    "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES.",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2025-02-12T17:00:00Z",
+    "series_ticker": "KXOSCARWINNERS",
+    "size_max": 10,
+    "size_min": 2,
+    "title": "2025 Oscar winners?",
+    "_truncated_from": 0
+  },
+  "KXOSCARNOMINEESPIC": {
+    "associated_event_tickers": [
+      "OSCARNOMPIC-25"
+    ],
+    "associated_events": [],
+    "close_date": "2024-12-11T17:21:56.997219Z",
+    "collection_ticker": "KXOSCARNOMINEESPIC-25",
+    "description": "Choose the 10 movies you think will be nominated.",
+    "exchange_index": 0,
+    "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES.",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2024-12-11T17:20:00Z",
+    "series_ticker": "KXOSCARNOMINEESPIC",
+    "size_max": 10,
+    "size_min": 10,
+    "title": "2025 Oscar Nominees for Best Picture?",
+    "_truncated_from": 0
+  },
+  "KXGRAMMYWINNERS": {
+    "associated_event_tickers": [
+      "KXGRAMAOTY-67",
+      "KXGRAMBNA-67",
+      "KXGRAMROTY-67",
+      "KXGRAMSOTY-67"
+    ],
+    "associated_events": [],
+    "close_date": "2025-02-03T05:00:00Z",
+    "collection_ticker": "KXGRAMMYWINNERS-67",
+    "description": "Choose a combination of 'big four' winners.",
+    "exchange_index": 0,
+    "functional_description": "Every associated market passed in can be considered an AND condition for the produced market. The resulting market will only resolve to YES if every associated market resolves to YES.",
+    "is_all_yes": false,
+    "is_ordered": false,
+    "is_single_market_per_event": false,
+    "open_date": "2024-12-09T02:00:00Z",
+    "series_ticker": "KXGRAMMYWINNERS",
+    "size_max": 4,
+    "size_min": 2,
+    "title": "2025 Grammys?",
+    "_truncated_from": 0
+  }
+}

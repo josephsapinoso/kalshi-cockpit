@@ -1,0 +1,33 @@
+# Runtime dependencies. Python 3.11.
+#
+# Pinned to minor versions rather than exact ones: this is a single-user tool
+# where a security patch landing automatically is worth more than perfectly
+# reproducible builds. The Dockerfile locks the image, which is where
+# reproducibility actually matters.
+
+# --- Kalshi + HTTP -----------------------------------------------------------
+cryptography~=44.0        # RSA-PSS signing. Not optional, not swappable.
+httpx~=0.28               # async REST client
+websockets~=14.1          # orderbook_delta feed
+
+# --- Web ---------------------------------------------------------------------
+fastapi~=0.115
+uvicorn[standard]~=0.34
+python-dotenv~=1.0
+pydantic~=2.10            # also the schema layer for agent structured outputs
+
+# --- Analytics ---------------------------------------------------------------
+pandas~=2.2
+numpy~=2.2
+scipy~=1.15               # Shin devig solver, calibration, noise guards
+pyarrow~=19.0             # SQLite -> Parquet publish step
+duckdb~=1.1               # analytics engine over the Parquet lake
+
+# --- Agents ------------------------------------------------------------------
+anthropic~=0.49           # Scout / Skeptic / Historian
+
+# --- Alerting ----------------------------------------------------------------
+discord.py~=2.4
+
+# --- Matching ----------------------------------------------------------------
+PyYAML~=6.0                # per-league team alias overrides

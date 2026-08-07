@@ -1,0 +1,9 @@
+-r requirements.txt
+
+pytest~=8.3
+pytest-asyncio~=0.25
+pytest-cov~=6.0
+freezegun~=1.5            # staleness and time-horizon tests
+respx~=0.22               # httpx mocking, for API clients without a live network
+dbt-duckdb~=1.9           # warehouse models + tests
+ruff~=0.9

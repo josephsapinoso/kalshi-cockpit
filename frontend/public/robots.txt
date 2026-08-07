@@ -1,0 +1,9 @@
+# The demo instance is meant to be found — it is the portfolio link.
+# The live instance sits behind auth, so crawlers get nothing from it either
+# way, but there is no reason to advertise its routes.
+
+User-agent: *
+Allow: /$
+Allow: /gate
+Allow: /ledger
+Disallow: /api/

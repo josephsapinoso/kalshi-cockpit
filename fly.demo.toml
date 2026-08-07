@@ -1,0 +1,53 @@
+# Public demo instance.
+#
+#   fly deploy -c fly.demo.toml
+#
+# This is the portfolio link. It runs the same image as the live instance but
+# holds NO credentials, reaches NO network, and has NO execution path -- the
+# order endpoint returns 403 whenever INSTANCE_MODE=demo.
+#
+# Deliberately NO [mounts] block. Without a volume the database lives in the
+# container filesystem and is regenerated from seed on every boot, which means
+# the demo cannot accumulate state and always matches the screenshots. It also
+# means there is nothing on this machine worth stealing.
+
+app = "kalshi-cockpit-demo"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  INSTANCE_MODE = "demo"
+  DB_PATH = "/data/demo.db"
+  PORT = "3000"
+  API_ORIGIN = "http://127.0.0.1:8000"
+  # Belt and braces: the gate is already locked by default, and the demo has no
+  # credentials to trade with even if it were not.
+  LIVE_TRADING_ENABLED = "false"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # A demo has no users at 3am. Scaling to zero makes it effectively free and
+  # the cold start is a few seconds, which is fine for a portfolio link.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.health]
+  type = "http"
+  port = 3000
+  path = "/api/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "40s"

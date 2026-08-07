@@ -1,0 +1,22 @@
+# MLB team-name overrides.
+#
+# See americanfootball_nfl.yaml for the rules. Most MLB teams need no entry --
+# Kalshi's "Houston" resolves to "Houston Astros" by prefix, and only against
+# the other team in that same fixture.
+#
+# Format:  <kalshi name>: <sportsbook name>
+
+teams:
+  # Two-team cities. As with the NFL, the prefix rule handles these; listed to
+  # document the shape Kalshi uses.
+  New York Y: New York Yankees
+  New York M: New York Mets
+  Los Angeles D: Los Angeles Dodgers
+  Los Angeles A: Los Angeles Angels
+  Chicago C: Chicago Cubs
+  Chicago W: Chicago White Sox
+
+  # Genuine exceptions: the sportsbook name does not begin with the city
+  # string Kalshi uses.
+  Arizona: Arizona Diamondbacks
+  Tampa Bay: Tampa Bay Rays

@@ -1,0 +1,160 @@
+# Deploy to Fly, triggered by hand.
+#
+# This exists so the whole thing is operable from a phone. `flyctl` has no
+# mobile client, which made deployment the one blocker that genuinely needed a
+# laptop; `workflow_dispatch` turns it into a "Run workflow" button in the
+# GitHub mobile app.
+#
+# Two safeguards, because this is the path to an instance holding real money:
+#
+#   - **Demo is the default.** The public seeded instance carries no
+#     credentials and has no execution path, so it is the one that should be
+#     easy to deploy. Selecting it requires no extra input.
+#   - **Live requires typing its app name.** Not a checkbox -- a dropdown
+#     mis-tap on a phone is a plausible way to deploy the money instance by
+#     accident, and a typed confirmation is not.
+#
+# Required repository secret: FLY_API_TOKEN  (Fly dashboard -> Tokens)
+# The live instance's own secrets (Kalshi key, auth token, Odds key) are set in
+# the Fly dashboard and are never referenced here -- this workflow deploys the
+# image, it does not hold credentials.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance:
+        description: "Which instance"
+        required: true
+        default: demo
+        type: choice
+        options: [demo, live]
+      confirm_live:
+        description: "To deploy LIVE, type its app name: kalshi-cockpit"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: deploy-${{ inputs.instance }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.instance }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard the live instance
+        if: inputs.instance == 'live'
+        run: |
+          if [ "${{ inputs.confirm_live }}" != "kalshi-cockpit" ]; then
+            echo "::error::Live deploy needs the app name typed into"
+            echo "::error::confirm_live. Got: '${{ inputs.confirm_live }}'"
+            exit 1
+          fi
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Resolve target
+        id: target
+        run: |
+          if [ "${{ inputs.instance }}" = "live" ]; then
+            echo "app=kalshi-cockpit"      >> "$GITHUB_OUTPUT"
+            echo "config=fly.live.toml"    >> "$GITHUB_OUTPUT"
+          else
+            echo "app=kalshi-cockpit-demo" >> "$GITHUB_OUTPUT"
+            echo "config=fly.demo.toml"    >> "$GITHUB_OUTPUT"
+          fi
+
+      # Create-if-missing, so a cold start needs no laptop either. `fly launch`
+      # is interactive and cannot run here; `apps create` is the non-interactive
+      # equivalent and is a no-op once the app exists.
+      - name: Ensure the app exists
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app="${{ steps.target.outputs.app }}"
+          if flyctl status --app "$app" >/dev/null 2>&1; then
+            echo "$app already exists"
+          else
+            echo "creating $app"
+            flyctl apps create "$app" --org personal
+          fi
+
+      # Only the live instance mounts a volume: the demo is deliberately
+      # stateless so a redeploy always reseeds it.
+      - name: Ensure the volume exists
+        if: inputs.instance == 'live'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app="${{ steps.target.outputs.app }}"
+          if flyctl volumes list --app "$app" | grep -q cockpit_data; then
+            echo "volume exists"
+          else
+            flyctl volumes create cockpit_data \
+              --app "$app" --region ord --size 1 --yes
+          fi
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --config "${{ steps.target.outputs.config }}" \
+            --app "${{ steps.target.outputs.app }}" \
+            --remote-only --ha=false
+
+      # A deploy that reports success while the app serves errors is worse than
+      # one that fails, so the health endpoint is checked before we call it done.
+      - name: Verify
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app="${{ steps.target.outputs.app }}"
+          url="https://${app}.fly.dev/api/health"
+          for attempt in $(seq 1 20); do
+            body=$(curl -fsS --max-time 10 "$url" 2>/dev/null) && break
+            echo "attempt ${attempt}: not ready"
+            sleep 6
+          done
+          if [ -z "${body:-}" ]; then
+            echo "::error::${url} never responded"
+            exit 1
+          fi
+          echo "$body"
+
+          mode=$(echo "$body" | grep -o '"instance_mode":"[^"]*"' | cut -d'"' -f4)
+          if [ "$mode" != "${{ inputs.instance }}" ]; then
+            echo "::error::deployed app reports instance_mode=${mode},"
+            echo "::error::expected ${{ inputs.instance }}"
+            exit 1
+          fi
+
+      # The property that must hold for a public URL: no reachable order path.
+      - name: Assert the demo has no execution path
+        if: inputs.instance == 'demo'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          url="https://kalshi-cockpit-demo.fly.dev/api/orders"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$url" \
+                   -H 'Content-Type: application/json' \
+                   -H 'Authorization: Bearer forged' \
+                   -d '{"recommendation_id":1,"contracts":50}')
+          echo "POST /api/orders -> ${code}"
+          if [ "$code" != "403" ]; then
+            echo "::error::the public demo answered ${code}, not 403."
+            echo "::error::A public URL must not be one config bug away from"
+            echo "::error::the order path. Refusing to call this deploy good."
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Deployed ${{ inputs.instance }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://${{ steps.target.outputs.app }}.fly.dev" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,26 @@
+# Line endings. This repo is authored on Windows and runs in a Linux container.
+#
+# A CRLF that reaches the container is not a cosmetic problem: `#!/usr/bin/bash\r`
+# makes the kernel look for an interpreter literally named "bash\r", which fails
+# with "no such file or directory" naming a file that plainly exists. That
+# presents on Fly as a crash loop with nothing in the logs pointing at the cause
+# -- the same shape as the `wait -n` bug in tasks/lessons.md.
+#
+# Normalise everything to LF in the repository, and force LF in the working tree
+# for anything an interpreter reads by its first line.
+
+* text=auto
+
+*.sh    text eol=lf
+*.bash  text eol=lf
+Dockerfile      text eol=lf
+docker/*        text eol=lf
+*.py    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+
+# Captured API payloads are the wire-format contract. Diffing them is rarely
+# useful and they must never be munged.
+tests/fixtures/*.json  -text -diff

@@ -1,0 +1,15 @@
+# DuckDB reads the Parquet lake directly -- no load step, no second copy of the
+# data, and the lake stays the single source of truth for analysis.
+#
+# The database file holds only the views and marts dbt builds. Deleting it and
+# re-running loses nothing.
+
+kalshi_cockpit:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/warehouse.duckdb"
+      threads: 4
+      extensions:
+        - parquet

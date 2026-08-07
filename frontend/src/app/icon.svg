@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The nav logo tile, at favicon size: accent crimson, rounded-lg. -->
+  <rect width="32" height="32" rx="7" fill="#aa0000"/>
+  <text x="16" y="22" font-family="Georgia, serif" font-size="19"
+        font-weight="700" fill="#fbfaf8" text-anchor="middle">K</text>
+</svg>

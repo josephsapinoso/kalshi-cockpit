@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------------
+# Secrets. This repo is intended to go public. Nothing in this section may ever
+# be committed. If any of it lands in a commit, treat the credential as
+# compromised and rotate it -- git history is forever and public forks are
+# instant. See docs/adr/0002-public-repo-secret-hygiene.md.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.pfx
+secrets/
+.secrets/
+
+# Fly.io may write local state that references app names and tokens
+.fly/
+fly.*.local.toml
+
+# ---------------------------------------------------------------------------
+# Data. Operational database, recorded market data, and the Parquet lake. All
+# regenerable, all large, none of it belongs in git.
+# ---------------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+warehouse/target/
+warehouse/dbt_packages/
+warehouse/logs/
+*.duckdb
+*.duckdb.wal
+
+# dbt writes a machine-local anonymous telemetry id here. Regenerated on demand;
+# committing it just makes every machine dirty the working tree on first run.
+warehouse/.user.yml
+
+# Parquet lake. tests/fixtures/ is explicitly NOT ignored -- captured API
+# payloads are the wire-format contract and must be committed.
+*.parquet
+!tests/fixtures/**
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ---------------------------------------------------------------------------
+# Node / Next.js
+# ---------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+.vercel
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---------------------------------------------------------------------------
+# Claude Code local state. The committed .claude/ content (skills, agents) is
+# deliberate and travels with the repo; only machine-local settings are ignored.
+# ---------------------------------------------------------------------------
+.claude/settings.local.json
