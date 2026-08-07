@@ -39,19 +39,45 @@ class SchemaVersionMismatch(RuntimeError):
     """Raised when the database on disk was written by a different schema."""
 
 
-def connect(db_path: Path | str, *, read_only: bool = False) -> sqlite3.Connection:
+def connect(
+    db_path: Path | str,
+    *,
+    read_only: bool = False,
+    cross_thread: bool = False,
+) -> sqlite3.Connection:
     """Open a connection with the pragmas the schema expects.
 
     `row_factory` is set to `sqlite3.Row` so call sites read columns by name.
     Positional access to a widening table is how a price column and a quantity
     column swap places without anything erroring.
+
+    **`cross_thread` disables sqlite3's same-thread guard, and defaults to off.**
+    Turn it on only where the connection is genuinely used by one thread at a
+    time and merely *created* on a different one. The one caller that needs it
+    is the API's per-request dependency: FastAPI runs a sync dependency and a
+    sync path operation on two different threadpool workers, so a connection
+    opened in `get_conn` is used from another thread and raises
+
+        sqlite3.ProgrammingError: SQLite objects created in a thread can only
+        be used in that same thread
+
+    on roughly half of all requests. It does not show under light local load,
+    because an idle threadpool tends to reuse one worker -- it appeared only on
+    the deployed instance, where a 30-second health check runs alongside real
+    traffic and spreads the work across workers.
+
+    Left ON everywhere else on purpose. The guard is real protection for a
+    connection shared between *concurrent* users, and disabling it globally
+    would turn a loud error into a silent race in the writer paths.
     """
     path = Path(db_path)
     if read_only:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn = sqlite3.connect(
+            f"file:{path}?mode=ro", uri=True, check_same_thread=not cross_thread
+        )
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, check_same_thread=not cross_thread)
 
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -70,9 +96,14 @@ def init_db(db_path: Path | str) -> sqlite3.Connection:
     return conn
 
 
-def open_db(db_path: Path | str, *, read_only: bool = False) -> sqlite3.Connection:
+def open_db(
+    db_path: Path | str,
+    *,
+    read_only: bool = False,
+    cross_thread: bool = False,
+) -> sqlite3.Connection:
     """Open an existing database, refusing on a schema-version mismatch."""
-    conn = connect(db_path, read_only=read_only)
+    conn = connect(db_path, read_only=read_only, cross_thread=cross_thread)
     found = get_meta(conn, "schema_version")
     if found is None:
         conn.close()

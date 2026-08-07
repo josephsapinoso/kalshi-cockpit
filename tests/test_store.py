@@ -9,6 +9,7 @@ database with v2 assumptions.
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 import pytest
 
@@ -163,3 +164,94 @@ class TestDerivedAsks:
     def test_unknown_side_raises_rather_than_guessing(self):
         with pytest.raises(ValueError):
             db.ask_for_side({"yes_bid_tenths": 1, "no_bid_tenths": 1}, "maybe")
+
+
+class TestCrossThreadConnections:
+    """sqlite3 binds a connection to its creating thread. FastAPI does not.
+
+    A sync dependency and a sync path operation run on **two different**
+    threadpool workers, so a connection opened in `get_conn` is used from
+    another thread. That failed ~60% of requests on the deployed demo while
+    `/api/health` -- which reaches the backend through Next's rewrite proxy and
+    never touches the dependency -- stayed 100% green.
+
+    It did not reproduce locally: an idle threadpool tends to hand out the same
+    worker twice, so the whole suite passed over it. What surfaced it was a
+    deployed instance with a 30-second health check running alongside traffic.
+    """
+
+    def _query_in_another_thread(self, conn):
+        """Run a query on a thread that did not create the connection."""
+        result: dict = {}
+
+        def work():
+            try:
+                conn.execute("SELECT 1").fetchone()
+                result["ok"] = True
+            except Exception as exc:            # noqa: BLE001
+                result["error"] = exc
+
+        t = threading.Thread(target=work)
+        t.start()
+        t.join()
+        return result
+
+    def test_the_guard_is_on_by_default(self, tmp_path):
+        """Left on deliberately: for a genuinely shared connection it is real
+        protection, and disabling it globally turns a loud error into a silent
+        race in the writer paths."""
+        conn = db.init_db(tmp_path / "a.db")
+        result = self._query_in_another_thread(conn)
+        assert isinstance(result.get("error"), sqlite3.ProgrammingError)
+        conn.close()
+
+    def test_cross_thread_opt_in_allows_the_fastapi_pattern(self, tmp_path):
+        db.init_db(tmp_path / "b.db").close()
+        conn = db.open_db(tmp_path / "b.db", read_only=True, cross_thread=True)
+        result = self._query_in_another_thread(conn)
+        assert result.get("ok"), f"cross-thread read failed: {result.get('error')}"
+        conn.close()
+
+    def test_the_api_dependency_opens_a_cross_thread_connection(
+        self, tmp_path, monkeypatch
+    ):
+        """The regression, asserted where it can actually fail.
+
+        The obvious test -- hammer `TestClient` from a thread pool and expect
+        200s -- **passes with the fix removed**, so it is decoration.
+        `TestClient` drives the app through a single anyio portal and does not
+        reproduce the worker-to-worker hop that a real uvicorn server makes
+        between a sync dependency and a sync path operation. It was written,
+        seen to pass against the reverted fix, and deleted.
+
+        This asserts the property directly instead: the connection the API opens
+        per request must be usable from a thread other than the one that opened
+        it. It fails the moment `cross_thread=True` is dropped.
+        """
+        from fastapi.testclient import TestClient
+
+        from backend.api.routes import create_app
+        from backend.config import AppConfig
+        from backend.seed_demo import seed_all
+
+        path = tmp_path / "api.db"
+        seed_all(path)
+
+        opened: list[dict] = []
+        real_open_db = db.open_db
+
+        def spy(*args, **kwargs):
+            opened.append(kwargs)
+            return real_open_db(*args, **kwargs)
+
+        monkeypatch.setattr(db, "open_db", spy)
+
+        client = TestClient(create_app(AppConfig(instance_mode="demo", db_path=path)))
+        assert client.get("/api/board").status_code == 200
+
+        assert opened, "the request opened no connection"
+        assert all(kw.get("cross_thread") for kw in opened), (
+            "the API opened a thread-bound connection; FastAPI runs the sync "
+            "dependency and the sync endpoint on different threadpool workers, "
+            "so this raises sqlite3.ProgrammingError on real traffic"
+        )

@@ -151,7 +151,28 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
     def get_conn():
-        conn = db.open_db(app_config.db_path, read_only=True)
+        """A read-only connection per request.
+
+        `cross_thread=True` is required and is not a shortcut. FastAPI runs a
+        sync dependency and a sync path operation on **two different** threadpool
+        workers, so the connection opened here is used from another thread and
+        sqlite3's same-thread guard rejects it:
+
+            sqlite3.ProgrammingError: SQLite objects created in a thread can
+            only be used in that same thread
+
+        That failed roughly 60% of requests on the deployed demo while
+        `/api/health` stayed green -- health goes through Next's rewrite proxy
+        and never touches this dependency. It does not reproduce under light
+        local load, because an idle threadpool tends to hand out the same
+        worker twice.
+
+        Safe here because the connection is per-request and read-only: created,
+        used, and closed in sequence by one request, never shared between
+        concurrent ones. The guard stays on everywhere else -- see
+        `store.db.connect`.
+        """
+        conn = db.open_db(app_config.db_path, read_only=True, cross_thread=True)
         try:
             yield conn
         finally:
