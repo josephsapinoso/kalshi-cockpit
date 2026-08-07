@@ -31,7 +31,10 @@ from backend.model.margins import (
     KEY_NUMBERS,
     MAX_TRANSLATION_POINTS,
     MIN_GAMES_FOR_EMPIRICAL,
+    MIN_GAMES_FOR_SD,
+    PUBLISHED_SD,
     MarginDistribution,
+    _normal_survival,
     default_distribution,
     fit_by_spread,
     spread_bucket_for,
@@ -289,6 +292,110 @@ class TestMargins:
     def test_a_thin_sample_falls_back_to_smooth_and_says_so(self):
         distribution = MarginDistribution("americanfootball_nfl").fit([3, 7, 3, 10])
         assert not distribution.is_empirical
+
+
+class TestAThinSampleCannotManufactureCertainty:
+    """The width must not be estimated from a sample too thin to estimate it.
+
+    `is_empirical` routes thin data away from the counts path and into a normal
+    approximation. If `fit` has already overwritten `sd` from that same thin
+    sample, the guard routes around bad data into a fallback built from the bad
+    data. At `n = 1` the old denominator `max(1, n - 1)` gave variance 0, so
+    `sd = 0`, so a cover probability of exactly 1.0 — and quarter-Kelly on a
+    certainty stakes the entire bankroll off one game.
+    """
+
+    def test_a_single_observation_does_not_produce_a_zero_width(self):
+        """The specific input that produced a certainty."""
+        distribution = MarginDistribution("americanfootball_nfl").fit([7])
+        assert distribution.n == 1
+        assert distribution.sd > 0
+        assert not distribution.sd_is_measured
+        assert distribution.sd == pytest.approx(PUBLISHED_SD["americanfootball_nfl"])
+
+    def test_a_single_observation_does_not_produce_a_certainty(self):
+        """The consequence, asserted separately from the cause.
+
+        Under the old code this returned exactly 1.0 for any line the single
+        observation cleared, and exactly 0.0 for any it did not.
+        """
+        distribution = MarginDistribution("americanfootball_nfl").fit([7])
+        for line in (-21.5, -7.5, -0.5, 0.0, 3.5, 14.5):
+            p = distribution.probability_cover(line, predicted_margin=7.0)
+            assert 0.0 < p < 1.0, f"line {line} produced the certainty {p}"
+
+    def test_the_width_is_measured_once_the_sample_can_support_it(self):
+        """The guard must not be so blunt that it never lets real data speak."""
+        rng = random.Random(5)
+        margins = [round(rng.gauss(0.0, 13.0)) for _ in range(MIN_GAMES_FOR_SD * 4)]
+        distribution = MarginDistribution("americanfootball_nfl").fit(margins)
+
+        assert distribution.sd_is_measured
+        assert distribution.sd == pytest.approx(13.0, abs=2.0)
+        assert distribution.sd != pytest.approx(
+            PUBLISHED_SD["americanfootball_nfl"], abs=1e-9
+        ), "a measured width must not coincidentally be the published one"
+
+    def test_a_degenerate_sample_keeps_the_published_width(self):
+        """300 identical margins is a large sample and still zero spread.
+
+        Sample size alone is not the guard -- `n >= MIN_GAMES_FOR_SD` passes
+        here and the estimate is still 0.
+        """
+        distribution = MarginDistribution("americanfootball_nfl").fit([8] * 300)
+        assert distribution.n == 300
+        assert distribution.sd > 0
+        assert not distribution.sd_is_measured
+
+    def test_a_zero_width_distribution_cannot_be_constructed(self):
+        """The backstop, independent of `fit`."""
+        with pytest.raises(ValueError, match="must be positive"):
+            MarginDistribution("americanfootball_nfl", sd=0.0)
+        with pytest.raises(ValueError, match="must be positive"):
+            MarginDistribution("americanfootball_nfl", sd=-1.0)
+
+    def test_normal_survival_refuses_a_zero_width_rather_than_returning_one(self):
+        """It used to return 1.0 or 0.0 here, which reads as defensive and is not.
+
+        A certainty is the most dangerous number this module can emit, and the
+        caller cannot tell a real one from a degenerate fit.
+        """
+        with pytest.raises(ValueError, match="positive width"):
+            _normal_survival(0.0, mu=5.0, sigma=0.0)
+
+    def test_every_spread_bucket_gets_a_usable_width(self, caplog):
+        """`fit_by_spread` fits tiny buckets, which is where this originated.
+
+        The thin buckets stay -- their absence would hide the coverage gap --
+        but none of them may carry a zero width.
+        """
+        rng = random.Random(7)
+        observations = [(-8.0, 8 + rng.choice([3, -3, 7, -7, 0])) for _ in range(400)]
+        observations.append((-2.0, 5))          # a one-game bucket
+        observations.extend([(+3.0, -1), (+3.0, 4)])   # a two-game bucket
+
+        fitted = fit_by_spread("americanfootball_nfl", observations)
+
+        assert any(d.n < MIN_GAMES_FOR_SD for d in fitted.values()), (
+            "the thin buckets must survive, or this test proves nothing"
+        )
+        for bucket, distribution in fitted.items():
+            assert distribution.sd > 0, f"bucket {bucket:+g} has zero width"
+            p = distribution.probability_cover(-3.5, predicted_margin=4.0)
+            assert 0.0 < p < 1.0, f"bucket {bucket:+g} produced the certainty {p}"
+
+    def test_a_measured_width_is_distinguishable_from_a_published_one(self):
+        """`sd_is_measured` exists for the same reason `is_empirical` does.
+
+        A consumer must be able to tell a number that came from data from one
+        that came from a source, without inspecting `n`.
+        """
+        assert not default_distribution("baseball_mlb").sd_is_measured
+        rng = random.Random(9)
+        fitted = MarginDistribution("baseball_mlb").fit(
+            [round(rng.gauss(0.0, 3.0)) for _ in range(200)]
+        )
+        assert fitted.sd_is_measured
 
     def test_an_empirical_fit_preserves_the_key_number_spikes(self):
         """A normal approximation smooths these away and makes the one

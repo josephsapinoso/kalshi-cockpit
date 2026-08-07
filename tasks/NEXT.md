@@ -71,10 +71,18 @@ decision.
       it used. Verified by disabling it (returning 2.0) and watching the
       simulation and the boundary test go red. Compounds with the clustering fix
       above: both corrections apply to the same statistic.
-- [ ] **`margins.fit()` destroys the published standard deviation on a thin
-      sample.** With n=1 it yields `sd = 0`, which makes a cover probability
-      exactly 1.0 or 0.0 — a certainty, which in Kelly sizing is an unbounded
-      bet.
+- [x] ~~**`margins.fit()` destroys the published standard deviation on a thin
+      sample**~~ — **done 2026-08-07.** `fit` no longer overwrites `sd` from a
+      sample too thin to estimate it: `MIN_GAMES_FOR_SD = 30`, deliberately
+      separate from `MIN_GAMES_FOR_EMPIRICAL = 200` because "can this sample
+      show me the shape?" and "can it tell me the width?" are different
+      questions. Below it the league's `PUBLISHED_SD` is kept and
+      `sd_is_measured` says so. The count alone was never sufficient — 300
+      identical margins clears n≥30 and still estimates zero — so the check is
+      on the estimate too. `_normal_survival` now **raises** on a non-positive
+      width instead of returning 1.0/0.0, and a zero-width distribution cannot
+      be constructed at all. Verified by restoring the old `max(1, n-1)`
+      computation and watching 4 tests go red.
 - [ ] **`backtest.beats_close` contradicts its own verdict** — a bare boolean
       with no noise guard sitting beside a verdict that correctly says "inside
       the noise band."

@@ -720,6 +720,54 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — A guard that routes around thin data into a fallback built from it
+
+`MarginDistribution.fit` computed the standard deviation from whatever it was
+given:
+
+```python
+variance = sum((v - self.mean) ** 2 for v in values) / max(1, self.n - 1)
+self.sd = math.sqrt(variance)
+```
+
+With `n = 1` that denominator is `max(1, 0) == 1`, the numerator is 0, and
+`sd = 0`. `is_empirical` is then False, so `probability_cover` correctly routes
+away from the counts path — into a normal approximation using the `sd` it just
+computed from the same single observation. `_normal_survival` saw `sigma <= 0`
+and returned exactly `1.0` or `0.0`.
+
+**A cover probability of 1.0 is not a bad estimate; it is a different kind of
+object.** Quarter-Kelly on a certainty stakes the entire bankroll, off one game.
+And `fit_by_spread` calls `fit` on every closing-spread bucket, including the
+one- and two-game ones, so this was reachable from ordinary use.
+
+The shape is worth naming, because the guard *looked* right: `is_empirical`
+existed, it fired, and it did exactly what it said. What it did not do was
+notice that the fallback it selected had already been contaminated by the data
+it was falling back from.
+
+**How to apply:** when a guard diverts thin data to a fallback, check what the
+fallback is built out of. Two thresholds here rather than one, because they
+answer different questions — `MIN_GAMES_FOR_EMPIRICAL = 200` asks "can this
+sample show me the *shape*?", `MIN_GAMES_FOR_SD = 30` asks "can it tell me the
+*width*?". Collapsing questions of different difficulty into one threshold is
+what let a one-game sample set a width at all.
+
+Two supporting rules, both already in this file and both violated here:
+
+- **Refuse what you are validating.** `_normal_survival` returning `1.0` on a
+  zero width reads as defensive and is the opposite — it converts a broken fit
+  into a confident answer. It now raises. See [[clamping-is-for-values-you-trust]].
+- **A sourced number must be distinguishable from a measured one.** `sd` now
+  carries `sd_is_measured` for the same reason the module already flagged
+  `default_distribution` as non-empirical.
+
+Note also that sample size alone was never the guard: 300 identical margins
+clears `n >= 30` and still estimates zero spread. The check is on the estimate,
+not only on the count.
+
+---
+
 ## 2026-08-07 — A threshold that is valid once is not valid every time you look
 
 The gate's noise guard required mean CLV above two standard errors. That is a

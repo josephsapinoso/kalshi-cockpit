@@ -61,11 +61,58 @@ KEY_NUMBERS: dict[str, tuple[int, ...]] = {
 # noise and a smooth fit is more honest.
 MIN_GAMES_FOR_EMPIRICAL = 200
 
+# Below this, the sample cannot estimate a standard deviation at all and the
+# published value is kept instead.
+#
+# Deliberately a **separate, much lower** threshold from
+# `MIN_GAMES_FOR_EMPIRICAL`, because the two answer different questions. That
+# one asks "can this sample show me the *shape*, spikes and all?" — which needs
+# hundreds of games. This one asks "can it tell me the *width*?" — which is one
+# number and needs far fewer.
+#
+# Collapsing them is what created the defect this constant exists to close: the
+# non-empirical branch fell back to a normal approximation whose sigma had just
+# been overwritten from the same thin sample it was falling back *from*. At
+# `n = 1` the old `max(1, n - 1)` denominator gave variance 0, hence `sd = 0`,
+# hence a cover probability of exactly 1.0 or 0.0 — a certainty, which in Kelly
+# sizing is an unbounded bet off a single observation.
+MIN_GAMES_FOR_SD = 30
+
+# Published per-league standard deviations of final margin. Sourced values, not
+# measured here, which is why anything using them reports `sd_is_measured` as
+# False. Kept at module scope so `fit` has something to fall back *to*.
+PUBLISHED_SD: dict[str, float] = {
+    "americanfootball_nfl": 13.5,
+    "americanfootball_ncaaf": 17.0,
+    "basketball_nba": 12.0,
+    "basketball_wnba": 12.5,
+    "baseball_mlb": 3.2,
+    "icehockey_nhl": 1.9,
+}
+DEFAULT_PUBLISHED_SD = 12.0
+
+
 # How far a distribution may be translated before its key numbers have moved so
 # much that the empirical shape is worse than useless. Two points is about the
 # most a power-rating model should ever disagree with a closing spread; beyond
 # that the caller is sliding a league-wide distribution onto one game.
 MAX_TRANSLATION_POINTS = 2.0
+
+
+def published_sd(league: str) -> float:
+    """The published margin standard deviation for a league.
+
+    The fallback is a football-ish 12.0, which is wildly wrong for baseball or
+    hockey — so an unknown league is logged rather than absorbed. A silently
+    wrong width prices every spread in that league.
+    """
+    if league not in PUBLISHED_SD:
+        logger.warning(
+            "%s: no published margin standard deviation; using %.1f, which is "
+            "a football-shaped guess and wrong for a low-scoring sport.",
+            league, DEFAULT_PUBLISHED_SD,
+        )
+    return PUBLISHED_SD.get(league, DEFAULT_PUBLISHED_SD)
 
 
 @dataclass
@@ -82,10 +129,27 @@ class MarginDistribution:
     counts: Counter = field(default_factory=Counter)
     n: int = 0
     mean: float = 0.0
-    sd: float = 13.5   # NFL-ish default; overwritten on fit
+    # `None` means "use the league's published value". Resolved in __post_init__
+    # so `sd` is always a positive float afterwards. It is never 0: a zero width
+    # makes every probability a certainty.
+    sd: Optional[float] = None
     # The closing spread this distribution was fitted for, if it was fitted per
     # bucket. `None` means league-wide, which cannot be slid onto one game.
     spread_bucket: Optional[float] = None
+    # Whether `sd` was estimated from data or inherited from `PUBLISHED_SD`.
+    # Same purpose as `is_empirical`: a consumer must be able to tell a measured
+    # number from a sourced one without inspecting `n`.
+    sd_is_measured: bool = False
+
+    def __post_init__(self) -> None:
+        if self.sd is None:
+            self.sd = published_sd(self.league)
+        if self.sd <= 0:
+            raise ValueError(
+                f"{self.league}: standard deviation must be positive, got "
+                f"{self.sd}. A zero-width distribution makes every cover "
+                f"probability exactly 1.0 or 0.0."
+            )
 
     @property
     def is_empirical(self) -> bool:
@@ -97,6 +161,15 @@ class MarginDistribution:
         return bool(KEY_NUMBERS.get(self.league))
 
     def fit(self, margins: Iterable[int]) -> "MarginDistribution":
+        """Fit counts, mean and — only if the sample can support it — `sd`.
+
+        The standard deviation is **not** overwritten from a sample too thin to
+        estimate it. That is the whole subtlety: the `is_empirical` guard routes
+        thin data away from the counts path and into a normal approximation, so
+        if `fit` had already replaced `sd` with a thin-sample estimate, the guard
+        would be routing around bad data into a fallback built from the same bad
+        data. One observation would yield `sd = 0` and a certainty.
+        """
         values = [int(m) for m in margins]
         if not values:
             raise ValueError("no margins provided")
@@ -104,8 +177,34 @@ class MarginDistribution:
         self.counts = Counter(values)
         self.n = len(values)
         self.mean = sum(values) / self.n
-        variance = sum((v - self.mean) ** 2 for v in values) / max(1, self.n - 1)
-        self.sd = math.sqrt(variance)
+
+        measured: Optional[float] = None
+        if self.n >= MIN_GAMES_FOR_SD:
+            variance = sum((v - self.mean) ** 2 for v in values) / (self.n - 1)
+            measured = math.sqrt(variance)
+
+        if measured is not None and measured > 0:
+            self.sd = measured
+            self.sd_is_measured = True
+        else:
+            # Either too few games, or a degenerate sample where every margin is
+            # identical. Both are reasons to keep the published width, and
+            # neither is a reason to claim zero spread.
+            self.sd = published_sd(self.league)
+            self.sd_is_measured = False
+            logger.warning(
+                "%s: %s, so the published standard deviation %.1f is kept "
+                "rather than estimated. Spread and total prices from this "
+                "distribution carry a sourced width, not a measured one.",
+                self.league,
+                (
+                    f"fitted on {self.n} games, below the {MIN_GAMES_FOR_SD} "
+                    f"needed to estimate a width"
+                    if measured is None
+                    else f"all {self.n} margins are identical"
+                ),
+                self.sd,
+            )
 
         if not self.is_empirical:
             logger.warning(
@@ -189,9 +288,19 @@ class MarginDistribution:
 
 
 def _normal_survival(x: float, *, mu: float, sigma: float) -> float:
-    """P(X > x) for a normal. Uses erf rather than a table."""
+    """P(X > x) for a normal. Uses erf rather than a table.
+
+    Refuses on a non-positive width rather than returning `1.0` or `0.0`. That
+    branch used to exist and read as defensive, but a certainty is the single
+    most dangerous number this module can emit: quarter-Kelly on `p = 1.0` sizes
+    the whole bankroll, and the caller has no way to tell a real certainty from
+    a degenerate fit. Clamp what you trust, refuse what you are validating.
+    """
     if sigma <= 0:
-        return 1.0 if mu > x else 0.0
+        raise ValueError(
+            f"normal survival needs a positive width, got sigma={sigma}. "
+            f"A zero-width distribution yields a certainty, not a probability."
+        )
     return 0.5 * math.erfc((x - mu) / (sigma * math.sqrt(2.0)))
 
 
@@ -313,17 +422,9 @@ def fit_by_spread(
 def default_distribution(league: str) -> MarginDistribution:
     """A distribution with published standard deviations and no empirical mass.
 
-    Explicitly **not** fitted, so `is_empirical` is False and every consumer
-    knows it is getting a smooth approximation with the key numbers absent.
-    Present so the rest of the system can be built and tested before a
-    historical results feed exists.
+    Explicitly **not** fitted, so `is_empirical` is False, `sd_is_measured` is
+    False, and every consumer knows it is getting a smooth approximation with
+    the key numbers absent. Present so the rest of the system can be built and
+    tested before a historical results feed exists.
     """
-    sds = {
-        "americanfootball_nfl": 13.5,
-        "americanfootball_ncaaf": 17.0,
-        "basketball_nba": 12.0,
-        "basketball_wnba": 12.5,
-        "baseball_mlb": 3.2,
-        "icehockey_nhl": 1.9,
-    }
-    return MarginDistribution(league=league, sd=sds.get(league, 12.0))
+    return MarginDistribution(league=league)
