@@ -106,6 +106,29 @@ button.
 
 ## 2. Fix before any real money
 
+- [x] ~~**`clv.py` does not require the entry to precede the close**~~ — **done
+      2026-08-07** (audit item 11). The closing line is read at
+      `commence - horizon` and the runner records right up to kickoff, so at a
+      1h horizon every recommendation made in the final hour was scored against
+      a quote observed **before the decision existed**. Whether that flatters or
+      punishes depends purely on which way the market drifted in between, so it
+      put drift straight into the number built to detect edge — and the live
+      instance starts scoring tonight, so it was contaminating a record that
+      cannot be repaired retroactively.
+      Now `created_ms <= observed_ms`, in `score_recommendations` *and* in
+      `horizons_agree`, where it matters more: the 6h line is observed five
+      hours earlier, so without it the two horizons compared different
+      populations and part of the measured "drift" was just a change in which
+      rows were counted. Excluded rows are counted
+      (`skipped_entry_after_close`) and stay unscored rather than consumed, so
+      they remain candidates for a shorter horizon.
+      **The cost is stated, not hidden:** late recommendations go unscored at a
+      given horizon, so the scored sample skews early.
+      Verified by disabling (4 red). Adding it also turned 5 `test_scoring`
+      tests red, because their fixtures created recommendations *after* the
+      closing line — the rule catching unrealistic test timing on its first run.
+
+
 These are open defects from the 2026-08-07 audit. Full detail with file:line in
 `tasks/audit-2026-08-07.md`. Ordered by how much they'd distort a money
 decision.

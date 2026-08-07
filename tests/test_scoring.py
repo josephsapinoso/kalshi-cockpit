@@ -33,9 +33,13 @@ class FakeKalshi:
 
     def __init__(self, candles=None, fail_on=()):
         self.calls = []
+        # No `end_period_ts`, so `observed_ms` falls back to the requested
+        # target instant. That is both realistic and necessary: the field is
+        # unverified against a real capture, and an arbitrary value here dates
+        # the closing line before the recommendation, which
+        # `score_recommendations` now (correctly) refuses to score.
         self.candles = candles if candles is not None else [
-            {"yes_bid": {"close": 52}, "yes_ask": {"close": 54},
-             "end_period_ts": 1_786_000_000}
+            {"yes_bid": {"close": 52}, "yes_ask": {"close": 54}}
         ]
         self.fail_on = set(fail_on)
 
@@ -59,8 +63,19 @@ def conn(tmp_path):
 
 
 def _seed(conn, *, ticker="KXMLBGAME-T-A", side="yes", ask=480,
-          true_commence=TRUE_COMMENCE):
-    """One linked, unscored recommendation on a game that has already started."""
+          true_commence=TRUE_COMMENCE, created_ms=None):
+    """One linked, unscored recommendation on a game that has already started.
+
+    `created_ms` defaults to **two hours before the true start**, which puts it
+    before the 1h closing line is observed. That ordering is required, not
+    cosmetic: `score_recommendations` refuses to score an entry against a quote
+    that predates it. These tests originally created the recommendation one hour
+    before `NOW` — three hours *after* the 1h line was observed — and adding
+    that rule turned five of them red, which is the rule working rather than a
+    regression.
+    """
+    if created_ms is None:
+        created_ms = true_commence - 2 * HOUR_MS
     conn.execute(
         "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
         "has_game_markets, first_seen_ms, last_seen_ms) "
@@ -103,7 +118,7 @@ def _seed(conn, *, ticker="KXMLBGAME-T-A", side="yes", ask=480,
         "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
         "kalshi_quote_age_ms, odds_age_ms, reason_text) "
         "VALUES (?,1,?,?,?,?,0.5,1.0,0.1,0.1,0.01,0,1000,1000,'t')",
-        (NOW - HOUR_MS, ticker, link_id, side, ask),
+        (created_ms, ticker, link_id, side, ask),
     )
     conn.commit()
     return link_id
@@ -262,3 +277,34 @@ class TestSelection:
 
         await run_scoring_pass(conn, FakeKalshi(), now=NOW)
         assert markets_awaiting_scoring(conn, now=NOW) == []
+
+
+class TestTheScoringPassRespectsTheTemporalRule:
+    """The two halves have to agree about when the closing line was observed.
+
+    `scoring.py` decides *when* to read a quote; `clv.score_recommendations`
+    decides whether an entry may be compared against it. They are in different
+    modules and nothing links them, so this pins the interaction.
+    """
+
+    async def test_a_recommendation_made_after_the_line_is_not_scored(self, conn):
+        """The live shape: the runner records right up to kickoff.
+
+        A recommendation written 30 minutes before the game cannot be scored
+        against the line read an hour before it. Without the rule this scored,
+        and the number depended entirely on which way the market drifted in the
+        intervening half hour.
+        """
+        _seed(conn, created_ms=TRUE_COMMENCE - 30 * 60_000)
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+
+        assert counts.scored == 0
+        assert counts.skipped_no_mid == 0, "wrong reason -- the quote was readable"
+        assert conn.execute(
+            "SELECT clv_tenths FROM recommendations"
+        ).fetchone()["clv_tenths"] is None
+
+    async def test_an_earlier_recommendation_on_the_same_game_is_scored(self, conn):
+        """The discriminating pair: same fixture, same line, different entry time."""
+        _seed(conn, created_ms=TRUE_COMMENCE - 2 * HOUR_MS)
+        assert (await run_scoring_pass(conn, FakeKalshi(), now=NOW)).scored == 1

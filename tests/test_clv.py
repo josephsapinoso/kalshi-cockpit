@@ -41,14 +41,23 @@ def conn(tmp_path):
     c.close()
 
 
-def add_recommendation(conn, *, ask=480, side="yes", suppressed=None, contracts=10):
+def add_recommendation(
+    conn, *, ask=480, side="yes", suppressed=None, contracts=10, created_ms=NOW
+):
+    """Insert a recommendation. `created_ms` defaults to `NOW`.
+
+    Closing lines in these tests are also observed at `NOW`, so the default sits
+    exactly on the `created_ms <= observed_ms` boundary — which is deliberate:
+    it pins the inclusive end of the rule, and it is why every pre-existing test
+    kept passing when that rule was added.
+    """
     cursor = conn.execute(
         "INSERT INTO recommendations (created_ms, strategy_config_version, ticker, "
         "side, entry_ask_tenths, fair_probability, edge_tenths, fee_predicted, "
         "ev_net_dollars, kelly_fraction, suggested_contracts, kalshi_quote_age_ms, "
         "odds_age_ms, suppressed_reason, reason_text) "
         "VALUES (?, 1, 'MKT', ?, ?, 0.5, 10.0, 0.1, 0.5, 0.02, ?, 1000, 1000, ?, 'x')",
-        (NOW, side, ask, contracts, suppressed),
+        (created_ms, side, ask, contracts, suppressed),
     )
     conn.commit()
     return cursor.lastrowid
@@ -221,3 +230,98 @@ class TestLoadingForAnalysis:
 
         observations = load_observations(conn, group_by="suppressed")
         assert observations[0].group == "wide_market"
+
+
+class TestTheEntryMustPrecedeTheClose:
+    """A recommendation cannot be scored against a price that predated it.
+
+    The closing line is read at `commence - horizon` and the runner records
+    right up to kickoff, so at a 1h horizon every recommendation made in the
+    final hour would be scored against a quote observed before the decision
+    existed. Whether that flatters or punishes depends entirely on which way the
+    market drifted in between — so it injects drift straight into the
+    measurement built to detect edge.
+
+    This is live-data contamination, not a hypothetical: the deployed runner
+    writes rows at 15-minute intervals right up to commence.
+    """
+
+    def test_a_recommendation_made_after_the_close_is_not_scored(self, conn):
+        add_recommendation(conn, ask=480, created_ms=NOW + 60_000)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 500, 520))
+
+        counts = score_recommendations(conn, horizon_hours=1.0)
+
+        assert counts["scored"] == 0
+        assert counts["skipped_entry_after_close"] == 1
+        row = conn.execute("SELECT clv_tenths FROM recommendations").fetchone()
+        assert row["clv_tenths"] is None, "scored against a price that predated it"
+
+    def test_a_recommendation_made_before_the_close_is_scored(self, conn):
+        add_recommendation(conn, ask=480, created_ms=NOW - 60_000)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 500, 520))
+
+        counts = score_recommendations(conn, horizon_hours=1.0)
+
+        assert counts["scored"] == 1
+        assert counts["skipped_entry_after_close"] == 0
+
+    def test_the_boundary_is_inclusive(self, conn):
+        """Created at exactly the observation instant is scoreable.
+
+        Fixed by definition rather than by taste: the quote existed at that
+        moment, so there is nothing anachronistic about comparing against it.
+        A strict `<` would silently drop every row whose timestamps happened to
+        coincide — which, with a runner and a scorer that share one clock, is
+        not a rare case.
+        """
+        add_recommendation(conn, ask=480, created_ms=NOW)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 500, 520))
+
+        assert score_recommendations(conn, horizon_hours=1.0)["scored"] == 1
+
+    def test_the_exclusion_is_reported_not_silent(self, conn):
+        """A dropped observation must be countable.
+
+        Silently excluding late rows would shrink the sample toward early
+        recommendations with nothing saying so, and the gate counts what it is
+        given.
+        """
+        for offset in (-60_000, +60_000, +120_000):
+            add_recommendation(conn, ask=480, created_ms=NOW + offset)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 500, 520))
+
+        counts = score_recommendations(conn, horizon_hours=1.0)
+        assert (counts["scored"], counts["skipped_entry_after_close"]) == (1, 2)
+
+    def test_a_late_row_stays_unscored_and_available(self, conn):
+        """Excluded at this horizon, not consumed.
+
+        `clv_scored_ms` must stay NULL so the row remains a candidate for a
+        shorter horizon rather than being burned.
+        """
+        rec_id = add_recommendation(conn, ask=480, created_ms=NOW + 60_000)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 500, 520))
+        score_recommendations(conn, horizon_hours=1.0)
+
+        row = conn.execute(
+            "SELECT clv_scored_ms, closing_line_id FROM recommendations WHERE id = ?",
+            (rec_id,),
+        ).fetchone()
+        assert row["clv_scored_ms"] is None
+        assert row["closing_line_id"] is None
+
+    def test_horizons_agree_applies_the_same_rule(self, conn):
+        """It matters more there: the 6h line is observed five hours earlier.
+
+        Without the rule the two horizons would compare different populations —
+        the longer one excluding more late rows — so part of the measured
+        "drift" would just be a change in which rows were counted.
+        """
+        add_recommendation(conn, ask=480, created_ms=NOW + 60_000)
+        store_closing_line(conn, ClosingLine("MKT", 1.0, NOW, 510, 530))
+        store_closing_line(conn, ClosingLine("MKT", 6.0, NOW, 508, 528))
+
+        assert horizons_agree(conn, primary=1.0, control=6.0) is None, (
+            "a row created after both observations was still compared"
+        )

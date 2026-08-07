@@ -27,6 +27,19 @@ convergence, not edge.
 Because the horizon is a choice, it is stored on every row. **Re-run at a
 second horizon: if the result moves, it was convergence.** That check is only
 possible because the horizon is a column rather than a constant.
+
+The entry must precede the close
+--------------------------------
+A recommendation is only scoreable against a closing line observed **at or
+after** the moment the recommendation was made. The runner records right up to
+kickoff and the 1h line is read an hour before it, so without this rule every
+late recommendation would be scored against a price that did not exist when the
+decision was taken. Whether that flatters or punishes depends purely on which
+way the market drifted in between — which puts drift directly into the number
+that is supposed to detect edge.
+
+The cost is stated rather than hidden: late recommendations go unscored at a
+given horizon, so the scored sample skews early.
 """
 
 from __future__ import annotations
@@ -156,17 +169,37 @@ def score_recommendations(
     stamp = scored_ms if scored_ms is not None else now_ms()
 
     rows = conn.execute(
-        "SELECT r.id, r.ticker, r.side, r.entry_ask_tenths, "
-        "c.id AS closing_id, c.yes_bid_tenths, c.yes_ask_tenths "
+        "SELECT r.id, r.ticker, r.side, r.entry_ask_tenths, r.created_ms, "
+        "c.id AS closing_id, c.observed_ms AS closing_observed_ms, "
+        "c.yes_bid_tenths, c.yes_ask_tenths "
         "FROM recommendations r "
         "JOIN closing_lines c ON c.ticker = r.ticker "
         "WHERE r.clv_scored_ms IS NULL AND c.horizon_hours = ?",
         (horizon_hours,),
     ).fetchall()
 
-    counts = {"scored": 0, "skipped_no_mid": 0}
+    counts = {"scored": 0, "skipped_no_mid": 0, "skipped_entry_after_close": 0}
 
     for row in rows:
+        # **The entry must precede the close it is scored against.**
+        #
+        # The closing line is read at `commence - horizon`, and the runner keeps
+        # recording right up to kickoff, so at a 1h horizon every recommendation
+        # made in the final hour would otherwise be scored against a price
+        # observed *before it existed*. That is not merely meaningless: whether
+        # it flatters or punishes depends entirely on which way the market
+        # drifted in between, so it injects drift straight into the measurement
+        # that is supposed to detect edge.
+        #
+        # Excluded rather than scored, and counted so the exclusion is visible.
+        # Note the cost, because it is a real one: this systematically drops
+        # *late* recommendations at this horizon, so the scored sample skews
+        # early. They remain unscored and are candidates for a shorter horizon
+        # rather than lost.
+        if row["created_ms"] > row["closing_observed_ms"]:
+            counts["skipped_entry_after_close"] += 1
+            continue
+
         if row["yes_bid_tenths"] is None or row["yes_ask_tenths"] is None:
             counts["skipped_no_mid"] += 1
             continue
@@ -245,7 +278,14 @@ def horizons_agree(
             "     - AVG(r.entry_ask_tenths) AS delta, COUNT(*) AS n "
             "FROM recommendations r JOIN closing_lines c ON c.ticker = r.ticker "
             "WHERE c.horizon_hours = ? AND c.yes_bid_tenths IS NOT NULL "
-            "  AND c.yes_ask_tenths IS NOT NULL AND r.side = 'yes'",
+            "  AND c.yes_ask_tenths IS NOT NULL AND r.side = 'yes' "
+            # Same rule as `score_recommendations`, and it matters more here:
+            # this compares a 1h horizon against a 6h one, and the 6h line is
+            # observed five hours earlier. Without this the two horizons would
+            # include different populations of recommendations -- the longer one
+            # excluding more of them -- so the "drift" being measured would be
+            # partly a change in which rows were counted.
+            "  AND r.created_ms <= c.observed_ms",
             (horizon,),
         ).fetchone()
         if not row or not row["n"]:
