@@ -83,9 +83,20 @@ decision.
       width instead of returning 1.0/0.0, and a zero-width distribution cannot
       be constructed at all. Verified by restoring the old `max(1, n-1)`
       computation and watching 4 tests go red.
-- [ ] **`backtest.beats_close` contradicts its own verdict** — a bare boolean
-      with no noise guard sitting beside a verdict that correctly says "inside
-      the noise band."
+- [x] ~~**`backtest.beats_close` contradicts its own verdict**~~ — **done
+      2026-08-07.** Both now derive from one `PairedComparison`, so there is no
+      second path to disagree with; the invariant *"`beats_close is True` iff
+      the verdict claims an edge"* is asserted across twelve seeds, because the
+      two paths agreed whenever the gap was large and diverged exactly on the
+      marginal cases. It also respects `min_games` now — a 50-game backtest
+      could previously report `True` beside a verdict saying "No verdict".
+      **Fixed audit item 14 in the same change:** the noise band used
+      `sqrt(0.25/n)`, the null for a *single* proportion, where the gap is a
+      difference of two accuracies on the *same* games. Now McNemar's
+      `sqrt(b+c)/n`. The two coincide at exactly 25% discordance — which is why
+      it looked right — and above it the old form is too narrow, 1.55x too small
+      at 60% discordance, in the direction that manufactures significance.
+      Verified by restoring each old implementation in turn.
 - [ ] **Deci-cent asks can't fill.** Limit prices floor to whole cents, so a
       50.5c ask rests at 50c on the ~25% of markets that tick in half-cents.
       Safe for money, but it corrupts the paper record with orders that never

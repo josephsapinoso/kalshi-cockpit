@@ -14,6 +14,7 @@ import pytest
 
 from backend.model.backtest import (
     BacktestGame,
+    PairedComparison,
     backtest,
     brier,
     calibration_error,
@@ -279,6 +280,166 @@ class TestVerdicts:
         methods, so it says nothing about the game."""
         games = self._games(250, 0.56, 0.55, 0.55)
         assert backtest(games, min_disagreement=0.03, min_games=200).n_disagreements == 0
+
+
+class TestBeatsCloseAgreesWithItsOwnVerdict:
+    """`beats_close` used to be `model_accuracy > market_accuracy`, bare.
+
+    It sat in the same dataclass as a verdict that correctly reported "inside
+    the noise band, no demonstrated edge". Two paths from the same inputs, and
+    the boolean is the one a caller branches on. This is
+    `tasks/lessons.md`, 2026-08-07, in Python instead of SQL.
+    """
+
+    def _games(self, n, model_p, market_p, home_wins_rate, seed=1):
+        rng = random.Random(seed)
+        return [
+            BacktestGame(
+                game=game(hs=1 if rng.random() < home_wins_rate else 0, as_=0),
+                model_probability=model_p,
+                closing_probability=market_p,
+            )
+            for _ in range(n)
+        ]
+
+    @pytest.mark.parametrize("seed", range(12))
+    def test_the_boolean_and_the_prose_never_disagree(self, seed):
+        """The invariant. `True` if and only if the verdict claims an edge.
+
+        Swept across seeds because the failure was data-dependent: the old code
+        and the verdict agreed whenever the gap happened to be large, and
+        diverged exactly on the marginal cases that matter.
+        """
+        result = backtest(
+            self._games(250, 0.62, 0.55, 0.58, seed=seed), min_games=200
+        )
+        claims_edge = "Worth confirming on a held-out season" in result.verdict
+        assert result.beats_close is claims_edge, (
+            f"beats_close={result.beats_close} but verdict says: {result.verdict}"
+        )
+
+    def test_a_positive_gap_inside_the_noise_band_is_not_beating_the_close(self):
+        """The specific case the old boolean got wrong.
+
+        Built to an exact tally rather than by sampling, so the arithmetic is
+        checkable: 55 games the model called right and the market called wrong,
+        45 the reverse, 150 they agreed on. Gap is +4.0 points and the band is
+        ±8.0, so the model is nominally ahead and cannot be shown to be.
+
+        `model_accuracy > market_accuracy` is True here. That was the old
+        implementation, sitting beside a verdict reading "No demonstrated edge".
+        """
+        games = []
+        # Discordant: model says home (0.60), market says away (0.45).
+        games += [
+            BacktestGame(game=game(hs=1, as_=0), model_probability=0.60,
+                         closing_probability=0.45)
+            for _ in range(55)                       # model right, market wrong
+        ]
+        games += [
+            BacktestGame(game=game(hs=0, as_=1), model_probability=0.60,
+                         closing_probability=0.45)
+            for _ in range(45)                       # market right, model wrong
+        ]
+        # Concordant: both say home, and the disagreement still clears 0.03 so
+        # these stay in the comparison.
+        games += [
+            BacktestGame(game=game(hs=i % 2, as_=1 - i % 2), model_probability=0.60,
+                         closing_probability=0.52)
+            for i in range(150)
+        ]
+
+        result = backtest(games, min_games=200)
+        assert result.comparison is not None
+        assert result.n_disagreements == 250
+        assert (result.comparison.model_right_market_wrong,
+                result.comparison.market_right_model_wrong) == (55, 45)
+
+        assert result.comparison.model_accuracy > result.comparison.market_accuracy, (
+            "the old implementation returned True on exactly this"
+        )
+        assert result.gap_points == pytest.approx(4.0)
+        assert result.noise_band_points == pytest.approx(8.0)
+        assert not result.comparison.distinguishable
+        assert result.beats_close is False
+        assert "No demonstrated edge" in result.verdict
+
+    def test_no_verdict_means_no_boolean_either(self):
+        """Below `min_games` the verdict declines to rule, so the flag must too.
+
+        The old code computed `beats_close` regardless, so a 50-game backtest
+        could report True beside a verdict saying "No verdict".
+        """
+        result = backtest(self._games(50, 0.75, 0.40, 0.9), min_games=200)
+        assert "No verdict" in result.verdict
+        assert result.beats_close is None
+
+    def test_the_numbers_behind_the_verdict_are_exposed(self):
+        """A boolean a reader cannot check is a boolean they must trust."""
+        result = backtest(self._games(250, 0.62, 0.55, 0.58), min_games=200)
+        assert result.gap_points is not None
+        assert result.noise_band_points is not None
+        assert f"{result.noise_band_points:.1f}" in result.verdict
+
+
+class TestThePairedComparisonUsesMcNemar:
+    """`sqrt(0.25/n)` is the null for ONE proportion, not for a difference.
+
+    Model and market are scored on the *same* games. Games where both were right
+    or both were wrong say nothing about which is better; only discordant pairs
+    do. The two formulas coincide at 25% discordance, and above it the old one
+    is too narrow — the direction that manufactures significance.
+    """
+
+    def _paired(self, b, c, both_right, both_wrong):
+        """Build a comparison with an exactly specified discordance."""
+        return PairedComparison(
+            n=b + c + both_right + both_wrong,
+            model_right_market_wrong=b,
+            market_right_model_wrong=c,
+            model_accuracy=(b + both_right) / (b + c + both_right + both_wrong),
+            market_accuracy=(c + both_right) / (b + c + both_right + both_wrong),
+        )
+
+    def test_the_two_formulas_coincide_at_25_percent_discordance(self):
+        """The definitional crossover, where the old code was exactly right."""
+        n = 400
+        comparison = self._paired(b=50, c=50, both_right=150, both_wrong=150)
+        assert comparison.discordant / n == pytest.approx(0.25)
+
+        old = 100 * math.sqrt(0.25 / n)
+        assert comparison.stderr_points == pytest.approx(old, rel=1e-12)
+
+    def test_the_old_formula_is_too_narrow_above_25_percent(self):
+        """Near-pick'em games push discordance well past 25%."""
+        n = 400
+        comparison = self._paired(b=120, c=120, both_right=80, both_wrong=80)
+        assert comparison.discordant / n == pytest.approx(0.60)
+
+        old = 100 * math.sqrt(0.25 / n)
+        assert comparison.stderr_points > old
+        # sqrt(0.60)/sqrt(0.25) = 1.55x wider.
+        assert comparison.stderr_points / old == pytest.approx(1.549, abs=0.01)
+
+    def test_the_old_formula_is_too_wide_below_25_percent(self):
+        """Stated for completeness: the error is not conservative in general."""
+        n = 400
+        comparison = self._paired(b=20, c=20, both_right=180, both_wrong=180)
+        assert comparison.stderr_points < 100 * math.sqrt(0.25 / n)
+
+    def test_perfect_agreement_leaves_no_gap_to_test(self):
+        """Zero discordant pairs means zero gap. Both sides must be zero."""
+        comparison = self._paired(b=0, c=0, both_right=200, both_wrong=100)
+        assert comparison.gap_points == pytest.approx(0.0)
+        assert comparison.stderr_points == pytest.approx(0.0)
+        assert not comparison.distinguishable
+
+    def test_the_gap_is_the_discordant_difference_over_n(self):
+        """Definitional: accuracy difference reduces to (b - c)/n exactly."""
+        comparison = self._paired(b=90, c=40, both_right=120, both_wrong=150)
+        assert comparison.gap_points == pytest.approx(
+            100.0 * (90 - 40) / comparison.n
+        )
 
 
 class TestMargins:

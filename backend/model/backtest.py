@@ -49,6 +49,64 @@ class BacktestGame:
 
 
 @dataclass(frozen=True)
+class PairedComparison:
+    """Model versus market on the **same** games, which makes it a paired test.
+
+    Why this is its own object: `beats_close` and the verdict string used to be
+    computed by two separate paths from the same inputs. One said
+    `disagreement_accuracy > market_accuracy` with no noise guard at all; the
+    other correctly reported "inside the noise band, no demonstrated edge". They
+    could disagree, and eventually would, and the boolean is the one a caller
+    branches on. Everything below is derived from this one object so that cannot
+    happen. See `tasks/lessons.md`, 2026-08-07.
+
+    **Why not `sqrt(0.25/n)`.** That is the null standard error of a *single*
+    proportion. This is the difference of two accuracies measured on the same
+    games, so the games where both were right or both were wrong carry no
+    information about which is better — only the discordant ones do. McNemar's
+    test uses exactly those:
+
+        gap = (b - c) / n          stderr = sqrt(b + c) / n
+
+    where `b` is games the model got right and the market got wrong, and `c` the
+    reverse. The two forms coincide at a discordance rate of 25%; above it the
+    old one is **too narrow**, which is the direction that manufactures
+    significance. Near-pick'em games push discordance well past 25%.
+    """
+
+    n: int
+    model_right_market_wrong: int
+    market_right_model_wrong: int
+    model_accuracy: float
+    market_accuracy: float
+
+    @property
+    def discordant(self) -> int:
+        return self.model_right_market_wrong + self.market_right_model_wrong
+
+    @property
+    def gap_points(self) -> float:
+        """Model accuracy minus market accuracy, in percentage points."""
+        return (self.model_accuracy - self.market_accuracy) * 100.0
+
+    @property
+    def stderr_points(self) -> float:
+        """McNemar standard error of the gap, in percentage points."""
+        if not self.n:
+            return 0.0
+        return 100.0 * math.sqrt(self.discordant) / self.n
+
+    @property
+    def noise_band_points(self) -> float:
+        return 2.0 * self.stderr_points
+
+    @property
+    def distinguishable(self) -> bool:
+        """Whether the gap clears two standard errors. Not whether it is positive."""
+        return abs(self.gap_points) > self.noise_band_points
+
+
+@dataclass(frozen=True)
 class BacktestResult:
     n: int
     accuracy: float
@@ -57,8 +115,20 @@ class BacktestResult:
     n_disagreements: int
     disagreement_accuracy: Optional[float]
     market_accuracy_on_same_games: Optional[float]
+    # Tri-state, and the distinction is the point:
+    #   None  -- cannot be assessed (too few games, or no disagreements)
+    #   False -- NOT DEMONSTRATED, which includes "inside the noise band"
+    #   True  -- beat the close by more than two standard errors
+    # "Not demonstrated" and "does not beat" are different claims, and this field
+    # only ever asserts the strong one. It is derived from `comparison`, never
+    # computed alongside it.
     beats_close: Optional[bool]
     verdict: str
+    comparison: Optional[PairedComparison] = None
+    # The numbers behind the verdict, so a reader is never asked to trust a
+    # boolean without being able to check it.
+    gap_points: Optional[float] = None
+    noise_band_points: Optional[float] = None
 
 
 def brier(predictions: Sequence[float], outcomes: Sequence[bool]) -> float:
@@ -135,19 +205,14 @@ def backtest(
         if g.disagreement is not None and abs(g.disagreement) >= min_disagreement
     ]
 
-    disagreement_accuracy: Optional[float] = None
-    market_accuracy: Optional[float] = None
-    beats_close: Optional[bool] = None
+    comparison = _compare(disagreements)
 
-    if disagreements:
-        disagreement_accuracy = sum(
-            1 for g in disagreements if (g.model_probability >= 0.5) == g.home_won
-        ) / len(disagreements)
-        market_accuracy = sum(
-            1 for g in disagreements
-            if (g.closing_probability >= 0.5) == g.home_won
-        ) / len(disagreements)
-        beats_close = disagreement_accuracy > market_accuracy
+    # Derived from the comparison, not computed beside it. Below `min_games` the
+    # verdict declines to rule, so this must decline too -- a boolean saying
+    # True next to a verdict saying "no verdict" is the failure this replaces.
+    beats_close: Optional[bool] = None
+    if comparison is not None and len(games) >= min_games:
+        beats_close = comparison.distinguishable and comparison.gap_points > 0
 
     return BacktestResult(
         n=len(games),
@@ -155,59 +220,88 @@ def backtest(
         brier_score=brier(predictions, outcomes),
         calibration_error=calibration_error(predictions, outcomes),
         n_disagreements=len(disagreements),
-        disagreement_accuracy=disagreement_accuracy,
-        market_accuracy_on_same_games=market_accuracy,
+        disagreement_accuracy=comparison.model_accuracy if comparison else None,
+        market_accuracy_on_same_games=comparison.market_accuracy if comparison else None,
         beats_close=beats_close,
-        verdict=_verdict(
-            len(games), len(disagreements), disagreement_accuracy,
-            market_accuracy, min_games,
-        ),
+        verdict=_verdict(len(games), comparison, min_games),
+        comparison=comparison,
+        gap_points=comparison.gap_points if comparison else None,
+        noise_band_points=comparison.noise_band_points if comparison else None,
     )
 
 
-def _verdict(
-    n: int,
-    n_disagreements: int,
-    model_accuracy: Optional[float],
-    market_accuracy: Optional[float],
-    min_games: int,
-) -> str:
-    """State plainly whether this model has earned the right to size a bet."""
+def _compare(disagreements: Sequence[BacktestGame]) -> Optional[PairedComparison]:
+    """Tally the paired outcomes. `None` when there is nothing to compare."""
+    if not disagreements:
+        return None
+
+    model_right_market_wrong = 0
+    market_right_model_wrong = 0
+    model_hits = 0
+    market_hits = 0
+
+    for game in disagreements:
+        model_right = (game.model_probability >= 0.5) == game.home_won
+        market_right = (game.closing_probability >= 0.5) == game.home_won
+        model_hits += model_right
+        market_hits += market_right
+        if model_right and not market_right:
+            model_right_market_wrong += 1
+        elif market_right and not model_right:
+            market_right_model_wrong += 1
+
+    n = len(disagreements)
+    return PairedComparison(
+        n=n,
+        model_right_market_wrong=model_right_market_wrong,
+        market_right_model_wrong=market_right_model_wrong,
+        model_accuracy=model_hits / n,
+        market_accuracy=market_hits / n,
+    )
+
+
+def _verdict(n: int, comparison: Optional[PairedComparison], min_games: int) -> str:
+    """State plainly whether this model has earned the right to size a bet.
+
+    Reads every number off `comparison`, so the prose and `beats_close` cannot
+    tell different stories.
+    """
     if n < min_games:
         return (
             f"{n} games, below the {min_games} minimum. No verdict — a backtest "
             f"this small measures the seasons it happened to cover."
         )
-    if not n_disagreements:
+    if comparison is None:
         return (
             "The model never meaningfully disagreed with the close. It has "
             "learned what the market already knows, which is not an edge."
         )
-    if model_accuracy is None or market_accuracy is None:
-        return "No closing lines available to compare against."
 
-    gap = (model_accuracy - market_accuracy) * 100
-    # Binomial standard error under the null that the model is no better.
-    stderr = 100 * math.sqrt(0.25 / n_disagreements)
+    head = (
+        f"On {comparison.n} disagreements the model was "
+        f"{comparison.model_accuracy:.1%} against the market's "
+        f"{comparison.market_accuracy:.1%}"
+    )
+    band = (
+        f"±{comparison.noise_band_points:.1f} point noise band "
+        f"({comparison.discordant} discordant games)"
+    )
 
-    if abs(gap) <= 2 * stderr:
+    if not comparison.distinguishable:
         return (
-            f"On {n_disagreements} disagreements the model was "
-            f"{model_accuracy:.1%} against the market's {market_accuracy:.1%} "
-            f"— a {gap:+.1f} point gap, inside the ±{2 * stderr:.1f} point "
-            f"noise band. No demonstrated edge. Use as a research flag only."
+            f"{head} — a {comparison.gap_points:+.1f} point gap, inside the "
+            f"{band}. No demonstrated edge. Use as a research flag only."
         )
-    if gap > 0:
+    if comparison.gap_points > 0:
         return (
-            f"On {n_disagreements} disagreements the model was "
-            f"{model_accuracy:.1%} against the market's {market_accuracy:.1%} "
-            f"(+{gap:.1f} points, outside the ±{2 * stderr:.1f} noise band). "
+            f"{head} ({comparison.gap_points:+.1f} points, outside the {band}). "
             f"Worth confirming on a held-out season before it sizes anything."
         )
     return (
         f"The model was WORSE than the close on its own disagreements "
-        f"({model_accuracy:.1%} vs {market_accuracy:.1%}). It should not "
-        f"influence sizing."
+        f"({comparison.model_accuracy:.1%} vs {comparison.market_accuracy:.1%}, "
+        f"{comparison.gap_points:+.1f} points, outside the {band}). It should "
+        f"not influence sizing."
     )
 
 

@@ -151,6 +151,22 @@ verdict, the verdict must be *derived from* that statistic, not computed by a
 parallel path that happens to sit next to it. If the two can disagree, they
 eventually will, and the wrong one is the one people act on.
 
+**Recurred 2026-08-07, in Python instead of SQL.** `BacktestResult.beats_close`
+was `disagreement_accuracy > market_accuracy` — a bare boolean with no noise
+guard — sitting in the same dataclass as a verdict correctly reading *"inside
+the ±8.0 point noise band. No demonstrated edge."* It also ignored `min_games`,
+so a 50-game backtest could report `True` beside a verdict saying *"No
+verdict"*. The boolean is what a caller branches on.
+
+Both now derive from one `PairedComparison` object, and the invariant is
+asserted directly across twelve seeds: **`beats_close is True` if and only if
+the verdict claims an edge.** The seed sweep matters — the two paths agreed
+whenever the gap was large and diverged exactly on the marginal cases, so a
+single-fixture test can pass over the bug. That is what the original test did.
+
+The structural fix that generalises: don't test that two paths agree, *delete
+one of the paths*. A shared object cannot disagree with itself.
+
 ---
 
 ## 2026-08-06 — A bashism under `#!/bin/sh` is a crash loop with no cause
@@ -717,6 +733,51 @@ The two anchoring tests are chosen so that a wrong implementation gives a
   same standard error, bit-identical. The replaced estimator returns
   `stderr/sqrt(k)` on that input, so the test states the old bug as an
   invariant instead of just checking the new number looks plausible.
+
+---
+
+## 2026-08-07 — The null for one proportion is not the null for a difference
+
+`backtest` compared the model's accuracy against the market's on the games where
+they disagreed, and tested the gap against
+
+```python
+stderr = 100 * math.sqrt(0.25 / n_disagreements)
+```
+
+That is the standard error of **one** proportion under the null. The gap is a
+*difference* of two accuracies measured on the **same games**, which makes it a
+paired comparison. Games where both were right, or both were wrong, carry no
+information about which is better — only the discordant ones do. McNemar's test
+uses exactly those:
+
+```
+gap = (b - c) / n        stderr = sqrt(b + c) / n
+```
+
+with `b` = model right and market wrong, `c` = the reverse.
+
+The two forms **coincide at exactly 25% discordance**, which is what makes this
+hard to spot: on a well-behaved sample the old number looks right. Above 25% the
+old form is too narrow — at 60% discordance it is 1.55x too small — and too
+narrow is the direction that manufactures significance. Near-pick'em games,
+which are most of a slate, push discordance well past 25%.
+
+**Why it hides:** the wrong standard error is the right *order of magnitude* and
+moves correctly with `n`. Nothing about the output announces that the wrong
+null was used. It is the [[a-sign-convention-agreed-with-its-own-test]] failure
+applied to a variance instead of a sign.
+
+**How to apply:** before writing a standard error, say out loud what the
+estimator is — "a proportion", "a difference of paired proportions", "a mean of
+clustered observations" — because each has a different null and they are not
+interchangeable. `sqrt(p(1-p)/n)` is the default that comes to mind and it is
+only correct for the first. The crossover point is the test worth writing: at
+25% discordance the two formulas must agree exactly, which pins the new
+implementation against the old one at the single input where both are right.
+
+Related: [[one-observation-recorded-thirty-times]] is the same question asked
+about `n` rather than about the formula.
 
 ---
 
