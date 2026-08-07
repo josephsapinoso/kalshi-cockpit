@@ -38,8 +38,15 @@ class FakeKalshi:
         # unverified against a real capture, and an arbitrary value here dates
         # the closing line before the recommendation, which
         # `score_recommendations` now (correctly) refuses to score.
+        # `close_dollars`, matching the real wire format captured in
+        # tests/fixtures/candlesticks_mlb.json. This fake used `close`, which
+        # Kalshi has never sent -- so it agreed with the parser's bug and six
+        # tests here went green over a scorer that could not read a single
+        # quote. A fake that mirrors the code's assumption instead of the wire
+        # tests the assumption against itself.
         self.candles = candles if candles is not None else [
-            {"yes_bid": {"close": 52}, "yes_ask": {"close": 54}}
+            {"yes_bid": {"close_dollars": "0.5200"},
+             "yes_ask": {"close_dollars": "0.5400"}}
         ]
         self.fail_on = set(fail_on)
 
