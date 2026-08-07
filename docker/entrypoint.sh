@@ -72,6 +72,25 @@ HOSTNAME=0.0.0.0 node frontend/server.js &
 frontend_pid=$!
 pids="${pids} ${frontend_pid}"
 
+# The chain runner. Live only: the demo holds no credentials and reaches no
+# network, so starting it there would crash-loop the public instance on a
+# missing KALSHI_API_KEY -- and the demo's data is seeded, not recorded.
+#
+# This is the process that accumulates the evidence record. The gate needs 300
+# independent games, which is about three weeks of unbroken recording, so an
+# instance that serves pages without running this looks completely healthy
+# while making no progress at all toward answering the project's question.
+loop_pid=""
+if [ "${INSTANCE_MODE}" != "demo" ]; then
+  echo "[entrypoint] starting chain runner (interval=${RUNNER_INTERVAL_S:-900}s)"
+  python scripts/run_loop.py \
+    --db "${DB_PATH}" --interval "${RUNNER_INTERVAL_S:-900}" &
+  loop_pid=$!
+  pids="${pids} ${loop_pid}"
+else
+  echo "[entrypoint] demo instance -- chain runner not started (no credentials)"
+fi
+
 # `wait -n` returns as soon as EITHER process exits. Whichever it was, we tear
 # the container down so the platform restarts it cleanly.
 #
@@ -79,9 +98,15 @@ pids="${pids} ${frontend_pid}"
 # losing the one line that says which half died.
 wait -n || true
 
-if kill -0 "${backend_pid}" 2>/dev/null; then
-  echo "[entrypoint] FRONTEND exited -- restarting container"
-else
+if ! kill -0 "${backend_pid}" 2>/dev/null; then
   echo "[entrypoint] BACKEND exited -- every price is now stale. Restarting."
+elif [ -n "${loop_pid}" ] && ! kill -0 "${loop_pid}" 2>/dev/null; then
+  # The runner gives up only after MAX_CONSECUTIVE_FAILURES, so reaching here
+  # means repeated failure, not a blip. Sitting on it would leave the cockpit
+  # serving a record that has silently stopped growing -- which reads as a
+  # quiet slate, not as a broken instance.
+  echo "[entrypoint] CHAIN RUNNER exited -- the record has stopped growing. Restarting."
+else
+  echo "[entrypoint] FRONTEND exited -- restarting container"
 fi
 shutdown

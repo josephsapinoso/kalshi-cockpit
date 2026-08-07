@@ -168,13 +168,36 @@ decision.
       every candidate at a second, unconnected limit in `suppression`.
       Still moneyline-only — spreads and totals are ingested and not yet priced.
 
-- [ ] **Run it on a schedule.** The runner exists but nothing calls it
-      repeatedly. This is what actually starts the three-week clock toward 300
-      independent games. Needs a loop plus the live deploy.
-- [ ] **CLV scoring pass.** `score_recommendations` exists and nothing invokes
-      it; closing lines are never fetched from candlesticks, so no row will ever
-      be scored. Without this the gate's counter stays at zero forever no matter
-      how long the runner runs.
+- [x] ~~**Run it on a schedule**~~ — **done 2026-08-07.** `backend/scheduler.py`
+      + `scripts/run_loop.py`. Jittered interval (default 900s), and it **dies
+      loudly**: a transient failure is retried, but `MAX_CONSECUTIVE_FAILURES`
+      in a row re-raises, killing the process, tripping `wait -n` in
+      `entrypoint.sh` and taking the container down. A loop that swallowed its
+      errors would leave the cockpit serving a record that had silently stopped
+      growing, which reads as a quiet slate. Started by the entrypoint on
+      **live only** — the demo holds no credentials. Smoke-tested live for two
+      passes.
+- [x] ~~**CLV scoring pass**~~ — **done 2026-08-07.** `backend/scoring.py`
+      fetches closing lines from candlesticks and calls `score_recommendations`,
+      which had existed since the evidence layer was built and had **never been
+      called by anything** — so no row could ever be scored and the gate's
+      counter was structurally pinned at zero.
+      **The anchor is the sportsbook's commence time, not Kalshi's.** Kalshi's
+      runs 3h late, so a "1h before close" reading against it lands *two hours
+      into the game* — a quote from after the outcome is partly known, which
+      would have produced a strong and entirely fake CLV signal in the one
+      measurement this project exists to make. Lines are stored at both
+      horizons for `horizons_agree`, but only the primary is scored, so
+      `clv_tenths` is never a silent mixture. Four guards verified by disabling.
+
+- [ ] **The record accumulates near-duplicate rows.** At a 900s interval the
+      loop writes ~76 recommendations per pass over the same ~19 games — about
+      7,300 rows/day, most of them identical apart from ageing `odds_age_ms`.
+      Statistically harmless (the gate clusters by game, so they count once),
+      but it will make the Ledger unreadable and the database large. Consider
+      writing only when an input actually changed — but note that is a
+      measurement decision, not just a storage one: it changes which moments
+      end up in the record.
 
 - [ ] **Research screen** — Scout findings with sources and timestamps, model-
       vs-market disagreements, steam moves.

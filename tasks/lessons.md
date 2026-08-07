@@ -736,6 +736,42 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — Code with no caller is not a feature, it is a plan
+
+`analysis/clv.py` has had `score_recommendations` since the evidence layer was
+built. It has ~40 tests. **Nothing ever called it.** It scores rows that already
+have a `closing_lines` entry, and nothing ever wrote one — so no recommendation
+could be scored, ever, and the gate's 300-observation counter was structurally
+pinned at zero however long the system ran.
+
+The same was true one level up: `persist_recommendation` was called only by
+`seed_demo.py` and tests, `odds_snapshots` had a writer and no reader,
+`fair_prices` had neither. Eleven build steps produced a complete set of correct
+parts and no chain.
+
+**Why it survived so long:** every module was individually excellent and
+individually tested, `tasks/todo.md` recorded each step as done — and it *was*
+done, as a component. Test count went up. Coverage looked real. The missing
+thing was not in any file; it was the absence of a call, and absence has no
+line number to review.
+
+**How to apply:** for anything on the critical path, the completion criterion is
+**"what calls this, and what happens if the process runs for a week?"** — not
+"is it correct and tested". A cheap detector: grep for each public entry point
+and check the callers are not all tests and seeders.
+
+```
+grep -rn "score_recommendations\|persist_recommendation" --include=*.py .
+```
+
+If every hit is `tests/` or a demo seeder, the feature does not exist yet. Same
+shape as [[a-captured-fixture-that-no-test-loads]] — the artefact is present and
+the thing it was for has not happened. Related:
+[[two-limits-on-one-quantity]], which was only discoverable *because* the chain
+finally ran.
+
+---
+
 ## 2026-08-07 — A live credential can leak with nobody logging it
 
 Running the chain against the live API put a working Odds API key into a
