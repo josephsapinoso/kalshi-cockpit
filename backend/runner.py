@@ -55,7 +55,7 @@ from .engine import (
     Candidate,
     build_recommendation,
     ensure_strategy_config,
-    persist_recommendation,
+    persist_if_changed,
 )
 from .kalshi.discovery import DiscoveredEvent, discover_from_events
 from .match.linker import (
@@ -108,6 +108,7 @@ class PassCounts:
     recommendations: int = 0
     surfaced: int = 0
     suppressed: int = 0
+    unchanged_skipped: int = 0
     dropped_no_books: int = 0
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
@@ -408,6 +409,10 @@ def run_pricing_pass(
             "suppression": suppression.__dict__,
             "kelly_fraction": risk.kelly_fraction,
             "prices": "moneyline only",
+            # Part of the config so a change to the recording rule mints a new
+            # strategy version and the record segments on it, rather than
+            # silently mixing two regimes in one dataset.
+            "record": "skip consecutive identical (ask, fair) per side",
         },
         "chain runner configuration",
         now=stamp,
@@ -514,7 +519,12 @@ def run_pricing_pass(
                     current_exposure_dollars=exposure,
                     created_ms=stamp,
                 )
-                persist_recommendation(conn, recommendation)
+                if persist_if_changed(conn, recommendation) is None:
+                    # Same ask, same fair value as the last row for this side.
+                    # Re-recording it would add a row and no information.
+                    counts.unchanged_skipped += 1
+                    continue
+
                 counts.recommendations += 1
                 if recommendation.surfaced:
                     counts.surfaced += 1

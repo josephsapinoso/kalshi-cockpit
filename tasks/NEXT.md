@@ -9,18 +9,6 @@ verified against real markets.
 
 ---
 
-## 0. Do this first — rotate the Odds API key
-
-- [ ] **Rotate `ODDS_API_KEY` at the-odds-api.com and update `.env`.** A live
-      run on 2026-08-07 put the key into a terminal transcript: `httpx` logs
-      full request URLs at INFO and The Odds API takes its key as a *query
-      parameter*, so making a request was enough. Nothing logged it
-      deliberately. The cause is fixed (`backend/logging_setup.py` redacts at
-      the root logger, and pins httpx to WARNING), but the exposed key must be
-      treated as compromised. See `tasks/lessons.md`.
-
----
-
 ## 1. Blocked on you
 
 Four things I can't do without you. Each is a few minutes.
@@ -59,8 +47,19 @@ button.
       year-old open question for a few dollars. This is real money, so it's
       your call.
 
-**Set `ODDS_API_KEY` when convenient** — the odds path has never run live, so
-every fair price so far is from seeded data.
+- [ ] **`ODDS_API_KEY` is exposed — rotation deliberately deferred
+      (2026-08-07).** A live run put the key into a terminal transcript: httpx
+      logs full request URLs at INFO and The Odds API takes its key as a *query
+      parameter*, so making a request was enough. Nothing logged it
+      deliberately. **The cause is fixed** —
+      `backend/logging_setup.py` redacts at the root logger and pins httpx to
+      WARNING — but the leaked value is still valid.
+      Judged not worth rotating for now: it is a free-tier key, 500
+      credits/month, no money and no account access attached, and Kalshi's
+      credentials were never exposed (they sign headers, not URLs). The residual
+      risk is someone draining the quota, which would silently stop the record
+      accumulating once the live instance is running. Revisit if the odds path
+      is ever put on a paid tier.
 
 ---
 
@@ -203,14 +202,21 @@ decision.
       horizons for `horizons_agree`, but only the primary is scored, so
       `clv_tenths` is never a silent mixture. Four guards verified by disabling.
 
-- [ ] **The record accumulates near-duplicate rows.** At a 900s interval the
-      loop writes ~76 recommendations per pass over the same ~19 games — about
-      7,300 rows/day, most of them identical apart from ageing `odds_age_ms`.
-      Statistically harmless (the gate clusters by game, so they count once),
-      but it will make the Ledger unreadable and the database large. Consider
-      writing only when an input actually changed — but note that is a
-      measurement decision, not just a storage one: it changes which moments
-      end up in the record.
+- [x] ~~**The record accumulates near-duplicate rows**~~ — **done 2026-08-07.**
+      `engine.persist_if_changed` skips a row identical in derived ask *and*
+      fair probability to the previous row for that `(ticker, side)`. Measured
+      on a real two-pass run: 152 rows carried 77 distinct combinations, so half
+      the record was repetition after two passes and would have been ~98% at 96
+      passes a day.
+      **Consecutive, not global** — a price moving 47 → 48 → 47 records three
+      observations, because the return to 47 is a genuine second opportunity and
+      global dedupe would thin the record exactly where the market is moving.
+      Both directions verified by disabling: removing the check re-records an
+      unchanged slate, and comparing against the oldest row instead of the
+      latest swallows the return.
+      Settled **before** live recording starts, deliberately: changing what gets
+      recorded mid-stream puts two regimes in one dataset. The rule is part of
+      the strategy config, so it mints a version and the record segments on it.
 
 - [ ] **Research screen** — Scout findings with sources and timestamps, model-
       vs-market disagreements, steam moves.

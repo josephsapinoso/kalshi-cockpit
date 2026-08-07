@@ -475,3 +475,106 @@ class TestSuppressionConfigIsHonoured:
         assert counts.recommendations == 4
         assert counts.surfaced == 0
         assert counts.suppressed == 4
+
+
+class TestTheRecordDoesNotFillWithRepeats:
+    """The runner re-prices every market on every pass.
+
+    With a 15-minute interval and an odds budget affording two sweeps a day,
+    most passes see an unchanged quote and unchanged odds and would re-record an
+    identical decision. Measured on a real two-pass run: 152 rows carrying 77
+    distinct `(ticker, side, ask, fair)` combinations. At ~96 passes a day that
+    is about 98% repetition.
+
+    Not a statistical problem -- the gate clusters by game, so repeats already
+    count once. An evidence problem: a Ledger where 98% of rows are the same row
+    is unreadable, and a suppression summary dominated by one candidate rejected
+    96 times says nothing about which rules matter.
+    """
+
+    def test_a_second_identical_pass_records_nothing_new(self, conn, joined):
+        events, _ = joined
+        first = run_pricing_pass(conn, events, now=NOW)
+        second = run_pricing_pass(conn, events, now=NOW + 900_000)
+
+        assert first.recommendations == 4
+        assert second.recommendations == 0, "an unchanged slate re-recorded itself"
+        assert second.unchanged_skipped == 4
+
+        stored = conn.execute("SELECT COUNT(*) n FROM recommendations").fetchone()
+        assert stored["n"] == 4
+
+    def test_a_changed_price_is_recorded(self, conn, joined):
+        """The guard must not be so eager that it swallows real movement."""
+        events, _ = joined
+        run_pricing_pass(conn, events, now=NOW)
+
+        ticker = next(
+            m.ticker for e in events for m in e.markets
+            if m.market_type == "moneyline"
+        )
+        # A new Kalshi quote: the derived ask moves.
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, source, "
+            "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, 'rest', 400, 100.0, 570, 100.0)",
+            (ticker, NOW + 900_000),
+        )
+        conn.commit()
+
+        second = run_pricing_pass(conn, events, now=NOW + 900_000)
+        assert second.recommendations >= 1, "a moved price was not recorded"
+
+    def test_a_price_that_returns_is_recorded_again(self, conn, joined):
+        """Consecutive dedupe, not global. 47 -> 48 -> 47 is three observations.
+
+        Deduping globally would drop the third, thinning the record precisely
+        where the market is moving -- and the return to 47 is a genuine second
+        opportunity at that price, not a repeat of the first.
+        """
+        events, _ = joined
+        ticker = next(
+            m.ticker for e in events for m in e.markets
+            if m.market_type == "moneyline"
+        )
+
+        def quote(no_bid, at):
+            conn.execute(
+                "INSERT INTO kalshi_quotes (ticker, observed_ms, source, "
+                "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+                "VALUES (?, ?, 'rest', 400, 100.0, ?, 100.0)",
+                (ticker, at, no_bid),
+            )
+            conn.commit()
+
+        quote(530, NOW + 1)                       # yes ask 470
+        run_pricing_pass(conn, events, now=NOW + 1)
+        quote(520, NOW + 2)                       # yes ask 480
+        run_pricing_pass(conn, events, now=NOW + 2)
+        quote(530, NOW + 3)                       # back to 470
+        run_pricing_pass(conn, events, now=NOW + 3)
+
+        asks = [
+            r["entry_ask_tenths"]
+            for r in conn.execute(
+                "SELECT entry_ask_tenths FROM recommendations "
+                "WHERE ticker = ? AND side = 'yes' ORDER BY id", (ticker,)
+            )
+        ]
+        assert asks.count(470) >= 2, (
+            f"the return to 470 was swallowed as a duplicate: {asks}"
+        )
+
+    def test_the_recording_rule_is_part_of_the_strategy_version(self, conn, joined):
+        """Changing what gets recorded must segment the record, not blend into it.
+
+        Two recording regimes in one dataset with no way to tell them apart is
+        exactly what `strategy_config_version` exists to prevent.
+        """
+        events, _ = joined
+        run_pricing_pass(conn, events, now=NOW)
+
+        row = conn.execute(
+            "SELECT config_json FROM strategy_configs ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        assert "record" in row["config_json"]

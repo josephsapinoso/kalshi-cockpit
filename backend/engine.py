@@ -291,6 +291,60 @@ def persist_recommendation(conn, rec: Recommendation) -> int:
     return int(cursor.lastrowid)
 
 
+# Two prices are "the same decision" if the derived ask is identical and the
+# fair probability agrees to this many places. Both are computed deterministically
+# from the same inputs, so an unchanged slate reproduces them bit-for-bit; the
+# rounding only guards against float noise.
+_FAIR_PRECISION = 9
+
+
+def persist_if_changed(conn, rec: Recommendation) -> Optional[int]:
+    """Store a recommendation unless it repeats the previous one for this side.
+
+    **Why this exists.** The runner re-prices every market on every pass. With a
+    15-minute interval and an odds budget that affords two sweeps a day, most
+    passes see an unchanged Kalshi quote and unchanged odds, and re-record an
+    identical decision. Measured on a real two-pass run: 152 rows carrying 77
+    distinct `(ticker, side, ask, fair)` combinations -- half the record was
+    repetition, and at ~96 passes a day it would be about 98%.
+
+    That is not a statistical problem: the gate clusters by game, so repeats
+    already count once. It is an *evidence* problem. A Ledger where 98% of rows
+    are the same row is unreadable, and a suppression summary dominated by the
+    same candidate rejected 96 times says nothing about which rules matter --
+    the failure named in `tasks/lessons.md` as "if most inputs trigger it, it is
+    a state, not an exception".
+
+    **Consecutive, not global.** Only a row identical to the *most recent* row
+    for that `(ticker, side)` is skipped. A price that moves 47 -> 48 -> 47 must
+    record three observations, because the return to 47 is a genuine second
+    opportunity at that price and dropping it would silently thin the record
+    exactly where the market is moving most.
+
+    **What this deliberately loses.** A candidate whose only change is ageing
+    odds -- surfaced at 60s, suppressed at 900s -- records once, not twice. The
+    transition is reconstructable from `created_ms` and the staleness limits, and
+    logging it every pass is what would drown the suppression log.
+
+    Returns the new row id, or `None` if the row was skipped as unchanged.
+    """
+    previous = conn.execute(
+        "SELECT entry_ask_tenths, fair_probability FROM recommendations "
+        "WHERE ticker = ? AND side = ? ORDER BY created_ms DESC, id DESC LIMIT 1",
+        (rec.ticker, rec.side),
+    ).fetchone()
+
+    if previous is not None:
+        same_ask = int(previous["entry_ask_tenths"]) == rec.entry_ask_tenths
+        same_fair = round(
+            float(previous["fair_probability"]), _FAIR_PRECISION
+        ) == round(rec.fair_probability, _FAIR_PRECISION)
+        if same_ask and same_fair:
+            return None
+
+    return persist_recommendation(conn, rec)
+
+
 def suppression_summary(conn, since_ms: int) -> dict[str, int]:
     """How often each rule fired. The suppression log as evidence.
 
