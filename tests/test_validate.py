@@ -291,3 +291,42 @@ class TestReport:
         chance."""
         rows = [obs(300, win=i % 2 == 0) for i in range(200)]
         assert "1 in 20" in report(summarise(rows))
+
+
+class TestImpliedAndActualShareADenominator:
+    """`gap = actual - implied`, so both halves must describe the same games.
+
+    `implied` averaged the price over EVERY row in the bucket while `actual`
+    divided wins by the settled subset. Settlement arrival is not random with
+    respect to price — at any instant the settled set is whatever has finished,
+    which correlates with start time and therefore with the kind of fixture — so
+    the mismatch put a bias straight into `gap` and `stderr`, the two numbers
+    the entire calibration check rests on.
+    """
+
+    def test_unsettled_rows_do_not_move_the_implied_price(self):
+        """The discriminating case.
+
+        Ten settled rows at 50c, plus ten unsettled rows at 90c. The settled
+        games came in at exactly their price, so the gap is zero. Averaging the
+        price over all twenty would drag `implied` to 70c and manufacture a
+        -20 point 'finding' out of games that have not finished.
+        """
+        rows = [obs(500, win=i < 5) for i in range(10)]
+        rows += [obs(900) for _ in range(10)]
+
+        bucket = next(
+            b for b in summarise(rows).buckets if b.low <= 500 < b.high
+        )
+        assert bucket.actual_rate == pytest.approx(0.5)
+        assert bucket.implied_probability == pytest.approx(0.5)
+        assert bucket.gap_points == pytest.approx(0.0)
+
+    def test_with_everything_settled_the_answer_is_unchanged(self):
+        """The fix must not move the number in the ordinary case."""
+        rows = [obs(500, win=i < 5) for i in range(10)]
+        bucket = next(
+            b for b in summarise(rows).buckets if b.low <= 500 < b.high
+        )
+        assert bucket.implied_probability == pytest.approx(0.5)
+        assert bucket.gap_points == pytest.approx(0.0)

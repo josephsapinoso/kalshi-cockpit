@@ -212,3 +212,32 @@ class TestFreshness:
         assert all(kw.get("read_only") for kw in opened), (
             "the warehouse was opened writable by the process that serves the API"
         )
+
+
+class TestMartLogicIsCoveredSomewhere:
+    """`pytest` does not run `warehouse/tests/*.sql`, so the headline test count
+    excludes every measurement guard expressed in dbt.
+
+    That is not a coverage hole — CI runs `dbt build`, which runs them — but it
+    IS a reporting one: "834 tests passing" reads as "everything is checked",
+    and the marts carry the noise guard, the calibration censoring and the
+    multiple-comparisons count. This pins the arrangement so it cannot quietly
+    stop being true, which is the failure a comment alone would not catch.
+    """
+
+    def test_ci_runs_dbt_build(self):
+        workflow = (
+            Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+        assert "dbt build" in workflow, (
+            "CI no longer runs the mart tests, and pytest never did — the "
+            "measurement guards in warehouse/tests/ are now unrun by anything"
+        )
+
+    def test_the_singular_tests_still_exist(self):
+        """A dbt test deleted is a guard deleted, and `dbt build` would stay
+        green with an empty tests directory."""
+        tests_dir = Path(__file__).parents[1] / "warehouse" / "tests"
+        names = {p.name for p in tests_dir.glob("*.sql")}
+        assert len(names) >= 5, f"only {len(names)} mart tests remain: {names}"
+        assert "assert_every_significance_mart_is_counted.sql" in names

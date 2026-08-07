@@ -356,3 +356,59 @@ class TestTeasers:
 
     def test_the_standard_price_is_around_minus_120(self):
         assert 1.80 < STANDARD_TWO_TEAM_DECIMAL < 1.90
+
+
+class TestTheTeaserEvIsAssertedNotJustDescribed:
+    """**No test anywhere asserted the teaser's EV.**
+
+    That is the one assertion that would have caught the +28.4% Wong teaser — a
+    number roughly five times any plausible real edge, printed by a demo, caused
+    by a synthetic generator that matched the mean and not the variance. Every
+    teaser test checked structure, refusals and monotonicity; none checked the
+    number the whole module exists to produce.
+
+    A modern Wong teaser is priced through: crossing 3 and 7 is real and the
+    books know it, so the honest answer at -120 is comfortably negative. Bounded
+    on BOTH sides, because an implausibly *good* result is as much a bug as a bad
+    one — and it is the direction this project is built to distrust.
+    """
+
+    def _legs(self, buckets):
+        return [
+            build_leg(
+                buckets[spread_bucket_for(-8.0)],
+                team="A", original_line=-8.0, points=6.0,
+                predicted_margin=8.0, event_key="E1",
+                league="americanfootball_nfl", commence_ms=NOW,
+            ),
+            build_leg(
+                buckets[spread_bucket_for(-8.0)],
+                team="C", original_line=-8.0, points=6.0,
+                predicted_margin=8.0, event_key="E2",
+                league="americanfootball_nfl", commence_ms=NOW + 8 * DAY,
+            ),
+        ]
+
+    def test_a_wong_teaser_at_minus_120_is_negative_ev(self, nfl_buckets):
+        valued = value_teaser(self._legs(nfl_buckets), offered_decimal=american_to_decimal(-120))
+        assert valued.ev_per_dollar < 0, (
+            f"a two-leg Wong teaser priced at -120 came out at "
+            f"{valued.ev_per_dollar:+.1%} EV. The books price this correctly, so "
+            f"a positive result means the margin distribution is wrong rather "
+            f"than that an edge was found."
+        )
+
+    def test_the_ev_is_within_a_plausible_band(self, nfl_buckets):
+        """The +28.4% bug produced a number in the right *format* and a wildly
+        wrong magnitude, which no structural assertion could catch."""
+        valued = value_teaser(self._legs(nfl_buckets), offered_decimal=american_to_decimal(-120))
+        assert -0.45 < valued.ev_per_dollar < 0.0
+
+    def test_a_generous_price_moves_it(self, nfl_buckets):
+        """The discriminating half: the bound above must not pass merely because
+        the function always returns something negative."""
+        legs = self._legs(nfl_buckets)
+        assert (
+            value_teaser(legs, offered_decimal=american_to_decimal(400)).ev_per_dollar
+            > value_teaser(legs, offered_decimal=american_to_decimal(-120)).ev_per_dollar
+        )

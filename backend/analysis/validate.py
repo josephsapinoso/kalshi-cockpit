@@ -213,11 +213,26 @@ def summarise(observations: Iterable[Observation], group: str = "all") -> Summar
         if n == 0:
             continue
 
+        settled = [r for r in rows if r.settled_win is not None]
+
         # The implied probability is the mean price actually paid, expressed as
         # a probability. This is the null hypothesis: the market is right.
-        implied = sum(r.entry_ask_tenths for r in rows) / n / 1000.0
+        #
+        # **Computed over the SETTLED rows only**, the same population `actual`
+        # is computed over. It used to average across every row in the bucket
+        # while `actual` divided by the settled subset, so the two halves of
+        # `gap` described different sets of games. Settlement arrival is not
+        # random with respect to price -- at any instant the settled subset is
+        # whatever has finished, which correlates with start time and therefore
+        # with the kind of fixture -- so that mismatch put a bias directly into
+        # `gap` and into `stderr`, the two numbers the whole calibration check
+        # rests on.
+        implied = (
+            sum(r.entry_ask_tenths for r in settled) / len(settled) / 1000.0
+            if settled
+            else sum(r.entry_ask_tenths for r in rows) / n / 1000.0
+        )
 
-        settled = [r for r in rows if r.settled_win is not None]
         actual: Optional[float] = None
         gap: Optional[float] = None
         stderr: Optional[float] = None

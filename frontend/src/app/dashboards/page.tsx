@@ -70,6 +70,29 @@ export default async function DashboardsPage() {
     <Shell>
       <Header />
 
+      {/* `missing_required_marts` was computed in `analysis/marts.py`, passed
+          through `routes.py`, typed in `api.ts` — and read by nothing. Every
+          finding panel rendered regardless of whether the mart that QUALIFIES
+          them had been built, which is the one thing that must not happen: a
+          per-bucket result shown without its multiple-comparisons context is
+          exactly the error the context exists to prevent. */}
+      {data.missing_required_marts?.length ? (
+        <div className="mb-8 rounded-2xl border border-[var(--negative)] bg-card p-6">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[var(--negative)]">
+            Findings withheld
+          </p>
+          <p className="mt-2 text-lg leading-snug">
+            {data.missing_required_marts.join(", ")} could not be read, so
+            nothing below has been qualified.
+          </p>
+          <p className="mt-3 text-sm text-muted">
+            A per-bucket result without the count of tests behind it is how ten
+            cells and one two-sigma hit becomes &ldquo;we found something&rdquo;.
+            Rebuild the warehouse before reading any number on this page.
+          </p>
+        </div>
+      ) : null}
+
       <div className="mb-8 rounded-2xl border bg-card p-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-muted">
           Read this first
