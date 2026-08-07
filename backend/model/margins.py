@@ -78,6 +78,31 @@ MIN_GAMES_FOR_EMPIRICAL = 200
 # sizing is an unbounded bet off a single observation.
 MIN_GAMES_FOR_SD = 30
 
+# How close a translated margin must sit to the line to count as a push.
+# Margins are integers and lines are integers or half-points, so real outcomes
+# are never within a thousandth of the line by accident -- this exists purely so
+# float representation of `predicted_margin - mean` cannot decide whether a push
+# is recognised.
+_PUSH_TOLERANCE = 1e-6
+
+
+def _settled_margin(translated: float) -> int:
+    """Round a translated support point back onto the integer it represents.
+
+    Translating the fitted distribution by `predicted_margin - mean` moves its
+    support off the integers -- a 3-point margin under a 0.0235 shift becomes
+    2.9765. Real games do not end 2.9765 apart, so without this **no outcome
+    ever lands exactly on an integer line and pushes are silently impossible**:
+    the first version of the push handling returned 0.0000 on a -3 line in a
+    distribution with 15% of its mass at exactly 3.
+
+    So the support is discretised back to integers, which is what it actually
+    describes. This also makes half-point lines correct for free: no integer
+    equals 3.5, so a -3.5 bet can never push, which is exactly right and needs
+    no special case.
+    """
+    return int(round(translated))
+
 # Published per-league standard deviations of final margin. Sourced values, not
 # measured here, which is why anything using them reports `sd_is_measured` as
 # False. Kept at module scope so `fit` has something to fall back *to*.
@@ -90,6 +115,40 @@ PUBLISHED_SD: dict[str, float] = {
     "icehockey_nhl": 1.9,
 }
 DEFAULT_PUBLISHED_SD = 12.0
+
+# Published standard deviations of the **combined total**, which is a different
+# distribution from the margin and consistently wider.
+#
+# Using the margin SD for totals understates their variance by 25-40% in every
+# league, and an understated variance pushes every total probability away from
+# 0.5 — so every total looks mispriced against the book, in whichever direction
+# the line happens to sit. It is the single most efficient way to manufacture
+# edge across a whole market type.
+#
+# Intuition for why they differ: margin is a *difference* of two team scores and
+# total is their *sum*, so the correlation between the two teams' scoring enters
+# with opposite sign. Pace-driven sports (both teams score more in a fast game)
+# widen the total and narrow the margin.
+PUBLISHED_TOTAL_SD: dict[str, float] = {
+    "americanfootball_nfl": 14.0,
+    "americanfootball_ncaaf": 18.5,
+    "basketball_nba": 17.0,
+    "basketball_wnba": 16.0,
+    "baseball_mlb": 4.3,
+    "icehockey_nhl": 2.7,
+}
+DEFAULT_PUBLISHED_TOTAL_SD = 15.0
+
+
+def published_total_sd(league: str) -> float:
+    """The published standard deviation of the combined total for a league."""
+    if league not in PUBLISHED_TOTAL_SD:
+        logger.warning(
+            "%s: no published TOTAL standard deviation; using %.1f. Totals are "
+            "priced on this, and it is not the margin SD.",
+            league, DEFAULT_PUBLISHED_TOTAL_SD,
+        )
+    return PUBLISHED_TOTAL_SD.get(league, DEFAULT_PUBLISHED_TOTAL_SD)
 
 
 # How far a distribution may be translated before its key numbers have moved so
@@ -267,8 +326,21 @@ class MarginDistribution:
         spikes. Without it, a normal approximation — flagged via `is_empirical`,
         because it silently prices a half-point through 3 the same as a
         half-point through 11.
+
+        **Pushes are refunds, not losses.** On an integer line the margin can
+        land exactly on it, and the stake comes back. Counting those as losses
+        understated cover probability by the entire mass sitting on the number —
+        which in the NFL is ~15% at 3 and ~9% at 7, the two lines this module
+        exists to model. So the probability returned is conditional on the bet
+        resolving at all: `wins / (wins + losses)`, with pushes removed from
+        both. `probability_push` reports the mass that was removed.
+
+        Half-point lines are unaffected, because nothing can land on them. That
+        is precisely why the bug hid: every teaser test used −7.5 and −2.5.
         """
         if not self.is_empirical:
+            # A continuous distribution puts zero mass on any single point, so
+            # there is no push to handle here.
             return _normal_survival(-line, mu=predicted_margin, sigma=self.sd)
 
         # Translate the fitted shape so its centre sits on our predicted margin.
@@ -276,15 +348,63 @@ class MarginDistribution:
         # numbers are expected to check it.
         shift = predicted_margin - self.mean
         threshold = -line
-        hits = sum(
-            count for margin, count in self.counts.items()
-            if margin + shift > threshold
-        )
-        return hits / self.n
 
-    def probability_total_over(self, line: float, *, predicted_total: float) -> float:
-        """P(combined score > line). Totals are close to smooth, so normal."""
-        return _normal_survival(line, mu=predicted_total, sigma=self.sd)
+        wins = pushes = 0
+        for margin, count in self.counts.items():
+            outcome = _settled_margin(margin + shift)
+            if math.isclose(outcome, threshold, abs_tol=_PUSH_TOLERANCE):
+                pushes += count
+            elif outcome > threshold:
+                wins += count
+
+        resolved = self.n - pushes
+        if resolved <= 0:
+            # Every observation pushed. There is no cover probability to state,
+            # and 0.0 would read as "never covers".
+            raise ValueError(
+                f"every observed margin pushes against line {line}; there is no "
+                f"win/loss probability to report"
+            )
+        return wins / resolved
+
+    def probability_push(self, line: float, *, predicted_margin: float = 0.0) -> float:
+        """P(the margin lands exactly on `line`, refunding the stake).
+
+        Zero for a half-point line, and zero for a non-empirical fit, where the
+        distribution is continuous. On an integer line in football this is the
+        key-number mass, and it is the difference between a bet that loses and
+        one that is returned.
+        """
+        if not self.is_empirical or not self.n:
+            return 0.0
+        shift = predicted_margin - self.mean
+        threshold = -line
+        pushes = sum(
+            count for margin, count in self.counts.items()
+            if math.isclose(
+                _settled_margin(margin + shift), threshold, abs_tol=_PUSH_TOLERANCE
+            )
+        )
+        return pushes / self.n
+
+    def probability_total_over(
+        self, line: float, *, predicted_total: float, total_sd: Optional[float] = None
+    ) -> float:
+        """P(combined score > line). Totals are close to smooth, so normal.
+
+        **Uses the total's own standard deviation, not `self.sd`.** `self.sd`
+        describes the *margin*, and the two differ in every league — MLB ~3.2
+        against ~4.3, NBA ~12 against ~17. Pricing totals on the margin SD
+        understated their variance by 25-40%, which pushes every probability
+        away from 0.5 and makes every total look mispriced against the book.
+        One wrong symbol, applied to an entire market type.
+
+        `total_sd` may be supplied when a measured value exists. Otherwise the
+        league's published figure is used, and — like `default_distribution` —
+        it is sourced rather than measured.
+        """
+        sigma = total_sd if total_sd is not None else published_total_sd(self.league)
+        return _normal_survival(line, mu=predicted_total, sigma=sigma)
 
 
 def _normal_survival(x: float, *, mu: float, sigma: float) -> float:

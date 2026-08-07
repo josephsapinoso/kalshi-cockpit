@@ -34,6 +34,7 @@ from backend.model.margins import (
     MIN_GAMES_FOR_EMPIRICAL,
     MIN_GAMES_FOR_SD,
     PUBLISHED_SD,
+    PUBLISHED_TOTAL_SD,
     MarginDistribution,
     _normal_survival,
     default_distribution,
@@ -690,3 +691,107 @@ class TestWongTeasers:
         """Everything else is an ordinary teaser, which is a bad bet dressed
         up as a strategy."""
         assert not wong_candidate(-8.0, points=10.0)
+
+
+class TestPushesAreRefundsNotLosses:
+    """On an integer line the margin can land exactly on it and the stake is
+    returned. Counting those as losses understates cover probability by the
+    whole key-number mass — ~15% at 3 and ~9% at 7 in the NFL, the two lines
+    this module exists to model.
+
+    Measured on an NFL-shaped fit: cover on a -3 line went from 0.3190 to
+    0.3624, a **4.3 point** understatement, on a premise whose entire claimed
+    advantage is under one point.
+
+    It hid because every teaser test used -7.5 and -2.5. Half-point lines cannot
+    push, so the bug was invisible in exactly the tests that exercised the code.
+    """
+
+    def _nfl(self):
+        rng = random.Random(7)
+        pool = ([3] * 15 + [7] * 9 + [10] * 6 + [14] * 4 + [6] * 5 + [4] * 5
+                + [1] * 5 + [17] * 3 + [21] * 3 + [2] * 4 + [8] * 4 + [13] * 3)
+        margins = [rng.choice(pool) * rng.choice([1, -1]) for _ in range(4000)]
+        return MarginDistribution("americanfootball_nfl").fit(margins)
+
+    def test_an_integer_line_has_real_push_probability(self):
+        d = self._nfl()
+        assert d.probability_push(-3.0) > 0.05, "the mass at 3 vanished"
+        assert d.probability_push(-7.0) > 0.03
+
+    def test_a_half_point_line_can_never_push(self):
+        """No integer equals 3.5. This falls out of discretising rather than
+        from a special case, which is why it is asserted."""
+        d = self._nfl()
+        assert d.probability_push(-3.5) == 0.0
+        assert d.probability_push(-7.5) == 0.0
+
+    def test_buying_the_hook_is_worth_less_than_the_push_it_avoids(self):
+        """The discriminating comparison.
+
+        A -3 bet wins on 4+, pushes on 3. A -3.5 bet wins on 4+ and LOSES on 3.
+        So conditional on resolving, -3 must be the better bet. Under the old
+        code both returned the same number, because the push was silently
+        bucketed as a loss on both.
+        """
+        d = self._nfl()
+        assert d.probability_cover(-3.0) > d.probability_cover(-3.5)
+
+    def test_pushes_leave_the_denominator_not_just_the_numerator(self):
+        """`wins / (wins + losses)`, not `wins / n`.
+
+        If pushes were only removed from the numerator the probability would be
+        understated by exactly the push mass — the original bug wearing a
+        different shape.
+        """
+        d = self._nfl()
+        cover = d.probability_cover(-3.0)
+        push = d.probability_push(-3.0)
+
+        wins = sum(
+            c for m, c in d.counts.items()
+            if round(m + (0.0 - d.mean)) > 3.0
+        )
+        assert cover == pytest.approx(wins / (d.n * (1 - push)), rel=1e-6)
+
+    def test_the_definitional_anchor_still_holds(self):
+        """A team predicted to win by exactly its own line is a coin flip.
+
+        Fixed by definition, and it is what caught the original inverted sign
+        convention. Re-asserted here because push handling changes the
+        denominator and could plausibly break it.
+        """
+        d = default_distribution("americanfootball_nfl")
+        assert d.probability_cover(-7.5, predicted_margin=7.5) == pytest.approx(0.5)
+
+
+class TestTotalsUseTheirOwnStandardDeviation:
+    """`probability_total_over` priced totals on the MARGIN standard deviation.
+
+    Margin is a difference of two team scores and total is their sum, so the
+    correlation between the teams' scoring enters with opposite sign and the two
+    spreads differ in every league — MLB 3.2 against 4.3, NBA 12 against 17.
+    Using the margin SD understates total variance by 25–40%, which pushes every
+    probability away from 0.5 and makes every total look mispriced against the
+    book. One wrong symbol, applied to an entire market type.
+    """
+
+    def test_the_published_total_sd_exceeds_the_margin_sd_in_every_league(self):
+        for league, total_sd in PUBLISHED_TOTAL_SD.items():
+            assert total_sd > PUBLISHED_SD[league], league
+
+    def test_a_total_is_not_priced_on_the_margin_spread(self):
+        d = default_distribution("basketball_nba")
+        on_total = d.probability_total_over(225.0, predicted_total=220.0)
+        on_margin = d.probability_total_over(
+            225.0, predicted_total=220.0, total_sd=d.sd
+        )
+        assert on_total != pytest.approx(on_margin, abs=1e-4)
+        # The narrower (margin) SD pushes the probability further from 0.5.
+        assert abs(on_margin - 0.5) > abs(on_total - 0.5)
+
+    def test_a_measured_value_overrides_the_published_one(self):
+        d = default_distribution("baseball_mlb")
+        assert d.probability_total_over(
+            9.0, predicted_total=8.5, total_sd=1.0
+        ) != pytest.approx(d.probability_total_over(9.0, predicted_total=8.5))
