@@ -242,9 +242,20 @@ function Verdicts({ panel }: { panel: Panel | undefined }) {
   return (
     <>
       {panel.rows.map((row, i) => (
-        <p key={i} className="mt-2 text-lg leading-snug">
-          {String(row.verdict ?? "")}
-        </p>
+        <div key={i}>
+          <p className="mt-2 text-lg leading-snug">
+            {String(row.verdict ?? "")}
+          </p>
+          {/* Where the tests came from. A bare total is unfalsifiable, and this
+              model undercounted its own tests for exactly as long as nobody
+              could see the split -- which made every finding below look more
+              significant than it was. */}
+          {row.tests_by_source ? (
+            <p className="tabular mt-1 text-xs text-muted">
+              findings/tests &mdash; {String(row.tests_by_source)}
+            </p>
+          ) : null}
+        </div>
       ))}
     </>
   );
