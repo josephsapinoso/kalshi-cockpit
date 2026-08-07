@@ -736,6 +736,57 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — An idle threadpool hides every thread-safety bug you have
+
+The deployed demo rendered *"Backend unreachable"* on **9 of 15** requests while
+`/api/health` stayed 100% green. The split is the clue: health reaches the
+backend through Next's rewrite proxy, while the pages use a server-component
+fetch to the read routes. Those were throwing:
+
+```
+sqlite3.ProgrammingError: SQLite objects created in a thread can only be
+used in that same thread
+```
+
+FastAPI runs a sync dependency and a sync path operation on **two different
+threadpool workers**, so the connection opened in `get_conn` is used from
+another thread.
+
+**Why 758 tests and a local container run missed it.** An idle threadpool tends
+to hand out the same worker twice. Nothing local ever crossed threads, so the
+guard never fired. It took a deployed instance with a 30-second health check
+running *alongside* traffic to spread the work far enough to show — one machine,
+zero restarts, no platform fault. Concurrency is not something a test suite gets
+for free; it has to be arranged, and the arrangement has to be verified.
+
+**The knowledge was already in the file.** `routes.py` opens a separate
+connection for the order endpoint and says why: *"a connection opened by a sync
+dependency in the threadpool cannot be used by this async route."* Correct, and
+incomplete — the same hop happens between two *sync* frames, worker to worker.
+A comment that explains one instance of a hazard is evidence the hazard is
+understood, not evidence it has been handled everywhere.
+
+**How to apply:** fix it narrowly. `connect()` takes `cross_thread`, defaults
+**off**, and only the per-request read-only API dependency opts in. Disabling the
+guard globally would convert a loud error into a silent race on the writer
+paths, and the guard is genuine protection for a connection two requests share.
+Related: [[clamping-is-for-values-you-trust]].
+
+**And the test that did not work.** The obvious regression test — hammer
+`TestClient` from a thread pool, expect 200s — **passes with the fix removed**.
+`TestClient` drives the app through a single anyio portal and never makes the
+worker-to-worker hop. It was written, run against the reverted fix, seen to pass,
+and deleted rather than shipped. The replacement asserts the property directly:
+the connection the API opens must be flagged usable off-thread. That one fails
+the moment the flag is dropped.
+
+The general rule, again: [[a-test-that-passes-on-the-bug-is-not-a-test]]. Run
+every new regression test against the unfixed code *before* believing it, and
+especially when the test involves concurrency — that is where a green result is
+most likely to mean "did not reproduce" rather than "fixed".
+
+---
+
 ## 2026-08-07 — Code with no caller is not a feature, it is a plan
 
 `analysis/clv.py` has had `score_recommendations` since the evidence layer was

@@ -29,9 +29,22 @@ taps.** Deployment used to need a laptop because `flyctl` has no mobile
 client; `.github/workflows/deploy.yml` now runs it from a GitHub "Run workflow"
 button.
 
-- [ ] **Deploy the demo instance to Fly.** No credentials, no execution path,
-      lowest risk — and it's the portfolio link. Needs your Fly account.
-      `fly launch --config fly.demo.toml --no-deploy` then `fly deploy`.
+- [x] ~~**Deploy the demo instance to Fly**~~ — **done 2026-08-07.**
+      **https://kalshi-cockpit-demo.fly.dev** — one machine in `ord`, scales to
+      zero, no credentials, no execution path. Deployed via the `Deploy`
+      workflow (`gh workflow run Deploy -f instance=demo`); `FLY_API_TOKEN` is
+      set as a repo secret. Verified: all five pages 200 with no error text over
+      20 consecutive requests, `/api/health` reports `instance_mode=demo`, and
+      `POST /api/orders` with a forged bearer answers **403**.
+      **The first deploy was broken and looked fine.** It served "Backend
+      unreachable" on 9 of 15 requests while `/api/health` stayed green — the
+      API's SQLite connection was thread-bound and FastAPI runs the sync
+      dependency and the sync endpoint on different threadpool workers. 758
+      local tests and a local container run all missed it, because an idle
+      threadpool reuses one worker. See `tasks/lessons.md`.
+      Added `.github/workflows/ops.yml` (read-only `logs`/`status`/`machines`)
+      because there was otherwise no way to read the deployed instance's logs —
+      `flyctl` has no mobile client and needs a token nobody holds locally.
 - [ ] **Deploy the live instance.** Needs `fly secrets set` for
       `KALSHI_API_KEY`, the private key, `APP_AUTH_TOKEN`, `ODDS_API_KEY`,
       `DISCORD_WEBHOOK_URL`. Do the demo first.
