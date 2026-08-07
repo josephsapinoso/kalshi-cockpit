@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
+from ..core.prices import dollars_to_tenths, parse_quantity
+
 logger = logging.getLogger(__name__)
 
 JUNK_PREFIX = "KXMVE"
@@ -197,6 +199,26 @@ class DiscoveredMarket:
     open_interest: float
     price_structure: Optional[str]
 
+    # The quote carried on the same payload. Only the two published BIDS are
+    # kept: asks are derived (`1 - opposing bid`) and storing a derived number
+    # beside a quoted one invites a reader to treat them alike.
+    #
+    # Carried here rather than re-read from the raw dict by the caller, because
+    # a second parse of the same bytes means a second set of field-name
+    # assumptions -- which is exactly how `apply_snapshot` came to read
+    # `data["yes"]` while Kalshi sent `yes_dollars_fp`. One reader, one place to
+    # be wrong, one fixture that pins it.
+    #
+    # `None` means unreadable and callers must refuse rather than substitute:
+    # 0 is a legitimate price on a settled market.
+    yes_bid_tenths: Optional[int] = None
+    no_bid_tenths: Optional[int] = None
+    # Size resting at each side's ASK -- what you could actually lift. Kalshi
+    # publishes `yes_ask_size_fp` directly; the size at the no ask is the resting
+    # yes bid, since a no ask is derived from it.
+    yes_ask_size: Optional[float] = None
+    no_ask_size: Optional[float] = None
+
 
 @dataclass(frozen=True)
 class DiscoveredEvent:
@@ -252,6 +274,14 @@ def build_markets(event: dict, market_type: str) -> tuple[DiscoveredMarket, ...]
                 volume_24h=_float(market.get("volume_24h_fp")),
                 open_interest=_float(market.get("open_interest_fp")),
                 price_structure=market.get("price_level_structure"),
+                # Field names verified against tests/fixtures/
+                # events_sports_nested.json, not against memory. Prices arrive
+                # as dollar STRINGS ("0.4500"), so `dollars_to_tenths` parses
+                # them and returns None on anything it cannot read.
+                yes_bid_tenths=dollars_to_tenths(market.get("yes_bid_dollars")),
+                no_bid_tenths=dollars_to_tenths(market.get("no_bid_dollars")),
+                yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
+                no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
             )
         )
     return tuple(out)

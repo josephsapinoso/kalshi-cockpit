@@ -736,6 +736,93 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — A live credential can leak with nobody logging it
+
+Running the chain against the live API put a working Odds API key into a
+terminal transcript. Nothing in this project logged it. `httpx` logs the full
+request URL at INFO, and The Odds API takes its key as a **query parameter**, so
+making a request was sufficient:
+
+```
+INFO httpx: HTTP Request: GET https://api.the-odds-api.com/v4/sports/
+baseball_mlb/odds?apiKey=<live key>&regions=us%2Ceu ... "HTTP/1.1 200 OK"
+```
+
+The key was rotated. It would have leaked identically into Fly's log stream on
+every deploy, for as long as the runner ran.
+
+**Why the usual defence misses it:** secret hygiene here was genuinely good —
+`.env` gitignored from commit one, the private key never on disk in the image,
+`.dockerignore` verified. All of that protects secrets *at rest*. None of it
+touches a third-party library's default log format, and the leak came from a
+line no author of this repo wrote.
+
+**How to apply:** redact at the **root logger**, not the call site, because
+there was no call site. `backend/logging_setup.py` filters credential-shaped
+substrings out of every record in the process, including from loggers added
+later by libraries nobody has considered yet. Two details that matter:
+
+- Filter `record.args`, not just `record.msg`. `logger.info("GET %s", url)`
+  keeps the URL in `args` until formatting, and that is exactly the form
+  `httpx` uses — a filter that only rewrote the message would let it straight
+  through.
+- Attach the filter to the **handlers**, not only the root logger. A filter on
+  a logger runs only for records logged directly on it, so a root-logger filter
+  never sees a child logger's records. Handlers are where every record
+  converges.
+
+Corollary: prefer providers that take credentials in a header. A key in a query
+string is one careless log line away from a transcript, forever.
+
+---
+
+## 2026-08-07 — Two limits on one quantity, and the tighter one wins in silence
+
+Kalshi's `occurrence_datetime` runs **exactly 3 hours late**. Measured against
+The Odds API on a live slate: 14 of 18 same-day MLB pairs and 6 of 6 WNBA pairs
+at +180 minutes, and every link the fixed runner made carried a skew of −179 or
+−180 min.
+
+The two-sport agreement is what identifies it. WNBA games run about two hours
+and MLB about three, so if the field were the expected *outcome* time the
+offsets would differ by an hour. They are identical, so it is a fixed shift —
+the US Eastern-to-Pacific gap, which does not move across DST because both
+zones shift together.
+
+That single fact then hit **two independent limits**, and the second one only
+became visible after fixing the first:
+
+| Limit | Module | Was | Effect |
+|---|---|---|---|
+| `DEFAULT_COMMENCE_TOLERANCE_MS` | `match.linker` | 2h | 0 of 175 events linked |
+| `max_commence_skew_ms` | `core.suppression` | 2h | 19 linked, **all 76** candidates rejected |
+
+Nothing connected them. The stage counts showed work happening at every step and
+nothing surviving — which reads like "no opportunities today", the same as a
+correct run on a quiet slate.
+
+**How to apply:** when the same quantity is bounded in two places, the tighter
+bound silently overrides the looser one and the looser one becomes decorative.
+Assert the relationship in a test rather than trusting two comments to stay in
+agreement — `TestTheTwoCommenceLimitsAgree` fails if suppression is ever set
+tighter than the linker. And note the general shape: **a threshold set below a
+systematic offset is not a risk control, it is an off switch.**
+
+Two further notes worth keeping:
+
+- **The tight window was not even the thing keeping doubleheaders safe.** The
+  old test asserted `tolerance <= 3h` as a *proxy* for "cannot merge a
+  doubleheader". The real guarantee is `link_event` refusing when two fixtures
+  match the same team pair. With a +3h shift, game one's Kalshi time lands on
+  game two's true start, so the tight window was what would have picked the
+  wrong game. When a test guards a property through a proxy, assert the
+  property. Related: [[a-sign-convention-agreed-with-its-own-test]].
+- **The offset is not corrected away.** Subtracting 3h in discovery would become
+  a silent lie the day Kalshi fixes it. The skew is recorded on every link
+  instead, so it stays visible as data and a change in it is detectable.
+
+---
+
 ## 2026-08-07 — A captured fixture that no test loads is decoration
 
 `tests/fixtures/odds_mlb_h2h_spreads_totals.json` had been sitting in the repo

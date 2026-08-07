@@ -42,10 +42,42 @@ logger = logging.getLogger(__name__)
 ALIAS_DIR = Path(__file__).parent / "aliases"
 
 # How far apart two sources' stated start times may be and still be the same
-# fixture. Deliberately tight: MLB doubleheaders are the same two teams on the
-# same date a few hours apart, so a generous window would merge them. Kalshi
-# encodes HHMM in the ticker precisely because same-day repeats exist.
-DEFAULT_COMMENCE_TOLERANCE_MS = 2 * 3600 * 1000
+# fixture.
+#
+# **Kalshi's `occurrence_datetime` runs exactly 3 hours late.** Measured against
+# The Odds API on a live slate (2026-08-07):
+#
+#     KXMLBGAME  14 of 18 same-day pairs at +180 min
+#     KXWNBAGAME  6 of  6 same-day pairs at +180 min
+#
+# The two-sport agreement is what identifies it. WNBA games run about two hours
+# and MLB about three, so if `occurrence_datetime` were the expected *outcome*
+# time the offsets would differ by an hour; they are identical, which makes it a
+# fixed shift and not a duration. Three hours is the US Eastern-to-Pacific gap,
+# and both zones move together across DST, so it does not vary seasonally.
+#
+# The tolerance was 2 hours, so **every single link failed by an hour** and the
+# whole chain produced zero recommendations from a full live slate.
+#
+# Widened to 4 rather than correcting the offset in `discovery`, because a
+# hard-coded `-3h` is a silent lie the day Kalshi fixes it, and because the
+# residual skew is *recorded* on every link (`commence_skew_ms`) -- so the
+# offset stays visible as data rather than being subtracted away where nobody
+# can see it drift.
+#
+# Widening is safe here specifically because `link_event` **refuses** when more
+# than one fixture matches the same team pair inside the window. A wider window
+# therefore cannot produce a wrong match; it can only turn an MLB doubleheader
+# into a refusal, which is the documented and intended behaviour. Note the
+# offset makes this matter more, not less: at a *tight* tolerance, game one's
+# shifted Kalshi time lands near game two's true start, which is precisely the
+# wrong-match this refusal exists to prevent.
+DEFAULT_COMMENCE_TOLERANCE_MS = 4 * 3600 * 1000
+
+# The measured shift above. Not applied anywhere -- it is asserted by
+# `TestKalshiOccurrenceDatetimeRunsLate` so that if Kalshi ever corrects it, the
+# test fails and this comment stops being true silently.
+OBSERVED_KALSHI_COMMENCE_OFFSET_MS = 3 * 3600 * 1000
 
 _PUNCT = re.compile(r"[^a-z0-9 ]+")
 _WS = re.compile(r"\s+")
@@ -285,12 +317,36 @@ def record_unmatched(
     conn.commit()
 
 
-def record_link(conn, result: MatchResult, league: str, linked_ms: int) -> None:
-    """Persist a successful link, keeping the skew as evidence.
+def resolve_outcome(
+    kalshi_name: str, book_names: Sequence[str], aliases: TeamAliases
+) -> Optional[str]:
+    """Which sportsbook outcome a Kalshi side refers to, or `None`.
+
+    Kalshi names a side by `yes_sub_title` ("Houston"); the books use full names
+    ("Houston Astros"). The consensus is keyed on the book's spelling, so a
+    Kalshi market has to be resolved onto it before its fair probability can be
+    looked up.
+
+    Ambiguity returns `None`. Matching more than one book outcome means the
+    names are too coarse to tell the teams apart, which is exactly the case
+    where a wrong answer looks like a right one -- the same rule `_bijection`
+    applies to fixtures, applied to a single side.
+    """
+    hits = [name for name in book_names if _matches(kalshi_name, name, aliases)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def record_link(conn, result: MatchResult, league: str, linked_ms: int) -> int:
+    """Persist a successful link and return its id, keeping the skew as evidence.
 
     The commence skew is stored rather than validated and discarded: a link
     with a large skew is a different fixture that happens to share teams, and
     that is only visible after the fact if the number was kept.
+
+    Returns the `event_links.id`, which every downstream row needs as a foreign
+    key. `INSERT OR IGNORE` yields no usable `lastrowid` when the link already
+    exists -- which is the normal case on every pass after the first -- so the
+    id is read back rather than inferred from the cursor.
     """
     if not result.matched:
         raise ValueError("record_link called with an unmatched result")
@@ -307,3 +363,14 @@ def record_link(conn, result: MatchResult, league: str, linked_ms: int) -> None:
         ),
     )
     conn.commit()
+    row = conn.execute(
+        "SELECT id FROM event_links WHERE kalshi_event_ticker = ? "
+        "AND odds_event_id = ?",
+        (result.kalshi_event_ticker, result.odds_event_id),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(
+            f"link for {result.kalshi_event_ticker} vanished immediately after "
+            f"insert -- refusing to continue with an unknown link id"
+        )
+    return int(row["id"])

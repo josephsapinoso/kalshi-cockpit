@@ -166,3 +166,58 @@ class TestConfigIsTheFlywheelsUnit:
         below anything that would be genuinely free money."""
         assert 20.0 <= CONFIG.edge_ceiling_tenths <= 60.0
         assert CONFIG.min_book_count >= 2
+
+
+class TestTheTwoCommenceLimitsAgree:
+    """Two limits on one quantity, in two modules. The tighter wins silently.
+
+    `match.linker.DEFAULT_COMMENCE_TOLERANCE_MS` decides whether two fixtures
+    *are* the same game; `SuppressionConfig.max_commence_skew_ms` decides whether
+    we are confident enough to bet on the match. Nothing connects them, and when
+    they disagreed the result was invisible: the linker matched 19 fixtures on a
+    live slate and suppression rejected all 76 resulting candidates for
+    `commence_skew`. The stage counts showed work being done at every step and
+    nothing surviving.
+    """
+
+    def test_suppression_is_not_tighter_than_the_linker(self):
+        """Otherwise suppression silently overrides matching entirely."""
+        from backend.match.linker import DEFAULT_COMMENCE_TOLERANCE_MS
+
+        assert (
+            SuppressionConfig().max_commence_skew_ms
+            >= DEFAULT_COMMENCE_TOLERANCE_MS
+        ), (
+            "suppression rejects every fixture the linker accepts at the top of "
+            "its window -- the linker's tolerance becomes decorative"
+        )
+
+    def test_the_limit_clears_the_observed_kalshi_offset(self):
+        """A limit below a systematic offset is an off switch, not a control."""
+        from backend.match.linker import OBSERVED_KALSHI_COMMENCE_OFFSET_MS
+
+        assert (
+            SuppressionConfig().max_commence_skew_ms
+            > OBSERVED_KALSHI_COMMENCE_OFFSET_MS
+        )
+
+    def test_a_genuinely_different_fixture_is_still_rejected(self):
+        """Widening must not turn the check off.
+
+        A day-later game in the same series shares both teams and is exactly
+        what this check exists to catch.
+        """
+        result = evaluate_suppression(
+            config=SuppressionConfig(),
+            kalshi_quote_age_ms=1_000,
+            odds_age_ms=60_000,
+            commence_skew_ms=24 * 3_600_000,
+            depth_at_ask=500.0,
+            contracts=10,
+            market_width=0.01,
+            book_count=6,
+            edge_tenths=25.0,
+            method_spread_probability=0.004,
+        )
+        assert result.suppressed
+        assert "commence_skew" in result.reason

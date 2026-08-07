@@ -20,6 +20,7 @@ import pytest
 
 from backend.match.linker import (
     DEFAULT_COMMENCE_TOLERANCE_MS,
+    OBSERVED_KALSHI_COMMENCE_OFFSET_MS,
     MatchCandidate,
     TeamAliases,
     link_event,
@@ -221,9 +222,42 @@ class TestCommenceWindow:
         assert result.matched
         assert result.commence_skew_ms == 10 * 60_000
 
-    def test_the_default_window_is_tight_enough_for_doubleheaders(self):
-        """MLB plays two games between the same teams a few hours apart."""
-        assert DEFAULT_COMMENCE_TOLERANCE_MS <= 3 * HOUR
+    def test_a_doubleheader_is_never_matched_to_the_wrong_game(self, no_aliases):
+        """MLB plays two games between the same teams a few hours apart.
+
+        This replaces `test_the_default_window_is_tight_enough_for_doubleheaders`,
+        which asserted `DEFAULT_COMMENCE_TOLERANCE_MS <= 3h`. That was a *proxy*
+        for safety, and the proxy turned out to be both wrong and harmful:
+        Kalshi's `occurrence_datetime` runs exactly 3 hours late (measured
+        2026-08-07 across MLB and WNBA), so a 2-hour window rejected every
+        correct link, and a live slate produced zero recommendations.
+
+        Worse, a tight window is not even the thing that keeps doubleheaders
+        safe. With a +3h shift, game one's Kalshi time lands right on game two's
+        true start — so a narrow window is exactly what would confidently pick
+        the wrong game. What actually protects this is the ambiguity refusal,
+        which is what the test now asserts directly.
+
+        The rule this follows: when a test guards a property via a proxy, assert
+        the property.
+        """
+        result = link_event(
+            kalshi_event_ticker="E",
+            kalshi_teams=["Houston", "San Diego"],
+            kalshi_commence_ms=NOW,
+            candidates=[
+                candidate("San Diego Padres", "Houston Astros", offset_ms=0),
+                candidate("San Diego Padres", "Houston Astros",
+                          offset_ms=3 * HOUR),
+            ],
+            aliases=no_aliases,
+        )
+        assert not result.matched, "picked one game of a doubleheader"
+        assert "ambiguous" in result.reason
+
+    def test_the_window_is_wide_enough_for_the_observed_kalshi_offset(self):
+        """A link that cannot survive the measured offset links nothing at all."""
+        assert DEFAULT_COMMENCE_TOLERANCE_MS > OBSERVED_KALSHI_COMMENCE_OFFSET_MS
 
     def test_skew_is_kept_as_evidence(self, conn, no_aliases):
         """A large skew is a different fixture sharing teams -- only visible
@@ -283,3 +317,75 @@ class TestAliasFiles:
         and is being papered over one team at a time."""
         for sport_key in ("americanfootball_nfl", "baseball_mlb"):
             assert len(load_aliases(sport_key).mapping) < 15
+
+
+class TestKalshiOccurrenceDatetimeRunsLate:
+    """Kalshi's stated start time is 3 hours after the sportsbook's.
+
+    Measured on a live slate (2026-08-07): 14 of 18 same-day MLB pairs and 6 of
+    6 WNBA pairs at exactly +180 minutes. The two-sport agreement is what
+    identifies it as a fixed shift rather than a duration -- WNBA games run
+    about two hours and MLB about three, so an "expected outcome time" would
+    differ between them.
+
+    With the old 2-hour tolerance every link failed by an hour, and a full live
+    slate produced zero recommendations.
+    """
+
+    def _fixture(self, commence_ms: int) -> MatchCandidate:
+        return MatchCandidate(
+            odds_event_id="odds-1",
+            commence_ms=commence_ms,
+            home_team="Pittsburgh Pirates",
+            away_team="New York Mets",
+        )
+
+    def _link(self, candidates, *, kalshi_commence_ms):
+        return link_event(
+            kalshi_event_ticker="KXMLBGAME-26AUG071840NYMPIT",
+            kalshi_teams=("New York M", "Pittsburgh"),
+            kalshi_commence_ms=kalshi_commence_ms,
+            candidates=candidates,
+            aliases=load_aliases("baseball_mlb"),
+        )
+
+    def test_the_observed_offset_still_links(self):
+        """The regression. This is the exact shape that failed live."""
+        book_start = 1_786_142_460_000
+        kalshi_start = book_start + OBSERVED_KALSHI_COMMENCE_OFFSET_MS
+
+        result = self._link(
+            [self._fixture(book_start)], kalshi_commence_ms=kalshi_start
+        )
+        assert result.matched, result.reason
+        # The skew is kept rather than corrected away, so the offset stays
+        # visible in the data and a change in it is detectable.
+        assert result.commence_skew_ms == -OBSERVED_KALSHI_COMMENCE_OFFSET_MS
+
+    def test_the_tolerance_still_excludes_a_genuinely_different_fixture(self):
+        """Widening must not become 'match anything the same teams played'."""
+        book_start = 1_786_142_460_000
+        far = book_start + DEFAULT_COMMENCE_TOLERANCE_MS + 60_000
+
+        result = self._link([self._fixture(book_start)], kalshi_commence_ms=far)
+        assert not result.matched
+        assert "commence-time window" in result.reason
+
+    def test_a_doubleheader_inside_the_window_refuses_rather_than_guessing(self):
+        """Why widening is safe, asserted rather than assumed.
+
+        The offset makes this sharper, not softer: game one's shifted Kalshi
+        time lands near game two's true start, so a *tight* window is what would
+        silently pick the wrong game. A wide one sees both and refuses.
+        """
+        first = 1_786_142_460_000
+        second = first + 4 * 3600 * 1000
+        result = self._link(
+            [self._fixture(first), MatchCandidate(
+                odds_event_id="odds-2", commence_ms=second,
+                home_team="Pittsburgh Pirates", away_team="New York Mets",
+            )],
+            kalshi_commence_ms=first + OBSERVED_KALSHI_COMMENCE_OFFSET_MS,
+        )
+        assert not result.matched
+        assert "ambiguous" in result.reason

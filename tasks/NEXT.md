@@ -9,6 +9,18 @@ verified against real markets.
 
 ---
 
+## 0. Do this first — rotate the Odds API key
+
+- [ ] **Rotate `ODDS_API_KEY` at the-odds-api.com and update `.env`.** A live
+      run on 2026-08-07 put the key into a terminal transcript: `httpx` logs
+      full request URLs at INFO and The Odds API takes its key as a *query
+      parameter*, so making a request was enough. Nothing logged it
+      deliberately. The cause is fixed (`backend/logging_setup.py` redacts at
+      the root logger, and pins httpx to WARNING), but the exposed key must be
+      treated as compromised. See `tasks/lessons.md`.
+
+---
+
 ## 1. Blocked on you
 
 Four things I can't do without you. Each is a few minutes.
@@ -137,6 +149,32 @@ decision.
 ---
 
 ## 3. Ready to build (no blockers)
+
+- [x] ~~**The chain runner**~~ — **done 2026-08-07.** `backend/runner.py` joins
+      discovery → odds sweep → link → devig → engine → `recommendations`.
+      Nothing joined them before: `persist_recommendation` was called only by
+      `seed_demo.py` and tests, `odds_snapshots` had a writer and no reader, and
+      `fair_prices` had neither. **Verified against the live API**, not just
+      fixtures: 175 events discovered, 19 linked, 2,746 odds quotes, 76
+      recommendations recorded, **0 surfaced** — no edge, which is the expected
+      and honest result. `scripts/run_chain.py` runs one pass; `--no-odds`
+      spends no credits.
+      Quotes ride on the `/events` payload (`yes_bid_dollars`,
+      `yes_ask_size_fp`) rather than a second orderbook call — no extra request,
+      and no second wire format to guess at.
+      **Three defects found by running it live**, all in `tasks/lessons.md`:
+      the credential leak above; Kalshi's `occurrence_datetime` running exactly
+      3h late, which blocked *every* link; and the same offset then blocking
+      every candidate at a second, unconnected limit in `suppression`.
+      Still moneyline-only — spreads and totals are ingested and not yet priced.
+
+- [ ] **Run it on a schedule.** The runner exists but nothing calls it
+      repeatedly. This is what actually starts the three-week clock toward 300
+      independent games. Needs a loop plus the live deploy.
+- [ ] **CLV scoring pass.** `score_recommendations` exists and nothing invokes
+      it; closing lines are never fetched from candlesticks, so no row will ever
+      be scored. Without this the gate's counter stays at zero forever no matter
+      how long the runner runs.
 
 - [ ] **Research screen** — Scout findings with sources and timestamps, model-
       vs-market disagreements, steam moves.

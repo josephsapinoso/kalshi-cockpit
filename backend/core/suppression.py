@@ -38,7 +38,19 @@ class SuppressionConfig:
 
     max_kalshi_quote_age_ms: int = 30_000
     max_odds_age_ms: int = 900_000            # 15 min
-    max_commence_skew_ms: int = 2 * 3_600_000  # 2 h
+
+    # Must stay >= `match.linker.DEFAULT_COMMENCE_TOLERANCE_MS`, which is
+    # asserted by `TestTheTwoCommenceLimitsAgree`. These are two limits on the
+    # same quantity living in two modules, and the tighter one wins silently:
+    # at 2h against the linker's 4h, every fixture the linker correctly matched
+    # was then suppressed here, and a full live slate produced 76 recommendations
+    # of which 76 were rejected for `commence_skew`.
+    #
+    # 4h because Kalshi's `occurrence_datetime` runs exactly 3 hours late --
+    # measured across MLB and WNBA on 2026-08-07, and reproduced by every link
+    # in that run carrying a skew of -179 or -180 min. A limit below the
+    # systematic offset is not a risk control, it is an off switch.
+    max_commence_skew_ms: int = 4 * 3_600_000  # 4 h
 
     # Probability points across books on the same outcome. Wide disagreement
     # means the "consensus" is not one.
