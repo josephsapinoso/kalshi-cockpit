@@ -135,12 +135,24 @@ class OddsQuote:
     def age_ms(self, now_ms: int) -> int:
         """Staleness measured from the **book's** update, not our fetch.
 
-        Falls back to our fetch time only when the book gave us nothing, and
-        that fallback is optimistic -- treat a missing `last_update` as a
-        reason for suspicion rather than freshness.
+        Falls back to our fetch time when the book gave us nothing. That
+        fallback reports a quote of unknown age as **seconds old**, which is the
+        direction that manufactures edge -- and on the very field being
+        validated. `age_is_estimated` says when it happened, because a docstring
+        warning that nothing downstream can read is not a control.
         """
         basis = self.book_updated_ms if self.book_updated_ms is not None else self.fetched_ms
         return now_ms - basis
+
+    @property
+    def age_is_estimated(self) -> bool:
+        """True when `age_ms` is measured from our fetch, not the book's clock.
+
+        A book that reports no `last_update` could have last moved a second ago
+        or an hour ago; the fetch time cannot distinguish them, and reports the
+        flattering one.
+        """
+        return self.book_updated_ms is None
 
     @property
     def is_sharp(self) -> bool:

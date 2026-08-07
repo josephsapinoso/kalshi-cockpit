@@ -264,7 +264,25 @@ class KalshiRestClient:
         page = 0
         while True:
             payload = await self.get(path, limit=limit, cursor=cursor or None, **params)
-            items = payload.get(key) or []
+
+            # A MISSING key is a renamed field; an EMPTY list is a real end of
+            # results. `payload.get(key) or []` collapsed the two, so a Kalshi
+            # rename would have turned the whole discovery path into "there are
+            # no events" -- silently, on the critical path, with a 200 response.
+            #
+            # `combos.py` already raises for exactly this case, with exactly
+            # this reasoning. Same repo, opposite handling, and the weaker one
+            # was on the path that feeds every price.
+            if key not in payload:
+                raise KalshiAPIError(
+                    200,
+                    path,
+                    f"response has no {key!r} key (got {sorted(payload)}). "
+                    f"The field was renamed; refusing to return an empty page "
+                    f"that would read as 'no results'.",
+                )
+
+            items = payload[key] or []
             if not items:
                 return
             for item in items:

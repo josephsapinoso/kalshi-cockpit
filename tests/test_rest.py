@@ -318,3 +318,50 @@ class TestClientLifecycle:
         async with wrapper:
             pass
         assert not http_client.is_closed
+
+
+class TestARenamedKeyIsLoudNotEmpty:
+    """`payload.get(key) or []` collapsed two different situations.
+
+    A **missing** key means Kalshi renamed the field. An **empty list** means
+    there are genuinely no more results. Treating them alike turned a rename
+    into "there are no events" — silently, on the path that feeds every price,
+    with a 200 response and no error anywhere.
+
+    `combos.py` already raises for exactly this case with exactly this
+    reasoning. Same repo, opposite handling, and the weaker one was on the money
+    path. This is the `data["yes"]` vs `yes_dollars_fp` failure that killed the
+    WebSocket parser, one layer up.
+    """
+
+    @respx.mock
+    async def test_a_renamed_key_raises(self, api):
+        respx.get(f"{BASE}/events").mock(
+            return_value=httpx.Response(
+                200, json={"eventz": [{"event_ticker": "E"}], "cursor": ""}
+            )
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError, match="renamed"):
+                [e async for e in client.paginate("/events", "events")]
+
+    @respx.mock
+    async def test_the_error_names_what_was_actually_returned(self, api):
+        """So the fix is one read away rather than a debugging session."""
+        respx.get(f"{BASE}/events").mock(
+            return_value=httpx.Response(200, json={"eventz": [], "cursor": ""})
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError) as excinfo:
+                [e async for e in client.paginate("/events", "events")]
+        assert "eventz" in str(excinfo.value)
+
+    @respx.mock
+    async def test_a_genuinely_empty_page_still_ends_cleanly(self, api):
+        """The discriminating pair. An empty list is a normal end of results
+        and must NOT raise, or every exhausted pagination becomes an error."""
+        respx.get(f"{BASE}/events").mock(
+            return_value=httpx.Response(200, json={"events": [], "cursor": ""})
+        )
+        async with api as client:
+            assert [e async for e in client.paginate("/events", "events")] == []

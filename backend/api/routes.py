@@ -103,11 +103,29 @@ class ParlayRequest(BaseModel):
         return {(o.a, o.b): o.rho for o in self.correlation_overrides}
 
 
-def create_app(config: Optional[AppConfig] = None) -> FastAPI:
+def create_app(
+    config: Optional[AppConfig] = None,
+    *,
+    gate_config: Optional[GateConfig] = None,
+    risk_config: Optional[RiskConfig] = None,
+    staleness_config: Optional[StalenessConfig] = None,
+) -> FastAPI:
+    """Build the app.
+
+    Every config is injectable. `AppConfig` already was, but the other three
+    were read straight from the ambient environment, so an API test's behaviour
+    depended on the developer's `.env` -- a machine with
+    `LIVE_TRADING_ENABLED=true` or a different staleness limit ran a different
+    test suite, and CI and a laptop could disagree about whether the code works.
+
+    Injecting them also makes the gate and risk settings visible at the call
+    site rather than implicit, which matters for the one app in this repo that
+    can place an order.
+    """
     app_config = config or AppConfig.load()
-    gate = GateConfig.load()
-    risk = RiskConfig.load()
-    staleness = StalenessConfig.load()
+    gate = gate_config or GateConfig.load()
+    risk = risk_config or RiskConfig.load()
+    staleness = staleness_config or StalenessConfig.load()
 
     app = FastAPI(
         title="Kalshi Betting Cockpit",

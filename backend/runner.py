@@ -140,6 +140,11 @@ class BookConsensusInput:
     quotes_by_book: dict[str, list[float]]
     oldest_book_age_ms: int
     books_dropped: tuple[str, ...]
+    # Books that reported no `last_update`, so their age is measured from our
+    # fetch and is therefore a lower bound. Reported rather than absorbed: an
+    # unknown-age quote presenting as seconds old is the direction that
+    # manufactures edge, on the field freshness suppression reads.
+    books_with_estimated_age: tuple[str, ...] = ()
 
 
 def book_quotes_for_event(
@@ -188,12 +193,15 @@ def book_quotes_for_event(
 
     by_book: dict[str, dict[str, float]] = {}
     ages: dict[str, int] = {}
+    estimated: set[str] = set()
     for row in rows:
         book = row["bookmaker"]
         by_book.setdefault(book, {})[row["outcome_name"]] = float(row["price_decimal"])
         # Staleness is measured from the BOOK's own update, not our fetch. The
         # fallback to `fetched_ms` is optimistic, so a missing `last_update` is
         # a reason for suspicion rather than a clean bill of health.
+        if row["book_updated_ms"] is None:
+            estimated.add(book)
         basis = (
             row["book_updated_ms"]
             if row["book_updated_ms"] is not None
@@ -237,6 +245,7 @@ def book_quotes_for_event(
         quotes_by_book=quotes_by_book,
         oldest_book_age_ms=oldest,
         books_dropped=tuple(sorted(dropped)),
+        books_with_estimated_age=tuple(sorted(estimated & set(quotes_by_book))),
     )
 
 

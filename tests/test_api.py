@@ -12,8 +12,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from fastapi.testclient import TestClient
+
 from backend.api.routes import create_app
-from backend.config import AppConfig
+from backend.config import AppConfig, GateConfig, StalenessConfig
 from backend.seed_demo import seed_all
 
 
@@ -314,3 +316,49 @@ class TestWongScreen:
             demo_app, "/api/builder/wong-screen", params={"lines": "Chiefs:banana"}
         )
         assert response.status_code == 400
+
+
+class TestConfigIsInjectedNotAmbient:
+    """`create_app` read `GateConfig`, `RiskConfig` and `StalenessConfig` from
+    the process environment.
+
+    So an API test's behaviour depended on the developer's `.env`: a machine
+    with `LIVE_TRADING_ENABLED=true` or a different staleness limit ran a
+    different suite, and CI and a laptop could legitimately disagree about
+    whether the code works. For the one app in this repo that can place an
+    order, the gate settings should be visible at the call site rather than
+    ambient.
+    """
+
+    def test_the_gate_config_is_taken_from_the_argument(self, demo_db, monkeypatch):
+        """Set the environment to the opposite of what is injected.
+
+        If the injected value did not win, this would read the environment and
+        report the gate as armed.
+        """
+        monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
+
+        app = create_app(
+            AppConfig(instance_mode="demo", db_path=demo_db),
+            gate_config=GateConfig(live_trading_enabled=False),
+        )
+        body = TestClient(app).get("/api/health").json()
+        assert body["live_trading_enabled"] is False
+
+    def test_the_staleness_config_is_taken_from_the_argument(
+        self, demo_db, monkeypatch
+    ):
+        monkeypatch.setenv("MAX_ODDS_AGE_S", "1")
+        injected = StalenessConfig(max_odds_age_s=4242, max_kalshi_quote_age_s=30)
+
+        app = create_app(
+            AppConfig(instance_mode="demo", db_path=demo_db),
+            staleness_config=injected,
+        )
+        # Reached through the gate screen, which reports the limits it applied.
+        assert TestClient(app).get("/api/gate").status_code == 200
+
+    def test_omitting_them_still_falls_back_to_the_environment(self, demo_db):
+        """Injection is an option, not a new requirement on every caller."""
+        app = create_app(AppConfig(instance_mode="demo", db_path=demo_db))
+        assert TestClient(app).get("/api/health").status_code == 200
