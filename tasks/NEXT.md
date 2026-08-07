@@ -33,9 +33,19 @@ button.
       Added `.github/workflows/ops.yml` (read-only `logs`/`status`/`machines`)
       because there was otherwise no way to read the deployed instance's logs —
       `flyctl` has no mobile client and needs a token nobody holds locally.
-- [ ] **Deploy the live instance.** Needs `fly secrets set` for
-      `KALSHI_API_KEY`, the private key, `APP_AUTH_TOKEN`, `ODDS_API_KEY`,
-      `DISCORD_WEBHOOK_URL`. Do the demo first.
+- [x] ~~**Deploy the live instance**~~ — **done 2026-08-07.**
+      **https://kalshi-cockpit.fly.dev** — 1GB machine in `ord`, volume
+      `cockpit_data`, never scales to zero. Gate verified locked: all four
+      conditions unmet, `live_trading_enabled=false`, `POST /api/orders` 401s
+      with and without a forged token.
+      **The record is now growing.** First pass: 184 events discovered, 32
+      linked, 3,612 odds quotes, 1,549 markets quoted, **128 recommendations
+      recorded, 0 surfaced**. 64 markets awaiting a closing line.
+      Two blockers were found and fixed by pre-flighting the image, neither
+      findable by any test: the private-key materialisation was documented in
+      `fly.live.toml` and never implemented, and `scripts/` was excluded from
+      the image so `run_loop.py` — the entrypoint's own process — was absent
+      from the filesystem.
 - [ ] **Say yes/no to one combo price lookup.** `POST .../lookup` returns a
       Kalshi combo's price but *creates a market on the exchange* if that
       combination is new. No money moves; it's what the app does every time you
@@ -60,6 +70,25 @@ button.
       risk is someone draining the quota, which would silently stop the record
       accumulating once the live instance is running. Revisit if the odds path
       is ever put on a paid tier.
+
+---
+
+## 1b. Found by deploying live
+
+- [ ] **The live cockpit is fully public.** `kalshi-cockpit.fly.dev` serves
+      `/api/board`, `/api/ledger`, `/api/gate`, `/api/suppression` and every page
+      with **no authentication** — `require_auth` guards only mutating routes.
+      Nothing can be stolen or traded (the order path needs `APP_AUTH_TOKEN`),
+      but it publishes the evaluated markets, the fair-value estimates, the
+      edges, the suggested sizes and eventually the P&L record. For a tool
+      hunting a thin edge in the most bot-contested corner of the venue,
+      broadcasting the signal is how the edge stops existing — and the hostname
+      is guessable and named in `fly.live.toml`, which goes public with the repo.
+      **Not a one-line fix.** Requiring a bearer token on read routes breaks
+      browser access, because a browser cannot set a header — so it needs a
+      session-cookie login, and the Next server components need to pass the
+      token on their internal fetches too. Decide the approach before building:
+      a shared-secret login page is the phone-friendly option.
 
 ---
 
