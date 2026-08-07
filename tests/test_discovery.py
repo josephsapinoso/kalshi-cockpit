@@ -247,22 +247,33 @@ class TestUnknownScopeWarningsAreDeduplicated:
     worth saying once.
     """
 
-    def _event(self, ticker, scope, n_markets):
-        return {
-            "event_ticker": f"{ticker}-26AUG07X",
-            "series_ticker": ticker,
-            "product_metadata": {
-                "competition": "Pro Baseball",
-                "competition_scope": scope,
-            },
-            "markets": [
-                {"ticker": f"{ticker}-26AUG07X-{i}", "yes_sub_title": f"S{i}"}
-                for i in range(n_markets)
-            ],
-        }
+    def _events(self, ticker, scope, n):
+        """`n` separate EVENTS in one series.
 
-    def test_one_series_warns_once_not_once_per_market(self, caplog):
-        events = [self._event("KXMLBHIT", "Hits", 12)]
+        Deliberately events and not markets: `classify_series` runs once per
+        event, so a fixture with one event and twelve markets warns once no
+        matter what the code does — my first version of this test did exactly
+        that and passed with the deduplication removed. The live repeats were
+        twelve fixtures sharing a series, which is the shape that actually
+        produces the spam.
+        """
+        return [
+            {
+                "event_ticker": f"{ticker}-26AUG07-{i}",
+                "series_ticker": ticker,
+                "product_metadata": {
+                    "competition": "Pro Baseball",
+                    "competition_scope": scope,
+                },
+                "markets": [
+                    {"ticker": f"{ticker}-26AUG07-{i}-A", "yes_sub_title": "A"}
+                ],
+            }
+            for i in range(n)
+        ]
+
+    def test_one_series_warns_once_not_once_per_event(self, caplog):
+        events = self._events("KXMLBHIT", "Hits", 12)
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
 
@@ -273,8 +284,8 @@ class TestUnknownScopeWarningsAreDeduplicated:
     def test_distinct_scopes_each_get_their_own_warning(self, caplog):
         """Deduplication must not swallow a genuinely new scope."""
         events = [
-            self._event("KXMLBHIT", "Hits", 5),
-            self._event("KXMLBHR", "Home Runs", 5),
+            *self._events("KXMLBHIT", "Hits", 5),
+            *self._events("KXMLBHR", "Home Runs", 5),
         ]
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
@@ -292,7 +303,7 @@ class TestUnknownScopeWarningsAreDeduplicated:
         Silence after the first pass reads as "the problem went away", which is
         the failure mode this project keeps finding in other guises.
         """
-        events = [self._event("KXMLBHIT", "Hits", 5)]
+        events = self._events("KXMLBHIT", "Hits", 5)
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
             first = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
