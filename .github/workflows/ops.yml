@@ -1,0 +1,74 @@
+# Read-only Fly operations, triggered by hand.
+#
+# `flyctl` has no mobile client and installing it is a laptop job, so without
+# this there is no way to answer "what is the deployed instance actually doing?"
+# from a phone -- or from any machine that does not hold a Fly token.
+#
+# Deliberately READ-ONLY. Nothing here deploys, scales, restarts, or sets a
+# secret. Diagnostics and mutation want different blast radii, and the deploy
+# workflow already owns mutation with its own confirmation guard.
+#
+# Required repository secret: FLY_API_TOKEN
+
+name: Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance:
+        description: "Which instance"
+        required: true
+        default: demo
+        type: choice
+        options: [demo, live]
+      action:
+        description: "What to inspect"
+        required: true
+        default: logs
+        type: choice
+        options: [logs, status, machines, all]
+
+jobs:
+  inspect:
+    name: ${{ inputs.action }} ${{ inputs.instance }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Resolve target
+        id: target
+        run: |
+          if [ "${{ inputs.instance }}" = "live" ]; then
+            echo "app=kalshi-cockpit" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=kalshi-cockpit-demo" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Status
+        if: inputs.action == 'status' || inputs.action == 'all'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl status --app "${{ steps.target.outputs.app }}"
+
+      - name: Machines
+        if: inputs.action == 'machines' || inputs.action == 'all'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app="${{ steps.target.outputs.app }}"
+          # How many machines exist matters: two machines behind one hostname
+          # means requests land on either, and a fault on one presents as an
+          # intermittent failure rather than an outage.
+          flyctl machine list --app "$app"
+          echo "--- restart counts and state ---"
+          flyctl machine list --app "$app" --json \
+            | jq -r '.[] | "\(.id) state=\(.state) restarts=\(.events | map(select(.type=="restart")) | length) region=\(.region)"'
+
+      - name: Logs
+        if: inputs.action == 'logs' || inputs.action == 'all'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # `--no-tail` so the step terminates. Without it this hangs until the
+          # job times out and prints nothing useful.
+          flyctl logs --app "${{ steps.target.outputs.app }}" --no-tail || true
