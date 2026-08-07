@@ -35,6 +35,13 @@ from ..core.prices import dollars_to_tenths, parse_quantity
 
 logger = logging.getLogger(__name__)
 
+# (series_ticker, scope) pairs already reported. Kalshi carries the same scope on
+# every market in a series, so without this one unknown scope produces one
+# warning per market -- measured at ~80 lines a pass on the live instance, with
+# single series repeated twelve times. `discover_from_events` clears it, so each
+# pass still reports the full set rather than only what changed.
+_WARNED_SCOPES: set[tuple[str, str]] = set()
+
 JUNK_PREFIX = "KXMVE"
 
 # Series suffix -> our market type. The suffix is a reliable signal *within*
@@ -144,11 +151,21 @@ def classify_series(event: dict) -> SeriesInfo:
         # not understand) but say so loudly, because it may be a market type
         # we want. The drift test in tests/test_discovery.py fails on this too.
         is_game_level = False
-        logger.warning(
-            "%s has unrecognised competition_scope %r -- excluded from pricing. "
-            "If this is a per-fixture market, add it to FIXTURE_SCOPES.",
-            series_ticker, scope,
-        )
+        # Deduplicated per (series, scope). Every market in a series carries the
+        # same scope, so the undeduplicated form emitted the identical line
+        # twelve times for one series and ~80 lines per pass -- which at a
+        # 15-minute interval is log volume that buries the errors it sits next
+        # to. The information is "this scope exists and we do not price it",
+        # which is worth saying once.
+        key = (series_ticker, scope)
+        if key not in _WARNED_SCOPES:
+            _WARNED_SCOPES.add(key)
+            logger.warning(
+                "%s has unrecognised competition_scope %r -- excluded from "
+                "pricing. If this is a per-fixture market, add it to "
+                "FIXTURE_SCOPES.",
+                series_ticker, scope,
+            )
     else:
         is_game_level = market_type is not None
         if series_ticker:
@@ -287,12 +304,27 @@ def build_markets(event: dict, market_type: str) -> tuple[DiscoveredMarket, ...]
     return tuple(out)
 
 
+def reset_scope_warnings() -> None:
+    """Forget which unknown scopes have been reported.
+
+    Called at the start of each discovery pass so the warnings describe *this*
+    pass rather than only what is new since the process started -- otherwise a
+    long-running runner reports the full list once at boot and stays silent
+    afterwards, which reads as "the problem went away".
+    """
+    _WARNED_SCOPES.clear()
+
+
 def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
     """Classify a walk of `/events` into priceable game events.
 
     Everything rejected is rejected for a stated reason and counted, so
     "we found nothing" can be told apart from "we filtered everything".
     """
+    # Each pass reports the unknown scopes it saw, rather than only those new
+    # since process start -- a long-running runner that warned once at boot and
+    # then went quiet would read as "the problem went away".
+    reset_scope_warnings()
     discovered: list[DiscoveredEvent] = []
     rejected: dict[str, int] = {
         "not_game_level": 0,

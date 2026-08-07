@@ -9,6 +9,8 @@ emptying the universe.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from conftest import load_fixture
@@ -230,3 +232,72 @@ class TestCoverage:
         coverage = coverage_by_league(discovered)
         assert "Pro Baseball" in coverage
         assert "moneyline" in coverage["Pro Baseball"]["market_types"]
+
+
+class TestUnknownScopeWarningsAreDeduplicated:
+    """One unknown scope produced one warning PER MARKET.
+
+    Kalshi carries the same `competition_scope` on every market in a series, so
+    the undeduplicated form emitted the identical line twelve times for a single
+    series — measured at ~80 WARNING lines per pass on the live instance. At a
+    15-minute interval that is log volume which buries the errors sitting next
+    to it, and on Fly it is billable ingestion.
+
+    The information is "this scope exists and we do not price it", which is
+    worth saying once.
+    """
+
+    def _event(self, ticker, scope, n_markets):
+        return {
+            "event_ticker": f"{ticker}-26AUG07X",
+            "series_ticker": ticker,
+            "product_metadata": {
+                "competition": "Pro Baseball",
+                "competition_scope": scope,
+            },
+            "markets": [
+                {"ticker": f"{ticker}-26AUG07X-{i}", "yes_sub_title": f"S{i}"}
+                for i in range(n_markets)
+            ],
+        }
+
+    def test_one_series_warns_once_not_once_per_market(self, caplog):
+        events = [self._event("KXMLBHIT", "Hits", 12)]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        warnings = [r for r in caplog.records if "unrecognised" in r.getMessage()]
+        assert len(warnings) == 1, f"{len(warnings)} warnings for one series"
+        assert "KXMLBHIT" in warnings[0].getMessage()
+
+    def test_distinct_scopes_each_get_their_own_warning(self, caplog):
+        """Deduplication must not swallow a genuinely new scope."""
+        events = [
+            self._event("KXMLBHIT", "Hits", 5),
+            self._event("KXMLBHR", "Home Runs", 5),
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ]
+        assert len(messages) == 2
+        assert any("KXMLBHIT" in m for m in messages)
+        assert any("KXMLBHR" in m for m in messages)
+
+    def test_each_pass_reports_again(self, caplog):
+        """A long-running runner must not warn once at boot and then go quiet.
+
+        Silence after the first pass reads as "the problem went away", which is
+        the failure mode this project keeps finding in other guises.
+        """
+        events = [self._event("KXMLBHIT", "Hits", 5)]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            first = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
+            discover_from_events(events)
+            second = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
+
+        assert first == 1
+        assert second == 2, "the second pass reported nothing"
