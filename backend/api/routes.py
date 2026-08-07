@@ -39,7 +39,7 @@ from ..core.parlay import (
 from ..core.prices import format_price, tenths_to_dollars
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
-from ..gate import evaluate_gate, recommendation_freshness
+from ..gate import clustered_clv, evaluate_gate, recommendation_freshness
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..store import db
 
@@ -249,18 +249,23 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         This is the evidence base: each row is scored on closing-line value
         whether or not it was bet, which is what makes 300 scored observations
         reachable without 300 wagers.
+
+        Progress is reported in **independent games**, matching what the gate
+        actually counts. Reporting rows here would put "412 of 300" on this page
+        beside a Gate screen reading "9 of 300", and the flattering number is the
+        one that gets believed. Both are returned so the ratio between them stays
+        visible rather than being quietly folded away.
         """
         rows = conn.execute(
             "SELECT * FROM recommendations ORDER BY created_ms DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        scored = conn.execute(
-            "SELECT COUNT(*) AS n FROM recommendations WHERE clv_scored_ms IS NOT NULL"
-        ).fetchone()["n"]
+        scored = clustered_clv(conn)
 
         return {
             "rows": [_serialise(r) for r in rows],
-            "clv_scored": int(scored),
+            "clv_scored": scored.n_clusters,
+            "clv_scored_rows": scored.n_rows,
             "clv_required": gate.min_scored_recommendations,
             "gate_open": _gate_open(conn, gate),
         }

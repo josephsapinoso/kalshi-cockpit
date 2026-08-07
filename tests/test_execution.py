@@ -9,13 +9,20 @@ a live buy at 99c in the predecessor project.
 
 from __future__ import annotations
 
+import math
 import sqlite3
+import statistics
 import time
 
 import pytest
 
 from backend.config import GateConfig, StalenessConfig
-from backend.gate import evaluate_gate, recommendation_freshness
+from backend.gate import (
+    _cluster_robust_stderr,
+    clustered_clv,
+    evaluate_gate,
+    recommendation_freshness,
+)
 from backend.kalshi.orders import (
     API_PRICE_MAX,
     API_PRICE_MIN,
@@ -178,13 +185,35 @@ def _conn(path):
     return conn
 
 
+_DEFAULT_EVENT = object()
+
+
 def _add_recommendation(
     conn, *, clv_tenths=None, scored=True, quote_age=1000, odds_age=60_000,
-    suppressed=None, created_ms=None, ask=503,
+    suppressed=None, created_ms=None, ask=503, ticker="T", event=_DEFAULT_EVENT,
 ):
+    """Insert one recommendation, and the market row it hangs off.
+
+    `ticker`/`event` default to a single market on a single game, so calls that
+    do not care produce one cluster. Anything asserting something about *sample
+    size* must pass distinct tickers: the gate counts independent games, and a
+    thousand rows on one game is one observation. That distinction is the point
+    of `TestObservationsAreClusteredByGame` below. Pass `event=None` to model a
+    market whose event ticker is genuinely unknown.
+
+    `first_seen_ms`/`last_seen_ms` are supplied because they are `NOT NULL`.
+    Without them the `INSERT OR IGNORE` silently inserted nothing -- the row
+    never existed, every `LEFT JOIN kalshi_markets` in a gate test matched
+    nothing, and the tests exercised the no-event fallback while reading as
+    though they covered the join. `OR IGNORE` suppresses constraint failures,
+    which is exactly what makes it able to hide this.
+    """
+    event = f"EVT-{ticker}" if event is _DEFAULT_EVENT else event
     conn.execute(
-        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, series_ticker) "
-        "VALUES ('T', 'E', 'S')"
+        "INSERT OR IGNORE INTO kalshi_markets "
+        "(ticker, event_ticker, series_ticker, first_seen_ms, last_seen_ms) "
+        "VALUES (?, ?, 'S', 0, 0)",
+        (ticker, event),
     )
     conn.execute(
         """
@@ -194,11 +223,11 @@ def _add_recommendation(
             suggested_contracts, kelly_fraction, kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
             clv_scored_ms
-        ) VALUES (?, 'T', 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, 20, 0.02, ?, ?, ?,
+        ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, 20, 0.02, ?, ?, ?,
                   'test', ?, ?)
         """,
         (
-            created_ms or int(time.time() * 1000), ask, quote_age, odds_age,
+            created_ms or int(time.time() * 1000), ticker, ask, quote_age, odds_age,
             suppressed, clv_tenths,
             int(time.time() * 1000) if scored else None,
         ),
@@ -251,11 +280,17 @@ class TestGateConditions:
 class TestClvNoiseGuard:
     def test_a_positive_but_indistinguishable_clv_does_not_count(self, gate_db):
         """The condition that a naive gate would miss: mean CLV is positive,
-        and it is inside two standard errors of zero."""
+        and it is inside two standard errors of zero.
+
+        One game each, so the sample size is genuine and the only thing under
+        test is the noise guard.
+        """
         conn = _conn(gate_db)
         # Alternating +/- with a small positive drift: positive mean, huge spread.
         for i in range(400):
-            _add_recommendation(conn, clv_tenths=(50.0 if i % 2 else -48.0))
+            _add_recommendation(
+                conn, clv_tenths=(50.0 if i % 2 else -48.0), ticker=f"T{i}"
+            )
 
         decision = evaluate_gate(
             conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
@@ -270,7 +305,9 @@ class TestClvNoiseGuard:
     def test_a_consistent_edge_clears_the_guard(self, gate_db):
         conn = _conn(gate_db)
         for i in range(400):
-            _add_recommendation(conn, clv_tenths=20.0 + (1.0 if i % 2 else -1.0))
+            _add_recommendation(
+                conn, clv_tenths=20.0 + (1.0 if i % 2 else -1.0), ticker=f"T{i}"
+            )
         decision = evaluate_gate(
             conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
         )
@@ -279,13 +316,195 @@ class TestClvNoiseGuard:
 
     def test_a_small_sample_cannot_clear_the_guard_by_being_extreme(self, gate_db):
         conn = _conn(gate_db)
-        for _ in range(5):
-            _add_recommendation(conn, clv_tenths=100.0)
+        for i in range(5):
+            _add_recommendation(conn, clv_tenths=100.0, ticker=f"T{i}")
         decision = evaluate_gate(
             conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
         )
         assert not decision.open
         assert any(c.name == "scored_recommendations" for c in decision.unmet)
+
+
+class TestObservationsAreClusteredByGame:
+    """The gate counts independent games, not rows.
+
+    The engine writes a fresh recommendation row on every pass, and every row for
+    one game scores against **one** closing line. Counting rows made the
+    300-observation floor reachable from ~10 markets polled 30 times, and shrank
+    the standard error by `sqrt(k)` for evidence that never grew.
+
+    The first two tests are the anchors: their expected values are fixed by
+    definition rather than by reasoning, which is what `tasks/lessons.md` asks
+    for after a guard, its code and its test were once written from one mental
+    model and agreed with each other while all three were wrong.
+    """
+
+    def test_singleton_clusters_reproduce_the_classical_standard_error(self):
+        """Definitional anchor 1: independent data must not be penalised.
+
+        With one observation per cluster the sandwich estimator collapses
+        algebraically to `s^2 / n`. If this drifts, the estimator has stopped
+        being cluster-robust and started being merely conservative.
+        """
+        ys = [12.0, -4.0, 31.0, 7.5, -18.0, 22.0, 0.5, 9.0]
+        _, _, mean, stderr = _cluster_robust_stderr([(1, y) for y in ys])
+
+        classical = math.sqrt(statistics.variance(ys) / len(ys))
+        assert mean == pytest.approx(statistics.fmean(ys), rel=1e-12)
+        assert stderr == pytest.approx(classical, rel=1e-12)
+
+    def test_duplicating_every_observation_changes_nothing(self):
+        """Definitional anchor 2, and the one that discriminates.
+
+        Recording each game `k` times adds no information, so the mean and the
+        standard error must come back bit-identical. The naive estimator returns
+        `stderr / sqrt(k)` on the same input -- asserted below, because a test
+        that only checks the new number is right cannot show the old one was
+        wrong.
+        """
+        games = [12.0, -4.0, 31.0, 7.5, -18.0, 22.0, 0.5, 9.0]
+        k = 30
+
+        _, g_once, mean_once, stderr_once = _cluster_robust_stderr(
+            [(1, y) for y in games]
+        )
+        _, g_many, mean_many, stderr_many = _cluster_robust_stderr(
+            [(k, y * k) for y in games]
+        )
+
+        assert g_once == g_many == len(games)
+        assert mean_many == pytest.approx(mean_once, rel=1e-12)
+        assert stderr_many == pytest.approx(stderr_once, rel=1e-12)
+
+        # What the replaced implementation would have said about the duplicated
+        # record: sqrt(sample variance / row count), over 240 rows.
+        duplicated = [y for y in games for _ in range(k)]
+        naive = math.sqrt(statistics.variance(duplicated) / len(duplicated))
+        understatement = stderr_many / naive
+        assert understatement == pytest.approx(
+            math.sqrt((len(games) * k - 1) / (len(games) - 1)), rel=1e-12
+        )
+        assert understatement > 5.0, "the old estimator was ~sqrt(30) too small"
+
+    def test_one_game_polled_four_hundred_times_is_one_observation(self, gate_db):
+        """End to end. This is the exact shape the old suite asserted was fine."""
+        conn = _conn(gate_db)
+        for _ in range(400):
+            _add_recommendation(conn, clv_tenths=20.0, ticker="T", event="E")
+
+        stats = clustered_clv(conn)
+        assert stats.n_rows == 400
+        assert stats.n_clusters == 1
+        # One cluster carries no between-game spread, so there is no standard
+        # error to report and the caller must refuse rather than substitute one.
+        assert stats.stderr_tenths is None
+
+        decision = evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+        )
+        sample = next(c for c in decision.conditions if c.name == "scored_recommendations")
+        noise = next(c for c in decision.conditions if c.name == "clv_survives_noise_guard")
+        assert not sample.met
+        assert not noise.met
+        assert "1 of 300 independent games" in sample.detail
+        assert "400 recommendation rows" in sample.detail
+
+    def test_the_floor_counts_games_so_ten_markets_cannot_reach_three_hundred(
+        self, gate_db
+    ):
+        """The audit's headline: 10 markets polled 40 times is not 400 observations."""
+        conn = _conn(gate_db)
+        for game in range(10):
+            for _ in range(40):
+                _add_recommendation(conn, clv_tenths=20.0, ticker=f"T{game}")
+
+        stats = clustered_clv(conn)
+        assert (stats.n_rows, stats.n_clusters) == (400, 10)
+
+        sample = next(
+            c
+            for c in evaluate_gate(
+                conn,
+                GateConfig(live_trading_enabled=True, min_scored_recommendations=300),
+            ).conditions
+            if c.name == "scored_recommendations"
+        )
+        assert not sample.met, "400 rows from 10 games must not clear a 300 floor"
+
+    def test_a_consistent_edge_on_ten_games_does_not_clear_the_noise_guard(
+        self, gate_db
+    ):
+        """The regression that matters: the old estimator opened on this.
+
+        Ten games polled forty times each, every row +2.0c with a hair of
+        spread. Naively that is n=400 with a tiny standard error and a decisive
+        z. Clustered, it is ten observations, and ten is not enough to tell.
+        """
+        conn = _conn(gate_db)
+        for game in range(10):
+            for i in range(40):
+                _add_recommendation(
+                    conn,
+                    clv_tenths=20.0 + (0.5 if i % 2 else -0.5),
+                    ticker=f"T{game}",
+                )
+
+        rows = [
+            r["clv_tenths"]
+            for r in conn.execute(
+                "SELECT clv_tenths FROM recommendations WHERE clv_tenths IS NOT NULL"
+            ).fetchall()
+        ]
+        naive_stderr = math.sqrt(statistics.variance(rows) / len(rows))
+        stats = clustered_clv(conn)
+
+        assert stats.mean_tenths > 2 * naive_stderr, (
+            "the replaced estimator would have called this decisive"
+        )
+        assert not stats.distinguishable, (
+            "clustered by game, ten observations cannot establish it"
+        )
+
+    def test_one_games_moneyline_spread_and_total_are_a_single_cluster(self, gate_db):
+        """Three markets, three tickers, one final score.
+
+        Clustering on ticker rather than event would count these as three
+        independent observations. They resolve from one game, and their closing
+        lines move together.
+        """
+        conn = _conn(gate_db)
+        for market in ("KXMLBGAME-X", "KXMLBSPREAD-X", "KXMLBTOTAL-X"):
+            _add_recommendation(conn, clv_tenths=15.0, ticker=market, event="EVT-GAME-X")
+
+        stats = clustered_clv(conn)
+        assert stats.n_rows == 3
+        assert stats.n_clusters == 1
+
+    def test_a_market_with_no_event_ticker_is_reported_not_silently_approximated(
+        self, gate_db
+    ):
+        """Falling back to the ticker is an approximation, so it must be visible.
+
+        An unreported approximation inside a money guard is indistinguishable
+        from a correct calculation.
+        """
+        conn = _conn(gate_db)
+        for _ in range(3):
+            _add_recommendation(conn, clv_tenths=15.0, ticker="ORPHAN", event=None)
+        _add_recommendation(conn, clv_tenths=15.0, ticker="T2")
+
+        stats = clustered_clv(conn)
+        assert stats.unclustered_rows == 3
+        # Still collapsed to one cluster by ticker -- repeated polls of the same
+        # market are caught. What is lost is correlation with its siblings.
+        assert stats.n_clusters == 2
+
+        sample = next(
+            c
+            for c in evaluate_gate(conn, GateConfig()).conditions
+            if c.name == "scored_recommendations"
+        )
+        assert "no event ticker" in sample.detail
 
 
 class TestFreshness:

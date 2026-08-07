@@ -87,7 +87,10 @@ export async function placeOrder(
 
 export type Ledger = {
   rows: Recommendation[];
+  /** Independent games scored, which is what the gate counts. Not row count. */
   clv_scored: number;
+  /** Raw recommendation rows behind those games, kept visible beside them. */
+  clv_scored_rows: number;
   clv_required: number;
   gate_open: boolean;
 };

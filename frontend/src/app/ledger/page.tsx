@@ -37,7 +37,7 @@ export default async function LedgerPage() {
       <div className="mb-10 rounded-2xl border bg-card p-6">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-semibold uppercase tracking-widest text-muted">
-            Scored on CLV
+            Independent games scored on CLV
           </span>
           <span className="tabular text-sm text-muted">
             {ledger.clv_scored} / {ledger.clv_required}
@@ -50,6 +50,12 @@ export default async function LedgerPage() {
           />
         </div>
         <p className="mt-3 text-sm text-muted">
+          Counted in games, not rows. The engine writes a fresh row every pass,
+          but all of a game&rsquo;s rows score against one closing line, so they
+          are one observation recorded many times &mdash;{" "}
+          <span className="tabular">{ledger.clv_scored_rows}</span> rows here.
+        </p>
+        <p className="mt-2 text-sm text-muted">
           {ledger.gate_open
             ? "The gate is open."
             : "The gate stays locked until this clears and the record survives the noise guard."}

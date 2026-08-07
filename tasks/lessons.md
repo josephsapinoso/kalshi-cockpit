@@ -672,6 +672,87 @@ second. Related: [[a-sign-convention-agreed-with-its-own-test]].
 
 ---
 
+## 2026-08-07 — One observation recorded thirty times is one observation
+
+The live-money gate required 300 scored recommendations and a mean CLV clearing
+two standard errors. Both counted **rows**. The engine writes a fresh row on
+every pass, and every row for one market scores against **one** closing line, so
+ten markets polled thirty times satisfied a floor written to mean 300
+independent bets — and shrank the standard error by `sqrt(30)` for evidence that
+never grew.
+
+The tests asserted the defect. `test_a_consistent_edge_clears_the_guard`
+inserted 400 rows on a single ticker and asserted the gate opened. It does not
+any more: 400 rows on one game is one observation, and one observation has no
+between-game spread to estimate at all.
+
+The fix is the sandwich estimator for a mean, clustering by **game** rather than
+by market — a game's moneyline, spread and total resolve from one final score,
+so clustering on ticker would repeat the same mistake one level up:
+
+```
+Var(ybar) = G/(G-1) * sum_c ( sum_{i in c} (y_i - ybar) )^2 / N^2
+```
+
+**Why it is dangerous rather than merely wrong:** an understated standard error
+produces a *more confident* version of the same number. Mean CLV was correct
+throughout. Only the error bar was fiction, and the error bar is the entire
+content of the claim "this is not noise".
+
+**How to apply:** before dividing by `sqrt(n)`, ask what `n` counts and whether
+two rows can ever be the same underlying event. Anywhere a poller writes rows on
+a timer, the row count is a measure of *uptime*, not of evidence. Both numbers
+are now reported side by side — the Ledger shows games over the floor with the
+row count beside it, because "412 of 300" on one screen and "9 of 300" on
+another is the failure in [[computing-the-right-statistic-and-then-ignoring-it]],
+and the flattering one gets believed.
+
+The two anchoring tests are chosen so that a wrong implementation gives a
+*different* answer, per [[four-audits-one-failure-shape]]:
+
+- **Singleton clusters must reproduce the classical standard error exactly.**
+  With `G == N` the estimator collapses algebraically to `s^2/N`, so genuinely
+  independent data is not penalised. This one catches a dropped `G/(G-1)`.
+- **Duplicating every observation `k` times must change nothing** — same mean,
+  same standard error, bit-identical. The replaced estimator returns
+  `stderr/sqrt(k)` on that input, so the test states the old bug as an
+  invariant instead of just checking the new number looks plausible.
+
+---
+
+## 2026-08-07 — `INSERT OR IGNORE` will happily ignore your fixture
+
+The gate tests' helper did this, and had since the file was written:
+
+```sql
+INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, series_ticker)
+VALUES ('T', 'E', 'S')
+```
+
+`kalshi_markets.first_seen_ms` is `NOT NULL`. So the insert violated a
+constraint, `OR IGNORE` suppressed it, and **the market row was never created**.
+Every `LEFT JOIN kalshi_markets` in a gate test matched nothing for the life of
+the project. The tests read as though they covered the join; they covered the
+fallback branch for a market that does not exist.
+
+It surfaced only because clustering by `event_ticker` gave the wrong cluster
+count in a new test. Nothing else would ever have shown it — the join is a
+`LEFT JOIN`, so a missing row degrades quietly by design.
+
+**Why:** `OR IGNORE` is written to mean "this row may already exist". It
+actually means "ignore *every* constraint failure on this statement", including
+the `NOT NULL` that says the fixture is incomplete. It is the
+unreadable-resolving-to-zero pattern in DDL form: a real error converted into a
+plausible no-op.
+
+**How to apply:** reserve `INSERT OR IGNORE` for genuine idempotence, and when a
+test fixture exists to satisfy a join, assert the join finds it rather than
+trusting the insert. `ON CONFLICT (pk) DO NOTHING` is the narrower statement and
+still raises on a missing `NOT NULL` column. Related:
+[[unreadable-must-never-resolve-to-zero]].
+
+---
+
 ## 2026-08-07 — Suppressing a conclusion is not suppressing the finding
 
 The Dashboards page claimed, in its own docstring, that cells which cannot

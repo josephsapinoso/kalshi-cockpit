@@ -45,11 +45,22 @@ These are open defects from the 2026-08-07 audit. Full detail with file:line in
 `tasks/audit-2026-08-07.md`. Ordered by how much they'd distort a money
 decision.
 
-- [ ] **The gate's `n` counts non-independent observations.** Every engine pass
-      writes a fresh row per market, and all rows for one ticker score against
-      *one* closing line. That understates the standard error by roughly √k, so
-      the 300-observation floor is reachable from ~10 markets polled 30 times.
-      **This is the single largest lever on whether the money gate opens.**
+- [x] ~~**The gate's `n` counts non-independent observations**~~ — **done
+      2026-08-07.** Rows are now clustered by **game** (`kalshi_markets.
+      event_ticker`, not ticker — a game's moneyline, spread and total resolve
+      from one final score) and the standard error is the cluster-robust
+      sandwich estimator. The 300 floor counts independent games; the Ledger
+      shows games over the floor with the row count beside it, so the two
+      screens cannot disagree. Two anchors chosen so a wrong implementation
+      differs: singleton clusters reproduce the classical `s²/n` exactly, and
+      duplicating every observation `k` times leaves the standard error
+      bit-identical (the old estimator returned `stderr/√k`). Verified by
+      disabling it two ways — clustering by row turned 5 tests red, dropping the
+      finite-cluster correction turned the other 2 red. **Found on the way:**
+      the test helper's `INSERT OR IGNORE INTO kalshi_markets` had been silently
+      inserting nothing since the file was written (`first_seen_ms` is `NOT
+      NULL`), so every gate test's join matched nothing. Both in
+      `tasks/lessons.md`.
 - [ ] **Continuous monitoring with no peeking correction.** The gate re-runs on
       every request against a growing database, with no pre-registered `n`.
       Under a true zero-edge process, the chance the running z-score *ever*
