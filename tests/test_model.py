@@ -18,8 +18,16 @@ from backend.model.backtest import (
     backtest,
     brier,
     calibration_error,
+    calibration_split,
     fit_calibrator_on_holdout,
     walk_forward,
+)
+from backend.core.correlation import (
+    CorrelationUnreachable,
+    Leg,
+    equicorrelated_joint,
+    equicorrelation_floor,
+    implied_correlation,
 )
 from backend.model.elo import (
     DEFAULT_RATING,
@@ -795,3 +803,145 @@ class TestTotalsUseTheirOwnStandardDeviation:
         assert d.probability_total_over(
             9.0, predicted_total=8.5, total_sd=1.0
         ) != pytest.approx(d.probability_total_over(9.0, predicted_total=8.5))
+
+
+class TestTheCalibratorSeesOnlyThePast:
+    """It was fitted on the chronologically LAST 30% and applied to the earlier
+    70% — so the calibrator had seen outcomes from games played *after* the
+    predictions it was correcting.
+
+    That is lookahead of the flattering kind: a calibrator tuned on the future
+    of the very series it corrects will always look well-behaved on that series,
+    which is exactly the impression a backtest is supposed to earn rather than
+    assume.
+    """
+
+    def _series(self, n=400):
+        """Predictions whose calibration error REVERSES halfway through.
+
+        A split that takes the wrong half produces a visibly different
+        calibrator, which is what makes the direction testable at all. With a
+        stationary series both halves fit the same curve and nothing
+        discriminates.
+        """
+        rng = random.Random(3)
+        out = []
+        for i in range(n):
+            overconfident = i < n // 2
+            p = 0.85 if overconfident else 0.55
+            won = rng.random() < (0.55 if overconfident else 0.55)
+            out.append(
+                BacktestGame(
+                    game=game(hs=1 if won else 0, as_=0),
+                    model_probability=p,
+                    closing_probability=0.55,
+                )
+            )
+        return out
+
+    def test_the_split_takes_the_earliest_games(self):
+        series = self._series()
+        calibration, evaluation = calibration_split(series, calibration_fraction=0.3)
+
+        assert len(calibration) == 120
+        assert calibration[0] is series[0], "did not start at the beginning"
+        assert evaluation[0] is series[120]
+        assert calibration[-1] is series[119]
+
+    def test_calibration_and_evaluation_do_not_overlap(self):
+        """The whole point of a split. Any shared game re-introduces the leak."""
+        series = self._series()
+        calibration, evaluation = calibration_split(series)
+        assert not ({id(g) for g in calibration} & {id(g) for g in evaluation})
+
+    def test_the_calibrator_reflects_the_early_regime_not_the_late_one(self):
+        """The discriminating assertion.
+
+        The first half is wildly overconfident (0.85 predictions winning 55%);
+        the second is honest. A calibrator fitted on the early half must shrink
+        the slope hard. One fitted on the late half — the old behaviour — sees
+        nothing to correct.
+        """
+        series = self._series()
+        early = fit_calibrator_on_holdout(series, calibration_fraction=0.3)
+
+        late_games = series[int(len(series) * 0.7):]
+        late = PlattCalibrator().fit(
+            [g.model_probability for g in late_games],
+            [g.home_won for g in late_games],
+        )
+        assert early.a != pytest.approx(late.a, abs=0.05), (
+            "the calibrator is being fitted on the tail, not the head"
+        )
+
+    def test_an_empty_series_returns_an_unfitted_calibrator(self):
+        assert fit_calibrator_on_holdout([]).fitted_on == 0
+
+
+class TestEquicorrelationStaysPositiveSemiDefinite:
+    """Below `-1/(n-1)` an equicorrelation matrix is not PSD, and the repair
+    silently answers for a *different* correlation than the one asked about.
+
+    `implied_correlation`'s residual therefore went flat across that region --
+    every rho below the floor maps to the same repaired matrix -- so brentq
+    returned an arbitrary point from a range of equally-good roots and reported
+    it as a measurement. Same shape as the Shin `z <= _EPS` short-circuit this
+    project already fixed once.
+    """
+
+    def _legs(self, n):
+        return [
+            Leg(f"L{i}", 0.5, f"event-{i}", "americanfootball_nfl", i * 86_400_000)
+            for i in range(n)
+        ]
+
+    def test_the_floor_matches_the_eigenvalue_bound(self):
+        """Fixed by algebra, not taste: eigenvalues are `1+(n-1)rho` and `1-rho`."""
+        assert equicorrelation_floor(2) == -1.0
+        assert equicorrelation_floor(3) == pytest.approx(-0.5)
+        assert equicorrelation_floor(4) == pytest.approx(-1 / 3)
+
+    def test_three_legs_cannot_all_be_strongly_anti_correlated(self):
+        """A opposing B and B opposing C forces A and C to agree."""
+        with pytest.raises(ValueError, match="positive semi-definite floor"):
+            equicorrelated_joint(self._legs(3), -0.9)
+
+    def test_two_legs_may_be_perfectly_anti_correlated(self):
+        """The floor is -1 for a pair, so this must NOT refuse."""
+        assert equicorrelated_joint(self._legs(2), -0.95) >= 0.0
+
+    def test_implied_correlation_never_searches_below_the_floor(self):
+        """A bracket extending past the floor is a bracket with a flat region.
+
+        Asserted through behaviour: the default bounds reach -0.95, which is
+        below the three-leg floor of -0.5, and this must still return a real
+        root rather than an arbitrary point from the flat part.
+        """
+        legs = self._legs(3)
+        joint = equicorrelated_joint(legs, 0.25)
+        recovered = implied_correlation(legs, joint)
+        assert recovered == pytest.approx(0.25, abs=0.05)
+
+
+class TestTheUnreachableRangeMessageIsArithmeticallyRight:
+    """`residual = joint(rho) - target`, so the joint reachable at each end is
+    `target + residual`. The message printed `target - residual`, wrong at both
+    ends -- a diagnostic that produced a range not containing the observed
+    joint, actively misleading the reader it was written for.
+    """
+
+    def test_the_reported_range_brackets_what_is_actually_reachable(self):
+        legs = [
+            Leg("A", 0.6, "e1", "nfl", 0),
+            Leg("B", 0.5, "e2", "nfl", 86_400_000),
+        ]
+        low, high = 0.5, 0.6
+        reachable_low = equicorrelated_joint(legs, low)
+        reachable_high = equicorrelated_joint(legs, high)
+
+        with pytest.raises(CorrelationUnreachable) as excinfo:
+            implied_correlation(legs, 0.301, bounds=(low, high))
+
+        message = str(excinfo.value)
+        assert f"{reachable_low:.4f}" in message
+        assert f"{reachable_high:.4f}" in message

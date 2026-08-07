@@ -342,17 +342,46 @@ def walk_forward(
 
 
 def fit_calibrator_on_holdout(
-    backtested: Sequence[BacktestGame], *, holdout_fraction: float = 0.3
+    backtested: Sequence[BacktestGame], *, calibration_fraction: float = 0.3
 ) -> PlattCalibrator:
-    """Fit calibration on the tail, leaving the head for evaluation.
+    """Fit calibration on the EARLIEST games, leaving the rest for evaluation.
 
     Fitting on the same games used to score is how a model becomes perfectly
     calibrated on paper and overconfident in practice.
+
+    **This used to fit on the chronologically LAST 30%** and then correct the
+    earlier 70% — so the calibrator had seen the outcomes of games played after
+    the predictions it was adjusting. That is lookahead, and it is the specific
+    kind that flatters: a calibrator tuned on the future of the very series it
+    corrects will always look well-behaved on that series.
+
+    `backtested` is assumed to be in chronological order, which is what
+    `walk_forward` returns. The split is by position rather than by timestamp
+    for that reason; a caller that reorders the list defeats this silently, so
+    do not.
+
+    Returns the `evaluation` slice's counterpart via `calibration_split` when a
+    caller needs the two halves explicitly.
     """
     if not backtested:
         return PlattCalibrator()
-    split = int(len(backtested) * (1 - holdout_fraction))
-    holdout = backtested[split:]
-    return PlattCalibrator().fit(
-        [g.model_probability for g in holdout], [g.home_won for g in holdout]
+    calibration, _ = calibration_split(
+        backtested, calibration_fraction=calibration_fraction
     )
+    return PlattCalibrator().fit(
+        [g.model_probability for g in calibration],
+        [g.home_won for g in calibration],
+    )
+
+
+def calibration_split(
+    backtested: Sequence[BacktestGame], *, calibration_fraction: float = 0.3
+) -> tuple[Sequence[BacktestGame], Sequence[BacktestGame]]:
+    """`(calibration, evaluation)` — earliest games first, in that order.
+
+    Exposed so a caller can score on the evaluation half rather than on
+    everything. Scoring the calibration games again is not fatal, but it does
+    quietly reintroduce the overlap this split exists to remove.
+    """
+    split = max(1, int(len(backtested) * calibration_fraction))
+    return backtested[:split], backtested[split:]

@@ -195,10 +195,52 @@ class CorrelationUnreachable(ValueError):
     """Raised when no correlation could produce an observed joint price."""
 
 
+# How far inside the positive semi-definite floor the correlation search must
+# stay. AT the floor the matrix is PSD but singular, and the Cholesky
+# factorisation numpy's sampler uses fails outright on it.
+_PSD_MARGIN = 1e-6
+
+
+def equicorrelation_floor(n_legs: int) -> float:
+    """Lowest `rho` for which an `n x n` equicorrelation matrix stays PSD.
+
+    An equicorrelation matrix has eigenvalues `1 + (n-1)*rho` (once) and
+    `1 - rho` (n-1 times), so it stops being positive semi-definite below
+    `-1/(n-1)`. Two legs can be perfectly anti-correlated; three cannot all be,
+    because A opposing B and B opposing C forces A and C to agree.
+
+    Below the floor `_nearest_positive_definite` silently projects to a
+    *different* matrix, so `equicorrelated_joint` returns the joint for a rho
+    that was not requested -- and `implied_correlation`'s residual goes flat
+    across that region, making brentq's root there arbitrary. Same shape as the
+    Shin `z <= _EPS` short-circuit this module's sibling already fixed once: a
+    silent substitution of a different computation.
+    """
+    if n_legs < 2:
+        raise ValueError("need at least two legs")
+    if n_legs == 2:
+        return -1.0
+    return -1.0 / (n_legs - 1)
+
+
 def equicorrelated_joint(
     legs: Sequence[Leg], rho: float, *, samples: int = _MC_SAMPLES
 ) -> float:
-    """P(all legs win) when every pair carries the same correlation `rho`."""
+    """P(all legs win) when every pair carries the same correlation `rho`.
+
+    Refuses below `equicorrelation_floor`: there the matrix is not PSD and the
+    repair would quietly answer for a different correlation than the one asked
+    about.
+    """
+    floor = equicorrelation_floor(len(legs))
+    if rho < floor - 1e-12:
+        raise ValueError(
+            f"rho={rho:.4f} is below the positive semi-definite floor "
+            f"{floor:.4f} for {len(legs)} legs. No joint distribution has every "
+            f"pair that anti-correlated, so the matrix would be silently "
+            f"repaired into a different one."
+        )
+
     labels = [leg.label for leg in legs]
     overrides = {
         (labels[i], labels[j]): rho
@@ -253,14 +295,34 @@ def implied_correlation(
     def residual(rho: float) -> float:
         return equicorrelated_joint(legs, rho) - joint_probability
 
-    low, high = bounds
+    # The bracket must lie inside the feasible region. Searching below the PSD
+    # floor makes the residual FLAT there -- every rho below it is repaired to
+    # the same matrix -- so brentq would return an arbitrary point from a range
+    # of equally-good roots and report it as a measurement.
+    # Strictly inside, not on, the floor: at exactly `-1/(n-1)` the matrix is
+    # PSD but singular, and the Cholesky factorisation the sampler uses fails on
+    # it. Being one part in a million inside costs nothing and keeps the bracket
+    # in the region where the residual is genuinely monotone.
+    floor = equicorrelation_floor(len(legs)) + _PSD_MARGIN
+    low, high = max(bounds[0], floor), bounds[1]
+    if low >= high:
+        raise CorrelationUnreachable(
+            f"the search bracket {bounds} lies entirely below the positive "
+            f"semi-definite floor {floor:.4f} for {len(legs)} legs"
+        )
+
     residual_low, residual_high = residual(low), residual(high)
     if residual_low > 0 or residual_high < 0:
+        # `residual = joint(rho) - target`, so the joint reachable at each end
+        # is `target + residual`. This printed `target - residual`, which is
+        # wrong at BOTH ends and produced a range that did not contain the
+        # observed joint -- a diagnostic that actively misled the reader it was
+        # written for.
         raise CorrelationUnreachable(
             f"a joint of {joint_probability:.4f} implies a correlation outside "
-            f"[{low}, {high}] (reachable range "
-            f"{joint_probability - residual_low:.4f}.."
-            f"{joint_probability - residual_high:.4f}). The dependence is "
+            f"[{low:.4f}, {high:.4f}] (reachable joints "
+            f"{joint_probability + residual_low:.4f}.."
+            f"{joint_probability + residual_high:.4f}). The dependence is "
             f"stronger than one equicorrelation can express -- price the pairs "
             f"separately rather than forcing a single number."
         )
