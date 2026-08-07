@@ -38,7 +38,7 @@ substitute. A price that silently became 0 is a free contract in the risk model.
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Optional, Union
 
 # A contract settles at $1.00, so prices span 0..1000 tenths of a cent.
@@ -54,6 +54,20 @@ def dollars_to_tenths(value: Union[str, float, Decimal, None]) -> Optional[int]:
     Returns None for unparseable input rather than raising -- a single bad level
     should not abort a whole snapshot. The caller decides whether a missing
     price is fatal; this function does not guess on its behalf.
+
+    **The promise was not kept for three inputs.** `Decimal("nan")` and
+    `Decimal("Infinity")` construct *successfully*, so the `except` never fired
+    and the failure surfaced later at `int()` or `quantize` -- `"nan"` raised
+    `ValueError`, `"Infinity"` and `"1e400"` raised `InvalidOperation`. A parser
+    documented as returning None on bad input, raising three different
+    exceptions from inside a snapshot loop, is worse than one that never
+    promised: the caller wrote no handler because the docstring said it needed
+    none.
+
+    **Negatives return None too.** A price is a probability in dollars, so it
+    cannot be below zero; `"-0.50"` used to parse cleanly to `-500` tenths and
+    flow into the risk path as a real price. Refusing is right here rather than
+    clamping, because this is a value being validated, not one being trusted.
     """
     if value is None:
         return None
@@ -61,7 +75,17 @@ def dollars_to_tenths(value: Union[str, float, Decimal, None]) -> Optional[int]:
         as_decimal = Decimal(str(value))
     except Exception:
         return None
-    return int((as_decimal * _TENTHS).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    # `is_finite()` covers NaN and both infinities, which `Decimal` accepts.
+    if not as_decimal.is_finite() or as_decimal < 0:
+        return None
+    try:
+        return int(
+            (as_decimal * _TENTHS).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        )
+    except (InvalidOperation, ValueError, OverflowError):
+        # A finite but absurd magnitude ("1e400" parses finite in some builds)
+        # still cannot be quantized. Same contract: unreadable resolves to None.
+        return None
 
 
 def parse_quantity(value: Union[str, float, int, None]) -> Optional[float]:

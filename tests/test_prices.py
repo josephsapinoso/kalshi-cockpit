@@ -137,3 +137,58 @@ class TestProbabilityBridge:
 
     def test_a_fifty_percent_chance_prices_at_fifty_cents(self):
         assert prices.probability_to_tenths(0.5) == 500
+
+
+class TestTheParserKeepsItsPromise:
+    """`dollars_to_tenths` is documented as returning None on bad input.
+
+    It raised on three: `Decimal("nan")` and `Decimal("Infinity")` *construct
+    successfully*, so the `except` never fired and the failure surfaced later at
+    `int()` or `quantize` — `ValueError` for one, `InvalidOperation` for the
+    others. A parser documented as never raising, raising three different
+    exceptions from inside a snapshot loop, is worse than one that made no
+    promise: the caller wrote no handler because the docstring said none was
+    needed.
+    """
+
+    @pytest.mark.parametrize("value", ["nan", "NaN", "Infinity", "-Infinity", "1e400"])
+    def test_non_finite_input_returns_none(self, value):
+        assert prices.dollars_to_tenths(value) is None
+
+    def test_a_negative_price_returns_none(self):
+        """A price is a probability in dollars and cannot be below zero.
+
+        `"-0.50"` used to parse cleanly to -500 tenths and flow into the risk
+        path as a real price. Refused rather than clamped: this is a value being
+        validated, not one being trusted.
+        """
+        assert prices.dollars_to_tenths("-0.50") is None
+        assert prices.dollars_to_tenths(-0.01) is None
+
+    def test_zero_is_still_a_legitimate_price(self):
+        """The discriminating case. A settled loser genuinely trades at 0, so
+        rejecting it would reintroduce the failure this module is built around
+        — 'unreadable' and 'worthless' must stay distinguishable."""
+        assert prices.dollars_to_tenths("0") == 0
+        assert prices.dollars_to_tenths("0.0000") == 0
+
+    def test_ordinary_prices_are_unaffected(self):
+        assert prices.dollars_to_tenths("0.4500") == 450
+        assert prices.dollars_to_tenths("1.0000") == 1000
+
+
+class TestOrderbookAndPriceValidityAgree:
+    """`orderbook` accepted `0 <= p <= 1000` while `is_valid_price` is strict.
+
+    The same number was therefore tradeable in one module and not in another. 0
+    and 1000 are settled outcomes: a resting bid at either is a contract someone
+    gives away or sells for a certain dollar, and neither belongs in a live book.
+    """
+
+    @pytest.mark.parametrize("tenths", [0, 1000])
+    def test_settled_prices_are_not_valid_quotes(self, tenths):
+        assert not prices.is_valid_price(tenths)
+
+    @pytest.mark.parametrize("tenths", [1, 500, 999])
+    def test_real_quotes_are_valid(self, tenths):
+        assert prices.is_valid_price(tenths)

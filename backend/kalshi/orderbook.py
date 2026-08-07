@@ -105,7 +105,12 @@ def _parse_price(raw: Any, *, ticker: str, side: str) -> int:
         raise MalformedBookMessage(
             f"{ticker}: unparseable {side} price {raw!r}"
         )
-    if not 0 <= price_tenths <= PRICE_MAX:
+    # STRICT, matching `is_valid_price`. 0 and 1000 are settled outcomes, not
+    # quotes -- a resting bid at either is a contract someone will give you for
+    # nothing or sell you for a certain dollar, and neither belongs in a live
+    # book. The loose bound here disagreed with `is_valid_price` used everywhere
+    # else, so the same number was tradeable in one module and not in another.
+    if not 0 < price_tenths < PRICE_MAX:
         raise MalformedBookMessage(
             f"{ticker}: {side} price {raw!r} converts to {price_tenths} tenths, "
             f"outside 0..{PRICE_MAX}. If the feed switched from dollars to "

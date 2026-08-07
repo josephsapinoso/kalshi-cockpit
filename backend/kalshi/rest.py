@@ -46,6 +46,11 @@ from .auth import KalshiAuth, signed_path
 
 logger = logging.getLogger(__name__)
 
+# Smallest delay honoured from a `Retry-After` header. Zero is legal and
+# means "immediately", which against a server that just throttled us is a
+# hot retry loop.
+_MIN_RETRY_AFTER_S = 0.5
+
 # Kalshi's documented read limit on the basic tier is ~10 requests/second. We
 # sit deliberately under it: the cost of being slightly slow is nothing, and
 # the cost of being throttled mid-sweep is a partial universe that looks
@@ -228,7 +233,12 @@ class KalshiRestClient:
         header = response.headers.get("Retry-After")
         if header:
             try:
-                return min(60.0, float(header))
+                # Floored, not just capped. `Retry-After: 0` is legal and means
+                # "try again now", which against a server that has just
+                # throttled us is a hot loop -- the exact behaviour the 429
+                # handling exists to prevent. A negative value is nonsense and
+                # would compute a negative sleep.
+                return min(60.0, max(_MIN_RETRY_AFTER_S, float(header)))
             except ValueError:
                 pass  # HTTP-date form; fall through to backoff
         return self._backoff(attempt)

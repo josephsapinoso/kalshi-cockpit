@@ -30,11 +30,20 @@ from __future__ import annotations
 import random
 from typing import Sequence
 
+from .margins import KEY_NUMBERS, PUBLISHED_SD
+
 # Published NFL margin standard deviation. Close enough to the standard
 # deviation of (margin - closing spread) that one number serves for both.
-NFL_MARGIN_SD = 13.5
+# Read from `margins` rather than restated, so the generator and the thing it
+# generates for cannot disagree about the league's spread.
+NFL_MARGIN_SD = PUBLISHED_SD["americanfootball_nfl"]
 
-DEFAULT_KEY_NUMBERS = (3, 7, 10, 14)
+# The SAME list `margins.KEY_NUMBERS` prices against. It used to be a separate
+# `(3, 7, 10, 14)` here while margins carried `(3, 7, 10, 14, 6, 4)`, so the
+# generator never produced mass at 6 or 4 and `key_number_mass()` reported zero
+# for two of the numbers it checks -- a synthetic fixture quietly disagreeing
+# with the module it exists to exercise.
+DEFAULT_KEY_NUMBERS = KEY_NUMBERS["americanfootball_nfl"]
 
 
 def synthetic_margins(
