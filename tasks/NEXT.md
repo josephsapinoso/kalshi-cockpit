@@ -116,9 +116,18 @@ decision.
 - [ ] **`mart_multiple_comparisons` undercounts tests** (only counts one mart's,
       ignores three other sources). Undercounting makes findings look *more*
       significant — the flattering direction.
-- [ ] **Capture an Odds API fixture.** The wire format that supplies every fair
-      probability is pinned only by a hand-written payload. One credit buys one.
-      This is the exact gap that made the WebSocket path dead for weeks.
+- [x] ~~**Capture an Odds API fixture**~~ — **done 2026-08-07.** The capture
+      already existed (`tests/fixtures/odds_mlb_h2h_spreads_totals.json`, 15
+      events, 30 books) and **no test loaded it**, so the wire format was still
+      pinned only by hand-written payloads. A capture nothing reads is
+      decoration. Eight tests now parse the real bytes, including a drift test
+      asserting every market key present is explicitly classified.
+      **Closed the `h2h_lay` SEV 1 in the same change:** the API returns
+      `h2h_lay` from Betfair and Matchbook without being asked, and `_parse`
+      stored any key it was given. Lay quotes are now dropped at ingest, so no
+      downstream grouping can pool them. Measured on the fixture: back
+      `2.24/1.79` sums to 1.00509, lay `2.28/1.81` sums to 0.99108 — devig
+      removes an overround, and an underround gives it nothing to remove.
 - [ ] **Wire up the agent fleet.** `backend/agents/*` is imported by nothing —
       `skeptic.apply_verdict` is never called from the engine or the API. ~40
       green tests imply a safety layer that can't block anything.

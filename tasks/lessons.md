@@ -736,6 +736,37 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — A captured fixture that no test loads is decoration
+
+`tests/fixtures/odds_mlb_h2h_spreads_totals.json` had been sitting in the repo
+for a day: a verbatim capture, 15 events, 30 books, 392KB. `tasks/NEXT.md`
+listed *"Capture an Odds API fixture"* as still to do, which was wrong. What was
+actually still to do was **load it** — `grep -rn odds_mlb_h2h_spreads_totals`
+across the codebase returned nothing. Every odds test still ran against a
+hand-written payload.
+
+So the project had spent the credit, produced the artefact, recorded it as
+outstanding anyway, and kept the exact gap the capture was meant to close. The
+directory listing looks identical either way.
+
+Wiring it in immediately produced a real finding the hand-written payload could
+not contain: **the API returns market keys nobody requested.** The request is
+`markets=h2h,spreads,totals`; the response carries `h2h_lay` wherever a betting
+exchange is in the region. `_parse` stored any key it was handed.
+
+**How to apply:** "capture a fixture" is not done when the file exists. The
+completion criterion is a test that fails when the fixture is removed. Same
+shape as [[a-test-that-passes-on-the-bug-is-not-a-test]] — the artefact is not
+the point, the failure it can cause is. Worth grepping for every file in
+`tests/fixtures/` occasionally and checking something reads it.
+
+Corollary on capture-based tests: assert something about the *capture itself*
+(`len(events) >= 10`, `oddsFormat == "decimal"`, "some book quotes both sides"),
+so a truncated or re-scoped re-capture fails loudly instead of quietly making
+every test below it vacuous.
+
+---
+
 ## 2026-08-07 — The null for one proportion is not the null for a difference
 
 `backtest` compared the model's accuracy against the market's on the games where

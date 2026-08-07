@@ -10,7 +10,10 @@ schema in tmp_path.
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 import pytest
@@ -19,6 +22,8 @@ import respx
 from backend.config import OddsConfig
 from backend.odds.budget import CreditBudget, plan_sweep, sweep_cost
 from backend.odds.client import (
+    EXCLUDED_MARKETS,
+    PRICEABLE_MARKETS,
     OddsAPIError,
     OddsClient,
     OddsQuote,
@@ -395,3 +400,161 @@ class TestStorage:
         rows = conn.execute("SELECT * FROM odds_snapshots ORDER BY bookmaker").fetchall()
         assert {r["bookmaker"] for r in rows} == {"pinnacle", "draftkings"}
         assert rows[0]["price_decimal"] > 1.0
+
+
+# ---------------------------------------------------------------------------
+# Wire format, against a real captured payload
+# ---------------------------------------------------------------------------
+
+FIXTURE = (
+    Path(__file__).parent / "fixtures" / "odds_mlb_h2h_spreads_totals.json"
+)
+
+
+@pytest.fixture(scope="module")
+def captured_odds() -> dict:
+    """A verbatim `/v4/sports/baseball_mlb/odds` response, us+eu, decimal.
+
+    Every test in this section reads this rather than a hand-constructed dict.
+    `tests/fixtures/` payloads are the wire-format contract -- the rule this
+    project already had, followed for Kalshi REST and skipped for the WebSocket
+    path, which is how that path stayed dead through 611 passing tests.
+    """
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+class TestTheRealWireFormat:
+    """The parser against the bytes the API actually sends.
+
+    A hand-written payload tests that the parser agrees with the person who
+    wrote the payload. That is the mistake that made `orderbook.py` parse every
+    book to zero levels while sixteen confident assertions passed above an
+    honest `skip`.
+    """
+
+    def test_the_capture_is_a_real_multi_book_response(self, captured_odds):
+        """Guard the fixture itself, so a truncated re-capture fails loudly."""
+        events = captured_odds["events"]
+        assert len(events) >= 10
+        assert captured_odds["params"]["oddsFormat"] == "decimal"
+        assert any(len(e["bookmakers"]) >= 20 for e in events)
+
+    def test_the_parser_reads_the_captured_payload(self, odds_client, captured_odds):
+        quotes = odds_client._parse(
+            captured_odds["events"], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        assert quotes, "the parser produced nothing from a real response"
+
+        # Every field the matcher and the devigger depend on must survive.
+        for q in quotes[:50]:
+            assert q.odds_event_id and q.home_team and q.away_team
+            assert q.commence_ms > 0
+            assert q.bookmaker and q.outcome_name
+            assert q.price_decimal > 1.0
+            assert q.book_updated_ms is not None
+
+    def test_all_three_priceable_markets_survive_the_parse(
+        self, odds_client, captured_odds
+    ):
+        """The exclusion must not be so broad that it drops what we came for."""
+        quotes = odds_client._parse(
+            captured_odds["events"], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        assert {q.market for q in quotes} == {"h2h", "spreads", "totals"}
+        assert all(q.outcome_point is not None for q in quotes if q.market == "totals")
+
+    def test_every_market_key_in_the_capture_is_explicitly_classified(
+        self, captured_odds
+    ):
+        """The drift test. An exclusion must be a decision, never an accident.
+
+        A new market key appearing in a future capture fails here rather than
+        being silently dropped by a default -- the same rule that caught the
+        Kalshi discovery classifier throwing away every spread and total.
+        """
+        seen = {
+            market["key"]
+            for event in captured_odds["events"]
+            for book in event["bookmakers"]
+            for market in book["markets"]
+        }
+        assert seen, "no market keys in the capture"
+        unclassified = seen - PRICEABLE_MARKETS - set(EXCLUDED_MARKETS)
+        assert not unclassified, (
+            f"unclassified odds market key(s): {sorted(unclassified)}. Add each "
+            f"to PRICEABLE_MARKETS or EXCLUDED_MARKETS with a reason."
+        )
+
+
+class TestLayPricesNeverReachTheConsensus:
+    """`h2h_lay` arrives unrequested and must not be stored as a back price.
+
+    The request asks for `markets=h2h,spreads,totals`. The response carries
+    `h2h_lay` anyway, wherever a betting exchange is in the region -- Betfair
+    and Matchbook in this capture.
+    """
+
+    def test_the_capture_really_does_contain_unrequested_lay_prices(
+        self, captured_odds
+    ):
+        """If this ever stops being true, the exclusion below proves nothing."""
+        assert "h2h_lay" not in captured_odds["params"]["markets"]
+        lay_books = {
+            book["key"]
+            for event in captured_odds["events"]
+            for book in event["bookmakers"]
+            if any(m["key"] == "h2h_lay" for m in book["markets"])
+        }
+        assert lay_books, "no lay prices in the capture"
+
+    def test_lay_prices_are_dropped(self, odds_client, captured_odds):
+        quotes = odds_client._parse(
+            captured_odds["events"], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        assert not [q for q in quotes if q.market.endswith("_lay")]
+
+    def test_a_lay_book_sums_to_less_than_one_which_devig_cannot_fix(
+        self, captured_odds
+    ):
+        """Why they are excluded, measured rather than asserted.
+
+        Devigging removes an overround. A lay book has an *under*round -- it
+        sums to less than 1 -- so there is nothing to remove and the methods
+        scale probabilities up instead. Pooled with back prices it drags the
+        consensus toward the lay side, and every number stays plausible.
+        """
+        found = False
+        for event in captured_odds["events"]:
+            for book in event["bookmakers"]:
+                markets = {m["key"]: m for m in book["markets"]}
+                if "h2h" not in markets or "h2h_lay" not in markets:
+                    continue
+                back = sum(1.0 / o["price"] for o in markets["h2h"]["outcomes"])
+                lay = sum(1.0 / o["price"] for o in markets["h2h_lay"]["outcomes"])
+                assert back > 1.0, f"{book['key']} back book should be overround"
+                assert lay < 1.0, f"{book['key']} lay book should be underround"
+                found = True
+        assert found, "no book quoted both sides, so nothing was compared"
+
+    def test_an_unrecognised_market_is_dropped_loudly(self, odds_client, caplog):
+        """Unknown must warn, not pass through. Silence is the failure mode."""
+        payload = [
+            {
+                "id": "evt", "sport_key": "baseball_mlb",
+                "commence_time": "2026-08-07T22:41:00Z",
+                "home_team": "Pittsburgh Pirates", "away_team": "New York Mets",
+                "bookmakers": [{
+                    "key": "somebook", "last_update": "2026-08-07T13:49:00Z",
+                    "markets": [{
+                        "key": "player_strikeouts_alternate",
+                        "outcomes": [{"name": "Someone", "price": 2.0}],
+                    }],
+                }],
+            }
+        ]
+        with caplog.at_level(logging.WARNING):
+            quotes = odds_client._parse(
+                payload, sport_key="baseball_mlb", fetched_ms=NOW
+            )
+        assert quotes == []
+        assert "unrecognised odds market" in caplog.text

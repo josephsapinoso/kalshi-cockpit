@@ -74,6 +74,42 @@ def parse_ms(value: Any) -> Optional[int]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Which market keys are priceable, stated as an explicit classification rather
+# than left to whatever the API happens to return.
+# ---------------------------------------------------------------------------
+
+# Back prices on the three markets this project prices. In scope.
+PRICEABLE_MARKETS = frozenset({"h2h", "spreads", "totals"})
+
+# Recognised, and deliberately **not** stored, each with the reason. The API
+# returns these without being asked: a request for `markets=h2h,spreads,totals`
+# comes back with `h2h_lay` attached wherever a betting exchange is in the
+# region, because an exchange quotes both sides of its book.
+#
+# A lay price is the other side of the transaction, and mixing the two destroys
+# the one property devigging depends on. Measured on the captured MLB fixture
+# (Mets/Pirates, Betfair and Matchbook):
+#
+#     back  2.24 / 1.79  ->  booksum 1.00509   (overround: the vig)
+#     lay   2.28 / 1.81  ->  booksum 0.99108   (UNDERROUND: below 1)
+#
+# Devig exists to remove an overround. Handed a book summing to less than 1 it
+# has nothing to remove and will scale probabilities *up*; pooled with real back
+# prices it drags the consensus toward the lay side. Neither failure announces
+# itself — every number stays in a plausible range.
+EXCLUDED_MARKETS: dict[str, str] = {
+    "h2h_lay": (
+        "exchange lay price: the opposite side of the transaction. Its book "
+        "sums to less than 1, so devigging it alongside back prices corrupts "
+        "the consensus rather than failing"
+    ),
+    "spreads_lay": "exchange lay price on a spread; see h2h_lay",
+    "totals_lay": "exchange lay price on a total; see h2h_lay",
+    "h2h_h2h": "duplicate alias occasionally emitted for h2h",
+}
+
+
 @dataclass(frozen=True)
 class OddsQuote:
     """One bookmaker's price on one outcome. Stored raw."""
@@ -259,6 +295,27 @@ class OddsClient:
 
                 for market in bookmaker.get("markets") or []:
                     market_key = market.get("key")
+
+                    # Every market key is explicitly classified. Silence is the
+                    # failure mode here: a lay price stored beside a back price
+                    # looks identical in the table and inverts the consensus
+                    # downstream. See PRICEABLE_MARKETS / EXCLUDED_MARKETS.
+                    if market_key not in PRICEABLE_MARKETS:
+                        if market_key in EXCLUDED_MARKETS:
+                            logger.debug(
+                                "skipping %s from %s: %s",
+                                market_key, book_key, EXCLUDED_MARKETS[market_key],
+                            )
+                        else:
+                            logger.warning(
+                                "unrecognised odds market %r from %s -- dropping. "
+                                "Classify it in PRICEABLE_MARKETS or "
+                                "EXCLUDED_MARKETS; an unclassified market must "
+                                "never reach the consensus by default.",
+                                market_key, book_key,
+                            )
+                        continue
+
                     # A market-level last_update is more precise than the
                     # bookmaker-level one; prefer it when present.
                     market_updated_ms = (
