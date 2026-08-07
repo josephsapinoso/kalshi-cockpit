@@ -51,7 +51,11 @@ select
     round(avg(delta), 4) as mean_delta,
     round(avg(actual_cents_per_contract), 3) as actual_cents_per_contract,
 
-    sum(case when abs(delta) > 0.005 then 1 else 0 end) as n_mismatched,
+    -- Float noise only, matching `core.fees.FEE_MATCH_TOLERANCE_DOLLARS`.
+    -- This was 0.005 -- half a cent, absolute -- which on a one-contract
+    -- fill let a model be 50% wrong and still reconcile. The tolerance was
+    -- larger than the quantity it was checking.
+    sum(case when abs(delta) > 1e-9 then 1 else 0 end) as n_mismatched,
 
     -- The whole point. Any mismatch means every EV figure in the system is
     -- wrong by an unknown amount, so this is stop-the-line rather than a
@@ -59,10 +63,10 @@ select
     case
         when count(*) = 0
             then 'no fills yet — the fee model is still an unresolved hedge'
-        when sum(case when abs(delta) > 0.005 then 1 else 0 end) = 0
+        when sum(case when abs(delta) > 1e-9 then 1 else 0 end) = 0
             then 'model matches Kalshi on ' || count(*) || ' fills'
         else 'MISMATCH on '
-             || sum(case when abs(delta) > 0.005 then 1 else 0 end)
+             || sum(case when abs(delta) > 1e-9 then 1 else 0 end)
              || ' of ' || count(*)
              || ' fills — STOP. Every EV figure is wrong until fees.py is fixed.'
     end as verdict

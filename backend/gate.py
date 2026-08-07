@@ -2,7 +2,7 @@
 
 Every condition here exists because the premise of this project is that the edge
 is **unproven**. Kalshi's advantage is cost, not information; the venue lowers
-the break-even bar from 52.38% to 51.75% and does not clear it for you. So the
+the break-even bar from 52.38% to 52.00% and does not clear it for you. So the
 gate does not ask "is this bet good?" — it asks "has this system demonstrated it
 can tell?", and the answer is no until the record says otherwise.
 
@@ -53,6 +53,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .config import GateConfig, StalenessConfig
+from .core.fees import FEE_MATCH_TOLERANCE_DOLLARS
 
 logger = logging.getLogger(__name__)
 
@@ -380,11 +381,12 @@ def _fee_model_verified(conn) -> Condition:
     row = conn.execute(
         """
         SELECT COUNT(*) AS total,
-               SUM(CASE WHEN ABS(fee_actual - fee_predicted) > 0.005
+               SUM(CASE WHEN ABS(fee_actual - fee_predicted) > ?
                         THEN 1 ELSE 0 END) AS mismatched
         FROM fills
         WHERE fee_actual IS NOT NULL
-        """
+        """,
+        (FEE_MATCH_TOLERANCE_DOLLARS,),
     ).fetchone()
 
     total = row["total"] or 0

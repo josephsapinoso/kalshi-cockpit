@@ -166,3 +166,42 @@ class TestSettlementVersusRoundTrip:
         cents of spread is net-negative before it starts.
         """
         assert fees.breakeven_edge_cents(cents_to_tenths(50), 100) >= 3.5
+
+
+class TestTheFeeMatchToleranceIsFloatNoiseOnly:
+    """The gate calls a fee mismatch stop-the-line, so the tolerance decides
+    whether that condition can ever fire.
+
+    It was `0.005` -- half a cent, absolute. Kalshi charges whole cents, so on a
+    one-contract fill a model predicting 1c against an actual 1.5c is **50%
+    wrong** and the difference is 0.005, which is not `> 0.005`. The tolerance
+    was larger than the quantity being checked, and the gate's most serious
+    condition could not detect the error it exists for.
+    """
+
+    def test_the_tolerance_cannot_absorb_a_whole_cent(self):
+        """The property, stated against the smallest real unit.
+
+        Kalshi's fees are whole cents. A tolerance that admits a full cent
+        admits any error the model can plausibly make.
+        """
+        assert fees.FEE_MATCH_TOLERANCE_DOLLARS < 0.01
+
+    def test_the_old_tolerance_would_have_passed_a_50_percent_error(self):
+        """Documents the specific failure so the value is not casually raised."""
+        predicted, actual = 0.01, 0.015
+        assert abs(actual - predicted) <= 0.005, "the old tolerance passed this"
+        assert abs(actual - predicted) > fees.FEE_MATCH_TOLERANCE_DOLLARS, (
+            "and the current one must not"
+        )
+
+    def test_an_exact_match_still_reconciles(self):
+        """Not so tight that float representation alone trips it.
+
+        A correct model produces the same dollars the fill reports, and the two
+        may travel through different float paths to get there.
+        """
+        predicted = fees.calculate_fee(cents_to_tenths(50), 100)
+        assert predicted is not None
+        actual = float(f"{predicted:.10f}")
+        assert abs(actual - predicted) <= fees.FEE_MATCH_TOLERANCE_DOLLARS

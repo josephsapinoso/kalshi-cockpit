@@ -207,3 +207,19 @@ def settlement_fee(
     :func:`calculate_fee` -- a zero fee there manufactures an edge.
     """
     return calculate_fee(price_tenths, contracts, maker)
+
+
+# How far `fee_actual` may sit from `fee_predicted` before the gate calls it a
+# mismatch.
+#
+# **Float noise only, not a business tolerance.** Kalshi charges whole cents and
+# `calculate_fee` returns dollars, so a correct model matches the fill exactly;
+# any real difference means the formula is wrong. The previous value was `0.005`
+# -- half a cent, absolute -- which on a one-contract fill let a model be **50%
+# wrong** and still pass the check the gate treats as stop-the-line. The
+# tolerance was larger than the quantity being checked.
+#
+# Absolute rather than relative on purpose: the failure mode is a wrong formula,
+# which shows up at every size, and a relative tolerance would forgive exactly
+# the small fills where the fee is largest as a share of stake.
+FEE_MATCH_TOLERANCE_DOLLARS = 1e-9

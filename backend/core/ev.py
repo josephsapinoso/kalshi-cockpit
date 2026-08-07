@@ -146,9 +146,24 @@ def effective_price(ask_tenths: int, contracts: int, *, maker: bool = False) -> 
 def breakeven_win_rate(ask_tenths: int, contracts: int, *, maker: bool = False) -> float:
     """How often this bet must win to break even, fee included.
 
-    At 50c this is the number that makes the venue interesting: ~51.75% as a
-    taker and ~50.44% as a maker, against 52.38% at a -110 sportsbook. Kalshi
-    lowers the bar; it does not clear it.
+    At 50c, measured from this code rather than quoted from a source:
+
+        taker, any size   0.5200
+        maker, 100        0.5044
+        maker, 10         0.5050
+        maker, 1          0.5100
+
+    against 0.5238 at a -110 sportsbook. **The docs said 51.75% for the taker
+    and the real number is 52.00%** -- 51.75% is what the *published* 7%
+    coefficient gives, while `calculate_fee` deliberately charges the
+    conservative maximum across candidate models, so the bar this code actually
+    applies is a quarter-point higher. Quoting the source instead of the
+    implementation overstated the venue's advantage by roughly 40% of the
+    advantage itself (0.38 points of headroom against 0.63 claimed).
+
+    The maker figure varies with size because the fee is amortised per order, so
+    "50.44%" is specifically the large-order limit. Kalshi lowers the bar; it
+    does not clear it.
     """
     return effective_price(ask_tenths, contracts, maker=maker)
 

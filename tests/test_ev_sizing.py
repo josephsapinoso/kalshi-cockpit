@@ -81,14 +81,49 @@ class TestEV:
 class TestBreakevenMatchesTheVenueClaim:
     """The numbers that make Kalshi interesting at all, asserted directly.
 
-    ~51.75% taker and ~50.44% maker at 50c, against 52.38% at a -110
+    **52.00% taker** and 50.44% maker at 50c and size, against 52.38% at a -110
     sportsbook. Kalshi lowers the bar; it does not clear it.
+
+    The docs claimed 51.75% for years. That is what the *published* 7% fee
+    coefficient gives, but `calculate_fee` charges the conservative maximum
+    across candidate models, so the bar this code applies is a quarter-point
+    higher — and the entire premise of the project is a advantage of well under
+    one point, so a quarter-point misstatement is roughly 40% of the thing being
+    measured.
+
+    It survived because the assertion was `0.50 < rate < 0.53`, a band three
+    hundred times wider than the error it was supposed to pin.
     """
+
+    def test_the_taker_breakeven_is_exactly_52_percent(self):
+        """Pinned to the value, not to a band.
+
+        A range wide enough to contain both the claimed and the actual number
+        cannot tell you which one the code implements.
+        """
+        rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
+        assert rate == pytest.approx(0.5200, abs=0.0001)
+
+    def test_it_is_not_the_published_coefficient_figure(self):
+        """The discriminating assertion.
+
+        51.75% is a real number — it is what the published coefficient gives.
+        It is simply not what this code charges, and the difference is the
+        conservative max-of-models hedge. If these ever coincide, either the
+        hedge was dropped or the fee model changed, and both are worth failing
+        a test over.
+        """
+        rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
+        assert rate > 0.5175, (
+            "matches the published-coefficient figure, so the conservative "
+            "max-of-models fee selection is no longer being applied"
+        )
 
     def test_taker_breakeven_at_fifty_cents_beats_a_sportsbook(self):
         rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
         assert rate < 0.5238, "should beat a -110 sportsbook"
-        assert 0.50 < rate < 0.53
+        # The headroom, stated: 0.38 points, not the 0.63 the docs implied.
+        assert 0.5238 - rate == pytest.approx(0.0038, abs=0.0002)
 
     def test_maker_is_cheaper_than_taker(self):
         taker = breakeven_win_rate(cents_to_tenths(50), contracts=100)

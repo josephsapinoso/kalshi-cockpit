@@ -16,8 +16,13 @@ to become a public portfolio repo.
 
 **The premise, stated honestly:** Kalshi's advantage is cost, not information.
 Prices are accurate to ~2c and sports is the most bot-contested corner of the
-venue. The venue lowers the break-even bar from 52.38% to 51.75% (taker) or
-50.44% (maker). It does not clear that bar. This tool exists to find out
+venue. The venue lowers the break-even bar from 52.38% to **52.00%** (taker)
+or 50.44% (maker, at size). It does not clear that bar.
+
+52.00%, not the 51.75% this file used to claim: 51.75% is what the published
+fee coefficient gives, but `calculate_fee` charges the conservative maximum
+across candidate models, so the bar the code actually applies is higher. The
+headroom is 0.38 points, not 0.63. This tool exists to find out
 whether an edge is there — not to assume one.
 
 ## The three rules everything else follows from

@@ -75,7 +75,7 @@ sportsbook consensus. Some context that governs how you should reason:
 
 Kalshi's advantage over a sportsbook is COST, not information. Holding a \
 contract to settlement pays one fee rather than a round trip, which lowers the \
-break-even win rate from 52.38% to about 51.75%. That is the entire edge the \
+break-even win rate from 52.38% to about 52.00%. That is the entire edge the \
 venue offers.
 
 Everything else is against the user. Kalshi prices sports to roughly 2 cents. \

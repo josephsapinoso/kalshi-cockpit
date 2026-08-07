@@ -558,3 +558,51 @@ class TestLayPricesNeverReachTheConsensus:
             )
         assert quotes == []
         assert "unrecognised odds market" in caplog.text
+
+
+class TestDriftActuallyComputesADifference:
+    """`drift` returned `spent_this_month` and called it drift.
+
+    It never subtracted anything, so the credit reconciliation this module
+    presents as its central safety property could not signal no matter how far
+    our tally diverged from the server's. And it could not be caught by reading
+    the dashboard, because a plausible number was always sitting there.
+    """
+
+    def _state(self, conn, *, ours, theirs_used, now_ms):
+        for i in range(ours // 6):
+            conn.execute(
+                "INSERT INTO api_credits (called_ms, endpoint, cost, "
+                "remaining_reported, used_reported) VALUES (?, '/odds', 6, ?, ?)",
+                (now_ms - i, 500 - theirs_used, theirs_used),
+            )
+        conn.commit()
+        return CreditBudget(conn, daily_budget=16).state(now_ms)
+
+    def test_agreement_reports_zero_drift(self, conn):
+        state = self._state(conn, ours=12, theirs_used=12, now_ms=NOW)
+        assert state.spent_this_month == 12
+        assert state.drift == 0
+
+    def test_disagreement_reports_the_difference(self, conn):
+        """The case the old code could not express.
+
+        We think we spent 12; they say 30. That is the difference between "we
+        have plenty" and "we ran out on Saturday morning", and it must be a
+        number, not a restatement of our own tally.
+        """
+        state = self._state(conn, ours=12, theirs_used=30, now_ms=NOW)
+        assert state.drift == -18
+        assert state.drift != state.spent_this_month, (
+            "drift is echoing our own count instead of comparing it"
+        )
+
+    def test_no_server_count_is_none_not_zero(self, conn):
+        """Unknown, not agreement. A substituted zero says "reconciled"."""
+        conn.execute(
+            "INSERT INTO api_credits (called_ms, endpoint, cost, "
+            "remaining_reported, used_reported) VALUES (?, '/odds', 6, 100, NULL)",
+            (NOW,),
+        )
+        conn.commit()
+        assert CreditBudget(conn, daily_budget=16).state(NOW).drift is None

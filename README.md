@@ -22,7 +22,7 @@ Kalshi's advantage over a sportsbook is **cost, not information**.
 |  | Must win |
 |---|---|
 | Sportsbook at −110 | 52.38% |
-| Kalshi at 50c, taker | 51.75% |
+| Kalshi at 50c, taker | 52.00% |
 | Kalshi at 50c, maker | 50.44% |
 
 A bet held to settlement pays **one** fee; trading pays two. That is the whole

@@ -58,6 +58,7 @@ class BudgetState:
     spent_today: int
     spent_this_month: int
     remaining_reported: Optional[int]
+    used_reported: Optional[int] = None
 
     @property
     def remaining_today(self) -> int:
@@ -65,13 +66,28 @@ class BudgetState:
 
     @property
     def drift(self) -> Optional[int]:
-        """Our month-to-date tally minus what the server says we have left.
+        """Our month-to-date tally minus the server's own count of what we used.
 
         Non-zero drift means our cost model disagrees with theirs. Worth
         surfacing: it is the difference between "we have 200 credits" and
         "we ran out on Saturday morning".
+
+        **This previously returned `spent_this_month` and called it drift** --
+        it never computed a difference at all, so the reconciliation this module
+        presents as its central safety property could not signal, no matter how
+        far the two counts diverged. It also could not be caught by inspection,
+        because a plausible number was always there.
+
+        Reconciled against `x-requests-used`, not against `remaining`: the
+        remaining count needs a monthly allowance to subtract from, and that
+        allowance is a plan detail we would have to hardcode and keep correct.
+        `used` is what they say we spent, which is exactly what our tally
+        claims. `None` when the server has told us nothing to compare against --
+        an unknown, not a zero.
         """
-        return None if self.remaining_reported is None else self.spent_this_month
+        if self.used_reported is None:
+            return None
+        return self.spent_this_month - self.used_reported
 
 
 class CreditBudget:
@@ -91,7 +107,7 @@ class CreditBudget:
             (_utc_month_start_ms(now_ms),),
         ).fetchone()["c"]
         latest = self.conn.execute(
-            "SELECT remaining_reported FROM api_credits "
+            "SELECT remaining_reported, used_reported FROM api_credits "
             "WHERE remaining_reported IS NOT NULL ORDER BY called_ms DESC LIMIT 1"
         ).fetchone()
         return BudgetState(
@@ -100,6 +116,11 @@ class CreditBudget:
             spent_this_month=int(month),
             remaining_reported=(
                 int(latest["remaining_reported"]) if latest else None
+            ),
+            used_reported=(
+                int(latest["used_reported"])
+                if latest and latest["used_reported"] is not None
+                else None
             ),
         )
 
