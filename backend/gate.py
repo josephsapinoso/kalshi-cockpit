@@ -16,11 +16,18 @@ Five conditions, and all must hold:
    count is of *games*, not rows. The engine writes a fresh row on every pass,
    so one market polled thirty times is one observation recorded thirty times,
    and counting rows made the floor reachable from ~10 markets.
-2. **CLV positive and surviving the noise guard.** Positive mean CLV inside two
-   standard errors is not evidence, and a gate that opened on it would be
-   opening on noise. The standard error is **cluster-robust**: rows are grouped
-   by game before it is computed, because thirty rows scored against one closing
-   line would otherwise shrink it by `sqrt(30)` for evidence that never grew.
+2. **CLV positive and surviving the noise guard.** A positive mean CLV inside
+   the noise band is not evidence, and a gate that opened on it would be opening
+   on noise. Two corrections apply, and they compound:
+
+   - The standard error is **cluster-robust**: rows are grouped by game before
+     it is computed, because thirty rows scored against one closing line would
+     otherwise shrink it by `sqrt(30)` for evidence that never grew.
+   - The boundary is **always-valid**, not two standard errors. This function is
+     re-evaluated on every request against a growing record, and under a
+     zero-edge process a running two-standard-error test crosses eventually with
+     probability 1 — measured at 13.7% within 100 looks. See
+     `always_valid_multiplier`.
 3. **`fee_predicted == fee_actual` on every recorded fill.** The fee model is
    still a hedge between two disagreeing sources. A mismatch means every EV
    figure in the system is wrong by an unknown amount, so this is stop-the-line.
@@ -92,6 +99,70 @@ class GateDecision:
         }
 
 
+# Level for the always-valid bound below. 0.05 is the conventional choice and is
+# the one the 300-observation floor was reasoned about under.
+ALWAYS_VALID_ALPHA = 0.05
+
+
+def always_valid_multiplier(
+    n_clusters: int, *, tuning: int, alpha: float = ALWAYS_VALID_ALPHA
+) -> float:
+    """Standard errors required to clear zero, valid at **every** sample size.
+
+    **The problem this solves.** `evaluate_gate` runs on every request against a
+    database that grows all day. A fixed-sample threshold of two standard errors
+    is a statement about *one* pre-registered look. Under a true zero-edge
+    process the running z-score wanders, and the probability that it *ever*
+    crosses 2 tends to 1 — so a gate that re-checks continuously and opens the
+    first time the test passes will eventually open on nothing. This is the
+    multiple-comparisons lesson (`tasks/lessons.md`, 2026-08-07) applied along
+    the time axis instead of across buckets, on the path that arms real money.
+
+    **The fix.** A confidence sequence: a boundary that holds simultaneously for
+    all `n`, so looking whenever you like costs nothing. This is the Robbins
+    normal-mixture boundary,
+
+        P( exists n : |S_n| >= sqrt( (n+m) * (ln((n+m)/m) + 2*ln(1/alpha)) ) ) <= alpha
+
+    divided through by `n` to put it on the mean. `m` is the mixture parameter,
+    setting the scale over which the boundary is efficient; it is tied to the
+    pre-registered floor (300 games) so the bound is near its best across the
+    range the gate actually operates in. Measured, with `m = 300`:
+
+        n:     20     100     300    1000    2464    5000   100000
+        mult:  9.84    5.01    3.66    3.11    3.04    3.07     3.44
+
+    Note the multiplier is *not* minimised at `n == m` — it bottoms out near
+    `n ≈ 8m` and then climbs like `sqrt(log n)`. It never approaches 2 at any
+    sample size, which is the property that matters: there is no `n` at which
+    this quietly degrades into the fixed-sample rule.
+
+    **The price, stated plainly.** At the floor the multiplier is 3.66 rather
+    than 2, so unlimited peeking costs about 1.8x the effect size. On simulated
+    zero-edge data looked at 100 times, the fixed-sample rule fires on 13.7% of
+    sequences and this bound on 0%. That is the honest cost of being allowed to
+    look continuously, and it is much cheaper than a gate that opens on nothing.
+
+    **What this does not establish.** The boundary assumes the clustered
+    observations are independent across games and identically distributed. It
+    does not correct for the *strategy* changing between looks — a config
+    version bump makes the sequence a different sequence, which
+    `strategy_config_version` records but this function does not read.
+    """
+    if n_clusters < 1:
+        raise ValueError("n_clusters must be at least 1")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
+    if tuning < 1:
+        raise ValueError("tuning must be at least 1")
+
+    total = n_clusters + tuning
+    radicand = (total / n_clusters) * (
+        math.log(total / tuning) + 2.0 * math.log(1.0 / alpha)
+    )
+    return math.sqrt(radicand)
+
+
 @dataclass(frozen=True)
 class ClusteredMean:
     """A mean and its standard error, computed over *clusters* of correlated rows.
@@ -107,12 +178,30 @@ class ClusteredMean:
     stderr_tenths: Optional[float]
     unclustered_rows: int = 0
 
-    @property
-    def distinguishable(self) -> bool:
-        """Mean CLV clears two standard errors of zero, on the *clustered* error."""
-        if self.mean_tenths is None or self.stderr_tenths is None:
+    def multiplier(self, tuning: int, alpha: float = ALWAYS_VALID_ALPHA) -> Optional[float]:
+        """How many standard errors this evaluation has to clear.
+
+        Not 2. See `always_valid_multiplier` — the gate is evaluated on every
+        request against a growing database, and a fixed-sample threshold is not
+        valid under repeated looks.
+        """
+        if self.n_clusters < 2:
+            return None
+        return always_valid_multiplier(self.n_clusters, tuning=tuning, alpha=alpha)
+
+    def threshold_tenths(self, tuning: int, alpha: float = ALWAYS_VALID_ALPHA) -> Optional[float]:
+        """The always-valid boundary, in tenths of a cent."""
+        m = self.multiplier(tuning, alpha)
+        if m is None or self.stderr_tenths is None:
+            return None
+        return m * self.stderr_tenths
+
+    def distinguishable(self, tuning: int, alpha: float = ALWAYS_VALID_ALPHA) -> bool:
+        """Mean CLV clears the always-valid boundary, on the *clustered* error."""
+        threshold = self.threshold_tenths(tuning, alpha)
+        if self.mean_tenths is None or threshold is None:
             return False
-        return self.mean_tenths > 2 * self.stderr_tenths
+        return self.mean_tenths > threshold
 
 
 def _cluster_robust_stderr(
@@ -252,7 +341,8 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
         ),
     )
 
-    if stats.mean_tenths is None or stats.stderr_tenths is None:
+    threshold = stats.threshold_tenths(minimum)
+    if stats.mean_tenths is None or stats.stderr_tenths is None or threshold is None:
         return sample, Condition(
             name="clv_survives_noise_guard",
             met=False,
@@ -262,21 +352,25 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
             ),
         )
 
-    # Two standard errors, computed from between-game spread. Positive-but-
-    # inside-the-band is the case this exists to catch.
-    distinguishable = stats.distinguishable
+    # The boundary is always-valid rather than fixed-sample: this function runs
+    # on every request against a growing record, and under a zero-edge process a
+    # running two-standard-error test crosses eventually with probability 1.
+    distinguishable = stats.distinguishable(minimum)
+    multiplier = stats.multiplier(minimum) or 0.0
     return sample, Condition(
         name="clv_survives_noise_guard",
         met=distinguishable,
         detail=(
             f"mean CLV {stats.mean_tenths / 10:+.2f}c, standard error "
             f"{stats.stderr_tenths / 10:.2f}c across {stats.n_clusters} "
-            f"independent games"
+            f"independent games; needs {stats.threshold_tenths(minimum) / 10:.2f}c "
+            f"to clear the always-valid bound ({multiplier:.2f} standard errors, "
+            f"not 2, because the gate is re-evaluated on every request)"
             + (
-                " — clears two standard errors"
+                " — clears it"
                 if distinguishable
-                else " — (noise): inside two standard errors of zero, so this "
-                     "is not evidence of an edge"
+                else " — (noise): inside the bound, so this is not evidence of "
+                     "an edge"
             )
         ),
     )

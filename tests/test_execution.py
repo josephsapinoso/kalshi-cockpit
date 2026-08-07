@@ -10,6 +10,7 @@ a live buy at 99c in the predecessor project.
 from __future__ import annotations
 
 import math
+import random
 import sqlite3
 import statistics
 import time
@@ -18,7 +19,10 @@ import pytest
 
 from backend.config import GateConfig, StalenessConfig
 from backend.gate import (
+    ALWAYS_VALID_ALPHA,
+    ClusteredMean,
     _cluster_robust_stderr,
+    always_valid_multiplier,
     clustered_clv,
     evaluate_gate,
     recommendation_freshness,
@@ -441,13 +445,12 @@ class TestObservationsAreClusteredByGame:
         z. Clustered, it is ten observations, and ten is not enough to tell.
         """
         conn = _conn(gate_db)
-        for game in range(10):
-            for i in range(40):
-                _add_recommendation(
-                    conn,
-                    clv_tenths=20.0 + (0.5 if i % 2 else -0.5),
-                    ticker=f"T{game}",
-                )
+        # Real between-game spread, constant within a game -- which is the true
+        # shape, since every row for one game scores against one closing line.
+        per_game = [-5.0, 45.0, 10.0, 30.0, 0.0, 40.0, 5.0, 35.0, 15.0, 25.0]
+        for game, value in enumerate(per_game):
+            for _ in range(40):
+                _add_recommendation(conn, clv_tenths=value, ticker=f"T{game}")
 
         rows = [
             r["clv_tenths"]
@@ -458,10 +461,11 @@ class TestObservationsAreClusteredByGame:
         naive_stderr = math.sqrt(statistics.variance(rows) / len(rows))
         stats = clustered_clv(conn)
 
+        assert stats.mean_tenths == pytest.approx(20.0)
         assert stats.mean_tenths > 2 * naive_stderr, (
             "the replaced estimator would have called this decisive"
         )
-        assert not stats.distinguishable, (
+        assert not stats.distinguishable(300), (
             "clustered by game, ten observations cannot establish it"
         )
 
@@ -505,6 +509,129 @@ class TestObservationsAreClusteredByGame:
             if c.name == "scored_recommendations"
         )
         assert "no event ticker" in sample.detail
+
+
+class TestTheGateIsEvaluatedRepeatedly:
+    """The noise guard must hold under continuous monitoring, not one look.
+
+    `evaluate_gate` runs on every request against a database that grows all day.
+    A two-standard-error threshold is a statement about one pre-registered look;
+    under a zero-edge process the running z-score wanders and crosses it
+    eventually with probability 1. This is the multiple-comparisons lesson along
+    the time axis, on the path that arms real money.
+    """
+
+    def test_pure_noise_crosses_two_standard_errors_under_repeated_looks(self):
+        """The problem, demonstrated rather than asserted.
+
+        Twelve hundred zero-edge sequences, each looked at after every new game.
+        The fixed-sample rule fires on 13.7% of them. It is not miscalibrated —
+        it is being used for something it does not cover.
+
+        13.7% is a *floor* on the real rate, not an estimate of it: this looks
+        100 times at a sequence of 120 games, while the live gate is evaluated
+        on every request for as long as the record grows.
+        """
+        rng = random.Random(20260807)
+        fired = 0
+        trials = 1200
+
+        for _ in range(trials):
+            values: list[float] = []
+            for _ in range(120):
+                values.append(rng.gauss(0.0, 30.0))
+                if len(values) < 20:
+                    continue
+                _, _, mean, stderr = _cluster_robust_stderr([(1, v) for v in values])
+                if mean > 2 * stderr:
+                    fired += 1
+                    break
+
+        rate = fired / trials
+        assert rate == pytest.approx(0.137, abs=0.02), (
+            f"expected the naive rule to fire on ~13.7% of pure-noise sequences, "
+            f"got {rate:.1%}"
+        )
+        assert rate > 2.5 * ALWAYS_VALID_ALPHA, (
+            "the whole point is that this is far above the nominal level"
+        )
+
+    def test_the_always_valid_bound_holds_under_the_same_repeated_looks(self):
+        """The fix, on the identical sequences and the identical looking schedule.
+
+        The false-positive rate must sit at or below alpha across the whole
+        sequence of looks, not per look.
+        """
+        rng = random.Random(20260807)
+        fired = 0
+        trials = 1200
+
+        for _ in range(trials):
+            values: list[float] = []
+            for _ in range(120):
+                values.append(rng.gauss(0.0, 30.0))
+                if len(values) < 20:
+                    continue
+                n_rows, n_clusters, mean, stderr = _cluster_robust_stderr(
+                    [(1, v) for v in values]
+                )
+                stats = ClusteredMean(
+                    n_rows=n_rows,
+                    n_clusters=n_clusters,
+                    mean_tenths=mean,
+                    stderr_tenths=stderr,
+                )
+                if stats.distinguishable(300):
+                    fired += 1
+                    break
+
+        rate = fired / trials
+        assert rate <= ALWAYS_VALID_ALPHA, (
+            f"always-valid bound must hold across all looks, fired {rate:.1%}"
+        )
+
+    def test_the_bound_is_wider_than_two_standard_errors_and_says_so(self):
+        """The price of unlimited peeking, stated rather than hidden.
+
+        At the pre-registered floor the multiplier is 3.66 rather than 2.
+
+        The assertion that matters is the last one: there is **no** sample size
+        at which this decays back into the fixed-sample rule. A bound that
+        approached 2 for large `n` would be always-valid in name and
+        fixed-sample in the regime the gate actually runs in.
+        """
+        at_floor = always_valid_multiplier(300, tuning=300)
+        assert at_floor == pytest.approx(3.66, abs=0.01)
+        assert at_floor / 2.0 == pytest.approx(1.83, abs=0.01)
+
+        # Falls to a floor near n ~ 8m, then climbs like sqrt(log n). Not
+        # minimised at n == m, which is easy to assume and wrong.
+        curve = {n: always_valid_multiplier(n, tuning=300) for n in (20, 300, 2464, 100_000)}
+        assert curve[20] > curve[300] > curve[2464] < curve[100_000]
+        assert min(curve.values()) == pytest.approx(3.04, abs=0.01)
+
+        for n in (2, 10, 300, 2_464, 10_000, 1_000_000):
+            assert always_valid_multiplier(n, tuning=300) > 3.0, (
+                f"multiplier at n={n} must never approach the fixed-sample 2"
+            )
+
+    def test_the_gate_reports_the_boundary_it_actually_used(self, gate_db):
+        """A threshold a reader cannot see is a threshold they cannot check."""
+        conn = _conn(gate_db)
+        for i in range(40):
+            _add_recommendation(conn, clv_tenths=float(i % 7), ticker=f"T{i}")
+
+        noise = next(
+            c
+            for c in evaluate_gate(
+                conn,
+                GateConfig(live_trading_enabled=True, min_scored_recommendations=300),
+            ).conditions
+            if c.name == "clv_survives_noise_guard"
+        )
+        assert "always-valid bound" in noise.detail
+        assert "not 2" in noise.detail
+        assert "standard errors" in noise.detail
 
 
 class TestFreshness:

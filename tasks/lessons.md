@@ -720,6 +720,46 @@ The two anchoring tests are chosen so that a wrong implementation gives a
 
 ---
 
+## 2026-08-07 — A threshold that is valid once is not valid every time you look
+
+The gate's noise guard required mean CLV above two standard errors. That is a
+correct statement about **one** pre-registered look at the data. `evaluate_gate`
+runs on every HTTP request against a database that grows all day, so it is not
+one look — it is thousands, and under a true zero-edge process the running
+z-score wanders across the boundary eventually with probability 1.
+
+Measured on 1,200 pure-noise sequences, looking after each new game from n=20 to
+n=120: **the two-standard-error rule fires on 13.7%** of them. That 13.7% is a
+floor, not an estimate — the simulation stops at 100 looks and the live gate
+does not stop.
+
+This is [[every-per-cell-guard-can-pass]] rotated onto the time axis. The same
+project that built `mart_multiple_comparisons` to count tests *across buckets*
+was not counting them *across looks*, on the one code path that arms real money.
+
+The fix is a confidence sequence — a boundary holding simultaneously for all
+`n`, so looking whenever you like costs nothing. Robbins' normal mixture, tied
+to the pre-registered floor. It fires on 0% of the same sequences.
+
+**The cost is real and should be stated, not buried:** the multiplier at the
+floor is 3.66 standard errors rather than 2, so continuous peeking costs about
+1.8x the effect size.
+
+**How to apply:** whenever a threshold is evaluated more than once against
+accumulating data, the question is not "is this test correct?" but "how many
+times will it be asked?". Two properties are worth asserting directly, because
+both are easy to get wrong in a way that looks fine:
+
+- The boundary must never approach the fixed-sample value at any `n`. A bound
+  that decays back to 2 for large samples is always-valid in name and
+  fixed-sample in the regime that matters.
+- The mixture parameter does **not** minimise the multiplier at `n == m`. It
+  bottoms out near `n ≈ 8m` and then climbs like `sqrt(log n)`. I asserted the
+  intuitive version, and the test caught me — which is the argument for
+  computing a curve and reading it rather than reasoning about the formula.
+
+---
+
 ## 2026-08-07 — `INSERT OR IGNORE` will happily ignore your fixture
 
 The gate tests' helper did this, and had since the file was written:

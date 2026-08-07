@@ -61,10 +61,16 @@ decision.
       inserting nothing since the file was written (`first_seen_ms` is `NOT
       NULL`), so every gate test's join matched nothing. Both in
       `tasks/lessons.md`.
-- [ ] **Continuous monitoring with no peeking correction.** The gate re-runs on
-      every request against a growing database, with no pre-registered `n`.
-      Under a true zero-edge process, the chance the running z-score *ever*
-      crosses 2 tends to 1. Needs an always-valid bound or a fixed cadence.
+- [x] ~~**Continuous monitoring with no peeking correction**~~ — **done
+      2026-08-07.** The noise guard now uses an always-valid bound (Robbins
+      normal mixture, `m` tied to the 300-game floor) instead of two standard
+      errors. Measured on 1,200 pure-noise sequences looked at 100 times each:
+      the old rule fires on **13.7%**, the new one on **0%**. The cost is stated
+      rather than buried — 3.66 standard errors at the floor instead of 2, about
+      1.8x the effect size, and the gate's detail string reports the multiplier
+      it used. Verified by disabling it (returning 2.0) and watching the
+      simulation and the boundary test go red. Compounds with the clustering fix
+      above: both corrections apply to the same statistic.
 - [ ] **`margins.fit()` destroys the published standard deviation on a thin
       sample.** With n=1 it yields `sd = 0`, which makes a cover probability
       exactly 1.0 or 0.0 — a certainty, which in Kelly sizing is an unbounded
