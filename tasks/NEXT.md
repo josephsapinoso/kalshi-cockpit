@@ -1,5 +1,92 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-08, 14:4xZ — the sheet is merged, and running it found four more)
+
+**State:** 1,202 tests, ruff green, five pushes, **CI green on every one**.
+`lane/frontend-wip` is verified and merged; the branch can be deleted.
+**Still not deployed** — the live instance is on the pre-ADR-0007 image, so
+the next deploy carries the V2 order path, the price-grid snap, the order
+record, the ticket sheet and the logging fix below. Deploying is your call.
+
+### The lane is merged, and none of its defects were layout
+
+The ticket sheet fit 320/390/430 on the first render. What was wrong was
+behaviour, which is the argument for running a thing rather than reading it:
+
+- **The focus trap opened at the moment the answer arrived.** Confirm unmounts
+  when the response lands, focus falls to `<body>`, and the Tab handler only
+  wraps from the first or last control *inside* the panel — so the next Tab
+  walked into the page behind the veil.
+- **A disabled Confirm named the wrong reason.** On an expired row it said
+  "The token above is required", three paragraphs under its own note saying
+  the consensus had aged out. Typing the token would have left the button
+  exactly as dead. That is most rows, most of the day.
+- **Close was a 59x26 target**, on a sheet whose docstring argues from thumbs.
+- A **403** offered "Back", beside a sentence saying retrying will not help.
+
+`scripts/check_ticket_sheet.py` is the new check and the reason all four were
+found: it taps, waits out the entrance animation, measures, presses Confirm,
+and measures the answer. `--fail-order` renders the offline state, which no
+database can produce and is the only way to see the two-button action bar.
+
+**Verified against three instances:** live with a locked gate (**423**, four
+conditions), an expired-row instance, and demo (**403**). Also
+`--fail-order` for the no-reply state.
+
+### `check_mobile.py` could not see a whole class of defect, and now can
+
+The Board read **"CONSENSUSKALSHI"** at 320px — a label needing 86px in a 69px
+cell, painting over its neighbour. `grid-cols-3` is `repeat(3, minmax(0, 1fr))`
+and the `0` lets a column shrink below its own content, so nothing overflowed:
+same `scrollWidth` as a correct layout, same screenshot dimensions. The only
+evidence was looking at the picture.
+
+The script now also reports any leaf with visible overflow whose `scrollWidth`
+exceeds its `clientWidth`. Across five pages and seven widths it found that
+defect twice and nothing else. The card is two columns until `lg`, with the
+edge spanning below — and the breakpoint is measured, not chosen: the Board
+goes two-up at `sm`, so a card at 640px is *narrower* than one at 430px and
+`sm:grid-cols-3` would have reintroduced it one breakpoint up.
+
+### The deployed API process had no logging configuration at all
+
+`docker/entrypoint.sh` runs `uvicorn backend.api.routes:create_app --factory`,
+so `backend/main.py` — the only caller of `basicConfig` — has never run on a
+deployed instance. Started that way, the root logger has no handler: **every
+`backend.*` INFO record was discarded**, and what did come out went through
+`lastResort` with no timestamp, level or logger name. The API is the process
+that runs the quote hub, whose entire recent design is "a dead feed must be
+visible".
+
+The redaction filter added after a live credential reached a transcript was
+therefore installed in the runner and not in the API. Nothing here puts a key
+in a URL today, so what was lost was defence in depth rather than a key.
+
+`create_app` calls `configure_logging()` now — the one seam every entry point
+shares. Verified by disabling, and by re-running the exact entrypoint command.
+
+### One observation, recorded rather than acted on
+
+**`ws.py` has now been run in production shape**, which had not happened
+before. Subscribing to a ticker the exchange does not recognise gets back a
+snapshot carrying only `market_id` and `market_ticker` — no levels field on
+either side — and the parser correctly raises rather than inventing an empty
+book. What that does **not** settle is whether a real market with a genuinely
+empty book looks the same. All 12 snapshots in the capture carry both sides
+with levels, so the two cases are currently indistinguishable. One live
+subscription to an illiquid real market would settle it, at zero odds credits.
+Do not "fix" it by treating a missing key as an empty book — that is the
+unreadable-resolves-to-zero failure the module exists to prevent.
+
+### The README claimed the wire format was unverified
+
+It has been verified since 2026-08-07, by the capture that found the parser
+reading 0 of 257 frames. Three other numbers had drifted, and every one of
+them understated the work. Also added: the demo link, the gate section, and
+the two browser checks that cannot run in CI.
+
+---
+
 ## HANDOFF (2026-08-08, overnight — three lanes, and CI was already red)
 
 **State:** 1,201 tests, `dbt build` 11 nodes green, ruff green (newly wired),
@@ -1295,9 +1382,19 @@ decision.
       is genuinely absent — the total before you confirm — it says so instead
       of multiplying. `worst_case_cost_dollars` on the board row would let that
       line be a number.
-- [ ] **README** — the portfolio piece. Architecture diagram, the OLTP→Parquet→
-      DuckDB story, and an honest statement of what the tool does and does not
-      establish.
+- [x] ~~**README** — the portfolio piece.~~ — **done 2026-08-08.** It already
+      existed and had drifted, which is worse than missing: **"The WebSocket
+      wire format is unverified"** had been false since 2026-08-07, and leaving
+      it in hid the most instructive failure in the project behind an apology
+      for not having looked. "Roughly 0.6 percentage points" sat two paragraphs
+      below a table whose rows differ by 0.38. The test count and the demo
+      slate were both stale.
+      Added the live demo link (the thing a portfolio README most needs and did
+      not have), a gate section carrying the two conditions whose earlier
+      versions would have talked someone into a bet, the order path in the
+      diagram, and the two browser checks that cannot run in CI.
+      **Still missing, deliberately:** an architecture *diagram* rather than
+      ASCII, and screenshots. Both want the deploy to be current first.
 - [x] ~~**GitHub Actions** — tests, `dbt build`, and secret scanning on push.~~
       — **this line was wrong in both directions, 2026-08-08.** CI was built in
       the first commit and has been running pytest, `seed_demo` → `publish` →
