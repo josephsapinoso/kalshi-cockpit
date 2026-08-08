@@ -1845,3 +1845,225 @@ Note also the tell that a checklist can be wrong in both directions at once.
 `tasks/NEXT.md` listed this item as unbuilt; it had been built in the first
 commit, was passing three jobs, and was failing the fourth. Neither the document
 nor the green badge described the state.
+
+---
+
+## 2026-08-08 — Two implementations of one money quantity, neither ever run
+
+`runner.py` computed exposure from `fills` net of `settlements`. `routes.py`
+computed it from live `orders`. Both had existed for the life of the project,
+both were called on the money path — the runner's number sizes every
+recommendation, the endpoint's sizes the order that follows — and **both
+returned `0.0` every time**, because no row had ever been written to any of the
+three tables.
+
+So the duplication was undetectable by every means available. The tests passed:
+each asserted its own function's behaviour and both behaved correctly. A grep
+for callers found callers. `test_has_callers.py` was satisfied. The two numbers
+agreed perfectly, on the only input either had ever seen.
+
+They are not the same quantity. A resting order is committed capital and appears
+in `orders` and not in `fills`, so the day an order was written they would have
+diverged — with the runner recommending a size against one budget and the
+endpoint spending a different one.
+
+**How to apply:** the disable-and-watch-it-fail rule has a sibling for
+*duplicate* implementations, and it is the same question asked once: **has
+either of these ever produced a non-default answer?** Two functions that agree
+only because both return zero have not been shown to agree about anything.
+Before writing the first row into an empty table, grep for everything that reads
+it and ask what each reader believes the table means — that is the last moment
+the answer is cheap, because until then nothing can be wrong.
+
+The fix is [[computing-the-right-statistic-and-then-ignoring-it]]: delete one of
+the paths rather than testing that they agree. The test that replaced them
+asserts the *deletion* — `runner.current_exposure_dollars is
+store.orders.current_exposure_dollars` — because a test that the two agree
+numerically would have passed before the fix too.
+
+Related: [[code-with-no-caller-is-not-a-feature]], which is this one level up —
+there the feature was absent, here it was present twice and equally inert.
+
+---
+
+## 2026-08-08 — An enumeration of the safe cases is a list you will forget to extend
+
+Exposure counted `status IN ('pending', 'resting', 'filled')`. Three statuses
+the author had in mind. `kalshi/orders.py` emits seven, and two of the omitted
+four are money at risk:
+
+    partially_filled        a filled leg and a resting leg, both live
+    unrecognised_response   "the response could not be read, so this may
+                            have filled"
+
+The second is the whole point. It is the status this project invented
+specifically so that an unreadable order response could not be mistaken for
+anything — and an allow-list of live statuses silently valued it at **zero
+dollars**, which is precisely the reading it exists to prevent. The safe-looking
+half of a guard undid the careful half, one file away.
+
+Inverted, the query now excludes `unfilled`, `rejected` and `canceled` and
+counts everything else. That is not a stylistic preference. A status added a
+year from now and forgotten here **counts**, and counting refuses an order;
+under the allow-list it vanished, and vanishing permits one.
+
+**How to apply:** when a filter decides whether something is dangerous, list the
+cases you are declaring *safe*, never the cases you are declaring dangerous. The
+list of dangerous things grows without you; the list of safe things does not.
+Then ask which way an unrecognised value falls, because that is the behaviour
+the list actually encodes.
+
+The same shape caught a second thing in the same query. `SUM` skips NULLs, so a
+row with no limit price contributed nothing and read as an order that cost
+nothing — [[unreadable-must-never-resolve-to-zero]] arriving through SQL's
+aggregate semantics rather than through a parser. It is counted separately now
+and refuses. Related: [[test-the-filters-exclusions]],
+[[no-result-and-rejected-are-different]].
+
+---
+
+## 2026-08-08 — The value you already had is not a value you chose
+
+Two writer processes now touch the database, so a blocked writer must wait
+rather than fail. `connect()` got `PRAGMA busy_timeout = 5000`, a test asserting
+a second writer waits, and a paragraph explaining why.
+
+**CPython's `sqlite3` defaults `timeout` to 5 seconds.** The pragma set the
+value the driver had already set. It was a no-op in the most literal sense —
+delete the line and every byte of observable behaviour is identical — and the
+test passed either way, because the property was real and something else was
+providing it.
+
+Nothing found this except the standing rule: disable the guard, run the test,
+and look at the result rather than at the code. Twelve other guards in the same
+change went red on cue. This one stayed green, and the reason was neither of the
+two the rule usually turns up — the test *did* exercise the property and the
+property *was* reachable. It was that the code under test contributed nothing to
+it.
+
+**How to apply:** when a disabled guard leaves the suite green, the third
+possibility is that the behaviour comes from somewhere else entirely — a library
+default, a platform default, another layer that already handles it. Find out
+which, because the two repairs are opposite: delete a redundant line, or make
+the inherited value an explicit choice so a dependency upgrade cannot remove it
+silently. Here it is the second, since a driver shipping `timeout=0` would
+restore fail-immediately with nothing in this repo changing.
+
+The tell to watch for: a guard whose disabled form is *exactly* the default. If
+the number you are setting equals the number you would get anyway, you have
+written documentation, not code — and it will be believed as code.
+
+Related: [[two-guards-passed-their-tests-and-both-were-broken]],
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-08 — A guard tightened for a false negative fires on the file explaining it
+
+The CI secret scan's third pattern was added to catch a key pasted straight
+after an opening delimiter — a triple-quote, then a PEM header, then the body on
+the next line — a case the previous, broken pattern caught and the narrowed one
+had lost.
+
+`tasks/lessons.md` documents that case **by reproducing it**, in a fenced code
+block, because writing the shape out is how the lesson is legible. So the repair
+for a false negative shipped a false positive onto the file that explains the
+false negative, and CI was red on `main` before anyone pushed.
+
+This is the third consecutive turn of the same screw on one check: a phrase
+match that fired on prose, a material match that lost a real shape, and a shape
+match that fired on prose again. Each repair was correct about the defect in
+front of it.
+
+The escape is not a better regex or a path exclusion. It is noticing that the
+feature being matched was never the right one: **the quote was never what
+distinguished a key from a mention. The next line was.** A quoted header
+followed by a fence, by prose, or by nothing is a mention; one followed by forty
+characters of base64 is a key. grep is line-oriented and structurally cannot see
+that, so the check stopped being a grep for that one case and became two lines
+of awk.
+
+**How to apply:** two things, and the second is the one that generalises.
+
+- **In a repo that documents its own defects, the documentation is inside the
+  scan surface.** The better the write-up, the more exactly it reproduces the
+  thing being detected. Excluding those files is the wrong reflex —
+  `tasks/lessons.md` is prose *about leaked keys*, which makes it a genuinely
+  plausible place for one to be pasted, so excluding it would make the most
+  likely accident the least visible. It is asserted to stay clean instead,
+  beside the two files already listed.
+- **When a detector's third repair is another adjustment to the same pattern,
+  the pattern is matching the wrong feature.** Ask what actually separates the
+  true positives from the false ones, and if the answer is not expressible in
+  the tool being used, change the tool rather than the expression. Related:
+  [[a-guard-that-fails-every-time]], [[test-the-filters-exclusions]].
+
+One portability note, since this now runs `awk` on `ubuntu-latest`, which ships
+mawk: interval syntax is not portable there and `length()` is, and a bare slash
+inside a bracket expression is a lexer hazard, so both regexes are passed in
+with `-v` rather than written as awk literals.
+
+And one trap for whoever next verifies this step by hand: `printf` given a
+doubled backslash-n emits a literal backslash-n inside the step and a **real
+newline** through some outer quoting layers. A canary built the second way is a
+two-line file that silently exercises a different pattern than the one it is
+named after — it reported the escaped-key pattern as broken when the pattern was
+fine and the canary was not.
+
+---
+
+## 2026-08-08 — `occurrence_datetime` is a shifted start, and both stories had real evidence
+
+Two readings of Kalshi's `occurrence_datetime`, each with a measurement behind
+it and neither explaining the other's:
+
+- **A shifted start.** +180 minutes against the sportsbook kickoff on 14 of 18
+  MLB pairs *and* 6 of 6 WNBA pairs. Identical offsets for a 3h sport and a 2h
+  one is what a fixed shift looks like.
+- **An expected end.** `occurrence_datetime == expected_expiration_time` on 198
+  of 200 markets in the discovery capture.
+
+Settled by a **period series**, which discriminates absolutely and costs
+nothing: a first-five-innings market and a full-game market on the same game
+must carry the *same* value if the field is a start, and must differ by about
+the period's length if it is an end. Measured across 15 series pairs: **not one
+period market is earlier than its game market.** Thirteen are bit-identical and
+two are *later*, which no end-semantics can produce.
+
+The sharpest single row needs no comparison at all. On one MLB game, nine market
+types — including `KXMLBRFI`, which resolves about twenty minutes after first
+pitch, and `KXMLBEXTRAS`, which resolves at the end or later — carry the
+**identical** `occurrence_datetime`, and it sits exactly +3.00h from the first
+pitch stated in words in each market's own `rules_primary`. Markets that expire
+hours apart cannot share an expiry.
+
+`expected_expiration_time` looked corroborating because it is a *copy* of
+`occurrence_datetime` — including on the first-inning market, which plainly does
+not expire three hours after first pitch. NFL is the one series that populates
+it independently, and there the two differ by exactly one football game.
+
+**How to apply:** when two readings each have supporting data, stop gathering
+more of the same and look for the input where they predict **opposite** answers.
+Here that is a market covering a *shorter* interval of the same event: agreement
+under one story is impossible under the other, so a single pair settles what
+hundreds of confirming rows could not. This is
+[[a-sign-convention-agreed-with-its-own-test]]'s rule about definitional anchors,
+applied to a measurement instead of a test: pick the case where the wrong answer
+*differs*.
+
+Two consequences worth carrying:
+
+- **The offset is not game-length-dependent**, so the fixed 4h tolerance in
+  `match.linker` and `core.suppression` is right and should not be made
+  per-sport. That was the open worry and the answer is no.
+- **But it is not uniform across series either.** `KXMLBF5` sits at **+5h**
+  while `KXMLBF5SPREAD`, covering the identical five innings, sits at +3h — so
+  the extra two hours are per-series data entry, not semantics. Nothing in scope
+  today prices a period series, and the day one is priced a 4h tolerance drops
+  every `KXMLBF5` market silently. That is [[two-limits-on-one-quantity]]
+  waiting to happen, filed before it does.
+
+And drop the "US Eastern-to-Pacific gap" gloss the earlier entry offered for
+*why* it is three hours. The shift is measured; the explanation was not, and a
+plausible cause invites a future session to "fix" it with a venue timezone
+lookup. Related: [[a-true-measurement-licensed-a-false-conclusion]].

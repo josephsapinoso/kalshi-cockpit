@@ -1,5 +1,135 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-08, overnight — three lanes, and CI was already red
+
+**State:** 1,177 tests, `dbt build` 11 nodes green, ruff green (newly wired),
+tree clean. **Still not deployed** — the live instance is on the image from
+before ADR 0007, so the next deploy carries the V2 order path, the price-grid
+snap, and everything below. The order path is dry-run-only and the gate is
+locked, so nothing here is urgent.
+
+Four things landed: the order record, the three CI follow-ups, the
+`occurrence_datetime` measurement, and a repair to CI that had to happen first.
+
+### Read this first — the secret scan was red on `main` and nobody had pushed
+
+The `quoted` pattern added two commits earlier matches a quote followed by a PEM
+header ending the line. `tasks/lessons.md` documents that exact case **by
+reproducing it**, in a fenced code block. So the repair for a false negative
+shipped a false positive onto the file explaining the false negative — third
+consecutive turn of the same screw on one check.
+
+The quote was never the distinguishing feature. **The next line is.** A quoted
+header followed by a fence is a mention; one followed by forty characters of
+base64 is a key. That one case is now two lines of awk, no path exclusion was
+added, and `tasks/lessons.md` joins the two files asserted to stay clean —
+because prose about leaked keys is a genuinely plausible place for one to be
+pasted, and excluding it would make the most likely accident the least visible.
+
+Verified by extracting the step and running it: clean tree 0, five planted
+shapes each 1, both negatives 0.
+
+### `orders` rows are written — and the framing in this file was wrong
+
+`docs/adr/0008`. The item said the point was to give `max_exposure_dollars`
+something to read. **It does not do that**, and that is worth saying plainly:
+every order the running system places is a dry run, dry runs commit nothing, so
+the cap still does not bind in production. It begins binding the day a live
+order exists.
+
+Counting paper orders instead would make it bind and would be worse — nothing
+settles a paper position, so paper exposure could only ratchet up until the
+endpoint refused everything with no way to release it. **A paper settlement path
+is the prerequisite, not a change to the exposure query.**
+
+What the change is actually for is the other two reasons, and the first is the
+serious one:
+
+- **`client_order_id` existed only in memory.** It is the idempotency key, and
+  the failure it exists for is a POST that times out *after* Kalshi accepted it.
+  Recording after the response loses the key in exactly that case. The row now
+  goes in as `pending` **before** the request; a failed write refuses the order,
+  a failed *outcome* write does not unwind it and is reported instead.
+- **CLV and the fill priced different numbers.** `orders.recommendation_id` is
+  the join that did not exist.
+
+**And it surfaced two implementations of exposure.** `runner.py` summed `fills`
+net of `settlements`, the endpoint summed live `orders`. Both had been on the
+money path for the project's life and both returned `0.0` every time, so they
+had never disagreed — and they answer different questions, so they would have
+the moment a row was written. One deleted. `orders` wins: a resting order is
+committed capital, and counting fills alone lets a hundred resting orders each
+size against zero.
+
+The surviving query enumerates the **terminal** statuses instead of the live
+ones. The old list dropped `partially_filled` and `unrecognised_response` — the
+status this project invented so an unreadable response could not be mistaken for
+anything, valued at zero dollars by an allow-list.
+
+13 guards verified by disabling. One stayed green: `PRAGMA busy_timeout = 5000`
+is exactly CPython's own default, so the line was a literal no-op. Now an
+explicit `timeout=` on `connect`, because there are two writer processes and the
+value should be one we chose.
+
+### `occurrence_datetime` is a shifted start. Story B is refuted
+
+The open question in section 3 is closed, at zero odds credits.
+`scripts/measure_occurrence_datetime.py`, capture in
+`tests/fixtures/occurrence_datetime_probe.json`, full write-up was in
+`tasks/inbox/research.md`.
+
+The discriminator is a period series: an F5 market and a game market on the same
+game must agree if the field is a start and differ by the period if it is an
+end. Across 15 series pairs, **not one period market is earlier than its game
+market**; 13 identical, 2 later. On one MLB game, nine market types — including
+`KXMLBRFI` (resolves ~20 min in) and `KXMLBEXTRAS` (resolves at the end or
+later) — carry the identical value, exactly +3.00h from the first pitch written
+in words in each market's own `rules_primary`. Markets expiring hours apart
+cannot share an expiry.
+
+I re-derived the +3.00h from the committed capture myself rather than taking the
+agent's word for it. Note the persisted evidence is thinner than the headline:
+the fixture holds 15 period pairs and one anchored game, while the agent
+measured 171 pairs and 189 fixtures live. The script re-derives the rest against
+a free endpoint.
+
+**Consequence for the code: change nothing.** The offset is not
+game-length-dependent, so the fixed 4h tolerance in `match.linker` and
+`core.suppression` is correct — that was the worry and the answer is no. But
+`KXMLBF5` sits at **+5h** while `KXMLBF5SPREAD`, covering the identical five
+innings, sits at +3h, so the extra two hours are per-series data entry. Nothing
+in scope prices a period series today; the day one is priced, a 4h tolerance
+drops every `KXMLBF5` market silently. Filed in section 2.
+
+### CI follow-ups: all three done, one unverifiable until pushed
+
+- `.gitignore` was missing `.p12` **and** `.pkcs8`; CI refused both.
+- **ruff is wired, not dropped.** Its current default selects 413 rules and
+  finds 513 violations here, which would have been red on the first push — the
+  exact failure just removed. Selected `E4,E7,E9,F` (59 rules), excluded the 4
+  codes accounting for all 32 findings, 55 rules active, **0** findings.
+  Verified by planting an `F821` and watching it exit 1.
+- Actions bumped off the retiring Node runtime: `checkout@v7`,
+  `setup-python@v7`, `setup-node@v7`, `gitleaks-action@v3`, each confirmed by
+  reading `action.yml` at that tag rather than guessing. **An Action cannot run
+  locally, so this one is unverified until the first push** — watch that all
+  four jobs still start.
+
+Wiring ruff immediately caught eight F811s in the new test file: importing a
+fixture by name makes every signature that takes it a redefinition. Split into
+`build_armed_db` rather than silenced.
+
+### What is still open, and what is new
+
+The three gaps recorded in ADR 0008, all of which become real the day the gate
+opens and none of which are worth building against an untestable live path now:
+**placement is not idempotent** (two taps are two orders — the `UNIQUE`
+constraint stops a duplicate row, not a duplicate order), **two concurrent
+requests can size against one exposure reading**, and **exposure is
+fee-exclusive while the cap is spent fee-inclusive** (~2%).
+
+---
+
 ## HANDOFF (2026-08-08, 05:2xZ — deployed, and the demo found the bug for us)
 
 **Both instances are on the new image.** Demo verified, live verified, live
@@ -991,28 +1121,21 @@ decision.
       has **no cancel path at all**. Recorded as missing infrastructure, not as
       a measurement.
 
-- [ ] **Verify what `occurrence_datetime` actually is.** Raised by the in-play
-      research and **not yet established** — it is recorded here rather than in
-      `lessons.md` because I could not confirm it.
-      The claim: the field is not a timezone-shifted start but an *expected
-      end*, so the −3h that reproduces MLB kickoffs works only because MLB games
-      run about three hours, and it would be wrong for a period series such as
-      `KXMLBF5`.
-      What I checked directly in `events_sports_nested.json`:
-      **`occurrence_datetime == expected_expiration_time` on 198 of 200
-      markets**, differing on two (an NFL game, by exactly 3h). That is real
-      and it is a reason to doubt the timezone framing.
-      What it does **not** settle: `tasks/lessons.md` records +180 min on *both*
-      MLB (~3h games) and WNBA (~2h games), and a genuine end-time field could
-      not produce the same offset for both. Both facts cannot be explained by
-      either story alone, so neither is established.
-      **Why it matters now:** nothing in scope today uses a period series, so
-      this is not currently live — but `match.linker` and `core.suppression`
-      both bound this quantity, and if the offset is game-length-dependent then
-      a fixed tolerance is wrong for any sport that is not three hours long.
-      One measurement settles it: compare `occurrence_datetime` against the
-      sportsbook start across leagues of different durations, and against
-      `expected_expiration_time` on a period series.
+- [x] ~~**Verify what `occurrence_datetime` actually is.**~~ — **done
+      2026-08-08, and it is a shifted start.** The expected-end story is
+      refuted. `scripts/measure_occurrence_datetime.py`, capture in
+      `tests/fixtures/occurrence_datetime_probe.json`, reasoning in
+      `tasks/lessons.md`. Zero odds credits, no POST.
+      **`match.linker` and `core.suppression` need no change** — the offset is a
+      fixed +3h and is not game-length-dependent, so a fixed tolerance is right
+      for a two-hour sport as much as a three-hour one. That was the worry and
+      the answer is no.
+      **The residual, which is real and new:** `KXMLBF5` carries **+5h** while
+      `KXMLBF5SPREAD`, covering the identical five innings, carries +3h. The
+      extra two hours are per-series data entry, not semantics — but the 4h
+      tolerance is between the two, so the day this project prices a period
+      series, every `KXMLBF5` market is dropped silently. Nothing in scope does
+      today.
 
       What has to be answered before any of it is buildable, cheapest first:
 
@@ -1084,20 +1207,33 @@ decision.
       push, never the tree and never history. A key committed last week and
       still present is invisible to it.
 
-- [ ] **Three CI follow-ups**, all outside the lane that found them:
-      - `.gitignore` ignores `*.pfx` but not `*.p12`. A PKCS#12 bundle can be
-        `git add`ed today with no warning; CI now refuses it, so the two
-        disagree. Make them agree.
-      - `ruff~=0.9` is a dev dependency that nothing configures and nothing
-        runs — no `pyproject.toml`, no `ruff.toml`, **491** findings on the
-        default ruleset. Either pick a ruleset and wire it, or drop the
-        dependency. Deliberately *not* added as a job: it would be red on the
-        first push, which is the failure just removed.
-      - Node 20 deprecation warnings on `actions/checkout@v4`,
-        `setup-python@v5`, `setup-node@v4`, `gitleaks-action@v2`. Needs one
-        throwaway branch push to verify, since an Action cannot run locally.
-- [ ] **Write `orders` rows.** The endpoint currently dry-runs without
-      persisting, so nothing accumulates exposure for the cap to read.
+- [x] ~~**Three CI follow-ups**~~ — **done 2026-08-08.** `.gitignore` was
+      missing `.pkcs8` as well as `.p12`. ruff is wired at 55 active rules with
+      0 findings, chosen so it is green on the first push rather than red — its
+      current default finds 513. Four actions bumped off the retiring Node
+      runtime, the only one of the three that cannot be verified without a
+      push. See the handoff at the top.
+- [x] ~~**Write `orders` rows.**~~ — **done 2026-08-08.** `docs/adr/0008`. The
+      description above was wrong about why it mattered: it does **not** make
+      `max_exposure_dollars` bind, because every order is a dry run and dry runs
+      commit nothing. What it does is make `client_order_id` durable before the
+      request goes out, and join the CLV price to the executed one. It also
+      turned up a second implementation of exposure. Handoff at the top.
+- [ ] **A paper settlement path.** Now the prerequisite for the thing the item
+      above was expected to deliver. Paper orders cannot count toward exposure
+      while nothing closes them — `settlements` has no writer, so paper exposure
+      would only ratchet up until the endpoint refused everything. Until this
+      exists, the cap is exercised only by tests.
+- [ ] **Make placement idempotent, before the gate opens.** Each request mints a
+      fresh `client_order_id`, so two taps are two orders; the `UNIQUE`
+      constraint stops a duplicate row and not a duplicate order. Costs nothing
+      today because every order is a dry run. The shape: the client supplies the
+      key, and the endpoint replays the recorded outcome instead of placing
+      again. Deliberately not built yet — it is a new path on the money endpoint
+      that nothing can exercise against live behaviour.
+- [ ] **Serialise the exposure read with the insert.** Two concurrent requests
+      can each size against the same snapshot. Needs both in one write
+      transaction.
 
 ---
 
