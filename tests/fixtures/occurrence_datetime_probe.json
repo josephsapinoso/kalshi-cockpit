@@ -1,0 +1,383 @@
+{
+  "captured_ms": 1786171942265,
+  "base_url": "https://api.elections.kalshi.com/trade-api/v2",
+  "note": "Evidence for docs/adr + tasks/inbox/research.md: is occurrence_datetime a shifted start or an expected end? Captured unauthenticated from public Kalshi endpoints.",
+  "period_pairs": [
+    {
+      "period_ticker": "KXMLBF5-26AUG081505ATLNYY-ATL",
+      "game_ticker": "KXMLBGAME-26AUG081505ATLNYY-ATL",
+      "period_occurrence_datetime": "2026-08-09T00:05:00Z",
+      "game_occurrence_datetime": "2026-08-08T22:05:00Z",
+      "period_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "game_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "period_close_time": "2026-08-11T19:05:00Z",
+      "game_close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "period_ticker": "KXMLBF5SPREAD-26AUG081505ATLNYY-NYY3",
+      "game_ticker": "KXMLBGAME-26AUG081505ATLNYY-ATL",
+      "period_occurrence_datetime": "2026-08-08T22:05:00Z",
+      "game_occurrence_datetime": "2026-08-08T22:05:00Z",
+      "period_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "game_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "period_close_time": "2026-08-11T19:05:00Z",
+      "game_close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "period_ticker": "KXMLBRFI-26AUG081505ATLNYY",
+      "game_ticker": "KXMLBGAME-26AUG081505ATLNYY-ATL",
+      "period_occurrence_datetime": "2026-08-08T22:05:00Z",
+      "game_occurrence_datetime": "2026-08-08T22:05:00Z",
+      "period_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "game_expected_expiration_time": "2026-08-08T22:05:00Z",
+      "period_close_time": "2026-08-11T19:05:00Z",
+      "game_close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "period_ticker": "KXMLS1H-26AUG08NEHOU-NE",
+      "game_ticker": "KXMLSGAME-26AUG08NEHOU-NE",
+      "period_occurrence_datetime": "2026-08-08T23:30:00Z",
+      "game_occurrence_datetime": "2026-08-08T23:30:00Z",
+      "period_expected_expiration_time": "2026-08-08T23:30:00Z",
+      "game_expected_expiration_time": "2026-08-08T23:30:00Z",
+      "period_close_time": "2026-08-11T02:30:00Z",
+      "game_close_time": "2026-08-11T02:30:00Z"
+    },
+    {
+      "period_ticker": "KXEFLCUP1H-26AUG08BARWIG-BAR",
+      "game_ticker": "KXEFLCUPGAME-26AUG08BARWIG-BAR",
+      "period_occurrence_datetime": "2026-08-08T17:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T17:00:00Z",
+      "period_expected_expiration_time": "2026-08-08T17:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T17:00:00Z",
+      "period_close_time": "2026-08-10T20:00:00Z",
+      "game_close_time": "2026-08-10T20:00:00Z"
+    },
+    {
+      "period_ticker": "KXBRASILEIRO1H-26AUG08BOTFLU-BOT",
+      "game_ticker": "KXBRASILEIROGAME-26AUG08BOTFLU-BOT",
+      "period_occurrence_datetime": "2026-08-09T03:00:00Z",
+      "game_occurrence_datetime": "2026-08-09T03:00:00Z",
+      "period_expected_expiration_time": "2026-08-09T03:00:00Z",
+      "game_expected_expiration_time": "2026-08-09T03:00:00Z",
+      "period_close_time": "2026-08-11T06:00:00Z",
+      "game_close_time": "2026-08-11T06:00:00Z"
+    },
+    {
+      "period_ticker": "KXBRASILEIROB1H-26AUG08BOTAMG-BOT",
+      "game_ticker": "KXBRASILEIROBGAME-26AUG08BOTAMG-BOT",
+      "period_occurrence_datetime": "2026-08-09T00:30:00Z",
+      "game_occurrence_datetime": "2026-08-09T00:30:00Z",
+      "period_expected_expiration_time": "2026-08-09T00:30:00Z",
+      "game_expected_expiration_time": "2026-08-09T00:30:00Z",
+      "period_close_time": "2026-08-11T03:30:00Z",
+      "game_close_time": "2026-08-11T03:30:00Z"
+    },
+    {
+      "period_ticker": "KXBRASILEIROC1H-26AUG08BFCSTC-BFC",
+      "game_ticker": "KXBRASILEIROCGAME-26AUG08BFCSTC-BFC",
+      "period_occurrence_datetime": "2026-08-08T23:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T23:00:00Z",
+      "period_expected_expiration_time": "2026-08-08T23:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T23:00:00Z",
+      "period_close_time": "2026-08-11T02:00:00Z",
+      "game_close_time": "2026-08-11T02:00:00Z"
+    },
+    {
+      "period_ticker": "KXJLEAGUE1H-26AUG08AVIVIK-AVI",
+      "game_ticker": "KXJLEAGUEGAME-26AUG08AVIVIK-AVI",
+      "period_occurrence_datetime": "2026-08-08T13:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T13:00:00Z",
+      "period_expected_expiration_time": "2026-08-08T13:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T13:00:00Z",
+      "period_close_time": "2026-08-10T16:00:00Z",
+      "game_close_time": "2026-08-10T16:00:00Z"
+    },
+    {
+      "period_ticker": "KXKLEAGUE1H-26AUG08ANYDAJ-ANY",
+      "game_ticker": "KXKLEAGUEGAME-26AUG08ANYDAJ-ANY",
+      "period_occurrence_datetime": "2026-08-08T14:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T13:30:00Z",
+      "period_expected_expiration_time": "2026-08-08T14:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T13:30:00Z",
+      "period_close_time": "2026-08-10T17:00:00Z",
+      "game_close_time": "2026-08-10T16:30:00Z"
+    },
+    {
+      "period_ticker": "KXLEAGUESCUP1H-26AUG08CDGDAL-CDG",
+      "game_ticker": "KXLEAGUESCUPGAME-26AUG08CDGDAL-CDG",
+      "period_occurrence_datetime": "2026-08-09T04:00:00Z",
+      "game_occurrence_datetime": "2026-08-09T04:00:00Z",
+      "period_expected_expiration_time": "2026-08-09T04:00:00Z",
+      "game_expected_expiration_time": "2026-08-09T04:00:00Z",
+      "period_close_time": "2026-08-11T07:00:00Z",
+      "game_close_time": "2026-08-11T07:00:00Z"
+    },
+    {
+      "period_ticker": "KXUSL1H-26AUG08BROBIR-BRO",
+      "game_ticker": "KXUSLGAME-26AUG08BROBIR-BRO",
+      "period_occurrence_datetime": "2026-08-09T02:00:00Z",
+      "game_occurrence_datetime": "2026-08-09T02:00:00Z",
+      "period_expected_expiration_time": "2026-08-09T02:00:00Z",
+      "game_expected_expiration_time": "2026-08-09T02:00:00Z",
+      "period_close_time": "2026-08-11T05:00:00Z",
+      "game_close_time": "2026-08-11T05:00:00Z"
+    },
+    {
+      "period_ticker": "KXEREDIVISIE1H-26AUG08AZAADO-AZA",
+      "game_ticker": "KXEREDIVISIEGAME-26AUG08AZAADO-AZA",
+      "period_occurrence_datetime": "2026-08-08T22:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T22:00:00Z",
+      "period_expected_expiration_time": "2026-08-08T22:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T22:00:00Z",
+      "period_close_time": "2026-08-11T01:00:00Z",
+      "game_close_time": "2026-08-11T01:00:00Z"
+    },
+    {
+      "period_ticker": "KXLIGAPORTUGAL1H-26AUG08CSMCAS-CSM",
+      "game_ticker": "KXLIGAPORTUGALGAME-26AUG08CSMCAS-CSM",
+      "period_occurrence_datetime": "2026-08-08T17:30:00Z",
+      "game_occurrence_datetime": "2026-08-08T17:30:00Z",
+      "period_expected_expiration_time": "2026-08-08T17:30:00Z",
+      "game_expected_expiration_time": "2026-08-08T17:30:00Z",
+      "period_close_time": "2026-08-10T20:30:00Z",
+      "game_close_time": "2026-08-10T20:30:00Z"
+    },
+    {
+      "period_ticker": "KXSCOTTISHPREM1H-26AUG08DUNABE-DUN",
+      "game_ticker": "KXSCOTTISHPREMGAME-26AUG08DUNABE-DUN",
+      "period_occurrence_datetime": "2026-08-08T17:00:00Z",
+      "game_occurrence_datetime": "2026-08-08T17:00:00Z",
+      "period_expected_expiration_time": "2026-08-08T17:00:00Z",
+      "game_expected_expiration_time": "2026-08-08T17:00:00Z",
+      "period_close_time": "2026-08-10T20:00:00Z",
+      "game_close_time": "2026-08-10T20:00:00Z"
+    }
+  ],
+  "mlb_anchor": [
+    {
+      "ticker": "KXMLBGAME-26AUG081505ATLNYY-ATL",
+      "rules_primary": "If Atlanta wins the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBF5-26AUG081505ATLNYY-ATL",
+      "rules_primary": "If Atlanta wins the first 5 innings of the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-09T00:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBF5SPREAD-26AUG081505ATLNYY-NYY3",
+      "rules_primary": "If New York Y wins by more than 2.5 runs in the first 5 innings of the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBRFI-26AUG081505ATLNYY",
+      "rules_primary": "If either team scores a run in the first inning of the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBSPREAD-26AUG081505ATLNYY-NYY4",
+      "rules_primary": "If New York Y wins by more than 3.5 runs in the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBTOTAL-26AUG081505ATLNYY-2",
+      "rules_primary": "If Atlanta and New York Y collectively score more 1.5 runs in the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBTEAMTOTAL-26AUG081505ATLNYY-NYY2",
+      "rules_primary": "If New York Y scores 2+ runs in the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBKS-26AUG081505ATLNYY-ATLCSALE51-4",
+      "rules_primary": "If Chris Sale records 4+ strikeouts in the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-11T19:05:00Z"
+    },
+    {
+      "ticker": "KXMLBEXTRAS-26AUG081505ATLNYY-EXTRAS",
+      "rules_primary": "If Atlanta and New York Y go to extra innings in the Atlanta vs New York Y professional baseball game originally scheduled for Aug 8, 2026 at 3:05 PM EDT, then the market resolves to Yes.",
+      "occurrence_datetime": "2026-08-08T22:05:00Z",
+      "expected_expiration_time": "2026-08-08T22:05:00Z",
+      "close_time": "2026-08-10T19:05:00Z"
+    }
+  ],
+  "settlement_lag": [
+    {
+      "series": "KXMLBGAME",
+      "n": 15,
+      "median_hours": -0.17067583333333333,
+      "median_ticker": "KXMLBGAME-26AUG072140LADAZ-LAD",
+      "all_hours": [
+        -0.45680027777777776,
+        -0.3733941666666667,
+        -0.29009583333333333,
+        -0.29006444444444446,
+        -0.2873452777777778,
+        -0.28450277777777777,
+        -0.20680416666666668,
+        -0.17067583333333333,
+        -0.04005333333333334,
+        0.12654305555555556,
+        0.12939111111111112,
+        0.7155069444444444,
+        0.7987472222222223,
+        2.3516266666666668,
+        2.546066111111111
+      ]
+    },
+    {
+      "series": "KXWNBAGAME",
+      "n": 15,
+      "median_hours": -0.45947777777777776,
+      "median_ticker": "KXWNBAGAME-26AUG07ATLWSH-WSH",
+      "all_hours": [
+        -0.7163213888888889,
+        -0.6968675,
+        -0.6968622222222223,
+        -0.6289427777777777,
+        -0.6247341666666667,
+        -0.5496602777777778,
+        -0.5468625,
+        -0.45947777777777776,
+        -0.45806583333333334,
+        -0.38172833333333334,
+        -0.3789525,
+        -0.29561027777777776,
+        -0.29410194444444443,
+        -0.2136163888888889,
+        -0.1639877777777778
+      ]
+    },
+    {
+      "series": "KXNBAGAME",
+      "n": 9,
+      "median_hours": -0.11607666666666666,
+      "median_ticker": "KXNBAGAME-26MAY24OKCSAS-OKC",
+      "all_hours": [
+        -0.5009744444444444,
+        -0.46331972222222223,
+        -0.22292944444444446,
+        -0.19937083333333333,
+        -0.11607666666666666,
+        0.004335833333333333,
+        0.03787666666666667,
+        0.04034138888888889,
+        0.11283138888888888
+      ]
+    },
+    {
+      "series": "KXNHLGAME",
+      "n": 11,
+      "median_hours": -0.016806944444444444,
+      "median_ticker": "KXNHLGAME-26JUN14CARVGK-CAR",
+      "all_hours": [
+        -0.21370111111111112,
+        -0.2050675,
+        -0.056995555555555556,
+        -0.028574722222222224,
+        -0.02085611111111111,
+        -0.016806944444444444,
+        0.008840833333333332,
+        0.11438055555555555,
+        0.1894238888888889,
+        0.5402169444444445,
+        1.4402183333333334
+      ]
+    },
+    {
+      "series": "KXNFLGAME",
+      "n": 1,
+      "median_hours": 0.12389027777777778,
+      "median_ticker": "KXNFLGAME-26AUG06CARARI-ARI",
+      "all_hours": [
+        0.12389027777777778
+      ]
+    },
+    {
+      "series": "KXMLSGAME",
+      "n": 15,
+      "median_hours": -0.7802022222222222,
+      "median_ticker": "KXMLSGAME-26AUG01MTLNE-MTL",
+      "all_hours": [
+        -0.9441483333333334,
+        -0.8746425,
+        -0.87464,
+        -0.7857705555555555,
+        -0.7830841666666667,
+        -0.7802158333333333,
+        -0.7802044444444445,
+        -0.7802022222222222,
+        -0.7801997222222222,
+        -0.7801963888888889,
+        -0.7774336111111111,
+        -0.7744805555555555,
+        -0.5247261111111111,
+        -0.2718658333333333,
+        1.2225733333333333
+      ]
+    },
+    {
+      "series": "KXUCLGAME",
+      "n": 15,
+      "median_hours": -0.9690877777777778,
+      "median_ticker": "KXUCLGAME-26AUG04DINKAZ-TIE",
+      "all_hours": [
+        -2.4274394444444445,
+        -1.0372041666666667,
+        -1.0205397222222221,
+        -0.9760625,
+        -0.9760616666666667,
+        -0.9690955555555556,
+        -0.9690891666666667,
+        -0.9690877777777778,
+        -0.9372044444444444,
+        -0.8941138888888889,
+        -0.8941119444444444,
+        -0.4774877777777778,
+        -0.4747341666666667,
+        -0.42744194444444444,
+        0.07810277777777777
+      ]
+    },
+    {
+      "series": "KXEFLCUPGAME",
+      "n": 6,
+      "median_hours": -0.8059154166666667,
+      "median_ticker": "KXEFLCUPGAME-26AUG06BRCWAL-BRC",
+      "all_hours": [
+        -0.9886297222222222,
+        -0.9330761111111111,
+        -0.9262547222222223,
+        -0.6855761111111112,
+        -0.6734838888888889,
+        -0.10126055555555556
+      ]
+    }
+  ],
+  "exp_disagreements": [
+    {
+      "ticker": "KXNFLGAME-26AUG13DETCIN-CIN",
+      "occurrence_datetime": "2026-08-14T02:00:00Z",
+      "expected_expiration_time": "2026-08-14T05:00:00Z",
+      "close_time": "2026-08-15T23:00:00Z"
+    }
+  ]
+}
