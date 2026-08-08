@@ -2,7 +2,7 @@
 
 ## HANDOFF (2026-08-08, 14:4xZ — the sheet is merged, and running it found four more)
 
-**State:** 1,202 tests, ruff green, five pushes, **CI green on every one**.
+**State:** 1,206 tests, ruff green, seven pushes, **CI green on every one**.
 `lane/frontend-wip` is verified and merged; the branch can be deleted.
 **Still not deployed** — the live instance is on the pre-ADR-0007 image, so
 the next deploy carries the V2 order path, the price-grid snap, the order
@@ -77,6 +77,24 @@ with levels, so the two cases are currently indistinguishable. One live
 subscription to an illiquid real market would settle it, at zero odds credits.
 Do not "fix" it by treating a missing key as an empty book — that is the
 unreadable-resolves-to-zero failure the module exists to prevent.
+
+### The exposure cap bounded each order and not the portfolio
+
+`store.orders.reserve_order`. The endpoint read exposure on its read-only
+handle, sized against it, then inserted on a different connection — so two
+requests arriving together each sized as though the other did not exist. The
+row and the cap check are now one transaction, with the check **after** the
+insert, so the answer is a fact about the database rather than a prediction.
+
+Two things worth carrying: the test is two real threads on two connections,
+because `TestClient` never makes the hop and that is how the last concurrency
+regression test in this repo passed against unfixed code; and **the docstring
+I wrote first was wrong** — it credited `BEGIN IMMEDIATE`, and a deferred
+`BEGIN` leaves the test green because the insert takes the write lock anyway.
+What is load-bearing is the order of the two statements.
+
+It still cannot fire in production. Dry runs consume none of the cap, which is
+asserted as a test rather than left in prose.
 
 ### The README claimed the wire format was unverified
 
