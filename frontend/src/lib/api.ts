@@ -106,36 +106,176 @@ export type Gate = {
 };
 
 /**
+ * What the order endpoint sends back when it accepts.
+ *
+ * **Every field is optional and unknown keys are preserved**, deliberately. The
+ * response is being extended (an `order_id` for the persisted row, a
+ * `resulting_exposure_dollars`), and a ticket that threw on a field it had not
+ * been told about would break the one screen a person uses to bet, at the
+ * moment the backend improves. So the sheet renders what it recognises, renders
+ * anything else generically, and never assumes a key is there.
+ *
+ * The price appears as `limit_price_dollars` in the extended shape and as
+ * `limit_price_cents` in the current one. Both are rendered in their own unit.
+ * Converting between them here would be exactly the arithmetic this frontend is
+ * not allowed to do -- see the module docstring on `LiveBoard`.
+ */
+export type OrderQuote = {
+  recorded_ask_display?: string;
+  live_ask_display?: string;
+  moved_tenths?: number;
+  age_ms?: number;
+  depth_at_ask?: number | null;
+  authorised_contracts?: number;
+  resized_contracts?: number;
+  binding_constraint?: string;
+  note?: string;
+  [key: string]: unknown;
+};
+
+export type OrderPlaced = {
+  status?: string;
+  dry_run?: boolean;
+  client_order_id?: string;
+  /** Present once the endpoint persists the row. Absent until then. */
+  order_id?: number | string | null;
+  ticker?: string;
+  side?: string;
+  book_side?: string;
+  contracts?: number;
+  limit_price_dollars?: number;
+  limit_price_cents?: number;
+  fill_price_tenths?: number;
+  fill_price_display?: string;
+  price_grid?: string;
+  worst_case_cost_dollars?: number;
+  /** Present once orders are written. Rendered when it is, omitted when not. */
+  resulting_exposure_dollars?: number;
+  quote?: OrderQuote;
+  request_body?: Record<string, unknown>;
+  note?: string;
+  [key: string]: unknown;
+};
+
+/** The 423 body. `conditions` is the gate's own list, not a re-derivation. */
+export type LockedDetail = {
+  message?: string;
+  reason?: string;
+  conditions?: GateCondition[];
+};
+
+/**
+ * `status: 0` means the request never reached the server.
+ *
+ * Given its own value rather than folded into 503, because they call for
+ * different sentences: one says the exchange could not be read, the other says
+ * this phone could not be heard. Telling a person on a train that Kalshi is
+ * down when their signal dropped sends them looking in the wrong place.
+ */
+export type OrderResult =
+  | { ok: true; status: number; value: OrderPlaced }
+  | { ok: false; status: number; detail: unknown };
+
+/**
  * Ask the server to place an order. The client sends a recommendation id and a
  * size and nothing else: the ticker, side and price are read server-side from
  * the recommendation, so a stale or tampered client cannot buy a different
- * market or a better price than the one on record.
+ * market or a better price than the one on record. The size is a *proposal* --
+ * the endpoint clamps it down against what the engine authorised, what the
+ * sizer allows at the live price, and the order cap.
  *
- * 423 is the locked gate and carries the unmet conditions.
+ * 423 is the locked gate and carries the unmet conditions as a structured body.
  */
 export async function placeOrder(
   recommendationId: number,
   contracts: number,
   token?: string,
-): Promise<
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; status: number; detail: unknown }
-> {
-  const response = await fetch(`${BASE}/api/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    cache: "no-store",
-    body: JSON.stringify({
-      recommendation_id: recommendationId,
-      contracts,
-    }),
-  });
-  if (response.ok) return { ok: true, value: await response.json() };
-  const body = await response.json().catch(() => ({}));
-  return { ok: false, status: response.status, detail: body.detail };
+): Promise<OrderResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/api/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        recommendation_id: recommendationId,
+        contracts,
+      }),
+    });
+  } catch (error) {
+    // A thrown fetch is not a refusal and must not render as one. Nothing was
+    // decided, so nothing can be reported about the order -- only about the
+    // connection.
+    return {
+      ok: false,
+      status: 0,
+      detail: `The request did not reach the cockpit (${
+        error instanceof Error ? error.message : "network error"
+      }). Nothing was sent to the exchange.`,
+    };
+  }
+
+  // A body that is not JSON is itself information -- a proxy error page, a
+  // login redirect. Keep the status and say the body was unreadable rather
+  // than swallowing it into an empty object that renders as a blank refusal.
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    return { ok: true, status: response.status, value: (body ?? {}) as OrderPlaced };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? (body as { detail: unknown }).detail
+      : (body ??
+        `HTTP ${response.status}, and the body was not readable as JSON.`);
+  return { ok: false, status: response.status, detail };
+}
+
+/** Whether a refusal body is the gate's structured one rather than a string. */
+export function isLockedDetail(detail: unknown): detail is LockedDetail {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    !Array.isArray(detail) &&
+    ("conditions" in detail || "message" in detail)
+  );
+}
+
+/**
+ * A refusal body as text, whatever shape it arrived in.
+ *
+ * Three shapes reach here and all three are real: FastAPI's plain string, the
+ * list of dicts pydantic produces when the request body itself is invalid, and
+ * an object. The endpoint's plain-language strings are the useful output and
+ * are passed through untouched -- there are a dozen distinct refusals and each
+ * one explains itself better than a generic sentence could.
+ */
+export function refusalText(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        if (entry && typeof entry === "object") {
+          const item = entry as { loc?: unknown[]; msg?: string };
+          const field = Array.isArray(item.loc)
+            ? item.loc.filter((p) => p !== "body").join(".")
+            : "";
+          return field && item.msg ? `${field}: ${item.msg}` : (item.msg ?? "");
+        }
+        return String(entry);
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (detail && typeof detail === "object") {
+    const message = (detail as LockedDetail).message;
+    if (typeof message === "string") return message;
+    return JSON.stringify(detail);
+  }
+  return "The server refused and gave no reason, which is itself a defect.";
 }
 
 export type Ledger = {
