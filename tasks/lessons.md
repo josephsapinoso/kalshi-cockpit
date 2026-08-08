@@ -2095,3 +2095,47 @@ And drop the "US Eastern-to-Pacific gap" gloss the earlier entry offered for
 *why* it is three hours. The shift is measured; the explanation was not, and a
 plausible cause invites a future session to "fix" it with a venue timezone
 lookup. Related: [[a-true-measurement-licensed-a-false-conclusion]].
+
+---
+
+## 2026-08-08 — A green suite that depended on what time you ran it
+
+A routine full-suite run went red on `test_it_reports_the_remaining_budget_in_
+sweeps`. Nothing had changed since the previous green run an hour earlier, and
+the failing assertion was `assert 6 == 12`.
+
+The demo seed writes two odds sweeps, two minutes and five hours before `now`.
+The budget day rolls at **10:00Z**. So between 10:00Z and 15:00Z the older
+sweep falls into yesterday's budget and `spent_today` is 6 rather than 12 —
+for five hours out of twenty-four, and only those five.
+
+**The test was the messenger; the seed was the defect.** The spend rows exist,
+per their own comment, so the window panel does not "report a full day's budget
+beside odds that were obviously fetched, and the two halves of the same screen
+contradict each other." For those five hours it showed 6 of 16 spent beside two
+sweeps' worth of odds. The thing the code was written to prevent was happening
+inside the code that prevented it, on a timer.
+
+**Why nothing caught it.** CI runs on push, at whatever hour someone pushes.
+Thirty-odd pushes had all landed outside the window. A suite that is green is
+not evidence a suite is deterministic — it is evidence about the samples drawn,
+and wall-clock hour is a dimension nobody thinks of as an input.
+
+**How to apply:** an age measured from `now` does not place a row inside a
+period whose boundary is a fixed instant. Whenever a fixture's timestamps are
+relative and the code's windows are absolute, the two only agree by
+coincidence — anchor the fixture to the **boundary**, not to now.
+
+And test the whole cycle rather than sampling it. The replacement is
+parameterised over all 24 hours, because a defect confined to a five-hour band
+is a coin flip for any single sample, and the disable-check makes the shape
+plain: reverting the fix turns hours 10–14 red and leaves the other nineteen
+green. That is also precisely how CI missed it.
+
+The general form, which is broader than clocks: **if a test's result depends on
+an input the test does not supply, it is not a test of the code — it is a
+measurement of the environment.** Wall-clock time, timezone, locale, filesystem
+ordering, hash seed, and free disk all qualify. Related:
+[[a-budget-that-says-whether-and-never-when]] — same 10:00Z boundary, and the
+same failure to ask what the number is *relative to*;
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
