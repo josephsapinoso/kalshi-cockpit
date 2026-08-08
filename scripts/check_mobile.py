@@ -61,11 +61,43 @@ PROBE = """
       });
     }
   }
+  // Text painting outside its own box, which the check above cannot see.
+  //
+  // Tailwind's `grid-cols-N` is `repeat(N, minmax(0, 1fr))`. The `0` is
+  // deliberate and it means a column may shrink *below its own content*, so a
+  // label too long for its cell does not widen the grid, does not widen the
+  // card, and does not widen the document -- it simply draws over its
+  // neighbour. `scrollWidth` is therefore identical to a correct layout's, and
+  // so is the screenshot's dimensions. Measured on the Board at 320px:
+  // "CONSENSUS" wanted 86px in a 69px cell and rendered as "CONSENSUSKALSHI".
+  //
+  // Only leaves with visible overflow count. An ancestor that scrolls is doing
+  // this on purpose, and `truncate` sets `overflow: hidden`, which is a
+  // decision to clip rather than an accident.
+  const overlaps = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.children.length > 0) continue;
+    const text = (el.textContent || '').trim();
+    if (!text) continue;
+    const style = getComputedStyle(el);
+    if (style.overflowX !== 'visible') continue;
+    if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0) {
+      overlaps.push({
+        tag: el.tagName.toLowerCase(),
+        cls: (el.getAttribute('class') || '').slice(0, 90),
+        needs: el.scrollWidth,
+        has: el.clientWidth,
+        text: text.slice(0, 45),
+      });
+    }
+  }
+
   return JSON.stringify({
     viewport: vw,
     scrollWidth: document.documentElement.scrollWidth,
     bodyScrollWidth: document.body.scrollWidth,
     offenders,
+    overlaps,
   });
 })()
 """
@@ -223,6 +255,18 @@ def main() -> int:
         overflow = page["scrollWidth"] - page["viewport"]
         status = "OK" if overflow <= 0 else f"OVERFLOWS by {overflow}px"
         print(f"\n{page['path'] or '/'}  scrollWidth={page['scrollWidth']}  {status}")
+
+        # Reported even on a page that fits, because a page that fits is
+        # exactly where this hides.
+        for overlap in page.get("overlaps", []):
+            failed = True
+            print(
+                f"    PAINTS OUTSIDE ITS BOX: {overlap['tag']} needs "
+                f"{overlap['needs']}px in {overlap['has']}px -- "
+                f"{overlap['text']!r}"
+            )
+            print(f"           cls={overlap['cls'][:58]!r}")
+
         if overflow <= 0:
             # Elements can legitimately extend past the viewport when an
             # ancestor scrolls them -- the nav link row is meant to do exactly

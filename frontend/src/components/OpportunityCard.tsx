@@ -70,8 +70,21 @@ export default function OpportunityCard({
         )}
       </div>
 
-      {/* The comparison that decides the bet, given the most visual weight. */}
-      <div className="mt-5 grid grid-cols-3 gap-3 border-t pt-4">
+      {/* The comparison that decides the bet, given the most visual weight.
+          Two columns until the card is wide enough for three, and the edge
+          spans the full width below them -- which reads as the conclusion of
+          the two prices above it rather than as a third price.
+
+          Three columns at 320px put "CONSENSUS" in a 69px cell when the word
+          needs 86, and `grid-cols-N` is `repeat(N, minmax(0, 1fr))`, so the
+          column shrank below its own content instead of widening the grid.
+          Nothing overflowed: the label simply painted over the one beside it
+          and the Board read "CONSENSUSKALSHI". `scrollWidth` was identical to
+          a correct layout's throughout, which is why every check passed.
+          The breakpoint is `lg`, not `sm`, and that is measured rather than
+          chosen: the Board goes two-up at `sm`, so a card at 640px is *
+          narrower* than one at 430px and three columns overlap again there. */}
+      <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 lg:grid-cols-3">
         <Figure label="Consensus fair" value={rec.fair_display} />
         <Figure
           // The arrow carries the direction as well as the colour flash. Roughly
@@ -88,6 +101,7 @@ export default function OpportunityCard({
           label="Edge, net of fees"
           value={`${positive ? "+" : ""}${rec.edge_cents.toFixed(1)}c`}
           tone={positive ? "positive" : "negative"}
+          className="col-span-2 lg:col-span-1"
         />
       </div>
 
@@ -193,10 +207,13 @@ function Figure({
   label,
   value,
   tone,
+  className,
 }: {
   label: string;
   value: string;
   tone?: "positive" | "negative";
+  /** Grid placement, for the one figure that spans its row. */
+  className?: string;
 }) {
   const colour =
     tone === "positive"
@@ -205,7 +222,7 @@ function Figure({
         ? "text-negative"
         : "text-foreground";
   return (
-    <div>
+    <div className={className}>
       <div className="text-xs font-semibold uppercase tracking-widest text-muted">
         {label}
       </div>
