@@ -35,6 +35,8 @@ beside it are what establish the path actually executes.
 from __future__ import annotations
 
 import ast
+import fnmatch
+import re
 from pathlib import Path
 
 import pytest
@@ -208,6 +210,58 @@ def test_the_agent_fleet_is_still_the_known_exception():
     )
 
 
+def _dockerignore_patterns() -> list[str]:
+    """The file's rules, comments and blanks dropped, order preserved.
+
+    Order is the whole semantic: `.dockerignore` is last-match-wins, so
+    `scripts/*` followed by `!scripts/run_loop.py` ships one file and
+    `!scripts/run_loop.py` followed by `scripts/*` ships none.
+    """
+    lines = []
+    for raw in (ROOT / ".dockerignore").read_text("utf-8").splitlines():
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#"):
+            lines.append(stripped)
+    return lines
+
+
+def _matches(path: str, pattern: str) -> bool:
+    """One pattern against one path, in Docker's `filepath.Match` semantics.
+
+    Segment-wise rather than a flat `fnmatch`, because `*` does **not** cross a
+    separator: `scripts/*` matches `scripts/migrate_db.py` and must not match
+    `scripts/sub/deep.py`. A flat fnmatch gets that wrong in the direction that
+    reports a file as shipped when it is not.
+    """
+    pattern_parts = pattern.rstrip("/").split("/")
+    path_parts = path.split("/")
+
+    # A pattern for a directory excludes everything beneath it (`tests/` hides
+    # `tests/fixtures/x.json`), so a pattern shorter than the path may still
+    # match -- but only as a prefix.
+    if len(pattern_parts) > len(path_parts):
+        return False
+    if "**" not in pattern_parts and len(pattern_parts) < len(path_parts):
+        path_parts = path_parts[: len(pattern_parts)]
+    if len(pattern_parts) != len(path_parts):
+        return False
+
+    return all(
+        fnmatch.fnmatchcase(actual, expected)
+        for actual, expected in zip(path_parts, pattern_parts)
+    )
+
+
+def _is_ignored(path: str, patterns: list[str]) -> bool:
+    """Whether `path` is excluded from the build context. Last match wins."""
+    ignored = False
+    for pattern in patterns:
+        negated = pattern.startswith("!")
+        if _matches(path, pattern.lstrip("!")):
+            ignored = not negated
+    return ignored
+
+
 class TestTheEntrypointRunsWhatItMustRunFirst:
     """The same question asked of a shell script instead of a module.
 
@@ -269,6 +323,74 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         commands = self._commands()
         assert not any(line.startswith("#") for line in commands)
         assert any("uvicorn" in line for line in commands)
+
+    # -- and the script it names has to be in the image ---------------------
+    #
+    # The ordering test above passed while the deployed container crash-looped
+    # on `can't open file '/app/scripts/migrate_db.py'`. Both statements were
+    # true at once: the entrypoint did run the migration first, and the file it
+    # ran was not there. `.dockerignore` carries `scripts/*` with a hand-kept
+    # `!` allowlist, and the allowlist was written when the entrypoint ran one
+    # script and never revisited when it gained a second.
+    #
+    # This is the repo's own two-limits shape: one guard covering half a
+    # property reads exactly like a guard covering all of it.
+
+    def _scripts_the_entrypoint_runs(self) -> list[str]:
+        """Paths of the form `scripts/<name>.py` in executable lines.
+
+        Derived from the script, not listed here, so a third script added to
+        the entrypoint is covered without anyone remembering to update a test.
+        """
+        found: list[str] = []
+        for line in self._commands():
+            for token in re.findall(r"scripts/[A-Za-z0-9_./-]+\.py", line):
+                if token not in found:
+                    found.append(token)
+        return found
+
+    def test_every_script_the_entrypoint_runs_survives_dockerignore(self):
+        scripts = self._scripts_the_entrypoint_runs()
+
+        # If this ever empties out, the test below silently stops asserting
+        # anything -- a vacuous pass reads identically to a real one.
+        assert scripts, (
+            "no `scripts/*.py` found in entrypoint.sh. Either the entrypoint "
+            "stopped running any, or the extractor stopped matching them."
+        )
+
+        patterns = _dockerignore_patterns()
+        for script in scripts:
+            assert (ROOT / script).exists(), (
+                f"entrypoint.sh runs {script}, which is not in the repo"
+            )
+            assert not _is_ignored(script, patterns), (
+                f"entrypoint.sh runs {script} and .dockerignore excludes it "
+                f"from the build context, so `COPY scripts/` cannot ship it. "
+                f"The container starts, fails to open the file and exits -- "
+                f"add `!{script}` to the allowlist."
+            )
+
+    def test_the_dockerignore_matcher_agrees_with_the_rules_it_models(self):
+        """The guard on this guard.
+
+        A matcher that never reports "ignored" would pass the test above on any
+        input at all, which is the shape of a check that cannot fail. So assert
+        both directions on the real file: a capture script is excluded by
+        `scripts/*`, and the allowlisted ones are not.
+        """
+        patterns = _dockerignore_patterns()
+
+        assert _is_ignored("scripts/capture_fixtures.py", patterns), (
+            "the matcher does not honour `scripts/*`, so it would report every "
+            "script as shipped"
+        )
+        assert not _is_ignored("scripts/run_loop.py", patterns)
+        assert not _is_ignored("backend/api/routes.py", patterns)
+        # Last match wins, and a `!` line only counts if it comes after the
+        # pattern it negates.
+        assert _is_ignored("scripts/x.py", ["!scripts/x.py", "scripts/*"])
+        assert not _is_ignored("scripts/x.py", ["scripts/*", "!scripts/x.py"])
 
     def test_the_script_it_names_exists(self):
         """A boot step pointing at a missing file fails the deploy, loudly --

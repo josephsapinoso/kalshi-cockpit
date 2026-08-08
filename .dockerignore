@@ -42,13 +42,23 @@ tests/
 docs/
 tasks/
 
-# Dev and capture tooling stays out -- but `run_loop.py` is the live
-# entrypoint's own process, not a dev script. Excluding the whole directory
-# built an image that started, reported healthy and served pages while the one
-# process that grows the evidence record was simply absent from the filesystem.
-# Everything else here either hits the API or exists only to build fixtures.
+# Dev and capture tooling stays out. Everything here either hits the API or
+# exists only to build fixtures -- EXCEPT the scripts `docker/entrypoint.sh`
+# executes, which are part of the runtime and must survive into the image.
+#
+# This allowlist has now failed twice, the same way both times: the entrypoint
+# gained a script and nobody added the matching `!` line. `run_loop.py` was the
+# first -- an image that started, reported healthy and served pages while the
+# one process that grows the evidence record was absent from the filesystem.
+# `migrate_db.py` was the second, and it was louder only by luck: it runs under
+# `set -e` before uvicorn, so the container exited 2 and crash-looped instead of
+# serving a lie.
+#
+# `TestTheEntrypointRunsWhatItMustRunFirst` now derives this list from the
+# script rather than trusting it to be maintained by hand.
 scripts/*
 !scripts/run_loop.py
+!scripts/migrate_db.py
 
 *.md
 !README.md

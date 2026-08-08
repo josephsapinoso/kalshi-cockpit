@@ -1650,3 +1650,51 @@ state, a test that accepts either verifies neither. Set the slow path out of
 reach and assert the fast one. And for anything that pushes: decide what
 *silence* means before shipping it, because the default meaning is "everything
 is fine".
+
+---
+
+## 2026-08-08 — A test asserted the order of a command that was not in the image
+
+`entrypoint.sh` runs `scripts/migrate_db.py` before uvicorn, and
+`TestTheEntrypointRunsWhatItMustRunFirst` asserts exactly that by parsing the
+script. It passed. The deployed container crash-looped:
+
+    [entrypoint] checking database schema
+    python: can't open file '/app/scripts/migrate_db.py': No such file
+    Main child exited normally with code: 2
+    machine has reached its max restart count of 10
+
+Both statements were true simultaneously. The migration *did* run first, and the
+file it ran was not there. `.dockerignore` carries `scripts/*` with a hand-kept
+`!` allowlist; the allowlist named `run_loop.py` and nothing else, because it
+was written when the entrypoint executed one script.
+
+**The comment directly above it described this exact failure**, from the last
+time it happened: *"`run_loop.py` is the live entrypoint's own process, not a
+dev script. Excluding the whole directory built an image that started, reported
+healthy and served pages while the one process that grows the evidence record
+was simply absent from the filesystem."* A prose account of a defect does not
+generalise to the next member of its class — only a derived list does.
+
+**Why the test could not see it.** It asserted a property of the *repository*
+and the failure was in the *image*, and nothing in the suite knows those are
+different filesystems. This is [[two-limits-on-one-quantity]] in a new place:
+"runs before uvicorn" and "exists at runtime" are two halves of one property,
+and a guard covering one half reads exactly like a guard covering both.
+
+**How to apply:** when a deny-everything-then-allowlist rule governs which files
+reach production, derive the allowlist's contents from the thing that consumes
+them rather than maintaining it by hand. The replacement extracts every
+`scripts/*.py` the entrypoint executes and asserts each one survives
+`.dockerignore`, so a third script is covered without anyone remembering. It
+carries its own guard both ways — a matcher that never reports "ignored" would
+pass on any input, so `capture_fixtures.py` must come back excluded — per
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+**And the deploy order is what made this cheap.** Demo and live run the same
+image; demo went first, took the crash loop, and cost a public page some
+downtime. Live would have taken it on a volume holding the only copy of the
+evidence record — and `/api/health` never answers at all in this failure, so
+Fly's health check catches it, which is the one merciful detail. Two-step
+deploys are not ceremony: the first step is the one that finds out whether the
+image boots.
