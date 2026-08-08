@@ -68,6 +68,11 @@ class SeededScenario:
     depth: float
     market_width: float
     book_count: int
+    # How long ago the books moved. Carried on the scenario rather than drawn
+    # at the call site so the seeded `odds_snapshots` rows and the seeded
+    # recommendation agree about it: a demo whose stored books say six minutes
+    # while its Board says forty seconds is demonstrating a bug.
+    odds_age_ms: int = 240_000
 
 
 def _scenarios(rng: random.Random) -> list[SeededScenario]:
@@ -78,21 +83,24 @@ def _scenarios(rng: random.Random) -> list[SeededScenario]:
     be a misleading demo.
     """
     out: list[SeededScenario] = []
-    # (offset, quote_age, depth, width, books) -- one entry per fixture,
-    # hand-chosen so each suppression rule is represented exactly once.
+    # (offset, quote_age, depth, width, books, odds_age) -- one entry per
+    # fixture, hand-chosen so each suppression rule is represented exactly once.
+    # Odds ages sit inside the 15-minute freshness limit except for the last,
+    # which demonstrates `stale_odds` -- the rule that closes the actionable
+    # window, and the one a visitor is most likely to hit on the live tool.
     shapes = [
-        (-35, 3_000, 800.0, 0.012, 5),    # surfaced: genuine ~3.5c edge
-        (+40, 4_000, 600.0, 0.010, 5),    # no edge -- Kalshi asks above fair
-        (-260, 5_000, 400.0, 0.014, 4),   # suspicious_edge: too good to be true
-        (-38, 900_000, 700.0, 0.011, 5),  # stale_kalshi_quote
-        (-33, 3_500, 4.0, 0.013, 5),      # insufficient_depth
-        (-36, 4_500, 500.0, 0.220, 4),    # wide_market
-        (+15, 6_000, 300.0, 0.015, 5),    # no edge
-        (-30, 3_000, 900.0, 0.009, 6),    # surfaced: genuine edge
-        (-8, 3_000, 500.0, 0.010, 5),     # edge_within_method_noise
+        (-35, 3_000, 800.0, 0.012, 5, 120_000),    # surfaced: genuine ~3.5c edge
+        (+40, 4_000, 600.0, 0.010, 5, 180_000),    # no edge -- Kalshi above fair
+        (-260, 5_000, 400.0, 0.014, 4, 200_000),   # suspicious_edge
+        (-38, 900_000, 700.0, 0.011, 5, 240_000),  # stale_kalshi_quote
+        (-33, 3_500, 4.0, 0.013, 5, 150_000),      # insufficient_depth
+        (-36, 4_500, 500.0, 0.220, 4, 300_000),    # wide_market
+        (-8, 6_000, 300.0, 0.015, 5, 260_000),     # edge_within_method_noise
+        (-30, 3_000, 900.0, 0.009, 6, 90_000),     # surfaced: genuine edge
+        (-31, 3_000, 500.0, 0.010, 5, 1_500_000),  # stale_odds: window closed
     ]
     for (series, league, team, opp, o1, o2), shape in zip(_FIXTURES, shapes):
-        offset, age, depth, width, books = shape
+        offset, age, depth, width, books, odds_age = shape
         date_code = f"26AUG{rng.randint(8, 28):02d}"
         abbr = f"{team[:3].upper()}{opp[:3].upper()}"
         event_ticker = f"{series}-{date_code}{abbr}"
@@ -110,9 +118,62 @@ def _scenarios(rng: random.Random) -> list[SeededScenario]:
                 depth=depth,
                 market_width=width,
                 book_count=books,
+                odds_age_ms=odds_age,
             )
         )
     return out
+
+
+# Real bookmaker keys, in the order `consensus_devig` prefers them. Named
+# rather than invented: the demo is a portfolio piece, and a made-up book would
+# be the one detail a reader who knows the space would notice.
+_DEMO_BOOKS = (
+    "pinnacle", "draftkings", "fanduel", "betmgm", "caesars", "betrivers",
+)
+
+
+def _seed_books(conn, *, scenario, commence_ms: int, fetched_ms: int, rng) -> int:
+    """Store the sportsbook quotes the consensus was built from.
+
+    Seeded because the actionable window is measured from them. Without these
+    rows `/api/window` correctly reports that no fixture has odds, and the demo
+    would show a permanently closed window beside a Board full of prices --
+    which is not what the live tool does, and is the sort of contradiction a
+    demo exists to avoid.
+
+    Each book's `book_updated_ms` is jittered *older* than the fixture's stated
+    age, never newer. A consensus is only as fresh as its stalest book, so
+    scattering the other side would make the seeded fixture read fresher than
+    the number the Board prints beside it.
+    """
+    stored = 0
+    for book in _DEMO_BOOKS[: scenario.book_count]:
+        jitter = rng.randint(0, 20_000)
+        for name, price in zip(
+            (scenario.team, scenario.opponent), scenario.odds
+        ):
+            conn.execute(
+                "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, "
+                "sport_key, odds_event_id, commence_ms, home_team, away_team, "
+                "bookmaker, market, outcome_name, price_decimal) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'h2h', ?, ?)",
+                (
+                    fetched_ms, fetched_ms - jitter,
+                    _SPORT_KEYS.get(scenario.league, "baseball_mlb"),
+                    f"odds-{scenario.event_ticker}", commence_ms,
+                    scenario.team, scenario.opponent, book, name,
+                    round(price * (1.0 + rng.uniform(-0.01, 0.01)), 3),
+                ),
+            )
+            stored += 1
+    return stored
+
+
+_SPORT_KEYS = {
+    "Pro Baseball": "baseball_mlb",
+    "Pro Basketball (W)": "basketball_wnba",
+    "Pro Football": "americanfootball_nfl",
+}
 
 
 def seed_all(
@@ -148,7 +209,10 @@ def seed_all(
         now=stamp,
     )
 
-    counts = {"markets": 0, "recommendations": 0, "surfaced": 0, "suppressed": 0}
+    counts = {
+        "markets": 0, "recommendations": 0, "surfaced": 0, "suppressed": 0,
+        "odds_quotes": 0,
+    }
 
     for index, scenario in enumerate(_scenarios(rng)):
         commence = stamp + (index + 2) * 3_600_000
@@ -189,6 +253,13 @@ def seed_all(
             ),
         )
         counts["markets"] += 1
+        counts["odds_quotes"] += _seed_books(
+            conn,
+            scenario=scenario,
+            commence_ms=commence,
+            fetched_ms=stamp - scenario.odds_age_ms,
+            rng=rng,
+        )
 
         recommendation = build_recommendation(
             Candidate(
@@ -203,14 +274,20 @@ def seed_all(
                 devig=fair,
                 book_count=scenario.book_count,
                 market_width=scenario.market_width,
-                odds_age_ms=rng.randint(45_000, 400_000),
+                odds_age_ms=scenario.odds_age_ms,
                 commence_skew_ms=rng.randint(-300_000, 300_000),
             ),
             risk=risk,
             suppression=suppression,
             strategy_config_version=version,
             current_exposure_dollars=0.0,
-            created_ms=stamp - index * 60_000,
+            # One instant for the whole slate. A pass prices every candidate it
+            # has and writes them together, so staggering these by a minute each
+            # misrepresented how the record is actually made -- and, now that
+            # the Board recomputes staleness from `created_ms`, it aged half the
+            # demo out of the actionable list for no reason that exists in the
+            # real system.
+            created_ms=stamp,
         )
         persist_recommendation(conn, recommendation)
         counts["recommendations"] += 1
@@ -218,6 +295,18 @@ def seed_all(
             counts["surfaced"] += 1
         elif recommendation.suppressed_reason:
             counts["suppressed"] += 1
+
+    # The spend behind those quotes. Without it the window panel would report
+    # a full day's budget beside odds that were obviously fetched, and the two
+    # halves of the same screen would contradict each other.
+    for sport, age_ms in (("baseball_mlb", 120_000), ("basketball_wnba", 5 * 3_600_000)):
+        conn.execute(
+            "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
+            "regions, cost, remaining_reported, used_reported) "
+            "VALUES (?, '/odds', ?, 'h2h,spreads,totals', 'us,eu', 6, 388, 112)",
+            (stamp - age_ms, sport),
+        )
+    counts["odds_sweeps"] = 2
 
     conn.commit()
     conn.close()
@@ -321,6 +410,15 @@ def main() -> int:
     parser.add_argument("--db", default="data/demo.db")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
+        "--anchor-now",
+        action="store_true",
+        help="Anchor the slate on the current clock instead of the fixed "
+             "demo timestamp. The deployed demo uses this: the actionable "
+             "window is measured against real time, so a frozen slate would "
+             "render a permanently closed window beside live-looking prices. "
+             "Off by default so local runs and tests stay reproducible.",
+    )
+    parser.add_argument(
         "--with-history",
         type=int,
         default=0,
@@ -330,10 +428,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    counts = seed_all(args.db, seed=args.seed)
+    anchor = db.now_ms() if args.anchor_now else None
+    counts = seed_all(args.db, seed=args.seed, now_ms=anchor)
     if args.with_history:
         counts["history"] = seed_history(
-            args.db, n=args.with_history, seed=args.seed
+            args.db, n=args.with_history, seed=args.seed, now_ms=anchor
         )
 
     print(json.dumps(counts, indent=2))

@@ -27,7 +27,7 @@ from ..analysis.marts import (
     headline_verdicts,
     read_dashboards,
 )
-from ..config import AppConfig, GateConfig, RiskConfig, StalenessConfig
+from ..config import AppConfig, GateConfig, OddsConfig, RiskConfig, StalenessConfig
 from ..core.correlation import CorrelationRefused, Leg
 from ..core.parlay import (
     ParlayQuote,
@@ -41,6 +41,8 @@ from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..gate import clustered_clv, evaluate_gate, recommendation_freshness
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..odds.budget import CreditBudget
+from ..odds.timing import window_status
 from ..store import db
 
 logger = logging.getLogger(__name__)
@@ -109,6 +111,7 @@ def create_app(
     gate_config: Optional[GateConfig] = None,
     risk_config: Optional[RiskConfig] = None,
     staleness_config: Optional[StalenessConfig] = None,
+    odds_config: Optional[OddsConfig] = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -126,6 +129,9 @@ def create_app(
     gate = gate_config or GateConfig.load()
     risk = risk_config or RiskConfig.load()
     staleness = staleness_config or StalenessConfig.load()
+    # Without the credential: this app never calls The Odds API, and the demo
+    # instance holds no key. See `OddsConfig.load_without_credentials`.
+    odds = odds_config or OddsConfig.load_without_credentials()
 
     app = FastAPI(
         title="Kalshi Betting Cockpit",
@@ -216,13 +222,29 @@ def create_app(
         ),
         limit: int = Query(100, le=500),
     ) -> dict:
-        """Ranked opportunities.
+        """Ranked opportunities, split by whether they can still be acted on.
 
-        Surfaced rows come first, ordered by edge. Suppressed rows are
-        available behind a flag with their reasons -- they are evidence, not
-        noise, and hiding them entirely would make a miscalibrated rule
-        invisible.
+        Suppressed rows are available behind a flag with their reasons -- they
+        are evidence, not noise, and hiding them entirely would make a
+        miscalibrated rule invisible.
+
+        **Age is recomputed here, not read off the row.** `recommendations`
+        stores the quote ages *as at the moment the row was written*, so a row
+        made three hours ago still says "quote 3s old". Ordering by
+        `suggested_contracts` over the whole table with no clock in it put the
+        best row this instance ever recorded permanently at the top of the
+        Board, rendered as a live buy with a size and a cost. The order endpoint
+        would have refused it -- it recomputes ages the same way -- so no money
+        was at risk. What was at risk is the reader: a page that says "Buy 15"
+        for something the server will not sell.
+
+        So a sized row is `surfaced` only while both its ages are still inside
+        the staleness contract, and `expired` otherwise. Expired rows are
+        returned rather than dropped: "there is nothing to bet" and "there was
+        something and the moment has passed" call for different responses, and
+        a filter that discards what it rejects cannot be audited.
         """
+        now = db.now_ms()
         rows = conn.execute(
             "SELECT r.*, m.title AS market_title, m.yes_side_team, "
             "e.title AS event_title, e.commence_ms "
@@ -233,23 +255,31 @@ def create_app(
             (limit,),
         ).fetchall()
 
-        surfaced, suppressed, no_edge = [], [], []
+        surfaced, expired, suppressed, no_edge = [], [], [], []
         for row in rows:
-            item = _serialise(row)
+            item = _serialise(row, now_ms=now, staleness=staleness)
             if row["suggested_contracts"] > 0:
-                surfaced.append(item)
+                (surfaced if item["actionable"] else expired).append(item)
             elif row["suppressed_reason"]:
                 suppressed.append(item)
             else:
                 no_edge.append(item)
 
+        expired.sort(key=lambda r: r["created_ms"], reverse=True)
+
         return {
             "surfaced": surfaced,
+            "expired": expired,
             "suppressed": suppressed if include_suppressed else [],
             "counts": {
                 "surfaced": len(surfaced),
+                "expired": len(expired),
                 "suppressed": len(suppressed),
                 "no_edge": len(no_edge),
+            },
+            "staleness": {
+                "max_kalshi_quote_age_s": staleness.max_kalshi_quote_age_s,
+                "max_odds_age_s": staleness.max_odds_age_s,
             },
             # An empty Board is the expected state most of the time. Saying so
             # here stops it reading as a malfunction.
@@ -258,6 +288,33 @@ def create_app(
                 "result, not a failure."
             ),
         }
+
+    @app.get("/api/window")
+    def window(conn=Depends(get_conn)) -> dict:
+        """Whether a pick could be bettable right now, and when the next chance is.
+
+        Without this the Board is unreadable in the one way that matters. The
+        odds budget affords two sweeps a day and each makes the slate bettable
+        for fifteen minutes, so for roughly 23.5 hours a day every row on the
+        Board is a row nobody can act on -- and an empty Board, a Board full of
+        expired rows, and a Board during the window all render identically.
+
+        Computed by the same planner the runner spends credits with, not a
+        second implementation of it. A screen and a control that derive the same
+        schedule by two paths eventually disagree, and the screen is the one
+        that gets believed.
+        """
+        return window_status(
+            conn,
+            budget=CreditBudget(
+                conn,
+                daily_budget=odds.daily_credit_budget,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            ),
+            now_ms=db.now_ms(),
+            max_odds_age_ms=staleness.max_odds_age_s * 1000,
+            sweep_cost=odds.credits_per_sweep_per_sport,
+        ).to_dict()
 
     @app.get("/api/market/{ticker}")
     def market(ticker: str, conn=Depends(get_conn)) -> dict:
@@ -683,15 +740,70 @@ def _gate_open(conn, gate: GateConfig) -> bool:
     return evaluate_gate(conn, gate).open
 
 
-def _serialise(row) -> dict:
+def _live_ages(
+    row,
+    *,
+    now_ms: Optional[int],
+    staleness: Optional[StalenessConfig],
+) -> dict:
+    """Each stored age, moved forward to now, and whether both still pass.
+
+    The reconstruction is the same one `gate.recommendation_freshness` performs
+    for the order endpoint: the observation instant is `created_ms - stored_age`
+    and the age is measured from there against the clock. Deliberately the same
+    arithmetic, because a Board that computes freshness differently from the
+    control that enforces it will eventually offer a row the server refuses.
+
+    Returns `actionable: False` when there is no clock to measure against, and
+    when an age is unreadable. An age that cannot be determined is not a fresh
+    one -- the same refusal the order endpoint makes.
+    """
+    if now_ms is None or staleness is None:
+        return {}
+
+    elapsed = now_ms - row["created_ms"]
+
+    def age_now(stored) -> Optional[int]:
+        return None if stored is None else int(elapsed + stored)
+
+    quote = age_now(row["kalshi_quote_age_ms"])
+    odds = age_now(row["odds_age_ms"])
+    actionable = (
+        quote is not None
+        and odds is not None
+        and 0 <= quote <= staleness.max_kalshi_quote_age_s * 1000
+        and 0 <= odds <= staleness.max_odds_age_s * 1000
+    )
+    return {
+        "quote_age_now_ms": quote,
+        "odds_age_now_ms": odds,
+        "actionable": actionable,
+    }
+
+
+def _serialise(
+    row,
+    *,
+    now_ms: Optional[int] = None,
+    staleness: Optional[StalenessConfig] = None,
+) -> dict:
     """Row -> JSON, with prices rendered for display alongside the raw tenths.
 
     Both forms are sent deliberately: the frontend must never re-derive a price
     from a float, and a human reading the payload should be able to see `50.3c`
     without doing arithmetic.
+
+    `kalshi_quote_age_ms` and `odds_age_ms` stay exactly as recorded, because on
+    the Ledger they are a historical fact about the observation and must not
+    move. Pass `now_ms` and `staleness` to add the *current* ages beside them
+    under distinct names, which is what the Board needs and what the Ledger
+    must not silently be given: one field name meaning "then" on one screen and
+    "now" on another is how the two screens come to disagree.
     """
     ask = row["entry_ask_tenths"]
+    live = _live_ages(row, now_ms=now_ms, staleness=staleness)
     return {
+        **live,
         "id": row["id"],
         "ticker": row["ticker"],
         "created_ms": row["created_ms"],

@@ -60,11 +60,23 @@ class TestHealth:
         assert (await get(demo_app, "/api/health")).json()["execution_available"] is False
 
 
+def sized_rows(board: dict) -> list[dict]:
+    """Every row the engine sized, whether or not it is still bettable.
+
+    `surfaced` is now a claim about *this instant* -- both ages inside the
+    staleness contract -- so a fixture seeded at the fixed demo timestamp has
+    none, correctly. Tests about the *shape* of a row use this; tests about
+    actionability use a fixture on the current clock and say so.
+    """
+    return board["surfaced"] + board["expired"]
+
+
 class TestBoard:
-    async def test_returns_surfaced_opportunities(self, demo_app):
+    async def test_returns_the_opportunities_the_engine_sized(self, demo_app):
         body = (await get(demo_app, "/api/board")).json()
-        assert body["counts"]["surfaced"] >= 1
-        assert all(r["suggested_contracts"] > 0 for r in body["surfaced"])
+        rows = sized_rows(body)
+        assert len(rows) >= 1
+        assert all(r["suggested_contracts"] > 0 for r in rows)
 
     async def test_suppressed_are_hidden_by_default(self, demo_app):
         assert (await get(demo_app, "/api/board")).json()["suppressed"] == []
@@ -82,25 +94,209 @@ class TestBoard:
 
     async def test_prices_are_sent_as_tenths_and_as_display_text(self, demo_app):
         """The frontend must never re-derive a price from a float."""
-        row = (await get(demo_app, "/api/board")).json()["surfaced"][0]
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
         assert isinstance(row["ask_tenths"], int)
         assert row["ask_display"].endswith("c")
 
     async def test_every_row_carries_its_config_version(self, demo_app):
-        row = (await get(demo_app, "/api/board")).json()["surfaced"][0]
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
         assert row["strategy_config_version"] >= 1
+
+
+class TestTheBoardCannotOfferWhatTheServerWillRefuse:
+    """`surfaced` is a claim about this instant, not about the whole record.
+
+    The Board ordered by `suggested_contracts` over every row ever written,
+    with no clock in the query, and rendered each as a live buy with a size and
+    a cost. So the best row an instance ever recorded sat at the top forever --
+    and `POST /api/orders`, which recomputes the same ages, would have refused
+    it. No money was ever at risk; the reader was.
+    """
+
+    @pytest.fixture
+    def now_app(self, tmp_path):
+        from backend.seed_demo import seed_all
+        from backend.store.db import now_ms
+
+        path = tmp_path / "now.db"
+        seed_all(path, now_ms=now_ms())
+        return create_app(AppConfig(instance_mode="demo", db_path=path))
+
+    async def test_a_year_old_row_is_expired_rather_than_surfaced(self, demo_app):
+        """The default seed is anchored on a fixed past timestamp."""
+        body = (await get(demo_app, "/api/board")).json()
+        assert body["counts"]["surfaced"] == 0
+        assert body["counts"]["expired"] >= 1
+
+    async def test_a_row_written_moments_ago_is_surfaced(self, now_app):
+        body = (await get(now_app, "/api/board")).json()
+        assert body["counts"]["surfaced"] >= 1
+        assert all(r["actionable"] for r in body["surfaced"])
+
+    async def test_the_kalshi_quote_expires_a_row_long_before_the_books_do(
+        self, tmp_path
+    ):
+        """Two limits bound one window and the tighter one decides it.
+
+        Books may be fifteen minutes old; the Kalshi quote may be **thirty
+        seconds**. Five minutes after a pass the books are still comfortably
+        inside their limit and the quote is ten times outside it, so the row is
+        not bettable -- and a check that looked only at the odds would call it
+        live. That is not an edge case: the loop runs every fifteen minutes, so
+        it is what almost every row on the Board looks like.
+        """
+        from backend.seed_demo import seed_all
+        from backend.store.db import now_ms
+
+        path = tmp_path / "five-minutes-ago.db"
+        seed_all(path, now_ms=now_ms() - 300_000)
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        body = (await get(app, "/api/board")).json()
+
+        assert body["counts"]["surfaced"] == 0
+        row = body["expired"][0]
+        assert row["quote_age_now_ms"] > 30_000        # outside its limit
+        assert row["odds_age_now_ms"] < 900_000        # inside its own
+
+    async def test_an_expired_row_is_returned_rather_than_dropped(self, demo_app):
+        """"Nothing to bet" and "the moment has passed" need different
+        responses, and a filter that discards what it rejects cannot be
+        audited."""
+        body = (await get(demo_app, "/api/board")).json()
+        assert body["expired"]
+        assert all(r["suggested_contracts"] > 0 for r in body["expired"])
+        assert all(r["actionable"] is False for r in body["expired"])
+
+    async def test_the_current_age_is_sent_beside_the_recorded_one(self, demo_app):
+        """A row from a year ago still stores "quote 3s old", because that is
+        what it was. Rendering that number as the present is the whole bug."""
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
+        assert row["kalshi_quote_age_ms"] < 1_000_000        # as recorded
+        assert row["quote_age_now_ms"] > 10_000_000_000      # as it is now
+
+    async def test_the_ledger_keeps_the_recorded_age_untouched(self, demo_app):
+        """There the age is a historical fact about the observation. One field
+        name meaning "then" on one screen and "now" on another is how two
+        screens come to disagree."""
+        row = (await get(demo_app, "/api/ledger")).json()["rows"][0]
+        assert "quote_age_now_ms" not in row
+        assert row["kalshi_quote_age_ms"] < 1_000_000
+
+    async def test_the_board_states_the_limits_it_judged_against(self, demo_app):
+        body = (await get(demo_app, "/api/board")).json()
+        assert body["staleness"]["max_kalshi_quote_age_s"] == 30
+        assert body["staleness"]["max_odds_age_s"] == 900
+
+    async def test_the_board_and_the_order_endpoint_agree_on_expiry(
+        self, tmp_path
+    ):
+        """The screen and the control share the arithmetic. If they diverge,
+        the screen is the one that gets believed."""
+        from backend.gate import recommendation_freshness
+        from backend.seed_demo import seed_all
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "agree.db"
+        seed_all(path, now_ms=now_ms())
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        body = (await get(app, "/api/board")).json()
+
+        conn = store.open_db(path, read_only=True)
+        try:
+            for row in sized_rows(body):
+                control = recommendation_freshness(conn, row["id"])
+                assert control["kalshi_quote_age_ms"] == pytest.approx(
+                    row["quote_age_now_ms"], abs=2_000
+                )
+                assert control["odds_age_ms"] == pytest.approx(
+                    row["odds_age_now_ms"], abs=2_000
+                )
+        finally:
+            conn.close()
 
 
 class TestMarketDetail:
     async def test_returns_a_known_market(self, demo_app, demo_db):
         board = (await get(demo_app, "/api/board")).json()
-        ticker = board["surfaced"][0]["ticker"]
+        ticker = sized_rows(board)[0]["ticker"]
         body = (await get(demo_app, f"/api/market/{ticker}")).json()
         assert body["ticker"] == ticker
         assert body["reason_text"]
 
     async def test_an_unknown_market_is_404_not_an_empty_object(self, demo_app):
         assert (await get(demo_app, "/api/market/NOPE")).status_code == 404
+
+
+class TestActionableWindow:
+    """Whether a pick can be acted on, which the Board could not previously say.
+
+    Two sweeps a day at fifteen minutes each means the tool is actionable for
+    about half an hour out of twenty-four. Without this endpoint an empty
+    Board, a Board of expired rows, and a Board during the window all render
+    identically.
+    """
+
+    @pytest.fixture
+    def fresh_app(self, tmp_path):
+        """A slate whose books moved a minute ago, on the current clock.
+
+        Seeded at real `now` rather than the demo's fixed stamp: the window is
+        the one number in this system measured against the wall clock, so a
+        frozen slate can only ever demonstrate the closed state.
+        """
+        from backend.seed_demo import seed_all
+        from backend.store.db import now_ms
+
+        path = tmp_path / "fresh.db"
+        seed_all(path, now_ms=now_ms())
+        return create_app(AppConfig(instance_mode="demo", db_path=path))
+
+    async def test_a_freshly_swept_slate_reports_an_open_window(self, fresh_app):
+        body = (await get(fresh_app, "/api/window")).json()
+        assert body["is_open"] is True
+        assert 0 < body["seconds_remaining"] <= 900
+
+    async def test_a_year_old_slate_reports_a_closed_window(self, demo_app):
+        """The default demo seed is anchored on a fixed past timestamp."""
+        body = (await get(demo_app, "/api/window")).json()
+        assert body["is_open"] is False
+        assert body["seconds_remaining"] is None
+
+    async def test_open_never_claims_there_is_something_to_bet(self, fresh_app):
+        """The two are independent, and conflating them is how a freshness
+        indicator becomes a buy signal."""
+        body = (await get(fresh_app, "/api/window")).json()
+        assert "does not mean there is anything to bet" in body["note"]
+
+    async def test_it_counts_fixtures_rather_than_averaging_them(self, fresh_app):
+        """A slate can be half stale. One number for it would describe neither
+        half -- and the seed deliberately contains a fixture whose books did
+        not move, to demonstrate `stale_odds`."""
+        body = (await get(fresh_app, "/api/window")).json()
+        assert body["fixtures_upcoming"] > body["fixtures_fresh"] >= 1
+
+    async def test_it_reports_the_remaining_budget_in_sweeps(self, fresh_app):
+        """16 credits a day at 6 a call is two sweeps, and the seed spends both."""
+        body = (await get(fresh_app, "/api/window")).json()
+        assert body["spent_today"] == 12
+        assert body["sweeps_remaining_today"] == 0
+
+    async def test_the_demo_needs_no_odds_credential_to_render_it(self, tmp_path):
+        """The demo instance holds no keys. A timetable must not require one."""
+        import os
+
+        from backend.seed_demo import seed_all
+
+        path = tmp_path / "nocreds.db"
+        seed_all(path)
+        saved = os.environ.pop("ODDS_API_KEY", None)
+        try:
+            app = create_app(AppConfig(instance_mode="demo", db_path=path))
+            assert (await get(app, "/api/window")).status_code == 200
+        finally:
+            if saved is not None:
+                os.environ["ODDS_API_KEY"] = saved
 
 
 class TestLedger:

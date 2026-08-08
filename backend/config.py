@@ -134,6 +134,28 @@ class OddsConfig:
             budget_day_start_utc_hour=hour,
         )
 
+    @classmethod
+    def load_without_credentials(cls) -> "OddsConfig":
+        """Everything except the key, for readers that never call the API.
+
+        The cockpit renders the sweep schedule and the actionable window, both
+        of which are properties of the *plan* -- what a call costs, how many the
+        day affords, when the budget rolls. None of that needs the credential,
+        and the demo instance deliberately holds none. Requiring the key to
+        render a timetable would either take the demo down or put a credential
+        on a public deploy, and both are worse than an empty string here.
+        """
+        return cls(
+            api_key="",
+            base_url=_optional("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4"),
+            daily_credit_budget=_int("ODDS_DAILY_CREDIT_BUDGET", 16),
+            regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
+            markets=[
+                m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
+            ],
+            budget_day_start_utc_hour=_int("ODDS_BUDGET_DAY_START_UTC_HOUR", 10),
+        )
+
     @property
     def credits_per_sweep_per_sport(self) -> int:
         """The Odds API charges markets x regions per /odds call."""

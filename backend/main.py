@@ -26,6 +26,13 @@ def main() -> int:
         help="Regenerate the demo database and serve it. Forces demo mode.",
     )
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument(
+        "--anchor-now",
+        action="store_true",
+        help="With --seed-demo, put the seeded slate on the current clock. "
+             "The actionable window is measured against real time, so a slate "
+             "frozen at the fixed demo timestamp always renders it closed.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -40,8 +47,11 @@ def main() -> int:
         os.environ["DB_PATH"] = "data/demo.db"
 
         from .seed_demo import seed_all
+        from .store.db import now_ms
 
-        counts = seed_all("data/demo.db")
+        counts = seed_all(
+            "data/demo.db", now_ms=now_ms() if args.anchor_now else None
+        )
         logging.info("seeded demo database: %s", counts)
 
     from .api.routes import create_app

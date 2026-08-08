@@ -33,12 +33,34 @@ export type Recommendation = {
   suppressed_reason: string | null;
   reason_text: string;
   clv_tenths: number | null;
+  /**
+   * The ages as they are *now*, sent only by the Board.
+   *
+   * `kalshi_quote_age_ms` and `odds_age_ms` above are the ages at the moment
+   * the row was written and never move, which is right on the Ledger — there
+   * they are a historical fact about the observation — and dangerously wrong
+   * on the Board, where a row from three hours ago still reads "quote 3s ago".
+   */
+  quote_age_now_ms?: number | null;
+  odds_age_now_ms?: number | null;
+  /** Both ages still inside the staleness contract, at this instant. */
+  actionable?: boolean;
 };
 
 export type Board = {
+  /** Sized AND still fresh. A claim about this instant, not about the record. */
   surfaced: Recommendation[];
+  /** Sized, and the moment has passed. Returned rather than dropped. */
+  expired: Recommendation[];
   suppressed: Recommendation[];
-  counts: { surfaced: number; suppressed: number; no_edge: number };
+  counts: {
+    surfaced: number;
+    expired: number;
+    suppressed: number;
+    no_edge: number;
+  };
+  /** The limits the server judged against, so the page cannot state its own. */
+  staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
   note: string;
 };
 
@@ -200,6 +222,42 @@ export async function priceParlay(
   return { ok: false, refusal: String(body.detail ?? `HTTP ${response.status}`) };
 }
 
+/**
+ * Whether a pick could be acted on right now, and when the next chance is.
+ *
+ * The odds budget affords two sweeps a day and each one makes the slate
+ * bettable for fifteen minutes, so for roughly 23.5 hours out of 24 every row
+ * on the Board is a row nobody can act on. Without this, an empty Board, a
+ * Board of expired rows, and a Board during the window all look the same.
+ *
+ * `is_open` is a claim about *freshness only*. It never means there is
+ * something to bet — most windows open onto an empty Board, which is the
+ * expected result of the whole premise.
+ */
+export type ActionableWindow = {
+  now_ms: number;
+  is_open: boolean;
+  seconds_remaining: number | null;
+  open_until_ms: number | null;
+  /** Counted, not averaged: a slate can be half stale, and that is a real state. */
+  fixtures_upcoming: number;
+  fixtures_fresh: number;
+  max_odds_age_s: number;
+  last_sweep_ms: number | null;
+  last_sweep_sport: string | null;
+  next_sweep_ms: number | null;
+  next_sweep_sport: string | null;
+  next_sweep_games: number | null;
+  next_sweep_reason: string | null;
+  sweeps_remaining_today: number;
+  spent_today: number;
+  daily_budget: number;
+  budget_day_start_ms: number;
+  note: string;
+};
+
+export const fetchWindow = () => get<ActionableWindow>("/api/window");
+
 export const fetchBoard = (includeSuppressed = false) =>
   get<Board>(`/api/board?include_suppressed=${includeSuppressed}`);
 
@@ -222,6 +280,25 @@ export function formatAge(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
   return `${(ms / 3_600_000).toFixed(1)}h ago`;
+}
+
+/** A clock time, for a moment the user has to act at rather than react to. */
+export function formatClock(ms: number | null): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** "in 12m" / "in 3h 20m". Used for a future instant; `formatAge` is the past. */
+export function formatUntil(ms: number): string {
+  if (ms <= 0) return "now";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return "in under a minute";
+  if (minutes < 60) return `in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `in ${hours}h ${minutes % 60}m`;
 }
 
 export function formatKickoff(ms: number | null): string {

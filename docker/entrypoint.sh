@@ -24,9 +24,15 @@ echo "[entrypoint] instance_mode=${INSTANCE_MODE} db=${DB_PATH}"
 # The demo instance regenerates its database on every boot. It holds no
 # credentials and reaches no network, so there is nothing to preserve -- and a
 # fresh seed means the deployed demo always matches the screenshots.
+#
+# `--anchor-now` puts the slate on the current clock. The actionable window is
+# measured against real time, so a slate frozen at a fixed timestamp would show
+# a permanently closed window next to prices that look live -- the two halves
+# of one screen contradicting each other. Local runs keep the fixed stamp, so
+# tests stay reproducible.
 if [ "${INSTANCE_MODE}" = "demo" ]; then
   echo "[entrypoint] seeding demo database (no credentials, no network)"
-  python -m backend.seed_demo --db "${DB_PATH}"
+  python -m backend.seed_demo --db "${DB_PATH}" --anchor-now
 fi
 
 # ---------------------------------------------------------------------------

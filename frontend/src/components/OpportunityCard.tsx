@@ -10,21 +10,34 @@ const MAX_QUOTE_AGE_MS = 30_000;
  * seven-column table at 390px is unreadable. The card puts the one comparison
  * that matters -- fair versus what you pay -- at the top in large type, and
  * relegates the machinery below it.
+ *
+ * **Ages shown are the current ones where the server sent them.** The stored
+ * `kalshi_quote_age_ms` is the age at the moment the row was written and never
+ * moves, so a three-hour-old row rendered from it reads "quote 3s ago" -- a
+ * number that is true about the past and a lie about the page.
  */
 export default function OpportunityCard({
   rec,
   suppressed = false,
+  expired = false,
+  quoteLimitMs = MAX_QUOTE_AGE_MS,
 }: {
   rec: Recommendation;
   suppressed?: boolean;
+  expired?: boolean;
+  quoteLimitMs?: number;
 }) {
-  const band = freshness(rec.kalshi_quote_age_ms, MAX_QUOTE_AGE_MS);
+  const quoteAge = rec.quote_age_now_ms ?? rec.kalshi_quote_age_ms;
+  const oddsAge = rec.odds_age_now_ms ?? rec.odds_age_ms;
+  const band = freshness(quoteAge, quoteLimitMs);
   const positive = rec.edge_cents > 0;
 
   return (
     <article
       className={`animate-in rounded-2xl border bg-card p-5 transition-all sm:p-6 ${
-        suppressed ? "opacity-70" : "hover:-translate-y-1 hover:border-accent"
+        suppressed || expired
+          ? "opacity-70"
+          : "hover:-translate-y-1 hover:border-accent"
       }`}
     >
       <div className="flex items-start justify-between gap-4">
@@ -54,8 +67,15 @@ export default function OpportunityCard({
         />
       </div>
 
+      {/* The size is what makes an expired row dangerous to render plainly:
+          "Buy 15" beside a price the server will refuse. Struck through and
+          labelled rather than hidden -- the row is still evidence. */}
       {rec.suggested_contracts > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-4">
+        <div
+          className={`mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-4 ${
+            expired ? "line-through decoration-1 opacity-60" : ""
+          }`}
+        >
           <Figure label="Buy" value={`${rec.suggested_contracts}`} />
           <Figure label="Cost" value={`$${(rec.ask_dollars * rec.suggested_contracts).toFixed(2)}`} />
           <Figure label="Fee" value={`$${rec.fee_predicted.toFixed(2)}`} />
@@ -70,13 +90,20 @@ export default function OpportunityCard({
       <p className="mt-4 text-sm leading-relaxed text-muted">{rec.reason_text}</p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 font-mono text-xs text-muted">
-        <span className={`freshness-${band}`}>
-          quote {formatAge(rec.kalshi_quote_age_ms)}
-        </span>
-        <span>books {formatAge(rec.odds_age_ms)}</span>
+        <span className={`freshness-${band}`}>quote {formatAge(quoteAge)}</span>
+        <span>books {formatAge(oddsAge)}</span>
         {rec.depth_at_ask !== null && <span>depth {rec.depth_at_ask.toFixed(0)}</span>}
         <span className="ml-auto">cfg v{rec.strategy_config_version}</span>
       </div>
+
+      {expired && (
+        <div className="mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed text-muted">
+          Not bettable now — the quote behind it is{" "}
+          <span className="font-mono">{formatAge(quoteAge)}</span>, past the{" "}
+          <span className="font-mono">{Math.round(quoteLimitMs / 1000)}s</span>{" "}
+          limit. The order endpoint refuses it independently of this page.
+        </div>
+      )}
 
       {suppressed && rec.suppressed_reason && (
         <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2">
