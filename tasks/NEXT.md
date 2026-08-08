@@ -67,6 +67,53 @@ probably enough.
 Do not raise `MAX_KALSHI_QUOTE_AGE_S`. 30s is the correct number for a venue
 quoted by sub-200ms market makers; the poll rate is what is wrong.
 
+### And read this before touching the gate
+
+The first live Discord digest (2026-08-08 02:39Z, one budget day) says:
+
+    Surfaced 0   Suppressed 319   No edge 201   Scored on CLV 16 / 300
+
+    stale_odds                                × 196
+    stale_odds,suspicious_edge                ×  66
+    stale_odds,too_few_books,no_market_width  ×  16
+    too_few_books,no_market_width             ×  11
+
+**`stale_odds` is on 278 of 319 suppressions — 87%.** `tasks/lessons.md` already
+has the rule this breaks: *"before adding something to a rejection log, ask what
+fraction of inputs will trigger it. If the answer is 'most of them', it is a
+state, not an exception, and logging it as an exception destroys the log's value
+as a diagnostic."* That has now happened. The suppression summary is one code
+and a long tail, so it can no longer surface a miscalibrated rule — which is the
+only reason it exists. Stale odds are the *normal* condition for 23.5 hours a
+day; they are a state.
+
+**And the gate is counting the wrong population.** `clustered_clv` pools every
+row with a `clv_tenths`, with no filter on `suppressed_reason` or
+`suggested_contracts`. So "16 / 300" is 16 games of CLV drawn overwhelmingly
+from rows the strategy explicitly *rejected*. That measures the closing-line
+behaviour of "any Kalshi market we happened to poll", not of this strategy.
+
+The dilution is conservative — it drags a real edge toward zero rather than
+inventing one — so nothing unsafe has happened. It is still the wrong number
+under a label that says "our edge", and the 66 `suspicious_edge` rows are
+exactly the population most likely to carry a *systematic* CLV in one direction,
+which would move the pooled mean rather than merely blunt it. The repo's own
+rule: **a pooled number is not a finding until the parts agree, and the
+per-group view goes beside every aggregate.**
+
+The sharp version, and the reason this is item 2 rather than item 5: **rows
+become eligible only when they are actionable, and nothing has been actionable
+yet.** Surfaced is 0 and has always been 0. So the two findings are one finding
+— the 30-second window starves the only population the gate should be measuring,
+while the counter reads 16 because it is counting a different one. Fixing the
+window is what makes the gate's number mean anything.
+
+Do not simply add `WHERE suggested_contracts > 0`. That is the correct
+population and it is currently empty, so the gate would read 0/300 forever and
+the change would look like a regression. Report both groups first —
+actionable and rejected, side by side, with n for each — then decide which one
+the floor counts.
+
 ### Then
 
 - [x] ~~**Turn on Discord**~~ — **done 2026-08-08 02:41Z.** `DISCORD_WEBHOOK_URL`
