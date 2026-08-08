@@ -293,6 +293,63 @@ class TestMigration:
         assert db.migrate(conn) == []
         conn.close()
 
+    @pytest.mark.parametrize("version", sorted(db._MIGRATIONS))
+    def test_each_single_step_runs_on_a_database_one_version_behind(
+        self, tmp_path, version
+    ):
+        """Every step, from the version immediately before it.
+
+        The fixture above builds a **v1** database, so it exercises 1 -> N as
+        one sweep. That is not the transition a deployed volume makes: the live
+        database is at v2 and will run v3 **alone**, against a schema that
+        already has v2's columns. Nothing covered that, and it is the only
+        migration path production will ever take.
+
+        The distinction is not academic. A step that happens to work as part of
+        a full sweep can fail on its own -- an `ALTER` whose table was created
+        by an earlier step, an index over a column a previous version added --
+        and the sweep is the case tests naturally reach for, because it is the
+        one a fresh fixture produces.
+
+        Parametrised over the migration table so a v4 is covered the day it is
+        written rather than the day someone remembers.
+        """
+        path = tmp_path / f"v{version - 1}.db"
+        connection = db.init_db(path)
+        # Undo this version and everything after it, leaving the ones before.
+        for later in sorted(db._MIGRATIONS):
+            if later < version:
+                continue
+            for statement in db._MIGRATIONS[later].statements:
+                name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+                connection.execute(f"DROP INDEX IF EXISTS {name}")
+            for table, column, _ in db._MIGRATIONS[later].columns:
+                connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        connection.execute(
+            "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+            (str(version - 1),),
+        )
+        connection.commit()
+        connection.close()
+
+        # Refused before, exactly as the API would refuse it on boot.
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(path)
+
+        connection = db.init_db(path)
+        try:
+            assert db.get_meta(connection, "schema_version") == str(db.SCHEMA_VERSION)
+            for table, column in self._migrated_columns():
+                assert column in db._columns(connection, table), (
+                    f"{table}.{column} missing after migrating from "
+                    f"v{version - 1}"
+                )
+        finally:
+            connection.close()
+
+        # And openable afterwards, which is what the deployed API does next.
+        db.open_db(path).close()
+
     def test_the_schema_file_and_the_migrations_agree(self, tmp_path):
         """Every migrated column must also be in `schema.sql`.
 
