@@ -1,15 +1,49 @@
 # Next — your checklist
 
-## HANDOFF (2026-08-08, overnight — three lanes, and CI was already red
+## HANDOFF (2026-08-08, overnight — three lanes, and CI was already red)
 
 **State:** 1,177 tests, `dbt build` 11 nodes green, ruff green (newly wired),
-tree clean. **Still not deployed** — the live instance is on the image from
-before ADR 0007, so the next deploy carries the V2 order path, the price-grid
-snap, and everything below. The order path is dry-run-only and the gate is
-locked, so nothing here is urgent.
+tree clean, **pushed, and CI is green on all three jobs** — the first fully
+green run in 37 pushes. **Still not deployed** — the live instance is on the
+image from before ADR 0007, so the next deploy carries the V2 order path, the
+price-grid snap, and everything below. The order path is dry-run-only and the
+gate is locked, so nothing here is urgent. **Deploying is your call; I did
+not.**
 
-Four things landed: the order record, the three CI follow-ups, the
-`occurrence_datetime` measurement, and a repair to CI that had to happen first.
+Five things landed: the order record, the three CI follow-ups, the
+`occurrence_datetime` measurement, a repair to CI that had to happen first,
+and a cache breakpoint in the agent fleet that had never cached anything.
+
+### Two lanes did not finish, and one has work worth keeping
+
+Both were killed by a session limit mid-task, not by anything they hit.
+
+- **`lane/frontend-wip` — the ticket bottom sheet, committed but NOT merged.**
+  `TicketSheet.tsx` (962 lines), `TicketProvider.tsx`, and changes to
+  `page.tsx` / `LiveBoard.tsx` / `lib/api.ts`. It died while running
+  `check_mobile.py`, so **nothing has been rendered, measured at 320/390/430,
+  or tapped against a locked gate** — and the gate refusal is the state this
+  component will actually be in. Committed only so a worktree cleanup cannot
+  delete it. Finish the verification before merging.
+- **README** — nothing committed. Start it over.
+
+### The agent fleet's prompt cache was a no-op
+
+`agents/base.py` marked `HOUSE_CONTEXT` with `cache_control`, behind a comment
+calling the savings "the whole reason to cache". Measured against
+`claude-opus-5`: the block is **401 tokens** and the minimum cacheable prefix
+is **512**. It had never produced an entry — no error, no warning,
+`cache_creation_input_tokens: 0`.
+
+Breakpoint moved to the last system block (738–985 tokens per agent).
+`scripts/measure_agent_cache_prefix.py` re-measures and exits non-zero if any
+agent falls under. It exists because the minimum is model-specific and **not
+monotonic** — 512 on Claude Opus 5, 1024 on Opus 4.8, 4096 on Opus 4.6 — so
+pointing `AGENT_MODEL` at an older model turns the cache off silently.
+
+**The module is still called by nothing.** This fixes a path that has never
+run. Wiring the fleet up is still open and is the largest thing left in
+section 2 — see the note under that item for the design I did not build.
 
 ### Read this first — the secret scan was red on `main` and nobody had pushed
 
@@ -997,6 +1031,41 @@ decision.
       green tests imply a safety layer that can't block anything.
       `tests/test_has_callers.py` now asserts this is *still* true, so wiring it
       up turns that test red and points at the list the entry should join.
+
+      **The design, worked out 2026-08-08 and deliberately not built** — it is
+      a restructure of `run_pricing_pass` and I would not start one I could not
+      finish. Four decisions, each of which took a while to arrive at:
+
+      1. **Run the Skeptic only on rows that would be surfaced**
+         (`suggested_contracts > 0`, no suppression reason). Not on every
+         candidate: a live pass builds ~100 rows and ~all of them have no edge,
+         so reviewing them all would spend real money to be told "no" a hundred
+         times. It also means the cost today is **zero calls**, because
+         surfaced has always been 0.
+      2. **Review before persisting, not after.** `apply_verdict` folds into
+         `suppressed_reason`, and if the row is already on disk there is a
+         window — one Anthropic round trip — in which the order endpoint would
+         sell an unreviewed row. So the pass has to collect its
+         recommendations, review the surfaced ones in one async batch, apply
+         verdicts, and only then persist. That is the restructure: the loop
+         currently builds and persists in the same breath.
+      3. **`run_pricing_pass` is sync and `structured_call` is async.** Either
+         make the pass async (touches every caller and test) or run the batch
+         through `asyncio.run` at the one seam. Prefer the seam.
+      4. **A Skeptic outage must not stop the pass.** `structured_call`
+         already returns `None` on failure and `apply_verdict` already treats
+         `None` as "no opinion", so this falls out — but assert it, because
+         the alternative is a slate that silently stops being recorded.
+
+      Needs `ANTHROPIC_API_KEY` as a Fly secret before it does anything on the
+      live instance; it is in `.env` locally and `AgentConfig.from_env()`
+      returns `None` without it, which degrades to no commentary rather than
+      failing.
+
+      **And it cannot be verified against real data.** Zero surfaced rows means
+      zero verdicts, so the wiring can be proven correct only against fixtures
+      until the tool finds its first actionable row. Say that in the module
+      rather than letting ~40 green tests imply otherwise.
 
 ~30 more findings are triaged in `tasks/audit-2026-08-07.md`.
 

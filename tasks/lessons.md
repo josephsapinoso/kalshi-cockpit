@@ -1953,8 +1953,36 @@ The tell to watch for: a guard whose disabled form is *exactly* the default. If
 the number you are setting equals the number you would get anyway, you have
 written documentation, not code — and it will be believed as code.
 
+**Recurred the same day, on a threshold rather than a default.**
+`agents/base.py` put a `cache_control` breakpoint on the shared house context,
+behind a comment saying the savings on a repeated system prompt were "the whole
+reason to cache". Measured: the block is **401 tokens** and Claude Opus 5's
+minimum cacheable prefix is **512**. It had never produced a cache entry.
+
+That one is worse than the pragma, because the pragma at least did what it
+said. A prefix under the minimum does not cache and *does not complain* — no
+error, no warning, `cache_creation_input_tokens: 0`, a response identical in
+every respect to one that cached. There is no failing state to observe; the
+only way to find it is to go and count.
+
+So the shape generalises past defaults: **a setting whose effect depends on a
+threshold you did not check is a setting you have not made.** Ask what the
+threshold is, measure the thing against it, and put the measurement next to the
+code. Two specifics worth carrying:
+
+- The number belongs in a **runnable** script, not only in a comment.
+  `scripts/measure_agent_cache_prefix.py` prints the prefix per agent and exits
+  non-zero if one falls under. A comment recording "401 tokens" is true until
+  someone edits the prompt.
+- **The threshold moves with the model, and not in one direction.** The minimum
+  is 512 on Claude Opus 5, 1024 on Opus 4.8 and 4096 on Opus 4.6 — so pointing
+  `AGENT_MODEL` at an *older* model silently switches the cache off. A
+  dependency whose limits are non-monotonic across versions cannot be reasoned
+  about from the direction of the upgrade.
+
 Related: [[two-guards-passed-their-tests-and-both-were-broken]],
-[[a-test-that-passes-on-the-bug-is-not-a-test]].
+[[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[the-zero-that-means-no-measurement]].
 
 ---
 
