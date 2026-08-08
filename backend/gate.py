@@ -383,7 +383,34 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
     this system can pick.
     """
     groups = clv_by_population(conn)
-    stats = groups["pooled"]
+
+    # **The floor counts games this strategy would have bet.** Decided
+    # 2026-08-08; see `docs/adr/0005-the-gate-counts-actionable-games.md`.
+    #
+    # Two reasons, and the second is the one that makes it a safety property
+    # rather than a tidier label:
+    #
+    # - The condition asks "has this system demonstrated it can pick?" Only a
+    #   game the strategy would have taken is an answer to that. A refused game
+    #   is evidence about Kalshi, not about us.
+    # - Pooling is not merely conservative. Dilution toward zero would be, but a
+    #   *systematic* CLV among refused rows moves the pooled mean rather than
+    #   blunting it -- and `suspicious_edge` rows, the ones held back precisely
+    #   because their edge looked too good, are the likeliest carriers. Pooled,
+    #   they could arm real money on evidence about bets this strategy declines
+    #   to make.
+    #
+    # Strictly harder in both directions, which is the right way for a money
+    # guard to move: the actionable set is a subset, so the 300 floor is further
+    # away, and `always_valid_multiplier` grows as `n` shrinks (9.84 at n=20
+    # against 3.66 at n=300), so a small actionable sample must clear a taller
+    # bar rather than a shorter one.
+    #
+    # This reads 0 of 300 today and will for a while. That is the honest number.
+    # The pooled count stays on the screen beside it so the zero is explained
+    # rather than looking like a regression.
+    stats = groups["actionable"]
+    pooled = groups["pooled"]
 
     approximation = (
         f"; {stats.unclustered_rows} row(s) had no event ticker and were "
@@ -393,21 +420,21 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
         else ""
     )
 
-    # The composition, beside the aggregate, always. The first live digest read
-    # "16 / 300" from a pool with no filter on `suppressed_reason`, so the label
-    # said "our edge" and the number described the closing-line behaviour of any
-    # market this instance happened to poll. Printing the parts is what makes
-    # the mixture visible without yet changing which population the floor
-    # counts -- that decision needs these numbers first.
+    # The composition, beside the counted group, always. The first live digest
+    # read "16 / 300" from a pool with no filter on `suppressed_reason`, so the
+    # label said "our edge" and the number described the closing-line behaviour
+    # of any market this instance happened to poll. Printing the parts is what
+    # stops the counted zero reading as a fault and the pooled number reading as
+    # progress.
     composition = "; " + ", ".join(
         f"{name} {groups[name].n_clusters}g/{groups[name].n_rows}r"
         for name in POPULATIONS
     )
-    actionable = groups["actionable"]
-    if actionable.n_rows == 0 and stats.n_rows > 0:
+    if stats.n_rows == 0 and pooled.n_rows > 0:
         composition += (
-            " — none of this is actionable: every scored row was refused or had "
-            "no edge, so this number is not a measurement of the strategy"
+            f" — none of the {pooled.n_clusters} scored game(s) is actionable. "
+            f"They were refused or had no edge, so they measure Kalshi rather "
+            f"than this strategy and the floor does not count them"
         )
 
     met = stats.n_clusters >= minimum
@@ -415,14 +442,15 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
         name="scored_recommendations",
         met=met,
         detail=(
-            f"{stats.n_clusters} of {minimum} independent games scored on CLV "
-            f"({stats.n_rows} recommendation rows)"
+            f"{stats.n_clusters} of {minimum} independent actionable games "
+            f"scored on CLV ({stats.n_rows} recommendation rows)"
             + (
                 ""
                 if met
                 else " — keep recording; every recommendation is scored whether "
-                     "or not it was bet, but repeated passes over the same game "
-                     "score against one closing line and count once"
+                     "or not it was bet, but only games this strategy would have "
+                     "taken count toward the floor, and repeated passes over one "
+                     "game score against one closing line and count once"
             )
             + composition
             + approximation
@@ -436,7 +464,13 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
             met=False,
             detail=(
                 f"no variance estimate from {stats.n_clusters} independent "
-                f"game(s) across {stats.n_rows} row(s)"
+                f"actionable game(s) across {stats.n_rows} row(s)"
+                + (
+                    f" — {pooled.n_clusters} game(s) are scored in total, but "
+                    f"the strategy refused them"
+                    if stats.n_rows == 0 and pooled.n_rows > 0
+                    else ""
+                )
             ),
         )
 
@@ -451,7 +485,8 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
         detail=(
             f"mean CLV {stats.mean_tenths / 10:+.2f}c, standard error "
             f"{stats.stderr_tenths / 10:.2f}c across {stats.n_clusters} "
-            f"independent games; needs {stats.threshold_tenths(minimum) / 10:.2f}c "
+            f"independent actionable games; "
+            f"needs {stats.threshold_tenths(minimum) / 10:.2f}c "
             f"to clear the always-valid bound ({multiplier:.2f} standard errors, "
             f"not 2, because the gate is re-evaluated on every request)"
             + (

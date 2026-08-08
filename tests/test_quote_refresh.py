@@ -351,6 +351,14 @@ def armed_db(tmp_path):
     cleared rather than merely two standard errors, and one fill whose predicted
     fee matches. Without all of that the endpoint refuses at the gate and never
     reaches the quote refresh, which would make every test below it vacuous.
+
+    **The scored rows are actionable, and that is load-bearing.** They carried
+    `suggested_contracts=0` until 2026-08-08, which armed the money path from
+    400 games the strategy would not have bet -- a record of "no edge here",
+    repeated four hundred times, opening the gate. The gate now counts only
+    games it would have taken (`docs/adr/0005`), so a fixture of refused or
+    no-edge rows correctly arms nothing. A gate fixture has to be built from the
+    population the gate counts, or it tests a path real evidence cannot reach.
     """
     path = tmp_path / "armed.db"
     db.init_db(path).close()
@@ -367,7 +375,7 @@ def armed_db(tmp_path):
         _market(conn, f"G{i}")
         _recommendation(
             conn, ticker=f"G{i}", created_ms=now, clv_tenths=20.0 + (0.5 if i % 2 else -0.5),
-            scored=True, suggested_contracts=0,
+            scored=True, suggested_contracts=1,
         )
     conn.execute(
         "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "

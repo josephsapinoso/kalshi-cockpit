@@ -415,7 +415,7 @@ class TestObservationsAreClusteredByGame:
         noise = next(c for c in decision.conditions if c.name == "clv_survives_noise_guard")
         assert not sample.met
         assert not noise.met
-        assert "1 of 300 independent games" in sample.detail
+        assert "1 of 300 independent actionable games" in sample.detail
         assert "400 recommendation rows" in sample.detail
 
     def test_the_floor_counts_games_so_ten_markets_cannot_reach_three_hundred(
@@ -581,17 +581,31 @@ class TestTheGateCountsTheRightPopulation:
             "'no measurement' and 'measured zero' are different claims"
         )
 
-        sample = next(
-            c
-            for c in evaluate_gate(conn, GateConfig()).conditions
-            if c.name == "scored_recommendations"
+        # The floor counts actionable games, so a record made entirely of
+        # refused ones is worth exactly zero toward it however well those
+        # refused games beat the close.
+        decision = evaluate_gate(
+            conn, GateConfig(live_trading_enabled=True, min_scored_recommendations=3)
         )
+        sample = next(
+            c for c in decision.conditions if c.name == "scored_recommendations"
+        )
+        noise = next(
+            c for c in decision.conditions if c.name == "clv_survives_noise_guard"
+        )
+        assert not sample.met, (
+            "12 games at +40 tenths cleared a floor of 3, on games the strategy "
+            "refused to bet"
+        )
+        assert not noise.met
+        assert not decision.open
+
+        assert "0 of 3 independent actionable games" in sample.detail
         assert "suppressed 12g/12r" in sample.detail
         assert "actionable 0g/0r" in sample.detail
-        assert "not a measurement of the strategy" in sample.detail, (
-            "the gate reported a +40 tenths pooled CLV built entirely from rows "
-            "the strategy refused, without saying so on the screen that arms "
-            "real money"
+        assert "the floor does not count them" in sample.detail, (
+            "the gate showed a zero with no explanation beside a record of 12 "
+            "scored games, which reads as a fault rather than as the answer"
         )
 
     def test_the_disclaimer_is_absent_once_something_is_actionable(self, gate_db):
@@ -611,7 +625,7 @@ class TestTheGateCountsTheRightPopulation:
             if c.name == "scored_recommendations"
         )
         assert "actionable 1g/1r" in sample.detail
-        assert "not a measurement of the strategy" not in sample.detail
+        assert "the floor does not count them" not in sample.detail
 
     def test_an_empty_record_claims_nothing_about_any_population(self, gate_db):
         """With no rows at all there is nothing to disclaim either."""
@@ -622,7 +636,7 @@ class TestTheGateCountsTheRightPopulation:
             if c.name == "scored_recommendations"
         )
         assert "actionable 0g/0r" in sample.detail
-        assert "not a measurement of the strategy" not in sample.detail
+        assert "the floor does not count them" not in sample.detail
 
     def test_an_unknown_population_refuses_rather_than_pooling(self, gate_db):
         """Falling through to the mixture under a group's name is the exact
