@@ -46,10 +46,14 @@ What this module does not do
   *order*, because each request mints a fresh id. Two taps are two orders. That
   is harmless while every order is a dry run and must be closed before the gate
   opens.
-- **It does not serialise two orders against one exposure reading.** The caller
-  reads exposure, sizes against it, then inserts. Two concurrent requests can
-  each size against the same snapshot. Closing it means holding the read and
-  the insert in one write transaction.
+- **It does not write `fills` for a paper position, and nothing settles one.**
+  `settlements` has no writer, so paper exposure could only ever accumulate.
+  That is why dry runs are excluded from the sum rather than counted.
+
+What it does now do, having not before: **serialise two orders against one
+exposure reading**. `reserve_order` writes the row and then checks the cap
+against the portfolio *including* it, in one transaction, so a second request
+blocks on the first's write lock and reads a total that contains it.
 """
 
 from __future__ import annotations
@@ -91,6 +95,21 @@ class OrderNotRecorded(RuntimeError):
     """The order could not be written down, so it must not be sent."""
 
 
+class ExposureCapExceeded(RuntimeError):
+    """Recording this order would put the portfolio over its exposure cap.
+
+    Distinct from `OrderNotRecorded` because the two mean opposite things about
+    the database: this one means the write *worked* and was deliberately rolled
+    back, so there is no orphan row and no order was sent. A caller that
+    conflated them would report a storage failure for a risk refusal.
+    """
+
+    def __init__(self, message: str, *, exposure_after: float, cap: float):
+        super().__init__(message)
+        self.exposure_after = exposure_after
+        self.cap = cap
+
+
 def record_intent(
     conn: sqlite3.Connection,
     order: OrderRequest,
@@ -109,7 +128,30 @@ def record_intent(
     `client_order_id` is a genuine event -- two orders sharing an idempotency
     key -- and `OR IGNORE` would suppress it along with the `NOT NULL`
     violations that say the row is incomplete. See `tasks/lessons.md`.
+
+    Prefer `reserve_order` on the money path: this commits on its own, so the
+    exposure read that sized the order and the row that consumes the budget
+    land in two different transactions.
     """
+    row_id = _insert_intent(conn, order, dry_run=dry_run, submitted_ms=submitted_ms)
+    try:
+        conn.commit()
+    except sqlite3.Error as exc:
+        raise OrderNotRecorded(
+            f"could not commit the order for {order.ticker} "
+            f"(client_order_id={order.client_order_id}): {exc}"
+        ) from exc
+    return row_id
+
+
+def _insert_intent(
+    conn: sqlite3.Connection,
+    order: OrderRequest,
+    *,
+    dry_run: bool,
+    submitted_ms: int,
+) -> int:
+    """The insert alone, so a caller can decide when it becomes durable."""
     body = order.to_api_dict()
     try:
         cursor = conn.execute(
@@ -134,7 +176,6 @@ def record_intent(
                 1 if dry_run else 0,
             ),
         )
-        conn.commit()
     except sqlite3.Error as exc:
         raise OrderNotRecorded(
             f"could not record the order for {order.ticker} "
@@ -148,6 +189,118 @@ def record_intent(
             f"cannot be updated with its outcome"
         )
     return int(row_id)
+
+
+def reserve_order(
+    conn: sqlite3.Connection,
+    order: OrderRequest,
+    *,
+    dry_run: bool,
+    submitted_ms: int,
+    max_exposure_dollars: float,
+) -> int:
+    """Record the order and check the cap **in one write transaction**.
+
+    The hole this closes: the endpoint read exposure, sized against it, then
+    inserted on a different connection. Two requests arriving together each
+    read the same snapshot, each sized as though the other did not exist, and
+    both inserted -- so `max_exposure_dollars` bounded each order separately
+    and bounded the portfolio not at all. Nothing about that is exotic; it is
+    two taps on a phone, or a tap and a retry.
+
+    **What makes it correct is the order of the two statements, not the word
+    IMMEDIATE.** That is worth stating plainly because it is the opposite of
+    what the code looks like it is saying. The insert comes first, so it takes
+    the write lock, so the second connection blocks *before* it can read
+    anything -- and the exposure it then reads includes the first order.
+    Measured: swapping `IMMEDIATE` for a deferred `BEGIN` leaves the
+    concurrency test green, and removing the post-insert check turns it red
+    with both requests accepted, which is the defect exactly.
+
+    `IMMEDIATE` stays anyway, and not as decoration. The natural next edit to
+    this function is to read something before writing -- a position count, a
+    daily-loss total -- and under a deferred transaction that read would
+    succeed, the upgrade to a write would then fail with `SQLITE_BUSY`, and by
+    that point the stale read has already happened. Taking the lock at the door
+    makes the ordering of statements inside stop mattering.
+
+    **The check runs after the insert, deliberately.** Reading exposure and
+    then deciding whether to write is the same race one level in, decided by
+    whether two statements in one transaction happen to interleave. Writing
+    first and asking "what is the total *now*" makes the answer a fact about
+    the database rather than a prediction about it, and rolling back is exact.
+
+    The sizer's own exposure read stays where it is and stays advisory. That is
+    the useful division: the sizer decides how big an order should be, this
+    decides whether the portfolio can hold it, and only the second one has to
+    be atomic.
+
+    What this does **not** do, stated because the shape invites assuming
+    otherwise:
+
+    - **It does not make placement idempotent.** Two taps mint two
+      `client_order_id`s and are two orders; this serialises them rather than
+      merging them.
+    - **It cannot bind on a dry run.** `current_exposure_dollars` counts only
+      `dry_run = 0`, so a dry-run row contributes nothing to the sum it is
+      checked against. That is correct rather than a limitation -- a dry run
+      commits no capital -- but it does mean this refusal has never fired in
+      production and cannot until a live order exists.
+    """
+    previous_isolation = conn.isolation_level
+    # Explicit transaction control. Left at the sqlite3 default, the module
+    # opens its own deferred transaction before the INSERT and the `BEGIN
+    # IMMEDIATE` below would either be swallowed or raise "cannot start a
+    # transaction within a transaction", depending on the interpreter.
+    conn.isolation_level = None
+    try:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.Error as exc:
+            raise OrderNotRecorded(
+                f"could not take the write lock to record the order for "
+                f"{order.ticker}: {exc}"
+            ) from exc
+
+        try:
+            row_id = _insert_intent(
+                conn, order, dry_run=dry_run, submitted_ms=submitted_ms
+            )
+            exposure = current_exposure_dollars(conn)
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+        if exposure is None:
+            conn.execute("ROLLBACK")
+            raise OrderNotRecorded(
+                f"exposure could not be read after inserting the order for "
+                f"{order.ticker}, so the cap cannot be applied. Rolled back: "
+                f"'cannot determine the budget' must never resolve to "
+                f"'unlimited'."
+            )
+
+        if exposure > max_exposure_dollars:
+            conn.execute("ROLLBACK")
+            raise ExposureCapExceeded(
+                f"recording this order would take total exposure to "
+                f"${exposure:.2f} against a ${max_exposure_dollars:.2f} cap. "
+                f"Another order was recorded between this one being sized and "
+                f"being written. Nothing was sent and the row was rolled back.",
+                exposure_after=exposure,
+                cap=max_exposure_dollars,
+            )
+
+        try:
+            conn.execute("COMMIT")
+        except sqlite3.Error as exc:
+            raise OrderNotRecorded(
+                f"could not commit the order for {order.ticker} "
+                f"(client_order_id={order.client_order_id}): {exc}"
+            ) from exc
+        return row_id
+    finally:
+        conn.isolation_level = previous_isolation
 
 
 def record_outcome(

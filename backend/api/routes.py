@@ -67,10 +67,11 @@ from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
 from ..store import db
 from ..store.orders import (
+    ExposureCapExceeded,
     current_exposure_dollars,
     order_exposure_dollars,
-    record_intent,
     record_outcome,
+    reserve_order,
 )
 
 logger = logging.getLogger(__name__)
@@ -1182,7 +1183,15 @@ def create_app(
                 order,
                 dry_run=placer.dry_run,
                 submitted_ms=submitted_ms,
+                max_exposure_dollars=risk.max_exposure_dollars,
             )
+        except ExposureCapExceeded as exc:
+            # A risk refusal, not a storage failure, and the row was rolled
+            # back rather than left pending. 422 rather than 503: retrying
+            # changes nothing until a position closes, and 503 invites exactly
+            # the retry that would arrive while the portfolio is still full.
+            logger.warning("refusing %s: %s", order.ticker, exc)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:                        # noqa: BLE001
             logger.exception(
                 "refusing to place %s: the order could not be recorded first",
@@ -1300,7 +1309,14 @@ def create_app(
     return app
 
 
-def _write_intent(db_path, order: OrderRequest, *, dry_run: bool, submitted_ms: int) -> int:
+def _write_intent(
+    db_path,
+    order: OrderRequest,
+    *,
+    dry_run: bool,
+    submitted_ms: int,
+    max_exposure_dollars: float,
+) -> int:
     """Record the order on its own writable connection. Runs in a worker thread.
 
     Opened and closed here rather than shared, for the reason the order route
@@ -1308,11 +1324,21 @@ def _write_intent(db_path, order: OrderRequest, *, dry_run: bool, submitted_ms: 
     thread that made it, and this one is made inside the threadpool worker that
     uses it. Short-lived is also what keeps the write lock held for the
     smallest possible window while the runner is writing a pass.
+
+    `reserve_order` rather than `record_intent`, so the cap is applied to the
+    portfolio *including* this order, inside the transaction that writes it.
+    The exposure the sizer used at step 8 was read on the read-only handle and
+    is a snapshot; two requests can share one. This is where that stops
+    mattering.
     """
     conn = db.open_db(db_path)
     try:
-        return record_intent(
-            conn, order, dry_run=dry_run, submitted_ms=submitted_ms
+        return reserve_order(
+            conn,
+            order,
+            dry_run=dry_run,
+            submitted_ms=submitted_ms,
+            max_exposure_dollars=max_exposure_dollars,
         )
     finally:
         conn.close()

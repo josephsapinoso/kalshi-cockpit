@@ -1448,9 +1448,33 @@ decision.
       key, and the endpoint replays the recorded outcome instead of placing
       again. Deliberately not built yet — it is a new path on the money endpoint
       that nothing can exercise against live behaviour.
-- [ ] **Serialise the exposure read with the insert.** Two concurrent requests
-      can each size against the same snapshot. Needs both in one write
-      transaction.
+- [x] ~~**Serialise the exposure read with the insert.**~~ — **done
+      2026-08-08.** `store.orders.reserve_order` writes the row and then checks
+      the cap against the portfolio *including it*, in one transaction. The
+      endpoint's own exposure read stays where it is and stays advisory: the
+      sizer decides how big an order should be, the reservation decides whether
+      the portfolio can hold it, and only the second has to be atomic.
+      **The check runs after the insert, not before.** Reading and then
+      deciding whether to write is the same race one level in; writing first
+      and asking "what is the total now" makes the answer a fact rather than a
+      prediction, and the rollback is exact — a refusal leaves nothing on disk,
+      which matters because a stranded `pending` row counts as exposure by
+      design.
+      Verified by a real two-thread test on two connections, not `TestClient`,
+      which drives the app through one portal and never makes the hop — the
+      trap that made an earlier concurrency regression test in this repo pass
+      against unfixed code.
+      **And the docstring was wrong before it was tested.** It claimed
+      `BEGIN IMMEDIATE` was what made it correct. Measured: a deferred `BEGIN`
+      leaves the test green, because the insert is the first statement and
+      takes the write lock anyway. What is load-bearing is the *order* of the
+      two statements. `IMMEDIATE` stays for the next edit — the moment someone
+      reads a daily-loss total before writing, deferred would read stale and
+      fail on the upgrade — but it is documented as insurance rather than as
+      the mechanism.
+      **It still cannot fire in production**, and that is not a bug: dry runs
+      are excluded from exposure, so the paper orders the running system places
+      consume none of the cap. Asserted as a test rather than left in prose.
 
 ---
 

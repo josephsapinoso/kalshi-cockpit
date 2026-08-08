@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 
 import httpx
@@ -44,11 +45,13 @@ from backend.kalshi.grid import parse_price_grid
 from backend.kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
 from backend.store import db
 from backend.store.orders import (
+    ExposureCapExceeded,
     OrderNotRecorded,
     current_exposure_dollars,
     order_exposure_dollars,
     record_intent,
     record_outcome,
+    reserve_order,
 )
 
 from .test_quote_refresh import (
@@ -520,7 +523,7 @@ class TestAnOrderThatCannotBeRecordedIsNotSent:
                 placed.append(request)
                 return await super().place(request)
 
-        monkeypatch.setattr("backend.api.routes.record_intent", explode)
+        monkeypatch.setattr("backend.api.routes.reserve_order", explode)
         monkeypatch.setattr("backend.api.routes.OrderPlacer", CountingPlacer)
 
         response = await _post(_app(path, FakeQuotes()), rec)
@@ -606,3 +609,148 @@ class TestTheCapBindsOnceOrdersAreLive:
         # And it names the cap that bound. `no_room` used to overwrite it,
         # which told a person holding a phone only that the answer was zero.
         assert "max_exposure_dollars" in detail, detail
+
+
+class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
+    """Two requests can be sized against one exposure reading. One cannot be
+    *recorded* against one.
+
+    The endpoint reads exposure on its read-only handle, sizes, and then writes
+    on a different connection. That gap is not exotic -- it is two taps, or a
+    tap and a retry -- and while it was open `max_exposure_dollars` bounded
+    each order separately and the portfolio not at all.
+    """
+
+    def _live(self, ticker="T", *, count, price_tenths=500, coid=None):
+        order = _order(ticker, count=count, price_tenths=price_tenths)
+        if coid is not None:
+            object.__setattr__(order, "client_order_id", coid)
+        return order
+
+    def test_an_order_that_would_breach_the_cap_is_rolled_back_entirely(
+        self, conn, tmp_path
+    ):
+        """Refused *and* leaves nothing behind.
+
+        A pending row for an order that was never sent is counted as exposure
+        by design -- "we might have an open order" must not resolve to "we do
+        not" -- so a refusal that left one would permanently consume budget for
+        a bet that never existed.
+        """
+        path = tmp_path / "record.db"
+        writer = db.open_db(path)
+        try:
+            with pytest.raises(ExposureCapExceeded) as caught:
+                reserve_order(
+                    writer,
+                    self._live(count=100, price_tenths=500),   # $50
+                    dry_run=False,
+                    submitted_ms=1,
+                    max_exposure_dollars=10.0,
+                )
+            assert caught.value.exposure_after == pytest.approx(50.0)
+            assert caught.value.cap == 10.0
+            assert _rows(writer) == [], "the refused order stayed on disk"
+        finally:
+            writer.close()
+
+    def test_an_order_inside_the_cap_is_committed_and_visible_to_another_reader(
+        self, conn, tmp_path
+    ):
+        """Committed, not merely inserted. A row held open in an uncommitted
+        transaction is invisible to the next request, which is the same race
+        with an extra step."""
+        path = tmp_path / "record.db"
+        writer = db.open_db(path)
+        reader = db.open_db(path, read_only=True)
+        try:
+            row_id = reserve_order(
+                writer,
+                self._live(count=10, price_tenths=500),        # $5
+                dry_run=False,
+                submitted_ms=1,
+                max_exposure_dollars=100.0,
+            )
+            assert row_id > 0
+            assert current_exposure_dollars(reader) == pytest.approx(5.0)
+        finally:
+            writer.close()
+            reader.close()
+
+    def test_two_concurrent_reservations_cannot_both_pass_one_cap(
+        self, conn, tmp_path
+    ):
+        """The test the whole change exists for.
+
+        Two orders, each of which fits on its own and which together do not,
+        started at the same instant on two connections. Exactly one must
+        survive. Real threads and real connections: `TestClient` drives the app
+        through a single portal and never makes the hop, which is how the
+        previous concurrency regression test in this repo passed against the
+        unfixed code. See `tasks/lessons.md`.
+        """
+        path = tmp_path / "record.db"
+        cap = 60.0                       # two $40 orders fit singly, not both
+        barrier = threading.Barrier(2)
+        results: list = []
+        lock = threading.Lock()
+
+        def attempt(index: int) -> None:
+            writer = db.open_db(path)
+            try:
+                order = self._live(count=80, price_tenths=500, coid=f"coid-{index}")
+                barrier.wait(timeout=10)
+                reserve_order(
+                    writer, order,
+                    dry_run=False, submitted_ms=index,
+                    max_exposure_dollars=cap,
+                )
+                outcome = "accepted"
+            except ExposureCapExceeded:
+                outcome = "refused"
+            except Exception as exc:                        # noqa: BLE001
+                outcome = f"error: {type(exc).__name__}: {exc}"
+            finally:
+                writer.close()
+            with lock:
+                results.append(outcome)
+
+        threads = [threading.Thread(target=attempt, args=(i,)) for i in (1, 2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert sorted(results) == ["accepted", "refused"], results
+
+        reader = db.open_db(path, read_only=True)
+        try:
+            assert current_exposure_dollars(reader) == pytest.approx(40.0)
+            assert len(_rows(reader)) == 1, "the refused order was left on disk"
+        finally:
+            reader.close()
+
+    def test_a_dry_run_consumes_none_of_the_cap(self, conn, tmp_path):
+        """Stated as a test rather than only in a docstring.
+
+        `current_exposure_dollars` counts `dry_run = 0`, so a dry-run row
+        contributes nothing to the sum it is checked against -- which is why
+        this refusal has never fired in production and cannot until a live
+        order exists. If that ever changes silently, paper trading starts
+        refusing itself with nothing able to release the budget.
+        """
+        path = tmp_path / "record.db"
+        writer = db.open_db(path)
+        try:
+            for index in range(3):
+                reserve_order(
+                    writer,
+                    self._live(count=100, price_tenths=900, coid=f"dry-{index}"),
+                    dry_run=True,
+                    submitted_ms=index,
+                    max_exposure_dollars=1.0,      # $270 of paper against $1
+                )
+            assert len(_rows(writer)) == 3
+            assert current_exposure_dollars(writer) == pytest.approx(0.0)
+        finally:
+            writer.close()
