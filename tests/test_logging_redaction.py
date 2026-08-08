@@ -254,3 +254,59 @@ class TestTheApiProcessConfiguresLoggingAtAll:
                 root.removeHandler(handler)
             for handler in previous:
                 root.addHandler(handler)
+
+    def test_the_api_announces_itself_so_the_stream_can_be_checked(self, tmp_path):
+        """The line that makes the fix above observable in production.
+
+        Verifying "the API process has a root handler" from outside turned out
+        to be impossible in steady state: uvicorn runs with `--no-access-log`,
+        the quote hub speaks only when something changes, and a live log window
+        therefore holds nothing from this process whether logging works or not.
+        A four-minute window of live logs on 2026-08-08 carried six `backend.*`
+        records and every one of them came from the runner.
+
+        So the process states one thing on every boot. Captured through a real
+        handler on an unconfigured root rather than with `caplog`, because
+        `caplog` installs a handler of its own -- which is exactly the thing
+        whose absence is under test, so it would pass on the unfixed code.
+        """
+        import io
+
+        from backend.api.routes import create_app
+        from backend.config import AppConfig, GateConfig
+
+        previous = self._reset_root()
+        try:
+            root = logging.getLogger()
+            assert not root.handlers, "precondition: the root is unconfigured"
+
+            stream = io.StringIO()
+            captured = logging.StreamHandler(stream)
+            captured.setFormatter(
+                logging.Formatter("%(levelname)s %(name)s: %(message)s")
+            )
+            captured.setLevel(logging.INFO)
+            root.addHandler(captured)
+            root.setLevel(logging.INFO)
+
+            create_app(
+                AppConfig(instance_mode="demo", db_path=tmp_path / "x.db"),
+                gate_config=GateConfig(live_trading_enabled=False),
+            )
+
+            emitted = stream.getvalue()
+            assert "API starting" in emitted, (
+                "the API boots silently, so nothing in a log stream can tell "
+                "'logging is configured' apart from 'nothing happened'"
+            )
+            # The logger name is the point. A record arriving through
+            # `lastResort` carries no name and no level, which is precisely
+            # what the unfixed process produced.
+            assert "INFO backend.api.routes:" in emitted, emitted
+            assert "instance_mode=demo" in emitted, emitted
+        finally:
+            root = logging.getLogger()
+            for handler in list(root.handlers):
+                root.removeHandler(handler)
+            for handler in previous:
+                root.addHandler(handler)

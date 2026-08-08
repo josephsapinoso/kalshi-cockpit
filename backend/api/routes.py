@@ -220,6 +220,31 @@ def create_app(
     # ceiling check read `edge_ceiling_tenths` off a FastAPI handler.
     thresholds = suppression_config or SuppressionConfig()
 
+    # **The line that makes the line above provable.**
+    #
+    # `configure_logging()` was added here because the deployed API process had
+    # no root handler at all -- the entrypoint runs uvicorn's factory, so
+    # `backend/main.py` never executes. Verifying that fix in production turned
+    # out to be impossible from the outside: uvicorn runs with `--no-access-log`,
+    # the quote hub only speaks when something changes, and a steady-state log
+    # window therefore contains *nothing* from this process whether logging
+    # works or not. An hour of live logs answered the question either way.
+    #
+    # Absence of evidence read as evidence of absence is how the original defect
+    # survived; a second silent process is not an improvement on the first. So
+    # the API says one thing on every boot, at INFO, through the root logger it
+    # has just configured. If this line is in the stream, logging reached this
+    # process -- and if it is not, that is now a finding rather than a shrug.
+    #
+    # Nothing secret: every field here is already served publicly by
+    # `/api/health`.
+    logger.info(
+        "API starting: instance_mode=%s live_trading_enabled=%s db=%s",
+        app_config.instance_mode,
+        gate.live_trading_enabled,
+        app_config.db_path,
+    )
+
     # One quote source per app, built on the first order rather than at boot.
     # Held in a dict rather than a closure variable so the lifespan and the
     # route see the same object without `nonlocal` gymnastics.
