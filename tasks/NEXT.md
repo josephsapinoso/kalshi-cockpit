@@ -938,14 +938,70 @@ decision.
       recorded mid-stream puts two regimes in one dataset. The rule is part of
       the strategy config, so it mints a version and the record segments on it.
 
-- [ ] **Is in-play betting viable?** (Joseph, 2026-08-08 — *"in Kalshi you can
-      still bet on games during the half and quarters"*.) He is right, and the
-      runner currently **drops** every started game (`dropped_game_started`, 36
-      of 104 rows on one live pass). That drop was correct for the reason it was
-      made and is not a verdict on the market: it compares a **stored pre-game**
-      consensus against a Kalshi price that has absorbed two innings, which is
-      two different questions subtracted from each other. In-play is a different
-      product, not a filtered-out corner of this one.
+- [x] ~~**Is in-play betting viable?**~~ — **answered 2026-08-08, and the
+      answer is no.** `docs/adr/0006-in-play-scope.md` (status: proposed —
+      **Joe's to accept or reject**, since it closes a product direction he
+      raised). All four questions were answered against the live exchange;
+      **zero odds credits were spent** and no POST was made.
+
+      **Joe was right about the product, and that is the part to say first.**
+      Kalshi keeps the game market open in-play — `can_close_early: true`, and
+      20 of 20 games measured (14 MLB, 6 WNBA) had a two-sided quote in *every*
+      minute after the true start. In-play volume is **7.7x** (MLB) and
+      **14.7x** (WNBA) the pre-game rate, and 98% of in-play minutes trade. The
+      liquidity is real and it is where the action is.
+
+      **It is out of scope because we cannot see it in time, not because it
+      isn't there.** Two independent reasons, either sufficient:
+
+      - **Cost.** Half-spread rises from 0.50c to 0.75c (MLB) / 0.89c (WNBA),
+        and the mid moves ≥1c on ~half of in-play minutes against ~0.5%
+        pre-game. Crossing plus 40s of unavoidable staleness is **1.34–2.28c
+        against 0.38c of fee headroom** — 3.5x to 6x. Both leagues agree in
+        direction and magnitude.
+      - **Budget.** The Odds API refreshes in-play every 40s regardless of
+        plan, so one league at the current market/region fan-out is ~7,020
+        credits/day against a budget of 16. The realistic tier is $119/month,
+        needing $31,316 of monthly notional to break even on the data bill
+        alone.
+
+      **And CLV has no in-play substitute that is the same statistic.**
+      Settlement price is a win-rate measurement, which puts back the
+      ~1,000-observation variance `clv.py` exists to avoid; entry-plus-delta is
+      exactly what stale-quote picking optimises. Reopening needs a substitute
+      argued *before* any row is recorded, plus a regime column, `closing_lines`
+      keyed per recommendation rather than per `(ticker, horizon)`, and a gate
+      that never pools the two regimes.
+
+      So `dropped_game_started` stays a **drop**, not a suppression — a
+      suppression entry claims we considered it. Maker is *unreachable* rather
+      than refuted: the headroom is 1.94 points there, but a resting order in a
+      market moving ≥1c half the time is being adversely selected and this repo
+      has **no cancel path at all**. Recorded as missing infrastructure, not as
+      a measurement.
+
+- [ ] **Verify what `occurrence_datetime` actually is.** Raised by the in-play
+      research and **not yet established** — it is recorded here rather than in
+      `lessons.md` because I could not confirm it.
+      The claim: the field is not a timezone-shifted start but an *expected
+      end*, so the −3h that reproduces MLB kickoffs works only because MLB games
+      run about three hours, and it would be wrong for a period series such as
+      `KXMLBF5`.
+      What I checked directly in `events_sports_nested.json`:
+      **`occurrence_datetime == expected_expiration_time` on 198 of 200
+      markets**, differing on two (an NFL game, by exactly 3h). That is real
+      and it is a reason to doubt the timezone framing.
+      What it does **not** settle: `tasks/lessons.md` records +180 min on *both*
+      MLB (~3h games) and WNBA (~2h games), and a genuine end-time field could
+      not produce the same offset for both. Both facts cannot be explained by
+      either story alone, so neither is established.
+      **Why it matters now:** nothing in scope today uses a period series, so
+      this is not currently live — but `match.linker` and `core.suppression`
+      both bound this quantity, and if the offset is game-length-dependent then
+      a fixed tolerance is wrong for any sport that is not three hours long.
+      One measurement settles it: compare `occurrence_datetime` against the
+      sportsbook start across leagues of different durations, and against
+      `expected_expiration_time` on a period series.
 
       What has to be answered before any of it is buildable, cheapest first:
 
@@ -988,7 +1044,47 @@ decision.
 - [ ] **README** — the portfolio piece. Architecture diagram, the OLTP→Parquet→
       DuckDB story, and an honest statement of what the tool does and does not
       establish.
-- [ ] **GitHub Actions** — tests, `dbt build`, and secret scanning on push.
+- [x] ~~**GitHub Actions** — tests, `dbt build`, and secret scanning on push.~~
+      — **this line was wrong in both directions, 2026-08-08.** CI was built in
+      the first commit and has been running pytest, `seed_demo` → `publish` →
+      `dbt build`, and `next build` green throughout. This checklist said it did
+      not exist.
+      **And the part nobody was reading was red.** The secret scan failed on
+      **36 consecutive pushes** since 2026-08-07 19:17Z, because it grepped for
+      the *phrase* `BEGIN … PRIVATE KEY` and two files legitimately contain it —
+      `docker/entrypoint.sh` validating a decoded key's format, and
+      `tests/test_logging_redaction.py` proving the redactor strips a PEM block.
+      It fired on the hygiene. A check that is always red carries no
+      information: the run that finds a real key looks identical to the 36 that
+      found a comment about one, and red becomes the resting state.
+      Now matches **material**: a header alone on its line, a header followed by
+      a base64 body, and a header immediately after a quote that then ends the
+      line. That third one was added on merge — narrowing to material had
+      dropped `KEY = """-----BEGIN RSA PRIVATE KEY-----`, which the broken
+      pattern did catch. The `:!*.yml` exclusion is gone, so a key pasted into
+      `warehouse/profiles.yml` is now scannable.
+      **Verified by running the step, not by reading it:** extracted from the
+      YAML and run under bash — clean tree exits 0, five planted shapes each
+      exit 1 (own line, after a triple-quote in `.py`, escaped in `.json`,
+      inside a `.yml`, and a tracked `.p12`). Random bodies, never key material.
+      The exclusions are asserted against the two real files, so a future
+      widening fails loudly instead of turning CI red again.
+      Also note what gitleaks does **not** do: it scans only the commits in the
+      push, never the tree and never history. A key committed last week and
+      still present is invisible to it.
+
+- [ ] **Three CI follow-ups**, all outside the lane that found them:
+      - `.gitignore` ignores `*.pfx` but not `*.p12`. A PKCS#12 bundle can be
+        `git add`ed today with no warning; CI now refuses it, so the two
+        disagree. Make them agree.
+      - `ruff~=0.9` is a dev dependency that nothing configures and nothing
+        runs — no `pyproject.toml`, no `ruff.toml`, **491** findings on the
+        default ruleset. Either pick a ruleset and wire it, or drop the
+        dependency. Deliberately *not* added as a job: it would be red on the
+        first push, which is the failure just removed.
+      - Node 20 deprecation warnings on `actions/checkout@v4`,
+        `setup-python@v5`, `setup-node@v4`, `gitleaks-action@v2`. Needs one
+        throwaway branch push to verify, since an Action cannot run locally.
 - [ ] **Write `orders` rows.** The endpoint currently dry-runs without
       persisting, so nothing accumulates exposure for the cap to read.
 

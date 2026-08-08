@@ -1794,3 +1794,54 @@ assigned per market and Kalshi publishes a `price_level_structure_updated`
 lifecycle event — but "0 of 1,426" belongs next to the fix, and it must not
 become "sub-cent game markets do not exist". That is exactly
 [[a-true-measurement-licensed-a-false-conclusion]].
+
+---
+
+## 2026-08-08 — A guard that fails every time says exactly as much as one that never fails
+
+CI's secret scan — *"the last thing standing between a private key and a public
+commit"* — was red on **36 consecutive pushes**. It grepped for the phrase
+`BEGIN … PRIVATE KEY`, and two files in this repo legitimately contain that
+phrase: `docker/entrypoint.sh`, which validates that a decoded key is an RSA PEM
+rather than OpenSSH, and `tests/test_logging_redaction.py`, which proves the
+redactor strips a PEM block.
+
+**So the scanner fired on the two files that exist because of key hygiene.**
+The information content of the check went to zero in both directions: nobody
+could tell the run that found a real key from the 36 that found a comment about
+one, and red became the resting state while the two jobs that would catch a real
+regression sat green underneath it.
+
+The repair is to match the **material** rather than the word for it — and the
+repair is where the second half of the lesson is. Narrowing from a phrase match
+to a material match *lost a case the broken pattern had caught*: a key pasted
+straight after an opening delimiter,
+
+```
+KEY = """-----BEGIN RSA PRIVATE KEY-----
+```
+
+matches neither "header alone on its line" nor "header followed by a base64
+body", because the body is on the next line and grep is line-oriented. Fixing a
+false positive quietly opened a false negative, which is the strictly worse
+direction for a security check.
+
+**How to apply:** two rules, and the second is the one that generalises.
+
+- **A check that has never passed has never been tested.** Before trusting a
+  detector, run it against a known positive *and* a known negative. This step
+  now carries its own canaries — planted key-shaped material with a random body,
+  and a header merely mentioned in prose — and fails loudly if either answer
+  changes. The canaries caught a real bug in the step on their first run:
+  `grep` read a pattern beginning `-----` as options, so every match needed
+  `-e`.
+- **Test the exclusions against the real files, not against synthetic ones.**
+  The two legitimate files are the exact shape the scan must not fire on, so
+  they are asserted directly. A synthetic "mentioned" fixture proves only that
+  *some* mention is tolerated, which is true of almost any pattern. Same rule as
+  [[test-the-filters-exclusions]]: when code filters, test the rejects.
+
+Note also the tell that a checklist can be wrong in both directions at once.
+`tasks/NEXT.md` listed this item as unbuilt; it had been built in the first
+commit, was passing three jobs, and was failing the fourth. Neither the document
+nor the green badge described the state.
