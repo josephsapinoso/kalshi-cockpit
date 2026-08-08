@@ -98,16 +98,28 @@ browser:
 - [ ] Browser → `github.com/josephsapinoso/kalshi-cockpit/settings/secrets/actions`
 - [ ] **New repository secret** → name `DISCORD_WEBHOOK_URL` → paste → Add
 
-**c. Push it to Fly** — from the GitHub mobile app or the same browser:
+**c. Push it to Fly.** The GitHub mobile *app*'s Actions tab is unreliable for
+workflows that take inputs — use the browser, or just tell me and I'll run it:
 
-- [ ] Actions → **Set notification secrets** → Run workflow
-- [ ] instance `live`, and type `kalshi-cockpit` into the confirm box → Run
+- [ ] Browser →
+      `github.com/josephsapinoso/kalshi-cockpit/actions/workflows/secrets.yml`
+- [ ] **Run workflow** → instance `live` → type `kalshi-cockpit` in the confirm
+      box → **Run workflow**
 
 The workflow refuses if no secret is set, sends the value over stdin rather
-than as an argument, echoes only the *names*, and then polls
-`/api/health` until it reports `notifications_configured: true` — so the run
-going green means the process is actually seeing it, not just that Fly accepted
-it. If it goes red it says which of those two failed.
+than as an argument, and echoes only the *names*. Then it checks two separate
+things, because they fail differently:
+
+- it polls `/api/health` until `notifications_configured: true`, so a green run
+  means the *process* is seeing the secret, not merely that Fly accepted it;
+- it **posts a real message to the channel**, because the first check only says
+  the string is non-empty. A typo, a truncated copy, a revoked webhook and a
+  deleted channel all look identical to it — and so does a working alerter on a
+  quiet night. If Discord rejects the credential the run goes red and names
+  which of those it was.
+
+So: **the run going green and a message appearing in your channel are the same
+event.** If you see "Alerts are wired up" in Discord, it is done.
 
 **d. Check it yourself, any time:**
 
