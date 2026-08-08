@@ -391,8 +391,22 @@ CREATE TABLE IF NOT EXISTS orders (
     action              TEXT NOT NULL,      -- buy | sell
     order_type          TEXT NOT NULL,      -- limit | market
     count               INTEGER NOT NULL,
+    -- **The price for OUR side, snapped to the market's grid.** V2 quotes the
+    -- YES leg only, so buying NO at 40.5c goes out as a YES ask of 59.5c --
+    -- this column holds 405, not 595. Exposure is `count * limit_price_tenths`
+    -- and must be what we pay: storing the wire price would compute a NO
+    -- position's exposure as its complement, understating it above 50c, which
+    -- is the direction that lets the cap pass a position it should refuse.
+    -- The wire price is not lost; `request_body_json` holds the exact bytes.
     limit_price_tenths  INTEGER,
-    status              TEXT NOT NULL,      -- dry_run | pending | resting | filled | canceled | rejected
+    -- pending (written before the request goes out, outcome unknown)
+    -- | dry_run | resting | partially_filled | filled | unfilled
+    -- | canceled | rejected | unrecognised_response
+    --
+    -- `store/orders.py` decides exposure by excluding the *terminal* statuses
+    -- rather than listing the live ones, so a status added here and forgotten
+    -- there counts as exposure instead of vanishing from the sum.
+    status              TEXT NOT NULL,
     -- The exact body we sent (or would have sent, in dry run). Makes a dry run
     -- verifiable against a live order byte for byte.
     request_body_json   TEXT NOT NULL,

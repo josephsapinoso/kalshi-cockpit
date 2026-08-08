@@ -77,6 +77,13 @@ than a parallel implementation that drifts. `orders.request_body_json` stores
 the exact bytes either way, so a dry run is comparable to a live order field by
 field.
 
+That paragraph was aspirational until 2026-08-08: **nothing wrote the row.** The
+module said "writes the identical row" while `orders` had never held one, so the
+one property the dry run existed to establish — that it is byte-comparable to a
+live order — could not be checked against anything. `store/orders.py` is the
+writer, and it runs *before* the POST rather than after it, because
+`client_order_id` is only an idempotency key if it survives a lost response.
+
 What this module does not decide
 --------------------------------
 Whether a bet is a good idea. Sizing is `core/sizing.py`, the edge is
@@ -332,6 +339,19 @@ STATUS_REJECTED = "rejected"
 STATUS_UNRECOGNISED = "unrecognised_response"
 
 
+def canonical_body_json(body: dict[str, Any]) -> str:
+    """The request body as text, with sorted keys.
+
+    One definition, because two callers need it at different times and must
+    agree: `store/orders.py` writes the row *before* the POST and only has the
+    body, while `OrderOutcome` renders it *after* and has the outcome. If those
+    two serialised differently, a stored dry run and a live order would stop
+    being comparable as text, which is the only reason `request_body_json`
+    exists.
+    """
+    return json.dumps(body, sort_keys=True)
+
+
 def _fp(value: Any) -> Optional[float]:
     """A fixed-point count string (`"10.00"`) to a float, or None."""
     if value is None:
@@ -364,7 +384,7 @@ class OrderOutcome:
     @property
     def request_body_json(self) -> str:
         # Sorted keys so a dry-run body and a live body are comparable as text.
-        return json.dumps(self.request_body, sort_keys=True)
+        return canonical_body_json(self.request_body)
 
 
 def status_from_counts(

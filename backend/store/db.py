@@ -24,6 +24,27 @@ from typing import Optional
 SCHEMA_VERSION = 2
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
+# How long a blocked connection waits for the write lock before giving up.
+#
+# This matters now in a way it did not before: the order endpoint is a **second
+# writer, in a second process**, and the runner holds the write lock in bursts
+# while it records a pass. A tap landing inside a burst must wait rather than
+# fail, because the failure would present as a defect in the order path rather
+# than as contention -- and it would arrive after thirteen checks and a Kalshi
+# round trip, all of it wasted.
+#
+# Passed to `sqlite3.connect(timeout=...)` explicitly, which is deliberate and
+# worth a note: **CPython already defaults it to 5 seconds.** The first version
+# of this set `PRAGMA busy_timeout = 5000` on every connection and was
+# therefore a complete no-op -- it assigned the value the driver had already
+# assigned. Nothing revealed that except deleting it and watching the test that
+# claimed to cover it stay green.
+#
+# So it is stated here rather than inherited: a value this project depends on
+# should be one it chose, not one it happens to be handed, and `timeout=0` a
+# driver version from now would silently restore fail-immediately.
+BUSY_TIMEOUT_MS = 5_000
+
 # version -> the columns it adds, as (table, column, declaration).
 #
 # `schema.sql` is applied with `CREATE TABLE IF NOT EXISTS`, so it builds a new
@@ -90,13 +111,21 @@ def connect(
     would turn a loud error into a silent race in the writer paths.
     """
     path = Path(db_path)
+    timeout_s = BUSY_TIMEOUT_MS / 1000.0
     if read_only:
         conn = sqlite3.connect(
-            f"file:{path}?mode=ro", uri=True, check_same_thread=not cross_thread
+            f"file:{path}?mode=ro",
+            uri=True,
+            check_same_thread=not cross_thread,
+            # Readers get it too: WAL lets a reader run alongside a writer, but
+            # not alongside a checkpoint.
+            timeout=timeout_s,
         )
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path, check_same_thread=not cross_thread)
+        conn = sqlite3.connect(
+            path, check_same_thread=not cross_thread, timeout=timeout_s
+        )
 
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

@@ -1,0 +1,596 @@
+"""The order record: what gets written, when, and what exposure reads back.
+
+What these tests establish
+--------------------------
+That an order reaching the placer is on disk **before** the request is made,
+that a refusal writes nothing, and that `current_exposure_dollars` sums the
+population a pre-trade cap needs rather than the one that happens to be easy
+to enumerate.
+
+What they do **not** establish
+------------------------------
+- **Nothing here has been through a live fill.** Every status other than
+  `pending` and `dry_run` is written by hand, because no order has ever been
+  placed by this project. The status *values* come from `kalshi/orders.py`; the
+  claim that Kalshi produces them is untested and stays untested until a real
+  order exists.
+- **They say nothing about concurrency.** Two requests can each read exposure,
+  size against it, and insert. Serialising that needs the read and the insert
+  in one write transaction.
+- **They do not exercise the cap in production terms.** Every order the running
+  system places is a dry run, and dry runs are excluded from exposure by
+  design, so `max_exposure_dollars` still does not bind on the live instance.
+  The tests below bind it by writing `dry_run = 0` rows directly.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+
+import httpx
+import pytest
+
+from backend.api.routes import create_app
+from backend.config import (
+    AppConfig,
+    GateConfig,
+    RiskConfig,
+    StalenessConfig,
+)
+from backend.core.suppression import SuppressionConfig
+from backend.kalshi.grid import parse_price_grid
+from backend.kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
+from backend.store import db
+from backend.store.orders import (
+    OrderNotRecorded,
+    current_exposure_dollars,
+    order_exposure_dollars,
+    record_intent,
+    record_outcome,
+)
+
+from .test_quote_refresh import (
+    ARMED,
+    FRESH,
+    TICKER,
+    FakeQuotes,
+    _live_pick,
+    _market,
+    armed_db,        # noqa: F401  -- a fixture, used by name
+)
+
+WHOLE_CENT = parse_price_grid(
+    [{"start": "0.0000", "end": "1.0000", "step": "0.0100"}],
+    structure="linear_cent",
+)
+
+
+def _order(ticker="T", *, side="yes", price_tenths=500, count=10, rec_id=None):
+    return OrderRequest(
+        ticker=ticker,
+        side=side,
+        action="buy",
+        count=count,
+        limit_price_tenths=price_tenths,
+        price_grid=WHOLE_CENT,
+        recommendation_id=rec_id,
+    )
+
+
+@pytest.fixture
+def conn(tmp_path):
+    """An empty record with one market, so the `orders` foreign key resolves.
+
+    Opened through `db.init_db`, so `PRAGMA foreign_keys` is **on** and the
+    series and event have to exist before the market does. Several older
+    fixtures in this suite reach for `sqlite3.connect` directly, which leaves
+    the pragma off and lets a market row exist with no event behind it -- a row
+    the application could never write. Building it the hard way here is what
+    makes the foreign-key test below mean anything.
+    """
+    path = tmp_path / "record.db"
+    connection = db.init_db(path)
+    connection.execute(
+        "INSERT INTO kalshi_series (series_ticker, first_seen_ms, last_seen_ms) "
+        "VALUES ('S', 0, 0)"
+    )
+    connection.execute(
+        "INSERT INTO kalshi_events (event_ticker, series_ticker, first_seen_ms, "
+        "last_seen_ms) VALUES ('EVT-T', 'S', 0, 0)"
+    )
+    connection.execute(
+        "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+        "first_seen_ms, last_seen_ms) VALUES ('T', 'EVT-T', 'S', 0, 0)"
+    )
+    connection.commit()
+    # Asserted, not assumed. `INSERT OR IGNORE` swallowed a constraint failure
+    # in the gate fixtures for the life of the project and every join below it
+    # matched nothing -- see `tasks/lessons.md`.
+    assert connection.execute(
+        "SELECT COUNT(*) AS n FROM kalshi_markets"
+    ).fetchone()["n"] == 1
+    yield connection
+    connection.close()
+
+
+def _rows(conn):
+    return conn.execute("SELECT * FROM orders ORDER BY id").fetchall()
+
+
+# ---------------------------------------------------------------------------
+# What is stored
+# ---------------------------------------------------------------------------
+
+
+class TestWhatARowHolds:
+    def test_the_intent_row_says_pending_before_anything_is_placed(self, conn):
+        """`pending` is the only honest status for an order not yet sent.
+
+        Not `dry_run`, and certainly not `resting`: at the moment this row is
+        written nothing has happened, and a row that already claimed an outcome
+        would make the write-before-send ordering unobservable.
+        """
+        row_id = record_intent(conn, _order(), dry_run=True, submitted_ms=123)
+        row = _rows(conn)[0]
+        assert row["id"] == row_id
+        assert row["status"] == "pending"
+        assert row["submitted_ms"] == 123
+        assert row["dry_run"] == 1
+
+    def test_the_stored_price_is_what_we_pay_not_what_goes_on_the_wire(self, conn):
+        """A NO order is where these two numbers differ, so it is the test.
+
+        Buying NO at 40.5c is selling YES at 59.5c, which is an **ask**, so it
+        snaps *up* to 60c on a whole-cent grid -- and reflecting that back
+        leaves us paying 40c. Snapping the wire price up is what moves our
+        price down; both halves are "away from paying more".
+
+        So the column must hold 400 and the wire must carry `0.6000`. A wrong
+        implementation stores 600, which is entirely plausible on inspection:
+        a legal price, on the right grid, for the right market, differing only
+        by being the other leg. Exposure would then read a 40c position as a
+        60c one -- overstated here, and understated for any NO bet above 50c,
+        which is the direction that lets the cap pass what it should refuse.
+        """
+        order = _order(side="no", price_tenths=405)
+        record_intent(conn, order, dry_run=True, submitted_ms=1)
+        row = _rows(conn)[0]
+
+        assert row["limit_price_tenths"] == order.fill_price_tenths == 400
+        # ...while the wire carries the YES complement, and it is not lost.
+        assert json.loads(row["request_body_json"])["price"] == "0.6000"
+        assert row["side"] == "no"
+
+    def test_the_stored_body_is_the_bytes_the_placer_would_send(self, conn):
+        """The whole point of `request_body_json`: a dry run comparable to a
+        live order as text. Written before the placer runs, so the two have to
+        serialise identically or the comparison is meaningless."""
+        order = _order()
+        record_intent(conn, order, dry_run=True, submitted_ms=1)
+        outcome = OrderOutcome(
+            request=order, status="dry_run", dry_run=True,
+            request_body=order.to_api_dict(),
+        )
+        assert _rows(conn)[0]["request_body_json"] == outcome.request_body_json
+
+    def test_the_recommendation_is_joined_so_clv_and_the_fill_meet(self, conn):
+        """The reason this item mattered.
+
+        CLV scores off `entry_ask_tenths` and the order goes out at the live
+        ask, so the gate's evidence and the price actually paid were different
+        numbers with nothing connecting them.
+        """
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale, approved_by_user) VALUES (1, 0, 0, '{}', 't', 1)"
+        )
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, strategy_config_version, "
+            "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+            "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+            "kalshi_quote_age_ms, odds_age_ms, reason_text) "
+            "VALUES (0, 1, 'T', 'yes', 500, 0.54, 20.0, 0.1, 0.5, 0.02, 10, 0, 0, 'x')"
+        )
+        conn.commit()
+        rec_id = conn.execute(
+            "SELECT id FROM recommendations"
+        ).fetchone()["id"]
+
+        record_intent(conn, _order(rec_id=rec_id), dry_run=True, submitted_ms=1)
+        joined = conn.execute(
+            "SELECT r.entry_ask_tenths, o.limit_price_tenths FROM orders o "
+            "JOIN recommendations r ON r.id = o.recommendation_id"
+        ).fetchone()
+        assert joined["entry_ask_tenths"] == 500
+        assert joined["limit_price_tenths"] == 500
+
+    def test_a_duplicate_client_order_id_raises_rather_than_being_ignored(self, conn):
+        """`INSERT OR IGNORE` would turn two orders sharing an idempotency key
+        into one row and no error. That is the DDL form of unreadable-resolves-
+        to-zero, and this repo has already lost a fixture to it."""
+        order = _order()
+        record_intent(conn, order, dry_run=True, submitted_ms=1)
+        with pytest.raises(OrderNotRecorded):
+            record_intent(conn, order, dry_run=True, submitted_ms=2)
+        assert len(_rows(conn)) == 1
+
+    def test_an_unknown_market_is_refused_by_the_foreign_key(self, conn):
+        """Not decoration -- `PRAGMA foreign_keys` is set per connection, so
+        this fails the day someone opens one without it."""
+        with pytest.raises(OrderNotRecorded):
+            record_intent(conn, _order("NEVER-SEEN"), dry_run=True, submitted_ms=1)
+
+    def test_the_outcome_stamps_the_row_it_was_given(self, conn):
+        order = _order()
+        row_id = record_intent(conn, order, dry_run=True, submitted_ms=1)
+        record_outcome(
+            conn, row_id,
+            OrderOutcome(
+                request=order, status="resting", dry_run=False,
+                request_body=order.to_api_dict(), kalshi_order_id="K-1",
+            ),
+        )
+        row = _rows(conn)[0]
+        assert row["status"] == "resting"
+        assert row["kalshi_order_id"] == "K-1"
+
+
+# ---------------------------------------------------------------------------
+# Exposure
+# ---------------------------------------------------------------------------
+
+
+def _live_order(conn, *, status, price_tenths=500, count=10, ticker="T", suffix=""):
+    """A non-dry-run row in a given status, written the way the code writes it."""
+    order = _order(ticker, price_tenths=price_tenths, count=count)
+    row_id = record_intent(conn, order, dry_run=False, submitted_ms=1)
+    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, row_id))
+    conn.commit()
+    return row_id
+
+
+class TestExposureCountsTheRightPopulation:
+    """The old query enumerated `('pending','resting','filled')`.
+
+    Two live statuses were missing from that list, and both are exposure. The
+    tests are written per status rather than as one loop so a failure names the
+    status that broke.
+    """
+
+    @pytest.mark.parametrize(
+        "status",
+        ["pending", "resting", "partially_filled", "filled",
+         # The one that matters most. `unrecognised_response` means "the
+         # response could not be read, so this order may have filled". An
+         # enumeration of live statuses drops it to zero, which is the
+         # unreadable-resolves-to-zero failure applied to a whole position.
+         "unrecognised_response",
+         # Anything the exchange or a later version of `kalshi/orders.py`
+         # produces that nobody here has thought about. Counting is the
+         # direction that refuses an order rather than permitting one.
+         "some_status_nobody_has_written_yet"],
+    )
+    def test_a_live_order_counts(self, conn, status):
+        _live_order(conn, status=status)
+        assert current_exposure_dollars(conn) == pytest.approx(5.0)
+
+    @pytest.mark.parametrize("status", ["unfilled", "rejected", "canceled"])
+    def test_a_finished_order_costs_nothing(self, conn, status):
+        _live_order(conn, status=status)
+        assert current_exposure_dollars(conn) == 0.0
+
+    def test_a_dry_run_is_not_exposure(self, conn):
+        """And the cost of that is stated rather than hidden: it is why the cap
+        does not bind on the live instance today."""
+        record_intent(conn, _order(), dry_run=True, submitted_ms=1)
+        assert current_exposure_dollars(conn) == 0.0
+
+    def test_an_empty_table_is_a_true_zero_not_an_unreadable_one(self, conn):
+        """`size_position` refuses on `None`, so `0.0` here is a claim. It is a
+        true one: "no live orders" is a fact about the table."""
+        assert current_exposure_dollars(conn) == 0.0
+
+    def test_an_order_with_no_price_refuses_rather_than_summing_to_zero(self, conn):
+        """`SUM` skips NULLs, so an unpriced order would read as a free
+        position and quietly enlarge the room under the cap."""
+        _live_order(conn, status="resting")
+        conn.execute("UPDATE orders SET limit_price_tenths = NULL")
+        conn.commit()
+        assert current_exposure_dollars(conn) is None
+
+    def test_a_settled_market_releases_its_capital(self, conn):
+        _live_order(conn, status="filled")
+        assert current_exposure_dollars(conn) == pytest.approx(5.0)
+        conn.execute(
+            "INSERT INTO settlements (ticker, settled_ms, result, contracts, "
+            "pnl_cents) VALUES ('T', 1, 'yes', 10, 500)"
+        )
+        conn.commit()
+        assert current_exposure_dollars(conn) == 0.0
+
+    def test_a_no_position_is_measured_at_what_it_cost(self, conn):
+        """Not at its YES complement. Ten contracts of NO at 40.5c snap to 40c
+        and cost $4.00; measured on the wire leg they would read $6.00. The
+        wrong answer over-states here and under-states for any NO bet above
+        50c, and under-stating exposure is how a cap passes a position it
+        should refuse."""
+        order = _order(side="no", price_tenths=405, count=10)
+        record_intent(conn, order, dry_run=False, submitted_ms=1)
+        assert current_exposure_dollars(conn) == pytest.approx(4.00)
+
+    def test_an_unreadable_table_is_none_not_zero(self, conn):
+        conn.execute("DROP TABLE orders")
+        conn.commit()
+        assert current_exposure_dollars(conn) is None
+
+
+class TestOneOrderSumsToWhatItContributes:
+    """`order_exposure_dollars` and the SQL sum cannot share an implementation,
+    so they are pinned against each other on a row that went through
+    `record_intent`. A ticket saying "this takes you to $X" and the cap that
+    later refuses it must not be computing X two ways."""
+
+    @pytest.mark.parametrize(
+        "side,price,count", [("yes", 500, 10), ("no", 405, 7), ("yes", 990, 3)]
+    )
+    def test_they_agree(self, conn, side, price, count):
+        order = _order(side=side, price_tenths=price, count=count)
+        record_intent(conn, order, dry_run=False, submitted_ms=1)
+        assert current_exposure_dollars(conn) == pytest.approx(
+            order_exposure_dollars(order)
+        )
+
+
+class TestThereIsOneDefinitionOfExposure:
+    def test_the_runner_and_the_order_path_call_the_same_function(self):
+        """`runner.py` used to sum `fills` while the endpoint summed `orders`.
+
+        Both were vacuous while no table had a row, so they had never
+        disagreed. This asserts the deletion held rather than that the two
+        happen to agree -- per `tasks/lessons.md`, don't test that two paths
+        agree, delete one of them.
+        """
+        from backend import runner
+        from backend.store import orders as store_orders
+
+        assert runner.current_exposure_dollars is store_orders.current_exposure_dollars
+
+
+# ---------------------------------------------------------------------------
+# The endpoint
+# ---------------------------------------------------------------------------
+
+
+def _app(path, quotes, *, risk=None):
+    return create_app(
+        AppConfig(instance_mode="live", auth_token="t", db_path=path),
+        gate_config=ARMED,
+        risk_config=risk or RiskConfig(),
+        staleness_config=FRESH,
+        suppression_config=SuppressionConfig(),
+        quote_source=quotes,
+    )
+
+
+async def _post(app, rec_id, contracts=20):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        return await c.post(
+            "/api/orders",
+            headers={"Authorization": "Bearer t"},
+            json={"recommendation_id": rec_id, "contracts": contracts},
+        )
+
+
+def _orders_on_disk(path):
+    conn = db.open_db(path, read_only=True)
+    try:
+        return conn.execute("SELECT * FROM orders ORDER BY id").fetchall()
+    finally:
+        conn.close()
+
+
+class TestTheEndpointRecordsWhatItPlaces:
+    async def test_a_dry_run_leaves_a_row_naming_its_recommendation(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        response = await _post(_app(path, FakeQuotes()), rec)
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        rows = _orders_on_disk(path)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["id"] == body["order_id"]
+        assert row["client_order_id"] == body["client_order_id"]
+        assert row["recommendation_id"] == rec
+        assert row["ticker"] == TICKER
+        assert row["status"] == "dry_run"
+        assert row["dry_run"] == 1
+        assert body["recorded"]["outcome_recorded"] is True
+
+    async def test_the_row_holds_the_bytes_the_response_reports(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        body = (await _post(_app(path, FakeQuotes()), rec)).json()
+        assert _orders_on_disk(path)[0]["request_body_json"] == canonical_body_json(
+            body["request_body"]
+        )
+
+    async def test_a_refused_order_writes_nothing(self, armed_db):
+        """`orders` means orders, not attempts.
+
+        Today essentially every tap is refused at the gate, so a table of
+        attempts would be a table of refusals -- and this repo's own rule is
+        that a log dominated by the normal case has stopped being a diagnostic.
+        The refusal already reaches the caller and the log.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, suppressed="stale_odds")
+        response = await _post(_app(path, FakeQuotes()), rec)
+        assert response.status_code == 422
+        assert _orders_on_disk(path) == []
+
+    async def test_the_response_carries_the_exposure_the_caps_were_read_against(
+        self, armed_db
+    ):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        body = (await _post(_app(path, FakeQuotes()), rec)).json()
+        assert body["exposure_before_dollars"] == 0.0
+        assert body["resulting_exposure_dollars"] > 0.0
+        # A dry run commits nothing, so the number above is what *would*
+        # happen. Saying so is the difference between a ticket and a claim.
+        assert body["resulting_exposure_is_hypothetical"] is True
+        assert body["max_exposure_dollars"] == RiskConfig().max_exposure_dollars
+
+
+class TestTheRowIsOnDiskBeforeTheRequestIsMade:
+    """The load-bearing claim of the whole change.
+
+    `client_order_id` is an idempotency key, and the failure it exists for is a
+    POST that times out *after* Kalshi accepted it. Recording after the response
+    loses the key in exactly that case.
+    """
+
+    async def test_the_placer_can_already_see_its_own_pending_row(
+        self, armed_db, monkeypatch
+    ):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        seen = {}
+
+        real_placer = __import__(
+            "backend.kalshi.orders", fromlist=["OrderPlacer"]
+        ).OrderPlacer
+
+        class WatchingPlacer(real_placer):
+            async def place(self, request):
+                # Read the record from a *separate* connection, so this sees
+                # committed state rather than an open transaction.
+                reader = db.open_db(path, read_only=True)
+                try:
+                    seen["rows"] = [
+                        dict(r) for r in reader.execute("SELECT * FROM orders")
+                    ]
+                finally:
+                    reader.close()
+                return await super().place(request)
+
+        monkeypatch.setattr("backend.api.routes.OrderPlacer", WatchingPlacer)
+        response = await _post(_app(path, FakeQuotes()), rec)
+        assert response.status_code == 200, response.text
+
+        assert len(seen["rows"]) == 1, "the order was sent before it was recorded"
+        assert seen["rows"][0]["status"] == "pending"
+        assert seen["rows"][0]["client_order_id"] == response.json()["client_order_id"]
+
+
+class TestAnOrderThatCannotBeRecordedIsNotSent:
+    async def test_a_failed_write_refuses_and_never_reaches_the_placer(
+        self, armed_db, monkeypatch
+    ):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        placed = []
+
+        def explode(*_a, **_k):
+            raise OrderNotRecorded("disk is on fire")
+
+        real_placer = __import__(
+            "backend.kalshi.orders", fromlist=["OrderPlacer"]
+        ).OrderPlacer
+
+        class CountingPlacer(real_placer):
+            async def place(self, request):
+                placed.append(request)
+                return await super().place(request)
+
+        monkeypatch.setattr("backend.api.routes.record_intent", explode)
+        monkeypatch.setattr("backend.api.routes.OrderPlacer", CountingPlacer)
+
+        response = await _post(_app(path, FakeQuotes()), rec)
+        assert response.status_code == 503
+        assert "could not be written down first" in response.json()["detail"]
+        assert placed == [], "an unrecordable order was sent anyway"
+
+
+class TestAFailedOutcomeWriteDoesNotUnwindThePlacement:
+    async def test_the_request_still_succeeds_and_says_the_row_is_stale(
+        self, armed_db, monkeypatch
+    ):
+        """By this point the request has gone. On a live order the money has
+        moved whatever this connection does, so the response reports the gap
+        instead of pretending the order did not happen."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+
+        def explode(*_a, **_k):
+            raise OrderNotRecorded("disk is on fire")
+
+        monkeypatch.setattr("backend.api.routes.record_outcome", explode)
+        response = await _post(_app(path, FakeQuotes()), rec)
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["recorded"]["outcome_recorded"] is False
+        assert "reconcile" in body["recorded"]["note"]
+
+        # And the row survives in the state reconciliation is written to read.
+        row = _orders_on_disk(path)[0]
+        assert row["status"] == "pending"
+        assert row["client_order_id"] == body["client_order_id"]
+
+
+class TestTheCapBindsOnceOrdersAreLive:
+    """Every order the running system places is a dry run, so this is the only
+    place `max_exposure_dollars` is exercised against recorded orders at all.
+    Written by hand for that reason, and the docstring at the top of this file
+    says so rather than letting a green suite imply production coverage."""
+
+    async def test_a_live_order_already_at_the_cap_stops_the_next_one(
+        self, armed_db
+    ):
+        """The same request, twice, with one live order written in between.
+
+        Asserted as a *pair* rather than as one refusal, because a single 422
+        proves nothing about the cap -- a dozen other checks return 422 and any
+        of them could be what fired. Accepted, then refused, with only the
+        recorded order changing, is the claim.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        _market(conn, "OTHER")
+        conn.commit()
+        risk = RiskConfig(max_exposure_dollars=100.0)
+
+        first = await _post(_app(path, FakeQuotes(), risk=risk), rec)
+        assert first.status_code == 200, first.text
+        # And the dry run it just wrote consumes none of the cap, which is the
+        # other half of why the cap does not bind in production.
+        assert first.json()["exposure_before_dollars"] == 0.0
+
+        writer = db.open_db(path)
+        try:
+            record_intent(
+                writer,
+                OrderRequest(
+                    ticker="OTHER", side="yes", action="buy", count=200,
+                    limit_price_tenths=500, price_grid=WHOLE_CENT,
+                ),
+                dry_run=False, submitted_ms=1,
+            )
+        finally:
+            writer.close()
+        # $100 of live exposure against a $100 cap leaves no room at all.
+        conn.execute("UPDATE orders SET status = 'resting' WHERE dry_run = 0")
+        conn.commit()
+
+        second = await _post(_app(path, FakeQuotes(), risk=risk), rec)
+        assert second.status_code == 422
+        detail = second.json()["detail"]
+        # And it names the cap that bound. `no_room` used to overwrite it,
+        # which told a person holding a phone only that the answer was zero.
+        assert "max_exposure_dollars" in detail, detail

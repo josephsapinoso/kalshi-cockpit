@@ -39,9 +39,11 @@ What this does not do yet
   rows in the evidence record that nothing can score.
 - No orders. `suggested_contracts` is advice; the execution path is separate
   and stays behind the gate.
-- Exposure is read from recorded fills, which is currently always zero because
-  the order endpoint does not persist. That is a true zero, not an unreadable
-  one -- see `current_exposure_dollars`.
+- Exposure is read from live **orders**, through the same
+  `store.orders.current_exposure_dollars` the order endpoint uses, so the
+  number a recommendation is sized against and the number the resulting order
+  is sized against cannot disagree. It is zero in production today because
+  every order placed so far has been a dry run.
 - **Pre-game only.** A fixture whose sportsbook kickoff has passed is dropped
   rather than priced. Comparing a stored pre-game consensus against a Kalshi
   price that has absorbed two innings produces edges an order of magnitude
@@ -79,6 +81,7 @@ from .odds.client import store_quotes
 from .odds.timing import SweepDecision, decide_sweeps
 from .store import db
 from .store.db import ask_for_side, now_ms
+from .store.orders import current_exposure_dollars
 
 logger = logging.getLogger(__name__)
 
@@ -321,25 +324,6 @@ def latest_kalshi_quote(conn, ticker: str):
     ).fetchone()
 
 
-def current_exposure_dollars(conn) -> float:
-    """Open exposure from recorded fills, net of settlements.
-
-    Returns a genuine `0.0` when nothing has been filled, which is the state
-    today because the order endpoint does not yet persist. That is a legitimate
-    zero and not an unreadable one -- "no fills" is a fact, unlike "the fills
-    table could not be read". `size_position` refuses on `None`, so returning
-    zero here is a claim, and it is a true one.
-    """
-    row = conn.execute(
-        "SELECT COALESCE(SUM(f.count * f.price_tenths), 0) AS cost "
-        "FROM fills f "
-        "WHERE NOT EXISTS ("
-        "  SELECT 1 FROM settlements s WHERE s.ticker = f.ticker"
-        ")"
-    ).fetchone()
-    return float(row["cost"] or 0) / 1000.0
-
-
 # ---------------------------------------------------------------------------
 # Pricing pass -- no network
 # ---------------------------------------------------------------------------
@@ -449,6 +433,20 @@ def run_pricing_pass(
         now=stamp,
     )
     exposure = current_exposure_dollars(conn)
+    if exposure is None:
+        # Raise rather than pass `None` down to `size_position`. It would
+        # refuse -- correctly -- but it would refuse *every candidate on the
+        # slate*, and each refusal would be persisted as a recommendation. The
+        # record would then hold a hundred rows saying "not sized" for a reason
+        # that has nothing to do with any of them, mixed in with the genuine
+        # no-edge rows and told apart by nothing. The loop is built to die
+        # loudly (`MAX_CONSECUTIVE_FAILURES`); this is what that is for.
+        raise RuntimeError(
+            "current exposure could not be read, so nothing on this slate can "
+            "be sized. Refusing to record a pass -- a slate of refusals for a "
+            "reason unrelated to the bets would be indistinguishable from a "
+            "slate with no edge."
+        )
 
     alias_cache: dict[str, TeamAliases] = {}
     linked = link_discovered_events(conn, events, now=stamp, alias_cache=alias_cache)

@@ -455,15 +455,36 @@ class TestTheChainProducesRecordedObservations:
 
 
 class TestExposure:
-    def test_no_fills_is_a_true_zero_not_an_unreadable_one(self, conn):
+    """The runner reads exposure through `store.orders`, not from `fills`.
+
+    It summed `fills` net of `settlements` until 2026-08-08, while the order
+    endpoint summed live `orders`. Both were vacuous -- no table had a row --
+    so the two had never disagreed, and they answer different questions: a
+    resting order is committed capital and appears in exactly one of them. The
+    runner sizing recommendations against one number while the endpoint sized
+    the resulting order against the other is the shape `tasks/lessons.md` calls
+    "don't test that two paths agree, delete one of the paths".
+
+    The behaviours of the shared implementation are covered in
+    `tests/test_order_record.py`; what these two assert is that the *runner*
+    reads it.
+    """
+
+    def test_no_orders_is_a_true_zero_not_an_unreadable_one(self, conn):
         """`size_position` refuses on `None`, so returning 0.0 is a claim.
 
-        It is a true one: "no fills recorded" is a fact about the table, unlike
+        It is a true one: "no live orders" is a fact about the table, unlike
         "the table could not be read".
         """
         assert current_exposure_dollars(conn) == 0.0
 
-    def test_an_open_fill_counts_toward_exposure(self, conn, joined):
+    def test_a_fill_alone_is_no_longer_exposure(self, conn, joined):
+        """The deletion, stated as a test rather than left to a comment.
+
+        `fills` measures `fee_actual` against `fee_predicted`; it is not a
+        second exposure source. A fill exists only because an order did, and
+        the order is what carries the committed capital.
+        """
         events, _ = joined
         ticker = next(
             m.ticker for e in events for m in e.markets
@@ -476,7 +497,43 @@ class TestExposure:
             (ticker, NOW),
         )
         conn.commit()
+        assert current_exposure_dollars(conn) == 0.0
+
+    def test_a_live_order_is(self, conn, joined):
+        events, _ = joined
+        ticker = next(
+            m.ticker for e in events for m in e.markets
+            if m.market_type == "moneyline"
+        )
+        conn.execute(
+            "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+            "action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('c1', ?, ?, 'yes', 'buy', 'limit', 20, 500, 'resting', "
+            "'{}', 0)",
+            (NOW, ticker),
+        )
+        conn.commit()
         assert current_exposure_dollars(conn) == pytest.approx(10.0)
+
+    def test_an_unreadable_exposure_stops_the_pass_rather_than_refusing_the_slate(
+        self, conn, joined, monkeypatch
+    ):
+        """Passing `None` down to `size_position` would refuse *every*
+        candidate, and each refusal would be persisted -- a hundred rows saying
+        "not sized" for a reason unrelated to any of them, mixed into the
+        genuine no-edge rows and told apart by nothing. The loop is built to
+        die loudly; this is what that is for.
+        """
+        events, _ = joined
+        monkeypatch.setattr(
+            "backend.runner.current_exposure_dollars", lambda _conn: None
+        )
+        with pytest.raises(RuntimeError, match="exposure could not be read"):
+            run_pricing_pass(conn, events, risk=RiskConfig())
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM recommendations"
+        ).fetchone()["n"] == 0
 
 
 class TestSuppressionConfigIsHonoured:

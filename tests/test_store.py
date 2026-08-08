@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 
 import pytest
 
@@ -307,6 +308,61 @@ class TestDerivedAsks:
     def test_unknown_side_raises_rather_than_guessing(self):
         with pytest.raises(ValueError):
             db.ask_for_side({"yes_bid_tenths": 1, "no_bid_tenths": 1}, "maybe")
+
+
+class TestASecondWriterWaitsInsteadOfFailing:
+    """A blocked writer must wait, because there are now two of them.
+
+    The order endpoint writes from the API process while the runner holds the
+    write lock in bursts recording a pass. An order landing inside a burst must
+    not fail outright: it would read as a defect in the order path rather than
+    as contention, and it arrives after thirteen checks and a Kalshi round trip.
+
+    **What this pins is a choice, not an invention.** CPython's `sqlite3`
+    already defaults `timeout` to 5 seconds, so the first attempt at this --
+    `PRAGMA busy_timeout = 5000` on every connection -- set the value the
+    driver had already set and was a no-op. The test passed. It passed with the
+    pragma deleted too, which is the only reason anyone looked.
+
+    So `connect` passes `timeout=` explicitly and this asserts the behaviour it
+    buys. Disable it by setting `BUSY_TIMEOUT_MS = 0`, which is the one edit
+    that can actually remove the property.
+    """
+
+    def test_a_blocked_writer_waits(self, tmp_path):
+        path = tmp_path / "contended.db"
+        db.init_db(path).close()
+
+        holder = db.connect(path)
+        holder.execute("BEGIN IMMEDIATE")
+        holder.execute(
+            "INSERT INTO meta (key, value, updated_ms) VALUES ('a', 'b', 0)"
+        )
+
+        waiting = db.connect(path)
+        started = time.monotonic()
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            # Still fails -- the holder never commits -- but only after
+            # waiting. A zero timeout returns in microseconds.
+            waiting.execute("BEGIN IMMEDIATE")
+        waited_ms = (time.monotonic() - started) * 1000
+
+        assert waited_ms > db.BUSY_TIMEOUT_MS * 0.5, (
+            f"gave up after {waited_ms:.0f}ms against a "
+            f"{db.BUSY_TIMEOUT_MS}ms timeout -- the second writer is not waiting"
+        )
+        holder.rollback()
+        holder.close()
+        waiting.close()
+
+    def test_a_reader_gets_it_too(self, tmp_path):
+        """WAL lets a reader run alongside a writer, but not alongside a
+        checkpoint, so the read-only handle the API uses needs it as well."""
+        path = tmp_path / "ro.db"
+        db.init_db(path).close()
+        conn = db.connect(path, read_only=True)
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == db.BUSY_TIMEOUT_MS
+        conn.close()
 
 
 class TestCrossThreadConnections:

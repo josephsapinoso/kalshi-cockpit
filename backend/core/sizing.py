@@ -171,7 +171,17 @@ def size_position(
         kelly_fraction_full=full,
         kelly_fraction_used=used,
         stake_dollars=contracts * price,
-        binding_constraint=constraint if contracts else "no_room",
+        # A zeroed order used to report `no_room` whatever zeroed it, which
+        # discarded the one thing this field exists to say -- and it discarded
+        # it in the single case where a person most needs it, because a refusal
+        # naming `max_exposure_dollars` and one naming `max_position_dollars`
+        # call for different responses. `constraint` already holds the cap that
+        # bound; the fallback now covers only what is left, which is Kelly
+        # asking for less than a single contract costs.
+        binding_constraint=(
+            constraint if contracts or constraint != "kelly"
+            else "stake_below_one_contract"
+        ),
     )
 
 

@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from ..analysis.marts import (
     WarehouseMissing,
@@ -64,6 +65,12 @@ from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
 from ..store import db
+from ..store.orders import (
+    current_exposure_dollars,
+    order_exposure_dollars,
+    record_intent,
+    record_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -916,7 +923,7 @@ def create_app(
         #    step 9 a real risk control rather than a re-run of the engine's
         #    arithmetic: the sizer applies the position and exposure caps
         #    against the portfolio as it stands at this instant.
-        exposure = _current_exposure_dollars(conn)
+        exposure = current_exposure_dollars(conn)
         if exposure is None:
             raise HTTPException(
                 status_code=422,
@@ -1117,11 +1124,79 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         placer = OrderPlacer(dry_run=True)
+
+        # 14. **Write it down before sending it.**
+        #
+        #     `client_order_id` is the idempotency key, and it is worth nothing
+        #     unless it is durable before the request leaves this process. The
+        #     failure it exists for is a POST that times out *after* Kalshi
+        #     accepted it: there is an order in the book, no response in hand,
+        #     and the only safe retry is the same id. Recording after the
+        #     response loses the key in exactly the case it was invented for.
+        #
+        #     It also closes the smaller gap that made this item worth doing:
+        #     CLV scores off `entry_ask_tenths` and the order goes out at the
+        #     live ask, so the price the gate's evidence is built on and the
+        #     price we would actually pay were different numbers with nothing
+        #     joining them. `orders.recommendation_id` is that join.
+        #
+        #     A separate, writable connection, opened in a worker thread. The
+        #     decision above is made against a read-only handle on purpose --
+        #     the API cannot corrupt the evidence record while deciding -- and
+        #     that property is worth keeping, so only the recording step opens
+        #     a writer. `sqlite3` blocks, and `busy_timeout` means it may block
+        #     for seconds while the runner is mid-pass, which must not stall
+        #     the event loop and the SSE ticker riding on it.
+        submitted_ms = db.now_ms()
+        try:
+            order_row_id = await run_in_threadpool(
+                _write_intent,
+                app_config.db_path,
+                order,
+                dry_run=placer.dry_run,
+                submitted_ms=submitted_ms,
+            )
+        except Exception as exc:                        # noqa: BLE001
+            logger.exception(
+                "refusing to place %s: the order could not be recorded first",
+                order.ticker,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"the order was not sent, because it could not be written "
+                    f"down first: {exc}. An order this system cannot record is "
+                    f"one it cannot reconcile, cancel or score, and the "
+                    f"evidence record is the product. Refusing is the safe "
+                    f"direction -- nothing has been committed."
+                ),
+            ) from exc
+
         outcome = await placer.place(order)
+
+        # 15. Stamp the row with what came back. This one must **not** unwind
+        #     the order: by now the request has gone, and on a live order the
+        #     money has moved whatever this connection does. The row is already
+        #     on disk in `pending` carrying the idempotency key, which is
+        #     precisely the state reconciliation reads. So it is reported
+        #     rather than raised.
+        outcome_recorded = True
+        try:
+            await run_in_threadpool(
+                _write_outcome, app_config.db_path, order_row_id, outcome
+            )
+        except Exception:                               # noqa: BLE001
+            outcome_recorded = False
+            logger.exception(
+                "order row %d for %s was placed (%s) and could not be updated. "
+                "It stays 'pending' -- reconcile against client_order_id=%s.",
+                order_row_id, order.ticker, outcome.status, order.client_order_id,
+            )
 
         return {
             "status": outcome.status,
             "dry_run": outcome.dry_run,
+            "order_id": order_row_id,
             "client_order_id": order.client_order_id,
             "ticker": order.ticker,
             "side": order.side,
@@ -1159,9 +1234,35 @@ def create_app(
                     "will be scored on."
                 ),
             },
+            # What the caps were measured against, and what this order would
+            # make of them. `resulting_exposure_dollars` counts *this* order,
+            # which on a dry run is a hypothetical and says so rather than
+            # letting a ticket imply money has been committed.
+            #
+            # `exposure_before_dollars` is the number `size_position` above
+            # actually used, not a re-read -- a second read would be a second
+            # path to disagree with the first.
+            "exposure_before_dollars": exposure,
+            "resulting_exposure_dollars": exposure + order_exposure_dollars(order),
+            "resulting_exposure_is_hypothetical": outcome.dry_run,
+            "max_exposure_dollars": risk.max_exposure_dollars,
             # The exact bytes. A dry run is comparable to a live order field by
             # field precisely because this is the same string either way.
             "request_body": outcome.request_body,
+            "recorded": {
+                "order_id": order_row_id,
+                "outcome_recorded": outcome_recorded,
+                "note": (
+                    "Recorded before the request was made, so the "
+                    "client_order_id survives a lost response."
+                    if outcome_recorded
+                    else
+                    f"The order was placed and the row could not be updated. "
+                    f"It is still 'pending' -- reconcile "
+                    f"client_order_id={order.client_order_id} against Kalshi "
+                    f"before assuming it did not happen."
+                ),
+            },
             "note": (
                 "Dry run. The gate is open but live placement is not armed in "
                 "this build -- the request body above is exactly what would be "
@@ -1172,32 +1273,31 @@ def create_app(
     return app
 
 
-def _current_exposure_dollars(conn) -> Optional[float]:
-    """Money currently at risk across open orders, or None if unreadable.
+def _write_intent(db_path, order: OrderRequest, *, dry_run: bool, submitted_ms: int) -> int:
+    """Record the order on its own writable connection. Runs in a worker thread.
 
-    `None` is a refusal, never zero. An exposure that cannot be read and an
-    exposure of zero look identical to a cap check, and only one of them is
-    safe to act on.
-
-    Counts orders that are live or filled and not yet settled. A dry run has
-    committed nothing, so it does not count -- but it is also not written to
-    the table, which is a separate gap recorded in `tasks/todo.md`.
+    Opened and closed here rather than shared, for the reason the order route
+    already gives about its read-only handle: a connection is bound to the
+    thread that made it, and this one is made inside the threadpool worker that
+    uses it. Short-lived is also what keeps the write lock held for the
+    smallest possible window while the runner is writing a pass.
     """
+    conn = db.open_db(db_path)
     try:
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(o.count * o.limit_price_tenths / 1000.0), 0.0) AS at_risk
-            FROM orders o
-            WHERE o.dry_run = 0
-              AND o.status IN ('pending', 'resting', 'filled')
-            """
-        ).fetchone()
-    except Exception:                                   # noqa: BLE001
-        logger.exception("could not read current exposure")
-        return None
-    if row is None or row["at_risk"] is None:
-        return None
-    return float(row["at_risk"])
+        return record_intent(
+            conn, order, dry_run=dry_run, submitted_ms=submitted_ms
+        )
+    finally:
+        conn.close()
+
+
+def _write_outcome(db_path, order_row_id: int, outcome) -> None:
+    """Stamp the placed order with its result. Runs in a worker thread."""
+    conn = db.open_db(db_path)
+    try:
+        record_outcome(conn, order_row_id, outcome)
+    finally:
+        conn.close()
 
 
 def _gate_open(conn, gate: GateConfig) -> bool:
