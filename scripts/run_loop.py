@@ -45,37 +45,59 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.config import KalshiConfig, OddsConfig, RiskConfig  # noqa: E402
+from backend.config import (  # noqa: E402
+    GateConfig,
+    KalshiConfig,
+    OddsConfig,
+    RiskConfig,
+    StalenessConfig,
+)
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
 from backend.logging_setup import configure_logging  # noqa: E402
+from backend.notify.alerts import Alerter  # noqa: E402
+from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.odds.client import OddsClient  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
     DUE_WINDOW_MS,
     sweep_window_survives_interval,
+    window_status,
 )
 from backend.runner import run_once  # noqa: E402
-from backend.scheduler import JITTER, LoopState, run_forever  # noqa: E402
+from backend.scheduler import (  # noqa: E402
+    JITTER,
+    LoopFailed,
+    LoopState,
+    run_forever,
+)
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.store import db  # noqa: E402
 
 
 class CombinedPass:
-    """One pass's recording and scoring counts, reported as one line.
+    """One pass's recording, scoring and alerting counts, reported as one line.
 
-    Merged deliberately: two separate log lines invite reading one and not the
+    Merged deliberately: separate log lines invite reading one and not the
     other, and "76 recommendations" beside "0 scored" is the pair that matters.
-    Scoring counts are prefixed `clv_` so no field name can collide.
+    Scoring counts are prefixed `clv_` so no field name can collide, and the
+    alert counts say `alerts_deduped` as well as `alerts_sent` -- a quiet
+    channel because everything was already announced and a quiet channel
+    because the notifier is broken are different states.
     """
 
-    def __init__(self, recording, scoring):
+    def __init__(self, recording, scoring, alerts=None):
         self.recording = recording
         self.scoring = scoring
+        self.alerts = alerts
 
     def as_dict(self) -> dict:
         merged = dict(self.recording.as_dict())
         merged.update({f"clv_{k}": v for k, v in self.scoring.as_dict().items()})
+        if self.alerts is not None:
+            merged.update(
+                {k: v for k, v in self.alerts.as_dict().items() if v}
+            )
         return merged
 
 
@@ -118,6 +140,8 @@ async def main() -> int:
     kalshi_config = KalshiConfig.load()
     odds_config = OddsConfig.load()
     risk = RiskConfig.load()
+    gate_config = GateConfig.load()
+    staleness = StalenessConfig.load()
     suppression = SuppressionConfig()
     budget = CreditBudget(
         conn,
@@ -126,21 +150,53 @@ async def main() -> int:
     )
     state = LoopState()
 
+    discord_config = DiscordConfig.from_env()
+    if discord_config is None:
+        log.warning(
+            "DISCORD_BOT_TOKEN/DISCORD_CHANNEL_ID are unset, so nothing will "
+            "reach a phone. The odds window is open for %ds twice a day; "
+            "without an alert nobody is looking when it happens.",
+            staleness.max_odds_age_s,
+        )
+
     async with KalshiRestClient(kalshi_config) as kalshi, \
-            OddsClient(odds_config, budget) as odds:
+            OddsClient(odds_config, budget) as odds, \
+            DiscordNotifier(discord_config) as discord:
+
+        alerter = Alerter(conn, discord)
 
         async def one_pass() -> CombinedPass:
+            # One stamp for the whole pass, shared with the alerter: it finds
+            # the rows this pass wrote by `created_ms = stamp`, and a second
+            # clock reading would miss every one of them.
+            stamp = db.now_ms()
             counts = await run_once(
                 conn, kalshi, odds, budget,
                 config=odds_config, risk=risk, suppression=suppression,
+                now=stamp,
             )
             scoring = await run_scoring_pass(conn, kalshi)
-            return CombinedPass(counts, scoring)
+
+            window = window_status(
+                conn, budget=budget, now_ms=db.now_ms(),
+                max_odds_age_ms=suppression.max_odds_age_ms,
+                sweep_cost=odds_config.credits_per_sweep_per_sport,
+            )
+            alerts = await alerter.after_pass(
+                pass_ms=stamp, counts=counts, window=window,
+                sweeps_this_pass=counts.odds_sweeps,
+            )
+            await alerter.daily_digest(
+                now_ms=stamp,
+                day_start_ms=budget.day_start_ms(stamp),
+                gate_required=gate_config.min_scored_recommendations,
+            )
+            return CombinedPass(counts, scoring, alerts)
 
         log.info(
-            "starting loop: interval=%.0fs db=%s. The gate needs 300 "
+            "starting loop: interval=%.0fs db=%s discord=%s. The gate needs 300 "
             "independent games; nothing is surfaced until the record supports it.",
-            args.interval, args.db,
+            args.interval, args.db, "on" if discord.enabled else "off",
         )
         try:
             await run_forever(
@@ -149,6 +205,12 @@ async def main() -> int:
                 state=state,
                 max_passes=args.max_passes,
             )
+        except LoopFailed as exc:
+            # The last thing this process does. The loop dying is precisely the
+            # failure the Board cannot show -- it keeps serving the record it
+            # already has, which reads as a calm market.
+            await alerter.failure("Recording loop died", str(exc), now_ms=db.now_ms())
+            raise
         finally:
             log.info("loop state at exit: %s", state.as_dict())
 

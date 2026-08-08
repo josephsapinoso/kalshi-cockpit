@@ -430,3 +430,31 @@ CREATE TABLE IF NOT EXISTS lessons (
     proposed_config_diff TEXT,
     accepted_by_user    INTEGER
 );
+
+-- ============================================================================
+-- Alerts that were sent
+-- ============================================================================
+-- Exists to make two claims true that `notify/discord.py` already makes in its
+-- docstring: that an alert Discord refused is still recorded, and that a
+-- phone is not woken twice for the same thing.
+--
+-- The dedupe key is what makes a restart safe. The loop dies loudly on
+-- repeated failure and the platform restarts it, so any policy holding "have I
+-- already sent this?" in memory would re-announce the whole slate on every
+-- restart -- and a crash loop would then be indistinguishable from a busy
+-- night. `UNIQUE (kind, key)` moves that question to the database, where it
+-- survives the process.
+CREATE TABLE IF NOT EXISTS notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sent_ms     INTEGER NOT NULL,
+    kind        TEXT NOT NULL,      -- opportunity | window_open | digest | failure
+    key         TEXT NOT NULL,      -- unique within kind; see notify/alerts.py
+    -- Whether Discord accepted it. Recorded rather than inferred: "we decided
+    -- to alert" and "the alert arrived" are different facts, and a channel
+    -- that has been silent for a day should be distinguishable from a system
+    -- that found nothing to say.
+    delivered   INTEGER NOT NULL,
+    detail      TEXT,
+    UNIQUE (kind, key)
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_time ON notifications(sent_ms DESC);

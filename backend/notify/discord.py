@@ -162,6 +162,61 @@ class DiscordNotifier:
             }
         )
 
+    async def window_open(self, *, window, surfaced: int) -> bool:
+        """The odds just refreshed, so the slate is briefly bettable.
+
+        The alert without which the rest of the tool cannot be used. Credits
+        afford two sweeps a day and the consensus goes stale in fifteen minutes,
+        so if this does not reach a phone at the moment it happens, nobody is
+        looking when it matters.
+
+        It reports **both** limits, because they are not the same number and the
+        tighter one decides everything: the books last `max_odds_age_s`, and
+        each individual row also needs a Kalshi quote under thirty seconds. An
+        alert quoting only the first would promise fifteen minutes of
+        actionability that does not exist.
+        """
+        if not self.config:
+            return False
+
+        closes = (
+            f"about {round(window.seconds_remaining / 60)} min"
+            if window.seconds_remaining
+            else "shortly"
+        )
+        headline = (
+            f"{surfaced} bet{'' if surfaced == 1 else 's'} on the board"
+            if surfaced
+            else "Nothing surfaced"
+        )
+        return await self._post(
+            {
+                "title": "Odds are fresh — the window is open",
+                "description": (
+                    f"**{headline}.** Fresh odds are a chance to look, not a "
+                    f"signal to bet: most windows open onto an empty board, "
+                    f"which is the expected result."
+                ),
+                "url": self.config.cockpit_base_url,
+                "color": COLOUR_OPPORTUNITY if surfaced else COLOUR_DIGEST,
+                "fields": [
+                    _field("Closes in", closes),
+                    _field(
+                        "Fixtures priced",
+                        f"{window.fixtures_fresh} of {window.fixtures_upcoming}",
+                    ),
+                    _field(
+                        "Credits left today",
+                        f"{window.sweeps_remaining_today} sweep(s)",
+                    ),
+                ],
+                "footer": {
+                    "text": "A row also needs a Kalshi quote under 30s, so "
+                            "individual bets expire sooner than this window."
+                },
+            }
+        )
+
     # -- digests -----------------------------------------------------------
 
     async def daily_digest(
