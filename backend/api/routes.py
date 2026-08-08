@@ -61,6 +61,7 @@ from ..gate import (
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
+from ..logging_setup import configure_logging
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
@@ -160,6 +161,32 @@ def create_app(
     demo instance holds no Kalshi credentials and must still boot -- both
     deploys run this function from one image.
     """
+    # Logging is configured **here**, because this function is the only thing
+    # every entry point has in common. `docker/entrypoint.sh` runs
+    # `uvicorn backend.api.routes:create_app --factory`, so `backend/main.py`
+    # -- which was the only place that called `basicConfig` -- is not executed
+    # in production at all.
+    #
+    # The deployed API process therefore had **no logging configuration**.
+    # Measured by starting it exactly as the entrypoint does: every `backend.*`
+    # INFO record was dropped on the floor (the root logger has no handler, so
+    # nothing below WARNING is emitted at all), and the records that did appear
+    # went through Python's `lastResort` handler -- no timestamp, no level, no
+    # logger name. `malformed book message: ...` reached Fly's log stream as a
+    # bare sentence with nothing marking it as an error or saying where it came
+    # from. The hub's whole "a dead feed must be visible" story is logged from
+    # this process.
+    #
+    # It also means the redaction filter this repo added after leaking a live
+    # credential was installed in the runner and not in the API. Nothing in the
+    # API puts a key in a URL today, so this is defence that had quietly
+    # stopped being in place rather than a leak -- which is exactly the state
+    # it is worth catching in.
+    #
+    # Idempotent: `basicConfig` is a no-op once the root has a handler, and the
+    # filters are added only if an instance is not already attached.
+    configure_logging()
+
     app_config = config or AppConfig.load()
     gate = gate_config or GateConfig.load()
     risk = risk_config or RiskConfig.load()

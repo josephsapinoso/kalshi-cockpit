@@ -196,3 +196,61 @@ class TestItIsInstalledWhereRecordsActuallyConverge:
         and pure noise."""
         configure_logging(level=logging.INFO, force=True)
         assert logging.getLogger("httpx").level >= logging.WARNING
+
+
+class TestTheApiProcessConfiguresLoggingAtAll:
+    """The API is the one entry point that was not calling this.
+
+    `docker/entrypoint.sh` runs `uvicorn backend.api.routes:create_app
+    --factory`, so `backend/main.py` never executes in production and its
+    `basicConfig` never ran. Started that way, the deployed API had no root
+    handler: every `backend.*` INFO record was discarded, and the ERROR records
+    that did appear came out through Python's `lastResort` handler with no
+    timestamp, level or logger name.
+
+    Measured before the fix by running that exact command -- the hub's
+    "connecting to wss://..." line is present under `backend.main` and absent
+    under uvicorn.
+
+    The assertion is on the *filter*, not on captured output. A test that
+    logged a fake key and checked the text passes as long as some other test
+    configured logging first, so it would measure suite ordering rather than
+    this app.
+    """
+
+    def _reset_root(self) -> list:
+        root = logging.getLogger()
+        previous = list(root.handlers)
+        for handler in previous:
+            root.removeHandler(handler)
+        for f in list(root.filters):
+            if isinstance(f, CredentialRedactingFilter):
+                root.removeFilter(f)
+        return previous
+
+    def test_building_the_app_installs_the_redacting_filter(self, tmp_path):
+        from backend.api.routes import create_app
+        from backend.config import AppConfig
+
+        previous = self._reset_root()
+        try:
+            root = logging.getLogger()
+            assert not root.handlers, "precondition: the root is unconfigured"
+
+            create_app(AppConfig(instance_mode="demo", db_path=tmp_path / "x.db"))
+
+            assert root.handlers, (
+                "the API process would emit nothing below WARNING, and "
+                "everything above it through lastResort, unformatted"
+            )
+            for handler in root.handlers:
+                assert any(
+                    isinstance(f, CredentialRedactingFilter)
+                    for f in handler.filters
+                ), f"{handler!r} would emit records unredacted"
+        finally:
+            root = logging.getLogger()
+            for handler in list(root.handlers):
+                root.removeHandler(handler)
+            for handler in previous:
+                root.addHandler(handler)

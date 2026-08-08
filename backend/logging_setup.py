@@ -98,7 +98,15 @@ def configure_logging(level: int = logging.INFO, **basic_config: Any) -> None:
     scripts, and anything else that makes a request. `httpx` is additionally
     pinned to WARNING: its INFO line is one URL per request, which is both the
     leak above and pure noise at the volume the runner generates.
+
+    The default format is set here rather than per call site because the
+    container runs **two** of these processes and Fly interleaves their output
+    into one stream. A line that says which process, at what level, from which
+    logger is the difference between reading that stream and grepping it.
     """
+    basic_config.setdefault(
+        "format", "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+    )
     logging.basicConfig(level=level, **basic_config)
 
     root = logging.getLogger()

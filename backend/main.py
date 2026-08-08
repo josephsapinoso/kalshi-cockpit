@@ -15,6 +15,8 @@ import os
 
 import uvicorn
 
+from .logging_setup import configure_logging
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Kalshi betting cockpit API")
@@ -35,10 +37,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    # `configure_logging`, not `basicConfig`. They differ by the credential
+    # redaction filter and by pinning httpx to WARNING -- httpx logs one full
+    # request URL per request at INFO, which is how a live key reached a
+    # terminal transcript once already. This path is the local dev server;
+    # production goes through `create_app`, which configures the same thing.
+    configure_logging()
 
     if args.seed_demo:
         # Set before importing config: demo mode must not require credentials,
