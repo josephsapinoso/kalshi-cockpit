@@ -77,6 +77,16 @@ def conn(tmp_path):
     c.close()
 
 
+def _iso(ms: int) -> str:
+    """Epoch ms -> the Zulu ISO string Kalshi actually publishes."""
+    from datetime import datetime, timezone
+
+    return (
+        datetime.fromtimestamp(ms / 1000, timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+
+
 def _mlb_template(kalshi_events: list[dict]) -> dict:
     """A real two-sided Kalshi moneyline event, used as the shape to copy."""
     return next(
@@ -116,10 +126,13 @@ def aligned_kalshi_event(
 
 
 @pytest.fixture
-def joined(conn, kalshi_events, odds_capture):
-    """A database with real odds stored and a Kalshi event aligned onto one.
+def book_odds(conn, odds_capture):
+    """The captured sportsbook slate, stored. Returns the Pittsburgh fixture.
 
-    Returns `(events, odds_event)`, where `events` is the discovery output.
+    Split out of `joined` so a test can pair the same real odds with a Kalshi
+    event of its own shaping -- `joined` copies the sportsbook's kickoff onto
+    the Kalshi side, which is right for a linking test and makes it impossible
+    to tell the two clocks apart.
     """
     from backend.config import OddsConfig
     from backend.odds.budget import CreditBudget
@@ -138,10 +151,19 @@ def joined(conn, kalshi_events, odds_capture):
     )
     store_quotes(conn, quotes)
 
-    odds_event = next(
+    return next(
         e for e in odds_capture["events"]
         if e["home_team"] == "Pittsburgh Pirates"
     )
+
+
+@pytest.fixture
+def joined(conn, kalshi_events, book_odds):
+    """A database with real odds stored and a Kalshi event aligned onto one.
+
+    Returns `(events, odds_event)`, where `events` is the discovery output.
+    """
+    odds_event = book_odds
     event = aligned_kalshi_event(
         _mlb_template(kalshi_events),
         odds_event=odds_event,
@@ -706,3 +728,78 @@ class TestTheSweepIsScheduledRatherThanOpportunistic:
             suppression=SuppressionConfig(max_odds_age_ms=3_600_000),
         )
         assert odds.calls == []
+
+
+class TestAGameInProgressIsNotACandidate:
+    """Measured on one live pass, not reasoned about.
+
+    36 of 104 recorded rows were for games whose sportsbook kickoff had already
+    passed. Their edges ran **-200.3 to +67.7 tenths**; the 68 pre-game rows on
+    the same slate ran -39.2 to -17.7. That dispersion is not opportunity, it is
+    a stored pre-game consensus being subtracted from a Kalshi price that has
+    absorbed two innings.
+
+    Fourteen were caught by `wide_market` or `suspicious_edge`. The other
+    twenty-two passed as ordinary no-edge observations, which is the half that
+    matters: they enter the evidence record looking exactly like evidence.
+    """
+
+    def _commence(self, odds_event) -> int:
+        from backend.kalshi.discovery import parse_ms
+
+        return parse_ms(odds_event["commence_time"])
+
+    def test_a_started_game_is_dropped_rather_than_priced(self, conn, joined):
+        events, odds_event = joined
+        counts = run_pricing_pass(
+            conn, events, now=self._commence(odds_event) + 1
+        )
+        assert counts.recommendations == 0
+        assert counts.dropped_game_started == 1
+
+    def test_the_same_slate_before_kickoff_is_priced_normally(self, conn, joined):
+        """The guard must not be so eager that it drops the whole record."""
+        events, odds_event = joined
+        counts = run_pricing_pass(
+            conn, events, now=self._commence(odds_event) - 3_600_000
+        )
+        assert counts.recommendations == 4
+        assert counts.dropped_game_started == 0
+
+    def test_kickoff_is_read_from_the_sportsbook_not_from_kalshi(
+        self, conn, kalshi_events, book_odds
+    ):
+        """Kalshi's `occurrence_datetime` runs exactly three hours late.
+
+        `joined` copies the sportsbook's time onto the Kalshi event so the
+        linker has something clean to match, which means it cannot tell the two
+        clocks apart -- a guard reading the wrong one passes every test in this
+        file. So this fixture reintroduces the measured +3h offset, and prices
+        at the one instant where the two clocks disagree about the answer: two
+        hours after the real first pitch, an hour before Kalshi thinks it
+        starts. Reading Kalshi's field here prices the seventh inning.
+        """
+        offset_ms = 3 * 3_600_000
+        odds_event = book_odds
+        commence = self._commence(odds_event)
+
+        raw = aligned_kalshi_event(
+            _mlb_template(kalshi_events),
+            odds_event=odds_event,
+            kalshi_names=("Pittsburgh", "New York M"),
+        )
+        for market in raw["markets"]:
+            market["occurrence_datetime"] = _iso(commence + offset_ms)
+
+        events = discover_from_events([raw])
+        assert events[0].commence_ms == commence + offset_ms, (
+            "the fixture no longer carries the three-hour offset, so this test "
+            "cannot tell the two clocks apart"
+        )
+
+        upsert_discovered(conn, events, now=commence - 3_600_000)
+        store_quotes_from_discovery(conn, events, now=commence - 3_600_000)
+
+        counts = run_pricing_pass(conn, events, now=commence + 2 * 3_600_000)
+        assert counts.dropped_game_started == 1
+        assert counts.recommendations == 0

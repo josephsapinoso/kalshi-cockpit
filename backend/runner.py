@@ -42,6 +42,10 @@ What this does not do yet
 - Exposure is read from recorded fills, which is currently always zero because
   the order endpoint does not persist. That is a true zero, not an unreadable
   one -- see `current_exposure_dollars`.
+- **Pre-game only.** A fixture whose sportsbook kickoff has passed is dropped
+  rather than priced. Comparing a stored pre-game consensus against a Kalshi
+  price that has absorbed two innings produces edges an order of magnitude
+  wider in both directions, and none of those rows can ever be scored.
 """
 
 from __future__ import annotations
@@ -116,6 +120,7 @@ class PassCounts:
     dropped_no_books: int = 0
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
+    dropped_game_started: int = 0
     # Why the pass did or did not spend an odds credit, in words. A pass that
     # skips the sweep silently looks exactly like one that swept and found
     # nothing, and those two need opposite responses.
@@ -153,6 +158,10 @@ class BookConsensusInput:
     # unknown-age quote presenting as seconds old is the direction that
     # manufactures edge, on the field freshness suppression reads.
     books_with_estimated_age: tuple[str, ...] = ()
+    # The fixture's kickoff as **the sportsbook** gives it. Kalshi's runs three
+    # hours late, so its own commence time cannot answer "has this started?" --
+    # it says no for the first three innings.
+    commence_ms: Optional[int] = None
 
 
 def book_quotes_for_event(
@@ -182,8 +191,8 @@ def book_quotes_for_event(
         return None
 
     rows = conn.execute(
-        "SELECT bookmaker, outcome_name, price_decimal, book_updated_ms, fetched_ms "
-        "FROM odds_snapshots "
+        "SELECT bookmaker, outcome_name, price_decimal, book_updated_ms, "
+        "fetched_ms, commence_ms FROM odds_snapshots "
         "WHERE odds_event_id = ? AND market = ? AND fetched_ms = ?",
         (odds_event_id, market, latest["m"]),
     ).fetchall()
@@ -254,6 +263,7 @@ def book_quotes_for_event(
         oldest_book_age_ms=oldest,
         books_dropped=tuple(sorted(dropped)),
         books_with_estimated_age=tuple(sorted(estimated & set(quotes_by_book))),
+        commence_ms=int(rows[0]["commence_ms"]),
     )
 
 
@@ -457,6 +467,28 @@ def run_pricing_pass(
         books = book_quotes_for_event(conn, odds_event_id, now=stamp)
         if books is None:
             counts.dropped_no_books += 1
+            continue
+
+        # A game that has already started is not a candidate, it is a different
+        # measurement. Measured on one live pass: 36 of 104 recorded rows were
+        # for games in progress, and their edges ran -200.3 to +67.7 tenths
+        # against -39.2 to -17.7 for the pre-game rows on the same slate. The
+        # dispersion is the tell -- a stored pre-game consensus compared against
+        # a Kalshi price that has absorbed two innings is not a mispricing, it
+        # is two different questions subtracted from each other. Fourteen of
+        # those rows were suppressed for `wide_market` or `suspicious_edge` and
+        # twenty-two passed as ordinary no-edge observations, which is the
+        # dangerous half: they enter the evidence record looking like evidence.
+        #
+        # Dropped rather than suppressed. They can never be scored at any
+        # horizon -- the closing line is read before kickoff and these are
+        # written after it -- so recording them would add rows that cannot
+        # become evidence and would put two regimes in one dataset.
+        #
+        # The sportsbook's kickoff, never Kalshi's: Kalshi's `occurrence_datetime`
+        # runs three hours late and would call the seventh inning "not started".
+        if books.commence_ms is not None and books.commence_ms <= stamp:
+            counts.dropped_game_started += 1
             continue
 
         try:
