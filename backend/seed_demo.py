@@ -27,6 +27,7 @@ from pathlib import Path
 from .config import RiskConfig
 from .core.devig import devig
 from .core.suppression import SuppressionConfig
+from .odds.budget import day_start_ms
 from .engine import (
     Candidate,
     build_recommendation,
@@ -299,12 +300,26 @@ def seed_all(
     # The spend behind those quotes. Without it the window panel would report
     # a full day's budget beside odds that were obviously fetched, and the two
     # halves of the same screen would contradict each other.
+    #
+    # **Both sweeps have to land inside the same budget day**, and an age
+    # measured from `now` does not guarantee that: the budget day rolls at
+    # 10:00Z, so a sweep five hours back falls into *yesterday* whenever the
+    # seed runs between 10:00Z and 15:00Z. The panel then showed 6 of 16 spent
+    # beside two sweeps' worth of odds -- the exact contradiction this block
+    # exists to prevent, appearing for five hours out of twenty-four.
+    #
+    # So the older sweep is placed relative to the **day boundary** rather than
+    # relative to now, which is also what a real instance's record looks like
+    # at that hour: the previous day's sweeps have rolled off and today's are
+    # all after 10:00Z.
+    day_start = day_start_ms(stamp)
     for sport, age_ms in (("baseball_mlb", 120_000), ("basketball_wnba", 5 * 3_600_000)):
+        called_ms = max(stamp - age_ms, day_start + 60_000)
         conn.execute(
             "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
             "regions, cost, remaining_reported, used_reported) "
             "VALUES (?, '/odds', ?, 'h2h,spreads,totals', 'us,eu', 6, 388, 112)",
-            (stamp - age_ms, sport),
+            (called_ms, sport),
         )
     counts["odds_sweeps"] = 2
 

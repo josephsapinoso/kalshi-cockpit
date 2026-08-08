@@ -110,3 +110,44 @@ class TestNoCredentialsNeeded:
             for key, value in saved.items():
                 if value is not None:
                     os.environ[key] = value
+
+
+class TestTheSeededSpendSurvivesTheBudgetDayRoll:
+    """Both seeded sweeps must land in the same budget day, at every hour.
+
+    The two sweeps are five hours apart and the budget day rolls at 10:00Z, so
+    when the ages were measured from `now` the older one fell into *yesterday*
+    for any seed run between 10:00Z and 15:00Z. The demo panel then showed
+    6 of 16 credits spent beside two sweeps' worth of odds -- the contradiction
+    the spend rows exist to prevent -- and
+    `test_it_reports_the_remaining_budget_in_sweeps` went red for five hours a
+    day. It was found by a suite run at 13:34Z after a dozen runs outside the
+    window; CI had been passing on the hour it happened to be scheduled.
+
+    Parameterised across the whole clock rather than spot-checked, because the
+    defect is *only* visible in a five-hour band and a single sample is a coin
+    flip about which side of it you land on.
+    """
+
+    @pytest.mark.parametrize("hour", range(24))
+    def test_spent_today_is_both_sweeps_at_every_hour(self, tmp_path, hour):
+        from datetime import datetime, timedelta, timezone
+
+        from backend.odds.budget import CreditBudget
+
+        when = datetime(2026, 8, 8, tzinfo=timezone.utc) + timedelta(
+            hours=hour, minutes=30
+        )
+        path = tmp_path / f"h{hour}.db"
+        counts = seed_all(path, now_ms=int(when.timestamp() * 1000))
+
+        conn = db.open_db(path, read_only=True)
+        try:
+            spent = CreditBudget(conn, 16).state(int(when.timestamp() * 1000))
+        finally:
+            conn.close()
+
+        assert spent.spent_today == 6 * counts["odds_sweeps"], (
+            f"seeded at {hour:02d}:30Z, {counts['odds_sweeps']} sweeps recorded "
+            f"but only {spent.spent_today} credits fall inside the budget day"
+        )
