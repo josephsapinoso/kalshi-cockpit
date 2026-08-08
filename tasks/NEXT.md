@@ -1,5 +1,57 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-07, end of session)
+
+**State:** live is recording AND scoring. Fly trial cap lifted (card added), loop
+reached pass 2, `clv_scored: 8` — the first CLV observations in the project's
+history. 846 tests, `dbt build` 11 nodes green. 34 of 41 audit items closed
+(status and the open six are in `tasks/audit-2026-08-07.md`).
+
+  demo  https://kalshi-cockpit-demo.fly.dev   (public, no credentials)
+  live  https://kalshi-cockpit.fly.dev        (login: APP_AUTH_TOKEN)
+
+### Pick these up first
+
+1. **The odds sweeps fire at the wrong time of day.** `MAX_ODDS_AGE_S = 900`, so
+   a pick is actionable for only **15 minutes** after a sweep. The free tier
+   affords ~2 sweeps/day, so the whole system is actionable for ~30 minutes a
+   day — and nothing chooses *when*. `plan_sweep` picks which SPORT by soonest
+   kickoff, but the sweep fires on the first pass with budget available, and
+   budget resets at UTC midnight. Today's went at 19:32Z because that is when a
+   deploy happened.
+   **They should fire close to kickoff**, when lines are sharpest and the
+   15-minute window overlaps with when a human would actually bet. This is the
+   single biggest lever on whether the Board is ever useful.
+
+2. **Surface the window on the Board.** The user cannot currently tell when a
+   pick is live. Needs: when the last sweep ran, when the next is due, and
+   whether the 15-minute window is open right now. Without it the Board is
+   either empty or showing rows nobody can act on, with no way to tell which.
+
+3. **Wire up Discord.** `backend/notify/discord.py` is imported by NOTHING —
+   verified by grep; the only hits are the word "discordant" in `backtest.py`.
+   The user expects alerts for: a surfaced opportunity, how past picks scored,
+   and "the window is open now". Third instance of the code-with-no-caller
+   pattern (after `score_recommendations` and the agent fleet), so check
+   `DiscordNotifier`'s tests actually exercise a call path before trusting them.
+
+4. **Check the scored ratio.** Tonight: `rows_joined: 56, scored: 8,
+   skipped_entry_after_close: 48`. 86% unscoreable because today's many
+   redeploys wrote rows after the 1h closing line was observed. In steady state
+   most rows should precede T-1h. **If it is still ~86% after a full day, the
+   scored sample skews early and 300 games takes far longer than three weeks.**
+
+### Still waiting on the user (both pre-authorised)
+
+- **Fee-calibration trades** — four minimum-size orders at ~10c/30c/50c/80c in
+  the Kalshi app. Clears a gate condition and retires the conservative fee hedge
+  that suppresses essentially every longshot.
+- **One combo price lookup** — `POST .../lookup`, no money, yields a measured
+  same-game correlation.
+
+---
+
+
 Tick these off as you go. `tasks/todo.md` is the build log; this is the
 actionable list.
 
