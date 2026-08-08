@@ -63,8 +63,22 @@ class TestConfig:
 
 
 class TestSharedCall:
-    async def test_house_context_is_cached_separately(self):
-        """So a per-agent prompt change does not invalidate the shared prefix."""
+    async def test_the_cache_breakpoint_is_on_the_last_system_block(self):
+        """It was on the shared block, and cached nothing.
+
+        The intent was sound -- cache the house context once, so a per-agent
+        prompt change cannot invalidate it for the other two. The effect was
+        zero: `HOUSE_CONTEXT` is 401 tokens and Claude Opus 5 will not cache a
+        prefix under 512, so the breakpoint produced no entry, no error and no
+        warning. A cache that does not fire is indistinguishable from one that
+        does, unless you go and count.
+
+        On the last block the prefix is 738-985 tokens depending on the agent.
+        Re-measure with `scripts/measure_agent_cache_prefix.py` if either the
+        prompts or the model change -- the minimum is model-specific and is
+        **not** monotonic across releases (512 on Claude Opus 5, 4096 on
+        Opus 4.6).
+        """
         client = StubClient(StubResponse(parsed=None))
         await structured_call(
             client, model="m", system="agent specific",
@@ -72,8 +86,15 @@ class TestSharedCall:
         )
         system = client.messages.last_kwargs["system"]
         assert system[0]["text"] == HOUSE_CONTEXT
-        assert system[0]["cache_control"] == {"type": "ephemeral"}
-        assert "cache_control" not in system[1]
+        assert "cache_control" not in system[0], (
+            "the breakpoint is back on the shared block, where the prefix is "
+            "too short to cache"
+        )
+        assert system[-1]["cache_control"] == {"type": "ephemeral"}
+        # The whole point is that the cached prefix includes the per-agent
+        # half, so a breakpoint on a block that is not last would shrink it
+        # again without moving.
+        assert system[-1]["text"] == "agent specific"
 
     async def test_an_api_failure_returns_none_rather_than_raising(self):
         client = StubClient(raises=RuntimeError("down"))

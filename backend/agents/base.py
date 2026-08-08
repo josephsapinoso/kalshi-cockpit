@@ -66,9 +66,23 @@ class AgentConfig:
                    or DEFAULT_MODEL)
 
 
-# Shared across all three agents and marked for caching. Kept byte-stable: any
-# change invalidates the cached prefix for every agent, and the savings on a
-# repeated system prompt are the whole reason to cache.
+# Shared across all three agents. Kept byte-stable, because a change here
+# invalidates the cached prefix for every agent.
+#
+# **It is not the cache breakpoint, and putting one here cached nothing.**
+# Measured 2026-08-08 with `messages.count_tokens` against `claude-opus-5`
+# (`scripts/measure_agent_cache_prefix.py`):
+#
+#     HOUSE_CONTEXT alone        401 tokens
+#     house + skeptic system     985
+#     house + scout system       738
+#     house + historian system   876
+#     minimum cacheable prefix   512     <- Claude Opus 5
+#
+# A prefix under the minimum does not cache and does not complain: no error,
+# no warning, `cache_creation_input_tokens: 0`. The breakpoint sat on this
+# block behind a comment calling the savings "the whole reason to cache", and
+# there were none. See `structured_call` for where it went instead.
 HOUSE_CONTEXT = """\
 You are part of a tool that prices Kalshi sports markets against devigged \
 sportsbook consensus. Some context that governs how you should reason:
@@ -119,20 +133,27 @@ async def structured_call(
     a None verdict as "no opinion", which for the Skeptic means the suppression
     layer's own deterministic checks stand alone — as they always do anyway.
 
-    The system prompt is sent as two blocks with a cache breakpoint after the
-    shared house context, so the per-agent half can change without invalidating
-    the common prefix.
+    **The cache breakpoint is on the last system block, not the shared one.**
+    The shared house context is 401 tokens and the minimum cacheable prefix is
+    512, so a breakpoint after it cached nothing at all — silently, which is
+    the only way a cache can fail. On the last block the cached prefix is
+    738–985 tokens depending on the agent, which is over the line.
+
+    The cost is one cache entry per agent instead of one shared across three.
+    That is a real loss and it is smaller than it looks: an agent runs many
+    times in a row on a slate, so the reuse that matters is an agent against
+    itself — and the alternative on offer was no cache at all.
     """
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
         "system": [
+            {"type": "text", "text": HOUSE_CONTEXT},
             {
                 "type": "text",
-                "text": HOUSE_CONTEXT,
+                "text": system,
                 "cache_control": {"type": "ephemeral"},
             },
-            {"type": "text", "text": system},
         ],
         "messages": [{"role": "user", "content": user_content}],
         "output_format": output_model,
