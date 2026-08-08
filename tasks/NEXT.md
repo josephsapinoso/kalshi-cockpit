@@ -1,45 +1,88 @@
 # Next — your checklist
 
-## HANDOFF (2026-08-07, end of session)
+## HANDOFF (2026-08-08, end of session)
 
-**State:** live is recording AND scoring. Fly trial cap lifted (card added), loop
-reached pass 2, `clv_scored: 8` — the first CLV observations in the project's
-history. 846 tests, `dbt build` 11 nodes green. 34 of 41 audit items closed
-(status and the open six are in `tasks/audit-2026-08-07.md`).
+**State:** 935 tests, `dbt build` 11 nodes green. The four items from the last
+handoff are done — sweep timing, the window on the Board, Discord wiring, and
+the scored-ratio investigation, which turned up a defect rather than a
+transient. **Not yet deployed:** everything below is on `main` locally and the
+live instance is still running the previous image.
 
   demo  https://kalshi-cockpit-demo.fly.dev   (public, no credentials)
   live  https://kalshi-cockpit.fly.dev        (login: APP_AUTH_TOKEN)
 
-### Pick these up first
+### Pick this up first — the window is 30 seconds, not 15 minutes
 
-1. **The odds sweeps fire at the wrong time of day.** `MAX_ODDS_AGE_S = 900`, so
-   a pick is actionable for only **15 minutes** after a sweep. The free tier
-   affords ~2 sweeps/day, so the whole system is actionable for ~30 minutes a
-   day — and nothing chooses *when*. `plan_sweep` picks which SPORT by soonest
-   kickoff, but the sweep fires on the first pass with budget available, and
-   budget resets at UTC midnight. Today's went at 19:32Z because that is when a
-   deploy happened.
-   **They should fire close to kickoff**, when lines are sharpest and the
-   15-minute window overlaps with when a human would actually bet. This is the
-   single biggest lever on whether the Board is ever useful.
+The premise of the last handoff was wrong and the fix exposed it. **Two limits
+bound the actionable window and the tighter one decides it:**
 
-2. **Surface the window on the Board.** The user cannot currently tell when a
-   pick is live. Needs: when the last sweep ran, when the next is due, and
-   whether the 15-minute window is open right now. Without it the Board is
-   either empty or showing rows nobody can act on, with no way to tell which.
+    MAX_ODDS_AGE_S         900   the sportsbook consensus
+    MAX_KALSHI_QUOTE_AGE_S  30   the price you would actually pay
+    loop interval          900   how often a row is written
 
-3. **Wire up Discord.** `backend/notify/discord.py` is imported by NOTHING —
-   verified by grep; the only hits are the word "discordant" in `backtest.py`.
-   The user expects alerts for: a surfaced opportunity, how past picks scored,
-   and "the window is open now". Third instance of the code-with-no-caller
-   pattern (after `score_recommendations` and the agent fleet), so check
-   `DiscordNotifier`'s tests actually exercise a call path before trusting them.
+A row is bettable for **thirty seconds after each pass**, then the server
+refuses it. Two sweeps a day, so the tool is actionable for about a minute a
+day, not half an hour. Every document in this repo said fifteen minutes,
+including this one. The Board now states it rather than hiding it — expired rows
+are struck through and labelled — but stating a problem is not fixing it.
 
-4. **Check the scored ratio.** Tonight: `rows_joined: 56, scored: 8,
-   skipped_entry_after_close: 48`. 86% unscoreable because today's many
-   redeploys wrote rows after the 1h closing line was observed. In steady state
-   most rows should precede T-1h. **If it is still ~86% after a full day, the
-   scored sample skews early and 300 games takes far longer than three weeks.**
+Three candidate fixes, cheapest first. They compose; the first two together are
+probably enough.
+
+1. **Poll Kalshi fast while the window is open.** Kalshi REST is unmetered — the
+   15-minute interval exists for the odds budget alone. A short pass (Kalshi
+   quotes + re-price only, no sweep) every ~20s during the ~15 minutes after a
+   sweep would cost nothing and keep a row inside its 30s limit for the whole
+   window. `run_ingest_pass` already separates the odds leg, so this is mostly
+   scheduler work.
+2. **An unchanged row goes stale even though the market has not moved.**
+   `persist_if_changed` deliberately does not rewrite a row whose ask and fair
+   are unchanged — correct for the record, wrong for freshness, because
+   `recommendation_freshness` measures from `created_ms`. A `last_confirmed_ms`
+   column, updated on every pass that re-derives the same numbers, separates
+   "this observation is old" from "this price is old". Needs a schema column and
+   a change in `gate.recommendation_freshness`; the record semantics do not
+   change.
+3. **Refresh the quote at order time.** The real fix for execution, and the
+   biggest: the ticket sheet reads a live Kalshi quote before confirming. Also
+   closes the "the price moved between recording and ordering" gap that (2)
+   leaves open.
+
+Do not raise `MAX_KALSHI_QUOTE_AGE_S`. 30s is the correct number for a venue
+quoted by sub-200ms market makers; the poll rate is what is wrong.
+
+### Then
+
+- **Deploy.** Nothing in this session has run on the live instance. The demo
+  entrypoint now passes `--anchor-now`, the live one is unchanged. Run the
+  `Deploy` workflow for both instances and re-check `/api/window` on live.
+- **Set the Discord secrets.** `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` as
+  Fly secrets on the live app. The loop logs a warning and runs without them,
+  so nothing breaks — but nothing reaches a phone either, which is the whole
+  point of the window alert.
+- **Re-read the scored ratio after a full 24-hour cycle.** Count cumulative
+  `clv_scored`, not the per-pass ratio: closing lines only exist for games that
+  have already started, so early in a run every joined row is a late one. Half
+  the record has 17–24h of lead time and cannot be scored until its games reach
+  T−1h.
+
+### What changed this session
+
+- `backend/odds/timing.py` — clusters the day's kickoffs, scores each cluster by
+  games covered, and fires a sweep only in a 30-minute window before one.
+  Anchored on the **sportsbook's** kickoff; Kalshi's runs 3h late. Budget day
+  rolls at 10:00Z, not UTC midnight. `plan_sweep` deleted, not left beside it.
+- `/api/window` + `WindowBanner` — open/closed, time left, next sweep and why,
+  credits left. Same planner as the runner, not a second implementation.
+- `/api/board` splits `surfaced` from `expired`, recomputing both ages with the
+  arithmetic the order endpoint uses.
+- `backend/notify/alerts.py` — the caller `discord.py` never had. Dedupe lives
+  in a `notifications` table so a restart cannot re-announce the slate.
+- `runner` drops fixtures whose game has started. 36 of 104 rows on a live pass
+  were in-play, with edges spanning −200 to +68 tenths against −39 to −18 for
+  the pre-game rows on the same slate.
+- `tests/test_has_callers.py` — the orphaned-code grep from `lessons.md`, run by
+  CI and parsed with `ast` rather than matched as text.
 
 ### Running this in parallel
 
@@ -48,6 +91,12 @@ lanes, the three integrator-only documents, and the shared state that no VCS
 will protect — the odds budget (~16 credits/day, 6 a sweep), deploys, `data/`,
 and the live instance. Workers use `Agent(isolation: "worktree")` and write
 findings to `tasks/inbox/<lane>.md`.
+
+**One addition, learned the hard way:** running `scripts/run_loop.py` locally
+spends from the same monthly odds quota as the live instance, and neither
+instance's `api_credits` table can see the other's. One local smoke test cost 6
+of ~500 monthly credits. Reconciliation against `x-requests-remaining` catches
+the drift after the fact; nothing prevents it.
 
 ### Still waiting on the user (both pre-authorised)
 
@@ -319,8 +368,18 @@ decision.
 - [ ] **Wire up the agent fleet.** `backend/agents/*` is imported by nothing —
       `skeptic.apply_verdict` is never called from the engine or the API. ~40
       green tests imply a safety layer that can't block anything.
+      `tests/test_has_callers.py` now asserts this is *still* true, so wiring it
+      up turns that test red and points at the list the entry should join.
 
 ~30 more findings are triaged in `tasks/audit-2026-08-07.md`.
+
+- [x] ~~**The odds sweeps fire at the wrong time of day**~~ — **done 2026-08-08.**
+      `backend/odds/timing.py`. See the handoff at the top of this file.
+- [x] ~~**Surface the window on the Board**~~ — **done 2026-08-08.** And it
+      immediately contradicted the page under it, which is how the 30-second
+      window was found.
+- [x] ~~**Wire up Discord**~~ — **done 2026-08-08.** `backend/notify/alerts.py`
+      is the caller. Secrets still need setting on the live app.
 
 ---
 

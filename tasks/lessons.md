@@ -950,6 +950,27 @@ Two further notes worth keeping:
   a silent lie the day Kalshi fixes it. The skew is recorded on every link
   instead, so it stays visible as data and a change in it is detectable.
 
+**Recurred 2026-08-07, on the quantity the whole tool is built around.** The
+actionable window is bounded twice: `MAX_ODDS_AGE_S = 900` and
+`MAX_KALSHI_QUOTE_AGE_S = 30`. The recorder polls every 900s. So a row is
+bettable for **thirty seconds after each pass**, not fifteen minutes — the tool
+is actionable for about a minute a day, not half an hour, and every document in
+the repo (this file included) said fifteen minutes.
+
+Neither number is wrong on its own. 30s is right for a venue quoting under
+200ms; 900s is right for a sportsbook consensus; 900s is right for a free tier
+of 500 credits a month. Three defensible numbers, and the product of them is a
+tool nobody can use. Nothing computed that product, because no module holds more
+than one of the three.
+
+**The generalisation worth carrying:** when a system has several independent
+freshness or rate limits, write down the *composition* — the actual window a
+user gets — as a number, somewhere a test can read it. Each limit will look
+reasonable to whoever reviews it, and the composed value is the one that decides
+whether the thing works at all. It is the same failure as a threshold set below
+a systematic offset, one level up: not one limit that is an off switch, but
+several that multiply into one.
+
 ---
 
 ## 2026-08-07 — A captured fixture that no test loads is decoration
@@ -1189,3 +1210,150 @@ other direction — a cell that *should* speak must not be silenced, because a
 guard that hides everything is not a guard, it is a broken dashboard. Both
 guards were verified by re-introducing the leak and watching them fail.
 Related: [[four-audits-one-failure-shape]].
+
+---
+
+## 2026-08-07 — A budget that says *whether* and never *when*
+
+`plan_sweep` decided which sport to poll and whether the credits were there. It
+never decided **when**, so the two odds sweeps the free tier affords fired on
+the first pass that had budget after the day rolled over. On 2026-08-07 that was
+19:32Z, because a deploy happened at 19:32Z. Nothing chose it, and nothing in
+the module was wrong.
+
+The cost is invisible from inside it. `MAX_ODDS_AGE_S` is 900, so each sweep
+makes the slate bettable for fifteen minutes; two a day is half an hour of
+actionability out of twenty-four, and the code spending them had no opinion
+about where that half hour landed. Every stage count looked healthy. The only
+symptom was a Board nobody could ever act on.
+
+**How to apply:** a rate limiter is not a scheduler. Whenever a resource is
+scarce *and* what it buys is perishable, the allocation question has two halves,
+and the second is usually the one left undone — ask what the resource is worth
+at 03:00 versus at kickoff, and if the answer differs, something has to choose.
+Two related traps found while fixing it:
+
+- **The day boundary should follow the thing being metered, not the calendar.**
+  UTC midnight is 5pm PT, the middle of the US evening slate, so a calendar day
+  put the first half of one night's games in one budget bucket and the second
+  half in the next. The month boundary stays on the calendar because that one
+  belongs to the vendor and reconciliation depends on agreeing with them.
+- **A schedule needs no stored state if it can be recomputed.** Which slots have
+  been served is read back from the spend table, so a restart mid-window cannot
+  double-spend and cannot forget. Anything a scheduler holds in process memory
+  is state a crash loop will get wrong.
+
+Related: [[two-limits-on-one-quantity]] — the due window and the loop interval
+bound the same quantity, and a slot due for thirty minutes on a loop that wakes
+every forty is stepped over every day. That check now runs at startup and
+refuses, because the interval is a command-line argument and no test can see it.
+
+---
+
+## 2026-08-07 — A stored age rendered as a current one
+
+`recommendations` stores `kalshi_quote_age_ms` as the age **at the moment the
+row was written**. `/api/board` ordered by `suggested_contracts` across every
+row ever recorded, with no clock anywhere in the query, and rendered each with
+its stored age. So the best row an instance ever produced sat at the top of the
+Board forever, reading `quote 3s ago` and `Buy 15 · $7.54`, three hours after
+the quote behind it was gone.
+
+**The knowledge was already in the codebase, one function away.**
+`gate.recommendation_freshness` exists precisely for this, and its docstring
+spells the trap out: *"a recommendation made yesterday against a 3-second-old
+quote still says 3 seconds, and the freshness gate would wave through a day-old
+price."* The order endpoint used it. The screen did not, and nothing connected
+them.
+
+No money was reachable — the control recomputes and refuses. What was reachable
+was the reader, in front of a page offering a bet the server would not sell.
+
+**How to apply:** an age is not a property of a row, it is a property of a row
+*and a clock*. Any column named `*_age_*` measures a past instant and must be
+re-derived before being shown as the present. Where both forms are useful, give
+them different names and let each screen bind the one it means — the Ledger
+wants the recorded age, because there it is a historical fact about the
+observation; the Board wants the current one. One field name meaning "then" on
+one screen and "now" on another is how two screens come to disagree.
+
+Same shape as [[an-idle-threadpool-hides-every-thread-safety-bug]]: a comment
+explaining one instance of a hazard is evidence the hazard is understood, not
+evidence it has been handled everywhere. Grep for the *other* places that need
+the knowledge, not just the one that has it.
+
+---
+
+## 2026-08-07 — Two populations in one record, told apart by dispersion
+
+The runner priced any linked fixture with stored odds. Measured on one live
+pass, **36 of 104 recorded rows were for games that had already started**:
+
+    population   n    edge range (tenths)     suppressed
+    pre-game     68   -39.2 ..  -17.7          5
+    in-play      36   -200.3 ..  +67.7        14
+
+The pre-game rows are a tight, entirely negative band — which is what a
+correctly-priced market against a devigged consensus looks like. The in-play
+rows are five times as wide and cross zero by 6.8c, three times the suspicious
+edge ceiling. Nothing was miscomputed: a stored *pre-game* consensus was being
+subtracted from a Kalshi price that had absorbed two innings, so the "edge" was
+two different questions differenced.
+
+Fourteen were caught by `wide_market` or `suspicious_edge` — defence in depth
+doing its job by accident. The other **twenty-two passed with no suppression
+reason at all** and entered the evidence record indistinguishable from ordinary
+no-edge observations. That is the half that matters: the guards caught the loud
+ones and let the quiet ones through, which is the worst possible split.
+
+**How to apply:** before pooling rows into a record, ask what question each row
+answers, not only whether each row is valid. Two populations answering different
+questions usually announce themselves in the *spread* rather than the mean — a
+range five times wider is a population boundary, not noise. And when one
+population can never become evidence (these can never be CLV-scored at any
+horizon, because the closing line is read before kickoff and these are written
+after it), drop it with a counter rather than suppressing it: a suppression log
+entry says "we considered this and rejected it", and we should not have been
+considering it.
+
+The rule generalises to which clock: the refusal reads the **sportsbook's**
+kickoff, never Kalshi's, which runs three hours late and would call the seventh
+inning "not started". The existing test fixture copied the sportsbook's time
+onto the Kalshi event so the linker had something clean to match — which meant
+every test in the file passed with the wrong clock. A fixture that erases a
+distinction cannot test code that depends on it.
+
+Related: [[two-limits-on-one-quantity]], [[every-per-cell-guard-can-pass]].
+
+---
+
+## 2026-08-07 — A detector that counts prose about the bug as evidence against it
+
+This file already carried the cheap detector for orphaned code:
+
+    grep -rn "score_recommendations" --include=*.py .
+    # if every hit is tests/ or a seeder, the feature does not exist yet
+
+Written up as a test, that grep reported `persist_recommendation` as *called
+from* `backend/runner.py`. The only occurrence in that file is a docstring
+explaining that nothing calls it. It reported `score_recommendations` as called
+from `notify/alerts.py`, where the mention sits in a paragraph about how it went
+uncalled for the project's entire life.
+
+So the detector for orphaned code was satisfied by *writing about* orphaned
+code — and it reads as a passing check, which is worse than no check, because
+now nobody looks.
+
+**How to apply:** when a check searches source for a symbol, parse instead of
+matching. `ast.walk` over `Name`, `Attribute` and `alias` nodes ignores strings
+and comments entirely. This matters more here than in most repos: the discipline
+of documenting past defects in prose means the more carefully the lessons are
+written, the more false hits a textual detector gets. Rule of thumb — if a
+project's comments mention a symbol about as often as its code does, any
+grep-based rule about that symbol is measuring the comments.
+
+Verify it the usual way, and pick the case that separates the two
+implementations: orphan the module *for real* — import removed, call removed, a
+comment mentioning the name left behind — which is the exact shape of the bug
+being detected. Related: [[code-with-no-caller-is-not-a-feature]],
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
