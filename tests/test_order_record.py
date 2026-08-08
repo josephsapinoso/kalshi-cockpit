@@ -58,7 +58,7 @@ from .test_quote_refresh import (
     FakeQuotes,
     _live_pick,
     _market,
-    armed_db,        # noqa: F401  -- a fixture, used by name
+    build_armed_db,
 )
 
 WHOLE_CENT = parse_price_grid(
@@ -77,6 +77,18 @@ def _order(ticker="T", *, side="yes", price_tenths=500, count=10, rec_id=None):
         price_grid=WHOLE_CENT,
         recommendation_id=rec_id,
     )
+
+
+@pytest.fixture
+def armed_db(tmp_path):
+    """The gate-satisfying record from the quote-refresh suite.
+
+    Built rather than imported. Re-exporting the fixture itself puts the name
+    in this module's namespace, where every test signature that takes
+    `armed_db` then shadows it -- which reads as a redefinition because it is
+    one, and would leave a stale import here the day that fixture is renamed.
+    """
+    return build_armed_db(tmp_path)
 
 
 @pytest.fixture

@@ -363,6 +363,17 @@ FRESH = StalenessConfig(max_odds_age_s=900, max_kalshi_quote_age_s=30)
 
 @pytest.fixture
 def armed_db(tmp_path):
+    """The fixture. Building it is `build_armed_db`, which is the reusable half.
+
+    Split so a second test module can build the same record without importing
+    this fixture by name -- a re-exported fixture shadows itself in every test
+    signature that takes it, which is a real redefinition and not just a lint
+    complaint about one.
+    """
+    return build_armed_db(tmp_path)
+
+
+def build_armed_db(tmp_path):
     """A record that satisfies every standing gate condition, plus one live pick.
 
     400 distinct games with a consistent +2c CLV so the always-valid bound is
