@@ -2,11 +2,27 @@
 
 ## HANDOFF (2026-08-08, end of session)
 
-**State:** 935 tests, `dbt build` 11 nodes green. The four items from the last
-handoff are done — sweep timing, the window on the Board, Discord wiring, and
-the scored-ratio investigation, which turned up a defect rather than a
-transient. **Not yet deployed:** everything below is on `main` locally and the
-live instance is still running the previous image.
+**State:** 935 tests, `dbt build` 11 nodes green, **both instances deployed and
+verified**. The four items from the last handoff are done — sweep timing, the
+window on the Board, Discord wiring, and the scored-ratio investigation, which
+turned up a defect rather than a transient.
+
+First live pass on the new image:
+
+    dropped_game_started: 9          the in-play guard firing on real data
+    clv_scored: 34                   up from 8 at the start of the session
+    sweep decision: no sweep -- 24 of 16 credits spent since 10:00Z
+
+The odds budget for today was already spent by the old scheduler (plus 6 on a
+local smoke test), so **the first sweep the new timing chooses will be after
+10:00Z on the 8th.** That is the thing to look at first: whether it lands
+20–45 minutes before a cluster of kickoffs rather than wherever the process
+restarted.
+
+`clv_scored` answers the last handoff's item 4. The 100%-unscoreable reading was
+a transient: closing lines only exist for games that have started, so early in a
+run every joined row is a late one. 34 rows are now scored and the count is
+climbing.
 
   demo  https://kalshi-cockpit-demo.fly.dev   (public, no credentials)
   live  https://kalshi-cockpit.fly.dev        (login: APP_AUTH_TOKEN)
@@ -53,18 +69,17 @@ quoted by sub-200ms market makers; the poll rate is what is wrong.
 
 ### Then
 
-- **Deploy.** Nothing in this session has run on the live instance. The demo
-  entrypoint now passes `--anchor-now`, the live one is unchanged. Run the
-  `Deploy` workflow for both instances and re-check `/api/window` on live.
 - **Set the Discord secrets.** `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` as
   Fly secrets on the live app. The loop logs a warning and runs without them,
   so nothing breaks — but nothing reaches a phone either, which is the whole
   point of the window alert.
-- **Re-read the scored ratio after a full 24-hour cycle.** Count cumulative
-  `clv_scored`, not the per-pass ratio: closing lines only exist for games that
-  have already started, so early in a run every joined row is a late one. Half
-  the record has 17–24h of lead time and cannot be scored until its games reach
-  T−1h.
+- **Watch the first scheduled sweep**, some time after 10:00Z on the 8th. The
+  log line to look for is `sweep decision: <sport> (scheduled): N game(s) from
+  HH:MMZ, sweeping 45-15 min before first kickoff`. A `bootstrap` trigger there
+  would mean no sportsbook fixtures were stored, which is a different problem.
+- **Decide what to do with the in-play rows already in the live record.** They
+  cannot be scored and they inflate the Ledger and the suppression summary.
+  Deleting rows from the live evidence database is your call, not mine.
 
 ### What changed this session
 
