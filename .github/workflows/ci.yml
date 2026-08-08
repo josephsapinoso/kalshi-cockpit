@@ -109,22 +109,35 @@ jobs:
             fail=1
           fi
 
-          # Key *material*, not the words for it. Two shapes, and between them
+          # Key *material*, not the words for it. Three shapes, and between them
           # they cover how a key actually arrives in a commit:
           #
           #   own_line  a PEM header alone on its line -- a key pasted verbatim
           #             into any file, at any indentation.
           #   inline    a PEM header followed immediately by a base64 body --
           #             the .env / JSON single-line escaped form.
+          #   quoted    a quote character immediately followed by a header that
+          #             then ends the line -- `KEY = """-----BEGIN ...`, a key
+          #             pasted straight after an opening string delimiter.
           #
-          # Neither matches a header quoted inside source with nothing after
-          # it, which is what the two legitimate files contain. There is no
-          # path exclusion any more: the old `:!*.yml` was there only to stop
-          # this workflow matching itself, and it made a key pasted into
+          # None of them matches a header *mentioned* in source or prose, which
+          # is what the two legitimate files contain. There is no path exclusion
+          # any more: the old `:!*.yml` was there only to stop this workflow
+          # matching itself, and it made a key pasted into
           # `warehouse/profiles.yml` -- a file that exists to hold a connection
           # -- unscannable.
+          #
+          # `quoted` exists because narrowing from a phrase match to a material
+          # match lost a case the broken pattern used to catch. `own_line`
+          # requires the header to start its line, so a key pasted after an
+          # opening triple-quote was invisible to both other patterns, and the
+          # body line below it is bare base64 that nothing here matches. The
+          # distinguishing feature is the quote *immediately* before the header:
+          # prose says "must start with -----BEGIN RSA PRIVATE KEY-----" with a
+          # space there, and stays clean.
           own_line='^[[:space:]]*-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[[:space:]]*$'
           inline='-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[^A-Za-z0-9+/]{0,4}[A-Za-z0-9+/]{40,}'
+          quoted='["'"'"'`]-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[[:space:]"'"'"'`]*$'
 
           # The patterns are exercised against known answers before they are
           # trusted against the tree. A regex that has quietly stopped matching
@@ -138,8 +151,12 @@ jobs:
             "$body" > "$tmp/pasted"
           printf -- 'KALSHI_PRIVATE_KEY="-----BEGIN EC PRIVATE KEY-----\\n%s"\n' \
             "$body" > "$tmp/escaped"
+          printf -- 'KEY = """-----BEGIN RSA PRIVATE KEY-----\n%s\n' \
+            "$body" > "$tmp/after_quote"
           printf -- 'if grep -q -- "-----BEGIN OPENSSH PRIVATE KEY-----" "$f"; then\n' \
             > "$tmp/mentioned"
+          printf -- 'The file must start with -----BEGIN RSA PRIVATE KEY-----\n' \
+            > "$tmp/prose"
 
           # `-e` throughout, never a bare pattern: `$inline` begins with `---`
           # and grep reads that as options. The canary found this on the first
@@ -154,15 +171,37 @@ jobs:
             echo "::error::This step cannot detect anything. Fix it before merging."
             fail=1
           fi
-          if grep -qE -e "$own_line" -e "$inline" "$tmp/mentioned"; then
-            echo "::error::the patterns match a header quoted in source again."
-            echo "::error::That is the false positive that made this step red on"
-            echo "::error::36 consecutive pushes. Match the material, not the phrase."
+          if ! grep -qE -e "$quoted" "$tmp/after_quote"; then
+            echo "::error::a key pasted after an opening quote is not matched."
+            echo "::error::This is the case the phrase-matching pattern used to"
+            echo "::error::catch, and it is how a key reaches a source file."
             fail=1
           fi
+          for clean in mentioned prose; do
+            if grep -qE -e "$own_line" -e "$inline" -e "$quoted" "$tmp/$clean"; then
+              echo "::error::the patterns match a header named in $clean again."
+              echo "::error::That is the false positive that made this step red on"
+              echo "::error::36 consecutive pushes. Match the material, not the phrase."
+              fail=1
+            fi
+          done
           rm -rf "$tmp"
 
-          if git grep -nE -e "$own_line" -e "$inline"; then
+          # The exclusions are tested against the real files, not only against
+          # synthetic ones. These two exist *because* of key hygiene -- one
+          # validates a decoded key's format, one proves the redactor strips a
+          # PEM block -- so they are the exact shape this step must not fire on,
+          # and asserting it here means a future widening of the patterns fails
+          # loudly instead of turning CI red again.
+          for legit in docker/entrypoint.sh tests/test_logging_redaction.py; do
+            if grep -qE -e "$own_line" -e "$inline" -e "$quoted" "$legit"; then
+              echo "::error::$legit matches. It contains the words for a key, not"
+              echo "::error::a key. Narrow the patterns rather than excluding the file."
+              fail=1
+            fi
+          done
+
+          if git grep -nE -e "$own_line" -e "$inline" -e "$quoted"; then
             echo "::error::Private key material found in the working tree."
             echo "::error::If this key was ever real, ROTATE IT -- it is compromised."
             fail=1
