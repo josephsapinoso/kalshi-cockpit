@@ -462,10 +462,24 @@ logged, the loop retries, and health reports `is_running`.
   and the log has the reason.
 - The feed header on the Board: `LIVE`, `FEED DOWN`, `FEED SILENT`, `NO LIVE
   ROWS`. `NO LIVE ROWS` is the expected state for most of the day.
-- **The rewrite destination is read at Next's start, not at build**, and it
-  defaults to `127.0.0.1:8000`. Both processes share a host in the image, so
-  this is only a trap when running the halves on non-default ports locally — it
-  presents as "Backend unreachable" or a 500 on the stream.
+- ~~**The rewrite destination is read at Next's start, not at build**~~ —
+  **wrong, corrected 2026-08-08.** It is read at **build**. `next build`
+  evaluates `next.config.ts` and freezes the result into
+  `.next/routes-manifest.json`:
+  `"destination": "http://127.0.0.1:8000/api/:path*"`. Setting `API_ORIGIN` at
+  runtime does not move it.
+  **`API_ORIGIN` is read in two places at two different times**, which is the
+  part that bites: `next.config.ts` (build, the browser's `/api/*` proxy) and
+  `lib/api.ts` `BASE` (runtime, server-component fetches). Set it at runtime
+  and the two halves point at *different backends* — server components render
+  from one and the browser's POST goes to the other. Caught by exactly that:
+  a demo instance's ticket reported `401 Not authorised` while the demo
+  backend's own answer, one curl away, was `403 This is the demo instance`.
+  The image is correct by coincidence — the Dockerfile's runtime
+  `API_ORIGIN` is the same value as the build-time default, and both
+  processes share a host. The conclusion stands and the mechanism was wrong;
+  the danger is that the wrong mechanism suggests a fix that silently does
+  nothing. To point the proxy elsewhere you must **rebuild**.
 
 ---
 
@@ -1251,9 +1265,36 @@ decision.
       vs-market disagreements, steam moves.
 - [ ] **Playbook screen** — lessons, config versions, proposed changes awaiting
       your approval. The flywheel's UI.
-- [ ] **Ticket bottom sheet** on the Board — contracts, worst-case cost,
-      predicted fee, resulting exposure. The order path behind it is built and
-      gated.
+- [x] ~~**Ticket bottom sheet** on the Board~~ — **done 2026-08-08.**
+      `lane/frontend-wip` verified and merged. `TicketSheet.tsx`,
+      `TicketProvider.tsx`, and the ticket trigger on the Board's live and
+      expired cards; suppressed cards stay untappable, because a sheet with a
+      permanently dead Confirm would suggest the decision is reversible.
+      **It had never been rendered**, and no check in the repo could have
+      rendered it: it mounts on a tap, so `check_mobile.py` never sees it, and
+      it is `position: fixed`, so it cannot widen the `scrollWidth` that script
+      decides on. `scripts/check_ticket_sheet.py` is the replacement — it taps,
+      waits out the entrance animation, measures, presses Confirm, and measures
+      the answer.
+      **It fit 320/390/430 on the first render. The three defects were
+      behavioural**, which is the part worth remembering: focus escaped to
+      `<body>` the instant Confirm unmounted, so the trap opened exactly when
+      the answer appeared; the line under a disabled Confirm asked for the
+      token on rows whose consensus had aged out, where typing it changes
+      nothing; and Close was a 59x26 target on a sheet that argues from thumbs.
+      A fourth, same shape as the second: a 403 offered "Back" beside a
+      sentence saying retrying will not help.
+      Verified against three instances — live with a locked gate (**423, four
+      conditions**), an expired-row instance (Confirm off, and now for the
+      stated reason), and demo (**403**, the backend's own sentence verbatim).
+      `--fail-order` renders the offline answer, the only way to see the
+      two-button action bar at all; it fits 320 on one line each, which the
+      component's own comment had flagged as the risk.
+      **What it deliberately does not do:** no arithmetic on money, anywhere.
+      Every figure is the server's, rendered as it arrived, and where a number
+      is genuinely absent — the total before you confirm — it says so instead
+      of multiplying. `worst_case_cost_dollars` on the board row would let that
+      line be a number.
 - [ ] **README** — the portfolio piece. Architecture diagram, the OLTP→Parquet→
       DuckDB story, and an honest statement of what the tool does and does not
       establish.
