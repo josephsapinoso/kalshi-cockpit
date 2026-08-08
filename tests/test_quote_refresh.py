@@ -18,6 +18,7 @@ they assert the limit price, the size and the cost all move with the live ask.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 
@@ -806,7 +807,20 @@ class TestWhatTheRefreshDoesAndDoesNotMakeFresh:
         detail = response.json()["detail"]
         fresh = next(c for c in detail["conditions"] if c["name"] == "data_fresh")
         assert fresh["met"] is False
-        assert "odds 1800s old" in fresh["detail"]
+        # The age is re-derived from the clock at request time, so it is
+        # `1800 + however long the fixture took` -- 1800s locally and 1802s on
+        # a CI runner that spends two seconds building four hundred rows.
+        # Asserting the literal string made the test a measurement of machine
+        # speed. What the test actually claims is that the *odds* clock is the
+        # one that ran out, and by at least the margin it was set to.
+        aged = re.search(r"odds (\d+)s old \(limit (\d+)s\)", fresh["detail"])
+        assert aged, fresh["detail"]
+        odds_age_s, odds_limit_s = int(aged.group(1)), int(aged.group(2))
+        assert odds_age_s >= 1800, fresh["detail"]
+        assert odds_age_s > odds_limit_s, fresh["detail"]
+        # ...and that the Kalshi clock is not what refused it, which is the
+        # half of the fix this test exists to separate out.
+        assert "Kalshi quote 0s old" in fresh["detail"], fresh["detail"]
 
     async def test_the_board_surfaces_exactly_what_the_endpoint_accepts(
         self, armed_db
