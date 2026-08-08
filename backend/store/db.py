@@ -21,8 +21,27 @@ import time
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+
+# version -> the columns it adds, as (table, column, declaration).
+#
+# `schema.sql` is applied with `CREATE TABLE IF NOT EXISTS`, so it builds a new
+# database at the current version and does *nothing at all* to an existing one.
+# That is the right behaviour for a live volume and it means a column added to
+# the file is invisible to every database already on disk. This table is the
+# other half.
+#
+# v2 (2026-08-08): the confirmation columns on `recommendations`. Nullable by
+# necessity -- rows written before them carry NULL, and the readers fall back to
+# `created_ms`, which is exactly the pre-migration behaviour.
+_MIGRATIONS: dict[int, tuple[tuple[str, str, str], ...]] = {
+    2: (
+        ("recommendations", "last_confirmed_ms", "INTEGER"),
+        ("recommendations", "last_confirmed_quote_age_ms", "INTEGER"),
+        ("recommendations", "last_confirmed_odds_age_ms", "INTEGER"),
+    ),
+}
 
 
 def now_ms() -> int:
@@ -87,10 +106,55 @@ def connect(
     return conn
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def migrate(conn: sqlite3.Connection) -> list[int]:
+    """Bring an existing database up to `SCHEMA_VERSION`. Returns versions run.
+
+    Two guards, and they answer different questions, which is why there are two:
+
+    - **The recorded version decides which migrations run.** A database that
+      says v1 gets v2 and nothing else. This is the check that would refuse to
+      apply a v3 step to a v5 database rather than guessing.
+    - **Each step is individually idempotent.** `ALTER TABLE ADD COLUMN` raises
+      on a column that already exists, so a crash between the last `ALTER` and
+      the version bump would leave a database that can never be opened again.
+      The volume holding the live record cannot be re-created, so a
+      half-finished migration has to be resumable.
+
+    Returning to the version stamp only after every step succeeds is deliberate:
+    an interrupted migration stays at its old version and re-runs, rather than
+    claiming a version it does not have.
+    """
+    found = get_meta(conn, "schema_version")
+    if found is None:
+        # No stamp means `executescript` just built this database from the
+        # current `schema.sql`, so it is already at SCHEMA_VERSION. Running the
+        # migrations here would try to add columns the file already declared.
+        return []
+
+    applied: list[int] = []
+    for version in sorted(_MIGRATIONS):
+        if version <= int(found):
+            continue
+        for table, column, decl in _MIGRATIONS[version]:
+            if column in _columns(conn, table):
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        applied.append(version)
+
+    if applied:
+        conn.commit()
+    return applied
+
+
 def init_db(db_path: Path | str) -> sqlite3.Connection:
-    """Create or open the database, applying the schema idempotently."""
+    """Create or open the database, applying the schema and any migrations."""
     conn = connect(db_path)
     conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    migrate(conn)
     _set_meta(conn, "schema_version", str(SCHEMA_VERSION))
     conn.commit()
     return conn
@@ -117,7 +181,8 @@ def open_db(
             f"{db_path} is schema v{found}, this code expects v{SCHEMA_VERSION}. "
             "Column meanings may differ between versions (v1 of the previous "
             "project stored whole cents where v2 stored tenths). Migrate "
-            "explicitly rather than reading across versions."
+            f"explicitly rather than reading across versions:\n"
+            f"    python scripts/migrate_db.py --db {db_path}"
         )
     return conn
 

@@ -217,11 +217,19 @@ class DiscordNotifier:
         so if this does not reach a phone at the moment it happens, nobody is
         looking when it matters.
 
-        It reports **both** limits, because they are not the same number and the
-        tighter one decides everything: the books last `max_odds_age_s`, and
-        each individual row also needs a Kalshi quote under thirty seconds. An
-        alert quoting only the first would promise fifteen minutes of
-        actionability that does not exist.
+        It reports **both** limits, because they are not the same number and
+        they are kept fresh by different things: the books last
+        `max_odds_age_s` and can only be refreshed by spending a credit, while
+        each row also needs a Kalshi quote under thirty seconds -- which a quote
+        pass re-reads every fifteen seconds for as long as the window is open
+        (`runner.run_quote_pass`).
+
+        Both are still stated. The fifteen minutes is real *because* the fast
+        cadence exists, not on its own: with a single 900s cadence this alert
+        promised fifteen minutes of actionability and delivered thirty seconds.
+        An alert quoting only the odds limit would be right today and would go
+        back to lying the moment the quote pass stopped running, with nothing to
+        say it had.
         """
         if not self.config:
             return False

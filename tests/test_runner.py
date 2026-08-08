@@ -34,8 +34,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.config import RiskConfig
+from backend.config import RiskConfig, StalenessConfig
 from backend.core.suppression import SuppressionConfig
+from backend.gate import live_ages
 from backend.kalshi.discovery import discover_from_events
 from backend.odds.client import OddsQuote, store_quotes
 from backend.runner import (
@@ -521,10 +522,37 @@ class TestTheRecordDoesNotFillWithRepeats:
 
         assert first.recommendations == 4
         assert second.recommendations == 0, "an unchanged slate re-recorded itself"
-        assert second.unchanged_skipped == 4
+        assert second.unchanged_confirmed == 4
 
         stored = conn.execute("SELECT COUNT(*) n FROM recommendations").fetchone()
         assert stored["n"] == 4
+
+    def test_an_unchanged_row_is_confirmed_rather_than_left_to_rot(
+        self, conn, joined
+    ):
+        """Not re-recording it must not mean never looking at it again.
+
+        This is the half that was missing. The record was right -- one row per
+        distinct decision -- and every freshness check measured from
+        `created_ms`, so the row went stale on a market that had not moved. The
+        second pass has to leave a mark, or "unchanged" and "unobserved" are the
+        same state.
+        """
+        events, _ = joined
+        run_pricing_pass(conn, events, now=NOW)
+        run_pricing_pass(conn, events, now=NOW + 900_000)
+
+        rows = conn.execute(
+            "SELECT created_ms, last_confirmed_ms, last_confirmed_quote_age_ms, "
+            "last_confirmed_odds_age_ms FROM recommendations"
+        ).fetchall()
+        assert len(rows) == 4
+        for row in rows:
+            assert row["created_ms"] == NOW, "confirming must not rewrite history"
+            assert row["last_confirmed_ms"] == NOW + 900_000
+            # Both ages, never one. See `gate.live_ages`.
+            assert row["last_confirmed_quote_age_ms"] is not None
+            assert row["last_confirmed_odds_age_ms"] is not None
 
     def test_a_changed_price_is_recorded(self, conn, joined):
         """The guard must not be so eager that it swallows real movement."""
@@ -803,3 +831,118 @@ class TestAGameInProgressIsNotACandidate:
         counts = run_pricing_pass(conn, events, now=commence + 2 * 3_600_000)
         assert counts.dropped_game_started == 1
         assert counts.recommendations == 0
+
+
+class TestTheQuotePassKeepsARowBettable:
+    """The fast cadence: Kalshi only, no credit, and a row that stays fresh.
+
+    Two limits bound the actionable window and the tighter one decides it. The
+    sportsbook consensus is good for 900s; the Kalshi quote for 30s; the loop
+    wrote a row every 900s. So each row was bettable for **thirty seconds** and
+    the tool was actionable for about a minute a day -- against fifteen minutes
+    twice a day, which is what every document in this repo claimed. Kalshi REST
+    is unmetered, so the fix is to re-read it often enough to matter.
+    """
+
+    async def _quote_pass(self, conn, kalshi_events, odds_event, *, now):
+        from backend.runner import run_quote_pass
+
+        raw = aligned_kalshi_event(
+            _mlb_template(kalshi_events),
+            odds_event=odds_event,
+            kalshi_names=("Pittsburgh", "New York M"),
+        )
+        return await run_quote_pass(conn, FakeKalshi([raw]), now=now)
+
+    async def test_it_spends_no_odds_credit(self, conn, joined, kalshi_events):
+        """Structurally, not by policy: it is handed no odds client at all.
+
+        A pass that *could* sweep and decides not to is one config change away
+        from draining a day's credits in an hour at a 15-second cadence. This
+        one cannot, and `sweep_decision` says which kind of pass it was rather
+        than leaving the field blank -- a quote pass and a full pass that
+        declined to sweep need opposite responses.
+        """
+        _, odds_event = joined
+        counts = await self._quote_pass(
+            conn, kalshi_events, odds_event, now=NOW + 60_000
+        )
+
+        assert counts.odds_sweeps == 0
+        assert counts.odds_quotes_stored == 0
+        assert "quote refresh only" in counts.sweep_decision
+
+        spent = conn.execute("SELECT COUNT(*) n FROM api_credits").fetchone()
+        assert spent["n"] == 0
+
+    async def test_it_re_reads_kalshi_and_re_prices(self, conn, joined, kalshi_events):
+        _, odds_event = joined
+        before = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
+
+        counts = await self._quote_pass(
+            conn, kalshi_events, odds_event, now=NOW + 60_000
+        )
+
+        after = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
+        assert after > before, "a quote pass that stores no quote refreshes nothing"
+        assert counts.markets_quoted > 0
+        assert counts.events_linked == 1
+
+    async def test_a_row_survives_the_thirty_second_limit_across_quote_passes(
+        self, conn, joined, kalshi_events
+    ):
+        """**The claim the whole change exists to make**, end to end.
+
+        A row written at T, then quote-passed every 15s. At T+120s -- four times
+        past `MAX_KALSHI_QUOTE_AGE_S` -- it must still be inside the limit,
+        because the quote behind it was re-read 15 seconds ago and had not moved.
+        Before this, the same row read 120 seconds old and the order endpoint
+        refused it.
+        """
+        events, odds_event = joined
+        run_pricing_pass(conn, events, now=NOW)
+
+        for step in range(15_000, 120_001, 15_000):
+            await self._quote_pass(
+                conn, kalshi_events, odds_event, now=NOW + step
+            )
+
+        rows = conn.execute("SELECT * FROM recommendations").fetchall()
+        assert rows, "nothing was recorded"
+        limit_ms = StalenessConfig().max_kalshi_quote_age_s * 1000
+        for row in rows:
+            ages = live_ages(row, now_ms=NOW + 120_000)
+            assert ages.quote_age_ms <= limit_ms, (
+                f"{row['ticker']} {row['side']} reads "
+                f"{ages.quote_age_ms}ms old after quote passes"
+            )
+
+        # And the record did not grow: the point is that an unchanged decision
+        # is confirmed, not re-recorded. Eight passes over four candidates would
+        # otherwise be 32 rows saying one thing.
+        assert len(rows) == 4
+
+    async def test_quote_passes_cannot_outlive_the_odds_window(
+        self, conn, joined, kalshi_events
+    ):
+        """Polling Kalshi does not widen the window; it fills the one there is.
+
+        The odds are the fifteen-minute limit and no amount of quote refreshing
+        changes that. If this ever passes, the tool has started offering bets
+        priced against a consensus swept an hour ago.
+        """
+        events, odds_event = joined
+        run_pricing_pass(conn, events, now=NOW)
+
+        for step in (600_000, 1_200_000):
+            await self._quote_pass(
+                conn, kalshi_events, odds_event, now=NOW + step
+            )
+
+        limit_ms = StalenessConfig().max_odds_age_s * 1000
+        for row in conn.execute("SELECT * FROM recommendations").fetchall():
+            ages = live_ages(row, now_ms=NOW + 1_200_000)
+            assert ages.odds_age_ms > limit_ms, (
+                "a quote pass refreshed the odds clock it has no business "
+                "touching"
+            )

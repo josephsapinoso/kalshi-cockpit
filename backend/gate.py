@@ -473,26 +473,111 @@ def evaluate_gate(
     return GateDecision(conditions=tuple(conditions))
 
 
+@dataclass(frozen=True)
+class LiveAges:
+    """How old a recommendation's two inputs are **now**, and what said so.
+
+    `confirmed` is carried rather than inferred because the two bases mean
+    different things to a reader: an unconfirmed row is as old as its decision,
+    a confirmed one is as old as the last time that decision was re-derived.
+    """
+
+    quote_age_ms: Optional[int]
+    odds_age_ms: Optional[int]
+    measured_from_ms: int
+    confirmed: bool
+
+
+def _optional_column(row, name: str) -> Optional[int]:
+    """A column that may not exist on this row, as `None` rather than an error.
+
+    `recommendation_freshness` names its columns and the API selects `r.*`, but
+    tests and older callers build rows by hand. A missing column is the same
+    state as a NULL one -- never confirmed -- and both fall back to `created_ms`.
+    """
+    try:
+        keys = row.keys()
+    except AttributeError:
+        keys = row.keys() if isinstance(row, dict) else ()
+    if name not in keys:
+        return None
+    value = row[name]
+    return None if value is None else int(value)
+
+
+def live_ages(row, *, now_ms: int) -> LiveAges:
+    """Both stored ages, moved forward to `now_ms`. **The only implementation.**
+
+    The subtlety that makes this necessary: `recommendations` stores
+    `kalshi_quote_age_ms` and `odds_age_ms` as ages *at the moment the row was
+    written*. Reading those columns straight out and comparing them to the
+    staleness limits passes forever -- a recommendation made yesterday against a
+    3-second-old quote still says "3 seconds". So the observation instant is
+    reconstructed and the age is measured against the clock.
+
+    **A confirmation replaces the basis, and replaces both halves of it.** When
+    `persist_if_changed` re-derives an identical decision it stamps the row with
+    that pass's instant and *both* of that pass's ages, so freshness is measured
+    from the last time the numbers were checked rather than from the first time
+    they were written. Taking the confirmation's quote age while leaving the
+    odds age on `created_ms` would be the tempting half-fix and the dangerous
+    one: the odds are the fifteen-minute limit, and a row confirmed every twenty
+    seconds would then stay bettable indefinitely on a consensus that had aged
+    out hours ago. Either both ages come from the confirmation or neither does.
+
+    An incomplete confirmation -- a timestamp with a missing age -- falls back to
+    `created_ms` rather than substituting. Refusing to trust a half-written
+    confirmation is the same rule as refusing an unreadable price.
+
+    A `None` age means unreadable, and the caller must refuse on it rather than
+    treat it as fresh. See `tasks/lessons.md`.
+    """
+    basis = int(row["created_ms"])
+    quote_stored = _optional_column(row, "kalshi_quote_age_ms")
+    odds_stored = _optional_column(row, "odds_age_ms")
+    confirmed = False
+
+    confirmed_ms = _optional_column(row, "last_confirmed_ms")
+    confirmed_quote = _optional_column(row, "last_confirmed_quote_age_ms")
+    confirmed_odds = _optional_column(row, "last_confirmed_odds_age_ms")
+    if (
+        confirmed_ms is not None
+        and confirmed_quote is not None
+        and confirmed_odds is not None
+        # A confirmation before the decision is not a confirmation. It would
+        # move the basis backwards and make the row look older, which is the
+        # safe direction but still a state nothing should produce.
+        and confirmed_ms >= basis
+    ):
+        basis, quote_stored, odds_stored = confirmed_ms, confirmed_quote, confirmed_odds
+        confirmed = True
+
+    elapsed = now_ms - basis
+    return LiveAges(
+        quote_age_ms=None if quote_stored is None else int(elapsed + quote_stored),
+        odds_age_ms=None if odds_stored is None else int(elapsed + odds_stored),
+        measured_from_ms=basis,
+        confirmed=confirmed,
+    )
+
+
 def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
     """Ages for one recommendation, measured **now** rather than when it was made.
 
-    The subtlety that makes this function necessary: `recommendations` stores
-    `kalshi_quote_age_ms` and `odds_age_ms` as ages *at the moment the
-    recommendation was written*. Reading those columns straight out and
-    comparing them to the staleness limits would pass forever — a recommendation
-    made yesterday against a 3-second-old quote still says "3 seconds", and the
-    freshness gate would wave through a day-old price.
+    A thin read around `live_ages`, which owns the reconstruction and is shared
+    with the Board. Two paths computing freshness by separate arithmetic is how
+    a screen comes to offer a row the server refuses, and this function is the
+    server half of exactly that pair.
 
-    So the observation instant is reconstructed (`created_ms - stored_age`) and
-    the age recomputed against the clock. A missing row or a missing age
-    resolves to `None`, and the caller must refuse on it rather than substitute
-    zero.
+    A missing row or a missing age resolves to `None`, and the caller must
+    refuse on it rather than substitute zero.
     """
     row = conn.execute(
         """
         SELECT id, ticker, created_ms, entry_ask_tenths, side,
                kalshi_quote_age_ms, odds_age_ms, suppressed_reason,
-               suggested_contracts
+               suggested_contracts, last_confirmed_ms,
+               last_confirmed_quote_age_ms, last_confirmed_odds_age_ms
         FROM recommendations WHERE id = ?
         """,
         (recommendation_id,),
@@ -501,13 +586,7 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
     if row is None:
         return {"found": False}
 
-    now_ms = int(time.time() * 1000)
-    elapsed = now_ms - row["created_ms"]
-
-    def age_now(stored_age: Optional[int]) -> Optional[int]:
-        if stored_age is None:
-            return None
-        return elapsed + stored_age
+    ages = live_ages(row, now_ms=int(time.time() * 1000))
 
     return {
         "found": True,
@@ -517,6 +596,11 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
         "suppressed_reason": row["suppressed_reason"],
         "suggested_contracts": row["suggested_contracts"],
         "created_ms": row["created_ms"],
-        "kalshi_quote_age_ms": age_now(row["kalshi_quote_age_ms"]),
-        "odds_age_ms": age_now(row["odds_age_ms"]),
+        "kalshi_quote_age_ms": ages.quote_age_ms,
+        "odds_age_ms": ages.odds_age_ms,
+        # Which instant the ages were measured from, and whether it was a
+        # re-derivation. "Stale because nobody looked again" and "stale because
+        # the odds aged out" are different problems with different fixes.
+        "measured_from_ms": ages.measured_from_ms,
+        "confirmed": ages.confirmed,
     }

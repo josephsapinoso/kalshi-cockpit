@@ -79,7 +79,13 @@ plausible way to deploy the money instance by accident; typing its name is not.
 ## 4. Turn on Discord alerts — 5 minutes, all on the phone
 
 Without this the tool cannot reach you, and the thing it needs to reach you
-about lasts about thirty seconds. Everything below is phone-only.
+about lasts about **fifteen minutes, twice a day**. It used to last thirty
+seconds — a row was priced once every 900s against a Kalshi quote good for 30 —
+which is fixed as of 2026-08-08 by a second polling cadence
+(`docs/adr/0004-two-polling-cadences.md`). Fifteen minutes is still short enough
+that you will not notice it without a push notification.
+
+Everything below is phone-only.
 
 **a. Make a webhook, in the Discord app itself** — no developer portal, no bot,
 no Developer Mode toggle:

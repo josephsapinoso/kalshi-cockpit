@@ -11,6 +11,15 @@ is bettable for **fifteen minutes** after the sweep that priced it; outside that
 system is actionable for about half an hour a day, and until now that half hour
 landed wherever the process happened to restart.
 
+**Fifteen minutes is the *odds* limit, and it is only the whole answer because
+something else keeps the other one satisfied.** A row also needs a Kalshi quote
+under thirty seconds, and on a single 900s cadence that made the real window
+thirty seconds rather than fifteen minutes -- this module scheduled a window
+nobody could use for 97% of its length. `runner.run_quote_pass` on the fast
+cadence is what closes that; see `docs/adr/0004-two-polling-cadences.md`. This
+module still decides *when* the fifteen minutes happen and has no opinion about
+the quote.
+
 What this module decides
 ------------------------
 A sweep is worth spending when its fifteen-minute window sits **just before a

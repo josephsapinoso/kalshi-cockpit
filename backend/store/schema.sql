@@ -339,6 +339,28 @@ CREATE TABLE IF NOT EXISTS recommendations (
     kalshi_quote_age_ms     INTEGER NOT NULL,
     odds_age_ms             INTEGER NOT NULL,
 
+    -- Re-derived, not re-recorded. `engine.persist_if_changed` deliberately
+    -- writes no second row when the ask and the fair value are unchanged --
+    -- otherwise ~98% of the record is repetition. But freshness was measured
+    -- from `created_ms`, so an unchanged row aged past the 30s Kalshi limit and
+    -- stayed there while the market had not moved at all. "This observation is
+    -- old" and "this price is old" were one number; these three columns split
+    -- them.
+    --
+    -- A confirmation is a complete re-statement about one instant: at
+    -- `last_confirmed_ms` the same decision was re-derived from a Kalshi quote
+    -- of age `last_confirmed_quote_age_ms` and a consensus of age
+    -- `last_confirmed_odds_age_ms`. Both ages are stored, because refreshing
+    -- the quote clock without the odds clock would let a row live forever on a
+    -- fifteen-minute-old consensus -- the flattering direction.
+    --
+    -- NULL means never re-derived. Callers fall back to `created_ms` and the
+    -- two ages above it, which is what every row written before this column
+    -- existed carries.
+    last_confirmed_ms           INTEGER,
+    last_confirmed_quote_age_ms INTEGER,
+    last_confirmed_odds_age_ms  INTEGER,
+
     -- NULL means surfaced. Non-NULL means suppressed, and says why.
     suppressed_reason       TEXT,
     reason_text             TEXT NOT NULL,      -- plain language, for the Board

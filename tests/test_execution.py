@@ -18,6 +18,7 @@ import time
 import pytest
 
 from backend.config import GateConfig, StalenessConfig
+from backend.engine import confirm_recommendation
 from backend.gate import (
     ALWAYS_VALID_ALPHA,
     ClusteredMean,
@@ -25,6 +26,7 @@ from backend.gate import (
     always_valid_multiplier,
     clustered_clv,
     evaluate_gate,
+    live_ages,
     recommendation_freshness,
 )
 from backend.kalshi.orders import (
@@ -680,6 +682,196 @@ class TestFreshness:
 
     def test_a_missing_recommendation_is_reported_as_absent(self, gate_db):
         assert recommendation_freshness(_conn(gate_db), 99999)["found"] is False
+
+
+class TestConfirmationSeparatesTwoKindsOfStale:
+    """"This observation is old" and "this price is old" were one number.
+
+    `persist_if_changed` writes no second row for an unchanged decision -- right
+    for the record, because ~98% of it would otherwise be repetition -- and
+    every freshness check measured from `created_ms`. So a row expired thirty
+    seconds after the pass that wrote it on a market that had not moved at all,
+    and the tool was actionable for about a minute a day rather than the fifteen
+    minutes documented everywhere in this repo.
+
+    A confirmation restates *both* ages at one instant. The tests below are
+    chosen so that the tempting half-fix -- refresh the quote clock, leave the
+    odds clock alone -- gives a different answer from the correct one.
+    """
+
+    def _confirm(self, conn, rec_id, *, at, quote_age, odds_age):
+        confirm_recommendation(
+            conn, rec_id, confirmed_ms=at,
+            kalshi_quote_age_ms=quote_age, odds_age_ms=odds_age,
+        )
+        return conn.execute(
+            "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+        ).fetchone()
+
+    def test_an_unconfirmed_row_still_ages_from_when_it_was_written(self, gate_db):
+        """The pre-existing behaviour, unchanged, for every row already recorded.
+
+        The migration adds NULL columns to a live database, so this is the path
+        every historical row takes and it must not move.
+        """
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=3_000, odds_age=60_000, created_ms=1_000_000
+        )
+        row = conn.execute(
+            "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+        ).fetchone()
+
+        ages = live_ages(row, now_ms=1_000_000 + 20_000)
+        assert ages.quote_age_ms == 23_000
+        assert ages.odds_age_ms == 80_000
+        assert ages.confirmed is False
+        assert ages.measured_from_ms == 1_000_000
+
+    def test_a_confirmed_row_ages_from_the_confirmation(self, gate_db):
+        """The fix. Same row, same market, re-derived twenty seconds later."""
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=0, odds_age=60_000, created_ms=1_000_000
+        )
+        row = self._confirm(
+            conn, rec_id, at=1_000_000 + 800_000, quote_age=0, odds_age=860_000
+        )
+
+        # Twenty seconds after the confirmation, not 820 seconds after the row.
+        ages = live_ages(row, now_ms=1_000_000 + 820_000)
+        assert ages.quote_age_ms == 20_000
+        assert ages.confirmed is True
+
+        # Without the confirmation this row would read 820s old and be refused.
+        assert 820_000 > StalenessConfig().max_kalshi_quote_age_s * 1000
+
+    def test_confirming_cannot_outlive_the_odds_window(self, gate_db):
+        """**The discriminating case.** Fast polling must not buy immortality.
+
+        A row confirmed every twenty seconds has a permanently fresh Kalshi
+        quote. If a confirmation reset the odds clock too -- or simply took the
+        quote's freshness for both -- the row would stay bettable for as long as
+        the process ran, on a sportsbook consensus swept hours earlier. That is
+        the failure this whole project is built to avoid: an edge measured
+        against a price nobody is offering any more.
+
+        So: quote perfectly fresh, odds past their limit, and the row must be
+        refused on the odds.
+        """
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=0, odds_age=10_000, created_ms=1_000_000
+        )
+        # An hour of quote passes later. The quote is current; the consensus is
+        # the same one swept at the start, so it has aged the whole hour.
+        row = self._confirm(
+            conn, rec_id, at=1_000_000 + 3_600_000, quote_age=0, odds_age=3_610_000
+        )
+
+        ages = live_ages(row, now_ms=1_000_000 + 3_600_000)
+        assert ages.quote_age_ms == 0
+        assert ages.odds_age_ms == 3_610_000
+        assert ages.odds_age_ms > StalenessConfig().max_odds_age_s * 1000, (
+            "a confirmed row must still expire when its odds do"
+        )
+
+    def test_the_odds_clock_is_untouched_by_a_confirmation_with_no_new_sweep(
+        self, gate_db
+    ):
+        """A definitional anchor: with no new sweep, confirming changes nothing.
+
+        The odds observation instant is fixed, so measuring from `created_ms`
+        and measuring from the confirmation must give the *same* odds age --
+        bit-identical, not merely close. An implementation that credited a
+        confirmation with fresher odds than it observed fails here.
+        """
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=0, odds_age=60_000, created_ms=1_000_000
+        )
+        before = live_ages(
+            conn.execute(
+                "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+            ).fetchone(),
+            now_ms=1_000_000 + 500_000,
+        )
+        # The same consensus, re-read 500s later: its age grew by exactly 500s.
+        row = self._confirm(
+            conn, rec_id, at=1_000_000 + 500_000, quote_age=0, odds_age=560_000
+        )
+        after = live_ages(row, now_ms=1_000_000 + 500_000)
+
+        assert after.odds_age_ms == before.odds_age_ms == 560_000
+
+    def test_a_half_written_confirmation_falls_back_rather_than_guessing(
+        self, gate_db
+    ):
+        """A timestamp with a missing age is not a confirmation.
+
+        Substituting the created-time age for the missing half would silently
+        build a freshness claim out of two different instants. Refusing is the
+        same rule as refusing an unreadable price.
+        """
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=3_000, odds_age=60_000, created_ms=1_000_000
+        )
+        conn.execute(
+            "UPDATE recommendations SET last_confirmed_ms = ?, "
+            "last_confirmed_quote_age_ms = 0 WHERE id = ?",
+            (1_000_000 + 800_000, rec_id),
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+        ).fetchone()
+        ages = live_ages(row, now_ms=1_000_000 + 820_000)
+        assert ages.confirmed is False
+        assert ages.quote_age_ms == 823_000
+
+    def test_a_confirmation_before_the_decision_is_ignored(self, gate_db):
+        """Nothing should produce one, and if something does it must not
+        move the basis backwards and make a row look younger than it is."""
+        conn = _conn(gate_db)
+        rec_id = _add_recommendation(
+            conn, quote_age=1_000, odds_age=60_000, created_ms=1_000_000
+        )
+        row = self._confirm(
+            conn, rec_id, at=1_000_000 - 500_000, quote_age=0, odds_age=0
+        )
+        ages = live_ages(row, now_ms=1_000_000 + 10_000)
+        assert ages.confirmed is False
+        assert ages.quote_age_ms == 11_000
+
+    def test_the_order_endpoint_reads_the_confirmation(self, gate_db):
+        """The whole chain, through the function the money path actually calls.
+
+        `live_ages` being right is not the claim; the claim is that the control
+        which refuses orders uses it.
+        """
+        conn = _conn(gate_db)
+        now = int(time.time() * 1000)
+        rec_id = _add_recommendation(
+            conn, quote_age=0, odds_age=60_000, created_ms=now - 600_000
+        )
+
+        stale = recommendation_freshness(conn, rec_id)
+        assert stale["kalshi_quote_age_ms"] > 30_000
+        assert stale["confirmed"] is False
+
+        confirm_recommendation(
+            conn, rec_id, confirmed_ms=now - 2_000,
+            kalshi_quote_age_ms=0, odds_age_ms=658_000,
+        )
+        fresh = recommendation_freshness(conn, rec_id)
+        assert fresh["kalshi_quote_age_ms"] < 30_000
+        assert fresh["confirmed"] is True
+        assert fresh["created_ms"] == now - 600_000, (
+            "the record must say when the decision was made, not when it was "
+            "last re-derived"
+        )
 
 
 class TestTheGateCanActuallyOpen:

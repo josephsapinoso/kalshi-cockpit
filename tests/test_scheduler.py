@@ -13,12 +13,17 @@ import random
 
 import pytest
 
+from backend.config import StalenessConfig
 from backend.scheduler import (
+    DEFAULT_FAST_INTERVAL_S,
     JITTER,
     MAX_CONSECUTIVE_FAILURES,
+    QUOTE_PASS_DURATION_BUDGET_S,
     LoopFailed,
     LoopState,
+    Tempo,
     next_delay,
+    quote_refresh_survives_interval,
     run_forever,
 )
 
@@ -155,3 +160,167 @@ class TestJitter:
         budget is small enough for that to lose a day's credits at once."""
         rng = random.Random(4)
         assert len({next_delay(900.0, rng) for _ in range(20)}) > 15
+
+
+class TestTheComposedWindow:
+    """The product of the limits, which is the number nobody was computing.
+
+    `MAX_KALSHI_QUOTE_AGE_S = 30`, `MAX_ODDS_AGE_S = 900`, loop interval 900s.
+    Each is defensible on its own and no module holds more than one of them, so
+    the thing they multiply into -- thirty seconds of actionability after each
+    pass -- was written down nowhere and contradicted by every document in the
+    repo. These tests are where the composition now lives.
+    """
+
+    def test_the_shipped_defaults_keep_a_row_bettable(self):
+        """The claim the fast cadence exists to make, asserted on real values.
+
+        Not on invented ones. If someone raises `DEFAULT_FAST_INTERVAL_S` or
+        lowers `MAX_KALSHI_QUOTE_AGE_S` past the point where polling stops
+        helping, this fails -- which is the only way that change announces
+        itself, because a row expiring between passes looks like a quiet board.
+        """
+        assert quote_refresh_survives_interval(
+            DEFAULT_FAST_INTERVAL_S,
+            jitter=JITTER,
+            max_kalshi_quote_age_s=StalenessConfig().max_kalshi_quote_age_s,
+        )
+
+    def test_the_single_cadence_this_replaces_does_not(self):
+        """The bug, stated as a test rather than as prose.
+
+        900s against a 30s limit is the state the tool shipped in: two sweeps a
+        day, each row bettable for half a minute, ~1 minute of actionability in
+        24 hours.
+        """
+        assert not quote_refresh_survives_interval(
+            900.0, jitter=JITTER, max_kalshi_quote_age_s=30
+        )
+
+    def test_the_pass_itself_counts_against_the_limit(self):
+        """Sleep is only half the gap between two confirmations.
+
+        An interval that fits with an instantaneous pass and not with a real one
+        is an interval that does not fit. Written as a pair so a version that
+        ignores `pass_duration_s` cannot pass both.
+        """
+        assert quote_refresh_survives_interval(
+            25.0, jitter=0.0, max_kalshi_quote_age_s=30, pass_duration_s=0.0
+        )
+        assert not quote_refresh_survives_interval(
+            25.0, jitter=0.0, max_kalshi_quote_age_s=30, pass_duration_s=8.0
+        )
+
+    def test_a_gap_exactly_equal_to_the_limit_is_refused(self):
+        """At equality the row is unbettable at the instant it is re-confirmed."""
+        assert not quote_refresh_survives_interval(
+            30.0, jitter=0.0, max_kalshi_quote_age_s=30, pass_duration_s=0.0
+        )
+
+    def test_the_budget_leaves_real_headroom_at_the_default(self):
+        """The allowance is stated, so it can be argued with rather than assumed."""
+        worst = DEFAULT_FAST_INTERVAL_S * (1 + JITTER) + QUOTE_PASS_DURATION_BUDGET_S
+        assert worst < StalenessConfig().max_kalshi_quote_age_s
+        # Not merely inside it -- inside it with room for a pass that runs long.
+        assert worst <= StalenessConfig().max_kalshi_quote_age_s - 4
+
+
+class TestTempo:
+    """Which cadence, and which kind of pass."""
+
+    def test_the_first_pass_is_always_full(self):
+        """A fresh container has no odds stored, so a quote pass prices nothing.
+
+        Starting on the fast cadence would mean the window could never open in
+        the first place -- the fast pass has nothing to refresh and the sweep
+        that would give it something never fires.
+        """
+        tempo = Tempo(slow_interval_s=900.0)
+        assert tempo.pass_kind(1_000) == "full"
+
+    def test_quote_passes_fill_the_gap_between_full_ones(self):
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+        tempo.completed_full_pass(1_000_000)
+
+        assert tempo.pass_kind(1_000_000 + 15_000) == "quote"
+        assert tempo.pass_kind(1_000_000 + 899_000) == "quote"
+        assert tempo.pass_kind(1_000_000 + 900_000) == "full"
+
+    def test_a_failed_full_pass_is_not_recorded_as_done(self):
+        """Otherwise one bad sweep costs fifteen minutes of scoring and alerts.
+
+        `completed_full_pass` is called by the caller *after* the awaits, so a
+        pass that raises never reaches it and the next pass is full again.
+        """
+        tempo = Tempo(slow_interval_s=900.0)
+        assert tempo.pass_kind(1_000) == "full"
+        # ...pass raises, so nothing is recorded...
+        assert tempo.pass_kind(1_060) == "full"
+
+    def test_the_cadence_follows_the_window(self):
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+        assert tempo.interval_s() == 900.0
+        tempo.window_open = True
+        assert tempo.interval_s() == 15.0
+
+    def test_an_overrunning_pass_is_reported_not_absorbed(self):
+        """A quote pass slow enough to break the composition has to say so.
+
+        The symptom -- rows expiring between passes despite the fast cadence --
+        is indistinguishable from a board with nothing on it, so it cannot be
+        left to be noticed.
+        """
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+        assert tempo.observe_pass_duration(2.0, max_kalshi_quote_age_s=30)
+        assert tempo.slow_passes_overrun == 0
+
+        assert not tempo.observe_pass_duration(20.0, max_kalshi_quote_age_s=30)
+        assert tempo.slow_passes_overrun == 1
+        assert tempo.as_dict()["passes_over_quote_budget"] == 1
+
+
+class TestACallableInterval:
+    async def test_the_interval_is_read_after_each_pass(self):
+        """The pass is what changes the state the cadence depends on.
+
+        Reading the interval once at the top would spend a whole slow interval
+        before noticing that the sweep this pass just fired had opened the
+        window -- which is most of the window.
+        """
+        slept: list[float] = []
+
+        async def record_sleep(seconds):
+            slept.append(seconds)
+
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+
+        calls = {"n": 0}
+
+        async def do_pass():
+            calls["n"] += 1
+            # The first pass opens the window, exactly as a sweep would.
+            tempo.window_open = True
+            return Counts()
+
+        await run_forever(
+            do_pass, interval_s=tempo.interval_s, max_passes=2,
+            sleep=record_sleep, rng=random.Random(1),
+        )
+
+        assert calls["n"] == 2
+        # One sleep, between the two passes, and it used the fast interval that
+        # the first pass had just made correct.
+        assert len(slept) == 1
+        assert 15 * (1 - JITTER) <= slept[0] <= 15 * (1 + JITTER)
+
+    async def test_a_plain_float_still_works(self):
+        slept: list[float] = []
+
+        async def record_sleep(seconds):
+            slept.append(seconds)
+
+        await run_forever(
+            Recorder(result=Counts()), interval_s=60.0, max_passes=2,
+            sleep=record_sleep, rng=random.Random(1),
+        )
+        assert 60 * (1 - JITTER) <= slept[0] <= 60 * (1 + JITTER)

@@ -1,35 +1,46 @@
-"""Run the chain on an interval. This is what accumulates the evidence record.
+"""Run the chain on two interleaved cadences. This accumulates the record.
 
     .venv\\Scripts\\python.exe scripts\\run_loop.py --db data/live.db --interval 900
 
-Each pass does two things:
+**A full pass**, every `--interval` seconds, does three things:
 
 1. **Ingest and price** -- discovery, an odds sweep inside the credit budget,
    linking, devig, and a `recommendations` row per candidate.
 2. **Score** -- fetch closing lines for games that have now started and score
    the recommendations waiting on them.
+3. **Alert** -- the window, any surfaced opportunity, the daily digest.
 
-Both in one pass because they share a Kalshi client and because scoring is
+All in one pass because they share a Kalshi client and because scoring is
 useless without recording and recording is pointless without scoring.
 
-Choosing the interval
----------------------
-The binding constraint is **odds credits, not Kalshi**. The free tier is ~500 a
+**A quote pass**, every `--fast-interval` seconds *while the window is open*,
+does only the first half of (1): Kalshi discovery, the quotes it carries, and a
+re-price against the odds already stored. It spends no credit, fetches no
+closing lines, and still alerts, because a quote pass is exactly when a new
+opportunity appears.
+
+Choosing the intervals
+----------------------
+The slow one is bounded by **odds credits, not Kalshi**. The free tier is ~500 a
 month and one sweep costs `markets x regions` = 6, so roughly 16 credits a day
 = two sweeps. The budget refuses over-spend rather than failing, so a short
-interval does not overspend -- it just produces passes that record Kalshi
-quotes and skip the odds leg.
+interval does not overspend -- it just produces passes that record Kalshi quotes
+and skip the odds leg. **900s (15 min) is a sensible default.**
 
-That is not wasted: a pass with no fresh odds still stores Kalshi quotes and
-still scores closing lines for games that have started. But there is no reason
-to run it every minute. **900s (15 min) is a sensible default**, giving ~96
-passes a day of which two carry fresh odds.
+The fast one is bounded by the Kalshi quote limit, which is 30 seconds. That is
+the whole reason this file grew a second cadence: a row is bettable only while
+*both* its inputs are fresh, and on a single 900s cadence the tighter of the two
+made every row bettable for thirty seconds after each pass -- roughly a minute a
+day, from a tool this repo documented everywhere as actionable for half an hour.
+Nothing was wrong with either limit; nothing computed their product.
 
-There is now an upper bound as well, and it is enforced rather than documented.
-`odds/timing.py` marks each sweep due for a thirty-minute window before a
-cluster of kickoffs; a loop whose worst-case gap between passes exceeds that
-window steps over the slot and never sweeps at all -- which looks exactly like
-a quiet slate. The loop refuses to start rather than run in that state.
+Both intervals are checked at startup and the loop **refuses to run** rather
+than warn, because each failure looks exactly like a quiet slate:
+
+- Too slow, and `odds/timing.py`'s thirty-minute sweep slot is stepped over, so
+  the odds never arrive at all (`sweep_window_survives_interval`).
+- Too fast on the quote side, and rows expire between passes anyway, so the
+  extra requests buy nothing (`quote_refresh_survives_interval`).
 
 The loop dies loudly after `MAX_CONSECUTIVE_FAILURES`, which takes the
 container with it. See `backend/scheduler.py`.
@@ -41,6 +52,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -64,11 +76,15 @@ from backend.odds.timing import (  # noqa: E402
     sweep_window_survives_interval,
     window_status,
 )
-from backend.runner import run_once  # noqa: E402
+from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
+    DEFAULT_FAST_INTERVAL_S,
     JITTER,
+    QUOTE_PASS_DURATION_BUDGET_S,
     LoopFailed,
     LoopState,
+    Tempo,
+    quote_refresh_survives_interval,
     run_forever,
 )
 from backend.scoring import run_scoring_pass  # noqa: E402
@@ -84,16 +100,25 @@ class CombinedPass:
     alert counts say `alerts_deduped` as well as `alerts_sent` -- a quiet
     channel because everything was already announced and a quiet channel
     because the notifier is broken are different states.
+
+    `kind` says which cadence produced the line. A quote pass reports no `clv_`
+    counts at all, and without the label that reads as "scoring found nothing"
+    rather than "scoring did not run" -- the same confusion `sweep_decision`
+    exists to prevent one column over.
     """
 
-    def __init__(self, recording, scoring, alerts=None):
+    def __init__(self, recording, scoring=None, alerts=None, *, kind="full", seconds=0.0):
         self.recording = recording
         self.scoring = scoring
         self.alerts = alerts
+        self.kind = kind
+        self.seconds = seconds
 
     def as_dict(self) -> dict:
-        merged = dict(self.recording.as_dict())
-        merged.update({f"clv_{k}": v for k, v in self.scoring.as_dict().items()})
+        merged = {"pass": self.kind, "took_s": round(self.seconds, 1)}
+        merged.update(self.recording.as_dict())
+        if self.scoring is not None:
+            merged.update({f"clv_{k}": v for k, v in self.scoring.as_dict().items()})
         if self.alerts is not None:
             merged.update(
                 {k: v for k, v in self.alerts.as_dict().items() if v}
@@ -105,7 +130,15 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default="data/live.db")
     parser.add_argument(
-        "--interval", type=float, default=900.0, help="seconds between passes"
+        "--interval", type=float, default=900.0, help="seconds between full passes"
+    )
+    parser.add_argument(
+        "--fast-interval", type=float, default=DEFAULT_FAST_INTERVAL_S,
+        help=(
+            "seconds between quote passes while the window is open. Bounded by "
+            "MAX_KALSHI_QUOTE_AGE_S, not by the odds budget -- Kalshi is "
+            "unmetered."
+        ),
     )
     parser.add_argument(
         "--max-passes", type=int, default=None,
@@ -133,6 +166,31 @@ async def main() -> int:
             "actionable. Use %.0fs or less.",
             args.interval, JITTER * 100, args.interval * (1 + JITTER),
             DUE_WINDOW_MS / 1000, (DUE_WINDOW_MS / 1000) / (1 + JITTER) - 1,
+        )
+        return 2
+
+    # The other half of the same question, and the one that was never asked.
+    # The odds sweep opens a fifteen-minute window; the Kalshi quote inside it
+    # is good for thirty seconds. A fast interval that cannot beat that limit
+    # spends requests to produce rows that expire between passes anyway -- and
+    # an expired row is indistinguishable from a slate with nothing on it.
+    staleness_check = StalenessConfig.load()
+    if not quote_refresh_survives_interval(
+        args.fast_interval,
+        jitter=JITTER,
+        max_kalshi_quote_age_s=staleness_check.max_kalshi_quote_age_s,
+    ):
+        log.error(
+            "--fast-interval %.0fs cannot keep a row bettable: with %.0f%% jitter "
+            "and a %.0fs allowance for the pass itself the worst-case gap between "
+            "confirmations is %.1fs, past the %ds MAX_KALSHI_QUOTE_AGE_S limit. "
+            "Raising the limit is the wrong fix -- 30s is correct for a venue "
+            "quoted by sub-200ms market makers. Use %.0fs or less.",
+            args.fast_interval, JITTER * 100, QUOTE_PASS_DURATION_BUDGET_S,
+            args.fast_interval * (1 + JITTER) + QUOTE_PASS_DURATION_BUDGET_S,
+            staleness_check.max_kalshi_quote_age_s,
+            (staleness_check.max_kalshi_quote_age_s - QUOTE_PASS_DURATION_BUDGET_S)
+            / (1 + JITTER) - 1,
         )
         return 2
 
@@ -164,44 +222,81 @@ async def main() -> int:
             DiscordNotifier(discord_config) as discord:
 
         alerter = Alerter(conn, discord)
+        tempo = Tempo(
+            slow_interval_s=args.interval, fast_interval_s=args.fast_interval
+        )
 
         async def one_pass() -> CombinedPass:
             # One stamp for the whole pass, shared with the alerter: it finds
             # the rows this pass wrote by `created_ms = stamp`, and a second
             # clock reading would miss every one of them.
             stamp = db.now_ms()
-            counts = await run_once(
-                conn, kalshi, odds, budget,
-                config=odds_config, risk=risk, suppression=suppression,
-                now=stamp,
-            )
-            scoring = await run_scoring_pass(conn, kalshi)
+            started = time.monotonic()
+            kind = tempo.pass_kind(stamp)
+
+            if kind == "full":
+                counts = await run_once(
+                    conn, kalshi, odds, budget,
+                    config=odds_config, risk=risk, suppression=suppression,
+                    now=stamp,
+                )
+                scoring = await run_scoring_pass(conn, kalshi)
+            else:
+                # Kalshi only. No credit, no candlesticks -- the point is to
+                # re-confirm the quote behind every row before its 30s runs out,
+                # and neither of those touches that.
+                counts = await run_quote_pass(
+                    conn, kalshi, risk=risk, suppression=suppression, now=stamp,
+                )
+                scoring = None
 
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
                 max_odds_age_ms=suppression.max_odds_age_ms,
                 sweep_cost=odds_config.credits_per_sweep_per_sport,
             )
+            # Alerting on a quote pass too, deliberately. A quote pass is when a
+            # price moves inside the window, so it is exactly when a new
+            # opportunity appears -- and the dedupe lives in `notifications`, so
+            # a row already announced is not announced again.
             alerts = await alerter.after_pass(
                 pass_ms=stamp, counts=counts, window=window,
                 sweeps_this_pass=counts.odds_sweeps,
             )
-            await alerter.daily_digest(
-                now_ms=stamp,
-                day_start_ms=budget.day_start_ms(stamp),
-                gate_required=gate_config.min_scored_recommendations,
+            if kind == "full":
+                await alerter.daily_digest(
+                    now_ms=stamp,
+                    day_start_ms=budget.day_start_ms(stamp),
+                    gate_required=gate_config.min_scored_recommendations,
+                )
+
+            # Set after the pass, from stored state, so the next cadence follows
+            # what this pass actually achieved. A sweep that just fired means
+            # the window is open and the loop should speed up now, not in
+            # fifteen minutes.
+            tempo.window_open = window.is_open
+            elapsed = time.monotonic() - started
+            tempo.observe_pass_duration(
+                elapsed, max_kalshi_quote_age_s=staleness.max_kalshi_quote_age_s
             )
-            return CombinedPass(counts, scoring, alerts)
+            if kind == "full":
+                tempo.completed_full_pass(stamp)
+            else:
+                tempo.completed_quote_pass(stamp)
+
+            return CombinedPass(counts, scoring, alerts, kind=kind, seconds=elapsed)
 
         log.info(
-            "starting loop: interval=%.0fs db=%s discord=%s. The gate needs 300 "
+            "starting loop: full pass every %.0fs, quote pass every %.0fs while "
+            "the window is open, db=%s discord=%s. The gate needs 300 "
             "independent games; nothing is surfaced until the record supports it.",
-            args.interval, args.db, "on" if discord.enabled else "off",
+            args.interval, args.fast_interval, args.db,
+            "on" if discord.enabled else "off",
         )
         try:
             await run_forever(
                 one_pass,
-                interval_s=args.interval,
+                interval_s=tempo.interval_s,
                 state=state,
                 max_passes=args.max_passes,
             )
@@ -212,7 +307,9 @@ async def main() -> int:
             await alerter.failure("Recording loop died", str(exc), now_ms=db.now_ms())
             raise
         finally:
-            log.info("loop state at exit: %s", state.as_dict())
+            log.info(
+                "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()
+            )
 
     conn.close()
     return 0

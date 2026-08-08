@@ -24,6 +24,19 @@ quietly.
 The interval is jittered for the ordinary reason: a fleet of machines restarting
 together would otherwise sweep in lockstep, and the odds budget is small enough
 that a thundering herd is a real way to lose a day's credits in a minute.
+
+Two cadences, because two resources have nothing in common
+----------------------------------------------------------
+The 900s interval exists for The Odds API's free tier and for nothing else.
+Kalshi REST is unmetered, and the Kalshi quote is the *tighter* of the two
+freshness limits at 30s against the consensus's 900s. Running both legs on the
+odds cadence therefore produced a row that was bettable for thirty seconds after
+each pass -- about a minute a day of actionability, from a system every document
+in this repo described as actionable for half an hour.
+
+So `Tempo` runs the loop fast while the window is open and slow when it is not,
+and `run_forever` takes a callable interval so the cadence can follow that
+state. The fast passes touch Kalshi only.
 """
 
 from __future__ import annotations
@@ -83,10 +96,151 @@ def next_delay(interval_s: float, rng: Optional[random.Random] = None) -> float:
     return max(1.0, interval_s * (1.0 + r.uniform(-JITTER, JITTER)))
 
 
+# ---------------------------------------------------------------------------
+# Two cadences
+# ---------------------------------------------------------------------------
+
+# How long a pass itself is allowed to take, on top of the sleep, before the
+# fast cadence stops keeping a row inside the Kalshi limit. A quote pass
+# paginates `/events`, writes ~1,500 quote rows and re-prices the linked ones.
+#
+# An allowance, not a measurement, and it is checked against the real thing:
+# `Tempo.observe_pass_duration` warns when an actual pass exceeds it, because
+# the number that decides whether this works is the *gap between confirmations*
+# -- sleep plus pass -- and only one half of that is chosen here.
+QUOTE_PASS_DURATION_BUDGET_S = 8.0
+
+# The fast cadence, used only while the window is open. 15s against a 30s
+# Kalshi limit: with 15% jitter and the 8s allowance above, the worst-case gap
+# between confirmations is 25.3s, inside 30s with room for a slow pass.
+DEFAULT_FAST_INTERVAL_S = 15.0
+
+
+def quote_refresh_survives_interval(
+    interval_s: float,
+    *,
+    jitter: float,
+    max_kalshi_quote_age_s: float,
+    pass_duration_s: float = QUOTE_PASS_DURATION_BUDGET_S,
+) -> bool:
+    """Whether polling this often actually keeps a row inside the quote limit.
+
+    **The composition, written down as a number a test can read.** This repo has
+    now been bitten twice by several individually defensible limits multiplying
+    into one unusable window, and the second time it was this exact quantity:
+    `MAX_KALSHI_QUOTE_AGE_S = 30`, `MAX_ODDS_AGE_S = 900`, loop interval 900s,
+    product = thirty seconds of actionability twice a day. Every module held one
+    of the three and none of them held the product.
+
+    The gap between two confirmations of the same row is the sleep *plus* the
+    pass, so both go in. If that gap exceeds the limit the fast cadence is
+    decoration: it costs requests and rows and the row still expires between
+    passes, and nothing would report that -- an expired row looks exactly like a
+    row nobody wanted.
+
+    Deliberately not `<=`. A gap exactly equal to the limit leaves a row
+    unbettable at the instant it is re-confirmed.
+    """
+    worst_case_gap_s = interval_s * (1.0 + jitter) + pass_duration_s
+    return worst_case_gap_s < max_kalshi_quote_age_s
+
+
+@dataclass
+class Tempo:
+    """Which cadence to run at, and which kind of pass is due.
+
+    Two decisions, kept together because they are the same decision seen from
+    two sides:
+
+    - **How often to look.** Fast while the window is open, because the Kalshi
+      quote behind every row expires in 30s. Slow when it is not, because there
+      is nothing to keep fresh and Kalshi has no reason to be polled 4,300 times
+      a day for it.
+    - **What to do when we look.** A *full* pass on the slow interval -- odds
+      sweep, closing lines, digest -- and a *quote* pass in between, which
+      touches Kalshi and nothing else. A full pass every 15s would fetch
+      candlesticks for every started game ninety times an hour to no purpose.
+
+    `last_full_ms` is recorded by the caller **after** a full pass succeeds, so
+    a full pass that raises is retried rather than being counted as done and
+    followed by fifteen minutes of quote passes.
+
+    State lives here rather than in `run_forever` because it is policy, not
+    looping, and because a pure object is testable without a clock.
+    """
+
+    slow_interval_s: float
+    fast_interval_s: float = DEFAULT_FAST_INTERVAL_S
+    window_open: bool = False
+    last_full_ms: Optional[int] = None
+    slow_passes: int = 0
+    fast_passes: int = 0
+    slow_passes_overrun: int = 0
+
+    def interval_s(self) -> float:
+        """The sleep to take next. Passed to `run_forever` as a callable."""
+        return self.fast_interval_s if self.window_open else self.slow_interval_s
+
+    def pass_kind(self, now_ms: int) -> str:
+        """`"full"` or `"quote"`.
+
+        The first pass of a process is always full: a fresh container has no
+        odds stored, so a quote pass would price nothing and the window could
+        never open in the first place.
+        """
+        if self.last_full_ms is None:
+            return "full"
+        due_ms = self.last_full_ms + self.slow_interval_s * 1000
+        return "quote" if now_ms < due_ms else "full"
+
+    def completed_full_pass(self, now_ms: int) -> None:
+        self.last_full_ms = now_ms
+        self.slow_passes += 1
+
+    def completed_quote_pass(self, now_ms: int) -> None:
+        self.fast_passes += 1
+
+    def observe_pass_duration(self, seconds: float, *, max_kalshi_quote_age_s: float) -> bool:
+        """Whether a pass that took this long still fits the fast cadence.
+
+        The startup check uses an *allowance* for how long a pass takes. This
+        uses what one actually took. A quote pass slow enough to break the
+        composition turns the fast cadence into wasted requests, and the symptom
+        -- rows expiring between passes -- is indistinguishable from a quiet
+        board, so it has to be said out loud rather than inferred.
+        """
+        ok = quote_refresh_survives_interval(
+            self.fast_interval_s,
+            jitter=JITTER,
+            max_kalshi_quote_age_s=max_kalshi_quote_age_s,
+            pass_duration_s=seconds,
+        )
+        if not ok:
+            self.slow_passes_overrun += 1
+            logger.warning(
+                "a pass took %.1fs; with a %.0fs fast interval and %.0f%% jitter "
+                "the worst-case gap between confirmations is %.1fs, past the %.0fs "
+                "Kalshi quote limit. Rows will expire between passes and the "
+                "board will look quiet rather than stale.",
+                seconds, self.fast_interval_s, JITTER * 100,
+                self.fast_interval_s * (1 + JITTER) + seconds,
+                max_kalshi_quote_age_s,
+            )
+        return ok
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "window_open": self.window_open,
+            "slow_passes": self.slow_passes,
+            "fast_passes": self.fast_passes,
+            "passes_over_quote_budget": self.slow_passes_overrun,
+        }
+
+
 async def run_forever(
     do_pass: Callable[[], Any],
     *,
-    interval_s: float,
+    interval_s: float | Callable[[], float],
     state: Optional[LoopState] = None,
     max_passes: Optional[int] = None,
     max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
@@ -100,6 +254,11 @@ async def run_forever(
     any object at all -- the loop only records it. Injecting it (rather than
     importing the runner here) keeps this module testable without a network,
     a database, or a clock.
+
+    `interval_s` may be a **callable**, evaluated after each pass rather than
+    once at the top. The cadence depends on whether anything is currently
+    bettable, which is a fact that changes during the run -- see `Tempo`. A
+    fixed float still works and is what most callers pass.
 
     `max_passes` exists for tests and for a `--once` style invocation. Without
     it the loop runs until the process is killed or it gives up.
@@ -142,6 +301,11 @@ async def run_forever(
 
         if max_passes is not None and state.passes_attempted >= max_passes:
             break
-        await sleep(next_delay(interval_s, rng))
+        # Read after the pass, not before: the pass is what changes the state
+        # the cadence depends on. Reading it first would spend a whole slow
+        # interval before noticing that the sweep this pass just fired had
+        # opened the window.
+        current = interval_s() if callable(interval_s) else interval_s
+        await sleep(next_delay(current, rng))
 
     return state

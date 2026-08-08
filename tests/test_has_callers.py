@@ -85,7 +85,39 @@ MUST_HAVE_CALLERS = [
         "closing lines are never fetched, so `score_recommendations` has "
         "nothing to score even once it is called",
     ),
+    (
+        "run_quote_pass",
+        "the loop runs on the odds cadence alone, so every row is bettable for "
+        "thirty seconds after the pass that wrote it and the tool is actionable "
+        "for about a minute a day",
+    ),
+    (
+        "live_ages",
+        "the Board and the order endpoint go back to computing freshness by two "
+        "separate paths, which is how a screen comes to offer a row the server "
+        "refuses",
+    ),
+    (
+        "Tempo",
+        "nothing chooses between the two cadences, so either Kalshi is polled "
+        "4,300 times a day or it is polled twice",
+    ),
+    (
+        "quote_refresh_survives_interval",
+        "the composed window goes unchecked again -- three defensible limits "
+        "whose product is a tool nobody can use, with no module holding more "
+        "than one of them",
+    ),
 ]
+
+# Two symbols are deliberately NOT above, and it is worth saying why rather than
+# leaving their absence to be read as an oversight. `confirm_recommendation` and
+# `store.db.migrate` are each called only from the module that defines them --
+# by `persist_if_changed` and `init_db` respectively, both of which *are* on the
+# list. Adding them would fail this file for the wrong reason: they are reached,
+# through an entry point already checked here. What guards them is behavioural,
+# and each was verified by disabling it: `test_an_unchanged_row_is_confirmed_
+# rather_than_left_to_rot` and `TestMigration`.
 
 
 def production_sources() -> list[Path]:
@@ -174,3 +206,71 @@ def test_the_agent_fleet_is_still_the_known_exception():
         "MUST_HAVE_CALLERS and delete this test -- the exception has been "
         "closed, and leaving it here would let it silently open again."
     )
+
+
+class TestTheEntrypointRunsWhatItMustRunFirst:
+    """The same question asked of a shell script instead of a module.
+
+    `store.db.migrate` is reached from `init_db`, which the chain runner calls.
+    That is not enough on the deployed instance: the **API** opens the database
+    read-only and `open_db` refuses a schema version it does not recognise, so
+    on a boot after a schema change it would 500 on every page until the runner
+    happened to start -- while `/api/health`, which touches no database, stayed
+    green throughout.
+
+    So the migration has to run *before* uvicorn, and the only thing that can
+    assert that is a test that reads the script. Nothing else in the suite runs
+    `entrypoint.sh` at all.
+    """
+
+    def _commands(self) -> list[str]:
+        """The script's executable lines, with comments and blanks dropped.
+
+        Not the raw text. The first version of this test searched for
+        `"uvicorn"` and matched the header comment explaining why the naive
+        `uvicorn & exec node` pattern is wrong -- so it reported the backend
+        starting at byte 111, before everything, and failed. That is exactly the
+        defect `_uses` above exists to avoid, reproduced in the one file that
+        documents it: **prose about a command is not the command.** This repo's
+        comment density makes any text search a search of the comments.
+        """
+        lines = []
+        for raw in (ROOT / "docker" / "entrypoint.sh").read_text("utf-8").splitlines():
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            lines.append(stripped)
+        return lines
+
+    def _first_index(self, commands: list[str], needle: str) -> int:
+        return next(
+            (i for i, line in enumerate(commands) if needle in line), -1
+        )
+
+    def test_the_migration_runs_before_the_backend_starts(self):
+        commands = self._commands()
+        migrate_at = self._first_index(commands, "scripts/migrate_db.py")
+        uvicorn_at = self._first_index(commands, "uvicorn")
+
+        assert migrate_at != -1, (
+            "entrypoint.sh does not migrate. A schema change would reach the "
+            "live volume only when the chain runner next called init_db, and "
+            "the API would refuse every read until then."
+        )
+        assert uvicorn_at != -1, "entrypoint.sh no longer starts the backend"
+        assert migrate_at < uvicorn_at, (
+            "the migration runs after uvicorn, so the API opens the old schema "
+            "first and refuses it"
+        )
+
+    def test_the_detector_reads_commands_rather_than_comments(self):
+        """The guard on the guard, because the naive version passed for a
+        different reason than the one it claimed."""
+        commands = self._commands()
+        assert not any(line.startswith("#") for line in commands)
+        assert any("uvicorn" in line for line in commands)
+
+    def test_the_script_it_names_exists(self):
+        """A boot step pointing at a missing file fails the deploy, loudly --
+        but only on the deploy, which is the worst place to find out."""
+        assert (ROOT / "scripts" / "migrate_db.py").exists()

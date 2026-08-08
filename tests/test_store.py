@@ -99,6 +99,149 @@ class TestSchemaVersionGuard:
             db.open_db(path)
 
 
+class TestMigration:
+    """The live volume holds a database that predates the current schema.
+
+    `schema.sql` is applied with `CREATE TABLE IF NOT EXISTS`, so a column added
+    to the file is invisible to every database already on disk -- and the one on
+    disk carries the evidence record, which is the single thing in this project
+    that cannot be recreated. So the migration has to be tested against a real
+    v1 database with real rows in it, not against a fresh one.
+    """
+
+    def _v1_database(self, tmp_path, *, rows=1):
+        """A database at the previous version, with the new columns removed.
+
+        Built by dropping the columns rather than by keeping an old schema file
+        around, so it cannot drift away from what v1 actually was: every other
+        column comes from the current schema, and only the v2 additions differ.
+        """
+        path = tmp_path / "v1.db"
+        conn = db.init_db(path)
+        added = [c for _, c, _ in db._MIGRATIONS[2]]
+        for column in added:
+            conn.execute(f"ALTER TABLE recommendations DROP COLUMN {column}")
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale, approved_by_user) VALUES (1, 0, 0, '{}', '', 0)"
+        )
+        conn.execute(
+            "INSERT INTO kalshi_series (series_ticker, league, has_game_markets, "
+            "first_seen_ms, last_seen_ms) VALUES ('S', 'L', 1, 0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, title, "
+            "category, first_seen_ms, last_seen_ms) "
+            "VALUES ('E', 'S', 't', 'Sports', 0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+            "first_seen_ms, last_seen_ms) VALUES ('T', 'E', 'S', 0, 0)"
+        )
+        for i in range(rows):
+            conn.execute(
+                "INSERT INTO recommendations (created_ms, strategy_config_version, "
+                "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+                "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+                "kalshi_quote_age_ms, odds_age_ms, reason_text) "
+                "VALUES (?, 1, 'T', 'yes', 503, 0.55, 20.0, 0.1, 0.5, 0.02, 0, "
+                "1000, 60000, 'kept')",
+                (1_000 + i,),
+            )
+        conn.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+        conn.commit()
+        conn.close()
+        return path, added
+
+    def test_a_v1_database_is_refused_until_it_is_migrated(self, tmp_path):
+        """The refusal is the point: the API opens read-only and cannot migrate.
+
+        This is why `entrypoint.sh` runs the migration before uvicorn starts.
+        """
+        path, _ = self._v1_database(tmp_path)
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(path)
+
+    def test_migrating_adds_the_columns_and_keeps_every_row(self, tmp_path):
+        path, added = self._v1_database(tmp_path, rows=3)
+
+        conn = db.init_db(path)
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        for column in added:
+            assert column in db._columns(conn, "recommendations")
+
+        kept = conn.execute(
+            "SELECT COUNT(*) n FROM recommendations WHERE reason_text = 'kept'"
+        ).fetchone()
+        assert kept["n"] == 3, "the record was not preserved across the migration"
+        # New columns are NULL on old rows, which is exactly what `live_ages`
+        # reads as "never re-derived" and falls back to `created_ms` for.
+        null = conn.execute(
+            "SELECT COUNT(*) n FROM recommendations WHERE last_confirmed_ms IS NULL"
+        ).fetchone()
+        assert null["n"] == 3
+        conn.close()
+
+        db.open_db(path).close()
+
+    def test_migrating_twice_changes_nothing(self, tmp_path):
+        """`entrypoint.sh` runs this on every boot."""
+        path, _ = self._v1_database(tmp_path)
+        db.init_db(path).close()
+
+        conn = db.init_db(path)
+        assert db.migrate(conn) == [], "a second run tried to migrate again"
+        conn.close()
+
+    def test_an_interrupted_migration_resumes(self, tmp_path):
+        """A crash between the last ALTER and the version stamp must be survivable.
+
+        `ALTER TABLE ADD COLUMN` raises on a column that already exists, so a
+        version-gated migration with no per-step check would leave a database
+        that can never be opened again -- and that database is the record.
+        """
+        path, added = self._v1_database(tmp_path)
+        conn = db.connect(path)
+        # Half-applied: the first column landed, then the process died.
+        conn.execute(f"ALTER TABLE recommendations ADD COLUMN {added[0]} INTEGER")
+        conn.commit()
+        conn.close()
+
+        conn = db.init_db(path)
+        for column in added:
+            assert column in db._columns(conn, "recommendations")
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        conn.close()
+
+    def test_a_fresh_database_is_built_at_the_current_version(self, tmp_path):
+        """No migration runs on a new file -- the schema file already has them.
+
+        Running one would try to add columns `schema.sql` had just declared.
+        """
+        path = tmp_path / "fresh.db"
+        conn = db.init_db(path)
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        for _, column, _ in db._MIGRATIONS[2]:
+            assert column in db._columns(conn, "recommendations")
+        assert db.migrate(conn) == []
+        conn.close()
+
+    def test_the_schema_file_and_the_migrations_agree(self, tmp_path):
+        """Every migrated column must also be in `schema.sql`.
+
+        Otherwise a fresh database and a migrated one differ, and the difference
+        shows up only on whichever of the two nobody develops against. That is
+        the same shape as two implementations of one rule.
+        """
+        conn = db.init_db(tmp_path / "agree.db")
+        for _, column, _ in db._MIGRATIONS[db.SCHEMA_VERSION]:
+            assert column in db._columns(conn, "recommendations"), (
+                f"{column} is migrated onto old databases but missing from "
+                f"schema.sql, so a fresh database would never have it"
+            )
+        conn.close()
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

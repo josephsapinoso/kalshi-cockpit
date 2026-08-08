@@ -45,6 +45,18 @@ export type Recommendation = {
   odds_age_now_ms?: number | null;
   /** Both ages still inside the staleness contract, at this instant. */
   actionable?: boolean;
+  /**
+   * Whether `quote_age_now_ms` is measured from a **re-derivation** rather than
+   * from when the row was written.
+   *
+   * A quote pass re-reads Kalshi every fifteen seconds while the window is open
+   * and stamps rows whose ask and fair value have not moved, instead of
+   * recording a duplicate. So a live row's quote age is usually the age of the
+   * last confirmation. "Quoted 3s ago" and "re-checked 3s ago" are different
+   * claims and the card says which one it is showing.
+   */
+  freshness_confirmed?: boolean;
+  freshness_measured_from_ms?: number | null;
 };
 
 export type Board = {

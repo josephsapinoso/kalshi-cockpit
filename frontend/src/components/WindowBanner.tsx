@@ -143,13 +143,18 @@ function explain(
   if (surfaced === 0 && expired > 0) {
     // The state that would otherwise be read as a bug: green light, sized
     // bets on screen, and none of them placeable.
+    //
+    // This used to assert the cause was a stale Kalshi quote. It no longer can:
+    // a quote pass re-reads Kalshi every few seconds while the window is open,
+    // so a row here has usually failed some *other* check, and naming the wrong
+    // cause is worse than naming none. The cards say which clock ran out.
     return (
       `The books are fresh, but the ${expired} sized ${
         expired === 1 ? "row" : "rows"
-      } below are priced against a Kalshi quote older than the ${
-        quoteLimitS ?? 30
-      }-second limit, so the server will refuse them. Two limits bound this ` +
-      "window and the tighter one decides it."
+      } below are outside the freshness contract, so the server will refuse ` +
+      `them. Each card names the limit it broke — a Kalshi quote holds for ` +
+      `${quoteLimitS ?? 30}s and is re-checked continuously while the window ` +
+      "is open; the consensus behind it is not."
     );
   }
   if (surfaced === 0) {
@@ -160,11 +165,17 @@ function explain(
       "signal to bet."
     );
   }
+  // The claim here used to be that rows expire sooner than the window does.
+  // That was true and was the defect: the recorder wrote a row every 900s
+  // against a quote good for 30, so the tool was actionable for about a minute
+  // a day. A quote pass now re-reads Kalshi every few seconds while the window
+  // is open, so a row lasts as long as the books behind it -- which is what
+  // this banner counts down.
   return (
-    `${surfaced} row${surfaced === 1 ? " is" : "s are"} bettable right now. ` +
-    `Each also needs its Kalshi quote to stay under ${quoteLimitS ?? 30}s, so ` +
-    "the individual rows expire sooner than this window does — and the server " +
-    "checks again regardless of what this page still shows."
+    `${surfaced} row${surfaced === 1 ? " is" : "s are"} bettable right now, ` +
+    `and the Kalshi quote behind each is re-checked every few seconds, so ` +
+    `they last as long as this window does. The server checks again at the ` +
+    "moment of the order regardless of what this page shows."
   );
 }
 

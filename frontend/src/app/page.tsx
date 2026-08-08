@@ -44,6 +44,20 @@ export default async function BoardPage({
     );
   }
 
+  // Which limit each expired row actually broke. Counted from the ages the
+  // server sent rather than assumed, because the answer changed: a quote pass
+  // re-reads Kalshi every few seconds while the window is open, so the quote is
+  // usually the fresh half and the consensus is the one that ran out.
+  const expiredCause = board.expired.reduce(
+    (acc, rec) => {
+      const quoteAge = rec.quote_age_now_ms ?? rec.kalshi_quote_age_ms;
+      if (quoteAge > board.staleness.max_kalshi_quote_age_s * 1000) acc.quote += 1;
+      else acc.odds += 1;
+      return acc;
+    },
+    { quote: 0, odds: 0 },
+  );
+
   return (
     <Shell>
       {health.instance_mode === "demo" && (
@@ -100,11 +114,25 @@ export default async function BoardPage({
           <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
             {board.expired.length > 0 ? (
               <>
+                {/* Which clock ran out is counted, not assumed. This used to
+                    assert that every expired row had a stale Kalshi quote,
+                    which was true when the recorder polled once every fifteen
+                    minutes against a thirty-second limit. A quote pass now
+                    re-reads Kalshi continuously while the window is open, so
+                    the usual cause is the sportsbook consensus instead — and a
+                    headline naming the wrong one contradicts the cards under
+                    it. */}
                 The engine did find something — {board.expired.length}{" "}
                 {board.expired.length === 1 ? "bet" : "bets"}, listed below —
-                and every one of them is now priced against a Kalshi quote past
-                its {board.staleness.max_kalshi_quote_age_s}-second limit. That
-                is a timing problem, not a quiet market.
+                and the moment has passed on{" "}
+                {expiredCause.quote > 0 && expiredCause.odds > 0
+                  ? `${expiredCause.quote} because the Kalshi quote went stale and ${expiredCause.odds} because the sportsbook consensus did`
+                  : expiredCause.quote > 0
+                    ? `a Kalshi quote past its ${board.staleness.max_kalshi_quote_age_s}-second limit`
+                    : `a sportsbook consensus past its ${Math.round(
+                        board.staleness.max_odds_age_s / 60,
+                      )}-minute limit`}
+                . That is a timing problem, not a quiet market.
               </>
             ) : (
               <>
@@ -122,6 +150,7 @@ export default async function BoardPage({
               key={rec.id}
               rec={rec}
               quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+              oddsLimitMs={board.staleness.max_odds_age_s * 1000}
             />
           ))}
         </div>
@@ -138,11 +167,17 @@ export default async function BoardPage({
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
             The engine sized {board.expired.length}{" "}
             {board.expired.length === 1 ? "bet" : "bets"} that can no longer be
-            placed: a Kalshi quote is only accepted for{" "}
-            {board.staleness.max_kalshi_quote_age_s} seconds, and the recorder
-            polls far less often than that. They are shown because a board that
-            silently drops them looks identical to a board that never found
-            anything.
+            placed. Two clocks decide that, and each card says which one ran
+            out: a Kalshi quote is accepted for{" "}
+            {board.staleness.max_kalshi_quote_age_s} seconds and is re-checked
+            every few seconds while the window is open, so most rows here have
+            outlived the sportsbook consensus instead —{" "}
+            {`which stands for ${Math.round(
+              board.staleness.max_odds_age_s / 60,
+            )} minutes`}{" "}
+            and can only be refreshed by spending one of the day&apos;s two odds
+            credits. They are shown because a board that silently drops them
+            looks identical to a board that never found anything.
           </p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {board.expired.map((rec) => (
@@ -151,6 +186,7 @@ export default async function BoardPage({
                 rec={rec}
                 expired
                 quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+                oddsLimitMs={board.staleness.max_odds_age_s * 1000}
               />
             ))}
           </div>

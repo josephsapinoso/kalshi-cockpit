@@ -251,6 +251,60 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
         finally:
             conn.close()
 
+    async def test_a_confirmed_row_is_live_on_the_board_and_at_the_order_endpoint(
+        self, tmp_path
+    ):
+        """The pair that would have come apart.
+
+        `persist_if_changed` re-derives an unchanged decision and stamps the row
+        rather than writing a new one, so the freshness basis moves. A Board
+        still measuring from `created_ms` would strike a row through and label
+        it expired while the server would happily sell it -- the same
+        disagreement as before, pointing the other way. They share `live_ages`
+        precisely so this cannot happen.
+        """
+        from backend.engine import confirm_recommendation
+        from backend.gate import recommendation_freshness
+        from backend.seed_demo import seed_all
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "confirmed.db"
+        # Ten minutes ago: the books are still inside their 900s limit and every
+        # quote is far outside its 30s one, so nothing is actionable.
+        seed_all(path, now_ms=now_ms() - 600_000)
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        before = (await get(app, "/api/board")).json()
+        assert before["counts"]["surfaced"] == 0
+        target = before["expired"][0]
+
+        writer = store.init_db(path)
+        try:
+            confirm_recommendation(
+                writer, target["id"], confirmed_ms=now_ms() - 2_000,
+                kalshi_quote_age_ms=0, odds_age_ms=602_000,
+            )
+        finally:
+            writer.close()
+
+        after = (await get(app, "/api/board")).json()
+        surfaced = [r for r in after["surfaced"] if r["id"] == target["id"]]
+        assert surfaced, "a re-derived row is still shown as expired"
+        assert surfaced[0]["freshness_confirmed"] is True
+        assert surfaced[0]["quote_age_now_ms"] < 30_000
+        # Still bounded by the odds, which the confirmation did not refresh.
+        assert 600_000 < surfaced[0]["odds_age_now_ms"] < 900_000
+
+        conn = store.open_db(path, read_only=True)
+        try:
+            control = recommendation_freshness(conn, target["id"])
+            assert control["confirmed"] is True
+            assert control["kalshi_quote_age_ms"] == pytest.approx(
+                surfaced[0]["quote_age_now_ms"], abs=2_000
+            )
+        finally:
+            conn.close()
+
 
 class TestMarketDetail:
     async def test_returns_a_known_market(self, demo_app, demo_db):

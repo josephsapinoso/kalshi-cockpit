@@ -116,7 +116,11 @@ class PassCounts:
     recommendations: int = 0
     surfaced: int = 0
     suppressed: int = 0
-    unchanged_skipped: int = 0
+    # Not "skipped". An unchanged decision is re-derived and the existing row is
+    # stamped with this pass's ages, which is what keeps it inside the 30s
+    # Kalshi limit while the market has not moved. See
+    # `engine.confirm_recommendation`.
+    unchanged_confirmed: int = 0
     dropped_no_books: int = 0
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
@@ -570,8 +574,10 @@ def run_pricing_pass(
                 )
                 if persist_if_changed(conn, recommendation) is None:
                     # Same ask, same fair value as the last row for this side.
-                    # Re-recording it would add a row and no information.
-                    counts.unchanged_skipped += 1
+                    # Re-recording it would add a row and no information -- but
+                    # the existing row is stamped with this pass's ages, so it
+                    # stays as fresh as the quote behind it actually is.
+                    counts.unchanged_confirmed += 1
                     continue
 
                 counts.recommendations += 1
@@ -697,6 +703,30 @@ def store_quotes_from_discovery(
     return stored
 
 
+async def run_kalshi_pass(
+    conn,
+    kalshi_client,
+    *,
+    now: int,
+    counts: PassCounts,
+) -> list[DiscoveredEvent]:
+    """Discovery and the quotes it carries. Kalshi only; spends no odds credit.
+
+    Split out because it is the whole of a *quote pass* and only part of an
+    ingest pass. Kalshi REST is unmetered and The Odds API is not, so this leg
+    can run every twenty seconds while the other can run twice a day, and
+    keeping one implementation of it is what stops the two cadences drifting
+    into two slightly different notions of what a quote is.
+    """
+    # `events()` is an async *generator* -- it paginates lazily -- so it is
+    # consumed rather than awaited.
+    raw_events = [e async for e in kalshi_client.events(with_nested_markets=True)]
+    events = discover_from_events(raw_events)
+    upsert_discovered(conn, events, now=now)
+    counts.markets_quoted = store_quotes_from_discovery(conn, events, now=now)
+    return events
+
+
 async def run_ingest_pass(
     conn,
     kalshi_client,
@@ -722,12 +752,7 @@ async def run_ingest_pass(
     counts = counts or PassCounts()
     suppression = suppression or SuppressionConfig()
 
-    # `events()` is an async *generator* -- it paginates lazily -- so it is
-    # consumed rather than awaited.
-    raw_events = [e async for e in kalshi_client.events(with_nested_markets=True)]
-    events = discover_from_events(raw_events)
-    upsert_discovered(conn, events, now=stamp)
-    counts.markets_quoted = store_quotes_from_discovery(conn, events, now=stamp)
+    events = await run_kalshi_pass(conn, kalshi_client, now=stamp, counts=counts)
 
     sweeps, stored, decision = await fetch_and_store_odds(
         conn, odds_client, budget, events=events, config=config, now=stamp,
@@ -758,6 +783,52 @@ async def run_once(
         conn, kalshi_client, odds_client, budget, config=config, now=stamp,
         suppression=suppression,
     )
+    return run_pricing_pass(
+        conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts
+    )
+
+
+# Said instead of an empty string, so a quote pass is never mistaken for a full
+# pass that considered a sweep and declined. Those need opposite responses: one
+# is working as designed, the other means the schedule has a problem.
+QUOTE_PASS_SWEEP_DETAIL = "no sweep: quote refresh only (spends no odds credit)"
+
+
+async def run_quote_pass(
+    conn,
+    kalshi_client,
+    *,
+    risk: Optional[RiskConfig] = None,
+    suppression: Optional[SuppressionConfig] = None,
+    now: Optional[int] = None,
+) -> PassCounts:
+    """Re-read Kalshi and re-price against the odds already stored.
+
+    **Why this exists.** Two limits bound the actionable window and the tighter
+    one decides it: the sportsbook consensus is good for `max_odds_age_ms`
+    (900s) and the Kalshi quote for `max_kalshi_quote_age_ms` (30s). The loop
+    wrote a row every 900s. So each row was bettable for **thirty seconds** and
+    the tool was actionable for about a minute a day, not the fifteen minutes
+    every document in this repo claimed. Neither limit is wrong; nothing
+    computed their product.
+
+    A quote pass is the cheap half of a full pass. It touches Kalshi, which is
+    unmetered, and never The Odds API, which is the whole reason for the 900s
+    interval. Run every ~20s while the window is open it keeps each row inside
+    the 30s limit for the entire fifteen minutes the odds are good for, at a
+    cost of zero credits.
+
+    What it deliberately does not do: sweep odds, fetch closing lines, or spend
+    anything. `sweep_decision` says so rather than being left blank.
+
+    **This does not widen the window.** Fifteen minutes twice a day is set by
+    `MAX_ODDS_AGE_S` and the credit budget, and no amount of Kalshi polling
+    changes it. What this fixes is that the fifteen minutes are now usable
+    throughout rather than for the first thirty seconds.
+    """
+    stamp = now if now is not None else now_ms()
+    counts = PassCounts(sweep_decision=QUOTE_PASS_SWEEP_DETAIL)
+    events = await run_kalshi_pass(conn, kalshi_client, now=stamp, counts=counts)
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts
     )

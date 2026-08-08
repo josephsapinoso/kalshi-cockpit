@@ -301,6 +301,42 @@ def persist_recommendation(conn, rec: Recommendation) -> int:
 _FAIR_PRECISION = 9
 
 
+def confirm_recommendation(
+    conn,
+    recommendation_id: int,
+    *,
+    confirmed_ms: int,
+    kalshi_quote_age_ms: int,
+    odds_age_ms: int,
+) -> None:
+    """Record that this row was re-derived, unchanged, at `confirmed_ms`.
+
+    **The distinction this exists to make.** `persist_if_changed` writes no
+    second row for an unchanged decision, which is right for the record and was
+    wrong for freshness, because every freshness check measured from
+    `created_ms`. So a row went stale on a market that had not moved: the price
+    was current and the *observation* was old, and one column meant both.
+
+    A confirmation is a complete re-statement about one instant -- at
+    `confirmed_ms` this exact decision was re-derived from a Kalshi quote of
+    `kalshi_quote_age_ms` and a consensus of `odds_age_ms`. Both ages, never
+    just the quote: the odds are the binding limit at fifteen minutes, and a
+    confirmation that reset the quote clock alone would keep a row bettable
+    forever on a consensus that had aged out. See `gate.live_ages`.
+
+    `created_ms` is untouched, so nothing about the record changes -- the row
+    still says when the decision was made, and CLV still scores it against a
+    closing line observed after that instant.
+    """
+    conn.execute(
+        "UPDATE recommendations SET last_confirmed_ms = ?, "
+        "last_confirmed_quote_age_ms = ?, last_confirmed_odds_age_ms = ? "
+        "WHERE id = ?",
+        (confirmed_ms, kalshi_quote_age_ms, odds_age_ms, recommendation_id),
+    )
+    conn.commit()
+
+
 def persist_if_changed(conn, rec: Recommendation) -> Optional[int]:
     """Store a recommendation unless it repeats the previous one for this side.
 
@@ -329,10 +365,17 @@ def persist_if_changed(conn, rec: Recommendation) -> Optional[int]:
     transition is reconstructable from `created_ms` and the staleness limits, and
     logging it every pass is what would drown the suppression log.
 
-    Returns the new row id, or `None` if the row was skipped as unchanged.
+    **Unchanged is confirmed, not discarded.** The skipped row is stamped with
+    this pass's ages via `confirm_recommendation`, so "we did not re-record it"
+    stops meaning "we never looked again". Without that the record was correct
+    and the row was unbettable thirty seconds later on a market that had not
+    moved.
+
+    Returns the new row id, or `None` if the row was confirmed rather than
+    re-recorded.
     """
     previous = conn.execute(
-        "SELECT entry_ask_tenths, fair_probability FROM recommendations "
+        "SELECT id, entry_ask_tenths, fair_probability FROM recommendations "
         "WHERE ticker = ? AND side = ? ORDER BY created_ms DESC, id DESC LIMIT 1",
         (rec.ticker, rec.side),
     ).fetchone()
@@ -343,6 +386,13 @@ def persist_if_changed(conn, rec: Recommendation) -> Optional[int]:
             float(previous["fair_probability"]), _FAIR_PRECISION
         ) == round(rec.fair_probability, _FAIR_PRECISION)
         if same_ask and same_fair:
+            confirm_recommendation(
+                conn,
+                int(previous["id"]),
+                confirmed_ms=rec.created_ms,
+                kalshi_quote_age_ms=rec.kalshi_quote_age_ms,
+                odds_age_ms=rec.odds_age_ms,
+            )
             return None
 
     return persist_recommendation(conn, rec)

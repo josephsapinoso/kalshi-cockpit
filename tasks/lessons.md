@@ -1357,3 +1357,134 @@ implementations: orphan the module *for real* — import removed, call removed, 
 comment mentioning the name left behind — which is the exact shape of the bug
 being detected. Related: [[code-with-no-caller-is-not-a-feature]],
 [[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-08 — Deduplicating the record made the record unusable
+
+`persist_if_changed` refuses to write a second row when the derived ask and the
+fair probability are unchanged. That is correct and measured: without it ~98% of
+the record would be one candidate repeated, and a suppression summary dominated
+by the same row rejected ninety-six times says nothing about which rules matter.
+
+Every freshness check then measured from `created_ms`. So the two statements
+
+    "this observation is old"
+    "this price is old"
+
+were one number, and on an unchanged market they diverged completely: the price
+was current and the row was refused, thirty seconds after the pass that wrote
+it. The dedupe was right about the *record* and was silently making a claim
+about *freshness* it had no basis for.
+
+**The tell was that both halves were individually defended.** The dedupe has a
+docstring explaining what it deliberately loses; `recommendation_freshness` has
+one explaining why an age must be re-derived from the clock. Neither mentions
+the other, and the defect lives exactly in the gap: the freshness function
+faithfully re-derived an age from an instant that had stopped meaning what it
+used to mean.
+
+**How to apply:** when a write path decides *not* to record something, ask what
+downstream reads that absence as information. "We did not write a row" and "we
+did not look" are different facts, and a schema that cannot tell them apart will
+be read as the second. The fix is to record the non-event — here
+`last_confirmed_ms` plus **both** ages, because a confirmation is a complete
+re-statement about one instant, not a partial refresh.
+
+Two supporting details worth keeping, both of which a wrong implementation gets
+wrong in the flattering direction:
+
+- **Refresh every clock the confirmation observed, or none of them.** Taking the
+  confirmation's Kalshi quote age while leaving the odds age on `created_ms` is
+  the tempting half-fix. It is *arithmetically identical* while no new sweep has
+  happened — the odds observation instant is fixed either way — which is exactly
+  what makes it look right. The dangerous variant is one that credits a
+  confirmation with fresher odds than it observed; a row confirmed every fifteen
+  seconds then never expires at all, and the tool starts offering bets priced
+  against a consensus swept hours ago. The test that separates them is the one
+  where the quote is perfectly fresh and the odds are past their limit.
+- **A half-written confirmation is not a confirmation.** A timestamp with one
+  age missing falls back to `created_ms` rather than borrowing the other half,
+  because a freshness claim assembled from two different instants is worse than
+  an old one. Same rule as [[unreadable-must-never-resolve-to-zero]], applied to
+  a tuple instead of a scalar.
+
+Related: [[two-limits-on-one-quantity]], which is what made the thirty seconds
+matter; [[a-stored-age-rendered-as-a-current-one]], which is this same column
+misread one screen over.
+
+---
+
+## 2026-08-08 — A rate limit belonging to one dependency was applied to both
+
+The recording loop ran every 900 seconds. That number comes entirely from The
+Odds API's free tier — ~500 credits a month, six a sweep, two sweeps a day — and
+it was applied to the Kalshi leg as well, which is **unmetered**. Kalshi is also
+the tighter freshness limit: 30 seconds against the consensus's 900.
+
+So one cadence served two dependencies with nothing in common, and the composed
+result was a tool actionable for about a minute a day.
+
+The fix is two cadences: a full pass on the odds interval, and a quote pass —
+Kalshi discovery, the quotes it carries, a re-price against stored odds — every
+fifteen seconds *while the window is open*. It costs no credits and it does not
+widen the window by a second; fifteen minutes twice a day is set by
+`MAX_ODDS_AGE_S` and the budget. What it changes is that those fifteen minutes
+are usable throughout instead of for the first thirty seconds.
+
+Three things this got right only because they were asked explicitly:
+
+- **The gap between confirmations is the sleep plus the pass**, not the sleep.
+  `quote_refresh_survives_interval` takes both and the loop refuses to start when
+  the product exceeds the limit, in the same shape as the existing
+  `sweep_window_survives_interval`. A fast cadence that still lets rows expire
+  between passes buys nothing and reports nothing — an expired row looks exactly
+  like a row nobody wanted.
+- **Fast only while the window is open.** The predicate is the existing
+  `window_status(...).is_open`, because outside it nothing is bettable and there
+  is no reason to poll Kalshi 4,300 times a day for it.
+- **Not every leg belongs on the fast cadence.** The quote pass deliberately
+  skips the odds sweep, the closing-line fetch and the digest, and says
+  `sweep_decision: "quote refresh only"` rather than leaving the field blank — a
+  quote pass and a full pass that considered a sweep and declined need opposite
+  responses.
+
+**How to apply:** when one interval serves several dependencies, write down what
+each one is actually limited by. A number chosen for the scarcest resource will
+be inherited by everything that shares the loop, and the inheritance is
+invisible — every module sees a reasonable interval and none of them sees why.
+Related: [[a-budget-that-says-whether-and-never-when]], which is the same
+question about *when* rather than *how often*.
+
+---
+
+## 2026-08-08 — The user-facing explanation of a limit outlives the limit
+
+Fixing the polling cadence made four pieces of copy false, and each of them had
+been *correct and carefully written* when it shipped:
+
+    "the individual rows expire sooner than this window does"
+    "the recorder polls far less often than that"
+    "every one of them is now priced against a Kalshi quote past its 30s limit"
+    "the quote behind it is 3s, past the 30s limit"     <- and now nonsense
+
+The last one is the instructive case. The card named the quote as the cause
+unconditionally, which was true while both clocks advanced together. Once the
+quote is re-checked every fifteen seconds and the consensus is not, expired rows
+expire on the *books* — and the card rendered "quote 3s ago, past the 30s
+limit", a sentence that is internally contradictory and that a reader cannot act
+on.
+
+None of this was caught by 998 passing tests, `tsc`, or a successful build. It
+was caught by rendering the page and reading it, which also turned up a JSX
+spacing bug (`15minutes`) that no automated check in this repo would ever see.
+
+**How to apply:** when a limit changes, grep for the *prose* about it, not only
+the code. And prefer copy that reads the state over copy that asserts a cause —
+the Board now counts which of the two clocks each expired row actually broke and
+says that, so the next time the balance shifts the page follows instead of
+lying. A hardcoded explanation of a dynamic system is a comment in a place
+users can see.
+
+Corollary, and this is the third time this file has said a version of it: the
+build-order step is not done when the tests pass. Run the app and look at it.

@@ -35,6 +35,21 @@ if [ "${INSTANCE_MODE}" = "demo" ]; then
   python -m backend.seed_demo --db "${DB_PATH}" --anchor-now
 fi
 
+# Migrate BEFORE anything opens the database, which means before uvicorn.
+#
+# The API opens read-only and `store.db.open_db` refuses a schema version it
+# does not recognise -- deliberately, because reading old columns under new
+# meanings is the silent failure the version stamp exists to catch. So the API
+# cannot migrate its way out of a stale volume: without this line it would 500
+# on every page until the chain runner happened to call `init_db`, and
+# `/api/health` would stay green throughout because it touches no database.
+#
+# Idempotent, and `set -e` makes a failure here abort the boot rather than
+# continue on a half-migrated volume -- the record on that volume is the one
+# thing in this project that cannot be recreated.
+echo "[entrypoint] checking database schema"
+python scripts/migrate_db.py --db "${DB_PATH}"
+
 # ---------------------------------------------------------------------------
 # Materialise the Kalshi RSA private key.
 #
@@ -143,9 +158,10 @@ pids="${pids} ${frontend_pid}"
 # while making no progress at all toward answering the project's question.
 loop_pid=""
 if [ "${INSTANCE_MODE}" != "demo" ]; then
-  echo "[entrypoint] starting chain runner (interval=${RUNNER_INTERVAL_S:-900}s)"
+  echo "[entrypoint] starting chain runner (full=${RUNNER_INTERVAL_S:-900}s quote=${RUNNER_FAST_INTERVAL_S:-15}s)"
   python scripts/run_loop.py \
-    --db "${DB_PATH}" --interval "${RUNNER_INTERVAL_S:-900}" &
+    --db "${DB_PATH}" --interval "${RUNNER_INTERVAL_S:-900}" \
+    --fast-interval "${RUNNER_FAST_INTERVAL_S:-15}" &
   loop_pid=$!
   pids="${pids} ${loop_pid}"
 else

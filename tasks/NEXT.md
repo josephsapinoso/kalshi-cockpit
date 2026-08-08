@@ -1,6 +1,79 @@
 # Next — your checklist
 
-## HANDOFF (2026-08-08, end of session)
+## HANDOFF (2026-08-08, later — the 30-second window is fixed)
+
+**State:** 998 tests, `dbt build` 11 nodes green, frontend builds, all five
+pages fit 320/390px. **Not yet deployed** — see "Deploying this" below, because
+this one carries a schema migration and the boot order matters.
+
+### What changed
+
+The previous handoff's item 1 — *"the window is 30 seconds, not 15 minutes"* —
+is done, by the two fixes it proposed as composing. They do compose, and neither
+works alone.
+
+**1. A second cadence.** `backend/runner.run_quote_pass` re-reads Kalshi,
+re-prices against the odds already stored, and spends nothing. The loop now runs
+a **full pass every 900s** and a **quote pass every 15s while the window is
+open** (`backend/scheduler.Tempo`). Kalshi REST is unmetered; the 900s interval
+was The Odds API's limit applied to a leg that never needed it.
+
+**2. `last_confirmed_ms`.** A quote pass that re-derives an identical decision
+stamps the existing row instead of writing a duplicate, so `persist_if_changed`
+keeps the record clean *and* freshness stops measuring from `created_ms`. Three
+new columns, all nullable: the instant, and **both** ages at that instant.
+
+Measured on a simulated 930 seconds of passes (61 quote, 1 full) against a real
+database with fake clients:
+
+    recommendation rows      4        (not 248 — the dedupe still holds)
+    confirmed                4/4
+    quote age at the end     0.0s     (limit 30s)
+    odds age at the end      1354s    (limit 900s — correctly expired)
+
+That last line is the point as much as the others. **This does not widen the
+window.** Fifteen minutes twice a day is `MAX_ODDS_AGE_S` and the credit budget,
+and no amount of Kalshi polling changes it. What changes is that the fifteen
+minutes are now usable throughout rather than for the first thirty seconds —
+about 30 min/day of actionability instead of about 1.
+
+Item 3 from the last handoff — **refresh the quote at order time** — is still
+open and is still the real fix for execution. It closes the gap between "this
+row was true 15 seconds ago" and "this row is true now", which confirmation
+narrows and cannot close.
+
+### Deploying this
+
+**The migration must run before uvicorn.** `docker/entrypoint.sh` now does that
+(`scripts/migrate_db.py`), and a test asserts the ordering. The reason it
+matters: the API opens read-only and `open_db` refuses an unrecognised schema
+version, so on the first boot after this change the live instance would 500 on
+every page until the runner happened to call `init_db` — while `/api/health`
+stayed green throughout, because it touches no database.
+
+Verified against a synthetic v1 database with 128 rows: refused before, migrated
+v1 → v2, 128 rows kept, all three columns present, second run a no-op.
+
+`RUNNER_FAST_INTERVAL_S` defaults to 15. Do not raise it past 18 and do not
+raise `MAX_KALSHI_QUOTE_AGE_S` — the loop refuses to start if the composed
+worst-case gap exceeds the limit, and 30s is the right number for a venue quoted
+by sub-200ms market makers.
+
+### What to look at once it is live
+
+- `pass` and `took_s` are now on every loop log line. If `took_s` on a quote
+  pass approaches 8s the fast cadence stops keeping rows inside the limit;
+  `Tempo.observe_pass_duration` logs a warning and counts it as
+  `passes_over_quote_budget`.
+- **`surfaced` should stop being structurally zero during a window.** It has
+  always been 0, and part of that was that nothing could survive 30 seconds. If
+  it is still 0 after a full window with the fast cadence running, that is the
+  honest no-edge result rather than an artefact — which is the first time that
+  sentence has been true.
+
+---
+
+## HANDOFF (2026-08-08, earlier)
 
 **State:** 935 tests, `dbt build` 11 nodes green, **both instances deployed and
 verified**. The four items from the last handoff are done — sweep timing, the
@@ -27,7 +100,12 @@ climbing.
   demo  https://kalshi-cockpit-demo.fly.dev   (public, no credentials)
   live  https://kalshi-cockpit.fly.dev        (login: APP_AUTH_TOKEN)
 
-### Pick this up first — the window is 30 seconds, not 15 minutes
+### ~~Pick this up first — the window is 30 seconds, not 15 minutes~~
+
+**Done 2026-08-08.** Fixes 1 and 2 below are both implemented; see the handoff
+at the top of this file. Fix 3 — refresh the quote at order time — is still
+open. The original write-up is kept because it is the clearest statement of the
+problem.
 
 The premise of the last handoff was wrong and the fix exposed it. **Two limits
 bound the actionable window and the tighter one decides it:**
@@ -383,6 +461,12 @@ decision.
       it looked right — and above it the old form is too narrow, 1.55x too small
       at 60% discordance, in the direction that manufactures significance.
       Verified by restoring each old implementation in turn.
+- [ ] **Refresh the Kalshi quote at order time.** Item 3 of the three window
+      fixes, and the only one left. The ticket sheet should read a live quote
+      before confirming rather than trusting the recorded one. Confirmation
+      narrows the gap between "true 15 seconds ago" and "true now" to fifteen
+      seconds; it cannot close it, and closing it is what makes an execution
+      price honest.
 - [ ] **Deci-cent asks can't fill.** Limit prices floor to whole cents, so a
       50.5c ask rests at 50c on the ~25% of markets that tick in half-cents.
       Safe for money, but it corrupts the paper record with orders that never

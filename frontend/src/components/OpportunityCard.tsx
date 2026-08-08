@@ -2,6 +2,7 @@ import type { Recommendation } from "@/lib/api";
 import { formatAge, formatKickoff, freshness } from "@/lib/api";
 
 const MAX_QUOTE_AGE_MS = 30_000;
+const MAX_ODDS_AGE_MS = 900_000;
 
 /**
  * One opportunity, as a card.
@@ -21,16 +22,22 @@ export default function OpportunityCard({
   suppressed = false,
   expired = false,
   quoteLimitMs = MAX_QUOTE_AGE_MS,
+  oddsLimitMs = MAX_ODDS_AGE_MS,
 }: {
   rec: Recommendation;
   suppressed?: boolean;
   expired?: boolean;
   quoteLimitMs?: number;
+  oddsLimitMs?: number;
 }) {
   const quoteAge = rec.quote_age_now_ms ?? rec.kalshi_quote_age_ms;
   const oddsAge = rec.odds_age_now_ms ?? rec.odds_age_ms;
   const band = freshness(quoteAge, quoteLimitMs);
   const positive = rec.edge_cents > 0;
+  // Which of the two limits is what makes a row unbettable, and it is no longer
+  // always the quote. A quote pass re-checks the Kalshi price every fifteen
+  // seconds; nothing refreshes the sportsbook consensus but a credit.
+  const quoteExpired = quoteAge > quoteLimitMs;
 
   return (
     <article
@@ -90,7 +97,12 @@ export default function OpportunityCard({
       <p className="mt-4 text-sm leading-relaxed text-muted">{rec.reason_text}</p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 font-mono text-xs text-muted">
-        <span className={`freshness-${band}`}>quote {formatAge(quoteAge)}</span>
+        {/* "re-checked" rather than "quote" once a quote pass has re-derived
+            this row: the number is then the age of the last confirmation, not
+            of the original observation, and those are different claims. */}
+        <span className={`freshness-${band}`}>
+          {rec.freshness_confirmed ? "re-checked" : "quote"} {formatAge(quoteAge)}
+        </span>
         <span>books {formatAge(oddsAge)}</span>
         {rec.depth_at_ask !== null && <span>depth {rec.depth_at_ask.toFixed(0)}</span>}
         <span className="ml-auto">cfg v{rec.strategy_config_version}</span>
@@ -98,9 +110,27 @@ export default function OpportunityCard({
 
       {expired && (
         <div className="mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed text-muted">
-          Not bettable now — the quote behind it is{" "}
-          <span className="font-mono">{formatAge(quoteAge)}</span>, past the{" "}
-          <span className="font-mono">{Math.round(quoteLimitMs / 1000)}s</span>{" "}
+          {/* Name the limit that actually failed. This used to say "the quote"
+              unconditionally, which was true when both clocks advanced
+              together. They do not any more: a quote pass re-checks the Kalshi
+              price every fifteen seconds while the sportsbook consensus keeps
+              ageing, so most expired rows now expire on the books -- and the
+              old wording rendered "quote 3s, past the 30s limit", which is not
+              a sentence a reader can act on. */}
+          Not bettable now — the{" "}
+          {quoteExpired ? "quote behind it" : "sportsbook consensus behind it"} is{" "}
+          <span className="font-mono">
+            {formatAge(quoteExpired ? quoteAge : oddsAge)}
+          </span>
+          , past the{" "}
+          <span className="font-mono">
+            {/* Seconds for the quote, minutes for the books. "28m ago, past the
+                900s limit" makes the reader convert units to see how far past
+                it is, on a page built to be read in a few seconds. */}
+            {quoteExpired
+              ? `${Math.round(quoteLimitMs / 1000)}s`
+              : `${Math.round(oddsLimitMs / 60_000)}m`}
+          </span>{" "}
           limit. The order endpoint refuses it independently of this page.
         </div>
       )}

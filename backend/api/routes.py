@@ -39,7 +39,12 @@ from ..core.parlay import (
 from ..core.prices import format_price, tenths_to_dollars
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
-from ..gate import clustered_clv, evaluate_gate, recommendation_freshness
+from ..gate import (
+    clustered_clv,
+    evaluate_gate,
+    live_ages,
+    recommendation_freshness,
+)
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
@@ -757,11 +762,13 @@ def _live_ages(
 ) -> dict:
     """Each stored age, moved forward to now, and whether both still pass.
 
-    The reconstruction is the same one `gate.recommendation_freshness` performs
-    for the order endpoint: the observation instant is `created_ms - stored_age`
-    and the age is measured from there against the clock. Deliberately the same
-    arithmetic, because a Board that computes freshness differently from the
-    control that enforces it will eventually offer a row the server refuses.
+    **The reconstruction is `gate.live_ages`, not a copy of it.** This used to
+    restate the arithmetic beside a comment promising it matched the order
+    endpoint's, which is the shape this repo keeps getting caught by: two paths
+    that agree until one of them learns something. It learned something --
+    `last_confirmed_ms` moves the instant a row is measured from -- and a Board
+    still measuring from `created_ms` would strike through rows the server would
+    happily sell.
 
     Returns `actionable: False` when there is no clock to measure against, and
     when an age is unreadable. An age that cannot be determined is not a fresh
@@ -770,13 +777,8 @@ def _live_ages(
     if now_ms is None or staleness is None:
         return {}
 
-    elapsed = now_ms - row["created_ms"]
-
-    def age_now(stored) -> Optional[int]:
-        return None if stored is None else int(elapsed + stored)
-
-    quote = age_now(row["kalshi_quote_age_ms"])
-    odds = age_now(row["odds_age_ms"])
+    ages = live_ages(row, now_ms=now_ms)
+    quote, odds = ages.quote_age_ms, ages.odds_age_ms
     actionable = (
         quote is not None
         and odds is not None
@@ -787,6 +789,11 @@ def _live_ages(
         "quote_age_now_ms": quote,
         "odds_age_now_ms": odds,
         "actionable": actionable,
+        # Surfaced so the Board can say *why* a row is still live. A price
+        # re-checked fifteen seconds ago and a price nobody has looked at since
+        # it was written are different claims, and only one should reassure.
+        "freshness_confirmed": ages.confirmed,
+        "freshness_measured_from_ms": ages.measured_from_ms,
     }
 
 
