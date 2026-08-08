@@ -938,11 +938,21 @@ decision.
       recorded mid-stream puts two regimes in one dataset. The rule is part of
       the strategy config, so it mints a version and the record segments on it.
 
-- [x] ~~**Is in-play betting viable?**~~ — **answered 2026-08-08, and the
-      answer is no.** `docs/adr/0006-in-play-scope.md` (status: proposed —
-      **Joe's to accept or reject**, since it closes a product direction he
-      raised). All four questions were answered against the live exchange;
-      **zero odds credits were spent** and no POST was made.
+- [ ] **Is in-play betting viable? — measured, and the answer was NOT accepted.**
+      `docs/adr/0006-in-play-scope.md` proposed closing it as out of scope;
+      **Joe rejected that on 2026-08-08.** The question stays open. The
+      measurements below were not disputed — they are kept in
+      `docs/adr/0006-in-play-evidence.md` and should not be re-derived.
+
+      **The three guards stay on while it is open**, and none of them came from
+      the rejected ADR: the runner still drops started games, the order path
+      still refuses one, and **no in-play row enters the evidence record**.
+      Reopening the scope means designing the in-play regime — starting with
+      what replaces the closing line — not letting rows in and separating the
+      populations afterwards.
+
+      All four questions were answered against the live exchange; **zero odds
+      credits were spent** and no POST was made.
 
       **Joe was right about the product, and that is the part to say first.**
       Kalshi keeps the game market open in-play — `can_close_early: true`, and
@@ -973,7 +983,8 @@ decision.
       keyed per recommendation rather than per `(ticker, horizon)`, and a gate
       that never pools the two regimes.
 
-      So `dropped_game_started` stays a **drop**, not a suppression — a
+      Also from that work, unaffected by the rejection: `dropped_game_started`
+      stays a **drop**, not a suppression — a
       suppression entry claims we considered it. Maker is *unreachable* rather
       than refuted: the headroom is 1.94 points there, but a resting order in a
       market moving ≥1c half the time is being adversely selected and this repo

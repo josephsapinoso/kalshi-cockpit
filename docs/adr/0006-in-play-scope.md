@@ -1,8 +1,38 @@
 # 0006 — In-play betting is out of scope
 
-**Status:** proposed, 2026-08-08
+**Status: REJECTED** by Joe, 2026-08-08. Proposed the same day.
 
-Evidence and full measurements: `tasks/inbox/inplay.md`.
+Evidence and full measurements: `docs/adr/0006-in-play-evidence.md`.
+
+## What the rejection does and does not mean
+
+**The measurements are not rejected.** Nothing below was disputed. What was
+declined is the *decision* — closing in-play as a product direction on the
+strength of one day's numbers. The question stays open.
+
+**The guards stay on.** This matters more than the rest of this file, because
+"reject the ADR" is one careless reading away from the opposite:
+
+- `runner`'s `dropped_game_started` **stays a drop.**
+- The order path's refusal of a started game **stays.**
+- **No in-play row may enter the evidence record.**
+
+None of those three was introduced by this ADR. They predate it, they were added
+for a reason this ADR did not invent — a stored pre-game consensus differenced
+against a price that has absorbed two innings is two different questions
+subtracted from each other — and rejecting a proposal to make them permanent
+policy does not remove them. Reopening the scope means *designing* the in-play
+regime, starting with the closing-line substitute; it does not mean letting rows
+in first and telling the two populations apart afterwards. That is the failure
+`tasks/lessons.md` names as "two populations in one record, told apart by
+dispersion".
+
+**What would have to be true to accept this later**, or to refute it: see
+"What would reopen this" at the end. The costs measured here are the bar, and
+the honest summary is that Joe's instinct about the *product* was right — the
+liquidity is real and it is where the volume is. The obstacle measured was our
+ability to see it in time, on a free odds tier, which is a fact about our data
+budget rather than about the market.
 
 ## Context
 
