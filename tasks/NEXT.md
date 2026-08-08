@@ -69,10 +69,16 @@ quoted by sub-200ms market makers; the poll rate is what is wrong.
 
 ### Then
 
-- **Set the Discord secrets.** `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` as
-  Fly secrets on the live app. The loop logs a warning and runs without them,
-  so nothing breaks — but nothing reaches a phone either, which is the whole
-  point of the window alert.
+- **Turn on Discord — now fully phone-doable.** `tasks/PHONE.md` item 4 has the
+  exact taps. Make a webhook inside the Discord app (four taps, no developer
+  portal), add it as the GitHub repo secret `DISCORD_WEBHOOK_URL`, then run the
+  **Set notification secrets** workflow. It refuses if no secret is set, never
+  puts the value in a workflow input, and polls `/api/health` until it reports
+  `notifications_configured: true` — so a green run means the process is
+  actually seeing it, not just that Fly accepted it.
+  The code read `DISCORD_BOT_TOKEN`/`DISCORD_CHANNEL_ID` while `PHONE.md` had
+  said `DISCORD_WEBHOOK_URL` since it was written, so following the documented
+  phone path would have configured nothing at all and reported nothing wrong.
 - **Watch the first scheduled sweep**, some time after 10:00Z on the 8th. The
   log line to look for is `sweep decision: <sport> (scheduled): N game(s) from
   HH:MMZ, sweeping 45-15 min before first kickoff`. A `bootstrap` trigger there

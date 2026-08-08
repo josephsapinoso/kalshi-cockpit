@@ -41,6 +41,7 @@ from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..gate import clustered_clv, evaluate_gate, recommendation_freshness
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
 from ..store import db
@@ -212,6 +213,14 @@ def create_app(
             "live_trading_enabled": gate.live_trading_enabled,
             # Stated plainly so the demo cannot be mistaken for the real thing.
             "execution_available": not app_config.is_demo and gate.live_trading_enabled,
+            # A boolean, never the credential. Setting a Fly secret from a
+            # phone has no feedback of its own -- the loop logs `discord=on` at
+            # startup and Fly's log tail has usually rolled past it by the time
+            # anyone looks. Without this, "I set the secret" and "the secret is
+            # in effect" are indistinguishable, and the failure is silence,
+            # which is exactly what a working alerter also looks like on a quiet
+            # night.
+            "notifications_configured": DiscordConfig.from_env() is not None,
         }
 
     @app.get("/api/board")

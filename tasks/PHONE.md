@@ -64,8 +64,10 @@ deploy fails rather than succeeding quietly.
 For the live instance later:
 
 - [ ] Fly dashboard → your app → Secrets → set `KALSHI_API_KEY`,
-      `KALSHI_PRIVATE_KEY_PATH` contents, `APP_AUTH_TOKEN`, `ODDS_API_KEY`,
-      `DISCORD_WEBHOOK_URL`
+      `KALSHI_PRIVATE_KEY_PATH` contents, `APP_AUTH_TOKEN`, `ODDS_API_KEY`
+      **(already done)**. `DISCORD_WEBHOOK_URL` has its own workflow — see
+      item 4; it deliberately cannot touch the four above, so that the vault
+      holding your Kalshi key stays the only one that holds it.
 - [ ] Actions → Deploy → instance `live` → type `kalshi-cockpit` into the
       confirm box → Run
 
@@ -74,7 +76,57 @@ plausible way to deploy the money instance by accident; typing its name is not.
 
 ---
 
-## 4. Place the fee-calibration trades — in the Kalshi app
+## 4. Turn on Discord alerts — 5 minutes, all on the phone
+
+Without this the tool cannot reach you, and the thing it needs to reach you
+about lasts about thirty seconds. Everything below is phone-only.
+
+**a. Make a webhook, in the Discord app itself** — no developer portal, no bot,
+no Developer Mode toggle:
+
+- [ ] Discord app → your server → the channel you want alerts in
+- [ ] Long-press the channel → **Edit Channel** → **Integrations** → **Webhooks**
+- [ ] **New Webhook** → name it something like `cockpit` → **Copy Webhook URL**
+
+That URL *is* the credential — anyone holding it can post to that channel.
+Nothing else, though: it cannot read messages and cannot act anywhere else in
+the server, which is why it is used here instead of a bot token.
+
+**b. Put it in GitHub** — the mobile *app* has no Settings screen, so use a
+browser:
+
+- [ ] Browser → `github.com/josephsapinoso/kalshi-cockpit/settings/secrets/actions`
+- [ ] **New repository secret** → name `DISCORD_WEBHOOK_URL` → paste → Add
+
+**c. Push it to Fly** — from the GitHub mobile app or the same browser:
+
+- [ ] Actions → **Set notification secrets** → Run workflow
+- [ ] instance `live`, and type `kalshi-cockpit` into the confirm box → Run
+
+The workflow refuses if no secret is set, sends the value over stdin rather
+than as an argument, echoes only the *names*, and then polls
+`/api/health` until it reports `notifications_configured: true` — so the run
+going green means the process is actually seeing it, not just that Fly accepted
+it. If it goes red it says which of those two failed.
+
+**d. Check it yourself, any time:**
+
+- [ ] `kalshi-cockpit.fly.dev/api/health` → look for
+      `"notifications_configured":true`
+
+The first alert you should see is **"Odds are fresh — the window is open"**,
+after the budget day rolls at 10:00Z. A quiet channel before then is correct.
+
+**Why not a bot token?** It also works — set `DISCORD_BOT_TOKEN` and
+`DISCORD_CHANNEL_ID` as repo secrets instead and the same workflow handles them.
+It just needs the developer portal, an application, an OAuth invite and
+Developer Mode turned on to reveal a channel id, and it produces a *broader*
+credential: a bot token works everywhere the bot was added, a webhook only in
+the one channel.
+
+---
+
+## 5. Place the fee-calibration trades — in the Kalshi app
 
 This is the one that closes a year-old open question, and it is *more*
 convenient on a phone than on a laptop: place them in the Kalshi app directly.
@@ -102,9 +154,12 @@ calling an absence a pass is the convenient reading.
 
 Honestly, so you don't try:
 
-- **The first `git push`.** Creating the GitHub repo is a browser job, but
-  pushing this working tree needs a machine once. After that, everything above
-  works from the phone.
+- **The first `git push`.** Done — the repo is on GitHub and everything
+  above works from the phone.
+- **Setting the Kalshi private key, `APP_AUTH_TOKEN` or `ODDS_API_KEY`.**
+  Deliberately not automated. Those live in Fly and nowhere else; a workflow
+  that could write them would mean GitHub holds them too, doubling the number
+  of places that can leak them to save a step taken once.
 - **Editing code.** Obviously. That is what I am for — send me the change you
   want in chat.
 

@@ -11,6 +11,8 @@ Two properties are load-bearing:
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -183,3 +185,100 @@ class TestDigest:
                 suppression_counts={},
             )
         assert "not a malfunction" in route.calls.last.request.read().decode()
+
+
+WEBHOOK = (
+    "https://discord.com/api/webhooks/1402938475610293847/"
+    "xQ2v9LmT4pR7wYzB1nK6sHfJdA0cE8gU3iO5rV7tX9yZ2bN4mQ6pL1kS"
+)
+
+
+class TestTheWebhookPath:
+    """The credential shape a phone can actually produce.
+
+    A bot needs the developer portal, an application, a token reset, an OAuth
+    invite URL, and Developer Mode toggled on in the app to reveal a channel id.
+    A webhook is four taps inside the Discord app and yields one string. Since
+    this tool is operated from a phone, that gap is the difference between
+    alerting being configured and not.
+    """
+
+    @pytest.fixture
+    def hook_notifier(self, http_client):
+        return DiscordNotifier(
+            DiscordConfig(
+                cockpit_base_url="https://cockpit.example", webhook_url=WEBHOOK
+            ),
+            client=http_client,
+        )
+
+    @respx.mock
+    async def test_it_posts_the_same_embed_to_the_webhook(self, hook_notifier):
+        route = respx.post(WEBHOOK).mock(return_value=httpx.Response(204))
+        assert await hook_notifier.failure("Feed died", "detail") is True
+        assert route.called
+        embed = json.loads(route.calls[0].request.content)["embeds"][0]
+        assert "Feed died" in embed["title"]
+
+    @respx.mock
+    async def test_it_sends_no_bot_header(self, hook_notifier):
+        """A webhook authenticates by its URL. `Authorization: Bot None` is a
+        401 that presents as "Discord refused everything" with a correct URL --
+        which reads as a bad webhook rather than a bad header."""
+        route = respx.post(WEBHOOK).mock(return_value=httpx.Response(204))
+        await hook_notifier.failure("x", "y")
+        assert "authorization" not in route.calls[0].request.headers
+
+    @respx.mock
+    async def test_a_dead_webhook_still_does_not_raise(self, hook_notifier):
+        respx.post(WEBHOOK).mock(return_value=httpx.Response(404))
+        assert await hook_notifier.failure("x", "y") is False
+
+
+class TestWhichCredentialWins:
+    def test_a_webhook_alone_configures_the_notifier(self, monkeypatch):
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
+        config = DiscordConfig.from_env()
+        assert config is not None
+        assert config.endpoint == WEBHOOK
+
+    def test_a_bot_alone_still_works(self, monkeypatch):
+        """The older path is supported, not merely tolerated -- switching a
+        working live instance to a new credential shape is a change nobody
+        should be forced into by an upgrade."""
+        monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "tok")
+        monkeypatch.setenv("DISCORD_CHANNEL_ID", CHANNEL)
+        config = DiscordConfig.from_env()
+        assert config is not None
+        assert config.endpoint.endswith(f"/channels/{CHANNEL}/messages")
+        assert config.headers["Authorization"] == "Bot tok"
+
+    def test_the_webhook_wins_when_both_are_set(self, monkeypatch):
+        """Explicit, because the docs name the webhook as the path to use and a
+        precedence left to import order is one nobody can predict."""
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+        monkeypatch.setenv("DISCORD_BOT_TOKEN", "tok")
+        monkeypatch.setenv("DISCORD_CHANNEL_ID", CHANNEL)
+        assert DiscordConfig.from_env().endpoint == WEBHOOK
+
+    def test_a_blank_webhook_is_not_a_configuration(self, monkeypatch):
+        """`fly secrets set DISCORD_WEBHOOK_URL=` sets an empty string, not an
+        absent variable, and an empty endpoint would post to nowhere forever."""
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", "   ")
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
+        assert DiscordConfig.from_env() is None
+
+
+class TestTheWebhookNeverReachesALog:
+    def test_the_token_is_redacted_from_a_log_line(self):
+        """It is a credential in a URL *path*, so every pattern written for the
+        Odds API key -- query parameters and bearer headers -- misses it."""
+        from backend.logging_setup import redact
+
+        assert "xQ2v9LmT4pR7wYzB1nK6sHfJdA0cE8gU3iO5rV7tX9yZ2bN4mQ6pL1kS" not in (
+            redact(f"HTTP Request: POST {WEBHOOK} 204")
+        )

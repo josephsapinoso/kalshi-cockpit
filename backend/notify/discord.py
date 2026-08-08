@@ -42,30 +42,77 @@ COLOUR_FAILURE = 0xAA0000       # --accent
 
 @dataclass(frozen=True)
 class DiscordConfig:
-    bot_token: str
-    channel_id: str
+    """Where to post. Two shapes, and the simpler one is the default.
+
+    **A webhook URL** (`DISCORD_WEBHOOK_URL`) is one string, created inside the
+    Discord mobile app in about four taps: channel -> Edit Channel ->
+    Integrations -> Webhooks -> New Webhook -> Copy URL. No developer portal, no
+    application, no OAuth invite, no Developer Mode toggle to reveal a channel
+    id. Since this tool is operated from a phone, that difference is the whole
+    difference between alerting being configured and not.
+
+    **A bot token plus channel id** is the older path and still supported. It
+    buys nothing this alerter uses -- it posts embeds to one channel and nothing
+    else -- and its token is broader: a bot token works everywhere the bot has
+    been added, while a webhook can only post to the one channel it was made in.
+    So the webhook is not merely easier, it is the smaller credential.
+
+    A webhook URL carries its token **in the path**, which is the same hazard as
+    the Odds API key in a query string. `logging_setup` redacts it; see
+    `_WEBHOOK_PATTERN` there and `tasks/lessons.md`.
+    """
+
     cockpit_base_url: str
+    webhook_url: Optional[str] = None
+    bot_token: Optional[str] = None
+    channel_id: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> Optional["DiscordConfig"]:
         """Returns None when unconfigured rather than raising.
 
-        Alerting is optional infrastructure. A missing Discord token should
-        degrade the tool to "no push notifications", never take down the
-        ingest loop that is recording evidence.
+        Alerting is optional infrastructure. A missing Discord credential should
+        degrade the tool to "no push notifications", never take down the ingest
+        loop that is recording evidence.
+
+        The webhook wins when both are set. Silently preferring one of two
+        configured transports is a thing to be explicit about rather than to
+        leave to import order -- and this order is the one a reader can predict
+        from the docs, which name the webhook as the path to use.
         """
         import os
+
+        base = os.getenv("COCKPIT_BASE_URL", "").strip() or "http://localhost:3000"
+
+        webhook = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+        if webhook:
+            return cls(cockpit_base_url=base, webhook_url=webhook)
 
         token = os.getenv("DISCORD_BOT_TOKEN", "").strip()
         channel = os.getenv("DISCORD_CHANNEL_ID", "").strip()
         if not token or not channel:
             return None
         return cls(
-            bot_token=token,
-            channel_id=channel,
-            cockpit_base_url=os.getenv("COCKPIT_BASE_URL", "").strip()
-            or "http://localhost:3000",
+            cockpit_base_url=base, bot_token=token, channel_id=channel
         )
+
+    @property
+    def endpoint(self) -> str:
+        if self.webhook_url:
+            return self.webhook_url
+        return f"{DISCORD_API}/channels/{self.channel_id}/messages"
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """A webhook authenticates by its URL and must carry no bot header.
+
+        Sending `Authorization: Bot <empty>` to a webhook is a 401, and the
+        failure would present as "Discord refused everything" with a correct
+        URL -- which reads as a bad webhook rather than a bad header.
+        """
+        if self.webhook_url:
+            return {}
+        return {"Authorization": f"Bot {self.bot_token}"}
 
 
 class DiscordNotifier:
@@ -104,8 +151,8 @@ class DiscordNotifier:
             return False
         try:
             response = await self._client.post(
-                f"{DISCORD_API}/channels/{self.config.channel_id}/messages",
-                headers={"Authorization": f"Bot {self.config.bot_token}"},
+                self.config.endpoint,
+                headers=self.config.headers,
                 json={"embeds": [embed]},
             )
             if response.status_code >= 400:

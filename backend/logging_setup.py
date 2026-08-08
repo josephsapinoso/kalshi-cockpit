@@ -34,6 +34,13 @@ _QUERY_PATTERN = re.compile(
     r"(?i)\b(" + "|".join(_SECRET_QUERY_KEYS) + r")=([^&\s\"'<>]+)"
 )
 
+# A Discord webhook carries its token in the PATH, not in a query string or a
+# header: `https://discord.com/api/webhooks/<id>/<token>`. That is the same
+# hazard as the Odds API key, one URL shape further along -- and httpx logs the
+# path just as readily as it logs the query. Anyone holding this string can post
+# to the channel, so it is redacted from the id onward.
+_WEBHOOK_PATTERN = re.compile(r"(?i)(/api/webhooks/)[\w./-]+")
+
 # Bearer tokens and PEM material, in case either ever reaches a log line.
 _BEARER_PATTERN = re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9._\-]{8,})")
 _PEM_PATTERN = re.compile(
@@ -55,6 +62,7 @@ def redact(text: str) -> str:
         return text
     text = _PEM_PATTERN.sub(f"{REDACTED} (private key)", text)
     text = _QUERY_PATTERN.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
+    text = _WEBHOOK_PATTERN.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
     text = _BEARER_PATTERN.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
     return text
 

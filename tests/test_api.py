@@ -59,6 +59,42 @@ class TestHealth:
         """A public URL must not be mistakable for the real thing."""
         assert (await get(demo_app, "/api/health")).json()["execution_available"] is False
 
+    async def test_it_says_whether_alerting_is_configured(
+        self, demo_app, monkeypatch
+    ):
+        """Setting a Fly secret from a phone has no feedback of its own.
+
+        The loop logs `discord=on` at startup and Fly's log tail has usually
+        rolled past it by the time anyone looks, so "I set the secret" and "the
+        secret is in effect" are otherwise indistinguishable — and the failure
+        mode of the second is silence, which is also what a working alerter
+        looks like on a quiet night. `.github/workflows/secrets.yml` polls this
+        field and fails the run if it stays false.
+        """
+        monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+        monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
+        body = (await get(demo_app, "/api/health")).json()
+        assert body["notifications_configured"] is False
+
+        monkeypatch.setenv(
+            "DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1/secret-token"
+        )
+        body = (await get(demo_app, "/api/health")).json()
+        assert body["notifications_configured"] is True
+
+    async def test_health_never_carries_the_credential_itself(
+        self, demo_app, monkeypatch
+    ):
+        """A boolean is the whole point. `/api/health` must stay public — Fly's
+        check reads it — so anything on it is world-readable."""
+        monkeypatch.setenv(
+            "DISCORD_WEBHOOK_URL",
+            "https://discord.com/api/webhooks/1/xQ2v9LmT4pR7wYzB1nK6sHf",
+        )
+        body = (await get(demo_app, "/api/health")).text
+        assert "xQ2v9LmT4pR7wYzB1nK6sHf" not in body
+
 
 def sized_rows(board: dict) -> list[dict]:
     """Every row the engine sized, whether or not it is still bettable.
