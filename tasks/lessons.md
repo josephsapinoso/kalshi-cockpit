@@ -2139,3 +2139,91 @@ ordering, hash seed, and free disk all qualify. Related:
 [[a-budget-that-says-whether-and-never-when]] — same 10:00Z boundary, and the
 same failure to ask what the number is *relative to*;
 [[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-08 — A component that only exists after a tap is invisible to every check you have
+
+`TicketSheet.tsx` — 962 lines, the screen a person taps to bet — had never been
+rendered when it was handed over. Every automated check in the repo was green
+and none of them could have seen it, for two independent reasons:
+
+- **It mounts on an interaction.** `check_mobile.py` measures five pages as they
+  *load*. A component that does not exist until a card is tapped is not on any
+  of them, so it could have overflowed at 320px on every handset and the script
+  would still have printed "All pages fit the viewport."
+- **It is `position: fixed`.** A fixed element is laid out against the viewport
+  rather than the document, so an over-wide sheet does **not** widen
+  `documentElement.scrollWidth` — which is the number that script decides on.
+  Even pointed at the right page, the measurement it takes cannot move.
+
+Tapping it found three defects, and the instructive part is that **none of them
+is a layout fault**. The sheet fit at 320, 390 and 430 on the first render. What
+was wrong was behaviour a static reading cannot produce: focus escaping to
+`<body>` the moment Confirm unmounted, and a caption naming a cause the reader
+could act on when acting on it changed nothing.
+
+**Two ways the new measurement lied before it worked**, both worth carrying
+because both produced a confident wrong answer rather than an error:
+
+- **A mouse event dispatched outside the viewport is silently dropped.** The
+  first card on the Board starts below the fold at 320x844, so the tap landed
+  nowhere and the script reported "tapping the card did not open the sheet" —
+  which reads as a broken component. Scroll it into view, then read its
+  coordinates *after* the scroll.
+- **Measuring during an entrance animation reports a layout fault that does not
+  exist.** The sheet rises from `translateY(6%)` over 0.26s. Probed mid-flight
+  it sits 6% of its own height low — 15px at 390, 45px at 320 — which is exactly
+  what a sheet overflowing the bottom of the screen looks like. The fix is to
+  wait on `getAnimations()`, not on a sleep, because a sleep tuned to one
+  machine is the same class of mistake.
+
+**How to apply:** the completion criterion for an interactive component is a
+check that *performs the interaction*. If the only thing standing between a
+component and production is a script that loads pages, the component has not
+been checked — and the more carefully it is written, the more convincing the
+unchecked version looks. `scripts/check_ticket_sheet.py` taps, waits for the
+animation, measures, presses Confirm, and measures the answer, because the
+answer is the state that actually happens. Related:
+[[a-window-resize-is-not-a-viewport-change]] — same family, one step further in:
+that entry is about measuring the wrong thing, this one is about measuring at
+the wrong moment and in the wrong state. Also
+[[code-with-no-caller-is-not-a-feature]]: a component nothing has rendered is
+the front-end form of a module nothing calls.
+
+---
+
+## 2026-08-08 — One environment variable, two readers, two different times
+
+`API_ORIGIN` is read in `next.config.ts` to build the `/api/*` rewrite, and in
+`lib/api.ts` to resolve `BASE` for server-component fetches. `tasks/NEXT.md`
+recorded that the rewrite destination "is read at Next's start, not at build".
+It is read at **build**: `next build` evaluates the config and freezes the
+result into `.next/routes-manifest.json`, where it sits as a literal
+`"destination": "http://127.0.0.1:8000/api/:path*"`.
+
+So the same name is a *build* input in one file and a *runtime* input in the
+other. Setting it at runtime moves one and not the other, and the two halves of
+the app then talk to different backends — server components render the page from
+one, the browser's POST goes to the other.
+
+Found by being wrong in the most useful possible way: a **demo** instance's
+ticket answered `401 Not authorised`, while the demo backend's own answer, one
+curl away, was `403 This is the demo instance. It holds no credentials and has
+no execution path.` The 401 was a live-mode backend on the default port
+answering a request nobody realised was going there.
+
+**The claim's conclusion was right and its mechanism was wrong, and that is
+worse than being wrong outright.** Both versions say "only a trap on non-default
+ports locally", so nothing looked incorrect. But the stated mechanism implies a
+fix — set `API_ORIGIN` on the instance — that silently does nothing, and the
+symptom it does not fix is a page quietly served from the wrong process.
+
+**How to apply:** when a setting is read in a framework config file, it is a
+build input, and the artefact is the place to confirm it — `grep` the manifest,
+do not reason about the framework. And when one name is read in two places, say
+*when* each one is read next to it, because "it defaults to 127.0.0.1:8000" is
+true of both and distinguishes nothing. Related:
+[[two-limits-on-one-quantity]] — same shape, with time rather than tightness
+deciding which reader wins; [[when-a-document-and-the-live-api-disagree]] — the
+five-second check that settles it beats any amount of reading.
