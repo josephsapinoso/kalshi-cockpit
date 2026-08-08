@@ -128,6 +128,23 @@ export default function TicketSheet({
     };
   }, []);
 
+  // Focus follows the content, and this effect is separate from the one above
+  // on purpose: that one installs listeners and must keep empty deps, this one
+  // must run on every phase change.
+  //
+  // Confirm, Back, and the disabling of Confirm while a request is in flight
+  // all remove the element that currently holds focus. The browser then drops
+  // focus onto `<body>` -- outside the sheet, where the Tab handler's
+  // wrap-around cannot fire, because it only acts when focus is already on the
+  // first or last control *inside* the panel. So the trap silently opens at
+  // the exact moment the answer appears, and the next Tab walks into the page
+  // behind the veil. Measured: after Confirm, `document.activeElement` was
+  // `<body>` at 320, 390 and 430px.
+  useEffect(() => {
+    const node = sheet.current;
+    if (node && !node.contains(document.activeElement)) node.focus();
+  }, [phase]);
+
   const confirm = useCallback(async () => {
     setPhase("sending");
     setResult(null);
@@ -186,7 +203,11 @@ export default function TicketSheet({
               type="button"
               onClick={onClose}
               disabled={phase === "sending"}
-              className="-mr-1 shrink-0 rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-40"
+              // 44px tall, which is taller than it looks: it is the width of a
+              // thumb, and this is one of the three ways out of a sheet that
+              // covers the whole screen. It measured 59x26 before, which is a
+              // target you aim at rather than press.
+              className="-mr-1 inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-xs font-semibold disabled:opacity-40"
             >
               Close
             </button>
@@ -419,11 +440,21 @@ export default function TicketSheet({
                   ? "Asking the server…"
                   : `Confirm — buy ${contracts}`}
               </button>
+              {/* The bet's problem outranks the browser's.
+                  These two were the other way round, and on a live instance
+                  the token field is empty on every page load -- so every
+                  expired row, which is most rows for most of the day, read
+                  "The token above is required before this can be sent."
+                  Typing forty-three characters would then leave the button
+                  exactly as dead, because the sportsbook consensus behind the
+                  row aged out and nothing in this browser refreshes it.
+                  Naming the fixable cause when fixing it changes nothing is
+                  worse than saying nothing at all. */}
               <p className="mt-2 text-center text-xs text-muted">
-                {needsToken
-                  ? "The token above is required before this can be sent."
-                  : !actionable
-                    ? "Off because the consensus behind this bet has aged out."
+                {!actionable
+                  ? "Off because the consensus behind this bet has aged out."
+                  : needsToken
+                    ? "The token above is required before this can be sent."
                     : "Priced and sized by the server at the moment you tap."}
               </p>
             </>
@@ -443,14 +474,19 @@ export default function TicketSheet({
  * times — offering a retry there would be inviting someone to hammer a decision
  * that has already been made.
  *
- * `back` returns to the size control, which is the only thing on this sheet a
- * person can change. Pointless for a locked gate (nothing here moves it) and
- * for a 404 (the row is gone), so both get Close alone.
+ * `back` returns to the ticket, which holds the only two things on this sheet a
+ * person can change -- the size and the token. Pointless for a locked gate
+ * (nothing here moves it), for a 404 (the row is gone), and for a 403 (the
+ * instance itself has no execution path, and no size and no token change that),
+ * so all three get Close alone. 401 keeps it, because the token field is behind
+ * that button and a mistyped token is the likeliest cause.
  */
 function secondaryAction(result: OrderResult): "retry" | "back" | null {
   if (result.ok) return null;
   if (result.status === 0 || result.status >= 500) return "retry";
-  if (result.status === 423 || result.status === 404) return null;
+  if (result.status === 423 || result.status === 404 || result.status === 403) {
+    return null;
+  }
   return "back";
 }
 
