@@ -137,16 +137,45 @@ jobs:
           # -- unscannable.
           #
           # `quoted` exists because narrowing from a phrase match to a material
-          # match lost a case the broken pattern used to catch. `own_line`
+          # match lost a case the broken pattern used to catch: `own_line`
           # requires the header to start its line, so a key pasted after an
           # opening triple-quote was invisible to both other patterns, and the
-          # body line below it is bare base64 that nothing here matches. The
-          # distinguishing feature is the quote *immediately* before the header:
-          # prose says "must start with -----BEGIN RSA PRIVATE KEY-----" with a
-          # space there, and stays clean.
+          # body line below it is bare base64 that nothing here matches.
+          #
+          # **The first version of `quoted` matched the quote alone and turned
+          # this step red on the next push.** `tasks/lessons.md` documents the
+          # `KEY = """-----BEGIN ...` case *by reproducing it*, in a fenced
+          # code block, which is the exact shape the pattern looked for. So the
+          # repair for a false negative shipped a false positive onto the file
+          # that explains the false negative -- the third turn of the same
+          # screw, and the same 36-pushes-of-red failure one file over.
+          #
+          # The distinguishing feature was never the quote. It is that **the
+          # next line is key material**. grep is line-oriented and cannot see
+          # that, so this one case is checked two lines at a time. A quoted
+          # header followed by a fence, by prose, or by nothing is a mention; a
+          # quoted header followed by forty-odd characters of base64 is a key.
           own_line='^[[:space:]]*-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[[:space:]]*$'
           inline='-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[^A-Za-z0-9+/]{0,4}[A-Za-z0-9+/]{40,}'
           quoted='["'"'"'`]-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[[:space:]"'"'"'`]*$'
+
+          # Both regexes arrive as -v variables rather than as awk literals: a
+          # bare `/` inside a bracket expression is a lexer hazard in some awks,
+          # and interval syntax (`{40,}`) is not portable to mawk, which is what
+          # ubuntu-latest ships. `length()` says the same thing everywhere.
+          scan_quoted() {
+            awk -v Q="$quoted" -v B='^[A-Za-z0-9+/=]+$' '
+              { sub(/\r$/, "") }
+              FNR == 1 { prev = "" }          # never pair the end of one file
+                                              # with the start of the next
+              prev != "" && $0 ~ B && length($0) >= 40 {
+                printf "%s:%d: %s\n", FILENAME, FNR - 1, prev
+                found = 1
+              }
+              { prev = ($0 ~ Q) ? $0 : "" }
+              END { exit found ? 0 : 1 }
+            ' "$@"
+          }
 
           # The patterns are exercised against known answers before they are
           # trusted against the tree. A regex that has quietly stopped matching
@@ -166,6 +195,11 @@ jobs:
             > "$tmp/mentioned"
           printf -- 'The file must start with -----BEGIN RSA PRIVATE KEY-----\n' \
             > "$tmp/prose"
+          # The shape that turned this red: the quoted case written *about*
+          # rather than committed. Same first line as `after_quote`, and the
+          # next line is a code fence instead of a body.
+          printf -- '```\nKEY = """-----BEGIN RSA PRIVATE KEY-----\n```\n' \
+            > "$tmp/quoted_in_prose"
 
           # `-e` throughout, never a bare pattern: `$inline` begins with `---`
           # and grep reads that as options. The canary found this on the first
@@ -180,14 +214,15 @@ jobs:
             echo "::error::This step cannot detect anything. Fix it before merging."
             fail=1
           fi
-          if ! grep -qE -e "$quoted" "$tmp/after_quote"; then
+          if ! scan_quoted "$tmp/after_quote" >/dev/null; then
             echo "::error::a key pasted after an opening quote is not matched."
             echo "::error::This is the case the phrase-matching pattern used to"
             echo "::error::catch, and it is how a key reaches a source file."
             fail=1
           fi
-          for clean in mentioned prose; do
-            if grep -qE -e "$own_line" -e "$inline" -e "$quoted" "$tmp/$clean"; then
+          for clean in mentioned prose quoted_in_prose; do
+            if grep -qE -e "$own_line" -e "$inline" "$tmp/$clean" \
+               || scan_quoted "$tmp/$clean" >/dev/null; then
               echo "::error::the patterns match a header named in $clean again."
               echo "::error::That is the false positive that made this step red on"
               echo "::error::36 consecutive pushes. Match the material, not the phrase."
@@ -196,22 +231,43 @@ jobs:
           done
           rm -rf "$tmp"
 
-          # The exclusions are tested against the real files, not only against
-          # synthetic ones. These two exist *because* of key hygiene -- one
-          # validates a decoded key's format, one proves the redactor strips a
-          # PEM block -- so they are the exact shape this step must not fire on,
-          # and asserting it here means a future widening of the patterns fails
-          # loudly instead of turning CI red again.
-          for legit in docker/entrypoint.sh tests/test_logging_redaction.py; do
-            if grep -qE -e "$own_line" -e "$inline" -e "$quoted" "$legit"; then
+          # Tested against the **real** files, not only against synthetic ones.
+          # All three exist because of key hygiene -- one validates a decoded
+          # key's format, one proves the redactor strips a PEM block, and one
+          # is the lesson written after this step spent 36 pushes red. They are
+          # the exact shapes this step must not fire on, so a future widening
+          # of the patterns fails loudly here instead of turning CI red again.
+          #
+          # There is still no path exclusion. `tasks/lessons.md` is listed
+          # because it must stay *scannable*: it is prose about leaked keys, so
+          # it is a genuinely plausible place for one to be pasted, and
+          # excluding it would make the most likely accident the least visible.
+          for legit in docker/entrypoint.sh tests/test_logging_redaction.py \
+                       tasks/lessons.md; do
+            if grep -qE -e "$own_line" -e "$inline" "$legit" \
+               || scan_quoted "$legit" >/dev/null; then
               echo "::error::$legit matches. It contains the words for a key, not"
               echo "::error::a key. Narrow the patterns rather than excluding the file."
               fail=1
             fi
           done
 
-          if git grep -nE -e "$own_line" -e "$inline" -e "$quoted"; then
+          if git grep -nE -e "$own_line" -e "$inline"; then
             echo "::error::Private key material found in the working tree."
+            echo "::error::If this key was ever real, ROTATE IT -- it is compromised."
+            fail=1
+          fi
+
+          # The two-line case, over the files that carry a quoted header at all
+          # -- so awk never opens the whole tree, and never opens a binary.
+          # `-z` because a tracked path may contain a space.
+          quoted_candidates=()
+          while IFS= read -r -d '' candidate; do
+            quoted_candidates+=("$candidate")
+          done < <(git grep -lzE -e "$quoted" || true)
+          if [ ${#quoted_candidates[@]} -gt 0 ] \
+             && scan_quoted "${quoted_candidates[@]}"; then
+            echo "::error::A private key follows an opening quote in the tree."
             echo "::error::If this key was ever real, ROTATE IT -- it is compromised."
             fail=1
           fi
