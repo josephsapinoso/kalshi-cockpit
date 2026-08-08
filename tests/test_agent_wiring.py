@@ -568,3 +568,44 @@ class TestTheReviewedSetAndTheVerdictsCannotDrift:
             )
 
         assert _rows(conn) == [], "nothing should have been written"
+
+
+class TestHealthSaysWhetherTheFleetIsConfigured:
+    """The only way to tell, from a phone, that the Fly secret took effect.
+
+    An unconfigured fleet is silent by design -- `AgentConfig.from_env()`
+    returns `None` and every row comes back unreviewed -- and that is also what
+    a working Skeptic looks like on a slate with nothing surfaced, which is
+    every slate so far. So without this field, "the key is set" and "the
+    process can see the key" cannot be told apart from outside.
+    """
+
+    def _health(self, monkeypatch, key):
+        from fastapi.testclient import TestClient
+
+        from backend.api.routes import create_app
+        from backend.config import AppConfig, GateConfig
+
+        if key is None:
+            monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        else:
+            monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+
+        app = create_app(
+            AppConfig(instance_mode="demo", db_path=":memory:"),
+            gate_config=GateConfig(live_trading_enabled=False),
+        )
+        with TestClient(app) as client:
+            return client.get("/api/health").json()
+
+    def test_it_is_false_without_the_secret(self, monkeypatch):
+        assert self._health(monkeypatch, None)["agent_fleet_configured"] is False
+
+    def test_it_is_true_once_the_secret_is_set(self, monkeypatch):
+        assert self._health(monkeypatch, "sk-ant-x")["agent_fleet_configured"] is True
+
+    def test_it_never_carries_the_credential(self, monkeypatch):
+        """A health endpoint is public on both instances -- Fly's own check
+        needs it to be. It reports a boolean or it reports a leak."""
+        body = self._health(monkeypatch, "sk-ant-secret-value")
+        assert "sk-ant-secret-value" not in json.dumps(body)

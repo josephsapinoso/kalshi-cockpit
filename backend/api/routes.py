@@ -63,6 +63,7 @@ from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
+from ..agents.base import AgentConfig
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
@@ -379,6 +380,22 @@ def create_app(
             # quiet market. Health must report the thing running, not the object
             # existing.
             "live_quotes_available": hub is not None and hub.is_running,
+            # A boolean, never the credential -- for exactly the reason given
+            # above `notifications_configured`, which this mirrors. Setting a
+            # Fly secret from a phone has no feedback of its own, and the
+            # failure mode here is worse than Discord's: an unconfigured fleet
+            # is **silent by design**. `AgentConfig.from_env()` returns None
+            # without a key and every row comes back unreviewed, which is also
+            # exactly what a working Skeptic looks like on a slate with nothing
+            # surfaced -- and nothing has ever surfaced. Without this line,
+            # "the key is set" and "the process can see the key" are
+            # indistinguishable from outside, forever.
+            #
+            # Read from the environment on each request rather than cached at
+            # boot: the answer this is asked for is "did the secret I just set
+            # take effect", and a value captured at construction would answer a
+            # question about the previous process.
+            "agent_fleet_configured": AgentConfig.from_env() is not None,
         }
 
     @app.get("/api/stream/quotes")
