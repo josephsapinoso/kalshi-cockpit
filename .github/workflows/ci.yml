@@ -26,9 +26,9 @@ jobs:
     name: Tests + warehouse
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -37,6 +37,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
+
+      # ruff.toml selects only pyflakes + pycodestyle's error classes (59
+      # rules), minus the four rule codes that already have violations this
+      # lane cannot fix (see ruff.toml for the count and tasks/inbox/ci.md for
+      # how it was measured). Deliberately not ruff's own default selection --
+      # that finds 513 violations today, all outside this lane, and would be
+      # red on the first push.
+      - name: Lint (ruff)
+        run: ruff check .
 
       - name: Tests
         run: python -m pytest -q
@@ -61,8 +70,8 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -76,12 +85,12 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ github.token }}
 

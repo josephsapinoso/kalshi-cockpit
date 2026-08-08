@@ -10,7 +10,9 @@
 *.pem
 *.key
 *.p8
+*.pkcs8
 *.pfx
+*.p12
 secrets/
 .secrets/
 
