@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import OpportunityCard from "@/components/OpportunityCard";
+import { TicketTrigger } from "@/components/TicketProvider";
 import type { Recommendation } from "@/lib/api";
 
 /**
@@ -171,13 +172,20 @@ export default function LiveBoard({
       <div className="grid gap-4 sm:grid-cols-2">
         {merged.map(({ row, move }) => (
           <div key={row.id} className={move ? `tick-${move}` : undefined}>
-            <OpportunityCard
-              rec={row}
-              live={streaming && quotes.has(row.id)}
-              direction={move}
-              quoteLimitMs={quoteLimitMs}
-              oddsLimitMs={oddsLimitMs}
-            />
+            {/* The ticket opens on the *merged* row, so the sheet shows the
+                price the ticker is showing rather than the recorded one it
+                replaced. The sheet still calls the endpoint with nothing but an
+                id and a size, so a live price on screen cannot become a live
+                price the server was asked to honour. */}
+            <TicketTrigger rec={row}>
+              <OpportunityCard
+                rec={row}
+                live={streaming && quotes.has(row.id)}
+                direction={move}
+                quoteLimitMs={quoteLimitMs}
+                oddsLimitMs={oddsLimitMs}
+              />
+            </TicketTrigger>
           </div>
         ))}
       </div>

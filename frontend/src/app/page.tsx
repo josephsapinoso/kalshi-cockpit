@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LiveBoard from "@/components/LiveBoard";
 import OpportunityCard from "@/components/OpportunityCard";
+import { TicketProvider, TicketTrigger } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
 import { fetchBoard, fetchHealth, fetchWindow } from "@/lib/api";
 import type { ActionableWindow } from "@/lib/api";
@@ -53,156 +54,175 @@ export default async function BoardPage({
 
   return (
     <Shell>
-      {health.instance_mode === "demo" && (
-        <div className="mb-8 rounded-2xl border border-accent-2/50 bg-card p-4">
-          <p className="text-sm text-muted">
-            <span className="font-semibold text-accent-2">Demo instance.</span>{" "}
-            Synthetic data, no credentials, and no execution path. The numbers
-            are shaped to resemble a real slate &mdash; which means mostly no
-            edge.
-          </p>
-        </div>
-      )}
-
-      <header className="mb-8">
-        <h1 className="display text-4xl sm:text-5xl">Board</h1>
-        <p className="mt-3 max-w-xl text-lg text-muted">
-          Kalshi priced against devigged sportsbook consensus. A bet appears
-          only when the edge survives fees, freshness, depth and the suspicion
-          checks.
-        </p>
-      </header>
-
-      {actionable && (
-        <WindowBanner
-          window={actionable}
-          surfaced={board.counts.surfaced}
-          expired={board.counts.expired}
-        />
-      )}
-
-      <div className="mb-8 flex flex-wrap items-center gap-3 border-y py-4">
-        <Stat label="Bettable now" value={board.counts.surfaced} accent />
-        {/* Shown only when it is non-zero, because it is a qualifier on the
-            number to its left rather than a category of its own. */}
-        {priceStale > 0 && <Stat label="Price re-read on order" value={priceStale} />}
-        <Stat label="Expired" value={board.counts.expired} />
-        <Stat label="Suppressed" value={board.counts.suppressed} />
-        <Stat label="No edge" value={board.counts.no_edge} />
-        <Link
-          href={showSuppressed ? "/" : "/?suppressed=1"}
-          className="ml-auto rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-card"
-        >
-          {showSuppressed ? "Hide rejected" : "Show rejected"}
-        </Link>
-      </div>
-
-      {board.surfaced.length === 0 ? (
-        <div className="rounded-2xl border bg-card p-7">
-          {/* Two ways to have nothing to bet, and they mean opposite things
-              about whether the machinery is working. Printing the no-edge
-              explanation over an expired slate would report a quiet market
-              when what actually happened is that the clock ran out. */}
-          <h2 className="text-xl font-bold tracking-tight">
-            {board.expired.length > 0 ? "Nothing bettable now" : "Nothing to bet"}
-          </h2>
-          <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
-            {board.expired.length > 0 ? (
-              <>
-                {/* One cause now, and it is stated rather than counted. This
-                    once asserted every expired row had a stale Kalshi quote,
-                    then counted which of the two clocks had run out. Neither
-                    survives the order-time refresh: a stale quote no longer
-                    expires a row at all, so everything here has outlived its
-                    sportsbook consensus. */}
-                The engine did find something — {board.expired.length}{" "}
-                {board.expired.length === 1 ? "bet" : "bets"}, listed below —
-                and the sportsbook consensus behind{" "}
-                {board.expired.length === 1 ? "it" : "them"} is past its{" "}
-                {Math.round(board.staleness.max_odds_age_s / 60)}-minute limit.
-                Only an odds credit refreshes that, so this is a budget
-                problem, not a quiet market.
-              </>
-            ) : (
-              <>
-                {board.note} Kalshi prices sports to about two cents against a
-                dozen sub-second market makers, so an empty board is the honest
-                result most of the time.
-              </>
-            )}
-          </p>
-        </div>
-      ) : (
-        /* A client component, and only for the bettable rows. Expired and
-           suppressed cards below are history and must not move -- a ticker
-           that animated a row nobody can bet would be movement that means
-           nothing, which is the failure the Board already had once when it
-           ranked every row ever written. */
-        <LiveBoard
-          rows={board.surfaced}
-          enabled={health.live_quotes_available === true}
-          quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
-          oddsLimitMs={board.staleness.max_odds_age_s * 1000}
-        />
-      )}
-
-      {/* Kept rather than hidden. "There is nothing to bet" and "there was
-          something and the moment has passed" are different answers, and only
-          one of them means the machinery is working. */}
-      {board.expired.length > 0 && (
-        <section className="mt-14">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-            The moment has passed
-          </h2>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            The engine sized {board.expired.length}{" "}
-            {board.expired.length === 1 ? "bet" : "bets"} that can no longer be
-            placed. One clock decides that now. The Kalshi price is re-read
-            from the exchange at the moment of the order, so its age never
-            expires a row — what does is the sportsbook consensus behind the
-            fair value, which stands for{" "}
-            {Math.round(board.staleness.max_odds_age_s / 60)}{" "}
-            {/* Explicit, not a literal space after the expression. JSX
-                collapsed that one and rendered "15minutes" -- the same defect
-                `tasks/lessons.md` already records, in the same paragraph,
-                reintroduced while rewriting it. No automated check in this repo
-                sees it; only reading the page does. */}
-            minutes and can only be refreshed by spending one of the
-            day&apos;s two odds credits. They are shown because a board that
-            silently drops them looks identical to a board that never found
-            anything.
-          </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            {board.expired.map((rec) => (
-              <OpportunityCard
-                key={rec.id}
-                rec={rec}
-                expired
-                quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
-                oddsLimitMs={board.staleness.max_odds_age_s * 1000}
-              />
-            ))}
+      {/* One sheet for the whole page. The limits come from the same payload
+          the cards are rendered from, so the ticket and the card under it can
+          never be judging freshness against different numbers. */}
+      <TicketProvider
+        instanceMode={health.instance_mode}
+        quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+        oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+      >
+        {health.instance_mode === "demo" && (
+          <div className="mb-8 rounded-2xl border border-accent-2/50 bg-card p-4">
+            <p className="text-sm text-muted">
+              <span className="font-semibold text-accent-2">Demo instance.</span>{" "}
+              Synthetic data, no credentials, and no execution path. The numbers
+              are shaped to resemble a real slate &mdash; which means mostly no
+              edge.
+            </p>
           </div>
-        </section>
-      )}
+        )}
 
-      {showSuppressed && board.suppressed.length > 0 && (
-        <section className="mt-14">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-            Rejected, and why
-          </h2>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            Kept rather than discarded. A rule firing constantly is either
-            miscalibrated or catching a real upstream problem, and both are
-            findings.
+        <header className="mb-8">
+          <h1 className="display text-4xl sm:text-5xl">Board</h1>
+          <p className="mt-3 max-w-xl text-lg text-muted">
+            Kalshi priced against devigged sportsbook consensus. A bet appears
+            only when the edge survives fees, freshness, depth and the suspicion
+            checks.
           </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            {board.suppressed.map((rec) => (
-              <OpportunityCard key={rec.id} rec={rec} suppressed />
-            ))}
+        </header>
+
+        {actionable && (
+          <WindowBanner
+            window={actionable}
+            surfaced={board.counts.surfaced}
+            expired={board.counts.expired}
+          />
+        )}
+
+        <div className="mb-8 flex flex-wrap items-center gap-3 border-y py-4">
+          <Stat label="Bettable now" value={board.counts.surfaced} accent />
+          {/* Shown only when it is non-zero, because it is a qualifier on the
+              number to its left rather than a category of its own. */}
+          {priceStale > 0 && <Stat label="Price re-read on order" value={priceStale} />}
+          <Stat label="Expired" value={board.counts.expired} />
+          <Stat label="Suppressed" value={board.counts.suppressed} />
+          <Stat label="No edge" value={board.counts.no_edge} />
+          <Link
+            href={showSuppressed ? "/" : "/?suppressed=1"}
+            className="ml-auto rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-card"
+          >
+            {showSuppressed ? "Hide rejected" : "Show rejected"}
+          </Link>
+        </div>
+
+        {board.surfaced.length === 0 ? (
+          <div className="rounded-2xl border bg-card p-7">
+            {/* Two ways to have nothing to bet, and they mean opposite things
+                about whether the machinery is working. Printing the no-edge
+                explanation over an expired slate would report a quiet market
+                when what actually happened is that the clock ran out. */}
+            <h2 className="text-xl font-bold tracking-tight">
+              {board.expired.length > 0 ? "Nothing bettable now" : "Nothing to bet"}
+            </h2>
+            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
+              {board.expired.length > 0 ? (
+                <>
+                  {/* One cause now, and it is stated rather than counted. This
+                      once asserted every expired row had a stale Kalshi quote,
+                      then counted which of the two clocks had run out. Neither
+                      survives the order-time refresh: a stale quote no longer
+                      expires a row at all, so everything here has outlived its
+                      sportsbook consensus. */}
+                  The engine did find something — {board.expired.length}{" "}
+                  {board.expired.length === 1 ? "bet" : "bets"}, listed below —
+                  and the sportsbook consensus behind{" "}
+                  {board.expired.length === 1 ? "it" : "them"} is past its{" "}
+                  {Math.round(board.staleness.max_odds_age_s / 60)}-minute limit.
+                  Only an odds credit refreshes that, so this is a budget
+                  problem, not a quiet market.
+                </>
+              ) : (
+                <>
+                  {board.note} Kalshi prices sports to about two cents against a
+                  dozen sub-second market makers, so an empty board is the honest
+                  result most of the time.
+                </>
+              )}
+            </p>
           </div>
-        </section>
-      )}
+        ) : (
+          /* A client component, and only for the bettable rows. Expired and
+             suppressed cards below are history and must not move -- a ticker
+             that animated a row nobody can bet would be movement that means
+             nothing, which is the failure the Board already had once when it
+             ranked every row ever written. */
+          <LiveBoard
+            rows={board.surfaced}
+            enabled={health.live_quotes_available === true}
+            quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+            oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+          />
+        )}
+
+        {/* Kept rather than hidden. "There is nothing to bet" and "there was
+            something and the moment has passed" are different answers, and only
+            one of them means the machinery is working. */}
+        {board.expired.length > 0 && (
+          <section className="mt-14">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
+              The moment has passed
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+              The engine sized {board.expired.length}{" "}
+              {board.expired.length === 1 ? "bet" : "bets"} that can no longer be
+              placed. One clock decides that now. The Kalshi price is re-read
+              from the exchange at the moment of the order, so its age never
+              expires a row — what does is the sportsbook consensus behind the
+              fair value, which stands for{" "}
+              {Math.round(board.staleness.max_odds_age_s / 60)}{" "}
+              {/* Explicit, not a literal space after the expression. JSX
+                  collapsed that one and rendered "15minutes" -- the same defect
+                  `tasks/lessons.md` already records, in the same paragraph,
+                  reintroduced while rewriting it. No automated check in this repo
+                  sees it; only reading the page does. */}
+              minutes and can only be refreshed by spending one of the
+              day&apos;s two odds credits. They are shown because a board that
+              silently drops them looks identical to a board that never found
+              anything.
+            </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {/* Expired rows open the ticket too, with Confirm off. Tapping one
+                  and being told which clock ran out and what refreshes it is
+                  more use than a card that does nothing when touched -- and the
+                  server would refuse it either way, which is the point the sheet
+                  makes. */}
+              {board.expired.map((rec) => (
+                <TicketTrigger key={rec.id} rec={rec} actionable={false}>
+                  <OpportunityCard
+                    rec={rec}
+                    expired
+                    quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+                    oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+                  />
+                </TicketTrigger>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {showSuppressed && board.suppressed.length > 0 && (
+          <section className="mt-14">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
+              Rejected, and why
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+              Kept rather than discarded. A rule firing constantly is either
+              miscalibrated or catching a real upstream problem, and both are
+              findings.
+            </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {/* Not tappable. There is no ticket for a rejected candidate --
+                  the card already carries the reason, and offering a sheet with
+                  a permanently dead Confirm would suggest the decision is
+                  reversible from here. */}
+              {board.suppressed.map((rec) => (
+                <OpportunityCard key={rec.id} rec={rec} suppressed />
+              ))}
+            </div>
+          </section>
+        )}
+      </TicketProvider>
     </Shell>
   );
 }

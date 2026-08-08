@@ -208,6 +208,56 @@ body {
   animation: tick-down 1.1s ease-out both;
 }
 
+/* ---------------------------------------------------------------------------
+   The ticket bottom sheet.
+
+   A sheet rather than a page or a centre-screen modal because this is operated
+   one-handed on a phone: the thumb reaches the bottom of the screen and not the
+   top, so the confirm action and the close action both live down there.
+
+   `dvh` before `vh` is not a nicety. Mobile Safari's `vh` is the *largest*
+   viewport -- the one you get with the URL bar collapsed -- so a sheet sized in
+   `vh` extends under the browser chrome and the confirm button sits off-screen
+   until you scroll the page, which you cannot do while the body is locked. The
+   `vh` line stays as the fallback for anything that does not know `dvh`.
+--------------------------------------------------------------------------- */
+
+.sheet-panel {
+  max-height: 88vh;
+  max-height: 88dvh;
+}
+
+/* Keeps the action bar clear of the home indicator on a notched handset. */
+.sheet-safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(6%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.sheet-rise {
+  animation: sheet-rise 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.veil-in {
+  animation: veil-in 0.18s ease-out both;
+}
+
 /* The dot that says the feed is alive. Deliberately calm -- it is a liveness
    indicator, not a notification, and a pulsing red dot on a page about money
    reads as an alarm. */
