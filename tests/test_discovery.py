@@ -235,16 +235,30 @@ class TestCoverage:
 
 
 class TestUnknownScopeWarningsAreDeduplicated:
-    """One unknown scope produced one warning PER MARKET.
+    """Deduplicated within a pass, and then across passes — in two steps.
 
     Kalshi carries the same `competition_scope` on every market in a series, so
-    the undeduplicated form emitted the identical line twelve times for a single
-    series — measured at ~80 WARNING lines per pass on the live instance. At a
-    15-minute interval that is log volume which buries the errors sitting next
-    to it, and on Fly it is billable ingestion.
+    the original form emitted the identical line twelve times for a single
+    series. That was fixed by deduplicating on `(series, scope)`, and the set was
+    cleared at the top of every pass so a long-running runner could not warn once
+    at boot and then go quiet.
 
-    The information is "this scope exists and we do not price it", which is
-    worth saying once.
+    Both halves were individually defended in prose, and together they rebuilt
+    the thing the dedupe existed to prevent. Measured on live 2026-08-08: **98 of
+    the 100 lines in the log buffer** were this warning — 94 distinct series,
+    none of them sports (`KXFED`, `KXWMT`, `KXTGT`, AP polls, draft picks) — and
+    a quote pass re-emits the set every 15s while the window is open. It buried
+    `[migrate] ...` and `API starting: ...` so completely that neither boot line
+    could be read from production at all, which is what sent this session
+    looking.
+
+    The split that resolves it, and the reason the two concerns are tested
+    separately below: the warning names a **developer action item** ("add it to
+    FIXTURE_SCOPES"), which cannot change within a process and is worth saying
+    once; the **count** is an operational state and is printed on every pass,
+    including at zero. Silence never means "the problem went away" — a number
+    says so. See `tasks/lessons.md` on rejection logs dominated by their majority
+    case.
     """
 
     def _events(self, ticker, scope, n):
@@ -297,18 +311,62 @@ class TestUnknownScopeWarningsAreDeduplicated:
         assert any("KXMLBHIT" in m for m in messages)
         assert any("KXMLBHR" in m for m in messages)
 
-    def test_each_pass_reports_again(self, caplog):
-        """A long-running runner must not warn once at boot and then go quiet.
+    def test_a_repeated_scope_is_named_once_for_the_life_of_the_process(
+        self, caplog
+    ):
+        """The second pass must not re-emit the same warning.
 
-        Silence after the first pass reads as "the problem went away", which is
-        the failure mode this project keeps finding in other guises.
+        This asserts the opposite of what it used to. Re-warning every pass was
+        measured on live as 98 of the 100 lines in the log buffer — a quote pass
+        runs every 15s while the window is open — and it buried the two boot
+        lines (`[migrate] ...` and `API starting: ...`) so thoroughly that
+        neither could be read from production at all.
         """
         events = self._events("KXMLBHIT", "Hits", 5)
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
             first = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
             discover_from_events(events)
-            second = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
+            discover_from_events(events)
+            after = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
 
         assert first == 1
-        assert second == 2, "the second pass reported nothing"
+        assert after == 1, f"{after - first} warnings repeated across later passes"
+
+    def test_the_count_still_reports_on_every_pass(self, caplog):
+        """Silence must not read as "the problem went away".
+
+        That worry is the whole reason the old code re-warned every pass, and it
+        was a real worry — so the count has to carry it. If this number stopped
+        being printed, dropping the repeat warnings would genuinely have hidden
+        the problem rather than merely quietened it.
+        """
+        events = self._events("KXMLBHIT", "Hits", 5)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            discover_from_events(events)
+
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert len(summaries) == 2
+        assert all("unknown_scopes=1" in m for m in summaries), summaries
+
+    def test_a_pass_with_no_unknown_scopes_says_zero_rather_than_nothing(
+        self, caplog
+    ):
+        """The pair that matters: 0 must be printed, not filtered out.
+
+        A dropped zero puts the reader back where the warning stream left them —
+        unable to tell "none found" from "not reported". This test and the one
+        above have to disagree about the number and agree that it is present.
+        """
+        events = self._events("KXMLBGAME", "Game", 3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert len(summaries) == 1
+        assert "unknown_scopes=0" in summaries[0], summaries[0]

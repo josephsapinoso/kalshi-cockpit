@@ -36,12 +36,30 @@ from .grid import PriceGrid, read_price_grid
 
 logger = logging.getLogger(__name__)
 
-# (series_ticker, scope) pairs already reported. Kalshi carries the same scope on
-# every market in a series, so without this one unknown scope produces one
-# warning per market -- measured at ~80 lines a pass on the live instance, with
-# single series repeated twelve times. `discover_from_events` clears it, so each
-# pass still reports the full set rather than only what changed.
+# (series_ticker, scope) pairs already reported, for the life of the **process**.
+# Kalshi carries the same scope on every market in a series, so without this one
+# unknown scope produces one warning per market.
+#
+# It used to be cleared at the top of every pass, so that a long-running runner
+# could not warn once at boot and then go quiet. Both halves of that were
+# individually defended in prose and together they produced the thing the dedupe
+# existed to prevent: measured on the live instance 2026-08-08, **98 of the 100
+# lines in the log buffer** were this one warning, re-emitted every pass -- and a
+# quote pass runs every 15s while the window is open. It buried the boot lines
+# (`[migrate] ...`, `API starting: ...`) so completely that neither could be read
+# from production at all.
+#
+# The split that resolves it: the warning names a *developer action item* ("add
+# it to FIXTURE_SCOPES"), which cannot change within a process and is worth
+# saying once; the *number* of unknown scopes is an operational state and is
+# reported on every pass by the `discovery:` summary line, always, even at zero.
+# Silence therefore never means "the problem went away" -- the count says so.
+# See tasks/lessons.md on rejection logs dominated by their majority case.
 _WARNED_SCOPES: set[tuple[str, str]] = set()
+
+# Distinct unknown (series, scope) pairs seen in the pass currently running.
+# Cleared per pass, unlike `_WARNED_SCOPES`, because it feeds the count.
+_UNKNOWN_SCOPES_THIS_PASS: set[tuple[str, str]] = set()
 
 JUNK_PREFIX = "KXMVE"
 
@@ -152,13 +170,11 @@ def classify_series(event: dict) -> SeriesInfo:
         # not understand) but say so loudly, because it may be a market type
         # we want. The drift test in tests/test_discovery.py fails on this too.
         is_game_level = False
-        # Deduplicated per (series, scope). Every market in a series carries the
-        # same scope, so the undeduplicated form emitted the identical line
-        # twelve times for one series and ~80 lines per pass -- which at a
-        # 15-minute interval is log volume that buries the errors it sits next
-        # to. The information is "this scope exists and we do not price it",
-        # which is worth saying once.
+        # Counted every pass, named once per process. The count is what a reader
+        # watches; the name is what a developer acts on, and it cannot change
+        # between passes because the set of Kalshi series does not.
         key = (series_ticker, scope)
+        _UNKNOWN_SCOPES_THIS_PASS.add(key)
         if key not in _WARNED_SCOPES:
             _WARNED_SCOPES.add(key)
             logger.warning(
@@ -344,10 +360,13 @@ def build_markets(event: dict, market_type: str) -> tuple[DiscoveredMarket, ...]
 def reset_scope_warnings() -> None:
     """Forget which unknown scopes have been reported.
 
-    Called at the start of each discovery pass so the warnings describe *this*
-    pass rather than only what is new since the process started -- otherwise a
-    long-running runner reports the full list once at boot and stays silent
-    afterwards, which reads as "the problem went away".
+    **Not called by `discover_from_events`** -- deliberately. Calling it per pass
+    is what put 98 copies of the same warning into every pass on live and made
+    the boot lines unreadable; see the comment on `_WARNED_SCOPES`.
+
+    It exists for tests, which share one process and would otherwise depend on
+    the order they run in: whichever test warns about a series first would be the
+    only one that sees the warning. An autouse fixture calls it between tests.
     """
     _WARNED_SCOPES.clear()
 
@@ -358,10 +377,9 @@ def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
     Everything rejected is rejected for a stated reason and counted, so
     "we found nothing" can be told apart from "we filtered everything".
     """
-    # Each pass reports the unknown scopes it saw, rather than only those new
-    # since process start -- a long-running runner that warned once at boot and
-    # then went quiet would read as "the problem went away".
-    reset_scope_warnings()
+    # The *count* is per-pass; the warnings are per-process. Only this is
+    # cleared. See `_WARNED_SCOPES`.
+    _UNKNOWN_SCOPES_THIS_PASS.clear()
     discovered: list[DiscoveredEvent] = []
     rejected: dict[str, int] = {
         "not_game_level": 0,
@@ -410,10 +428,16 @@ def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
             )
         )
 
+    # `unknown_scopes` is printed unconditionally, including at zero, and that is
+    # the point of it: it is what replaces a per-pass warning stream, so a pass
+    # that says nothing about unknown scopes must be distinguishable from a pass
+    # that found none. A dropped zero would put the reader back where the
+    # warnings left them -- unable to tell silence from absence.
     logger.info(
-        "discovery: %d priceable events; rejected %s",
+        "discovery: %d priceable events; unknown_scopes=%d; rejected %s",
         len(discovered),
-        ", ".join(f"{k}={v}" for k, v in rejected.items() if v),
+        len(_UNKNOWN_SCOPES_THIS_PASS),
+        ", ".join(f"{k}={v}" for k, v in rejected.items() if v) or "none",
     )
     return discovered
 

@@ -48,6 +48,24 @@ def no_live_agent_calls(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def forget_scope_warnings():
+    """Unknown-scope warnings are deduplicated for the life of the *process*.
+
+    That is deliberate -- re-warning every pass was 98 of the 100 lines in the
+    live log buffer -- but it makes the warning a piece of cross-test state. Two
+    tests using the same series would otherwise have their assertions decided by
+    which one pytest happened to run first, and only the loser would fail. That
+    is the environment-measurement failure this file's other autouse fixture
+    exists for, with collection order as the hidden input rather than a secret.
+    """
+    from backend.kalshi.discovery import reset_scope_warnings
+
+    reset_scope_warnings()
+    yield
+    reset_scope_warnings()
+
+
 def load_fixture(name: str):
     """Load a captured API payload, skipping the test if it hasn't been captured.
 

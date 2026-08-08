@@ -147,7 +147,24 @@ class PassCounts:
     # Always printed even when zero. "surfaced: 0" is the headline result of a
     # pass -- it is the answer this whole tool exists to produce, and hiding it
     # because it is falsy would make "found nothing" look like "did not check".
-    ALWAYS_REPORT = ("recommendations", "surfaced", "suppressed", "sweep_decision")
+    #
+    # The two skeptic fields are here for the reason their own comment above
+    # gives, which the filter used to defeat: they were declared "reported
+    # anyway" and then dropped by `if v` in exactly the state -- zero -- that the
+    # comment was written about. Measured on live 2026-08-08: the pass line
+    # carried neither key, so "the fleet has never run" could only be *inferred*
+    # from `surfaced: 0` rather than read. The distinguishing case is the one
+    # that matters for money: `skeptic_reviewed: 2` with `skeptic_blocked`
+    # missing cannot be told from a fleet that reviewed two rows and blocked
+    # nothing, and blocking is the half that stops a bet.
+    ALWAYS_REPORT = (
+        "recommendations",
+        "surfaced",
+        "suppressed",
+        "skeptic_reviewed",
+        "skeptic_blocked",
+        "sweep_decision",
+    )
 
     def as_dict(self) -> dict[str, Any]:
         return {

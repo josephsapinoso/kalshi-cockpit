@@ -41,6 +41,7 @@ from backend.kalshi.discovery import discover_from_events
 from backend.odds.client import OddsQuote, store_quotes
 from backend.runner import (
     MONEYLINE,
+    PassCounts,
     book_quotes_for_event,
     current_exposure_dollars,
     link_discovered_events,
@@ -1003,3 +1004,42 @@ class TestTheQuotePassKeepsARowBettable:
                 "a quote pass refreshed the odds clock it has no business "
                 "touching"
             )
+
+
+class TestThePassLineReportsWhetherTheFleetRan:
+    """`skeptic_reviewed` / `skeptic_blocked` must survive `as_dict()` at zero.
+
+    Their own comment in `PassCounts` says they are "reported anyway", and the
+    `if v` filter dropped them in exactly the state the comment was written
+    about. Measured on the live instance 2026-08-08: the pass line carried
+    neither key, so "the agent fleet has never run" could only be inferred from
+    `surfaced: 0` — which is what the fields exist to stop anyone having to do.
+    """
+
+    def test_both_fields_appear_when_the_fleet_has_not_run(self):
+        counts = PassCounts()
+        as_dict = counts.as_dict()
+
+        assert as_dict["skeptic_reviewed"] == 0
+        assert as_dict["skeptic_blocked"] == 0
+
+    def test_blocked_zero_is_visible_beside_a_nonzero_reviewed(self):
+        """The case that decides money, and the one a truthiness filter hides.
+
+        A fleet that reviewed two rows and blocked none prints
+        `skeptic_reviewed: 2` either way. Only the presence of `skeptic_blocked`
+        distinguishes "blocked nothing" from "the field was dropped", and
+        blocking is the half that stops a bet.
+        """
+        counts = PassCounts(skeptic_reviewed=2)
+
+        assert counts.as_dict()["skeptic_blocked"] == 0
+
+    def test_a_genuinely_empty_stage_is_still_filtered_out(self):
+        """The filter must still do its job, or this test proves nothing.
+
+        `as_dict` exists to keep a pass line readable. If everything were
+        reported the assertions above would pass against a `return self.__dict__`
+        that had abandoned the filter entirely.
+        """
+        assert "dropped_no_books" not in PassCounts().as_dict()
