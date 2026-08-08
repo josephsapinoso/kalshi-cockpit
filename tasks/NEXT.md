@@ -1,24 +1,78 @@
 # Next — your checklist
 
-## HANDOFF (2026-08-08, later — the fleet is wired and two taps are one order)
+## HANDOFF (2026-08-08, evening — demo is deployed, live is one tap away)
 
-**State:** 1,234 tests, ruff green, frontend builds, tree committed on `main`
-(`44f0fca` and the commit above this note). **Not pushed** — that is your call.
+**State:** 1,243 tests, ruff green, frontend builds, **pushed**, CI green on
+every push. `main` is `883c8be`.
 
-**THE NEXT DEPLOY CARRIES A MIGRATION.** `SCHEMA_VERSION` 2 → 3: two nullable
-columns on `orders` (`idempotency_key`, `response_body_json`) and a unique
-index. The entrypoint runs `scripts/migrate_db.py` before uvicorn, and that
-path is tested against a real old database with rows in it — but expect
-migration output this time, unlike the last deploy.
+### THE ONE THING OUTSTANDING: deploy live
 
-**Two things still need you**, both unchanged from the previous note:
+    ! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
 
-    ! gh workflow run Ops -f instance=live -f action=all
+Everything below is already on **demo** and verified there. Live is still on
+`a567ee7` and healthy. The Claude Code classifier blocks the live deploy from
+this session (it allowed the demo one), so it needs a human or the browser.
 
-still unrun — restarts, volume, and whether `INFO backend.*` lines appear in
-the log stream at all, which is the whole point of the `configure_logging()`
-fix. And **`ANTHROPIC_API_KEY` as a Fly secret**, without which the agent
-fleet is unconfigured on live and every row comes back untouched.
+**It carries the v2 → v3 migration.** Two nullable columns on `orders`
+(`idempotency_key`, `response_body_json`) plus a unique index. Expect
+`[migrate] ... migrated v2 -> v3` in the logs — unlike the previous deploy,
+where the absence of migration output was correct.
+
+After it lands, three things to confirm:
+`agent_fleet_configured: true` on `/api/health` (the secret is already set on
+Fly), the `migrated v2 -> v3` line, and an `API starting: instance_mode=live`
+line.
+
+### The canary caught a crash loop, which is the headline
+
+The first demo deploy **failed**, at Verify, with a 502 that was not a cold
+start. `scripts/migrate_db.py` read `_MIGRATIONS` in a shape it no longer had:
+
+    TypeError: '_Migration' object is not iterable
+
+`_MIGRATIONS` gained a dataclass so v3 could carry an index as well as columns;
+every reader inside `backend/` was updated and the one in `scripts/` — the only
+reader that runs at boot — was not. **Straight to live, that is a crash loop on
+the volume holding the evidence record.**
+
+`test_has_callers.py` already asserted the migration runs before uvicorn *and*
+survives `.dockerignore`. Both true, and it still crash-looped: a boot step
+covered by assertions *about* it rather than by running it. Nothing executed
+the script. It runs in a test now, as a subprocess, exactly as the entrypoint
+invokes it, against a database wound back one version — verified by restoring
+the bug and watching it fail with the same TypeError.
+
+### Verified on demo, so the same image is proven to boot
+
+    [migrate] /data/demo.db already at schema v3
+    INFO backend.api.routes: API starting: instance_mode=demo ...
+
+That second line **answers the logging question** that had been open since the
+morning: timestamp, level, logger name, through the root logger. The API
+process configures logging. It was unanswerable from outside before, because
+uvicorn runs `--no-access-log` and the hub only speaks when something changes —
+so a healthy API and a mute one produced identical log streams. `create_app`
+now says one thing at boot, which is what makes the stream readable at all.
+
+**What demo still cannot prove:** its database is reseeded every boot, so it
+was *created* at v3 and never ran the v2 → v3 transition. Live's volume is at
+v2 with real rows and will be the first real execution of that path. Backed by
+`test_each_single_step_runs_on_a_database_one_version_behind`, which was added
+after noticing that every migration test built a **v1** database — so 1 → 3 was
+covered as a sweep and 2 → 3, the only transition production makes, was not.
+
+### Also landed
+
+- **The agent fleet is wired.** `backend/agents/review.py`. Reviews before
+  persisting, surfaced rows only, thread-based async seam. It blocked a real
+  row on its first live API call. See the closed item in section 2.
+- **Two taps are one order.** ADR 0009.
+- **`Ops` has no default instance.** It defaulted to `demo`, so a dropped input
+  succeeded against the wrong box — worse than failing. The run summary now
+  names the app and cross-checks `/api/health`.
+- **`agent_fleet_configured` on `/api/health`**, because an unconfigured fleet
+  is silent by design and was otherwise indistinguishable from a working one.
+- `ANTHROPIC_API_KEY` **is set on Fly** (live), inert until the deploy.
 
 ### The agent fleet is wired up
 
