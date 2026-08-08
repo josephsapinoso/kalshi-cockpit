@@ -2379,3 +2379,104 @@ two deduplicate against different parties — one stops the exchange creating a
 second order when we re-send, the other stops us sending a second one at all —
 and collapsing them into one value would leave whichever failure the survivor
 does not cover silently uncovered.
+
+---
+
+## 2026-08-08 — One signal asked to be both an alert and a status, and oscillated
+
+`discovery` warns when Kalshi sends a `competition_scope` it does not price.
+Two repairs, each correct about the defect in front of it, each recreating the
+other's:
+
+1. One unknown scope produced one warning **per market** — twelve identical
+   lines for one series. Fixed by deduplicating on `(series, scope)`.
+2. A process-lifetime dedupe means a long-running runner warns once at boot and
+   then goes quiet, which reads as *"the problem went away"*. Fixed by clearing
+   the set at the top of every pass.
+
+Together they are repair 1 undone. Measured on the live instance: **98 of the
+100 lines in the log buffer** were this warning — 94 distinct series, and not
+one of them a sport (`KXFED`, `KXWMT`, `KXTGT`, AP polls, draft picks). A quote
+pass re-emits the entire set **every fifteen seconds** while the window is open.
+
+**The cost was not the volume, it was what the volume displaced.** Three claims
+in the session handoff were "never observed in production", two of them boot
+lines — `[migrate] /data/live.db already at schema v3` and `API starting:
+instance_mode=live`. They were unreadable because 98 copies of a warning about
+Walmart comparable-sales markets had pushed them out of the buffer. The log had
+stopped being able to answer questions about the thing it was logging.
+
+Both halves were individually defended in prose, in comments four lines apart —
+the same tell as [[deduplicating-the-record-made-the-record-unusable]], where a
+dedupe was right about the record and silently wrong about freshness.
+
+**Why it oscillated rather than converging:** one signal was carrying two jobs
+with opposite cadences. "This scope exists and we do not price it, add it to
+`FIXTURE_SCOPES`" is a **developer action item** — it cannot change within a
+process, and repeating it is pure noise. "How many unknown scopes did this pass
+see" is **operational state** — it has to be present every pass or its absence
+is ambiguous. No single emission rate is right for both, so every adjustment to
+the rate improved one job and broke the other.
+
+**How to apply:** when a log line keeps getting its frequency retuned, the line
+is doing two jobs. Split it by *kind*, not by rate: identity is named once per
+process, count is printed every pass and **printed at zero**. The zero is
+load-bearing — it is what preserves the worry that motivated the per-pass reset,
+so dropping the repeats does not hide the problem. Same rule as
+[[no-result-and-rejected-are-different]] one level up: there the question was
+whether something belongs in a rejection log at all, here it is whether the
+thing in the log is an event or a reading.
+
+Two things found in the same sitting, both worth carrying:
+
+- **The test asserted the defect**, again. `test_each_pass_reports_again`
+  required the second pass to warn again, and it was written *from* the
+  reasoning in repair 2. It is [[a-test-that-passes-on-the-bug-is-not-a-test]]
+  in its commonest local form — the test and the code came from one mental
+  model in one sitting.
+- **Deduplicating for the life of a process makes the dedupe cross-test state.**
+  Two tests using the same series then have their assertions decided by
+  collection order, and only the loser fails. An autouse fixture in
+  `conftest.py` resets it, for the same reason the one beside it removes
+  `ANTHROPIC_API_KEY`: a test whose result depends on an input it does not
+  supply is measuring the environment. Verified by making it non-autouse and
+  watching two tests go red.
+
+---
+
+## 2026-08-08 — The counter you were told to watch was filtered out at zero
+
+`PassCounts.as_dict()` drops falsy fields to keep the pass line readable, with
+an `ALWAYS_REPORT` allow-list for the ones whose zero is the answer. The two
+agent-fleet counters carried this comment:
+
+> Both are structurally zero while `surfaced` is zero, which is the whole
+> history of this project so far — **reported anyway**, because the day they are
+> not is the day the agent fleet starts costing money and blocking bets.
+
+They were not in `ALWAYS_REPORT`. So the fields declared "reported anyway" were
+dropped by `if v` in **exactly the state the comment was written about**, and
+the live pass line carried neither key. "The fleet has never run" could only be
+*inferred* from `surfaced: 0` — which is the inference the fields exist to
+replace.
+
+The dangerous case is not the all-zero one. It is `skeptic_reviewed: 2` with
+`skeptic_blocked` absent: "reviewed two rows and blocked nothing" and "the field
+was filtered out" render as the same line, and blocking is the half that stops a
+bet. A money-relevant zero and a missing key must never look alike.
+
+`scoring.py` has the identical mechanism and gets it right, because it was
+corrected after a live pass showed 14 lines stored and 0 scored with no way to
+tell which branch it took. The knowledge was in the repo, one module over, and
+the second instance did not inherit it — [[a-stored-age-rendered-as-a-current-one]]
+and [[an-idle-threadpool-hides-every-thread-safety-bug]] are the same shape: a
+comment explaining one instance of a hazard is evidence the hazard is
+understood, not evidence it has been handled everywhere.
+
+**How to apply:** when a serialiser filters on truthiness, the allow-list is the
+real specification and the prose beside a field is not part of it. Grep every
+field whose comment claims it is always reported and check it is actually in the
+list. And test the *pair*, per [[the-zero-that-means-no-measurement]] — one
+assertion that the zero survives, one that an ordinary empty stage is still
+filtered, or the first passes against a serialiser that has abandoned filtering
+altogether.
