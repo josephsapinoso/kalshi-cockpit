@@ -50,7 +50,7 @@ import httpx
 from ..config import KalshiConfig
 from ..store.db import ask_for_side
 from .discovery import DiscoveredMarket, build_market
-from .rest import KalshiRestClient
+from .rest import KalshiAPIError, KalshiRestClient
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +60,14 @@ logger = logging.getLogger(__name__)
 # opinion about something already settled -- and a second place to be wrong.
 REFRESH_MARKET_TYPE = "quote_refresh"
 
-# Kalshi's own word for a market that is open for trading. Anything else --
-# `closed`, `settled`, `determined` -- cannot be bought, whatever the book says.
+# Kalshi's own word for a market open for trading. An allowlist of one, so an
+# unrecognised status refuses rather than falling through to tradeable.
+#
+# Settled markets report **`finalized`**, not `settled` -- verified in the
+# discovery capture and recorded in `.claude/skills/kalshi-api/SKILL.md`.
+# Worth spelling out because a test written against the plausible-sounding
+# word proves only that *some* other string is refused, which is true of any
+# allowlist and equally true of a typo.
 TRADEABLE_STATUS = "active"
 
 
@@ -74,6 +80,14 @@ class QuoteUnavailable(RuntimeError):
     order priced from the recorded one, which is what this module exists to
     stop.
     """
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        # Whether retrying could ever help. One exception type, because the
+        # *refusal* is the same either way -- but a 404 for a ticker the
+        # exchange has never heard of served as "try again" tells whoever is
+        # holding the phone to keep tapping something that will never work.
+        self.permanent = permanent
 
 
 @dataclass(frozen=True)
@@ -102,12 +116,19 @@ class LiveQuote:
     def age_ms(self, now_ms: int) -> int:
         """How old this observation is. Normally a round trip, never negative.
 
-        Clamped at zero deliberately, and this is the one place clamping is
-        right: `observed_ms` is stamped by *this* process when the response
-        arrives, so a negative value would mean our own clock moved backwards,
-        not that a counterparty stamped the future. The dangerous direction --
-        a foreign timestamp flattering the age -- cannot arise here because the
-        timestamp is not foreign.
+        `observed_ms` is stamped by *this* process **before the request is
+        issued**, not when the response lands. That direction is deliberate: the
+        book state in the response could have been formed at any point during
+        the round trip, so measuring from the earlier instant overstates the age
+        rather than flattering it. The consequence is that this is never less
+        than one round trip -- which is worth knowing, because it means the
+        Kalshi arm of the freshness check is now near-unfailable against a 30s
+        limit. What still binds is the odds age.
+
+        Clamped at zero, and this is the one place clamping is right: the
+        timestamp is ours, so a negative value would mean our own clock moved
+        backwards. The dangerous direction -- a foreign timestamp flattering the
+        age -- cannot arise from a number we wrote.
         """
         return max(0, now_ms - self.observed_ms)
 
@@ -224,6 +245,14 @@ class LiveQuoteSource:
         api = self._api()
         try:
             payload = await api.get(f"/markets/{ticker}")
+        except KalshiAPIError as exc:
+            logger.warning("live quote refresh failed for %s: %s", ticker, exc)
+            raise QuoteUnavailable(
+                f"could not read a live quote for {ticker}: {exc}",
+                # A 404 means the exchange has never heard of this ticker, and
+                # no amount of waiting changes that.
+                permanent=exc.status_code in (400, 404),
+            ) from exc
         except Exception as exc:                                # noqa: BLE001
             logger.warning("live quote refresh failed for %s: %s", ticker, exc)
             raise QuoteUnavailable(

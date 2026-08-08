@@ -31,6 +31,7 @@ from backend.config import (
     RiskConfig,
     StalenessConfig,
 )
+from backend.core.suppression import SuppressionConfig
 from backend.kalshi.discovery import build_market
 from backend.kalshi.quotes import (
     LiveQuote,
@@ -161,8 +162,18 @@ class TestParsingALiveQuote:
         )
 
     def test_a_settled_market_is_not_tradeable(self, capture):
-        settled = {"market": {**capture["single"]["market"], "status": "settled"}}
-        assert parse_market_quote(settled, observed_ms=1).tradeable is False
+        """`finalized` is the string Kalshi actually sends, verified in the
+        discovery capture and recorded in the kalshi-api skill.
+
+        This asserted `"settled"` first, which Kalshi never sends. It proved
+        that *some* other string is refused -- true of any allowlist and true
+        of a typo. The status that occurs in reality is the one worth
+        testing.
+        """
+        for status in ("finalized", "closed", "determined", "initialized"):
+            payload = {"market": {**capture["single"]["market"], "status": status}}
+            assert parse_market_quote(payload, observed_ms=1).tradeable is False
+        assert parse_market_quote(capture["single"], observed_ms=1).tradeable
 
     def test_age_never_runs_backwards(self, capture):
         quote = parse_market_quote(capture["single"], observed_ms=5_000)
@@ -218,6 +229,35 @@ class TestTheSourceRefusesTheWrongAnswer:
         with pytest.raises(QuoteUnavailable) as exc:
             await source.fetch("SOME-OTHER-TICKER", observed_ms=1)
         assert capture["ticker"] in str(exc.value)
+
+    async def test_a_ticker_the_exchange_never_heard_of_is_not_retryable(self):
+        """A 404 and a dropped connection are the same refusal and opposite
+        advice. Served as "try again", the first has a person tapping forever.
+        """
+        from backend.kalshi.quotes import LiveQuoteSource
+        from backend.kalshi.rest import KalshiAPIError
+
+        source = LiveQuoteSource(
+            rest=_StubRest(error=KalshiAPIError(404, "/markets/NOPE", "not found"))
+        )
+
+        with pytest.raises(QuoteUnavailable) as exc:
+            await source.fetch("NOPE", observed_ms=1)
+        assert exc.value.permanent is True
+
+    async def test_a_server_error_stays_retryable(self):
+        """The control. Marking everything permanent would pass the test above
+        and turn every blip into a dead end."""
+        from backend.kalshi.quotes import LiveQuoteSource
+        from backend.kalshi.rest import KalshiAPIError
+
+        source = LiveQuoteSource(
+            rest=_StubRest(error=KalshiAPIError(500, "/markets/T", "boom"))
+        )
+
+        with pytest.raises(QuoteUnavailable) as exc:
+            await source.fetch("T", observed_ms=1)
+        assert exc.value.permanent is False
 
     async def test_a_transport_failure_becomes_one_exception_type(self):
         """The caller has one correct response to every failure. Giving it three
@@ -346,13 +386,52 @@ def _market(conn, ticker):
     )
 
 
+def _link(conn, ticker, *, now, commence_ms):
+    """A linked sportsbook fixture with a kickoff, as the runner writes one.
+
+    Every recommendation the runner records carries a `link_id`, and the order
+    endpoint reads the **sportsbook's** kickoff through it to refuse a game
+    already in progress. A fixture without one was a row that could not exist in
+    production, and it hid the in-play case entirely — the same shape as the
+    scoring fixtures that created recommendations after the closing line.
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events (event_ticker, series_ticker, title, "
+        "category, commence_ms, status, first_seen_ms, last_seen_ms) "
+        # Kalshi's own clock, three hours late and deliberately wrong here: if
+        # anything ever reads this instead of the sportsbook's, the in-play
+        # tests below go red rather than passing by coincidence.
+        "VALUES (?, 'S', 't', 'Sports', ?, 'open', ?, ?)",
+        (f"EVT-{ticker}", commence_ms + 3 * 3_600_000, now, now),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, odds_event_id, "
+        "league, method, commence_skew_ms, linked_ms) "
+        "VALUES (?, ?, 'americanfootball_nfl', 'exact_alias_pair', ?, ?)",
+        (f"EVT-{ticker}", f"ODDS-{ticker}", 3 * 3_600_000, now),
+    )
+    link_id = conn.execute(
+        "SELECT id FROM event_links WHERE odds_event_id = ?", (f"ODDS-{ticker}",)
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
+        "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
+        "outcome_name, price_decimal) VALUES (?, ?, 'americanfootball_nfl', ?, ?, "
+        "'Home', 'Away', 'pinnacle', 'h2h', 'Home', 1.9)",
+        (now, now, f"ODDS-{ticker}", commence_ms),
+    )
+    conn.commit()
+    return link_id
+
+
 def _recommendation(
     conn,
     *,
     ticker,
     created_ms,
+    link_id=None,
     ask_tenths=500,
-    fair_probability=0.60,
+    fair_probability=0.54,
     suggested_contracts=20,
     quote_age=1_000,
     odds_age=60_000,
@@ -363,17 +442,17 @@ def _recommendation(
     conn.execute(
         """
         INSERT INTO recommendations (
-            created_ms, strategy_config_version, ticker, side, entry_ask_tenths,
-            depth_at_ask, fair_probability, edge_tenths, fee_predicted,
-            ev_net_dollars, kelly_fraction, suggested_contracts,
+            created_ms, strategy_config_version, ticker, link_id, side,
+            entry_ask_tenths, depth_at_ask, fair_probability, edge_tenths,
+            fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts,
             kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text,
             clv_tenths, clv_scored_ms
-        ) VALUES (?, 1, ?, 'yes', ?, 500.0, ?, 20.0, 0.1, 0.5, 0.02, ?, ?, ?, ?,
-                  'test', ?, ?)
+        ) VALUES (?, 1, ?, ?, 'yes', ?, 500.0, ?, 20.0, 0.1, 0.5, 0.02, ?, ?, ?,
+                  ?, 'test', ?, ?)
         """,
         (
-            created_ms, ticker, ask_tenths, fair_probability, suggested_contracts,
-            quote_age, odds_age, suppressed, clv_tenths,
+            created_ms, ticker, link_id, ask_tenths, fair_probability,
+            suggested_contracts, quote_age, odds_age, suppressed, clv_tenths,
             created_ms if scored else None,
         ),
     )
@@ -381,17 +460,27 @@ def _recommendation(
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
 
-def _live_pick(conn, now, **kwargs):
+# An hour ahead, so every ordinary test is pre-game. The in-play tests set it
+# behind explicitly rather than relying on a default.
+KICKOFF_AHEAD_MS = 3_600_000
+
+
+def _live_pick(conn, now, *, kickoff_offset_ms=KICKOFF_AHEAD_MS, **kwargs):
     _market(conn, TICKER)
-    return _recommendation(conn, ticker=TICKER, created_ms=now, **kwargs)
+    link_id = _link(conn, TICKER, now=now, commence_ms=now + kickoff_offset_ms)
+    return _recommendation(
+        conn, ticker=TICKER, created_ms=now, link_id=link_id, **kwargs
+    )
 
 
-def _app(path, quotes, *, risk=None, gate=ARMED, staleness=FRESH):
+def _app(path, quotes, *, risk=None, gate=ARMED, staleness=FRESH,
+         suppression=None):
     return create_app(
         AppConfig(instance_mode="live", auth_token="t", db_path=path),
         gate_config=gate,
         risk_config=risk or RiskConfig(),
         staleness_config=staleness,
+        suppression_config=suppression or SuppressionConfig(),
         quote_source=quotes,
     )
 
@@ -432,14 +521,14 @@ class TestTheQuoteIsActuallyRefreshed:
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500)
         # A yes ask of 480 is a no bid of 520.
-        quotes = FakeQuotes(_payload(no_bid_tenths=520))
+        quotes = FakeQuotes(_payload(no_bid_tenths=510))
 
         body = (await _order(_app(path, quotes), rec)).json()
 
-        assert body["limit_price_cents"] == 48
+        assert body["limit_price_cents"] == 49
         assert body["quote"]["recorded_ask_tenths"] == 500
-        assert body["quote"]["live_ask_tenths"] == 480
-        assert body["quote"]["moved_tenths"] == -20
+        assert body["quote"]["live_ask_tenths"] == 490
+        assert body["quote"]["moved_tenths"] == -10
 
     async def test_an_adverse_move_is_charged_for_rather_than_absorbed(
         self, armed_db
@@ -453,12 +542,12 @@ class TestTheQuoteIsActuallyRefreshed:
         """
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500)
-        quotes = FakeQuotes(_payload(no_bid_tenths=470))
+        quotes = FakeQuotes(_payload(no_bid_tenths=490))
 
         body = (await _order(_app(path, quotes), rec)).json()
 
-        assert body["limit_price_cents"] == 53
-        assert body["quote"]["moved_tenths"] == 30
+        assert body["limit_price_cents"] == 51
+        assert body["quote"]["moved_tenths"] == 10
         assert body["worst_case_cost_dollars"] > body["contracts"] * 0.50
 
     async def test_the_response_reports_the_move_even_when_there_was_none(
@@ -487,18 +576,32 @@ class TestTheRefreshCanRefuse:
 
         response = await _order(_app(path, quotes), rec)
 
-        assert response.status_code == 503
+        assert response.status_code == 503, "a dropped connection is worth retrying"
         assert "recorded price" in response.json()["detail"]
 
-    async def test_a_settled_market_is_refused(self, armed_db):
+    async def test_an_unknown_ticker_is_refused_rather_than_offered_a_retry(
+        self, armed_db
+    ):
+        """422, not 503. The refusal is the same and the advice is opposite."""
         path, conn, now = armed_db
         rec = _live_pick(conn, now)
-        quotes = FakeQuotes(_payload(status="settled"))
+        quotes = FakeQuotes(
+            error=QuoteUnavailable("no such market", permanent=True)
+        )
 
         response = await _order(_app(path, quotes), rec)
 
         assert response.status_code == 422
-        assert "settled" in response.json()["detail"]
+
+    async def test_a_settled_market_is_refused(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        quotes = FakeQuotes(_payload(status="finalized"))
+
+        response = await _order(_app(path, quotes), rec)
+
+        assert response.status_code == 422
+        assert "finalized" in response.json()["detail"]
 
     async def test_a_missing_opposing_bid_refuses_rather_than_falling_back(
         self, armed_db
@@ -510,7 +613,34 @@ class TestTheRefreshCanRefuse:
         response = await _order(_app(path, quotes), rec)
 
         assert response.status_code == 422
-        assert "no readable yes ask" in response.json()["detail"]
+        assert "no yes offer" in response.json()["detail"]
+        assert "unreadable" in response.json()["detail"]
+
+    async def test_a_one_sided_book_is_refused_for_the_right_reason(
+        self, armed_db
+    ):
+        """**Kalshi sends `"0.0000"` for an absent bid, never a missing key.**
+
+        38 of 245 markets in the nested capture carry `yes_bid_dollars ==
+        "0.0000"`. So a one-sided book parses cleanly to `0`, derives an ask of
+        `1000`, and a `live_ask is None` test never fires on the case it was
+        written for. The refusal used to arrive a step later from `size_position`
+        and read *"the price moved. Recorded 50c, live 100c"* — money-safe,
+        diagnosis wrong, and the branch that looked like the guard was
+        unreachable from the wire.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        quotes = FakeQuotes(
+            {"market": {**_payload()["market"], "no_bid_dollars": "0.0000"}}
+        )
+
+        response = await _order(_app(path, quotes), rec)
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "nothing is resting on the other side" in detail
+        assert "the price moved" not in detail
 
     async def test_a_price_that_erased_the_edge_is_refused_naming_both(
         self, armed_db
@@ -518,16 +648,16 @@ class TestTheRefreshCanRefuse:
         """No new threshold: the engine's own sizer returns zero contracts, and
         the refusal quotes the two prices so the reason is checkable."""
         path, conn, now = armed_db
-        rec = _live_pick(conn, now, ask_tenths=500, fair_probability=0.60)
+        rec = _live_pick(conn, now, ask_tenths=500)
         # A yes ask of 620 against a fair value of 60c is no longer a bet.
-        quotes = FakeQuotes(_payload(no_bid_tenths=380))
+        quotes = FakeQuotes(_payload(no_bid_tenths=470))
 
         response = await _order(_app(path, quotes), rec)
 
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert "50c" in detail and "62c" in detail
-        assert "+12.0c" in detail
+        assert "50c" in detail and "53c" in detail
+        assert "+3.0c" in detail
 
     async def test_depth_below_the_order_size_is_refused(self, armed_db):
         path, conn, now = armed_db
@@ -675,7 +805,7 @@ class TestSizeIsRederivedNotCarried:
         on CLV, and a better price is not a mandate to exceed it."""
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=20)
-        quotes = FakeQuotes(_payload(no_bid_tenths=600))     # yes ask 40c
+        quotes = FakeQuotes(_payload(no_bid_tenths=510))     # yes ask 49c
 
         body = (await _order(_app(path, quotes), rec, contracts=50)).json()
 
@@ -690,13 +820,127 @@ class TestSizeIsRederivedNotCarried:
         over-betting an edge that has shrunk. The size must fall out of the
         sizer at the live ask, not be carried from the row."""
         path, conn, now = armed_db
-        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
-        quotes = FakeQuotes(_payload(no_bid_tenths=440))     # yes ask 56c
+        rec = _live_pick(
+            conn, now, ask_tenths=480, fair_probability=0.55,
+            suggested_contracts=50,
+        )
+        quotes = FakeQuotes(_payload(no_bid_tenths=490))     # yes ask 51c
 
         body = (await _order(_app(path, quotes), rec, contracts=50)).json()
 
         assert body["quote"]["resized_contracts"] < 50
         assert body["contracts"] == body["quote"]["resized_contracts"]
+
+
+class TestALargeApparentEdgeIsStillABug:
+    """Re-sizing at the live ask is one-sided, and the missing half is the
+    dangerous one.
+
+    An adverse move shrinks the order to zero and refuses. A **favourable** move
+    just buys more, up to what the engine authorised — so the order-time refresh
+    had opened a path where the one number this whole project treats as a defect
+    signal was acted on instead of suppressed. On a venue quoted to ~2c by
+    sub-200ms market makers, an ask that fell six cents since the row was written
+    is not six cents of found money; it is thirteen professional firms deciding
+    this side is worse.
+
+    `suppression.edge_ceiling_tenths` catches exactly this at recommendation
+    time. It now runs at order time too, against the live price.
+    """
+
+    async def test_a_large_favourable_move_is_refused_not_bought(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500)
+        # 50c to 42c. Under the old code this was an 8c edge, sized and sent.
+        quotes = FakeQuotes(_payload(no_bid_tenths=580))
+
+        response = await _order(_app(path, quotes), rec)
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "ceiling" in detail
+        assert "-8.0c" in detail, "the refusal must name the move it caught"
+
+    async def test_a_move_inside_the_ceiling_still_trades(self, armed_db):
+        """The control. Without it this class would pass against a ceiling of
+        zero, which refuses everything and proves nothing."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500)
+        quotes = FakeQuotes(_payload(no_bid_tenths=510))     # 50c -> 49c
+
+        assert (await _order(_app(path, quotes), rec)).status_code == 200
+
+    async def test_the_ceiling_is_the_engines_own_threshold(self, armed_db):
+        """Not a second number that happens to agree today."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500)
+        quotes = FakeQuotes(_payload(no_bid_tenths=580))
+
+        loosened = _app(
+            path, quotes, suppression=SuppressionConfig(edge_ceiling_tenths=200.0)
+        )
+        assert (await _order(loosened, rec)).status_code == 200
+
+
+class TestAGameInProgressIsNotACandidate:
+    """The runner refuses to *record* a started game. It cannot retract one.
+
+    A row written ten minutes before kickoff keeps `suggested_contracts > 0` and
+    stays inside the 900s odds window well into the first quarter — and the
+    order-time refresh makes that worse rather than better, because the ask is
+    now a live in-play price while the fair value beside it is a pre-game
+    consensus. Measured on one live pass: in-play edges ran -200.3 to +67.7
+    tenths against -39.2 to -17.7 for pre-game rows on the same slate.
+    """
+
+    async def test_a_started_game_is_refused(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, kickoff_offset_ms=-600_000)   # 10 min in
+
+        response = await _order(_app(path, FakeQuotes()), rec)
+
+        assert response.status_code == 422
+        assert "started" in response.json()["detail"]
+
+    async def test_the_clock_is_the_sportsbooks_not_kalshis(self, armed_db):
+        """Kalshi's `occurrence_datetime` runs exactly three hours late, so
+        reading it would wave through the entire first half.
+
+        The fixture stores Kalshi's time as the sportsbook's plus three hours,
+        which is what the live API actually does. A game that kicked off two
+        hours ago is still 'an hour away' on Kalshi's clock — so an
+        implementation reading the wrong column returns 200 here.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, kickoff_offset_ms=-2 * 3_600_000)
+
+        response = await _order(_app(path, FakeQuotes()), rec)
+
+        assert response.status_code == 422, (
+            "this is Kalshi's clock saying the game has not started yet"
+        )
+        assert "started" in response.json()["detail"]
+
+    async def test_an_unlinked_row_is_refused_rather_than_assumed_pre_game(
+        self, armed_db
+    ):
+        """'We cannot tell whether this game has started' must not resolve to
+        'it has not'."""
+        path, conn, now = armed_db
+        _market(conn, TICKER)
+        rec = _recommendation(conn, ticker=TICKER, created_ms=now, link_id=None)
+
+        response = await _order(_app(path, FakeQuotes()), rec)
+
+        assert response.status_code == 422
+        assert "no linked sportsbook fixture" in response.json()["detail"]
+
+    async def test_a_game_still_ahead_trades(self, armed_db):
+        """The control, so the class cannot pass by refusing everything."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, kickoff_offset_ms=3_600_000)
+
+        assert (await _order(_app(path, FakeQuotes()), rec)).status_code == 200
 
 
 class TestTheCapsStillBindThroughTheSizer:

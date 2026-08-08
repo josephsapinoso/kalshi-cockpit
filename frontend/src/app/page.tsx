@@ -1,4 +1,5 @@
 import Link from "next/link";
+import LiveBoard from "@/components/LiveBoard";
 import OpportunityCard from "@/components/OpportunityCard";
 import WindowBanner from "@/components/WindowBanner";
 import { fetchBoard, fetchHealth, fetchWindow } from "@/lib/api";
@@ -132,16 +133,17 @@ export default async function BoardPage({
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {board.surfaced.map((rec) => (
-            <OpportunityCard
-              key={rec.id}
-              rec={rec}
-              quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
-              oddsLimitMs={board.staleness.max_odds_age_s * 1000}
-            />
-          ))}
-        </div>
+        /* A client component, and only for the bettable rows. Expired and
+           suppressed cards below are history and must not move -- a ticker
+           that animated a row nobody can bet would be movement that means
+           nothing, which is the failure the Board already had once when it
+           ranked every row ever written. */
+        <LiveBoard
+          rows={board.surfaced}
+          enabled={health.live_quotes_available === true}
+          quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
+          oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+        />
       )}
 
       {/* Kept rather than hidden. "There is nothing to bet" and "there was
@@ -159,10 +161,16 @@ export default async function BoardPage({
             from the exchange at the moment of the order, so its age never
             expires a row — what does is the sportsbook consensus behind the
             fair value, which stands for{" "}
-            {Math.round(board.staleness.max_odds_age_s / 60)} minutes and can
-            only be refreshed by spending one of the day&apos;s two odds
-            credits. They are shown because a board that silently drops them
-            looks identical to a board that never found anything.
+            {Math.round(board.staleness.max_odds_age_s / 60)}{" "}
+            {/* Explicit, not a literal space after the expression. JSX
+                collapsed that one and rendered "15minutes" -- the same defect
+                `tasks/lessons.md` already records, in the same paragraph,
+                reintroduced while rewriting it. No automated check in this repo
+                sees it; only reading the page does. */}
+            minutes and can only be refreshed by spending one of the
+            day&apos;s two odds credits. They are shown because a board that
+            silently drops them looks identical to a board that never found
+            anything.
           </p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {board.expired.map((rec) => (

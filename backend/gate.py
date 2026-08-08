@@ -574,11 +574,16 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
     """
     row = conn.execute(
         """
-        SELECT id, ticker, created_ms, entry_ask_tenths, side,
-               fair_probability, kalshi_quote_age_ms, odds_age_ms,
-               suppressed_reason, suggested_contracts, last_confirmed_ms,
-               last_confirmed_quote_age_ms, last_confirmed_odds_age_ms
-        FROM recommendations WHERE id = ?
+        SELECT r.id, r.ticker, r.created_ms, r.entry_ask_tenths, r.side,
+               r.fair_probability, r.kalshi_quote_age_ms, r.odds_age_ms,
+               r.suppressed_reason, r.suggested_contracts, r.link_id,
+               r.last_confirmed_ms, r.last_confirmed_quote_age_ms,
+               r.last_confirmed_odds_age_ms,
+               (SELECT MIN(o.commence_ms)
+                  FROM odds_snapshots o
+                  JOIN event_links l ON l.odds_event_id = o.odds_event_id
+                 WHERE l.id = r.link_id) AS commence_ms
+        FROM recommendations r WHERE r.id = ?
         """,
         (recommendation_id,),
     ).fetchone()
@@ -602,6 +607,18 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
         "suppressed_reason": row["suppressed_reason"],
         "suggested_contracts": row["suggested_contracts"],
         "created_ms": row["created_ms"],
+        # **The sportsbook's kickoff, joined through the link, never Kalshi's.**
+        # `kalshi_events.commence_ms` runs exactly three hours late, so reading
+        # it here would call the seventh inning "not started" -- the offset that
+        # has already been a silent off switch twice in this repo.
+        #
+        # Carried because the order path needs it and nothing else was passing
+        # it: the runner refuses to *record* a started game, but a row written
+        # ten minutes before kickoff keeps `suggested_contracts > 0` and stays
+        # inside the 900s odds window well into the first quarter. `None` when
+        # the row has no link or no stored fixture, and the caller refuses on it
+        # rather than assuming the game is still ahead.
+        "commence_ms": row["commence_ms"],
         "kalshi_quote_age_ms": ages.quote_age_ms,
         "odds_age_ms": ages.odds_age_ms,
         # Which instant the ages were measured from, and whether it was a

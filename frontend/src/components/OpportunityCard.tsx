@@ -21,12 +21,18 @@ export default function OpportunityCard({
   rec,
   suppressed = false,
   expired = false,
+  live = false,
+  direction,
   quoteLimitMs = MAX_QUOTE_AGE_MS,
   oddsLimitMs = MAX_ODDS_AGE_MS,
 }: {
   rec: Recommendation;
   suppressed?: boolean;
   expired?: boolean;
+  /** This row's price arrived over the live feed rather than from the record. */
+  live?: boolean;
+  /** Which way the ask last moved, for a non-colour cue alongside the flash. */
+  direction?: "up" | "down";
   quoteLimitMs?: number;
   oddsLimitMs?: number;
 }) {
@@ -67,7 +73,17 @@ export default function OpportunityCard({
       {/* The comparison that decides the bet, given the most visual weight. */}
       <div className="mt-5 grid grid-cols-3 gap-3 border-t pt-4">
         <Figure label="Consensus fair" value={rec.fair_display} />
-        <Figure label="Kalshi asks" value={rec.ask_display} />
+        <Figure
+          // The arrow carries the direction as well as the colour flash. Roughly
+          // one man in twelve cannot separate the two hues, and a ticker whose
+          // only signal is red-versus-green tells them nothing.
+          label={live ? "Kalshi asks · live" : "Kalshi asks"}
+          value={
+            direction
+              ? `${rec.ask_display} ${direction === "up" ? "▲" : "▼"}`
+              : rec.ask_display
+          }
+        />
         <Figure
           label="Edge, net of fees"
           value={`${positive ? "+" : ""}${rec.edge_cents.toFixed(1)}c`}
@@ -112,7 +128,12 @@ export default function OpportunityCard({
             this row: the number is then the age of the last confirmation, not
             of the original observation, and those are different claims. */}
         <span className={`freshness-${band}`}>
-          {rec.freshness_confirmed ? "re-checked" : "quote"} {formatAge(quoteAge)}
+          {live
+            ? "streaming"
+            : rec.freshness_confirmed
+              ? "re-checked"
+              : "quote"}{" "}
+          {formatAge(quoteAge)}
         </span>
         <span>books {formatAge(oddsAge)}</span>
         {rec.depth_at_ask !== null && <span>depth {rec.depth_at_ask.toFixed(0)}</span>}

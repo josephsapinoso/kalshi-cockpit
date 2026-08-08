@@ -1550,3 +1550,103 @@ saw shrinks it to nothing — rather than asserting the code exists.
 Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
 [[the-zero-that-means-no-measurement]] — a guard that cannot fire is
 indistinguishable from one that is working.
+
+---
+
+## 2026-08-08 — Re-deriving a decision at a new price is one-sided unless you say otherwise
+
+Refreshing the Kalshi quote at order time re-runs `size_position` at the live
+ask. An adverse move shrinks the order to zero and refuses, which is obviously
+right and is what the change was built for. A **favourable** move was accepted
+unconditionally, at up to the size the engine had authorised.
+
+That looks symmetrical and is not. `size_position` is monotonic in price: a
+lower ask always returns *more* contracts, never a refusal. So the re-derivation
+had a refusal branch in one direction and none in the other, and the direction
+with none is the one this project's governing rule is about — **a large apparent
+edge is a bug until proven otherwise.** An ask that fell six cents since the row
+was written is not six cents of found money on a venue quoted to ~2c by thirteen
+sub-200ms firms; it is the market deciding your side is worse, and you are last
+to know. `suppression.edge_ceiling_tenths` catches exactly that at
+recommendation time and simply was not being applied at order time.
+
+**The tell was in the tests, and I wrote past it.** There was a test for a price
+that moved against us and a test for a price that moved in our favour, and only
+the first asserted a refusal. Two tests named for opposite directions where one
+expects an error and one expects success should prompt the question "is the
+asymmetry real?" — here it was an artefact of which function did the work.
+
+**How to apply:** when a control is re-run against fresher inputs, list the
+checks the *original* decision passed and ask which of them the re-run drops.
+Sizing was carried over; the edge ceiling, the method-noise floor and the depth
+check were not, and only depth had been noticed. A re-derivation that is
+strictly a subset of the original decision is a loosening wearing the costume of
+a refresh.
+
+Corollary found in the same review: **the runner refusing to *record* a started
+game does not retract the row it wrote ten minutes before kickoff.** That row
+keeps its size and stays inside the 900s odds window well into the first
+quarter, and re-reading Kalshi makes it worse — the ask becomes a live in-play
+price while the fair value beside it is a pre-game consensus. A drop applied at
+write time needs a matching refusal at read time, or the guard only holds for
+rows that do not exist yet. Related: [[two-populations-in-one-record]],
+[[two-limits-on-one-quantity]].
+
+---
+
+## 2026-08-08 — Kalshi sends "0.0000", not a missing field
+
+`ask_for_side` returns `None` when the opposing bid is unreadable, and the order
+endpoint refused on `live_ask is None` with a message about an absent bid. That
+branch cannot run on real data. **Kalshi publishes `"0.0000"` for a side nobody
+is bidding** — 38 of 245 markets in the discovery capture carry
+`yes_bid_dollars == "0.0000"` — so a genuinely one-sided book parses cleanly to
+`0` and derives an ask of `1000`.
+
+Nothing was unsafe: `is_valid_price` rejects 1000 a step later inside
+`size_position`, so the order was refused either way. What was wrong was the
+*reason*. The refusal that reached the screen said **"the price moved. Recorded
+45c, live 100c"** — a sentence describing a market that moved 55 cents, when
+what actually happened is that nobody is offering that side at all. Two
+completely different situations, one message, and the message names the rarer
+one.
+
+**How to apply:** this is [[unreadable-must-never-resolve-to-zero]] with the
+polarity reversed — not "a parser turned garbage into zero" but "the venue sends
+a real zero where the code expected an absence". Before writing an
+`is None` guard against a wire field, check what the API actually emits for the
+empty case. And when a value has a legal-but-meaningless extreme (0 and 1000 on
+a price grid), test the *extreme*, not the null: the null may be unreachable.
+
+The general shape, now the fourth entry in this file about it: a guard whose
+branch cannot be reached is not defence in depth. It is a comment that looks
+like code, and it silently hands its job to whatever refuses next — which
+refuses for a different reason and says so.
+
+---
+
+## 2026-08-08 — A ticker's failure mode is silence that looks like calm
+
+Streaming live prices into the cockpit removes the staleness problem for
+display and introduces exactly one new one: **a feed that stops looks identical
+to a market that went quiet.** Frozen prices that read as current are the
+worst state this system can be in, and it is the half-dead-container problem
+(`docker/entrypoint.sh`) moved into the browser, where no supervisor can see it.
+
+So the design is: a heartbeat on a fixed interval whether or not anything moved,
+a `down` event pushed the instant the feed dies, that same state repeated on
+every heartbeat so a tab that was asleep still learns about it, and a client-side
+timer that treats *nothing at all* — not even a heartbeat — as a fault.
+
+**The first version of the test for this passed with the broadcast deleted.** It
+accepted the down state arriving on a heartbeat, and the heartbeat carries it
+too. Both paths are wanted, but they are not interchangeable: the heartbeat
+interval is ten seconds, and ten seconds of prices that look live after the feed
+has gone is the entire failure being designed against. The fix was two tests —
+one with the heartbeat set *long*, asserting the event arrives anyway.
+
+**How to apply:** when a system has a fast path and a slow path to the same
+state, a test that accepts either verifies neither. Set the slow path out of
+reach and assert the fast one. And for anything that pushes: decide what
+*silence* means before shipping it, because the default meaning is "everything
+is fine".

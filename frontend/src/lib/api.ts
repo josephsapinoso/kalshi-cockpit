@@ -297,7 +297,19 @@ export const fetchLedger = () => get<Ledger>("/api/ledger");
 export const fetchGate = () => get<Gate>("/api/gate");
 
 export const fetchHealth = () =>
-  get<{ instance_mode: string; execution_available: boolean }>("/api/health");
+  get<{
+    instance_mode: string;
+    execution_available: boolean;
+    /**
+     * Whether `/api/stream/quotes` will do anything on this instance.
+     *
+     * The Board opens the stream only when this is true. A browser's
+     * `EventSource` retries a failing endpoint on its own, forever and
+     * silently, so pointing it at the demo — which holds no Kalshi credentials
+     * — would be a permanent reconnect loop nobody could see.
+     */
+    live_quotes_available?: boolean;
+  }>("/api/health");
 
 /** Freshness band for a quote age. Drives colour, so the eye reads it. */
 export function freshness(ageMs: number, limitMs: number) {

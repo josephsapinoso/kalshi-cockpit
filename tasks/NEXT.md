@@ -1,21 +1,22 @@
 # Next — your checklist
 
-## Joseph's asks, 2026-08-08 — four of them, in his priority order
+## Joe's asks, 2026-08-08 — four of them; two are done
 
-Raised in chat while the quote-refresh work was landing. Recorded here because
-none of them exist anywhere in the repo.
+Raised in chat while the quote-refresh work was landing.
 
-1. **Stream the prices. Make the Board a ticker.** *"I'm thinking about this
-   like a stock ticker. Billy Walters would like it."* And the sharper version:
-   *"it seems like you're doing a lot to manage prices at their very small
-   window snapshot, so wouldn't it just be easier to stream the prices in?"*
+1. **~~Stream the prices. Make the Board a ticker.~~ — done.** *"I'm thinking
+   about this like a stock ticker. Billy Walters would like it."* And the
+   sharper version: *"it seems like you're doing a lot to manage prices at their
+   very small window snapshot, so wouldn't it just be easier to stream the
+   prices in?"*
 
-   He is right about the Kalshi half and it is worth saying exactly how far.
-   `backend/kalshi/ws.py` already works — verified against a 269-frame capture,
-   6/6 books populated, per-connection `seq`, `FeedDied` on a dead feed. Piping
-   that to the browser replaces the 15s quote pass with a push feed and makes
-   `price_is_current` almost always true, which is a real simplification of the
-   *display*.
+   He was right about the Kalshi half. `backend/live.py` is the hub, and
+   **`backend/kalshi/ws.py` finally has a caller** — it was the fifth module in
+   this project to be complete, tested and invoked by nothing. Verified against
+   the live exchange: real book state for `KXNCAAFGAME-26SEP19MSUND-ND` arrived
+   over the socket and out through SSE, and the depth it reported (640.95 at the
+   yes ask) matches `yes_ask_size_fp` from the REST capture — an independent
+   confirmation of the crossover.
 
    What it does **not** do, and this is the part to keep saying out loud:
 
@@ -23,33 +24,45 @@ none of them exist anywhere in the repo.
      devigged sportsbook consensus at ~16 credits a day, 6 a sweep. Streaming
      Kalshi gives a live ask against a fair value up to fifteen minutes old.
      The window is an odds-budget fact and no amount of Kalshi streaming
-     touches it.
+     touches it. The banner and the feed header both say so.
    - **It does not replace the order-time refresh.** A browser's price is a
-     client-supplied price and the server must never trust one. The refresh
-     stays; streaming just means it usually agrees.
-   - **It does not remove freshness tracking, it makes the numbers small.** A
-     stuck stream serving frozen prices looks exactly like a quiet market —
-     the failure `docker/entrypoint.sh` supervision exists for, one layer up.
-     A ticker needs a heartbeat and a visible "feed down" state or it is worse
-     than polling.
+     client-supplied price and the server must never trust one. `POST
+     /api/orders` re-reads the book itself; streaming means the two usually
+     agree.
+   - **The browser is given no arithmetic.** Edge and size are recomputed *on
+     the server* by the same functions the order endpoint calls. Shipping the
+     fee curve to TypeScript so the client could subtract it would put two
+     implementations of a money calculation one refresh apart.
+   - **A stopped ticker must look stopped.** Heartbeat every 10s regardless,
+     `down` pushed the instant the feed dies and repeated on every heartbeat,
+     and a client-side timer that treats total silence as a fault.
 
-   Shape: Kalshi WS in the backend → fan-out to browsers over SSE behind the
-   same `APP_AUTH_TOKEN` cookie gate → the Board patches asks and re-derives the
-   edge client-side against the served fair value. Demo instance holds no
-   credentials, so it must degrade to the polled view rather than showing a dead
-   ticker.
+   **Verified end to end**, including the thing most likely to be silently
+   broken: SSE survives Next's `/api/*` rewrite unbuffered — frames arrive
+   exactly one heartbeat apart through the proxy, not in bursts.
 
-2. **A Kalshi-platform specialist agent**, to check everything built against how
-   the venue actually behaves. *"so that agent can check against everything
-   we're doing to make sure everything is copacetic."* The material for it
-   exists and is scattered: `.claude/skills/kalshi-api/SKILL.md`, the fee hedge
-   in `core/fees.py`, the 1–99 grid and deci-cent ticks, the 3-hour
-   `occurrence_datetime` offset, `KXMVE` combos, the WS wire format. A reviewer
-   subagent that holds all of it and is pointed at a diff is cheap and would
-   have caught at least two of the defects in `tasks/lessons.md`.
+   Two things left on it, neither blocking:
+   - The hub prices against `exposure = 0` rather than reading the portfolio per
+     frame. Display-only, and the order endpoint applies the real exposure, but
+     the size on a card can therefore exceed what the server would accept once
+     fills are persisted.
+   - On a market with no book activity the cards keep their recorded prices
+     until the first frame arrives. Correct, and it means "LIVE" can sit above
+     a recorded price for a few seconds after a restart.
+
+2. **~~A Kalshi-platform specialist agent~~ — done, and it earned its keep
+   immediately.** `.claude/agents/kalshi-platform.md`. *"so that agent can check
+   against everything we're doing to make sure everything is copacetic."*
+
+   Pointed at the quote-refresh commit it found a defect I had introduced and
+   two more besides — see the handoff below. It needs a session restart to
+   register as a subagent type; until then it can be run by handing the file to
+   a general-purpose agent.
 
 3. **Is in-play betting viable?** See the item in section 3 — it is the largest
-   of the four and the one with a real chance of a "no".
+   of the four and the one with a real chance of a "no". Note that the order
+   path now **refuses a started game** (added in response to finding 1 below),
+   so nothing can leak into the record while the question is open.
 
 4. **Is Python the right language everywhere?** *"if some other code language
    base works better in some places use that instead — Rust, C++, whatever."*
@@ -75,22 +88,74 @@ none of them exist anywhere in the repo.
 
 ---
 
-## HANDOFF (2026-08-08, later still — the price is re-read at order time)
+## HANDOFF (2026-08-08, later still — the price is live, and a review caught me)
 
-**State:** 1,035 tests, frontend builds, all five pages fit 320/390px, Board
-verified by rendering it. **Not deployed** — the previous handoff's migration
-still has not shipped either, so the next deploy carries both.
+**State:** 1,064 tests, frontend builds, all five pages fit 320/390px, Board and
+ticker verified by rendering them against the live exchange. **Not deployed** —
+the earlier migration has not shipped either, so the next deploy carries both.
 
-`POST /api/orders` no longer trusts the recorded price. It re-reads
-`GET /markets/{ticker}`, refuses if the book cannot be read or the market is not
-tradeable, re-sizes at the live ask through `size_position`, re-checks depth
-against the live book, and sends the order at the live price. The response
-returns both prices and the move between them, always — including zero, so
-"the price held" and "nobody looked" cannot render identically.
+Three things landed: the order-time quote refresh, the streaming ticker, and the
+fixes from the Kalshi-platform review of the first one.
 
-The consequence worth knowing before reading the Board: **a stale recorded quote
-is no longer an expired row.** It is a bettable row showing a stale price, which
-is a different thing and now says so.
+### The review found a defect I introduced, and it was the repo's own first rule
+
+**Re-sizing at the live ask is one-sided.** An adverse move shrinks the order to
+zero and refuses; a *favourable* move just buys more, up to what the engine
+authorised. `size_position` is monotonic in price, so the re-derivation had a
+refusal branch in one direction and none in the other — and the direction with
+none is the one *"a large apparent edge is a bug until proven otherwise"* exists
+for. An ask that fell six cents since the row was written is not six cents of
+found money.
+
+Fixed: `suppression.edge_ceiling_tenths` now runs at order time against the live
+edge, using the engine's own config rather than a second constant.
+
+**And the runner's in-play drop only covers rows it has not written yet.** A row
+recorded ten minutes before kickoff keeps its size and stays inside the 900s
+odds window well into the first quarter — and the refresh makes that worse, not
+better, because the ask becomes a live in-play price while the fair value beside
+it is a pre-game consensus. Measured in-play edges ran −200 to +68 tenths.
+`recommendation_freshness` now carries the **sportsbook's** kickoff (joined
+through `link_id`, never `kalshi_events.commence_ms`, which runs three hours
+late) and the order path refuses a started game.
+
+Three smaller ones, all from the same review:
+
+- **Kalshi sends `"0.0000"`, not a missing field**, so the `live_ask is None`
+  branch could never fire on a real one-sided book and the refusal that reached
+  the screen said *"the price moved. Recorded 45c, live 100c"*. Now
+  `is_valid_price`, with a message about there being no offer.
+- The depth refusal claimed a fill guarantee the order does not have — plain GTC
+  limit, no `time_in_force`, no cancel path anywhere in the repo. Reworded, and
+  the thinness is logged.
+- A 404 for an unknown ticker was served as 503, telling whoever is holding the
+  phone to retry something that will never work.
+
+**Still open from that review, recorded rather than fixed:**
+
+- **The CLV price and the fill price are now different numbers.** CLV scores off
+  `entry_ask_tenths`; the order goes out at the live ask. Nothing joins them
+  because `orders` is still never written. The gate that arms real money is
+  built entirely on CLV, so its evidence base and its executed bets would
+  describe different prices. This is an argument for persisting orders *before*
+  anything is armed, not after.
+- **`_current_exposure_dollars` always returns `0.0`** for the same reason, so
+  `max_exposure_dollars` does not currently bind in production even though it
+  binds in the tests.
+- One assumption still strictly unverified: no fixture ties `yes_ask_size_fp` to
+  an orderbook NO-bid quantity *directly*. One call closes it —
+  `GET /markets/{ticker}/orderbook`, compare the NO side's quantity against
+  `yes_ask_size_fp`.
+
+### What to look at once it is live
+
+- `live_quotes_available` on `/api/health` says whether the ticker is running.
+- The feed header on the Board: `LIVE`, `FEED DOWN`, `FEED SILENT`, `NO LIVE
+  ROWS`. `NO LIVE ROWS` is the expected state for most of the day.
+- **The rewrite destination is read at Next's start, not at build**, and it
+  defaults to `127.0.0.1:8000`. Both processes share a host in the image, so
+  this is only a trap when running the halves on non-default ports locally — it
+  presents as "Backend unreachable" or a 500 on the stream.
 
 ---
 

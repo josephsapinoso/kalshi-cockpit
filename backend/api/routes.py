@@ -21,6 +21,7 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..analysis.marts import (
@@ -44,8 +45,10 @@ from ..core.parlay import (
     kalshi_equivalent,
     value_parlay,
 )
-from ..core.prices import format_price, tenths_to_dollars
+from ..core.ev import edge_after_fees_tenths
+from ..core.prices import format_price, is_valid_price, tenths_to_dollars
 from ..core.sizing import size_position, verify_positive_after_fees
+from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..gate import (
@@ -56,6 +59,7 @@ from ..gate import (
 )
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
+from ..live import QuoteHub, sse
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
@@ -128,7 +132,9 @@ def create_app(
     risk_config: Optional[RiskConfig] = None,
     staleness_config: Optional[StalenessConfig] = None,
     odds_config: Optional[OddsConfig] = None,
+    suppression_config: Optional[SuppressionConfig] = None,
     quote_source: Optional[LiveQuoteSource] = None,
+    quote_hub: Optional[QuoteHub] = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -154,6 +160,14 @@ def create_app(
     # Without the credential: this app never calls The Odds API, and the demo
     # instance holds no key. See `OddsConfig.load_without_credentials`.
     odds = odds_config or OddsConfig.load_without_credentials()
+    # The same thresholds the engine judged the candidate against. The order
+    # path re-applies the edge ceiling at the live price, so this must be the
+    # engine's config rather than a second set of numbers that agrees today.
+    #
+    # Not named `suppression`: there is a route function by that name below, and
+    # `def` in the same closure would rebind it -- which it silently did, so the
+    # ceiling check read `edge_ceiling_tenths` off a FastAPI handler.
+    thresholds = suppression_config or SuppressionConfig()
 
     # One quote source per app, built on the first order rather than at boot.
     # Held in a dict rather than a closure variable so the lifespan and the
@@ -167,9 +181,21 @@ def create_app(
             quotes["source"] = LiveQuoteSource()
         return quotes["source"]
 
+    # The ticker. Live instance only: it holds a Kalshi socket open, and the
+    # demo deploy carries no credentials by design.
+    hub: Optional[QuoteHub] = quote_hub
+    if hub is None and not app_config.is_demo:
+        hub = QuoteHub(
+            app_config.db_path, risk=risk, staleness=staleness
+        )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if hub is not None:
+            await hub.start()
         yield
+        if hub is not None:
+            await hub.stop()
         # An injected source belongs to whoever injected it, but closing it here
         # anyway is right: the app is the only thing that used it, and leaking an
         # open httpx client per app in a test suite is how a run ends in
@@ -266,7 +292,59 @@ def create_app(
             # which is exactly what a working alerter also looks like on a quiet
             # night.
             "notifications_configured": DiscordConfig.from_env() is not None,
+            # Whether `/api/stream/quotes` will do anything. The Board opens the
+            # stream only when this is true, so the demo shows a static page
+            # rather than an EventSource reconnect loop against a 503 -- which
+            # is what a browser does with a failing stream, forever, silently.
+            "live_quotes_available": hub is not None,
         }
+
+    @app.get("/api/stream/quotes")
+    async def stream_quotes():
+        """Live Kalshi prices, pushed. **A display, not a control.**
+
+        Every frame here is derived and discarded: nothing on this path writes
+        to `recommendations`, and `POST /api/orders` re-reads the book itself
+        rather than trusting anything a browser was sent. Streaming makes the
+        two usually agree; it does not make one able to stand in for the other.
+
+        Not authenticated at this layer, and that is deliberate rather than an
+        oversight: uvicorn binds loopback and is never published, so `/api/*` is
+        reachable only through Next's rewrite, and the middleware cookie gate
+        runs *before* rewrites. This is the same posture as `/api/board`, which
+        carries the same prices.
+
+        The heartbeat is the load-bearing part. A ticker that silently stops
+        looks exactly like a market that went quiet, and the reader cannot tell
+        which -- so a frame goes out on a fixed interval whether or not anything
+        moved, and a dead feed is broadcast as an event rather than logged.
+        """
+        if hub is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "This instance holds no Kalshi credentials, so there is no "
+                    "live feed to stream. The Board's prices are the recorded "
+                    "ones and their age is shown on each card."
+                ),
+            )
+
+        async def frames():
+            async for event in hub.subscribe():
+                yield sse(event)
+
+        return StreamingResponse(
+            frames(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                # nginx and several Fly-adjacent proxies buffer by default,
+                # which turns a ticker into a page that updates in bursts every
+                # few kilobytes -- indistinguishable from a laggy feed.
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @app.get("/api/board")
     def board(
@@ -615,7 +693,11 @@ def create_app(
             ) from exc
         except QuoteUnavailable as exc:
             raise HTTPException(
-                status_code=503,
+                # 503 invites a retry and 422 does not, which is the whole
+                # distinction: a dropped connection is worth tapping again and
+                # a ticker the exchange has never heard of is not. Served as
+                # 503, the second would have a person retrying forever.
+                status_code=422 if exc.permanent else 503,
                 detail=(
                     f"{exc} Refusing rather than falling back on the recorded "
                     f"price -- a price nobody could re-read is not a price."
@@ -700,6 +782,11 @@ def create_app(
         #    mean. It is not a second, looser gate: every condition it checks is
         #    re-checked in step 8 alongside freshness, so this can only ever
         #    refuse earlier, never permit something the full check would not.
+        #
+        #    First among the free checks because it is the most decisive. With
+        #    no evidence the gate is locked and will stay locked, so "the live
+        #    gate is locked" is the answer worth giving even when the row also
+        #    has some other problem.
         standing = evaluate_gate(conn, gate)
         if not standing.open:
             raise HTTPException(
@@ -711,7 +798,46 @@ def create_app(
                 },
             )
 
-        # 6. Re-read the price from Kalshi. **The recorded ask is provenance
+        # 6. The game must not have started. Free, reads only the record, and it
+        #    goes before the network call.
+        #
+        #    **The runner already refuses to record a started game** -- measured
+        #    on one live pass, 36 of 104 rows were in-progress, with edges
+        #    running -200.3 to +67.7 tenths against -39.2 to -17.7 for the
+        #    pre-game rows on the same slate. What it does not do is retract a
+        #    row it wrote *before* kickoff. That row keeps its size and stays
+        #    inside the 900s odds window for a quarter of an hour after the ball
+        #    is in the air, and re-reading Kalshi at order time makes it worse
+        #    rather than better: the ask is now a live in-play price and the
+        #    fair value beside it is a pre-game consensus, so the "edge" is two
+        #    different questions subtracted from each other.
+        #
+        #    The clock is **the sportsbook's**. Kalshi's `occurrence_datetime`
+        #    runs three hours late and would wave the whole first half through.
+        commence_ms = freshness["commence_ms"]
+        if commence_ms is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"recommendation {request.recommendation_id} has no linked "
+                    f"sportsbook fixture, so there is no kickoff to check it "
+                    f"against. Refusing: 'we cannot tell whether this game has "
+                    f"started' must not resolve to 'it has not'."
+                ),
+            )
+        if commence_ms <= db.now_ms():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"this game started at {commence_ms}. The fair value on the "
+                    f"record is a pre-game consensus and the Kalshi price is now "
+                    f"an in-play one; the difference between them is not an edge. "
+                    f"In-play is a different product and this tool does not "
+                    f"price it."
+                ),
+            )
+
+        # 7. Re-read the price from Kalshi. **The recorded ask is provenance
         #    from here on, not the price of anything.**
         #
         #    Confirmation (`engine.confirm_recommendation`) narrows the gap
@@ -735,13 +861,27 @@ def create_app(
         side = freshness["side"]
         recorded_ask = freshness["entry_ask_tenths"]
         live_ask = quote.ask_tenths(side)
-        if live_ask is None:
+        # `is_valid_price`, not `is None`, and the difference is the whole
+        # check. **Kalshi sends `"0.0000"` for an absent bid, never a missing
+        # key** -- 38 of 245 markets in the nested capture carry
+        # `yes_bid_dollars == "0.0000"`. So a one-sided book parses cleanly to
+        # `0` and derives an ask of `1000`, and a `None` test never fires on the
+        # case it was written for: a guard that cannot fire, which is the shape
+        # this repo keeps re-finding. 1000 is not a price, it is a settled
+        # outcome, and here it means nobody is offering this side at all.
+        if not is_valid_price(live_ask):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"{quote.ticker} has no readable {side} ask right now -- the "
-                    f"opposing bid is absent or unparseable. Refusing rather "
-                    f"than falling back on the recorded {format_price(recorded_ask)}."
+                    f"{quote.ticker} has no {side} offer right now"
+                    + (
+                        " -- the opposing bid is unreadable"
+                        if live_ask is None
+                        else " -- nothing is resting on the other side, so there "
+                             "is nothing to lift"
+                    )
+                    + f". Refusing rather than falling back on the recorded "
+                      f"{format_price(recorded_ask)}."
                 ),
             )
 
@@ -850,13 +990,61 @@ def create_app(
                 status_code=422,
                 detail=(
                     f"{depth:.0f} contracts rest at {format_price(live_ask)} and "
-                    f"this order is {contracts}. Refusing rather than resting "
-                    f"the remainder: a partial fill records an entry price the "
-                    f"record cannot reproduce."
+                    f"this order is {contracts}. Refusing: an edge you cannot "
+                    f"fill is not an edge, and a partial fill records an entry "
+                    f"price the record cannot reproduce."
+                ),
+            )
+        # Stated rather than implied, because the check above is weaker than it
+        # reads. Depth is a snapshot one round trip old, and the order is a
+        # plain GTC limit -- no `time_in_force`, no cancel path in this repo --
+        # so a bid lifted in between leaves a resting remainder. The refusal
+        # bounds the size against the book we saw; it does not make the fill
+        # atomic, and nothing here can.
+        if depth < contracts * 2:
+            logger.info(
+                "%s: %.0f resting against a %d-contract order -- thin enough "
+                "that a fill is not assured",
+                quote.ticker, depth, contracts,
+            )
+
+        # 12. **A large apparent edge is a bug until proven otherwise**, and the
+        #     price having just moved in our favour is not an exception to that
+        #     -- it is the most likely way to produce one.
+        #
+        #     Re-sizing at the live ask is one-sided by construction: an adverse
+        #     move shrinks the order to zero and refuses, while a favourable move
+        #     simply buys more, up to what the engine authorised. On a venue
+        #     quoted to ~2c by sub-200ms market makers, an ask that has fallen
+        #     six cents since the row was written is not six cents of found
+        #     money. It is thirteen professional firms deciding this side is
+        #     worse, and we are the last to know.
+        #
+        #     `suppression.edge_ceiling_tenths` catches exactly this at
+        #     recommendation time and was not being applied at order time, so
+        #     the refresh had opened a path where the one number the whole
+        #     project treats as a defect signal was instead acted on.
+        live_edge = edge_after_fees_tenths(
+            ask_tenths=live_ask,
+            contracts=contracts,
+            fair_probability=fair,
+        )
+        if live_edge > thresholds.edge_ceiling_tenths:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"the live price implies a {live_edge / 10:.1f}c edge, past "
+                    f"the {thresholds.edge_ceiling_tenths / 10:.0f}c ceiling. "
+                    f"Recorded {format_price(recorded_ask)}, live "
+                    f"{format_price(live_ask)} ({moved / 10:+.1f}c). Treat this "
+                    f"as a data defect -- a stale fixture, a settled leg, or "
+                    f"news this side has not priced -- until investigated. A "
+                    f"price that moved this far in our favour is the most likely "
+                    f"way to manufacture an edge, not to find one."
                 ),
             )
 
-        # 12. The whole-order EV, at the live price and the final size. Sizing
+        # 13. The whole-order EV, at the live price and the final size. Sizing
         #     amortises the fee per contract; this re-evaluates the actual
         #     order, which is where a marginal bet turns negative.
         if not verify_positive_after_fees(
