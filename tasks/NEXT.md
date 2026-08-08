@@ -75,12 +75,26 @@ Fixing it surfaced a fixture that could not have been real: a test set
 accepted and `score_recommendations` can never produce — it writes both in one
 UPDATE.
 
-**Still yours to decide: which population the floor counts.** Everything is now
-visible enough to decide from, and `met` deliberately still reads the pooled
-number, so nothing has silently changed. My read: `actionable` is the correct
-population and it will read 0/300 for a while, which is the honest number
-rather than a regression — but that is a call about what the gate *means*, not
-a code change, so I have not made it.
+**Decided (you said "decide for me"): the floor counts `actionable`.** Both CLV
+conditions now read that population. `docs/adr/0005-the-gate-counts-actionable-
+games.md` has the full reasoning; the short version is that it is a *safety*
+change, not a relabelling — a systematic CLV among refused rows moves the
+pooled mean rather than blunting it, and `suspicious_edge` rows are the
+likeliest carriers, so pooled they could arm real money on evidence about bets
+the strategy declines to make. It also moves the gate strictly further away in
+both conditions: the actionable set is a subset, so the floor is harder to
+reach, and `always_valid_multiplier` *grows* as `n` shrinks (9.84 at n=20
+against 3.66 at n=300), so a small actionable sample clears a taller bar. A
+money guard that changes should change in that direction.
+
+It reads **0 of 300** and will for a while. The breakdown sits beside it.
+
+**And it caught a test fixture arming the gate from refused rows.**
+`test_quote_refresh.armed_db` built 400 scored games at
+`suggested_contracts=0` — "no edge here", four hundred times — and that
+satisfied the floor, so every order-path test below it ran through a gate
+opened by evidence the strategy would never have acted on. A gate fixture has
+to be built from the population the gate counts.
 
 ### What to look at, and when
 
