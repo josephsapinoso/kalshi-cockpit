@@ -2,9 +2,19 @@
 
 ## HANDOFF (2026-08-08, overnight — three lanes, and CI was already red)
 
-**State:** 1,177 tests, `dbt build` 11 nodes green, ruff green (newly wired),
+**State:** 1,201 tests, `dbt build` 11 nodes green, ruff green (newly wired),
 tree clean, **pushed, and CI is green on all three jobs** — the first fully
-green run in 37 pushes. **Still not deployed** — the live instance is on the
+green run in 37 pushes.
+
+**Two tests turned out to be measurements of the environment**, both found in
+the last hour and both now fixed: the demo seed contradicted itself between
+10:00Z and 15:00Z (two sweeps five hours apart, a budget day rolling at
+10:00Z), and an order-path assertion compared against the literal string
+`odds 1800s old` while CI, being slower to build the fixture, produced
+`1802s`. Neither was a flake to retry — the first was a real defect in the
+demo, the second a test asserting machine speed. Both lessons are in
+`tasks/lessons.md`; the general form is that a test depending on an input it
+does not supply is measuring the environment, not the code. **Still not deployed** — the live instance is on the
 image from before ADR 0007, so the next deploy carries the V2 order path, the
 price-grid snap, and everything below. The order path is dry-run-only and the
 gate is locked, so nothing here is urgent. **Deploying is your call; I did
