@@ -26,7 +26,11 @@ Kalshi's advantage over a sportsbook is **cost, not information**.
 | Kalshi at 50c, maker | 50.44% |
 
 A bet held to settlement pays **one** fee; trading pays two. That is the whole
-edge the venue offers — roughly 0.6 percentage points as a taker.
+edge the venue offers — **0.38 percentage points** as a taker, which is the
+difference between the two rows above rather than a rounder number I would
+prefer. The published fee coefficient alone gives 0.63; `calculate_fee` charges
+the most expensive of the candidate models, so the bar this code actually
+applies is the higher one.
 
 Everything else is against you. Kalshi prices sports to about 2c. An
 independent census found 13 automated market makers there, nearly all quoting
@@ -67,6 +71,8 @@ Kalshi REST ──────┼─→ SQLite (OLTP) ─→ Parquet ─→ Duck
 The Odds API ─────┘        │                                        │
                            │                                        │
                     Board (live)                          Dashboards (truth)
+                           │
+                    ticket → POST /api/orders → the gate → Kalshi
 ```
 
 Two paths on purpose: one optimised for freshness, one for correctness, with
@@ -76,14 +82,25 @@ as dbt tests.
 
 ```
 backend/
-  kalshi/     auth, rate-limited REST, WebSocket with sequence-gap detection
-  odds/       The Odds API client + a credit budget that refuses, not warns
+  kalshi/     auth, rate-limited REST, WebSocket with sequence-gap detection,
+              order placement on the V2 endpoint, price grids read per market
+  odds/       The Odds API client + a credit budget that refuses, not warns,
+              and a sweep planner that fires before a cluster of kickoffs
   core/       prices, fees, devig, ev, sizing, suppression
   match/      deterministic linker + per-league alias overrides
   analysis/   clv, validate  ← the evidence layer
+  store/      SQLite schema, migrations, the order record
   engine.py   ingest → match → devig → EV → size → suppress
+  runner.py   one pass; scheduler.py runs two cadences against one budget
+  live.py     the quote hub behind the Board's ticker (SSE)
+  gate.py     the five conditions between a tap and real money
 frontend/     Next.js 16, design system shared with my personal site
 ```
+
+Two processes in one image, started by `docker/entrypoint.sh`: the API and the
+recording loop. Either one dying takes the container down, because the
+alternative is a half-dead container serving prices frozen at their last value
+— which looks exactly like a quiet market.
 
 ---
 
@@ -130,6 +147,33 @@ One rule fell directly out of the measurement above: `edge_within_method_noise`
 refuses any edge smaller than the disagreement between the four devig methods.
 It tightens automatically on exactly the lines where the uncertainty is worst.
 
+### The gate, and why it is locked in a repo that can trade
+
+Five conditions stand between the ticket and an order, and they are one
+implementation shared by the Gate screen, the recording loop and the order
+endpoint — not three that agree today. It is locked by default, and locked is
+the safe state.
+
+Two of the five are worth stating because getting them wrong is the ordinary
+way a paper record talks someone into a bet:
+
+- **`n` counts independent games, not rows.** The loop writes a row per pass,
+  and every row for one market scores against **one** closing line — so ten
+  markets polled thirty times once satisfied a floor written to mean 300
+  independent bets, and shrank the standard error by √30 for evidence that
+  never grew. The standard error is now the cluster-robust sandwich estimator,
+  clustered by game, because a game's moneyline, spread and total resolve from
+  one final score.
+- **The threshold is always-valid, because the gate is read continuously.**
+  Two standard errors is a correct statement about *one* pre-registered look.
+  `evaluate_gate` runs on every request against a database that grows all day.
+  Measured on 1,200 pure-noise sequences looked at 100 times each, the
+  two-standard-error rule fires on **13.7%** of them; the Robbins mixture bound
+  that replaced it fires on **0%**. It costs 3.66 standard errors at the floor
+  instead of 2, and the gate reports the multiplier it used.
+
+It currently reads **0 of 300**, and the screen says so.
+
 ### Matching that refuses rather than guesses
 
 A previous project's text matcher hit **0.56%** — and its hits were wrong,
@@ -149,6 +193,7 @@ Each of these is a real incident from the predecessor project:
 | Failure | Design response |
 |---|---|
 | Renamed API field emptied every order book, silently, for a year — while 305 synthetic tests passed | Wire-format tests load **captured** payloads; a missing levels field raises, naming what it looked for |
+| The same bug, reproduced here: 17 hand-written tests described a wire format the exchange does not send | A 269-frame capture off the live socket replayed through the parser: **0 of 257 book frames parsed.** Prices arrive as dollar *strings*, delta fields are named differently, and `seq` counts the connection rather than the market. Capture the payload before writing the parser |
 | Dropped WebSocket frames corrupted books permanently with no resync | Sequence-gap detection → book marked unquotable → automatic resubscribe |
 | Ping/pong healthy while data silently stopped for 16 minutes | Application-level receive timeout. TCP liveness ≠ data flow |
 | Clamping an out-of-range price turned a self-announcing API rejection into a live buy at 99c | Clamp what you trust; **refuse** what you're validating |
@@ -161,16 +206,34 @@ Each of these is a real incident from the predecessor project:
 No credentials needed. `seed_demo` generates a deterministic slate with no
 network access and no execution path.
 
+**Live demo: [kalshi-cockpit-demo.fly.dev](https://kalshi-cockpit-demo.fly.dev)**
+— synthetic data, no credentials, and no execution path. It is the same image
+the live instance runs, started with `INSTANCE_MODE=demo`; the order route on
+it answers 403 by construction rather than by configuration.
+
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 python -m backend.main --seed-demo          # API on :8000
 cd frontend && npm install && npm run dev   # cockpit on :3000
-python -m pytest -q                         # 400 tests
+python -m pytest -q                         # 1,202 tests
 ```
 
-The demo shows **2 surfaced, 4 suppressed, 3 no-edge** on a nine-fixture slate.
+The demo shows **2 surfaced, 5 suppressed, 2 no-edge** on a nine-fixture slate.
 That shape is deliberate: a screen full of profitable opportunities would
 misrepresent what this tool does.
+
+Two checks that need a browser and are therefore not in CI:
+
+```bash
+python -m scripts.check_mobile --width 320        # every page, at a phone width
+python -m scripts.check_ticket_sheet --width 320  # the sheet, by tapping it
+```
+
+Both drive headless Chrome over the DevTools protocol and set the *layout*
+viewport, because resizing a window does not change it and `--screenshot
+--window-size` crops rather than reflows — two methods that disagreed with the
+truth in opposite directions and nearly shipped a broken nav and then "fixed" a
+working page.
 
 ---
 
@@ -185,8 +248,12 @@ misrepresent what this tool does.
   — one says a 0.07 coefficient rounded up per order, another a ~0.06 sports
   multiplier rounded per contract. `calculate_fee` returns the **most
   expensive** candidate until real fills settle it.
-- **The WebSocket wire format is unverified.** The parser fails loudly on a
-  mismatch, which is correct but is not the same as tested.
+- **A market's book can be empty in a way I have not measured.** The parser
+  raises when a snapshot carries neither a YES nor a NO levels field. Every one
+  of the twelve real snapshots in the capture carries both, and a ticker the
+  exchange does not recognise comes back with neither — so "empty book" and
+  "renamed field" are not yet distinguishable from each other, and the code
+  refuses rather than guessing which it is looking at.
 - **NBA and NHL game markets are unconfirmed** — both out of season when the
   discovery sweep ran, and the sweep hit its page cap.
 
