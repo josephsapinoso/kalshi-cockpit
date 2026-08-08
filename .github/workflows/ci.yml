@@ -38,6 +38,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      # ruff.toml selects only pyflakes + pycodestyle's error classes (59
+      # rules), minus the four rule codes that already have violations this
+      # lane cannot fix (see ruff.toml for the count and tasks/inbox/ci.md for
+      # how it was measured). Deliberately not ruff's own default selection --
+      # that finds 513 violations today, all outside this lane, and would be
+      # red on the first push.
+      - name: Lint (ruff)
+        run: ruff check .
+
       - name: Tests
         run: python -m pytest -q
 

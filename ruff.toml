@@ -1,0 +1,32 @@
+# `ruff~=0.9` has been a dev dependency with nothing configuring it and no CI
+# job running it. Measured 2026-08-07 with `ruff check . --isolated` (so this
+# is ruff's own out-of-the-box behaviour, not a config file found elsewhere on
+# the machine): today's actual default selects 413 rules across nearly every
+# plugin family and finds 513 violations in 30 rule codes -- all in
+# backend/**, scripts/** or tests/**, none of which this lane may edit
+# (docs/adr/0003-parallel-sessions-and-subagents.md). Wiring that as a CI job
+# would be red on the first push, which is the exact failure the CI secret
+# scan just spent 36 pushes demonstrating (tasks/lessons.md, "a guard that
+# fails every time says exactly as much as one that never fails").
+#
+# So this does not chase ruff's expanding default. It selects the small,
+# long-standing baseline ruff has always offered explicitly -- pyflakes (F)
+# plus pycodestyle's error classes (E4, E7, E9) -- 59 rules, and excludes only
+# the four rule codes that account for every one of the 32 violations that
+# selection finds on the current tree, all outside this lane:
+#
+#   F401  unused-import              (25 violations today, backend/tests)
+#   F841  unused-variable             (2 violations today, backend)
+#   F541  f-string-missing-placeholders (1 violation today, backend)
+#   E741  ambiguous-variable-name     (4 violations today, backend + scripts)
+#
+# 55 rules are left active and enforced, including the ones that catch actual
+# bugs rather than style: undefined names (F821), redefinition of unused
+# names (F811), bad %-format and .format() call arguments (F5xx), star-import
+# hazards (F403/F405/F406), syntax errors (E9), and the rest of pycodestyle's
+# E4/E7 error classes. Verified green with the exact command CI runs; see
+# tasks/inbox/ci.md for the command and exit codes.
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["F401", "F841", "F541", "E741"]
