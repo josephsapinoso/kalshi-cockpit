@@ -92,10 +92,15 @@ async def main() -> int:
             )
         else:
             odds_config = OddsConfig.load()
-            budget = CreditBudget(conn, daily_budget=odds_config.daily_credit_budget)
+            budget = CreditBudget(
+                conn,
+                daily_budget=odds_config.daily_credit_budget,
+                day_start_hour=odds_config.budget_day_start_utc_hour,
+            )
             async with OddsClient(odds_config, budget) as odds:
                 events, counts = await run_ingest_pass(
-                    conn, kalshi, odds, budget, config=odds_config, now=stamp
+                    conn, kalshi, odds, budget, config=odds_config, now=stamp,
+                    suppression=SuppressionConfig(),
                 )
 
     counts = run_pricing_pass(

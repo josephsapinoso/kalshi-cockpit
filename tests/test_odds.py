@@ -20,7 +20,7 @@ import pytest
 import respx
 
 from backend.config import OddsConfig
-from backend.odds.budget import CreditBudget, plan_sweep, sweep_cost
+from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.client import (
     EXCLUDED_MARKETS,
     PRICEABLE_MARKETS,
@@ -160,50 +160,10 @@ class TestBudgetRefusal:
         assert state.remaining_today == 10
 
 
-class TestSweepPlanning:
-    """Poll what starts soonest. A six-day-out line will move many times."""
-
-    def test_orders_by_soonest_kickoff(self, budget):
-        plans = plan_sweep(
-            {
-                "americanfootball_nfl": [NOW + 40 * 3600_000],
-                "baseball_mlb": [NOW + 3 * 3600_000],
-                "basketball_wnba": [NOW + 20 * 3600_000],
-            },
-            markets=["h2h"], regions=["us"], budget=budget, now_ms=NOW,
-        )
-        assert [p.sport_key for p in plans] == [
-            "baseball_mlb", "basketball_wnba", "americanfootball_nfl",
-        ]
-
-    def test_skips_sports_with_nothing_inside_the_horizon(self, budget):
-        plans = plan_sweep(
-            {"baseball_mlb": [NOW + 6 * 24 * 3600_000]},
-            markets=["h2h"], regions=["us"], budget=budget, now_ms=NOW,
-            horizon_hours=48,
-        )
-        assert plans == []
-
-    def test_skips_sports_whose_games_have_started(self, budget):
-        plans = plan_sweep(
-            {"baseball_mlb": [NOW - 3600_000]},
-            markets=["h2h"], regions=["us"], budget=budget, now_ms=NOW,
-        )
-        assert plans == []
-
-    def test_truncates_to_what_the_budget_allows_keeping_the_soonest(self, budget):
-        """The ordering is the point: a caller that truncates the wrong end
-        keeps the games that matter least."""
-        plans = plan_sweep(
-            {
-                "a": [NOW + 1 * 3600_000],
-                "b": [NOW + 2 * 3600_000],
-                "c": [NOW + 3 * 3600_000],
-            },
-            markets=["h2h", "spreads", "totals"], regions=["us", "eu"],
-            budget=budget, now_ms=NOW,
-        )
-        assert [p.sport_key for p in plans] == ["a", "b"]  # 6 + 6 = 12 of 16
+# Sweep *planning* -- which sport, and at what time of day -- lives in
+# `backend/odds/timing.py` and is tested in `tests/test_sweep_timing.py`. It
+# used to live here as `plan_sweep`, which answered "which sport" and let the
+# day's credits go on whichever pass ran first.
 
 
 class TestFetching:

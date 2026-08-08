@@ -16,9 +16,13 @@ runs out mid-slate.
 **It refuses rather than warns.** `can_afford` returning False blocks the call.
 A budget that logs a warning and proceeds is not a budget.
 
-Allocation follows one rule: **poll the games that start soonest, most often.**
-Lines move most in the hours before a game, and a stale line on a game that
-starts in six days costs nothing because nothing will be bet on it.
+**Allocation is not decided here.** It used to be: `plan_sweep` ranked sports
+by soonest kickoff and returned everything the budget allowed, so the day's
+credits went on the first pass that had any -- which on 2026-08-07 meant 19:32Z,
+because that is when a deploy happened. Choosing *which* sport is the easy half
+of the problem and choosing *when* is the half that decides whether a pick is
+ever bettable, so both now live together in `odds.timing`. What is left here is
+the meter: what a call costs, what has been spent, and whether it can go ahead.
 """
 
 from __future__ import annotations
@@ -26,19 +30,15 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional, Sequence
+from datetime import datetime, timezone
+from typing import Optional, Sequence
+
+from .timing import DEFAULT_DAY_START_UTC_HOUR, day_start_ms
 
 logger = logging.getLogger(__name__)
 
 # The Odds API's month resets on the calendar month in UTC.
 _MS_PER_DAY = 86_400_000
-
-
-def _utc_day_start_ms(now_ms: int) -> int:
-    dt = datetime.fromtimestamp(now_ms / 1000, timezone.utc)
-    start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start.timestamp() * 1000)
 
 
 def _utc_month_start_ms(now_ms: int) -> int:
@@ -91,16 +91,35 @@ class BudgetState:
 
 
 class CreditBudget:
-    """Meters spending against `api_credits`, refusing calls that breach it."""
+    """Meters spending against `api_credits`, refusing calls that breach it.
 
-    def __init__(self, conn: sqlite3.Connection, daily_budget: int):
+    The **day** here is a sports day, not a calendar one -- it rolls at
+    `day_start_hour` UTC, 10:00 by default. UTC midnight is 8pm ET / 5pm PT,
+    which falls in the middle of the US evening slate: it would put the first
+    half of one night's games in one budget bucket and the second half in the
+    next, so a late West Coast game competes for credits with the following
+    afternoon. The *month* stays on the calendar, because that boundary belongs
+    to The Odds API and reconciliation depends on agreeing with theirs.
+    """
+
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        daily_budget: int,
+        *,
+        day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+    ):
         self.conn = conn
         self.daily_budget = daily_budget
+        self.day_start_hour = day_start_hour
+
+    def day_start_ms(self, now_ms: int) -> int:
+        return day_start_ms(now_ms, hour=self.day_start_hour)
 
     def state(self, now_ms: int) -> BudgetState:
         day = self.conn.execute(
             "SELECT COALESCE(SUM(cost), 0) AS c FROM api_credits WHERE called_ms >= ?",
-            (_utc_day_start_ms(now_ms),),
+            (self.day_start_ms(now_ms),),
         ).fetchone()["c"]
         month = self.conn.execute(
             "SELECT COALESCE(SUM(cost), 0) AS c FROM api_credits WHERE called_ms >= ?",
@@ -186,79 +205,3 @@ class CreditBudget:
                 "The Odds API reports %d credits remaining this period",
                 remaining_reported,
             )
-
-
-@dataclass(frozen=True)
-class SweepPlan:
-    """One planned `/odds` call."""
-
-    sport_key: str
-    cost: int
-    soonest_commence_ms: int
-    reason: str
-
-
-def plan_sweep(
-    upcoming: dict[str, list[int]],
-    *,
-    markets: Sequence[str],
-    regions: Sequence[str],
-    budget: CreditBudget,
-    now_ms: int,
-    horizon_hours: float = 48.0,
-) -> list[SweepPlan]:
-    """Decide which sports to poll, in priority order, within budget.
-
-    `upcoming` maps sport_key -> commence times (epoch ms) of its known games.
-
-    Two rules:
-
-    **Skip sports with nothing starting inside the horizon.** A line that is
-    six days out will move many times before it matters; paying to watch it now
-    buys nothing.
-
-    **Order by soonest kickoff.** Lines move most in the hours before a game,
-    which is also when a stale quote is most likely to be the reason an
-    opportunity looks real when it is not.
-
-    Returns only the calls that fit the budget, in the order they should run.
-    A caller that ignores the ordering and truncates will keep the *wrong*
-    sports.
-    """
-    horizon_ms = int(horizon_hours * 3600 * 1000)
-    cost = sweep_cost(markets, regions)
-
-    candidates: list[SweepPlan] = []
-    for sport_key, commences in upcoming.items():
-        future = [c for c in commences if c >= now_ms]
-        if not future:
-            continue
-        soonest = min(future)
-        if soonest - now_ms > horizon_ms:
-            continue
-        hours = (soonest - now_ms) / 3_600_000
-        candidates.append(
-            SweepPlan(
-                sport_key=sport_key,
-                cost=cost,
-                soonest_commence_ms=soonest,
-                reason=f"next game in {hours:.1f}h",
-            )
-        )
-
-    candidates.sort(key=lambda p: p.soonest_commence_ms)
-
-    affordable: list[SweepPlan] = []
-    projected = 0
-    state = budget.state(now_ms)
-    for plan in candidates:
-        if projected + plan.cost > state.remaining_today:
-            logger.info(
-                "budget exhausted after %d of %d sports; %s and later deferred",
-                len(affordable), len(candidates), plan.sport_key,
-            )
-            break
-        affordable.append(plan)
-        projected += plan.cost
-
-    return affordable

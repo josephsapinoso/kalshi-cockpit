@@ -20,7 +20,10 @@ inside the credit budget, and an orderbook read for the markets that survived
 linking. Kalshi REST is cheap and The Odds API is not: the free tier is ~16
 credits a day and one sweep costs `markets x regions`, so linking happens
 *before* quoting and the sweep is planned against the budget rather than
-attempted and refused.
+attempted and refused. *When* to spend those two calls is `odds/timing.py`'s
+decision, not this module's: a sweep makes the slate bettable for fifteen
+minutes, so it is worth almost nothing unless those fifteen minutes sit just
+before a kickoff.
 
 **Pricing** (`run_pricing_pass`) touches nothing external. It reads what ingest
 stored, devigs it, and writes recommendations. Keeping it offline is what makes
@@ -67,8 +70,9 @@ from .match.linker import (
     record_unmatched,
     resolve_outcome,
 )
-from .odds.budget import plan_sweep
+from .odds.budget import sweep_cost
 from .odds.client import store_quotes
+from .odds.timing import SweepDecision, decide_sweeps
 from .store import db
 from .store.db import ask_for_side, now_ms
 
@@ -112,12 +116,16 @@ class PassCounts:
     dropped_no_books: int = 0
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
+    # Why the pass did or did not spend an odds credit, in words. A pass that
+    # skips the sweep silently looks exactly like one that swept and found
+    # nothing, and those two need opposite responses.
+    sweep_decision: str = ""
     errors: list[str] = field(default_factory=list)
 
     # Always printed even when zero. "surfaced: 0" is the headline result of a
     # pass -- it is the answer this whole tool exists to produce, and hiding it
     # because it is falsy would make "found nothing" look like "did not check".
-    ALWAYS_REPORT = ("recommendations", "surfaced", "suppressed")
+    ALWAYS_REPORT = ("recommendations", "surfaced", "suppressed", "sweep_decision")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -557,6 +565,21 @@ def upcoming_by_sport(events: Sequence[DiscoveredEvent]) -> dict[str, list[int]]
     return upcoming
 
 
+def soonest_by_sport(events: Sequence[DiscoveredEvent]) -> dict[str, int]:
+    """`sport_key -> soonest Kalshi kickoff`, for the sports Kalshi lists.
+
+    Kalshi's clock, three hours late, and deliberately not corrected. It is used
+    only to say *which sports exist* and to rank bootstrap candidates, and a
+    constant offset changes neither. Every timing decision anchors on the
+    sportsbook's own kickoff instead -- see `odds/timing.py`.
+    """
+    soonest: dict[str, int] = {}
+    for sport, commences in upcoming_by_sport(events).items():
+        if commences:
+            soonest[sport] = min(commences)
+    return soonest
+
+
 async def fetch_and_store_odds(
     conn,
     odds_client,
@@ -565,32 +588,36 @@ async def fetch_and_store_odds(
     events: Sequence[DiscoveredEvent],
     config: OddsConfig,
     now: int,
-) -> tuple[int, int]:
-    """Sweep the sports the budget allows. Returns (sweeps, quotes stored).
+    max_odds_age_ms: int = 900_000,
+) -> tuple[int, int, SweepDecision]:
+    """Sweep only when the window it opens will be worth having.
 
-    `plan_sweep` skips sports with nothing starting inside the horizon, orders
-    the rest by soonest kickoff, and truncates to what is affordable. On a free
-    tier of ~16 credits a day against a `markets x regions` cost of 6, that is
-    two sweeps — so spending them on the games closest to closing is the whole
-    game, and a caller that reorders or truncates the plan keeps the wrong ones.
+    On a free tier of ~16 credits a day against a `markets x regions` cost of 6
+    this is two calls, and each one makes the slate bettable for exactly
+    `max_odds_age_ms`. `decide_sweeps` spends them just before a cluster of
+    kickoffs rather than on whichever pass happened to run first; the decision,
+    including the decision *not* to sweep, comes back so the pass can report it.
     """
-    plans = plan_sweep(
-        upcoming_by_sport(events),
-        markets=config.markets,
-        regions=config.regions,
+    decision = decide_sweeps(
+        conn,
+        in_scope=soonest_by_sport(events),
         budget=budget,
+        cost=sweep_cost(config.markets, config.regions),
         now_ms=now,
+        max_odds_age_ms=max_odds_age_ms,
     )
+    logger.info("sweep decision: %s", decision.detail)
+
     sweeps = stored = 0
-    for plan in plans:
-        quotes = await odds_client.fetch_odds(plan.sport_key, now_ms=now)
+    for firing in decision.fire:
+        quotes = await odds_client.fetch_odds(firing.sport_key, now_ms=now)
         if not quotes:
             # Over budget, or nothing on the slate. Both are normal operating
             # states, which is why `fetch_odds` returns [] rather than raising.
             continue
         sweeps += 1
         stored += store_quotes(conn, quotes)
-    return sweeps, stored
+    return sweeps, stored, decision
 
 
 def store_quotes_from_discovery(
@@ -647,14 +674,21 @@ async def run_ingest_pass(
     config: OddsConfig,
     now: Optional[int] = None,
     counts: Optional[PassCounts] = None,
+    suppression: Optional[SuppressionConfig] = None,
 ) -> tuple[list[DiscoveredEvent], PassCounts]:
-    """Discover, store the carried quotes, and sweep odds within budget.
+    """Discover, store the carried quotes, and sweep odds when it is time.
 
     Returns the discovered events so the pricing pass can run on the same list
     without re-reading the network.
+
+    The staleness limit comes from the same `SuppressionConfig` that will later
+    reject a stale row, never from a constant of its own. The sweep exists to
+    open exactly that window; two numbers for one quantity drift, and the
+    tighter one wins in silence.
     """
     stamp = now if now is not None else now_ms()
     counts = counts or PassCounts()
+    suppression = suppression or SuppressionConfig()
 
     # `events()` is an async *generator* -- it paginates lazily -- so it is
     # consumed rather than awaited.
@@ -663,11 +697,13 @@ async def run_ingest_pass(
     upsert_discovered(conn, events, now=stamp)
     counts.markets_quoted = store_quotes_from_discovery(conn, events, now=stamp)
 
-    sweeps, stored = await fetch_and_store_odds(
-        conn, odds_client, budget, events=events, config=config, now=stamp
+    sweeps, stored, decision = await fetch_and_store_odds(
+        conn, odds_client, budget, events=events, config=config, now=stamp,
+        max_odds_age_ms=suppression.max_odds_age_ms,
     )
     counts.odds_sweeps = sweeps
     counts.odds_quotes_stored = stored
+    counts.sweep_decision = decision.detail
 
     return events, counts
 
@@ -685,8 +721,10 @@ async def run_once(
 ) -> PassCounts:
     """One full pass: ingest, then price. The unit the scheduler repeats."""
     stamp = now if now is not None else now_ms()
+    suppression = suppression or SuppressionConfig()
     events, counts = await run_ingest_pass(
-        conn, kalshi_client, odds_client, budget, config=config, now=stamp
+        conn, kalshi_client, odds_client, budget, config=config, now=stamp,
+        suppression=suppression,
     )
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts

@@ -578,3 +578,131 @@ class TestTheRecordDoesNotFillWithRepeats:
             "SELECT config_json FROM strategy_configs ORDER BY version DESC LIMIT 1"
         ).fetchone()
         assert "record" in row["config_json"]
+
+
+class FakeKalshi:
+    """`events()` is an async generator on the real client, so it is here too."""
+
+    def __init__(self, raw_events: list[dict]):
+        self.raw = raw_events
+
+    async def events(self, with_nested_markets: bool = False):
+        for event in self.raw:
+            yield event
+
+
+class FakeOdds:
+    """Records what it was asked for. Returns nothing, which is a real state."""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def fetch_odds(self, sport_key: str, *, now_ms: int):
+        self.calls.append(sport_key)
+        return []
+
+
+def _store_fixture(conn, *, commence_ms: int, fetched_ms: int):
+    for book in ("pinnacle", "draftkings"):
+        for outcome in ("Home", "Away"):
+            conn.execute(
+                "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, "
+                "sport_key, odds_event_id, commence_ms, home_team, away_team, "
+                "bookmaker, market, outcome_name, price_decimal) VALUES "
+                "(?, ?, 'baseball_mlb', 'sched-1', ?, 'Home', 'Away', ?, "
+                "'h2h', ?, 2.0)",
+                (fetched_ms, fetched_ms, commence_ms, book, outcome),
+            )
+    conn.commit()
+
+
+class TestTheSweepIsScheduledRatherThanOpportunistic:
+    """The ingest pass must actually consult `odds.timing`.
+
+    `plan_sweep` spent the day's credits on the first pass that had any, so the
+    fifteen minutes the tool is bettable for landed wherever the process
+    restarted -- 19:32Z on 2026-08-07, because that is when a deploy happened.
+    These tests exist as much to prove the decision is *reached* from the runner
+    as to check what it decides: three modules in this repo have been complete,
+    tested, and called by nothing.
+    """
+
+    async def _ingest(self, conn, kalshi_events, *, now: int, commence_ms: int):
+        from backend.config import OddsConfig
+        from backend.odds.budget import CreditBudget
+        from backend.runner import run_ingest_pass
+
+        _store_fixture(conn, commence_ms=commence_ms, fetched_ms=now - 3_600_000)
+        odds = FakeOdds()
+        _, counts = await run_ingest_pass(
+            conn,
+            FakeKalshi([_mlb_template(kalshi_events)]),
+            odds,
+            CreditBudget(conn, daily_budget=16),
+            config=OddsConfig(
+                api_key="x", base_url="https://example.invalid",
+                daily_credit_budget=16, regions=["us", "eu"],
+                markets=["h2h", "spreads", "totals"],
+            ),
+            now=now,
+            suppression=SuppressionConfig(),
+        )
+        return odds.calls, counts
+
+    async def test_it_sweeps_when_the_pass_lands_before_a_kickoff(
+        self, conn, kalshi_events
+    ):
+        calls, counts = await self._ingest(
+            conn, kalshi_events, now=NOW, commence_ms=NOW + 20 * 60_000
+        )
+        assert calls == ["baseball_mlb"]
+        assert counts.sweep_decision
+
+    async def test_it_holds_the_credit_when_the_game_is_hours_away(
+        self, conn, kalshi_events
+    ):
+        calls, counts = await self._ingest(
+            conn, kalshi_events, now=NOW, commence_ms=NOW + 8 * 3_600_000
+        )
+        assert calls == []
+        assert "next slot" in counts.sweep_decision
+
+    async def test_it_does_not_sweep_once_the_game_has_started(
+        self, conn, kalshi_events
+    ):
+        """The window would run into the game, which is not a bet this tool
+        prices -- and Kalshi's own clock says the game starts three hours later,
+        so a scheduler reading that field would sweep here."""
+        calls, _ = await self._ingest(
+            conn, kalshi_events, now=NOW, commence_ms=NOW - 10 * 60_000
+        )
+        assert calls == []
+
+    async def test_the_staleness_limit_that_suppresses_is_the_one_that_schedules(
+        self, conn, kalshi_events
+    ):
+        """The sweep exists to open the window `stale_odds` then judges. A
+        second, separately-written limit would drift out of agreement with it."""
+        from backend.config import OddsConfig
+        from backend.odds.budget import CreditBudget
+        from backend.runner import run_ingest_pass
+
+        # 60-minute freshness: the last moment to sweep moves an hour earlier,
+        # so a kickoff 50 minutes out is now too close rather than too far.
+        commence = NOW + 50 * 60_000
+        _store_fixture(conn, commence_ms=commence, fetched_ms=NOW - 3_600_000)
+        odds = FakeOdds()
+        await run_ingest_pass(
+            conn,
+            FakeKalshi([_mlb_template(kalshi_events)]),
+            odds,
+            CreditBudget(conn, daily_budget=16),
+            config=OddsConfig(
+                api_key="x", base_url="https://example.invalid",
+                daily_credit_budget=16, regions=["us", "eu"],
+                markets=["h2h", "spreads", "totals"],
+            ),
+            now=NOW,
+            suppression=SuppressionConfig(max_odds_age_ms=3_600_000),
+        )
+        assert odds.calls == []

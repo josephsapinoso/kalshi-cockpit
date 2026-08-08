@@ -111,9 +111,18 @@ class OddsConfig:
     daily_credit_budget: int
     regions: list[str]
     markets: list[str]
+    # The hour the daily credit budget rolls over, UTC. Not midnight: UTC
+    # midnight is 5pm PT, the middle of the US evening slate, so it splits one
+    # night's games across two budget days. See `odds/timing.py`.
+    budget_day_start_utc_hour: int = 10
 
     @classmethod
     def load(cls) -> "OddsConfig":
+        hour = _int("ODDS_BUDGET_DAY_START_UTC_HOUR", 10)
+        if not 0 <= hour <= 23:
+            raise ConfigError(
+                f"ODDS_BUDGET_DAY_START_UTC_HOUR={hour} must be 0-23."
+            )
         return cls(
             api_key=_require("ODDS_API_KEY"),
             base_url=_optional("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4"),
@@ -122,6 +131,7 @@ class OddsConfig:
             markets=[
                 m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
             ],
+            budget_day_start_utc_hour=hour,
         )
 
     @property
