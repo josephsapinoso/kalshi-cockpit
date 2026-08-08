@@ -443,9 +443,15 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         # Wind it back to the version behind the current one, which is the
         # transition the live volume is about to make.
         previous = sorted(db._MIGRATIONS)[-1]
-        for statement in db._MIGRATIONS[previous].statements:
-            name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+        for name in db._MIGRATIONS[previous].indexes:
             connection.execute(f"DROP INDEX IF EXISTS {name}")
+        # A step that rebuilds a table says how to put the old one back; there
+        # is nothing generic to infer. This was `statement.split("EXISTS")[1]`,
+        # which read `ALTER TABLE settlements_v4 RENAME TO settlements` as an
+        # index name and raised -- the fifth reader of `_MIGRATIONS` to assume
+        # every statement creates an index.
+        for statement in db._MIGRATIONS[previous].undo_statements:
+            connection.execute(statement)
         for table, column, _ in db._MIGRATIONS[previous].columns:
             connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         connection.execute(

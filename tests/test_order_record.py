@@ -322,15 +322,57 @@ class TestExposureCountsTheRightPopulation:
         conn.commit()
         assert current_exposure_dollars(conn) is None
 
-    def test_a_settled_market_releases_its_capital(self, conn):
+    def test_a_settled_position_releases_its_capital(self, conn):
         _live_order(conn, status="filled")
         assert current_exposure_dollars(conn) == pytest.approx(5.0)
+        order_id = conn.execute("SELECT id FROM orders").fetchone()["id"]
         conn.execute(
-            "INSERT INTO settlements (ticker, settled_ms, result, contracts, "
-            "pnl_cents) VALUES ('T', 1, 'yes', 10, 500)"
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run) VALUES (?, 'T', 1, 'yes', 10, 500, 0)",
+            (order_id,),
         )
         conn.commit()
         assert current_exposure_dollars(conn) == 0.0
+
+    def test_settling_one_order_does_not_release_another_on_the_same_ticker(
+        self, conn
+    ):
+        """The reason `settlements` was rebuilt in schema v4.
+
+        The old query matched on `ticker`, so any settlement row released
+        **every** order on that market. That is correct while there is one order
+        per ticker and wrong the moment there are two, which is ordinary -- a
+        quote pass re-recommends a market minutes later and the Board offers
+        both. The old schema could not even express this test: `UNIQUE (ticker,
+        settled_ms)` meant the second position's settlement row was rejected.
+        """
+        _live_order(conn, status="filled")
+        _live_order(conn, status="filled")
+        assert current_exposure_dollars(conn) == pytest.approx(10.0)
+
+        first = conn.execute("SELECT id FROM orders ORDER BY id").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run) VALUES (?, 'T', 1, 'yes', 10, 500, 0)",
+            (first,),
+        )
+        conn.commit()
+
+        assert current_exposure_dollars(conn) == pytest.approx(5.0), (
+            "settling one position released the other one on the same ticker"
+        )
+
+    def test_paper_and_live_exposure_are_separate_budgets(self, conn):
+        """Two populations, never pooled -- ADR 0010 decision 4.
+
+        A live order must not size against a budget consumed by paper
+        positions, and paper exposure has to be visible at all or the cap goes
+        on being exercised only by tests.
+        """
+        record_intent(conn, _order(), dry_run=True, submitted_ms=1)
+
+        assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(5.0)
+        assert current_exposure_dollars(conn, dry_run=False) == 0.0
 
     def test_a_no_position_is_measured_at_what_it_cost(self, conn):
         """Not at its YES complement. Ten contracts of NO at 40.5c snap to 40c

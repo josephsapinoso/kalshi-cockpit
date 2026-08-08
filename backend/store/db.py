@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -82,6 +82,124 @@ class _Migration:
 
     columns: tuple[tuple[str, str, str], ...] = ()
     statements: tuple[str, ...] = ()
+    # Index names this step must leave behind, **declared rather than parsed**.
+    #
+    # Five readers -- `scripts/migrate_db.py` among them, which runs at boot --
+    # used to recover the name with
+    #
+    #     statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+    #
+    # which silently assumes every statement is `CREATE ... INDEX IF NOT EXISTS
+    # <name> ON ...`. It held only while that was the sole kind of statement
+    # anyone had written. The first `DROP TABLE IF EXISTS settlements` yields the
+    # "index name" `settlements`, which is in no index list, so the boot script
+    # reports a missing index and exits 1 -- a crash loop on the volume holding
+    # the evidence record, from adding a line to a table in another file.
+    #
+    # That is the `.dockerignore` allowlist failure exactly: a hand-maintained
+    # derivation that is right until the class it derives from gains a second
+    # member. The remedy is the same one -- derive nothing, declare it.
+    indexes: tuple[str, ...] = ()
+    # `(table, column)` pairs whose presence means `statements` has already run.
+    #
+    # Needed for any step that is not additive. A rebuild -- create the new
+    # shape, drop the old table, rename -- is idempotent at every crash point
+    # *except* a re-run after full success, where it would recreate the temp
+    # table and then drop the real one. Guarding on a column that only exists
+    # after the rebuild makes the whole step a no-op once it has landed.
+    skip_statements_if_column: tuple[tuple[str, str], ...] = ()
+    # How to put the previous shape back, for the migration tests that build an
+    # "old" database by undoing the current one. Dropping an index and a column
+    # is generic enough to be inferred; restoring a rebuilt table is not, so a
+    # step that rebuilds has to say how.
+    undo_statements: tuple[str, ...] = ()
+
+
+# v4 rebuilds `settlements`, which cannot be done with `ALTER TABLE`: the change
+# is to a table-level `UNIQUE`, and SQLite's implicit index for one cannot be
+# dropped.
+#
+# **Why the constraint has to go.** It was `UNIQUE (ticker, settled_ms)` -- one
+# settlement per market per instant, which is right for a *market outcome* and
+# wrong for the *position* the columns beside it describe. Two orders on one
+# ticker settle from one market: same ticker, same `settlement_ts`, so the second
+# row is rejected and that position silently never settles -- holding its
+# exposure open forever. Two orders on one ticker is ordinary, not exotic; a
+# quote pass re-recommends a market minutes later and the Board offers both.
+#
+# The rebuild carries no rows. `settlements` has never had a writer in this
+# project's life, which is checked rather than assumed -- `test_store.py`
+# asserts the v3 table is empty before the step runs. It is also why this is
+# being done now: writing the first row is the last moment the shape is free to
+# change.
+#
+# Idempotent at every crash point, given the `skip_statements_if_column` guard
+# on the step:
+#   - after CREATE:  `settlements` still lacks `order_id`, so the step re-runs
+#                    from the top and the CREATE is a no-op.
+#   - after DROP:    `settlements` does not exist, so the guard does not fire;
+#                    CREATE and DROP are no-ops and the RENAME completes it.
+#   - after RENAME:  `settlements.order_id` exists, so the whole step is skipped
+#                    -- which is the case that would otherwise recreate the temp
+#                    table and drop the real one.
+_SETTLEMENTS_REBUILD = (
+    """
+    CREATE TABLE IF NOT EXISTS settlements_v4 (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- The position this settles. Was absent, so the exposure query released
+        -- capital for *every* order on a ticker as soon as any settlement row
+        -- for that ticker existed.
+        order_id            INTEGER NOT NULL REFERENCES orders(id),
+        ticker              TEXT NOT NULL REFERENCES kalshi_markets(ticker),
+        -- Kalshi's own `settlement_ts`, observed. Not `close_time` and not
+        -- `expiration_time` -- the latter ran three days past close on the
+        -- captured sample, so it is not a settlement instant at all.
+        settled_ms          INTEGER NOT NULL,
+        -- The market's outcome as Kalshi published it: 'yes' or 'no'.
+        result              TEXT NOT NULL,
+        contracts           INTEGER NOT NULL,
+        -- Realised P&L in cents, integer. Float dollars in a money path produce
+        -- 7.350000000000001 > 7.35 rejections.
+        pnl_cents           INTEGER NOT NULL,
+        -- **Paper or real.** Copied from the order rather than joined, so no
+        -- reader of this table can pool the two populations by forgetting to.
+        dry_run             INTEGER NOT NULL,
+        -- The named fill policy this row's P&L was computed under, carried from
+        -- the order. Stored so the record can be re-scored under a different
+        -- one later; an assumption baked into the arithmetic cannot be revised.
+        fill_assumption     TEXT,
+        -- Resting size at our price when the order went out, in contracts. It
+        -- is what justified assuming the fill, so it is what a re-analysis needs
+        -- to weaken the assumption.
+        depth_at_order      REAL,
+        CHECK (result IN ('yes','no')),
+        -- One settlement per position. Replaces UNIQUE (ticker, settled_ms).
+        UNIQUE (order_id)
+    )
+    """,
+    "DROP TABLE IF EXISTS settlements",
+    "ALTER TABLE settlements_v4 RENAME TO settlements",
+    "CREATE INDEX IF NOT EXISTS idx_settlements_order ON settlements(order_id)",
+)
+
+# The v3 shape, for the tests that build an old database by undoing the current
+# one. Kept verbatim rather than described, because a paraphrase of a DDL is a
+# second implementation of it.
+_SETTLEMENTS_REBUILD_UNDO = (
+    "DROP INDEX IF EXISTS idx_settlements_order",
+    "DROP TABLE IF EXISTS settlements",
+    """
+    CREATE TABLE settlements (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker              TEXT NOT NULL REFERENCES kalshi_markets(ticker),
+        settled_ms          INTEGER NOT NULL,
+        result              TEXT NOT NULL,
+        contracts           INTEGER NOT NULL,
+        pnl_cents           INTEGER NOT NULL,
+        UNIQUE (ticker, settled_ms)
+    )
+    """,
+)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
@@ -101,6 +219,19 @@ _MIGRATIONS: dict[int, _Migration] = {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency "
             "ON orders(idempotency_key)",
         ),
+        indexes=("idx_orders_idempotency",),
+    ),
+    4: _Migration(
+        columns=(
+            ("orders", "fill_assumption", "TEXT"),
+            ("orders", "assumed_filled_count", "INTEGER"),
+        ),
+        statements=_SETTLEMENTS_REBUILD,
+        indexes=("idx_settlements_order",),
+        # `order_id` exists only after the rebuild has completed, so this is the
+        # sentinel that makes the rebuild a no-op on a database already at v4.
+        skip_statements_if_column=(("settlements", "order_id"),),
+        undo_statements=_SETTLEMENTS_REBUILD_UNDO,
     ),
 }
 
@@ -213,8 +344,16 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
             if column in _columns(conn, table):
                 continue
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-        for statement in step.statements:
-            conn.execute(statement)
+        # A non-additive step says how to tell that it has already run. Without
+        # this a rebuild is idempotent everywhere except after full success,
+        # where re-running it would drop the table it just built.
+        already = any(
+            column in _columns(conn, table)
+            for table, column in step.skip_statements_if_column
+        )
+        if not already:
+            for statement in step.statements:
+                conn.execute(statement)
         applied.append(version)
 
     if applied:

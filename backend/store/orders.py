@@ -451,7 +451,9 @@ def order_exposure_dollars(order: OrderRequest) -> float:
     return order.count * order.fill_price_tenths / float(PRICE_MAX)
 
 
-def current_exposure_dollars(conn: sqlite3.Connection) -> Optional[float]:
+def current_exposure_dollars(
+    conn: sqlite3.Connection, *, dry_run: bool = False
+) -> Optional[float]:
     """Money currently at risk, or `None` if it cannot be read.
 
     **This is the only definition of exposure in the project**, and until now
@@ -478,14 +480,23 @@ def current_exposure_dollars(conn: sqlite3.Connection) -> Optional[float]:
     safe to act on -- "cannot determine the budget" must not resolve to
     "unlimited".
 
-    **Dry runs are excluded, and that is a limitation rather than a detail.**
-    Every order this project has placed is a dry run, so this returns `0.0` in
-    production today and `max_exposure_dollars` still does not bind there.
-    Counting paper orders would make it bind, and would be worse: nothing
-    settles a paper position, so paper exposure could only ratchet up until the
-    endpoint refused everything with no way to release it. A cap that can only
-    close is an off switch. The prerequisite for paper exposure is a paper
-    settlement path, not a change here.
+    **`dry_run` selects the population, and the two are never pooled.** An
+    order sizes against exposure of its own kind: a paper order against paper
+    positions, a live order against live ones. One implementation, parameterised
+    -- not a second function, which is how this project came to have two
+    definitions of exposure that agreed only because both returned zero.
+
+    Paper exposure counts at all only because `backend/settlement.py` now closes
+    paper positions (ADR 0010). ADR 0008 was right to refuse it while nothing
+    did: exposure that can only ratchet up is a cap that can only close, which
+    is an off switch. What it buys is that `max_exposure_dollars` **binds in
+    production**, on paper, before it ever guards real money -- this repo has
+    twice shipped a money guard that could not fire and read as defence in
+    depth.
+
+    Pooling them would be unsafe in the direction that matters: the first live
+    order would size against a budget already consumed by fictional positions,
+    and be refused for a fictional reason.
     """
     placeholders = ", ".join("?" for _ in TERMINAL_STATUSES)
     try:
@@ -500,18 +511,24 @@ def current_exposure_dollars(conn: sqlite3.Connection) -> Optional[float]:
                 COALESCE(SUM(CASE WHEN o.limit_price_tenths IS NULL
                                   THEN 1 ELSE 0 END), 0) AS unpriced
             FROM orders o
-            WHERE o.dry_run = 0
+            WHERE o.dry_run = ?
               AND o.status NOT IN ({placeholders})
-              -- Settling the market releases the capital. Carried over from
-              -- the implementation this replaces, including its approximation:
-              -- `settlements` has no order reference, so every order on a
-              -- ticker is released together. Nothing writes that table yet, so
-              -- today this term releases nothing.
+              -- Settling the position releases its capital. Joined on
+              -- `order_id`, which is what schema v4 added: the old form matched
+              -- on `ticker`, so one settlement released **every** order on that
+              -- market. Correct while there was one order per ticker and wrong
+              -- the moment there were two -- and two is ordinary, because a
+              -- quote pass re-recommends a market minutes later.
               AND NOT EXISTS (
-                  SELECT 1 FROM settlements s WHERE s.ticker = o.ticker
+                  SELECT 1 FROM settlements s WHERE s.order_id = o.id
               )
             """,
-            TERMINAL_STATUSES,
+            # `dry_run` binds before the statuses because its `?` comes first in
+            # the WHERE clause. Positional binding does not check names, so the
+            # wrong order here compares a status string against an integer
+            # column and silently returns 0.0 -- a readable, plausible, unlimited
+            # budget.
+            (1 if dry_run else 0, *TERMINAL_STATUSES),
         ).fetchone()
     except Exception:                                   # noqa: BLE001
         logger.exception("could not read current exposure")

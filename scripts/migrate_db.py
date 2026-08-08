@@ -59,8 +59,15 @@ def main() -> int:
         )
     }
     for version, step in db._MIGRATIONS.items():                 # noqa: SLF001
-        for statement in step.statements:
-            name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+        # Read from the step's declared `indexes`, never recovered from the SQL.
+        # This used to be `statement.split("EXISTS")[1].split("ON")[0]`, which
+        # assumes every statement creates an index. The first statement that
+        # does not -- v4's `DROP TABLE IF EXISTS settlements` -- yields the
+        # "index name" `settlements`, which is in no index list, so this step
+        # would report a missing index and exit 1. That is a crash loop at boot,
+        # on the volume holding the evidence record, caused by editing a table
+        # in another file. Same shape as the `.dockerignore` allowlist.
+        for name in step.indexes:
             if name not in indexes:
                 missing.append(f"v{version}: index {name}")
     conn.close()

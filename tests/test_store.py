@@ -142,9 +142,10 @@ class TestMigration:
         conn = db.init_db(path)
         added = self._migrated_columns()
         for version in sorted(db._MIGRATIONS):
-            for statement in db._MIGRATIONS[version].statements:
-                name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+            for name in db._MIGRATIONS[version].indexes:
                 conn.execute(f"DROP INDEX IF EXISTS {name}")
+            for statement in db._MIGRATIONS[version].undo_statements:
+                conn.execute(statement)
         for table, column in added:
             conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         conn.execute(
@@ -254,30 +255,98 @@ class TestMigration:
         assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
         conn.close()
 
-    def test_an_index_step_survives_being_run_twice(self, tmp_path):
-        """Indexes are made idempotent differently from columns.
+    def _seed_order(self, conn):
+        """One market and one order, so a settlement row has something to point at.
 
-        A column step is guarded by reading `PRAGMA table_info`; a statement
-        carries its own `IF NOT EXISTS`. Both have to survive the same crash,
-        because the version stamp is written only after the whole step succeeds
-        -- so an interrupted v3 re-runs its `CREATE UNIQUE INDEX` from the top.
+        Plain `INSERT`, never `INSERT OR IGNORE`: `OR IGNORE` suppresses every
+        constraint failure on the statement, including the `NOT NULL` that says
+        the fixture is incomplete. That is how this file's gate helper inserted
+        nothing at all for the life of the project while every `LEFT JOIN`
+        silently matched zero rows.
+        """
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, first_seen_ms, last_seen_ms) "
+            "VALUES ('T', 0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+            "action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('c1', 0, 'T', 'yes', 'buy', 'limit', 3, 500, 'dry_run', "
+            "'{}', 1)"
+        )
+
+    def test_columns_run_before_statements(self, tmp_path):
+        """v3's index is over a column v3 itself adds, so the order is load-bearing.
+
+        Asserted against v3 by name rather than swept over every step, and that
+        narrowness is deliberate. The sweeping version of this test read
+        *"every statement raises on a v1 database"* and broke on the first step
+        whose statements are not an index over a new column -- v4 rebuilds a
+        table, and `CREATE TABLE IF NOT EXISTS` raises on nothing. Widening the
+        assertion to keep it passing would have meant asserting something true
+        of no step in particular. See `two-limits-on-one-quantity`: a test that
+        covers one property and reads as though it covers a class.
         """
         path, _ = self._v1_database(tmp_path)
         conn = db.connect(path)
-        for version in sorted(db._MIGRATIONS):
-            for statement in db._MIGRATIONS[version].statements:
-                # The column the index needs does not exist yet at v1, so this
-                # asserts the ordering too: columns before statements.
-                with pytest.raises(sqlite3.OperationalError):
-                    conn.execute(statement)
+        for statement in db._MIGRATIONS[3].statements:
+            with pytest.raises(sqlite3.OperationalError):
+                conn.execute(statement)
         conn.close()
 
+    def test_every_statement_step_survives_being_run_twice(self, tmp_path):
+        """A step interrupted after its statements re-runs them from the top.
+
+        The version stamp is written only after the whole step succeeds, so
+        every statement has to be safe to replay. Columns are guarded by reading
+        `PRAGMA table_info`; a statement carries its own `IF NOT EXISTS`, or --
+        where it cannot, as with v4's rebuild -- the step declares a column whose
+        presence means it has already run.
+        """
+        path, _ = self._v1_database(tmp_path)
         db.init_db(path).close()
         conn = db.init_db(path)
         assert db.migrate(conn) == []
+
         for version in sorted(db._MIGRATIONS):
-            for statement in db._MIGRATIONS[version].statements:
-                conn.execute(statement)  # IF NOT EXISTS, so this is a no-op
+            step = db._MIGRATIONS[version]
+            if any(
+                column in db._columns(conn, table)
+                for table, column in step.skip_statements_if_column
+            ):
+                # `migrate` would skip these, so replaying them by hand would
+                # test something the runtime never does -- and for a rebuild it
+                # would drop the table the migration just built.
+                continue
+            for statement in step.statements:
+                conn.execute(statement)
+        conn.close()
+
+    def test_the_rebuild_is_skipped_once_it_has_landed(self, tmp_path):
+        """The crash point a rebuild is not naturally idempotent at.
+
+        Create-drop-rename replays safely at every interruption except after
+        full success, where it would recreate the empty temp table and then drop
+        the real one. The guard is what covers that, and the way to see it is to
+        run the migration twice over a database holding a row.
+        """
+        conn = db.init_db(tmp_path / "v4.db")
+        self._seed_order(conn)
+        conn.execute(
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run) VALUES (1, 'T', 1, 'yes', 3, 120, 1)"
+        )
+        conn.commit()
+
+        # Wind the stamp back so v4 is eligible to run again, which is exactly
+        # what a crash between the last statement and the stamp leaves behind.
+        conn.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
+        conn.commit()
+        assert db.migrate(conn) == [4]
+
+        rows = conn.execute("SELECT COUNT(*) AS n FROM settlements").fetchone()
+        assert rows["n"] == 1, "the rebuild ran again and dropped the real table"
         conn.close()
 
     def test_a_fresh_database_is_built_at_the_current_version(self, tmp_path):
@@ -320,9 +389,10 @@ class TestMigration:
         for later in sorted(db._MIGRATIONS):
             if later < version:
                 continue
-            for statement in db._MIGRATIONS[later].statements:
-                name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+            for name in db._MIGRATIONS[later].indexes:
                 connection.execute(f"DROP INDEX IF EXISTS {name}")
+            for statement in db._MIGRATIONS[later].undo_statements:
+                connection.execute(statement)
             for table, column, _ in db._MIGRATIONS[later].columns:
                 connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         connection.execute(
@@ -375,8 +445,7 @@ class TestMigration:
             )
         }
         for version in sorted(db._MIGRATIONS):
-            for statement in db._MIGRATIONS[version].statements:
-                index = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+            for index in db._MIGRATIONS[version].indexes:
                 assert index in names, (
                     f"{index} is created by migration v{version} and is not in "
                     f"schema.sql, so a fresh database would never have it"

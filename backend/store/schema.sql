@@ -434,6 +434,22 @@ CREATE TABLE IF NOT EXISTS orders (
     -- sending a second order, because "we do not know whether it went" must not
     -- resolve to "it did not".
     response_body_json  TEXT,
+    -- **The named fill policy, never an implied one.** A dry run never rests in
+    -- a book, so "did it fill" has no observed answer and any answer is an
+    -- assumption. Recording which one was used is what lets the record be
+    -- re-analysed under a different one later. `depth_capped_taker` is the only
+    -- value today: the order path refuses when the resting size at our price is
+    -- smaller than the order, so every paper order is a marketable limit inside
+    -- the depth we saw. See docs/adr/0010.
+    --
+    -- Nullable, because rows written before v4 carry no assumption -- and an
+    -- absent assumption must stay absent rather than defaulting to the current
+    -- one, which would silently relabel history as though it had been measured.
+    fill_assumption     TEXT,
+    -- How many contracts the assumption says filled. Separate from `count` so
+    -- the day a partial-fill policy exists, the two stop being the same number
+    -- without any column changing meaning.
+    assumed_filled_count INTEGER,
     CHECK (side IN ('yes','no')),
     CHECK (action IN ('buy','sell'))
 );
@@ -461,9 +477,18 @@ CREATE INDEX IF NOT EXISTS idx_fills_time ON fills(filled_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_fills_mismatch ON fills(ticker)
     WHERE fee_actual IS NOT NULL AND fee_actual != fee_predicted;
 
+-- One row per settled POSITION, not per settled market. The distinction is the
+-- v4 migration: `UNIQUE (ticker, settled_ms)` described a market outcome while
+-- the columns beside it described a position, so two orders on one ticker --
+-- ordinary, since a quote pass re-recommends a market minutes later -- collided
+-- and the second silently never settled, holding its exposure open forever.
 CREATE TABLE IF NOT EXISTS settlements (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id            INTEGER NOT NULL REFERENCES orders(id),
     ticker              TEXT NOT NULL REFERENCES kalshi_markets(ticker),
+    -- Kalshi's own `settlement_ts`, observed. **Not** `close_time` and not
+    -- `expiration_time`: on the captured sample the latter sits three days
+    -- after close, so it is not a settlement instant at all.
     settled_ms          INTEGER NOT NULL,
     result              TEXT NOT NULL,      -- yes | no
     contracts           INTEGER NOT NULL,
@@ -471,8 +496,22 @@ CREATE TABLE IF NOT EXISTS settlements (
     -- 7.350000000000001 > 7.35 rejections; the previous project moved its
     -- entire risk path to integers for this reason.
     pnl_cents           INTEGER NOT NULL,
-    UNIQUE (ticker, settled_ms)
+    -- Paper or real, copied from the order rather than joined -- so no reader
+    -- can pool the two populations by forgetting to join. Paper P&L and live
+    -- P&L answer different questions and must never share a number.
+    dry_run             INTEGER NOT NULL,
+    -- The named fill policy this row's P&L was computed under. Stored so the
+    -- record can be re-scored under a different one; an assumption baked into
+    -- the arithmetic cannot be revised. See docs/adr/0010.
+    fill_assumption     TEXT,
+    -- Resting size at our price when the order went out. It is what justified
+    -- assuming the fill, so it is what a re-analysis needs in order to weaken
+    -- the assumption.
+    depth_at_order      REAL,
+    CHECK (result IN ('yes','no')),
+    UNIQUE (order_id)
 );
+CREATE INDEX IF NOT EXISTS idx_settlements_order ON settlements(order_id);
 
 -- ============================================================================
 -- The flywheel's written record
