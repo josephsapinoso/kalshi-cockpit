@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -45,7 +46,7 @@ _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 # driver version from now would silently restore fail-immediately.
 BUSY_TIMEOUT_MS = 5_000
 
-# version -> the columns it adds, as (table, column, declaration).
+# version -> what it adds.
 #
 # `schema.sql` is applied with `CREATE TABLE IF NOT EXISTS`, so it builds a new
 # database at the current version and does *nothing at all* to an existing one.
@@ -56,11 +57,50 @@ BUSY_TIMEOUT_MS = 5_000
 # v2 (2026-08-08): the confirmation columns on `recommendations`. Nullable by
 # necessity -- rows written before them carry NULL, and the readers fall back to
 # `created_ms`, which is exactly the pre-migration behaviour.
-_MIGRATIONS: dict[int, tuple[tuple[str, str, str], ...]] = {
-    2: (
-        ("recommendations", "last_confirmed_ms", "INTEGER"),
-        ("recommendations", "last_confirmed_quote_age_ms", "INTEGER"),
-        ("recommendations", "last_confirmed_odds_age_ms", "INTEGER"),
+#
+# v3 (2026-08-08): the idempotency key and the stored response on `orders`.
+# Also nullable: every row written before this carries NULL, and SQLite treats
+# NULLs as distinct in a UNIQUE index, so the historical rows neither collide
+# with each other nor block the constraint.
+
+
+@dataclass(frozen=True)
+class _Migration:
+    """One version step: columns to add, then statements to run.
+
+    Two kinds rather than one because they are made idempotent differently, and
+    conflating them is how a half-applied migration becomes unrepeatable.
+    `ALTER TABLE ADD COLUMN` raises on a column that already exists, so each is
+    guarded by reading `PRAGMA table_info`; a statement carries its own `IF NOT
+    EXISTS` and needs no guard. Both must survive a crash mid-step, because the
+    version stamp is only written after the whole step succeeds -- so a step
+    interrupted halfway re-runs from the top on the next boot.
+
+    Columns run first. An index over a column the same step adds is the obvious
+    next thing someone writes here, and it can only work in that order.
+    """
+
+    columns: tuple[tuple[str, str, str], ...] = ()
+    statements: tuple[str, ...] = ()
+
+
+_MIGRATIONS: dict[int, _Migration] = {
+    2: _Migration(
+        columns=(
+            ("recommendations", "last_confirmed_ms", "INTEGER"),
+            ("recommendations", "last_confirmed_quote_age_ms", "INTEGER"),
+            ("recommendations", "last_confirmed_odds_age_ms", "INTEGER"),
+        ),
+    ),
+    3: _Migration(
+        columns=(
+            ("orders", "idempotency_key", "TEXT"),
+            ("orders", "response_body_json", "TEXT"),
+        ),
+        statements=(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency "
+            "ON orders(idempotency_key)",
+        ),
     ),
 }
 
@@ -168,10 +208,13 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
     for version in sorted(_MIGRATIONS):
         if version <= int(found):
             continue
-        for table, column, decl in _MIGRATIONS[version]:
+        step = _MIGRATIONS[version]
+        for table, column, decl in step.columns:
             if column in _columns(conn, table):
                 continue
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        for statement in step.statements:
+            conn.execute(statement)
         applied.append(version)
 
     if applied:
@@ -180,10 +223,32 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
 
 
 def init_db(db_path: Path | str) -> sqlite3.Connection:
-    """Create or open the database, applying the schema and any migrations."""
+    """Create or open the database, applying the schema and any migrations.
+
+    **The migration runs before the schema file, and the order is load-bearing.**
+    It used to be the other way round, which worked for as long as every
+    migration only added columns. It stops working the moment `schema.sql`
+    declares an index over one of them: `executescript` is applied to existing
+    databases too, so `CREATE UNIQUE INDEX ... ON orders(idempotency_key)` runs
+    against a database that has not been given that column yet and raises
+    `no such column`. On the live volume that is an exception inside the boot
+    step the entrypoint runs before uvicorn -- a crash loop, on the one database
+    in this project that cannot be recreated.
+
+    It is worth being precise about why no test would have caught it in the old
+    order: a **fresh** database gets the column from `CREATE TABLE`, so the
+    index resolves and everything passes. The failure needs a database that
+    already exists, which is exactly the thing a test fixture usually does not
+    have and production always does.
+
+    Migrating first fixes it at the root rather than by reordering `schema.sql`:
+    after the columns are in place, every `IF NOT EXISTS` in the schema file is
+    a genuine no-op on an existing database, which is what it was always meant
+    to be.
+    """
     conn = connect(db_path)
-    conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
     migrate(conn)
+    conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
     _set_meta(conn, "schema_version", str(SCHEMA_VERSION))
     conn.commit()
     return conn
@@ -217,7 +282,20 @@ def open_db(
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> Optional[str]:
-    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    """The stored value, or `None` if it -- or the table itself -- is absent.
+
+    A missing `meta` table means the file is empty and `schema.sql` has not run
+    yet, which `init_db` now reaches *before* applying the schema. Answering
+    `None` rather than raising keeps "there is nothing recorded here" as one
+    state with one meaning, instead of splitting it into an absent row and an
+    absent table that callers would have to tell apart.
+    """
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = ?", (key,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
     return row["value"] if row else None
 
 

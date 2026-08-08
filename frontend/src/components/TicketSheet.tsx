@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatKickoff,
   isLockedDetail,
+  newIntentKey,
   placeOrder,
   refusalText,
   type LockedDetail,
@@ -145,10 +146,29 @@ export default function TicketSheet({
     if (node && !node.contains(document.activeElement)) node.focus();
   }, [phase]);
 
+  // One key per *intent*, minted when the sheet opens and stable for as long as
+  // it stays open. That is the whole mechanism: both halves of a double-tap,
+  // and a retry after a dropped connection, carry the same key, so the server
+  // answers the second one with the first one's order instead of placing a
+  // second. A key minted inside `confirm` would be a fresh one per tap and
+  // would protect nothing at all.
+  //
+  // `useRef` rather than `useState` because it must not be a render input --
+  // and `useRef(crypto.randomUUID())` would re-evaluate the argument on every
+  // render, discarding the value but doing the work. The lazy form is the one
+  // that actually holds still.
+  const intentKey = useRef<string>("");
+  if (!intentKey.current) intentKey.current = newIntentKey();
+
   const confirm = useCallback(async () => {
     setPhase("sending");
     setResult(null);
-    const outcome = await placeOrder(rec.id, contracts, token || undefined);
+    const outcome = await placeOrder(
+      rec.id,
+      contracts,
+      intentKey.current,
+      token || undefined,
+    );
     setResult(outcome);
     setPhase("answered");
     // The answer is the point of the interaction and it renders where the

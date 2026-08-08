@@ -412,10 +412,34 @@ CREATE TABLE IF NOT EXISTS orders (
     request_body_json   TEXT NOT NULL,
     error_text          TEXT,
     dry_run             INTEGER NOT NULL DEFAULT 1,
+    -- **The CLIENT's key, not `client_order_id`.** Two keys because they dedupe
+    -- against two different parties: `client_order_id` stops *Kalshi* creating a
+    -- second order when we re-send, and this stops *us* creating a second order
+    -- when the phone is tapped twice. Neither substitutes for the other -- the
+    -- exchange never sees this column, and a fresh `client_order_id` per request
+    -- is exactly what made two taps two orders.
+    --
+    -- Nullable, because every row written before v3 has no key and because
+    -- SQLite treats NULLs as distinct in a UNIQUE index, so the history neither
+    -- collides with itself nor blocks the constraint.
+    idempotency_key     TEXT,
+    -- The response body the caller was given, verbatim, so a replay returns the
+    -- same answer rather than a second answer reconstructed from the columns.
+    -- Reconstructing it would be a second implementation of the response shape,
+    -- free to drift from the first -- and the two would drift silently, because
+    -- only a duplicate tap ever renders this one.
+    --
+    -- NULL means the outcome is unknown: the row was reserved and the process
+    -- did not get as far as answering. A replay refuses on that rather than
+    -- sending a second order, because "we do not know whether it went" must not
+    -- resolve to "it did not".
+    response_body_json  TEXT,
     CHECK (side IN ('yes','no')),
     CHECK (action IN ('buy','sell'))
 );
 CREATE INDEX IF NOT EXISTS idx_orders_time ON orders(submitted_ms DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
+    ON orders(idempotency_key);
 
 CREATE TABLE IF NOT EXISTS fills (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,

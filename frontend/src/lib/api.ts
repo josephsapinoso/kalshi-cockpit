@@ -186,9 +186,35 @@ export type OrderResult =
  *
  * 423 is the locked gate and carries the unmet conditions as a structured body.
  */
+/**
+ * A key identifying one *intent* to order, not one request.
+ *
+ * `crypto.randomUUID` needs a secure context, which every browser reaching the
+ * live cockpit has (it is HTTPS-only) — but not every one reaching a `http://`
+ * dev origin, where it is `undefined` and would throw. The fallback is not
+ * cryptographic and does not need to be: this value is a database key, never a
+ * secret, and it only has to be unlikely to repeat within one session.
+ *
+ * The charset is deliberately narrow. The server accepts `[A-Za-z0-9_-]{8,64}`
+ * and echoes the key back in refusals, so anything wider would be a string
+ * from the client rendered on a screen.
+ */
+export function newIntentKey(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid.replace(/-/g, "");
+  return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/**
+ * `idempotencyKey` identifies the intent, so the same value must be sent by
+ * every attempt at one order — a double-tap, or a retry after a lost response.
+ * The server answers a repeat with the first attempt's outcome instead of
+ * placing a second order. A fresh key per attempt protects nothing.
+ */
 export async function placeOrder(
   recommendationId: number,
   contracts: number,
+  idempotencyKey: string,
   token?: string,
 ): Promise<OrderResult> {
   let response: Response;
@@ -203,6 +229,7 @@ export async function placeOrder(
       body: JSON.stringify({
         recommendation_id: recommendationId,
         contracts,
+        idempotency_key: idempotencyKey,
       }),
     });
   } catch (error) {

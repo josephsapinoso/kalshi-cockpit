@@ -41,14 +41,24 @@ What this module does not do
 - **It does not write `fills`.** No order has ever been placed, so there is no
   fill to write, and `fills` needs `fee_predicted`/`fee_model_used` from the
   engine rather than from an order response.
-- **It does not make placement idempotent.** The `UNIQUE` constraint on
-  `client_order_id` stops a duplicate *row*; it does not stop a duplicate
-  *order*, because each request mints a fresh id. Two taps are two orders. That
-  is harmless while every order is a dry run and must be closed before the gate
-  opens.
 - **It does not write `fills` for a paper position, and nothing settles one.**
   `settlements` has no writer, so paper exposure could only ever accumulate.
   That is why dry runs are excluded from the sum rather than counted.
+
+Two keys, because there are two parties to deduplicate against
+--------------------------------------------------------------
+`client_order_id` is minted here and sent to Kalshi. It stops **the exchange**
+creating a second order when we re-send after a lost response.
+
+`idempotency_key` comes from the client and the exchange never sees it. It stops
+**us** creating a second order when the phone is tapped twice — which the first
+key cannot do anything about, because each request minted a fresh one, so two
+taps were two ids and two orders. A duplicate key is answered with the first
+attempt's recorded response rather than with a second order.
+
+Neither substitutes for the other and the failure they cover is different. It is
+worth being concrete: a double-tap is two requests seconds apart with two
+`client_order_id`s, which Kalshi will happily accept as two distinct orders.
 
 What it does now do, having not before: **serialise two orders against one
 exposure reading**. `reserve_order` writes the row and then checks the cap
@@ -95,6 +105,28 @@ class OrderNotRecorded(RuntimeError):
     """The order could not be written down, so it must not be sent."""
 
 
+class DuplicateOrder(RuntimeError):
+    """This idempotency key has already been used. Carries the existing row.
+
+    Not an error in the sense of something going wrong -- it is the mechanism
+    working. Two taps on a phone are one intent, and the second one has to be
+    answered with the first one's outcome rather than with a second order.
+
+    `response_body_json` is `None` when the original attempt never got as far as
+    answering. That case is *not* safe to retry and the caller must not treat it
+    as one: an order may be resting on the exchange under this row's
+    `client_order_id`.
+    """
+
+    def __init__(self, row: sqlite3.Row):
+        self.row = row
+        self.response_body_json: Optional[str] = row["response_body_json"]
+        super().__init__(
+            f"order row {row['id']} already exists for this idempotency key "
+            f"(status={row['status']}, client_order_id={row['client_order_id']})"
+        )
+
+
 class ExposureCapExceeded(RuntimeError):
     """Recording this order would put the portfolio over its exposure cap.
 
@@ -110,12 +142,57 @@ class ExposureCapExceeded(RuntimeError):
         self.cap = cap
 
 
+def find_by_idempotency_key(
+    conn: sqlite3.Connection, key: str
+) -> Optional[sqlite3.Row]:
+    """The order already recorded under this key, if there is one.
+
+    Read on the endpoint's read-only handle **before any other check runs**, and
+    the ordering is the whole point rather than an optimisation. A retry after a
+    lost response arrives seconds or minutes later, by which time the
+    recommendation behind it has aged past the 30s quote limit -- so a replay
+    placed after the freshness checks would answer "the price moved" to the one
+    request that must be answered with the original outcome.
+
+    Returns the row, not a boolean, because what the caller needs is the answer
+    it gave last time.
+    """
+    return conn.execute(
+        "SELECT * FROM orders WHERE idempotency_key = ?", (key,)
+    ).fetchone()
+
+
+def record_response(
+    conn: sqlite3.Connection, order_row_id: int, body_json: str
+) -> None:
+    """Store the answer this order was given, for a later replay to return.
+
+    Failing here is reported by the caller, never raised past it, for the same
+    reason `record_outcome` is: by the time there is a response to store, the
+    request has already gone. What is lost is the ability to *replay* the answer
+    -- a subsequent duplicate tap will find the row with a NULL response and
+    refuse rather than send a second order, which is the safe direction.
+    """
+    try:
+        conn.execute(
+            "UPDATE orders SET response_body_json = ? WHERE id = ?",
+            (body_json, int(order_row_id)),
+        )
+        conn.commit()
+    except sqlite3.Error as exc:
+        raise OrderNotRecorded(
+            f"order row {order_row_id} was placed and its response could not "
+            f"be stored: {exc}"
+        ) from exc
+
+
 def record_intent(
     conn: sqlite3.Connection,
     order: OrderRequest,
     *,
     dry_run: bool,
     submitted_ms: int,
+    idempotency_key: Optional[str] = None,
 ) -> int:
     """Write the order we are about to place. Returns the row id.
 
@@ -133,7 +210,10 @@ def record_intent(
     exposure read that sized the order and the row that consumes the budget
     land in two different transactions.
     """
-    row_id = _insert_intent(conn, order, dry_run=dry_run, submitted_ms=submitted_ms)
+    row_id = _insert_intent(
+        conn, order, dry_run=dry_run, submitted_ms=submitted_ms,
+        idempotency_key=idempotency_key,
+    )
     try:
         conn.commit()
     except sqlite3.Error as exc:
@@ -150,6 +230,7 @@ def _insert_intent(
     *,
     dry_run: bool,
     submitted_ms: int,
+    idempotency_key: Optional[str] = None,
 ) -> int:
     """The insert alone, so a caller can decide when it becomes durable."""
     body = order.to_api_dict()
@@ -158,8 +239,8 @@ def _insert_intent(
             "INSERT INTO orders ("
             "client_order_id, recommendation_id, submitted_ms, ticker, side, "
             "action, order_type, count, limit_price_tenths, status, "
-            "request_body_json, dry_run"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "request_body_json, dry_run, idempotency_key"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 order.client_order_id,
                 order.recommendation_id,
@@ -174,6 +255,7 @@ def _insert_intent(
                 STATUS_PENDING,
                 canonical_body_json(body),
                 1 if dry_run else 0,
+                idempotency_key,
             ),
         )
     except sqlite3.Error as exc:
@@ -198,6 +280,7 @@ def reserve_order(
     dry_run: bool,
     submitted_ms: int,
     max_exposure_dollars: float,
+    idempotency_key: Optional[str] = None,
 ) -> int:
     """Record the order and check the cap **in one write transaction**.
 
@@ -235,12 +318,22 @@ def reserve_order(
     decides whether the portfolio can hold it, and only the second one has to
     be atomic.
 
+    **The duplicate check is inside the same lock, and it has to be.** The
+    endpoint looks the key up first on its read-only handle, which is what makes
+    a replay cheap and what makes it survive a stale recommendation -- but that
+    read cannot be the guarantee, because two taps landing together both miss
+    it. Here the second request is already blocked at `BEGIN IMMEDIATE` behind
+    the first's write lock, so by the time it looks, the first row exists. Same
+    argument as the exposure check below it, for the same reason: the answer has
+    to be a fact about the database rather than a prediction about it.
+
+    The `UNIQUE` index is the third layer and is not redundant with either. It
+    is what keeps the property true for `record_intent`, which commits on its
+    own and does not pass through here at all.
+
     What this does **not** do, stated because the shape invites assuming
     otherwise:
 
-    - **It does not make placement idempotent.** Two taps mint two
-      `client_order_id`s and are two orders; this serialises them rather than
-      merging them.
     - **It cannot bind on a dry run.** `current_exposure_dollars` counts only
       `dry_run = 0`, so a dry-run row contributes nothing to the sum it is
       checked against. That is correct rather than a limitation -- a dry run
@@ -262,9 +355,16 @@ def reserve_order(
                 f"{order.ticker}: {exc}"
             ) from exc
 
+        if idempotency_key is not None:
+            existing = find_by_idempotency_key(conn, idempotency_key)
+            if existing is not None:
+                conn.execute("ROLLBACK")
+                raise DuplicateOrder(existing)
+
         try:
             row_id = _insert_intent(
-                conn, order, dry_run=dry_run, submitted_ms=submitted_ms
+                conn, order, dry_run=dry_run, submitted_ms=submitted_ms,
+                idempotency_key=idempotency_key,
             )
             exposure = current_exposure_dollars(conn)
         except Exception:

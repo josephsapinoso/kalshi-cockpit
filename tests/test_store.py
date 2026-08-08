@@ -110,18 +110,43 @@ class TestMigration:
     v1 database with real rows in it, not against a fresh one.
     """
 
+    def _migrated_columns(self) -> list[tuple[str, str]]:
+        """Every `(table, column)` any migration adds, in application order.
+
+        Read from `_MIGRATIONS` rather than listed here, so a new version is
+        covered by these tests the moment it is written. The previous form
+        hardcoded v2 and the `recommendations` table, so v3 -- which adds two
+        columns and an index to `orders` -- was migrated by code that four
+        tests claimed to cover and none of them touched.
+        """
+        return [
+            (table, column)
+            for version in sorted(db._MIGRATIONS)
+            for table, column, _ in db._MIGRATIONS[version].columns
+        ]
+
     def _v1_database(self, tmp_path, *, rows=1):
-        """A database at the previous version, with the new columns removed.
+        """A database at the earliest version, with every later addition removed.
 
         Built by dropping the columns rather than by keeping an old schema file
         around, so it cannot drift away from what v1 actually was: every other
-        column comes from the current schema, and only the v2 additions differ.
+        column comes from the current schema, and only the later additions
+        differ.
+
+        Indexes are dropped first because SQLite refuses to drop a column an
+        index refers to -- which is itself the check that the fixture really is
+        undoing everything the migration does, rather than quietly leaving the
+        index behind on a "v1" database that never had one.
         """
         path = tmp_path / "v1.db"
         conn = db.init_db(path)
-        added = [c for _, c, _ in db._MIGRATIONS[2]]
-        for column in added:
-            conn.execute(f"ALTER TABLE recommendations DROP COLUMN {column}")
+        added = self._migrated_columns()
+        for version in sorted(db._MIGRATIONS):
+            for statement in db._MIGRATIONS[version].statements:
+                name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+                conn.execute(f"DROP INDEX IF EXISTS {name}")
+        for table, column in added:
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         conn.execute(
             "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
             "config_json, rationale, approved_by_user) VALUES (1, 0, 0, '{}', '', 0)"
@@ -149,6 +174,18 @@ class TestMigration:
                 "1000, 60000, 'kept')",
                 (1_000 + i,),
             )
+        # An order too, because v3 migrates `orders` and a fixture that only
+        # holds recommendations would let a migration drop that table's rows
+        # without any test noticing.
+        for i in range(rows):
+            conn.execute(
+                "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+                "action, order_type, count, limit_price_tenths, status, "
+                "request_body_json, dry_run) "
+                "VALUES (?, 0, 'T', 'yes', 'buy', 'limit', 1, 500, 'dry_run', "
+                "'{}', 1)",
+                (f"kept-{i}",),
+            )
         conn.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
         conn.commit()
         conn.close()
@@ -168,13 +205,15 @@ class TestMigration:
 
         conn = db.init_db(path)
         assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
-        for column in added:
-            assert column in db._columns(conn, "recommendations")
+        for table, column in added:
+            assert column in db._columns(conn, table)
 
         kept = conn.execute(
             "SELECT COUNT(*) n FROM recommendations WHERE reason_text = 'kept'"
         ).fetchone()
         assert kept["n"] == 3, "the record was not preserved across the migration"
+        orders_kept = conn.execute("SELECT COUNT(*) n FROM orders").fetchone()
+        assert orders_kept["n"] == 3, "the orders were not preserved"
         # New columns are NULL on old rows, which is exactly what `live_ages`
         # reads as "never re-derived" and falls back to `created_ms` for.
         null = conn.execute(
@@ -204,14 +243,41 @@ class TestMigration:
         path, added = self._v1_database(tmp_path)
         conn = db.connect(path)
         # Half-applied: the first column landed, then the process died.
-        conn.execute(f"ALTER TABLE recommendations ADD COLUMN {added[0]} INTEGER")
+        table, column = added[0]
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER")
         conn.commit()
         conn.close()
 
         conn = db.init_db(path)
-        for column in added:
-            assert column in db._columns(conn, "recommendations")
+        for table, column in added:
+            assert column in db._columns(conn, table)
         assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        conn.close()
+
+    def test_an_index_step_survives_being_run_twice(self, tmp_path):
+        """Indexes are made idempotent differently from columns.
+
+        A column step is guarded by reading `PRAGMA table_info`; a statement
+        carries its own `IF NOT EXISTS`. Both have to survive the same crash,
+        because the version stamp is written only after the whole step succeeds
+        -- so an interrupted v3 re-runs its `CREATE UNIQUE INDEX` from the top.
+        """
+        path, _ = self._v1_database(tmp_path)
+        conn = db.connect(path)
+        for version in sorted(db._MIGRATIONS):
+            for statement in db._MIGRATIONS[version].statements:
+                # The column the index needs does not exist yet at v1, so this
+                # asserts the ordering too: columns before statements.
+                with pytest.raises(sqlite3.OperationalError):
+                    conn.execute(statement)
+        conn.close()
+
+        db.init_db(path).close()
+        conn = db.init_db(path)
+        assert db.migrate(conn) == []
+        for version in sorted(db._MIGRATIONS):
+            for statement in db._MIGRATIONS[version].statements:
+                conn.execute(statement)  # IF NOT EXISTS, so this is a no-op
         conn.close()
 
     def test_a_fresh_database_is_built_at_the_current_version(self, tmp_path):
@@ -222,8 +288,8 @@ class TestMigration:
         path = tmp_path / "fresh.db"
         conn = db.init_db(path)
         assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
-        for _, column, _ in db._MIGRATIONS[2]:
-            assert column in db._columns(conn, "recommendations")
+        for table, column in self._migrated_columns():
+            assert column in db._columns(conn, table)
         assert db.migrate(conn) == []
         conn.close()
 
@@ -235,11 +301,29 @@ class TestMigration:
         the same shape as two implementations of one rule.
         """
         conn = db.init_db(tmp_path / "agree.db")
-        for _, column, _ in db._MIGRATIONS[db.SCHEMA_VERSION]:
-            assert column in db._columns(conn, "recommendations"), (
-                f"{column} is migrated onto old databases but missing from "
-                f"schema.sql, so a fresh database would never have it"
+        for table, column in self._migrated_columns():
+            assert column in db._columns(conn, table), (
+                f"{table}.{column} is migrated onto old databases but missing "
+                f"from schema.sql, so a fresh database would never have it"
             )
+        # Indexes too, and for the sharper version of the same reason: a unique
+        # index present on migrated databases and absent from `schema.sql`
+        # means the constraint holds on the live volume and not on any
+        # development one, so the duplicate it exists to stop is unreachable
+        # exactly where anyone would try to reproduce it.
+        names = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        for version in sorted(db._MIGRATIONS):
+            for statement in db._MIGRATIONS[version].statements:
+                index = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+                assert index in names, (
+                    f"{index} is created by migration v{version} and is not in "
+                    f"schema.sql, so a fresh database would never have it"
+                )
         conn.close()
 
 

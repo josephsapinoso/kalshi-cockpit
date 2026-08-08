@@ -1,5 +1,76 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-08, later — the fleet is wired and two taps are one order)
+
+**State:** 1,234 tests, ruff green, frontend builds, tree committed on `main`
+(`44f0fca` and the commit above this note). **Not pushed** — that is your call.
+
+**THE NEXT DEPLOY CARRIES A MIGRATION.** `SCHEMA_VERSION` 2 → 3: two nullable
+columns on `orders` (`idempotency_key`, `response_body_json`) and a unique
+index. The entrypoint runs `scripts/migrate_db.py` before uvicorn, and that
+path is tested against a real old database with rows in it — but expect
+migration output this time, unlike the last deploy.
+
+**Two things still need you**, both unchanged from the previous note:
+
+    ! gh workflow run Ops -f instance=live -f action=all
+
+still unrun — restarts, volume, and whether `INFO backend.*` lines appear in
+the log stream at all, which is the whole point of the `configure_logging()`
+fix. And **`ANTHROPIC_API_KEY` as a Fly secret**, without which the agent
+fleet is unconfigured on live and every row comes back untouched.
+
+### The agent fleet is wired up
+
+`backend/agents/review.py`. The pass collects, reviews the surfaced rows in one
+batch, applies verdicts, then persists — so there is no window in which an
+unreviewed row is orderable. Details in the closed item in section 2.
+
+Two things the design note in this file got wrong, both of which would have
+shipped green: `asyncio.run` at the seam raises inside a running loop, which is
+where production always calls it from; and the test suite was making live
+Anthropic calls on any machine with the key in `.env`, so the same test called
+Claude locally and skipped the review in CI. Both in `tasks/lessons.md`.
+
+**It blocked a real row on its first live run** — see the item for what it
+caught and why that was a fixture bug rather than a venue finding.
+
+### Two taps are one order
+
+`docs/adr/0009`. The client mints an idempotency key when the ticket **opens**,
+so a double-tap and a retry after a dropped connection carry the same one; the
+endpoint replays the first attempt's recorded response instead of placing a
+second order. Required, not optional — an optional key protects only the callers
+that remember it.
+
+Three layers, and the ADR sets out what each covers that the others cannot: the
+step-0 read (survives a stale row), the check inside `reserve_order`'s write
+lock (survives concurrent taps), and the unique index (survives a writer that
+does not go through `reserve_order`). Disabling each one turns a different test
+red, which is how they were checked.
+
+**Building it found a defect that would have crash-looped the live instance.**
+`init_db` applied `schema.sql` *before* migrating. That is fine for as long as
+migrations only add columns, and it breaks the moment the schema file declares
+an index over one — `executescript` runs against existing databases too, and the
+column is not there yet. A **fresh** database gets it from `CREATE TABLE`, so
+every test written against one passes. `init_db` migrates first now, and the
+migration tests were generalised to cover every version and every table rather
+than hardcoding v2 and `recommendations`.
+
+Gap 2 of ADR 0008 was already closed last session; gap 3 (exposure fee-exclusive
+against a fee-inclusive cap, ~2%) stands and is still not worth a migration.
+
+### Not started: the paper settlement path
+
+The remaining backend item, and the prerequisite for `max_exposure_dollars`
+binding on anything before a live order exists. It needs a settlement source
+from Kalshi and a decision about whether a dry run is assumed to have filled,
+which is a measurement question rather than a plumbing one — assuming a fill at
+the limit flatters the record, and the record is the product.
+
+---
+
 ## HANDOFF (2026-08-08, 14:4xZ — the sheet is merged, and running it found four more)
 
 **State:** 1,206 tests, ruff green, seven pushes, **CI green on every one**.
@@ -308,10 +379,13 @@ fixture by name makes every signature that takes it a redefinition. Split into
 
 The three gaps recorded in ADR 0008, all of which become real the day the gate
 opens and none of which are worth building against an untestable live path now:
-**placement is not idempotent** (two taps are two orders — the `UNIQUE`
-constraint stops a duplicate row, not a duplicate order), **two concurrent
-requests can size against one exposure reading**, and **exposure is
-fee-exclusive while the cap is spent fee-inclusive** (~2%).
+~~**placement is not idempotent**~~ (**done 2026-08-08, ADR 0009** — and the
+"untestable" framing was wrong: the replay path never touches Kalshi, and
+building it found a migration-ordering defect that would have crash-looped the
+live instance), ~~**two concurrent requests can size against one exposure
+reading**~~ (**done 2026-08-08**, `reserve_order`), and **exposure is
+fee-exclusive while the cap is spent fee-inclusive** (~2%) — still open, still
+not worth a migration.
 
 ---
 

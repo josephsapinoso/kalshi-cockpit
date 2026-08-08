@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
+import uuid
 
 import httpx
 import pytest
@@ -523,13 +524,24 @@ def _app(path, quotes, *, risk=None, gate=ARMED, staleness=FRESH,
     )
 
 
-async def _order(app, rec_id, contracts=20):
+async def _order(app, rec_id, contracts=20, key=None):
+    """A distinct idempotency key per call unless one is named.
+
+    Every call here is a separate intent, so a fresh key is what makes these
+    tests mean what they meant before the endpoint required one. Reusing a key
+    across two calls is a *different* test -- see `test_order_record.py`, where
+    that is the behaviour under examination rather than an accident.
+    """
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         return await c.post(
             "/api/orders",
             headers={"Authorization": "Bearer t"},
-            json={"recommendation_id": rec_id, "contracts": contracts},
+            json={
+                "recommendation_id": rec_id,
+                "contracts": contracts,
+                "idempotency_key": key or uuid.uuid4().hex,
+            },
         )
 
 

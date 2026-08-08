@@ -29,6 +29,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 
 import httpx
 import pytest
@@ -96,6 +97,13 @@ def armed_db(tmp_path):
 
 @pytest.fixture
 def conn(tmp_path):
+    """The seeded record, as a fixture. See `build_seeded_conn`."""
+    connection = build_seeded_conn(tmp_path)
+    yield connection
+    connection.close()
+
+
+def build_seeded_conn(tmp_path):
     """An empty record with one market, so the `orders` foreign key resolves.
 
     Opened through `db.init_db`, so `PRAGMA foreign_keys` is **on** and the
@@ -126,8 +134,7 @@ def conn(tmp_path):
     assert connection.execute(
         "SELECT COUNT(*) AS n FROM kalshi_markets"
     ).fetchone()["n"] == 1
-    yield connection
-    connection.close()
+    return connection
 
 
 def _rows(conn):
@@ -389,13 +396,23 @@ def _app(path, quotes, *, risk=None):
     )
 
 
-async def _post(app, rec_id, contracts=20):
+async def _post(app, rec_id, contracts=20, key=None):
+    """A distinct idempotency key per call unless one is named.
+
+    Every call is a separate intent unless a test says otherwise, so a fresh
+    key keeps these assertions meaning what they meant before the endpoint
+    required one. Passing `key` twice is how a duplicate tap is expressed.
+    """
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
         return await c.post(
             "/api/orders",
             headers={"Authorization": "Bearer t"},
-            json={"recommendation_id": rec_id, "contracts": contracts},
+            json={
+                "recommendation_id": rec_id,
+                "contracts": contracts,
+                "idempotency_key": key or uuid.uuid4().hex,
+            },
         )
 
 

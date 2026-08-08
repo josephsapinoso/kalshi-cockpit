@@ -2298,3 +2298,84 @@ rather than a module-level import, so the one leg of that function which costs
 money is visible in its signature. The general rule: if a function's behaviour
 changes based on a secret it reads from ambient state, a test cannot pin it —
 pass the dependency in, and neutralise the ambient state globally.
+
+---
+
+## 2026-08-08 — The schema file runs against databases that already exist
+
+`init_db` applied `schema.sql` and *then* migrated. That works for exactly as
+long as every migration only adds columns, and it stops the moment the schema
+file declares an index over one of them:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
+    ON orders(idempotency_key);
+```
+
+`executescript` runs on **every** open, including on a database that has not
+been given `idempotency_key` yet — so this raises `no such column` before
+`migrate` gets a chance to add it. On the live volume that is an exception
+inside the boot step `entrypoint.sh` runs before uvicorn: a crash loop, on the
+one database in this project that cannot be recreated.
+
+**Why no test would have caught it, and this is the part worth carrying:** a
+*fresh* database gets the column from `CREATE TABLE`, so the index resolves and
+everything passes. The failure needs a database that already exists — which
+production always has and a test fixture usually does not. `CREATE TABLE IF NOT
+EXISTS` makes the schema file look declarative and idempotent, and it is neither
+with respect to anything outside the tables it declares.
+
+It surfaced only because `TestMigration` builds a genuine old database by
+*dropping* what the migrations add, and SQLite refuses to drop a column an index
+refers to. So the fixture had to drop the index first, which is what put an
+existing database in front of the new schema file at all.
+
+**How to apply:** migrate **before** applying the schema file, not after. Then
+every `IF NOT EXISTS` in it is a real no-op on an existing database, which is
+what it always looked like it was. The two guards worth having beside that:
+
+- A migration test that builds its "old" database by undoing every migration
+  across **every version and every table**, read from the migrations table
+  rather than hardcoded. The previous version hardcoded v2 and one table, so
+  v3 — two columns and an index on a different table — was migrated by code
+  that four tests claimed to cover and none of them touched.
+- Assert that `schema.sql` and the migrations agree on **indexes**, not only
+  columns. An index present on migrated databases and missing from the schema
+  file means the constraint holds on the live volume and on nothing a developer
+  runs — so the duplicate it exists to prevent is unreproducible exactly where
+  someone would try to reproduce it.
+
+Related: [[two-limits-on-one-quantity]] — one mechanism covering half a property
+reads exactly like one covering all of it.
+
+---
+
+## 2026-08-08 — An optional safety parameter is a guard that cannot fail
+
+Placement was not idempotent: `client_order_id` is minted per *request*, so two
+taps were two ids and two orders, and Kalshi would have accepted both as
+distinct. Closing it needs a key that identifies the *intent*, which only the
+client can supply — it is the client that knows two taps were one decision.
+
+The tempting shape is an optional field: existing callers keep working, and
+anyone who wants protection opts in. That is worse than not building it, because
+it looks built. A money endpoint whose safety property depends on the caller
+remembering a field protects the callers who did not need protecting and misses
+the one that forgot — and nothing anywhere reports the difference.
+
+Making it **required** broke fifteen tests, all mechanically, and that was the
+point: the breakage is the proof the endpoint really requires it. Two of those
+tests turned out to be posting no body at all.
+
+**How to apply:** when a safety mechanism needs the caller's participation, make
+participation mandatory and take the migration cost. If it genuinely cannot be
+mandatory, the fallback is not "optional" — it is *reporting*, in the response,
+that this request was unprotected. Silence is the failure mode. Same shape as
+[[no-result-and-rejected-are-different-outcomes]] one level up: the absence of a
+safeguard has to be a stated state, not a default.
+
+And note what the key is **not**: it does not replace `client_order_id`. Those
+two deduplicate against different parties — one stops the exchange creating a
+second order when we re-send, the other stops us sending a second one at all —
+and collapsing them into one value would leave whichever failure the survivor
+does not cover silently uncovered.

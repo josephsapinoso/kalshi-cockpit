@@ -132,16 +132,26 @@ The prerequisite for a paper cap is a **paper settlement path**, not a change to
 the exposure query.
 
 **Three gaps are recorded rather than closed**, all of which become real the day
-the gate opens:
+the gate opens. ~~Two~~ **Both of the first two are now closed** — 1 by ADR 0009
+and 2 by the transaction change described above it — and they are kept here
+because the reasoning that deferred them is worth reading beside what it cost:
 
-1. **Placement is not idempotent.** The `UNIQUE` constraint on `client_order_id`
-   stops a duplicate row; it does not stop a duplicate order, because each
-   request mints a fresh id. Two taps are two orders. Closing it means the
-   client supplying the key and the endpoint replaying the recorded outcome —
-   a new path on the money endpoint that cannot be tested against live behaviour
-   today, which is why it is filed rather than built.
-2. **Two concurrent requests can size against one exposure reading.** The read
-   and the insert are not in one write transaction.
+1. ~~**Placement is not idempotent.**~~ **Closed 2026-08-08, ADR 0009.** The
+   `UNIQUE` constraint on `client_order_id` stops a duplicate row; it does not
+   stop a duplicate order, because each request mints a fresh id. Two taps are
+   two orders. Closing it means the client supplying the key and the endpoint
+   replaying the recorded outcome — a new path on the money endpoint that
+   cannot be tested against live behaviour today, which is why it is filed
+   rather than built.
+   *That last clause was the weak part of this ADR.* The replay path never
+   touches Kalshi at all, and the placement path is exercised in dry run to the
+   same depth as everything else here — so "cannot be tested against live
+   behaviour" was true of the exchange's re-send semantics and of nothing else.
+   Building it found a `schema.sql` ordering defect that would have crash-looped
+   the live instance on the next deploy.
+2. ~~**Two concurrent requests can size against one exposure reading.**~~
+   **Closed 2026-08-08.** `reserve_order` now writes the row and checks the cap
+   in one `BEGIN IMMEDIATE` transaction, with the check *after* the insert.
 3. **Exposure is fee-exclusive while the cap is spent fee-inclusive.**
    `size_position` bounds `contracts * effective_price`; the column holds the
    raw stake. Exposure therefore accumulates about 2% less than it consumed, at

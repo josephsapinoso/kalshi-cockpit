@@ -14,6 +14,7 @@ UI disabled a button -- a disabled button is a hint to a human, not a control.
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -67,10 +68,13 @@ from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
 from ..store import db
 from ..store.orders import (
+    DuplicateOrder,
     ExposureCapExceeded,
     current_exposure_dollars,
+    find_by_idempotency_key,
     order_exposure_dollars,
     record_outcome,
+    record_response,
     reserve_order,
 )
 
@@ -88,6 +92,18 @@ class OrderPlacementRequest(BaseModel):
 
     recommendation_id: int
     contracts: int = Field(gt=0, le=10_000)
+    # **Required, not optional, and that is the decision.** An optional
+    # idempotency key is a guard that fires only when the client remembers it,
+    # which is the shape of a check that cannot fail. Making it required is what
+    # turns "two taps are two orders" from a property of the client into a
+    # property of the endpoint.
+    #
+    # The charset is restricted because this string is a database key and is
+    # echoed in refusals; a UUID from `crypto.randomUUID()` satisfies it, and so
+    # does anything a script would reasonably generate.
+    idempotency_key: str = Field(
+        min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
+    )
 
 
 class LegRequest(BaseModel):
@@ -747,6 +763,24 @@ def create_app(
         return quote, quote.age_ms(db.now_ms())
 
     async def _place_order(conn, request: OrderPlacementRequest) -> dict:
+        # 0. **Have we already answered this exact intent?**
+        #
+        #    Before everything, and the ordering is load-bearing rather than an
+        #    optimisation. The failure this exists for is a tap whose response
+        #    was lost -- a dropped connection on a train, a double-tap, a retry.
+        #    By the time that second request arrives the recorded quote is
+        #    usually past its 30-second limit, so *every* check below would
+        #    refuse it with "the price moved" -- answering the one request that
+        #    must be answered with what happened the first time.
+        #
+        #    This read cannot be the guarantee; two taps landing together both
+        #    miss it. `reserve_order` re-checks inside its write lock and the
+        #    UNIQUE index sits behind that. This is the cheap path and the one
+        #    that survives staleness.
+        replay = find_by_idempotency_key(conn, request.idempotency_key)
+        if replay is not None:
+            return _replay(replay)
+
         # 1. The recommendation must exist. An unreadable one is a refusal, not
         #    a reason to fall back on whatever the client sent.
         freshness = recommendation_freshness(conn, request.recommendation_id)
@@ -1184,7 +1218,19 @@ def create_app(
                 dry_run=placer.dry_run,
                 submitted_ms=submitted_ms,
                 max_exposure_dollars=risk.max_exposure_dollars,
+                idempotency_key=request.idempotency_key,
             )
+        except DuplicateOrder as exc:
+            # Two taps landed together: both missed the read at step 0, and the
+            # second one blocked at `BEGIN IMMEDIATE` until the first had
+            # written its row. Nothing was sent and nothing was rolled back that
+            # mattered -- this is the mechanism working, so it answers with the
+            # first attempt's outcome exactly as a later duplicate would.
+            logger.info(
+                "duplicate order for %s on key %s; replaying row %d",
+                order.ticker, request.idempotency_key, exc.row["id"],
+            )
+            return _replay(exc.row)
         except ExposureCapExceeded as exc:
             # A risk refusal, not a storage failure, and the row was rolled
             # back rather than left pending. 422 rather than 503: retrying
@@ -1229,7 +1275,7 @@ def create_app(
                 order_row_id, order.ticker, outcome.status, order.client_order_id,
             )
 
-        return {
+        body = {
             "status": outcome.status,
             "dry_run": outcome.dry_run,
             "order_id": order_row_id,
@@ -1304,9 +1350,84 @@ def create_app(
                 "this build -- the request body above is exactly what would be "
                 "sent, and the client_order_id makes a retry idempotent."
             ),
+            "replayed": False,
         }
 
+        # 16. Store the answer, so a duplicate tap is given this one rather
+        #     than placing a second order.
+        #
+        #     Reported, never raised, for the same reason as step 15: the
+        #     request has gone. What is lost if this fails is only the *replay*
+        #     -- a later duplicate finds the row with a NULL response and
+        #     refuses, which is the safe direction and is what a row we never
+        #     answered actually means.
+        try:
+            await run_in_threadpool(
+                _write_response, app_config.db_path, order_row_id, body
+            )
+        except Exception:                               # noqa: BLE001
+            logger.exception(
+                "order row %d for %s could not store its response. A duplicate "
+                "tap on key %s will refuse rather than replay.",
+                order_row_id, order.ticker, request.idempotency_key,
+            )
+            body["recorded"]["response_stored"] = False
+        else:
+            body["recorded"]["response_stored"] = True
+
+        return body
+
     return app
+
+
+def _replay(row) -> dict:
+    """Answer a duplicate tap with what the first one was told.
+
+    Returned verbatim from `response_body_json` rather than rebuilt from the
+    columns. Rebuilding would be a second implementation of the response shape,
+    free to drift from the first -- and it would drift *silently*, because the
+    only thing that renders it is a duplicate tap, which is by definition the
+    path nobody exercises by hand.
+
+    One field is added: `replayed`. The record must not claim a second order was
+    placed, and a byte-identical response would say exactly that.
+
+    A `NULL` response means the first attempt was recorded and never answered --
+    the process died between reserving the row and replying, so an order may be
+    resting on the exchange under that row's `client_order_id`. **That is not
+    safe to retry**, and it refuses rather than re-sending: this is
+    unreadable-must-never-resolve-to-zero applied to an open position.
+    """
+    stored = row["response_body_json"]
+    if stored is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"an order for this idempotency key was recorded as row "
+                f"{row['id']} and never answered, so whether it reached the "
+                f"exchange is unknown. Refusing to send a second one. "
+                f"Reconcile client_order_id={row['client_order_id']} against "
+                f"Kalshi before trying again; a new key would place a second "
+                f"order on top of an unknown first."
+            ),
+        )
+    try:
+        body = json.loads(stored)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"an order for this idempotency key exists as row {row['id']} "
+                f"and its stored response could not be read back, so it cannot "
+                f"be replayed. Refusing to send a second one."
+            ),
+        ) from exc
+    body["replayed"] = True
+    body["replay_note"] = (
+        "This is the answer the first request was given. No second order was "
+        "sent -- the key you supplied had already been used."
+    )
+    return body
 
 
 def _write_intent(
@@ -1316,6 +1437,7 @@ def _write_intent(
     dry_run: bool,
     submitted_ms: int,
     max_exposure_dollars: float,
+    idempotency_key: str,
 ) -> int:
     """Record the order on its own writable connection. Runs in a worker thread.
 
@@ -1339,7 +1461,17 @@ def _write_intent(
             dry_run=dry_run,
             submitted_ms=submitted_ms,
             max_exposure_dollars=max_exposure_dollars,
+            idempotency_key=idempotency_key,
         )
+    finally:
+        conn.close()
+
+
+def _write_response(db_path, order_row_id: int, body: dict) -> None:
+    """Store the answer, so a duplicate tap can be given the same one."""
+    conn = db.open_db(db_path)
+    try:
+        record_response(conn, order_row_id, json.dumps(body, sort_keys=True))
     finally:
         conn.close()
 

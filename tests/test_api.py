@@ -490,7 +490,11 @@ class TestExecutionBoundary:
             live_app,
             "/api/orders",
             headers={"Authorization": "Bearer secret-token"},
-            json={"recommendation_id": row["id"], "contracts": 20},
+            json={
+                "recommendation_id": row["id"],
+                "contracts": 20,
+                "idempotency_key": "gate-locked-probe",
+            },
         )
         assert response.status_code == 423, "Locked"
         assert "locked" in str(response.json()["detail"]).lower()
