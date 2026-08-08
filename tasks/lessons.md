@@ -1488,3 +1488,65 @@ users can see.
 
 Corollary, and this is the third time this file has said a version of it: the
 build-order step is not done when the tests pass. Run the app and look at it.
+
+**Recurred the very next day, on the sentence written to fix it.** The
+order-time quote refresh made a *stale quote* stop expiring a row, and three
+pieces of copy went false again — including the one above, which had been
+rewritten hours earlier to read the state instead of asserting a cause. It read
+the state of the wrong thing: it counted which clock had run out, when the
+answer had become "only one of them can". The banner asserted every row's quote
+was re-checked every few seconds, while the cards under it said the price was a
+minute old.
+
+The pattern under all three versions is narrower than "copy goes stale": **a
+sentence that names *which* mechanism is responsible has a shorter life than one
+that names what the reader can do about it.** "The consensus behind this is 18
+minutes old and only a credit refreshes it" survives a change to the quote path;
+"the quote behind it is past its 30s limit" does not. Prefer the second kind,
+and when a mechanism changes, grep for the prose that names the mechanism —
+not just for the number.
+
+---
+
+## 2026-08-08 — Two guards passed their tests on the first run, and both were broken
+
+Seventeen guards were added with the order-time quote refresh, and every one was
+verified by disabling it and watching the test go red. Fifteen went red.
+
+The two that stayed green were not missing tests. They were **defects the tests
+could not have caught, because the code was unreachable**:
+
+- **A portfolio cap that could no longer fire.** The order endpoint re-checked
+  `exposure + contracts * ask` against the caps after sizing. That was
+  load-bearing while `contracts` came from a row written minutes earlier — but
+  the refresh made `size_position` run *inside the request*, at the live ask,
+  against the exposure read four lines above, and it bounds
+  `contracts * effective_price`, which is fee-inclusive and therefore strictly
+  larger. So the re-check compared a smaller number against the same cap and
+  could not fail on any input.
+- **A refusal behind a test double.** `LiveQuoteSource` refuses a response about
+  a different market than the one requested. Every endpoint test injected a fake
+  source, so the branch sat under the fake and never executed.
+
+Both read as defence in depth. Neither was.
+
+**Why the disable-and-watch-it-fail rule caught these when nothing else would.**
+A green test after disabling a guard has exactly two causes and they look
+identical: the test does not exercise the guard, or *nothing* exercises it. The
+second is the more interesting finding and the one that never shows up in
+coverage — the line is covered, it just cannot change an outcome.
+
+**How to apply:** when a disabled guard leaves the suite green, ask which of the
+two it is before writing a test. If the guard is unreachable, a new test is the
+wrong fix — it would pin behaviour that cannot occur. The fixes here were to
+**delete** the cap re-check (per
+[[computing-the-right-statistic-and-then-ignoring-it]]: don't test that two
+paths agree, delete one) and to make the refusal reachable by letting the source
+take an injected transport. And note what the deletion cost: the caps still have
+to be shown to bind *at order time*, so the test that replaced the dead code
+asserts the outcome — a tight cap shrinks the order, exposure the engine never
+saw shrinks it to nothing — rather than asserting the code exists.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[the-zero-that-means-no-measurement]] — a guard that cannot fire is
+indistinguishable from one that is working.

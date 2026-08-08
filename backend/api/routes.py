@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from contextlib import asynccontextmanager
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -27,7 +28,14 @@ from ..analysis.marts import (
     headline_verdicts,
     read_dashboards,
 )
-from ..config import AppConfig, GateConfig, OddsConfig, RiskConfig, StalenessConfig
+from ..config import (
+    AppConfig,
+    ConfigError,
+    GateConfig,
+    OddsConfig,
+    RiskConfig,
+    StalenessConfig,
+)
 from ..core.correlation import CorrelationRefused, Leg
 from ..core.parlay import (
     ParlayQuote,
@@ -37,6 +45,7 @@ from ..core.parlay import (
     value_parlay,
 )
 from ..core.prices import format_price, tenths_to_dollars
+from ..core.sizing import size_position, verify_positive_after_fees
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..gate import (
@@ -46,6 +55,7 @@ from ..gate import (
     recommendation_freshness,
 )
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
@@ -118,6 +128,7 @@ def create_app(
     risk_config: Optional[RiskConfig] = None,
     staleness_config: Optional[StalenessConfig] = None,
     odds_config: Optional[OddsConfig] = None,
+    quote_source: Optional[LiveQuoteSource] = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -130,6 +141,11 @@ def create_app(
     Injecting them also makes the gate and risk settings visible at the call
     site rather than implicit, which matters for the one app in this repo that
     can place an order.
+
+    `quote_source` reads a market's book at the instant an order is decided.
+    Left `None` it is built lazily from `KalshiConfig` on first use, because the
+    demo instance holds no Kalshi credentials and must still boot -- both
+    deploys run this function from one image.
     """
     app_config = config or AppConfig.load()
     gate = gate_config or GateConfig.load()
@@ -139,6 +155,29 @@ def create_app(
     # instance holds no key. See `OddsConfig.load_without_credentials`.
     odds = odds_config or OddsConfig.load_without_credentials()
 
+    # One quote source per app, built on the first order rather than at boot.
+    # Held in a dict rather than a closure variable so the lifespan and the
+    # route see the same object without `nonlocal` gymnastics.
+    quotes: dict[str, LiveQuoteSource] = {}
+    if quote_source is not None:
+        quotes["source"] = quote_source
+
+    def live_quotes() -> LiveQuoteSource:
+        if "source" not in quotes:
+            quotes["source"] = LiveQuoteSource()
+        return quotes["source"]
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        # An injected source belongs to whoever injected it, but closing it here
+        # anyway is right: the app is the only thing that used it, and leaking an
+        # open httpx client per app in a test suite is how a run ends in
+        # unclosed-socket warnings nobody reads.
+        source = quotes.pop("source", None)
+        if source is not None:
+            await source.aclose()
+
     app = FastAPI(
         title="Kalshi Betting Cockpit",
         description=(
@@ -147,6 +186,7 @@ def create_app(
             "freshness, depth, and the suspicion checks."
         ),
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -252,11 +292,19 @@ def create_app(
         was at risk. What was at risk is the reader: a page that says "Buy 15"
         for something the server will not sell.
 
-        So a sized row is `surfaced` only while both its ages are still inside
-        the staleness contract, and `expired` otherwise. Expired rows are
-        returned rather than dropped: "there is nothing to bet" and "there was
-        something and the moment has passed" call for different responses, and
-        a filter that discards what it rejects cannot be audited.
+        So a sized row is `surfaced` while the server would still accept it and
+        `expired` otherwise. Expired rows are returned rather than dropped:
+        "there is nothing to bet" and "there was something and the moment has
+        passed" call for different responses, and a filter that discards what it
+        rejects cannot be audited.
+
+        **What "would still accept it" means changed with the order-time quote
+        refresh.** The endpoint re-reads Kalshi before pricing, so a row whose
+        *recorded* quote has aged out is still orderable — at whatever the book
+        says then. Splitting on both clocks would strike through most of the
+        window's rows as expired while the server sold them, so the split is on
+        the odds clock and `price_stale` counts the rows whose displayed price
+        is older than the quote limit.
         """
         now = db.now_ms()
         rows = conn.execute(
@@ -290,6 +338,13 @@ def create_app(
                 "expired": len(expired),
                 "suppressed": len(suppressed),
                 "no_edge": len(no_edge),
+                # Bettable, but the price on the card is older than the quote
+                # limit and will be re-read at order time. Counted rather than
+                # folded into either bucket: "this price is current" and "this
+                # bet is live" stopped being the same statement.
+                "price_stale": sum(
+                    1 for r in surfaced if not r.get("price_is_current")
+                ),
             },
             "staleness": {
                 "max_kalshi_quote_age_s": staleness.max_kalshi_quote_age_s,
@@ -519,10 +574,11 @@ def create_app(
     async def place_order(request: OrderPlacementRequest) -> dict:
         """Place an order, or refuse with the specific unmet condition.
 
-        Everything the UI checked is checked again here, against the database,
-        at this instant. A disabled button is a hint to a human; this is the
-        control. The order of the checks is deliberate -- cheapest and most
-        decisive first, so a locked gate never reaches price validation.
+        Everything the UI checked is checked again here, against the database
+        *and against Kalshi*, at this instant. A disabled button is a hint to a
+        human; this is the control. The order of the checks is deliberate --
+        cheapest and most decisive first, so a locked gate never reaches price
+        validation and never spends an API request.
 
         This route opens its own connection rather than taking the shared
         `get_conn` dependency. Two reasons, and the second is the load-bearing
@@ -536,6 +592,36 @@ def create_app(
             return await _place_order(conn, request)
         finally:
             conn.close()
+
+    async def _refresh_quote(ticker: str) -> tuple[LiveQuote, int]:
+        """The market's book now, and how old that observation is.
+
+        Raises `HTTPException` rather than returning a sentinel, because there
+        is no value this can return that means "I could not read the price" and
+        is safe to price an order from. 503, not 422: nothing about the order is
+        wrong, the exchange could not be read, and the two call for opposite
+        responses from whoever is holding the phone.
+        """
+        observed = db.now_ms()
+        try:
+            quote = await live_quotes().fetch(ticker, observed_ms=observed)
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"no Kalshi credentials, so the recorded price cannot be "
+                    f"re-checked before ordering: {exc}"
+                ),
+            ) from exc
+        except QuoteUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"{exc} Refusing rather than falling back on the recorded "
+                    f"price -- a price nobody could re-read is not a price."
+                ),
+            ) from exc
+        return quote, quote.age_ms(db.now_ms())
 
     async def _place_order(conn, request: OrderPlacementRequest) -> dict:
         # 1. The recommendation must exist. An unreadable one is a refusal, not
@@ -581,10 +667,12 @@ def create_app(
                 ),
             )
 
-        # 4. Freshness, recomputed from the clock rather than read off the row.
-        quote_age = freshness["kalshi_quote_age_ms"]
+        # 4. The ages on the record must be readable and must not come from a
+        #    clock ahead of ours. Free, and it reads only the row -- so it runs
+        #    before anything that costs a request.
+        recorded_quote_age = freshness["kalshi_quote_age_ms"]
         odds_age = freshness["odds_age_ms"]
-        if quote_age is None or odds_age is None:
+        if recorded_quote_age is None or odds_age is None:
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -592,27 +680,81 @@ def create_app(
                     "an age that cannot be determined is not a fresh one."
                 ),
             )
-        # A negative age means the row was written with a clock ahead of ours.
         # Without this the freshness gate fails *open*, and fails open harder
         # the further the clock is wrong.
-        if quote_age < 0 or odds_age < 0:
+        if recorded_quote_age < 0 or odds_age < 0:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"recommendation {request.recommendation_id} reports a "
-                    f"negative age (quote {quote_age}ms, odds {odds_age}ms), "
-                    f"which means it was written with a clock ahead of this "
-                    f"one. Refusing: an age that cannot be trusted is not a "
-                    f"fresh one."
+                    f"negative age (quote {recorded_quote_age}ms, odds "
+                    f"{odds_age}ms), which means it was written with a clock "
+                    f"ahead of this one. Refusing: an age that cannot be "
+                    f"trusted is not a fresh one."
                 ),
             )
 
-        # 4. The gate, including freshness for this specific order.
+        # 5. The gate's standing conditions, before spending a Kalshi request.
+        #    Same function as below and as the Gate screen, called without ages
+        #    -- which is exactly what `evaluate_gate` documents that shape to
+        #    mean. It is not a second, looser gate: every condition it checks is
+        #    re-checked in step 8 alongside freshness, so this can only ever
+        #    refuse earlier, never permit something the full check would not.
+        standing = evaluate_gate(conn, gate)
+        if not standing.open:
+            raise HTTPException(
+                status_code=423,   # Locked
+                detail={
+                    "message": "The live gate is locked.",
+                    "reason": standing.reason,
+                    "conditions": standing.to_dict()["conditions"],
+                },
+            )
+
+        # 6. Re-read the price from Kalshi. **The recorded ask is provenance
+        #    from here on, not the price of anything.**
+        #
+        #    Confirmation (`engine.confirm_recommendation`) narrows the gap
+        #    between "this was true fifteen seconds ago" and "this is true now"
+        #    to the quote-pass interval. It cannot close it, and fifteen seconds
+        #    is not nothing on a venue quoted by sub-200ms market makers. So the
+        #    order is priced, sized and capped against a quote observed inside
+        #    this request, and the recorded one is reported beside it so a move
+        #    is visible rather than absorbed.
+        quote, live_quote_age = await _refresh_quote(freshness["ticker"])
+        if not quote.tradeable:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{quote.ticker} is {quote.status!r}, not tradeable. The "
+                    f"recommendation was written while it was open; that is a "
+                    f"fact about the past, not an offer."
+                ),
+            )
+
+        side = freshness["side"]
+        recorded_ask = freshness["entry_ask_tenths"]
+        live_ask = quote.ask_tenths(side)
+        if live_ask is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{quote.ticker} has no readable {side} ask right now -- the "
+                    f"opposing bid is absent or unparseable. Refusing rather "
+                    f"than falling back on the recorded {format_price(recorded_ask)}."
+                ),
+            )
+
+        # 7. Freshness, judged on the quote we just took rather than the one on
+        #    the row. That is the point of step 6: the Kalshi half of the
+        #    comparison is now seconds old by construction, so what binds is the
+        #    sportsbook consensus -- which this endpoint cannot refresh, because
+        #    the credit budget affords about sixteen calls a day.
         decision = evaluate_gate(
             conn, gate,
             staleness=staleness,
-            kalshi_quote_age_ms=freshness["kalshi_quote_age_ms"],
-            odds_age_ms=freshness["odds_age_ms"],
+            kalshi_quote_age_ms=live_quote_age,
+            odds_age_ms=odds_age,
         )
         if not decision.open:
             raise HTTPException(
@@ -624,12 +766,60 @@ def create_app(
                 },
             )
 
-        # 6. Size, server-side. The client proposes; the server decides, and it
-        #    never exceeds what the engine authorised for this recommendation.
-        #    The edge, the fee and the depth check were all computed at the
-        #    engine's size, so a larger order is not the bet that was evaluated.
+        # 8. Exposure **now**, not when the row was written. This is what makes
+        #    step 9 a real risk control rather than a re-run of the engine's
+        #    arithmetic: the sizer applies the position and exposure caps
+        #    against the portfolio as it stands at this instant.
+        exposure = _current_exposure_dollars(conn)
+        if exposure is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "current exposure is unreadable, so no cap can be applied. "
+                    "Refusing -- 'cannot determine the budget' must never "
+                    "resolve to 'unlimited'."
+                ),
+            )
+
+        # 9. Re-size at the live ask, through the engine's own sizer.
+        #
+        #    A price that moved does not merely change what the order costs, it
+        #    changes how big the order should be: quarter-Kelly at a 5c edge is
+        #    a different number from quarter-Kelly at 3c, and buying the old
+        #    size at the new price is over-betting the edge that actually
+        #    exists. Calling `size_position` rather than inventing a
+        #    "how far may a price move" threshold means there is one definition
+        #    of how big a bet is, and a price that has moved far enough to erase
+        #    the edge returns zero contracts without anyone choosing a tolerance.
+        fair = freshness["fair_probability"]
+        resized = size_position(
+            side=side,
+            ask_tenths=live_ask,
+            fair_probability=fair,
+            risk=risk,
+            current_exposure_dollars=exposure,
+        )
+        moved = live_ask - recorded_ask
+        if resized.refused or resized.contracts <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"the price moved. Recorded {format_price(recorded_ask)}, "
+                    f"live {format_price(live_ask)} ({moved / 10:+.1f}c). At the "
+                    f"live price this is {resized.contracts} contracts "
+                    f"({resized.binding_constraint})"
+                    + (f": {resized.refusal_reason}" if resized.refusal_reason else "")
+                    + ". The bet that was evaluated is not the bet on offer."
+                ),
+            )
+
+        # 10. Size, server-side. The client proposes; the server decides, and it
+        #     never exceeds what the engine authorised for this recommendation.
+        #     `authorised` still binds even when the price *improved* and the
+        #     sizer would now allow more -- a better price is not a mandate to
+        #     bet bigger than the decision that was recorded and will be scored.
         contracts = min(
-            request.contracts, authorised, risk.max_order_contracts
+            request.contracts, authorised, resized.contracts, risk.max_order_contracts
         )
         if contracts < risk.min_order_contracts:
             raise HTTPException(
@@ -641,51 +831,74 @@ def create_app(
                 ),
             )
 
-        # 7. Portfolio caps, re-checked here rather than trusted from sizing.
-        #    `size_position` applies these when a recommendation is written, but
-        #    that was minutes ago and against a different portfolio. Exposure is
-        #    a property of the account now, not of the row.
-        exposure = _current_exposure_dollars(conn)
-        if exposure is None:
+        # 11. Fillability, at the live book. The engine checked depth when the
+        #     row was written; that book is gone. `None` refuses -- "no size
+        #     quoted" and "size unreadable" are both reasons not to send an
+        #     order that would rest unfilled and poison the paper record with a
+        #     fill that never happened.
+        depth = quote.depth_at_ask(side)
+        if depth is None:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "current exposure is unreadable, so no cap can be applied. "
-                    "Refusing -- 'cannot determine the budget' must never "
-                    "resolve to 'unlimited'."
+                    f"no size is quoted at the {side} ask on {quote.ticker} "
+                    f"right now. An edge you cannot fill is not an edge."
                 ),
             )
-        order_cost = contracts * (freshness["entry_ask_tenths"] / 1000.0)
-        if exposure + order_cost > risk.max_exposure_dollars:
+        if depth < contracts:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"this order would take total exposure to "
-                    f"${exposure + order_cost:.2f}, past the "
-                    f"${risk.max_exposure_dollars:.2f} cap "
-                    f"(${exposure:.2f} outstanding). Per-order caps do not "
-                    f"bound the portfolio -- twenty compliant orders are not a "
-                    f"compliant position."
-                ),
-            )
-        if order_cost > risk.max_position_dollars:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"${order_cost:.2f} exceeds the ${risk.max_position_dollars:.2f} "
-                    f"per-position cap"
+                    f"{depth:.0f} contracts rest at {format_price(live_ask)} and "
+                    f"this order is {contracts}. Refusing rather than resting "
+                    f"the remainder: a partial fill records an entry price the "
+                    f"record cannot reproduce."
                 ),
             )
 
-        # 6. Build the order. `OrderRequest` validates in its constructor and
-        #    refuses an off-grid price rather than clamping it.
+        # 12. The whole-order EV, at the live price and the final size. Sizing
+        #     amortises the fee per contract; this re-evaluates the actual
+        #     order, which is where a marginal bet turns negative.
+        if not verify_positive_after_fees(
+            side=side,
+            ask_tenths=live_ask,
+            contracts=contracts,
+            fair_probability=fair,
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{contracts} contracts at {format_price(live_ask)} is not "
+                    f"+EV once the whole-order fee is applied against a fair "
+                    f"value of {format_price(int(round(fair * 1000)))}."
+                ),
+            )
+
+        # The portfolio caps used to be re-checked here, against the recorded
+        # ask, because `size_position` had last seen them "minutes ago and
+        # against a different portfolio". Step 9 removed that reason: the sizer
+        # now runs *in this request*, at the live ask, against the exposure read
+        # four lines above it, and it bounds `contracts * effective_price` --
+        # which is fee-inclusive and therefore strictly above the raw
+        # `contracts * ask` this used to compare. So the re-check could no
+        # longer fire on any input, and a guard that cannot fire is
+        # indistinguishable from one that is working.
+        #
+        # Deleted rather than left beside the sizer, per `tasks/lessons.md`:
+        # don't test that two paths agree, delete one of the paths. The caps are
+        # verified *at order time* by
+        # `TestTheCapsStillBindThroughTheSizer` -- which is the claim that
+        # matters and the one the duplicate was standing in for.
+
+        # 13. Build the order. `OrderRequest` validates in its constructor and
+        #     refuses an off-grid price rather than clamping it.
         try:
             order = OrderRequest(
                 ticker=freshness["ticker"],
-                side=freshness["side"],
+                side=side,
                 action="buy",
                 count=contracts,
-                limit_price_tenths=freshness["entry_ask_tenths"],
+                limit_price_tenths=live_ask,
                 recommendation_id=request.recommendation_id,
             )
         except OrderRefused as exc:
@@ -703,6 +916,27 @@ def create_app(
             "contracts": order.count,
             "limit_price_cents": order.api_price,
             "worst_case_cost_dollars": order.worst_case_cost_dollars,
+            # Both prices, always -- including when they agree. A response that
+            # reported the move only when there was one would leave the reader
+            # unable to tell "the price held" from "nobody looked".
+            "quote": {
+                "recorded_ask_tenths": recorded_ask,
+                "recorded_ask_display": format_price(recorded_ask),
+                "live_ask_tenths": live_ask,
+                "live_ask_display": format_price(live_ask),
+                "moved_tenths": moved,
+                "observed_ms": quote.observed_ms,
+                "age_ms": live_quote_age,
+                "depth_at_ask": depth,
+                "authorised_contracts": authorised,
+                "resized_contracts": resized.contracts,
+                "binding_constraint": resized.binding_constraint,
+                "note": (
+                    "Priced at the live ask. The recorded ask is provenance: "
+                    "it is what the decision was made against and what CLV "
+                    "will be scored on."
+                ),
+            },
             # The exact bytes. A dry run is comparable to a live order field by
             # field precisely because this is the same string either way.
             "request_body": outcome.request_body,
@@ -773,22 +1007,36 @@ def _live_ages(
     Returns `actionable: False` when there is no clock to measure against, and
     when an age is unreadable. An age that cannot be determined is not a fresh
     one -- the same refusal the order endpoint makes.
+
+    **`actionable` is the odds clock, not both clocks.** The order endpoint
+    re-reads the Kalshi quote inside the request (`kalshi/quotes.py`), so the
+    recorded quote's age no longer decides whether an order is accepted --
+    which makes a row struck through for a stale *quote* a row the server would
+    happily sell. That is the two-screens-disagree failure with the conservative
+    sign, and it is not harmless: between thirty seconds and fifteen minutes
+    after a pass, which is most of the window, every sized row was being buried
+    under "the moment has passed".
+
+    What the recorded quote age still decides is whether the **price on the
+    card** is the price you would pay, which is a different claim and gets its
+    own field. Both are sent, because a page that showed only the first would
+    offer a sized bet at a number the order will not honour.
     """
     if now_ms is None or staleness is None:
         return {}
 
     ages = live_ages(row, now_ms=now_ms)
     quote, odds = ages.quote_age_ms, ages.odds_age_ms
-    actionable = (
-        quote is not None
-        and odds is not None
-        and 0 <= quote <= staleness.max_kalshi_quote_age_s * 1000
-        and 0 <= odds <= staleness.max_odds_age_s * 1000
-    )
+    readable = quote is not None and odds is not None and quote >= 0 and odds >= 0
     return {
         "quote_age_now_ms": quote,
         "odds_age_now_ms": odds,
-        "actionable": actionable,
+        # The consensus cannot be refreshed without spending a credit, so this
+        # is the limit that actually ends a row's life.
+        "actionable": readable and odds <= staleness.max_odds_age_s * 1000,
+        # The Kalshi half. False means "orderable, but expect the price to move
+        # under you" -- not "expired".
+        "price_is_current": readable and quote <= staleness.max_kalshi_quote_age_s * 1000,
         # Surfaced so the Board can say *why* a row is still live. A price
         # re-checked fifteen seconds ago and a price nobody has looked at since
         # it was written are different claims, and only one should reassure.

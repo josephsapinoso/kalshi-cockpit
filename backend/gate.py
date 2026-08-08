@@ -575,8 +575,8 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
     row = conn.execute(
         """
         SELECT id, ticker, created_ms, entry_ask_tenths, side,
-               kalshi_quote_age_ms, odds_age_ms, suppressed_reason,
-               suggested_contracts, last_confirmed_ms,
+               fair_probability, kalshi_quote_age_ms, odds_age_ms,
+               suppressed_reason, suggested_contracts, last_confirmed_ms,
                last_confirmed_quote_age_ms, last_confirmed_odds_age_ms
         FROM recommendations WHERE id = ?
         """,
@@ -593,6 +593,12 @@ def recommendation_freshness(conn, recommendation_id: int) -> dict[str, Any]:
         "ticker": row["ticker"],
         "side": row["side"],
         "entry_ask_tenths": row["entry_ask_tenths"],
+        # The consensus this decision was made against. Carried because the
+        # order path re-derives size and EV at a *live* ask and needs the fair
+        # value that ask is being compared to -- re-devigging at order time
+        # would need a fresh odds sweep, which the credit budget does not
+        # afford. See `kalshi.quotes`.
+        "fair_probability": row["fair_probability"],
         "suppressed_reason": row["suppressed_reason"],
         "suggested_contracts": row["suggested_contracts"],
         "created_ms": row["created_ms"],

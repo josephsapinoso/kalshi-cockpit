@@ -1,6 +1,100 @@
 # Next — your checklist
 
-## HANDOFF (2026-08-08, later — the 30-second window is fixed)
+## Joseph's asks, 2026-08-08 — four of them, in his priority order
+
+Raised in chat while the quote-refresh work was landing. Recorded here because
+none of them exist anywhere in the repo.
+
+1. **Stream the prices. Make the Board a ticker.** *"I'm thinking about this
+   like a stock ticker. Billy Walters would like it."* And the sharper version:
+   *"it seems like you're doing a lot to manage prices at their very small
+   window snapshot, so wouldn't it just be easier to stream the prices in?"*
+
+   He is right about the Kalshi half and it is worth saying exactly how far.
+   `backend/kalshi/ws.py` already works — verified against a 269-frame capture,
+   6/6 books populated, per-connection `seq`, `FeedDied` on a dead feed. Piping
+   that to the browser replaces the 15s quote pass with a push feed and makes
+   `price_is_current` almost always true, which is a real simplification of the
+   *display*.
+
+   What it does **not** do, and this is the part to keep saying out loud:
+
+   - **It does not widen the actionable window.** The fair value comes from a
+     devigged sportsbook consensus at ~16 credits a day, 6 a sweep. Streaming
+     Kalshi gives a live ask against a fair value up to fifteen minutes old.
+     The window is an odds-budget fact and no amount of Kalshi streaming
+     touches it.
+   - **It does not replace the order-time refresh.** A browser's price is a
+     client-supplied price and the server must never trust one. The refresh
+     stays; streaming just means it usually agrees.
+   - **It does not remove freshness tracking, it makes the numbers small.** A
+     stuck stream serving frozen prices looks exactly like a quiet market —
+     the failure `docker/entrypoint.sh` supervision exists for, one layer up.
+     A ticker needs a heartbeat and a visible "feed down" state or it is worse
+     than polling.
+
+   Shape: Kalshi WS in the backend → fan-out to browsers over SSE behind the
+   same `APP_AUTH_TOKEN` cookie gate → the Board patches asks and re-derives the
+   edge client-side against the served fair value. Demo instance holds no
+   credentials, so it must degrade to the polled view rather than showing a dead
+   ticker.
+
+2. **A Kalshi-platform specialist agent**, to check everything built against how
+   the venue actually behaves. *"so that agent can check against everything
+   we're doing to make sure everything is copacetic."* The material for it
+   exists and is scattered: `.claude/skills/kalshi-api/SKILL.md`, the fee hedge
+   in `core/fees.py`, the 1–99 grid and deci-cent ticks, the 3-hour
+   `occurrence_datetime` offset, `KXMVE` combos, the WS wire format. A reviewer
+   subagent that holds all of it and is pointed at a diff is cheap and would
+   have caught at least two of the defects in `tasks/lessons.md`.
+
+3. **Is in-play betting viable?** See the item in section 3 — it is the largest
+   of the four and the one with a real chance of a "no".
+
+4. **Is Python the right language everywhere?** *"if some other code language
+   base works better in some places use that instead — Rust, C++, whatever."*
+   Worth answering with a measurement rather than an opinion, and the repo's own
+   rule applies: measure the style rule before believing it. The starting
+   position, to be checked rather than assumed:
+
+   - Nothing here has been shown to be compute-bound. The devig solvers, the
+     copula, Elo — all microseconds on a ~100-game slate. The analytical half
+     already runs in C++ via DuckDB.
+   - The measured costs are network and budget: Kalshi REST round trips, a
+     ~500ms `httpx.AsyncClient` construction (fixed by sharing it, not by
+     rewriting), and 16 odds credits a day.
+   - The one place latency genuinely decides money is stale-quote picking at
+     ~400ms — and `tasks/lessons.md` records that as measured and refuted. It
+     is a co-location problem, not a language problem.
+
+   So the honest task is: `took_s` is already logged per pass; instrument the
+   stages inside it, find where the wall clock actually goes, and only then
+   consider rewriting a specific stage. A finding of "nothing is
+   compute-bound" is a real answer and should be written down as an ADR so it
+   is not re-litigated.
+
+---
+
+## HANDOFF (2026-08-08, later still — the price is re-read at order time)
+
+**State:** 1,035 tests, frontend builds, all five pages fit 320/390px, Board
+verified by rendering it. **Not deployed** — the previous handoff's migration
+still has not shipped either, so the next deploy carries both.
+
+`POST /api/orders` no longer trusts the recorded price. It re-reads
+`GET /markets/{ticker}`, refuses if the book cannot be read or the market is not
+tradeable, re-sizes at the live ask through `size_position`, re-checks depth
+against the live book, and sends the order at the live price. The response
+returns both prices and the move between them, always — including zero, so
+"the price held" and "nobody looked" cannot render identically.
+
+The consequence worth knowing before reading the Board: **a stale recorded quote
+is no longer an expired row.** It is a bettable row showing a stale price, which
+is a different thing and now says so.
+
+---
+
+## HANDOFF (2026-08-08, earlier — the 30-second window is fixed)
 
 **State:** 998 tests, `dbt build` 11 nodes green, frontend builds, all five
 pages fit 320/390px. **Not yet deployed** — see "Deploying this" below, because
@@ -461,12 +555,32 @@ decision.
       it looked right — and above it the old form is too narrow, 1.55x too small
       at 60% discordance, in the direction that manufactures significance.
       Verified by restoring each old implementation in turn.
-- [ ] **Refresh the Kalshi quote at order time.** Item 3 of the three window
-      fixes, and the only one left. The ticket sheet should read a live quote
-      before confirming rather than trusting the recorded one. Confirmation
-      narrows the gap between "true 15 seconds ago" and "true now" to fifteen
-      seconds; it cannot close it, and closing it is what makes an execution
-      price honest.
+- [x] ~~**Refresh the Kalshi quote at order time**~~ — **done 2026-08-08.**
+      Item 3 of the three window fixes, and the last of them.
+      `POST /api/orders` now re-reads `GET /markets/{ticker}` inside the
+      request and **prices, sizes and caps the order against what comes back**;
+      the recorded ask is provenance from that point on. `backend/kalshi/
+      quotes.py`; wire format pinned by `tests/fixtures/market_single.json`,
+      which stores the same ticker as `/events` returns it beside the
+      single-market payload so a rename in one and not the other fails a test.
+      Size is re-derived through `size_position` rather than against a new
+      "how far may a price move" threshold, so a price that erased the edge
+      returns zero contracts without anyone choosing a tolerance — and a
+      *better* price still cannot exceed what the engine authorised.
+      **Two things fell out of it that were not in the plan.** The route's
+      portfolio-cap re-check became unreachable — the sizer now applies the same
+      caps at the same instant against the same exposure, at a fee-inclusive
+      price strictly above the one the re-check compared — so it was deleted
+      rather than left looking like protection, with the caps now verified *at
+      order time* instead. And `/api/board` had to change: with the quote
+      re-read at order time, a stale recorded quote no longer stops an order, so
+      splitting `surfaced`/`expired` on both clocks was striking through
+      everything between 30s and 15 minutes after a pass — nearly the whole
+      window — while the server would have sold it. `actionable` is now the odds
+      clock and `price_is_current` is the Kalshi one; the card says "still
+      bettable, but this price was read 4m ago and will move".
+      17 guards verified by disabling; two were decoration on the first pass and
+      both were real defects rather than missing tests.
 - [ ] **Deci-cent asks can't fill.** Limit prices floor to whole cents, so a
       50.5c ask rests at 50c on the ~25% of markets that tick in half-cents.
       Safe for money, but it corrupts the paper record with orders that never
@@ -593,6 +707,46 @@ decision.
       Settled **before** live recording starts, deliberately: changing what gets
       recorded mid-stream puts two regimes in one dataset. The rule is part of
       the strategy config, so it mints a version and the record segments on it.
+
+- [ ] **Is in-play betting viable?** (Joseph, 2026-08-08 — *"in Kalshi you can
+      still bet on games during the half and quarters"*.) He is right, and the
+      runner currently **drops** every started game (`dropped_game_started`, 36
+      of 104 rows on one live pass). That drop was correct for the reason it was
+      made and is not a verdict on the market: it compares a **stored pre-game**
+      consensus against a Kalshi price that has absorbed two innings, which is
+      two different questions subtracted from each other. In-play is a different
+      product, not a filtered-out corner of this one.
+
+      What has to be answered before any of it is buildable, cheapest first:
+
+      1. **Does Kalshi keep the game market open in-play, or list separate
+         period markets?** One `/events` walk during a live game settles it —
+         read `status` and `close_time` on a game whose kickoff has passed, and
+         look for half/quarter series alongside `KX*GAME`. Free, no credentials
+         beyond what is already exercised.
+      2. **Can the odds side even follow?** The Odds API charges per call and
+         the free tier is ~16 credits a day. In-play needs a refresh every
+         minute or two per game, not twice a day, so this is a **paid-tier
+         question, not a code question** — price it before building anything.
+         If the answer is no, the honest result is "out of scope until the odds
+         budget changes", recorded as such.
+      3. **What replaces the closing line?** CLV is the only measurement this
+         project trusts, and it anchors on a quote read before kickoff. An
+         in-play bet has no such anchor — the natural substitute is the price
+         at settlement or at the end of the period, and it is *not* obviously
+         the same statistic. Nothing may enter the evidence record until this
+         is settled, or the two populations pool into one number the way the
+         in-play rows already nearly did.
+      4. **Is the edge plausibly there?** In-play is where the venue's latency
+         story is worst — this is the corner most contested by bots, and
+         `tasks/lessons.md` already records that stale-quote picking lives at
+         ~400ms. Expect the answer to be no, and design the check so a no is
+         reportable.
+
+      Do **not** simply remove the in-play drop to find out. That would put both
+      populations in one record with nothing to tell them apart afterwards,
+      which is the failure `tasks/lessons.md` names as "two populations in one
+      record, told apart by dispersion".
 
 - [ ] **Research screen** — Scout findings with sources and timestamps, model-
       vs-market disagreements, steam moves.

@@ -1,5 +1,5 @@
 import type { Recommendation } from "@/lib/api";
-import { formatAge, formatKickoff, freshness } from "@/lib/api";
+import { formatAge, formatDuration, formatKickoff, freshness } from "@/lib/api";
 
 const MAX_QUOTE_AGE_MS = 30_000;
 const MAX_ODDS_AGE_MS = 900_000;
@@ -34,10 +34,11 @@ export default function OpportunityCard({
   const oddsAge = rec.odds_age_now_ms ?? rec.odds_age_ms;
   const band = freshness(quoteAge, quoteLimitMs);
   const positive = rec.edge_cents > 0;
-  // Which of the two limits is what makes a row unbettable, and it is no longer
-  // always the quote. A quote pass re-checks the Kalshi price every fifteen
-  // seconds; nothing refreshes the sportsbook consensus but a credit.
-  const quoteExpired = quoteAge > quoteLimitMs;
+  // A stale quote is no longer what makes a row unbettable. The order endpoint
+  // re-reads the Kalshi price inside the request, so what a stale quote means
+  // is that the ask, size and cost below are a memory -- and the order will be
+  // priced and sized against whatever comes back instead.
+  const priceStale = rec.price_is_current === false;
 
   return (
     <article
@@ -76,11 +77,21 @@ export default function OpportunityCard({
 
       {/* The size is what makes an expired row dangerous to render plainly:
           "Buy 15" beside a price the server will refuse. Struck through and
-          labelled rather than hidden -- the row is still evidence. */}
+          labelled rather than hidden -- the row is still evidence.
+
+          A *stale-priced* row is not struck through, because it is still
+          bettable. It is dimmed instead, and the note below says the numbers
+          will be re-derived. Striking it through would repeat the mistake this
+          card was built to fix, one state over: telling the reader they cannot
+          have something the server will sell them. */}
       {rec.suggested_contracts > 0 && (
         <div
           className={`mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-4 ${
-            expired ? "line-through decoration-1 opacity-60" : ""
+            expired
+              ? "line-through decoration-1 opacity-60"
+              : priceStale
+                ? "opacity-70"
+                : ""
           }`}
         >
           <Figure label="Buy" value={`${rec.suggested_contracts}`} />
@@ -110,28 +121,39 @@ export default function OpportunityCard({
 
       {expired && (
         <div className="mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed text-muted">
-          {/* Name the limit that actually failed. This used to say "the quote"
-              unconditionally, which was true when both clocks advanced
-              together. They do not any more: a quote pass re-checks the Kalshi
-              price every fifteen seconds while the sportsbook consensus keeps
-              ageing, so most expired rows now expire on the books -- and the
-              old wording rendered "quote 3s, past the 30s limit", which is not
-              a sentence a reader can act on. */}
-          Not bettable now — the{" "}
-          {quoteExpired ? "quote behind it" : "sportsbook consensus behind it"} is{" "}
+          {/* One cause now, and it is the one nothing on this page can fix.
+              This said "the quote" unconditionally when both clocks advanced
+              together, then named whichever had run out. Neither survives the
+              order-time refresh: a stale quote no longer expires anything, so
+              a row here has outlived its sportsbook consensus, and only a
+              credit brings that back. */}
+          Not bettable now — the sportsbook consensus behind it is{" "}
+          <span className="font-mono">{formatDuration(oddsAge)}</span> old, past
+          the{" "}
+          {/* Minutes, not "900s": a reader should not have to convert units to
+              see how far past a limit something is. */}
           <span className="font-mono">
-            {formatAge(quoteExpired ? quoteAge : oddsAge)}
-          </span>
-          , past the{" "}
-          <span className="font-mono">
-            {/* Seconds for the quote, minutes for the books. "28m ago, past the
-                900s limit" makes the reader convert units to see how far past
-                it is, on a page built to be read in a few seconds. */}
-            {quoteExpired
-              ? `${Math.round(quoteLimitMs / 1000)}s`
-              : `${Math.round(oddsLimitMs / 60_000)}m`}
+            {Math.round(oddsLimitMs / 60_000)}m
           </span>{" "}
-          limit. The order endpoint refuses it independently of this page.
+          limit, and nothing but one of the day&apos;s odds credits refreshes
+          it. The order endpoint refuses it independently of this page.
+        </div>
+      )}
+
+      {!expired && !suppressed && priceStale && (
+        <div className="mt-3 rounded-lg border px-3 py-2 text-xs leading-relaxed text-muted">
+          {/* Still bettable, and the numbers above are a memory. Saying so is
+              the whole point: the alternative is a card that reads as a live
+              quote and an order that comes back at a different price and size,
+              which looks like the server disagreeing with the page. */}
+          Still bettable — but this price was read{" "}
+          <span className="font-mono">{formatAge(quoteAge)}</span>, past the{" "}
+          <span className="font-mono">
+            {Math.round(quoteLimitMs / 1000)}s
+          </span>{" "}
+          quote limit. Ordering re-reads Kalshi first and sizes against
+          whatever it says then, so expect the ask, the size and the cost above
+          to move.
         </div>
       )}
 

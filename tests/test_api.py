@@ -169,17 +169,23 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
         assert body["counts"]["surfaced"] >= 1
         assert all(r["actionable"] for r in body["surfaced"])
 
-    async def test_the_kalshi_quote_expires_a_row_long_before_the_books_do(
+    async def test_a_stale_recorded_quote_is_a_stale_price_not_an_expired_row(
         self, tmp_path
     ):
-        """Two limits bound one window and the tighter one decides it.
+        """Two limits bound one window, and they stopped meaning the same thing.
 
-        Books may be fifteen minutes old; the Kalshi quote may be **thirty
-        seconds**. Five minutes after a pass the books are still comfortably
-        inside their limit and the quote is ten times outside it, so the row is
-        not bettable -- and a check that looked only at the odds would call it
-        live. That is not an edge case: the loop runs every fifteen minutes, so
-        it is what almost every row on the Board looks like.
+        This test used to assert the opposite: five minutes after a pass the
+        books are inside their fifteen-minute limit and the quote is ten times
+        outside its thirty-second one, so the row was `expired`. That was
+        correct while the recorded quote was the price the order endpoint used.
+        It is not any more -- the endpoint re-reads Kalshi inside the request,
+        so the recorded age decides whether the **price on the card** is
+        current, and the odds decide whether the row is bettable at all.
+
+        Keeping the old assertion would have been the two-screens-disagree
+        failure with the sign flipped: everything between thirty seconds and
+        fifteen minutes after a pass -- which is nearly the whole window --
+        struck through as expired while the server sold it.
         """
         from backend.seed_demo import seed_all
         from backend.store.db import now_ms
@@ -189,10 +195,33 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
         app = create_app(AppConfig(instance_mode="demo", db_path=path))
         body = (await get(app, "/api/board")).json()
 
+        assert body["counts"]["surfaced"] >= 1
+        assert body["counts"]["price_stale"] == body["counts"]["surfaced"]
+        row = body["surfaced"][0]
+        assert row["quote_age_now_ms"] > 30_000        # the price has moved on
+        assert row["odds_age_now_ms"] < 900_000        # the consensus has not
+        assert row["actionable"] is True
+        assert row["price_is_current"] is False
+
+    async def test_the_odds_clock_is_what_expires_a_row(self, tmp_path):
+        """The other half of the pair above, and the one that must still hold.
+
+        Nothing in this endpoint can refresh a sportsbook consensus -- that
+        costs one of the day's two odds credits -- so once it ages out the row
+        is dead however recently Kalshi was read.
+        """
+        from backend.seed_demo import seed_all
+        from backend.store.db import now_ms
+
+        path = tmp_path / "twenty-minutes-ago.db"
+        seed_all(path, now_ms=now_ms() - 1_200_000)
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        body = (await get(app, "/api/board")).json()
+
         assert body["counts"]["surfaced"] == 0
         row = body["expired"][0]
-        assert row["quote_age_now_ms"] > 30_000        # outside its limit
-        assert row["odds_age_now_ms"] < 900_000        # inside its own
+        assert row["odds_age_now_ms"] > 900_000
+        assert row["actionable"] is False
 
     async def test_an_expired_row_is_returned_rather_than_dropped(self, demo_app):
         """"Nothing to bet" and "the moment has passed" need different
@@ -258,10 +287,10 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
 
         `persist_if_changed` re-derives an unchanged decision and stamps the row
         rather than writing a new one, so the freshness basis moves. A Board
-        still measuring from `created_ms` would strike a row through and label
-        it expired while the server would happily sell it -- the same
-        disagreement as before, pointing the other way. They share `live_ages`
-        precisely so this cannot happen.
+        still measuring from `created_ms` would report a ten-minute-old price on
+        a row the quote pass re-checked two seconds ago -- and would go on
+        reporting it after every confirmation, so the fast cadence would buy
+        nothing visible. They share `live_ages` precisely so this cannot happen.
         """
         from backend.engine import confirm_recommendation
         from backend.gate import recommendation_freshness
@@ -270,13 +299,14 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
         from backend.store.db import now_ms
 
         path = tmp_path / "confirmed.db"
-        # Ten minutes ago: the books are still inside their 900s limit and every
-        # quote is far outside its 30s one, so nothing is actionable.
+        # Ten minutes ago: the books are still inside their 900s limit, so the
+        # rows are bettable, and every quote is far outside its 30s one, so the
+        # prices shown are not the prices anyone would pay.
         seed_all(path, now_ms=now_ms() - 600_000)
         app = create_app(AppConfig(instance_mode="demo", db_path=path))
         before = (await get(app, "/api/board")).json()
-        assert before["counts"]["surfaced"] == 0
-        target = before["expired"][0]
+        assert before["counts"]["price_stale"] == before["counts"]["surfaced"] >= 1
+        target = before["surfaced"][0]
 
         writer = store.init_db(path)
         try:
@@ -289,8 +319,11 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
 
         after = (await get(app, "/api/board")).json()
         surfaced = [r for r in after["surfaced"] if r["id"] == target["id"]]
-        assert surfaced, "a re-derived row is still shown as expired"
+        assert surfaced, "a re-derived row dropped off the board"
         assert surfaced[0]["freshness_confirmed"] is True
+        assert surfaced[0]["price_is_current"] is True, (
+            "a confirmation two seconds ago must make the displayed price current"
+        )
         assert surfaced[0]["quote_age_now_ms"] < 30_000
         # Still bounded by the odds, which the confirmation did not refresh.
         assert 600_000 < surfaced[0]["odds_age_now_ms"] < 900_000

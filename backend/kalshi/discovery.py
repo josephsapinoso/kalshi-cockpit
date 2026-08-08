@@ -270,38 +270,64 @@ def _float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def build_market(
+    market: dict,
+    *,
+    market_type: str,
+    event_ticker: str = "",
+    series_ticker: str = "",
+) -> DiscoveredMarket:
+    """Parse one Kalshi market object. **The only reader of these field names.**
+
+    Split out from `build_markets` so the order path's quote refresh
+    (`kalshi/quotes.py`) parses `GET /markets/{ticker}` through this exact
+    function rather than a second one. Two parsers for one wire format is how
+    `apply_snapshot` came to read `data["yes"]` while the socket sent
+    `yes_dollars_fp` -- and the refresh sits on the money path, where a quote
+    that silently parses to `None` is a refusal and one that silently parses to
+    the wrong field is a fill at a price nobody checked.
+
+    `event_ticker` and `series_ticker` are passed in because the nested
+    `/events` payload carries them on the *event*. The single-market payload
+    carries `event_ticker` on the market itself, so it is used as a fallback
+    rather than being required.
+    """
+    strike = market.get("floor_strike")
+    return DiscoveredMarket(
+        ticker=market.get("ticker") or "",
+        event_ticker=event_ticker or (market.get("event_ticker") or ""),
+        series_ticker=series_ticker,
+        market_type=market_type,
+        title=market.get("title") or "",
+        yes_side=(market.get("yes_sub_title") or "").strip() or None,
+        strike=float(strike) if strike is not None else None,
+        close_ms=parse_ms(market.get("close_time")),
+        status=market.get("status"),
+        volume_24h=_float(market.get("volume_24h_fp")),
+        open_interest=_float(market.get("open_interest_fp")),
+        price_structure=market.get("price_level_structure"),
+        # Field names verified against tests/fixtures/events_sports_nested.json
+        # and tests/fixtures/market_single.json, not against memory. Prices
+        # arrive as dollar STRINGS ("0.4500"), so `dollars_to_tenths` parses
+        # them and returns None on anything it cannot read.
+        yes_bid_tenths=dollars_to_tenths(market.get("yes_bid_dollars")),
+        no_bid_tenths=dollars_to_tenths(market.get("no_bid_dollars")),
+        yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
+        no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
+    )
+
+
 def build_markets(event: dict, market_type: str) -> tuple[DiscoveredMarket, ...]:
-    out: list[DiscoveredMarket] = []
-    for market in event.get("markets") or []:
-        ticker = market.get("ticker") or ""
-        if ticker.startswith(JUNK_PREFIX):
-            continue
-        strike = market.get("floor_strike")
-        out.append(
-            DiscoveredMarket(
-                ticker=ticker,
-                event_ticker=event.get("event_ticker") or "",
-                series_ticker=event.get("series_ticker") or "",
-                market_type=market_type,
-                title=market.get("title") or "",
-                yes_side=(market.get("yes_sub_title") or "").strip() or None,
-                strike=float(strike) if strike is not None else None,
-                close_ms=parse_ms(market.get("close_time")),
-                status=market.get("status"),
-                volume_24h=_float(market.get("volume_24h_fp")),
-                open_interest=_float(market.get("open_interest_fp")),
-                price_structure=market.get("price_level_structure"),
-                # Field names verified against tests/fixtures/
-                # events_sports_nested.json, not against memory. Prices arrive
-                # as dollar STRINGS ("0.4500"), so `dollars_to_tenths` parses
-                # them and returns None on anything it cannot read.
-                yes_bid_tenths=dollars_to_tenths(market.get("yes_bid_dollars")),
-                no_bid_tenths=dollars_to_tenths(market.get("no_bid_dollars")),
-                yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
-                no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
-            )
+    return tuple(
+        build_market(
+            market,
+            market_type=market_type,
+            event_ticker=event.get("event_ticker") or "",
+            series_ticker=event.get("series_ticker") or "",
         )
-    return tuple(out)
+        for market in (event.get("markets") or [])
+        if not (market.get("ticker") or "").startswith(JUNK_PREFIX)
+    )
 
 
 def reset_scope_warnings() -> None:

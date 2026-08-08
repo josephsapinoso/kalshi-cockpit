@@ -43,8 +43,25 @@ export type Recommendation = {
    */
   quote_age_now_ms?: number | null;
   odds_age_now_ms?: number | null;
-  /** Both ages still inside the staleness contract, at this instant. */
+  /**
+   * The server would still accept an order for this row, at this instant.
+   *
+   * That is the **odds** clock alone. The order endpoint re-reads the Kalshi
+   * quote inside the request, so a recorded quote past its thirty-second limit
+   * no longer stops an order — it only means the price below is not the price
+   * you would pay. Nothing refreshes the sportsbook consensus but a credit, so
+   * that is the limit which actually ends a row's life.
+   */
   actionable?: boolean;
+  /**
+   * Whether the ask shown on the card is inside the Kalshi quote limit.
+   *
+   * `actionable && !price_is_current` is a real state and the most common one
+   * mid-window: the bet is live, and the number on the card is a memory. The
+   * card must say so rather than rendering a size and a cost as though they
+   * were a quote.
+   */
+  price_is_current?: boolean;
   /**
    * Whether `quote_age_now_ms` is measured from a **re-derivation** rather than
    * from when the row was written.
@@ -60,9 +77,9 @@ export type Recommendation = {
 };
 
 export type Board = {
-  /** Sized AND still fresh. A claim about this instant, not about the record. */
+  /** Sized, and the server would still accept it. A claim about this instant. */
   surfaced: Recommendation[];
-  /** Sized, and the moment has passed. Returned rather than dropped. */
+  /** Sized, and the consensus has aged out. Returned rather than dropped. */
   expired: Recommendation[];
   suppressed: Recommendation[];
   counts: {
@@ -70,6 +87,8 @@ export type Board = {
     expired: number;
     suppressed: number;
     no_edge: number;
+    /** Of `surfaced`, how many show a price older than the quote limit. */
+    price_stale?: number;
   };
   /** The limits the server judged against, so the page cannot state its own. */
   staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
@@ -292,6 +311,21 @@ export function formatAge(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`;
   return `${(ms / 3_600_000).toFixed(1)}h ago`;
+}
+
+/**
+ * The same duration as a *length* rather than a point in time.
+ *
+ * "quote 40s ago" reads correctly in a metadata row and "this price is 40s ago"
+ * does not. Two functions rather than one with a flag, because the difference is
+ * grammatical and shows up only when the string is read in a sentence — which
+ * is exactly where nothing automated in this repo would catch it.
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return "under a second";
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${(ms / 3_600_000).toFixed(1)}h`;
 }
 
 /** A clock time, for a moment the user has to act at rather than react to. */
