@@ -44,10 +44,25 @@ def main() -> int:
     # absent is the failure this project keeps finding; naming the columns it
     # was supposed to add and checking they are there costs one PRAGMA.
     missing: list[str] = []
-    for version, steps in db._MIGRATIONS.items():                # noqa: SLF001
-        for table, column, _ in steps:
+    for version, step in db._MIGRATIONS.items():                 # noqa: SLF001
+        for table, column, _ in step.columns:
             if column not in db._columns(conn, table):           # noqa: SLF001
                 missing.append(f"v{version}: {table}.{column}")
+    # Indexes too. A unique index is a constraint, and a migration that adds
+    # the column and silently skips the index leaves the *shape* right and the
+    # *guarantee* missing -- which is the half nothing downstream would notice
+    # until a duplicate got written.
+    indexes = {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+        )
+    }
+    for version, step in db._MIGRATIONS.items():                 # noqa: SLF001
+        for statement in step.statements:
+            name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+            if name not in indexes:
+                missing.append(f"v{version}: index {name}")
     conn.close()
 
     if missing:

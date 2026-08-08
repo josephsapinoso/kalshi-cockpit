@@ -37,6 +37,7 @@ from __future__ import annotations
 import ast
 import fnmatch
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -393,6 +394,100 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         # pattern it negates.
         assert _is_ignored("scripts/x.py", ["!scripts/x.py", "scripts/*"])
         assert not _is_ignored("scripts/x.py", ["scripts/*", "!scripts/x.py"])
+
+    def test_every_script_the_entrypoint_runs_at_least_loads(self):
+        """Import-time breakage in a boot step is a crash loop.
+
+        `--help` exits before `main`, so this proves only that the module and
+        its imports load -- which is the cheap half. The expensive half is
+        below, and only for the migration, because it is the one boot step that
+        can be run with no credentials and no network.
+        """
+        import subprocess
+
+        for script in self._scripts_the_entrypoint_runs():
+            result = subprocess.run(
+                [sys.executable, str(ROOT / script), "--help"],
+                capture_output=True, text=True, cwd=ROOT, timeout=120,
+            )
+            assert result.returncode == 0, (
+                f"{script} does not load: {result.stderr[-800:]}"
+            )
+
+    def test_the_migration_step_actually_runs_on_a_real_old_database(self, tmp_path):
+        """Run the boot step, as the boot step, against a database like the one
+        on the volume.
+
+        This file already asserted that `scripts/migrate_db.py` runs before
+        uvicorn and that it survives `.dockerignore`. Both were true on
+        2026-08-08 and the deploy still crash-looped, because the script read
+        `db._MIGRATIONS` in a shape it no longer had:
+
+            TypeError: '_Migration' object is not iterable
+
+        Nothing executed it. The container did, once, in production. That is
+        the same shape as the `.dockerignore` failure this class was written
+        for -- a boot step covered by assertions *about* it rather than by
+        running it -- so the fix is to run it.
+
+        A subprocess rather than an import, because `python scripts/migrate_db.py`
+        is literally what `entrypoint.sh` invokes, and the module-level
+        `sys.path` insert it needs to work only happens that way.
+        """
+        import subprocess
+
+        from backend.store import db
+
+        path = tmp_path / "volume.db"
+        connection = db.init_db(path)
+        # Wind it back to the version behind the current one, which is the
+        # transition the live volume is about to make.
+        previous = sorted(db._MIGRATIONS)[-1]
+        for statement in db._MIGRATIONS[previous].statements:
+            name = statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+            connection.execute(f"DROP INDEX IF EXISTS {name}")
+        for table, column, _ in db._MIGRATIONS[previous].columns:
+            connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        connection.execute(
+            "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+            (str(previous - 1),),
+        )
+        connection.commit()
+        connection.close()
+
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "migrate_db.py"),
+             "--db", str(path)],
+            capture_output=True, text=True, cwd=ROOT, timeout=180,
+        )
+        assert result.returncode == 0, (
+            "the boot step failed, which is a crash loop on the instance: "
+            + result.stdout + result.stderr
+        )
+        assert f"migrated v{previous - 1} -> v{db.SCHEMA_VERSION}" in result.stdout, (
+            result.stdout
+        )
+        # And the API can now open what the boot step left behind.
+        db.open_db(path).close()
+
+    def test_the_migration_step_is_idempotent_because_it_runs_every_boot(
+        self, tmp_path
+    ):
+        import subprocess
+
+        from backend.store import db
+
+        path = tmp_path / "already.db"
+        db.init_db(path).close()
+
+        for _ in range(2):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "migrate_db.py"),
+                 "--db", str(path)],
+                capture_output=True, text=True, cwd=ROOT, timeout=180,
+            )
+            assert result.returncode == 0, result.stderr
+            assert "already at schema" in result.stdout, result.stdout
 
     def test_the_script_it_names_exists(self):
         """A boot step pointing at a missing file fails the deploy, loudly --
