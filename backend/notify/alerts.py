@@ -57,6 +57,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
+from .. import gate
+
 logger = logging.getLogger(__name__)
 
 # Failure alerts collapse to one per kind per day. See the module docstring.
@@ -241,11 +243,15 @@ class Alerter:
                 suppressed=stats["suppressed"],
                 no_edge=stats["no_edge"],
                 scored=stats["scored"],
+                scored_actionable=stats["scored_actionable"],
                 required=gate_required,
                 suppression_counts=stats["reasons"],
             ),
             now_ms=now_ms,
-            detail=f"{stats['surfaced']} surfaced, {stats['scored']} scored",
+            detail=(
+                f"{stats['surfaced']} surfaced, {stats['scored']} scored "
+                f"({stats['scored_actionable']} actionable)"
+            ),
         )
 
     def _digest_stats(self, since_ms: int, now_ms: int) -> dict:
@@ -271,18 +277,26 @@ class Alerter:
         # Scored on CLV, counted the way the gate counts it: independent games,
         # not rows. Reporting rows here would put a flattering number on a
         # phone beside the Gate screen's honest one.
-        scored = self.conn.execute(
-            "SELECT COUNT(DISTINCT COALESCE(m.event_ticker, r.ticker)) AS n "
-            "FROM recommendations r "
-            "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
-            "WHERE r.clv_tenths IS NOT NULL"
-        ).fetchone()
+        #
+        # **Through the gate's own function, not a second query.** This had its
+        # own SQL saying it counted "the way the gate counts it" -- true, and
+        # the gate's way pooled every scored row regardless of whether the
+        # strategy would have bet it, so both screens agreed on a number that
+        # described any market the instance happened to poll. Two paths that
+        # agree today diverge the moment one is fixed, and the digest is the one
+        # that reaches a phone. The predicates also differed already: this asked
+        # for `clv_tenths IS NOT NULL` while the gate additionally required
+        # `clv_scored_ms IS NOT NULL`.
+        groups = gate.clv_by_population(self.conn)
 
         return {
             "surfaced": int(row["surfaced"] or 0),
             "suppressed": int(row["suppressed"] or 0),
             "no_edge": int(row["no_edge"] or 0),
-            "scored": int(scored["n"] or 0),
+            "scored": groups["pooled"].n_clusters,
+            # The population the floor is *about*. Still 0 on the live record,
+            # and a 0 that is explained is worth more than a 16 that is not.
+            "scored_actionable": groups["actionable"].n_clusters,
             "reasons": reasons,
         }
 

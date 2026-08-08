@@ -169,7 +169,8 @@ class TestDigest:
         route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
         async with notifier as n:
             await n.daily_digest(
-                surfaced=2, suppressed=4, no_edge=3, scored=17, required=300,
+                surfaced=2, suppressed=4, no_edge=3, scored=17,
+                scored_actionable=17, required=300,
                 suppression_counts={"stale_odds": 3, "wide_market": 1},
             )
         body = route.calls.last.request.read().decode()
@@ -177,11 +178,34 @@ class TestDigest:
         assert "stale_odds" in body
 
     @respx.mock
+    async def test_a_pooled_count_is_not_reported_as_progress(self, notifier):
+        """The live shape: 16 scored games, none of them actionable.
+
+        The first live digest put that pooled figure under "Scored on CLV",
+        which reads as progress toward arming real money. It is the
+        closing-line behaviour of markets this strategy refused.
+        """
+        route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
+        async with notifier as n:
+            await n.daily_digest(
+                surfaced=0, suppressed=319, no_edge=201, scored=16,
+                scored_actionable=0, required=300,
+                suppression_counts={"stale_odds": 278},
+            )
+        body = route.calls.last.request.read().decode()
+        assert "0" in body and "300" in body
+        assert "refused" in body, (
+            "the digest reported 16 scored games as progress without saying "
+            "none of them are games this strategy would have bet"
+        )
+
+    @respx.mock
     async def test_frames_a_quiet_day_as_normal(self, notifier):
         route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
         async with notifier as n:
             await n.daily_digest(
-                surfaced=0, suppressed=0, no_edge=9, scored=0, required=300,
+                surfaced=0, suppressed=0, no_edge=9, scored=0,
+                scored_actionable=0, required=300,
                 suppression_counts={},
             )
         assert "not a malfunction" in route.calls.last.request.read().decode()

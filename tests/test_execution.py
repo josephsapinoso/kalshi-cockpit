@@ -21,10 +21,12 @@ from backend.config import GateConfig, StalenessConfig
 from backend.engine import confirm_recommendation
 from backend.gate import (
     ALWAYS_VALID_ALPHA,
+    POPULATIONS,
     ClusteredMean,
     _cluster_robust_stderr,
     always_valid_multiplier,
     clustered_clv,
+    clv_by_population,
     evaluate_gate,
     live_ages,
     recommendation_freshness,
@@ -197,6 +199,7 @@ _DEFAULT_EVENT = object()
 def _add_recommendation(
     conn, *, clv_tenths=None, scored=True, quote_age=1000, odds_age=60_000,
     suppressed=None, created_ms=None, ask=503, ticker="T", event=_DEFAULT_EVENT,
+    contracts=20,
 ):
     """Insert one recommendation, and the market row it hangs off.
 
@@ -229,12 +232,12 @@ def _add_recommendation(
             suggested_contracts, kelly_fraction, kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
             clv_scored_ms
-        ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, 20, 0.02, ?, ?, ?,
+        ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, ?, 0.02, ?, ?, ?,
                   'test', ?, ?)
         """,
         (
-            created_ms or int(time.time() * 1000), ticker, ask, quote_age, odds_age,
-            suppressed, clv_tenths,
+            created_ms or int(time.time() * 1000), ticker, ask, contracts,
+            quote_age, odds_age, suppressed, clv_tenths,
             int(time.time() * 1000) if scored else None,
         ),
     )
@@ -511,6 +514,122 @@ class TestObservationsAreClusteredByGame:
             if c.name == "scored_recommendations"
         )
         assert "no event ticker" in sample.detail
+
+
+class TestTheGateCountsTheRightPopulation:
+    """Whose closing-line behaviour is the gate's headline number about?
+
+    It pooled every scored row with no filter on `suppressed_reason` or
+    `suggested_contracts`, so the first live digest's "16 / 300" was drawn
+    overwhelmingly from rows the strategy explicitly *refused*. That measures
+    the closing-line behaviour of any Kalshi market this instance happened to
+    poll — not of this strategy.
+
+    These do not yet change which population the floor counts; that decision is
+    Joe's and needs the numbers first. They make the mixture impossible to read
+    as a result.
+    """
+
+    def test_the_three_populations_partition_every_scored_row(self, gate_db):
+        """A split that quietly drops rows is worse than no split.
+
+        Rows partition; games do not, and the docstring on `clv_by_population`
+        says so — one game can contribute an actionable row and a suppressed
+        one, so cluster counts may sum to more than the pooled count while row
+        counts must sum exactly.
+        """
+        conn = _conn(gate_db)
+        _add_recommendation(conn, clv_tenths=8.0, ticker="A", contracts=5)
+        _add_recommendation(conn, clv_tenths=3.0, ticker="B", contracts=0)
+        _add_recommendation(
+            conn, clv_tenths=-2.0, ticker="C", suppressed="suspicious_edge"
+        )
+        # Same game as A, refused: this is what stops the games from partitioning.
+        _add_recommendation(
+            conn, clv_tenths=1.0, ticker="A", suppressed="stale_odds",
+        )
+
+        groups = clv_by_population(conn)
+        parts = sum(groups[name].n_rows for name in POPULATIONS)
+        assert parts == groups["pooled"].n_rows == 4
+
+        assert groups["actionable"].n_rows == 1
+        assert groups["no_edge"].n_rows == 1
+        assert groups["suppressed"].n_rows == 2
+
+    def test_a_refused_row_is_not_counted_as_the_strategys_edge(self, gate_db):
+        """The discriminating case, and the reason this is not merely tidier.
+
+        Dilution toward zero would only be conservative. The danger is a
+        *systematic* CLV in the refused population — `suspicious_edge` rows are
+        the ones most likely to carry one — which moves the pooled mean rather
+        than blunting it. Here every refused row beats the close by 40 tenths
+        and nothing actionable exists at all, so the pooled figure looks like a
+        strong edge and the strategy has demonstrated nothing.
+        """
+        conn = _conn(gate_db)
+        for i in range(12):
+            _add_recommendation(
+                conn, clv_tenths=40.0, ticker=f"S{i}", suppressed="suspicious_edge"
+            )
+
+        groups = clv_by_population(conn)
+        assert groups["pooled"].mean_tenths == pytest.approx(40.0)
+        assert groups["actionable"].n_rows == 0
+        assert groups["actionable"].mean_tenths is None, (
+            "an empty population must report no mean rather than 0.0 — "
+            "'no measurement' and 'measured zero' are different claims"
+        )
+
+        sample = next(
+            c
+            for c in evaluate_gate(conn, GateConfig()).conditions
+            if c.name == "scored_recommendations"
+        )
+        assert "suppressed 12g/12r" in sample.detail
+        assert "actionable 0g/0r" in sample.detail
+        assert "not a measurement of the strategy" in sample.detail, (
+            "the gate reported a +40 tenths pooled CLV built entirely from rows "
+            "the strategy refused, without saying so on the screen that arms "
+            "real money"
+        )
+
+    def test_the_disclaimer_is_absent_once_something_is_actionable(self, gate_db):
+        """A sentence that always appears carries no information.
+
+        The other direction of the guard above: as soon as a single actionable
+        row is scored, the number stops being purely a claim about refused rows
+        and the copy must stop saying it is.
+        """
+        conn = _conn(gate_db)
+        _add_recommendation(conn, clv_tenths=5.0, ticker="S", suppressed="stale_odds")
+        _add_recommendation(conn, clv_tenths=5.0, ticker="A", contracts=3)
+
+        sample = next(
+            c
+            for c in evaluate_gate(conn, GateConfig()).conditions
+            if c.name == "scored_recommendations"
+        )
+        assert "actionable 1g/1r" in sample.detail
+        assert "not a measurement of the strategy" not in sample.detail
+
+    def test_an_empty_record_claims_nothing_about_any_population(self, gate_db):
+        """With no rows at all there is nothing to disclaim either."""
+        conn = _conn(gate_db)
+        sample = next(
+            c
+            for c in evaluate_gate(conn, GateConfig()).conditions
+            if c.name == "scored_recommendations"
+        )
+        assert "actionable 0g/0r" in sample.detail
+        assert "not a measurement of the strategy" not in sample.detail
+
+    def test_an_unknown_population_refuses_rather_than_pooling(self, gate_db):
+        """Falling through to the mixture under a group's name is the exact
+        confusion the parameter exists to end."""
+        conn = _conn(gate_db)
+        with pytest.raises(ValueError, match="unknown population"):
+            clustered_clv(conn, "actionabel")
 
 
 class TestTheGateIsEvaluatedRepeatedly:

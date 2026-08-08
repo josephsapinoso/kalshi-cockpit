@@ -308,8 +308,15 @@ class TestTheDigest:
         gets believed."""
         for i in range(4):
             rec = add_recommendation(conn, created_ms=NOW + i)
+            # Both columns, because `score_recommendations` writes them in one
+            # UPDATE and a row can never carry one without the other. The
+            # fixture used to set `clv_tenths` alone, which passed only because
+            # the digest had its own looser query -- a fixture that erases a
+            # distinction cannot test code that depends on it.
             conn.execute(
-                "UPDATE recommendations SET clv_tenths = 5.0 WHERE id = ?", (rec,)
+                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ? "
+                "WHERE id = ?",
+                (NOW, rec),
             )
         conn.commit()
 
@@ -321,6 +328,53 @@ class TestTheDigest:
         )
         # Four rows on one market, which is one game.
         assert notifier.digests[0]["scored"] == 1
+
+    async def test_the_digest_separates_actionable_from_merely_scored(self, conn):
+        """The number on the phone must say whose CLV it is.
+
+        One game the strategy would have bet, two it refused. "3 scored" is true
+        and reads as three games of evidence about this strategy; one of them is.
+        """
+        for name in ("A", "B", "C"):
+            conn.execute(
+                "INSERT INTO kalshi_events (event_ticker, commence_ms, "
+                "first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?)",
+                (f"EVT-{name}", NOW + HOUR, NOW, NOW),
+            )
+            conn.execute(
+                "INSERT INTO kalshi_markets (ticker, event_ticker, "
+                "first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?)",
+                (name, f"EVT-{name}", NOW, NOW),
+            )
+
+        bet = add_recommendation(conn, created_ms=NOW, ticker="A", contracts=7)
+        refused_a = add_recommendation(
+            conn, created_ms=NOW + 1, ticker="B", contracts=0,
+            suppressed="suspicious_edge",
+        )
+        refused_b = add_recommendation(
+            conn, created_ms=NOW + 2, ticker="C", contracts=0,
+            suppressed="stale_odds",
+        )
+        for rec in (bet, refused_a, refused_b):
+            conn.execute(
+                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ? "
+                "WHERE id = ?",
+                (NOW, rec),
+            )
+        conn.commit()
+
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).daily_digest(
+            now_ms=NOW + HOUR,
+            day_start_ms=ms("2026-08-07T10:00:00"),
+            gate_required=300,
+        )
+        digest = notifier.digests[0]
+        assert digest["scored"] == 3
+        assert digest["scored_actionable"] == 1, (
+            "the digest counted two refused games as progress toward the floor"
+        )
 
     async def test_it_breaks_the_day_down_by_suppression_reason(self, conn):
         add_recommendation(conn, contracts=0, suppressed="wide_market")

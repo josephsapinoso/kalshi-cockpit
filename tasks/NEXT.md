@@ -53,6 +53,35 @@ things you asked me to watch for — reconnect loops, memory growth on a 1GB
 machine — **cannot be observed yet.** They become observable the first time a
 window opens with a surfaced row, not before.
 
+### The gate's population — reported, not yet decided
+
+Done as you specified: **both groups side by side, with `n` for each, before
+anyone changes which one the floor counts.** `gate.clv_by_population` returns
+`actionable` / `no_edge` / `suppressed` / `pooled`, the three matching the
+digest's own framing so the two screens cannot describe the record differently.
+The gate's `scored_recommendations` detail now carries
+`actionable Ng/Nr, no_edge Ng/Nr, suppressed Ng/Nr` beside the aggregate, and
+when nothing actionable has been scored it says so outright.
+
+**The digest had the same defect and it is the one that reaches your phone.**
+`_digest_stats` ran its own SQL with a comment saying it counted "the way the
+gate counts it" — true, and the gate's way was the mixture. It now calls
+`clv_by_population` rather than agreeing with it, per the repo's rule about
+deleting one of two paths. The Discord embed reports the actionable count as
+the headline with the pooled count beside it and the gap named.
+
+Fixing it surfaced a fixture that could not have been real: a test set
+`clv_tenths` without `clv_scored_ms`, which the digest's looser predicate
+accepted and `score_recommendations` can never produce — it writes both in one
+UPDATE.
+
+**Still yours to decide: which population the floor counts.** Everything is now
+visible enough to decide from, and `met` deliberately still reads the pooled
+number, so nothing has silently changed. My read: `actionable` is the correct
+population and it will read 0/300 for a while, which is the honest number
+rather than a regression — but that is a call about what the gate *means*, not
+a code change, so I have not made it.
+
 ### What to look at, and when
 
 The budget day rolls at **10:00Z**. Until then no sweep can fire (`24 of 16

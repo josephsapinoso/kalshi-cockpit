@@ -281,6 +281,7 @@ class DiscordNotifier:
         suppressed: int,
         no_edge: int,
         scored: int,
+        scored_actionable: int,
         required: int,
         suppression_counts: dict[str, int],
     ) -> bool:
@@ -290,6 +291,21 @@ class DiscordNotifier:
         top = sorted(suppression_counts.items(), key=lambda kv: -kv[1])[:4]
         breakdown = "\n".join(f"`{name}` × {n}" for name, n in top) or "none"
 
+        # The floor counts *games the strategy would have bet*. The pooled count
+        # beside it is every scored game including the ones it refused, and the
+        # first live digest reported that pooled figure under a label reading
+        # "Scored on CLV" — which a reader takes as progress toward arming real
+        # money. Both numbers, with the gap named, so a large pooled count
+        # cannot be read as evidence the strategy has produced any.
+        if scored_actionable == scored:
+            clv_line = f"{scored} / {required}"
+        else:
+            clv_line = (
+                f"**{scored_actionable}** / {required} actionable\n"
+                f"({scored} scored in total — the rest are games this strategy "
+                f"refused or had no edge on, so they say nothing about it)"
+            )
+
         return await self._post(
             {
                 "title": "Daily summary",
@@ -298,7 +314,7 @@ class DiscordNotifier:
                     _field("Surfaced", str(surfaced)),
                     _field("Suppressed", str(suppressed)),
                     _field("No edge", str(no_edge)),
-                    _field("Scored on CLV", f"{scored} / {required}", inline=False),
+                    _field("Scored on CLV", clv_line, inline=False),
                     _field("Top suppression reasons", breakdown, inline=False),
                 ],
                 "footer": {

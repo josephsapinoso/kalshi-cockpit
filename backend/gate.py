@@ -262,7 +262,32 @@ def _cluster_robust_stderr(
     return n_rows, n_clusters, mean, math.sqrt(variance)
 
 
-def clustered_clv(conn) -> ClusteredMean:
+# The three populations a scored row can belong to, as SQL predicates.
+#
+# These are the same three the Discord digest already reports -- surfaced,
+# no edge, suppressed -- so the gate and the digest cannot describe the record
+# differently.
+#
+#   actionable  the strategy would have bet this. Not suppressed, and sized to
+#               at least one contract.
+#   no_edge     nothing to bet. Not suppressed, sized to zero. This is the
+#               normal answer on most of a slate and is *not* a rejection:
+#               `tasks/lessons.md`, "no result and rejected are different
+#               outcomes".
+#   suppressed  considered and refused, with a reason.
+#
+# `POPULATIONS` is exhaustive and mutually exclusive by construction --
+# `suppressed_reason IS NULL` splits on `suggested_contracts > 0`, and its
+# complement is the third. A test asserts the parts sum to the pooled row count,
+# because a population split that quietly drops rows is worse than no split.
+POPULATIONS: dict[str, str] = {
+    "actionable": "r.suppressed_reason IS NULL AND r.suggested_contracts > 0",
+    "no_edge": "r.suppressed_reason IS NULL AND r.suggested_contracts <= 0",
+    "suppressed": "r.suppressed_reason IS NOT NULL",
+}
+
+
+def clustered_clv(conn, population: Optional[str] = None) -> ClusteredMean:
     """Scored CLV, grouped into one cluster per game.
 
     The cluster key is the Kalshi **event** rather than the market ticker. A
@@ -277,9 +302,29 @@ def clustered_clv(conn) -> ClusteredMean:
     the row count is carried on `unclustered_rows` and reported in the gate's
     detail string, because an unreported approximation in a money guard is
     indistinguishable from a correct one.
+
+    `population` selects one of `POPULATIONS`; `None` pools all three, which is
+    what this function did unconditionally and what made the gate's headline
+    number a mixture. **The pooled number is not the strategy's CLV.** It is the
+    closing-line behaviour of every Kalshi market this instance happened to
+    poll, including the rows the strategy explicitly refused, and the first live
+    digest read `16 / 300` almost entirely from those. Callers wanting a claim
+    about *this strategy* want `"actionable"`.
     """
+    predicate = ""
+    if population is not None:
+        if population not in POPULATIONS:
+            # Refuse rather than silently pooling. A typo that fell through to
+            # "all" would report the mixture under a group's name, which is the
+            # exact confusion this parameter exists to end.
+            raise ValueError(
+                f"unknown population {population!r}; "
+                f"expected one of {sorted(POPULATIONS)}"
+            )
+        predicate = f"AND {POPULATIONS[population]}"
+
     rows = conn.execute(
-        """
+        f"""
         SELECT COALESCE(m.event_ticker, r.ticker) AS cluster_key,
                COUNT(*)             AS k,
                SUM(r.clv_tenths)    AS sum_y,
@@ -287,6 +332,7 @@ def clustered_clv(conn) -> ClusteredMean:
         FROM recommendations r
         LEFT JOIN kalshi_markets m ON m.ticker = r.ticker
         WHERE r.clv_scored_ms IS NOT NULL AND r.clv_tenths IS NOT NULL
+        {predicate}
         GROUP BY cluster_key
         """
     ).fetchall()
@@ -302,6 +348,28 @@ def clustered_clv(conn) -> ClusteredMean:
     )
 
 
+def clv_by_population(conn) -> dict[str, ClusteredMean]:
+    """Every population's CLV, side by side, plus the pooled mixture.
+
+    **A pooled number is not a finding until the parts agree** — the repo's own
+    measurement rule, and the reason this exists. The gate's headline has always
+    been the pooled figure, which on the live record is drawn overwhelmingly
+    from rows the strategy rejected. Dilution toward zero would merely be
+    conservative; a *systematic* CLV in the suppressed group moves the pooled
+    mean instead of blunting it, and `suspicious_edge` rows are exactly the
+    population most likely to carry one.
+
+    Note that `n` here is independent games per group, and the groups do **not**
+    partition the games — one game can contribute an actionable row and a
+    suppressed row, so the per-group cluster counts can sum to more than the
+    pooled count. Only the *row* counts partition, which is what the
+    reconciliation test asserts.
+    """
+    grouped = {name: clustered_clv(conn, name) for name in POPULATIONS}
+    grouped["pooled"] = clustered_clv(conn)
+    return grouped
+
+
 def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
     """Sample size and CLV significance, as two separate conditions.
 
@@ -314,7 +382,8 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
     a bet on a game you already bet is not a second data point about whether
     this system can pick.
     """
-    stats = clustered_clv(conn)
+    groups = clv_by_population(conn)
+    stats = groups["pooled"]
 
     approximation = (
         f"; {stats.unclustered_rows} row(s) had no event ticker and were "
@@ -323,6 +392,23 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
         if stats.unclustered_rows
         else ""
     )
+
+    # The composition, beside the aggregate, always. The first live digest read
+    # "16 / 300" from a pool with no filter on `suppressed_reason`, so the label
+    # said "our edge" and the number described the closing-line behaviour of any
+    # market this instance happened to poll. Printing the parts is what makes
+    # the mixture visible without yet changing which population the floor
+    # counts -- that decision needs these numbers first.
+    composition = "; " + ", ".join(
+        f"{name} {groups[name].n_clusters}g/{groups[name].n_rows}r"
+        for name in POPULATIONS
+    )
+    actionable = groups["actionable"]
+    if actionable.n_rows == 0 and stats.n_rows > 0:
+        composition += (
+            " — none of this is actionable: every scored row was refused or had "
+            "no edge, so this number is not a measurement of the strategy"
+        )
 
     met = stats.n_clusters >= minimum
     sample = Condition(
@@ -338,6 +424,7 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
                      "or not it was bet, but repeated passes over the same game "
                      "score against one closing line and count once"
             )
+            + composition
             + approximation
         ),
     )
