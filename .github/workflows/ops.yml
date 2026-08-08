@@ -16,12 +16,34 @@ on:
   workflow_dispatch:
     inputs:
       instance:
-        description: "Which instance"
+        # The default is a sentinel, and it is the one input here that gets
+        # one. `workflow_dispatch` applies the declared default whenever an
+        # input does not arrive -- and the GitHub mobile *app* is recorded in
+        # `tasks/PHONE.md` as dropping inputs, which is how a live deploy once
+        # ran with an empty `confirm_live`.
+        #
+        # For Deploy that failed loudly, because its guard had nothing safe to
+        # fall back to. Here a default of `demo` would have **succeeded**: a
+        # green run, real logs, and the wrong box. Worse than a failure, and
+        # specifically misleading for the question this workflow exists to
+        # answer -- the demo instance does not run the chain runner at all
+        # (the entrypoint starts it on live only, because demo holds no
+        # credentials), so demo logs carry no `backend.*` records for a reason
+        # that has nothing to do with logging being configured.
+        #
+        # A choice input cannot decline to have a default: omitting `default`
+        # makes GitHub preselect the first option. So the first option is one
+        # that means nothing, and the job refuses it.
+        description: "Which instance (you must pick -- there is no safe default)"
         required: true
-        default: demo
+        default: choose-one
         type: choice
-        options: [demo, live]
+        options: [choose-one, demo, live]
       action:
+        # No sentinel, deliberately. A dropped `action` gives you *less*
+        # information about the instance you asked for; a dropped `instance`
+        # gives you confident information about a different one. Only the
+        # second can be misread, so only the second is worth the friction.
         description: "What to inspect"
         required: true
         default: logs
@@ -33,6 +55,21 @@ jobs:
     name: ${{ inputs.action }} ${{ inputs.instance }}
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse an unchosen instance
+        if: inputs.instance != 'demo' && inputs.instance != 'live'
+        run: |
+          {
+            echo "## Refused"
+            echo
+            echo "No instance was chosen, so this run would have inspected"
+            echo "whichever one the default happened to be. Nothing was read."
+            echo
+            echo "If you got here from the GitHub **app**, use the browser"
+            echo "instead -- the app's Actions tab drops workflow inputs."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "instance was '${{ inputs.instance }}'; pick demo or live." >&2
+          exit 1
+
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Resolve target
@@ -43,6 +80,49 @@ jobs:
           else
             echo "app=kalshi-cockpit-demo" >> "$GITHUB_OUTPUT"
           fi
+
+      # The first thing visible on the run page, above every log step, because
+      # this is read on a phone. The job title already renders as
+      # "<action> <instance>", but that is small, and the whole failure mode
+      # here is plausible output attributed to the wrong box -- so the box is
+      # named where it cannot be scrolled past.
+      #
+      # `instance_mode` comes from the instance itself rather than from our own
+      # mapping, which is what makes it a check rather than a restatement: it
+      # says the host we resolved really is the one we asked for. `/api/health`
+      # is public on both (Fly's own check needs it to be), and this is the
+      # same confirmation the Deploy workflow already makes.
+      - name: Say which instance this is
+        env:
+          APP: ${{ steps.target.outputs.app }}
+        run: |
+          reported="$(curl -fsS --max-time 10 "https://${APP}.fly.dev/api/health" \
+            2>/dev/null | jq -r '.instance_mode // empty' 2>/dev/null || true)"
+
+          # Three states, not two. A health endpoint that could not be read is
+          # not a mismatch, and rendering it as one would put "these disagree"
+          # on the screen every time the network hiccups -- which is how a
+          # warning stops being read. Unreadable says unreadable.
+          if [ -z "$reported" ]; then
+            verdict="could not be read (the logs below are still \`${APP}\`)"
+          elif [ "$reported" = "${{ inputs.instance }}" ]; then
+            verdict="agrees"
+          else
+            verdict="**DISAGREES** -- everything below describes \`${APP}\`"
+          fi
+
+          {
+            echo "## Inspecting \`${APP}\` — **${{ inputs.instance }}**"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Fly app | \`${APP}\` |"
+            echo "| Asked for | \`${{ inputs.instance }}\` |"
+            echo "| The instance reports | ${reported:-—} |"
+            echo "| Which | ${verdict} |"
+            echo "| Inspecting | \`${{ inputs.action }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=== ${APP}: asked for ${{ inputs.instance }}, reports '${reported}' ==="
 
       - name: Status
         if: inputs.action == 'status' || inputs.action == 'all'

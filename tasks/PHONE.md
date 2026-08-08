@@ -144,6 +144,44 @@ the one channel.
 
 ---
 
+## 4b. Read what the deployed instance is doing — the `Ops` workflow
+
+`flyctl` has no mobile client, so this is the only way to see the live
+instance's logs, machine state and restart count from a phone. Read-only:
+nothing here deploys, restarts, scales, or sets a secret.
+
+**Use the phone browser, not the GitHub app.** The app's Actions tab drops
+workflow inputs — that is what sent an empty `confirm_live` to a live deploy.
+
+- [ ] https://github.com/josephsapinoso/kalshi-cockpit/actions/workflows/ops.yml
+- [ ] **Run workflow** → instance `live` (or `demo`) → action `all` → **Run**
+
+**There is no default instance, on purpose.** The dropdown starts on
+`choose-one` and the job refuses it. A default of `demo` would have been worse
+than a failure: a green run, real logs, and the wrong box — and demo does not
+run the chain runner at all, so its logs carry no `backend.*` records for a
+reason that has nothing to do with the thing you are usually checking.
+
+The run's summary names the app before any log output, and cross-checks it
+against what `/api/health` on that host says it is. If those two disagree, read
+the app name and ignore what you asked for.
+
+What is worth looking at:
+
+| `action` | Answers |
+|---|---|
+| `status` | is it up, how many machines, is the volume attached |
+| `machines` | `state=`, `restarts=` and region per machine — a climbing restart count is a crash loop |
+| `logs` | the last chunk of the log stream (`--no-tail`, so the step ends) |
+| `all` | all three |
+
+Two things the logs are usually being read for: whether `INFO backend.*` lines
+appear **at all** (if they do not, logging is not configured in the process that
+matters), and whether a schema migration ran when a deploy was expected to
+carry one.
+
+---
+
 ## 5. Place the fee-calibration trades — in the Kalshi app
 
 This is the one that closes a year-old open question, and it is *more*
