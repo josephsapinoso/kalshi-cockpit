@@ -41,6 +41,14 @@ history. 846 tests, `dbt build` 11 nodes green. 34 of 41 audit items closed
    most rows should precede T-1h. **If it is still ~86% after a full day, the
    scored sample skews early and 300 games takes far longer than three weeks.**
 
+### Running this in parallel
+
+`docs/adr/0003-parallel-sessions-and-subagents.md` defines the file-ownership
+lanes, the three integrator-only documents, and the shared state that no VCS
+will protect — the odds budget (~16 credits/day, 6 a sweep), deploys, `data/`,
+and the live instance. Workers use `Agent(isolation: "worktree")` and write
+findings to `tasks/inbox/<lane>.md`.
+
 ### Still waiting on the user (both pre-authorised)
 
 - **Fee-calibration trades** — four minimum-size orders at ~10c/30c/50c/80c in
