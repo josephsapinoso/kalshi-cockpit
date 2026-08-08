@@ -1086,6 +1086,23 @@ def create_app(
 
         # 13. Build the order. `OrderRequest` validates in its constructor and
         #     refuses an off-grid price rather than clamping it.
+        #
+        #     The grid comes off the **live** payload, not the recorded row: a
+        #     market's price structure can change while it is open, and a grid
+        #     cached at recommendation time is exactly as stale as the price
+        #     beside it. If it could not be read we refuse, because the
+        #     alternative -- assuming whole cents -- is what turned a 50.5c ask
+        #     into a bid at 50c that rests forever and never fills.
+        if quote.price_grid is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "the live payload for this market carried no readable "
+                    "price grid, so we do not know which limit prices the "
+                    "exchange will accept. Refusing rather than assuming whole "
+                    "cents."
+                ),
+            )
         try:
             order = OrderRequest(
                 ticker=freshness["ticker"],
@@ -1093,6 +1110,7 @@ def create_app(
                 action="buy",
                 count=contracts,
                 limit_price_tenths=live_ask,
+                price_grid=quote.price_grid,
                 recommendation_id=request.recommendation_id,
             )
         except OrderRefused as exc:
@@ -1108,7 +1126,17 @@ def create_app(
             "ticker": order.ticker,
             "side": order.side,
             "contracts": order.count,
-            "limit_price_cents": order.api_price,
+            # Both the YES-book price actually sent and what it costs on our
+            # side. V2 quotes everything from the YES leg, so for a NO bet the
+            # number in the request body is the complement of the price we pay
+            # -- reporting only one of them would put a 59.5c figure on a
+            # ticket for a 40.5c bet.
+            "book_side": order.book_side,
+            "limit_price_dollars": order.api_price_dollars,
+            "limit_price_tenths": order.api_price_tenths,
+            "fill_price_tenths": order.fill_price_tenths,
+            "fill_price_display": format_price(order.fill_price_tenths),
+            "price_grid": order.price_grid.describe(),
             "worst_case_cost_dollars": order.worst_case_cost_dollars,
             # Both prices, always -- including when they agree. A response that
             # reported the move only when there was one would leave the reader

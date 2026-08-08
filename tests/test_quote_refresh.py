@@ -287,6 +287,12 @@ class TestTheSourceRefusesTheWrongAnswer:
 
 TICKER = "KXTEST-GAME-A"
 
+# Distinguishes "caller said nothing about the grid" from "caller said there
+# isn't one". `None` is a meaningful value here, so it cannot also be the
+# default -- the same collapse `market_width` suffered when 0.0 meant both
+# "measured zero disagreement" and "nothing to measure".
+_UNSET = object()
+
 
 def _payload(
     *,
@@ -296,6 +302,7 @@ def _payload(
     yes_ask_size: float = 500.0,
     yes_bid_size: float = 500.0,
     status: str = "active",
+    price_ranges: object = _UNSET,
 ) -> dict:
     """A `/markets/{ticker}` payload in the captured shape.
 
@@ -303,17 +310,28 @@ def _payload(
     and the envelope are pinned above by the capture, and every payload built
     here goes through the same `parse_market_quote` those tests exercise, so a
     rename fails there rather than being papered over here.
+
+    `price_ranges` defaults to the whole-cent grid every one of 1,426 live game
+    markets carried on 2026-08-08. Pass `None` to model a payload without it —
+    the order path must refuse rather than assume whole cents, and
+    `TestAMarketWithNoReadableGridIsRefused` below does exactly that.
     """
-    return {
-        "market": {
-            "ticker": ticker,
-            "status": status,
-            "yes_bid_dollars": f"{yes_bid_tenths / 1000:.4f}",
-            "no_bid_dollars": f"{no_bid_tenths / 1000:.4f}",
-            "yes_ask_size_fp": f"{yes_ask_size:.2f}",
-            "yes_bid_size_fp": f"{yes_bid_size:.2f}",
-        }
+    market = {
+        "ticker": ticker,
+        "status": status,
+        "yes_bid_dollars": f"{yes_bid_tenths / 1000:.4f}",
+        "no_bid_dollars": f"{no_bid_tenths / 1000:.4f}",
+        "yes_ask_size_fp": f"{yes_ask_size:.2f}",
+        "yes_bid_size_fp": f"{yes_bid_size:.2f}",
     }
+    if price_ranges is _UNSET:
+        market["price_level_structure"] = "linear_cent"
+        market["price_ranges"] = [
+            {"start": "0.0000", "end": "1.0000", "step": "0.0100"}
+        ]
+    elif price_ranges is not None:
+        market["price_ranges"] = price_ranges
+    return {"market": market}
 
 
 class FakeQuotes:
@@ -533,7 +551,8 @@ class TestTheQuoteIsActuallyRefreshed:
 
         body = (await _order(_app(path, quotes), rec)).json()
 
-        assert body["limit_price_cents"] == 49
+        assert body["limit_price_tenths"] == 490
+        assert body["limit_price_dollars"] == "0.4900"
         assert body["quote"]["recorded_ask_tenths"] == 500
         assert body["quote"]["live_ask_tenths"] == 490
         assert body["quote"]["moved_tenths"] == -10
@@ -554,7 +573,8 @@ class TestTheQuoteIsActuallyRefreshed:
 
         body = (await _order(_app(path, quotes), rec)).json()
 
-        assert body["limit_price_cents"] == 51
+        assert body["limit_price_tenths"] == 510
+        assert body["limit_price_dollars"] == "0.5100"
         assert body["quote"]["moved_tenths"] == 10
         assert body["worst_case_cost_dollars"] > body["contracts"] * 0.50
 
@@ -690,6 +710,54 @@ class TestTheRefreshCanRefuse:
 
         assert response.status_code == 422
         assert "no size is quoted" in response.json()["detail"]
+
+
+class TestAMarketWithNoReadableGridIsRefused:
+    """The grid is read from the live payload, and there is no default.
+
+    Kalshi rejects any price off `price_ranges`, and whole cents are legal on
+    every structure — so assuming whole cents is never *rejected*, it just rests
+    behind a sub-cent market forever. That makes "assume whole cents" the most
+    dangerous possible fallback: it fails silently, and it fails into the paper
+    record rather than into an error.
+
+    The grid must also come from the **live** payload rather than the recorded
+    row: Kalshi publishes a `price_level_structure_updated` lifecycle event, so
+    a market's grid can change while it is open.
+    """
+
+    async def test_a_payload_without_price_ranges_stops_the_order(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        quotes = FakeQuotes(_payload(price_ranges=None))
+
+        response = await _order(_app(path, quotes), rec)
+
+        assert response.status_code == 503
+        assert "price grid" in response.json()["detail"]
+        assert "whole cents" in response.json()["detail"]
+
+    async def test_a_malformed_grid_stops_the_order_too(self, armed_db):
+        """A band we cannot parse is not a market we may price. Skipping the bad
+        band would silently refuse every price inside it, which reads as an
+        illiquid market rather than as a parse failure."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+        quotes = FakeQuotes(_payload(price_ranges=[{"start": "0.0000"}]))
+
+        response = await _order(_app(path, quotes), rec)
+
+        assert response.status_code == 503
+
+    async def test_the_grid_that_was_used_is_reported(self, armed_db):
+        """So a fill at an unexpected price can be traced to the grid that
+        produced it, rather than reconstructed from the ticker afterwards."""
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now)
+
+        body = (await _order(_app(path, FakeQuotes()), rec)).json()
+
+        assert "linear_cent" in body["price_grid"]
 
 
 class TestWhatTheRefreshDoesAndDoesNotMakeFresh:

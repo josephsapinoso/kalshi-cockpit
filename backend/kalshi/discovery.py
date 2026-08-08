@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from ..core.prices import dollars_to_tenths, parse_quantity
+from .grid import PriceGrid, read_price_grid
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,15 @@ class DiscoveredMarket:
     # yes bid, since a no ask is derived from it.
     yes_ask_size: Optional[float] = None
     no_ask_size: Optional[float] = None
+    # Which limit prices this market will accept, parsed from `price_ranges`.
+    # `price_structure` above is the *label* for the same thing and must not be
+    # branched on -- Kalshi introduces new structures over time, and a client
+    # reading the bands is compatible with all of them.
+    #
+    # `None` means the grid was unreadable, and the order path refuses on it.
+    # There is no default: assuming whole cents is what made a 50.5c ask rest
+    # at 50c and never fill. See `kalshi/grid.py`.
+    price_grid: Optional[PriceGrid] = None
 
 
 @dataclass(frozen=True)
@@ -314,6 +324,7 @@ def build_market(
         no_bid_tenths=dollars_to_tenths(market.get("no_bid_dollars")),
         yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
         no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
+        price_grid=read_price_grid(market),
     )
 
 

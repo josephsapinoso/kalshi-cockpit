@@ -1740,3 +1740,57 @@ once-per-window full pass spans one confirmation gap" is structural and needs
 nothing. Two responses means two counters. Related:
 [[two-populations-in-one-record]], [[no-result-and-rejected-are-different]],
 [[computing-the-right-statistic-and-then-ignoring-it]].
+
+---
+
+## 2026-08-08 — A wrong value that is still legal never announces itself
+
+The order path floored every limit price to a whole cent. Kalshi accepts whole
+cents on **every** price structure, so the wrong price was always a *valid*
+price: no rejection, no error, no log line. On a market with a half-cent grid it
+turned a 50.5c ask into a bid at 50c — an order that rests behind the market
+forever, never fills, and enters the paper record as a bet that was placed.
+
+The two failure modes are not equally visible and not equally bad:
+
+| | Rejected order | Unfillable order |
+|---|---|---|
+| Announces itself | yes, immediately | never |
+| Effect on the record | none | a bet that did not happen |
+
+On a project whose entire product is the evidence record, the second is the
+worse one, and it is the one no exception handler can catch. Worse still, it is
+*biased*: whichever side happens to sit on a whole cent fills and the other does
+not, so the record fills up with one half of the strategy.
+
+**How to apply:** when a value is coerced onto some legal set before being sent,
+ask what happens when the coercion is wrong *and the result is still accepted*.
+If the answer is "nothing observable", the coercion needs its own test with an
+input where a wrong implementation gives a different answer — not merely a legal
+one. Here that is `buy NO at 40.5c on a half-cent grid`: correct sends a YES ask
+of 0.5950 and costs 40.5c, the old floor sent 0.6000 and costs 40.0c, and both
+are prices the exchange is perfectly happy with. Related:
+[[clamping-is-for-values-you-trust]] — clamping and flooring are the same move,
+and the tell is the same: a loud failure converted into a quiet one.
+
+**And check the endpoint, not just the field.** The fix was unreachable without
+noticing that `POST /portfolio/orders` takes integer cents and had been
+deprecated — it is absent from Kalshi's current API reference entirely, while
+this repo had been posting to it for the whole project. Nothing failed, because
+nothing had ever posted. The V2 replacement also emits no `status` field, and
+the old parser read `response["order"]["status"]` with a default of `"resting"`;
+every live order would have been recorded as resting with a null order id. Same
+shape as [[unreadable-must-never-resolve-to-zero]], one layer up: when checking
+whether a *field* can carry the value you need, check that the *endpoint* is
+still the one the vendor documents.
+
+**Read `n` before the effect size, on this too.** The note that raised this said
+"~25% of markets tick in half-cents". That is true of all Kalshi markets and
+false of the ones this project prices:
+`scripts/capture_price_grids.py` measured **1,426 game markets, all
+`linear_cent`** on 2026-08-08, against 60 of 2,145 half-cent two days earlier.
+So the fix changes nothing today. It is still right, because the grid is
+assigned per market and Kalshi publishes a `price_level_structure_updated`
+lifecycle event — but "0 of 1,426" belongs next to the fix, and it must not
+become "sub-cent game markets do not exist". That is exactly
+[[a-true-measurement-licensed-a-false-conclusion]].

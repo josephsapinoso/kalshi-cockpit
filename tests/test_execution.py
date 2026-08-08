@@ -31,17 +31,32 @@ from backend.gate import (
     live_ages,
     recommendation_freshness,
 )
+from backend.kalshi.grid import parse_price_grid
 from backend.kalshi.orders import (
-    API_PRICE_MAX,
-    API_PRICE_MIN,
+    ORDERS_PATH,
+    STATUS_UNRECOGNISED,
     OrderPlacer,
     OrderRefused,
     OrderRequest,
-    api_price_cents,
+    book_side_for,
+    status_from_counts,
 )
 from backend.store import db
 
 DAY_MS = 86_400_000
+
+# The grid on 1,426 of 1,426 live game markets (scripts/capture_price_grids.py,
+# 2026-08-08), so this is what the order path actually meets today.
+WHOLE_CENT_GRID = parse_price_grid(
+    [{"start": "0.0000", "end": "1.0000", "step": "0.0100"}],
+    structure="linear_cent",
+)
+# Transcribed from Kalshi's published structure table, not captured -- see
+# tests/test_price_grid.py for why that distinction is kept visible.
+HALF_CENT_GRID = parse_price_grid(
+    [{"start": "0.0000", "end": "1.0000", "step": "0.0050"}],
+    structure="center_half_edge_half_cent",
+)
 
 
 def order(**kw) -> OrderRequest:
@@ -51,24 +66,25 @@ def order(**kw) -> OrderRequest:
         action="buy",
         count=20,
         limit_price_tenths=503,
+        price_grid=WHOLE_CENT_GRID,
     )
     defaults.update(kw)
     return OrderRequest(**defaults)
 
 
-class TestApiPriceRounding:
-    """Round away from paying more, and refuse rather than clamp."""
+class TestPriceSnapping:
+    """Snap onto the market's own grid, away from paying more, or refuse."""
 
-    def test_a_buy_rounds_down(self):
-        """Rounding a buy up would pay more than the price we evaluated."""
-        assert api_price_cents(509, "buy") == 50
+    def test_a_buy_snaps_down(self):
+        """Snapping a buy up would pay more than the price we evaluated."""
+        assert order(limit_price_tenths=509).api_price_tenths == 500
 
-    def test_a_sell_rounds_up(self):
-        assert api_price_cents(501, "sell") == 51
+    def test_a_sell_snaps_up(self):
+        assert order(action="sell", limit_price_tenths=501).api_price_tenths == 510
 
-    def test_an_exact_cent_is_unchanged_either_way(self):
-        assert api_price_cents(500, "buy") == 50
-        assert api_price_cents(500, "sell") == 50
+    def test_a_price_already_on_the_grid_is_unchanged_either_way(self):
+        assert order(limit_price_tenths=500).api_price_tenths == 500
+        assert order(action="sell", limit_price_tenths=500).api_price_tenths == 500
 
     def test_an_off_grid_price_raises_rather_than_clamping(self):
         """The rule that earned itself.
@@ -78,21 +94,92 @@ class TestApiPriceRounding:
         must be refused, not coerced onto the nearest legal value.
         """
         with pytest.raises(OrderRefused) as exc:
-            api_price_cents(9, "buy")        # rounds to 0c
+            order(limit_price_tenths=9)          # snaps to 0
         assert "clamping" in str(exc.value)
-        assert str(API_PRICE_MIN) in str(exc.value)
 
     def test_the_top_of_the_grid_is_refused_too(self):
         with pytest.raises(OrderRefused):
-            api_price_cents(999, "sell")     # rounds to 100c
+            order(action="sell", limit_price_tenths=999)   # snaps to $1.00
 
     def test_the_grid_boundaries_themselves_are_accepted(self):
-        assert api_price_cents(10, "buy") == API_PRICE_MIN
-        assert api_price_cents(990, "sell") == API_PRICE_MAX
+        assert order(limit_price_tenths=10).api_price_tenths == 10
+        assert order(action="sell", limit_price_tenths=990).api_price_tenths == 990
 
-    def test_an_unknown_action_is_refused(self):
+    def test_an_order_without_a_grid_cannot_be_built(self):
+        """There is no default grid. Assuming whole cents is the bug."""
+        with pytest.raises(OrderRefused) as exc:
+            order(price_grid=None)
+        assert "never fills" in str(exc.value)
+
+
+class TestADeciCentAskIsSentAtTheDeciCent:
+    """The defect this change exists for.
+
+    A 50.5c ask floored to 50c is a *legal* price -- Kalshi accepts whole cents
+    on every structure -- so it was never rejected. It simply rested behind the
+    market forever and entered the paper record as a bet that was placed. On a
+    record that is the entire product, an order that cannot fill is worse than
+    one that is refused.
+
+    Every assertion here is chosen so the old whole-cent flooring gives a
+    *different* answer, per `tasks/lessons.md`: an anchor both implementations
+    satisfy proves nothing.
+    """
+
+    def test_buying_yes_at_a_half_cent_sends_the_half_cent(self):
+        built = order(side="yes", limit_price_tenths=505, price_grid=HALF_CENT_GRID)
+        assert built.api_price_tenths == 505          # flooring gave 500
+        assert built.api_price_dollars == "0.5050"
+        assert built.fill_price_tenths == 505
+
+    def test_buying_no_at_a_half_cent_sends_the_complement(self):
+        """V2 quotes the YES leg, so buying NO at 40.5c is selling YES at 59.5c.
+
+        The old code sent `no_price=40` -- an offer to sell YES at 60c, which
+        does not cross a resting YES bid of 59.5c. That is the unfillable order,
+        stated as arithmetic.
+        """
+        built = order(side="no", limit_price_tenths=405, price_grid=HALF_CENT_GRID)
+        assert built.book_side == "ask"
+        assert built.api_price_tenths == 595
+        assert built.api_price_dollars == "0.5950"
+        assert built.fill_price_tenths == 405          # flooring gave 400
+
+    def test_snapping_never_costs_more_than_the_price_evaluated(self):
+        """The invariant that holds on both legs and both grids.
+
+        Buying NO snaps the YES ask *up*, which moves our own price *down* --
+        the reflection is where a sign error would hide, and this is the
+        property that catches it.
+        """
+        for grid in (WHOLE_CENT_GRID, HALF_CENT_GRID):
+            for side in ("yes", "no"):
+                for tenths in (203, 405, 505, 663, 897):
+                    built = order(
+                        side=side, limit_price_tenths=tenths, price_grid=grid
+                    )
+                    assert built.fill_price_tenths <= tenths
+                    assert grid.is_on_grid(built.api_price_tenths)
+
+
+class TestTheYesBookConversion:
+    """V2 quotes everything from the YES leg. Four combinations, two sides."""
+
+    @pytest.mark.parametrize(
+        "side, action, expected",
+        [
+            ("yes", "buy", "bid"),
+            ("no", "sell", "bid"),
+            ("yes", "sell", "ask"),
+            ("no", "buy", "ask"),
+        ],
+    )
+    def test_the_mapping_is_the_documented_one(self, side, action, expected):
+        assert book_side_for(side, action) == expected
+
+    def test_an_unrepresentable_combination_is_refused(self):
         with pytest.raises(OrderRefused):
-            api_price_cents(500, "hedge")
+            book_side_for("maybe", "buy")
 
 
 class TestOrderRequestValidation:
@@ -108,7 +195,10 @@ class TestOrderRequestValidation:
             {"ticker": ""},
             {"limit_price_tenths": 0},       # settled loser
             {"limit_price_tenths": 1000},    # settled winner
-            {"limit_price_tenths": 5},       # off-grid after rounding
+            {"limit_price_tenths": 5},       # off-grid after snapping
+            {"price_grid": None},
+            {"time_in_force": "GTT"},        # an internal value, not an API one
+            {"self_trade_prevention": "none"},
         ],
     )
     def test_invalid_orders_cannot_be_built(self, patch):
@@ -124,25 +214,43 @@ class TestOrderRequestValidation:
         assert order().client_order_id
         assert order().client_order_id != order().client_order_id
 
-    def test_the_body_names_the_price_field_per_side(self):
-        assert "yes_price" in order(side="yes").to_api_dict()
-        assert "no_price" in order(side="no").to_api_dict()
+    def test_the_body_is_the_v2_shape(self):
+        """Transcribed from Kalshi's published OpenAPI spec for
+        `POST /portfolio/events/orders`. Both `time_in_force` and
+        `self_trade_prevention_type` are required there and were absent from the
+        legacy body, so an endpoint swap without them is a 400."""
+        body = order().to_api_dict()
+        assert set(body) == {
+            "ticker", "client_order_id", "side", "count", "price",
+            "time_in_force", "self_trade_prevention_type",
+        }
+        assert body["side"] in ("bid", "ask")
+        assert body["price"] == "0.5000"
+        assert body["count"] == "20.00"        # fixed-point string, not an int
+
+    def test_the_body_carries_no_legacy_price_field(self):
+        """`yes_price`/`no_price` are integer cents and cannot name 50.5c.
+        Their presence would mean the migration is half-done."""
+        body = order().to_api_dict()
+        assert "yes_price" not in body
+        assert "no_price" not in body
 
     def test_the_body_carries_the_idempotency_key(self):
         built = order()
         assert built.to_api_dict()["client_order_id"] == built.client_order_id
 
     def test_worst_case_cost_uses_the_price_actually_sent(self):
-        """Rounding is in our favour, so quoting the unrounded price would
+        """Snapping is in our favour, so quoting the unsnapped price would
         overstate the cost.
 
-        50.9c rounds down to 50c, giving $50.00 of stake. The fee on top is
-        $2.00 -- 50c is exactly where the conservative model peaks, at 2c per
-        contract -- so the worst case is $52.00. Quoting the unrounded 50.9c
-        would have said $50.90 of stake for a fill that costs $50.00.
+        50.9c snaps down to 50c on a whole-cent grid, giving $50.00 of stake.
+        The fee on top is $2.00 -- 50c is exactly where the conservative model
+        peaks, at 2c per contract -- so the worst case is $52.00. Quoting the
+        unsnapped 50.9c would have said $50.90 of stake for a fill that costs
+        $50.00.
         """
         built = order(count=100, limit_price_tenths=509)
-        assert built.api_price == 50
+        assert built.api_price_tenths == 500
         assert built.worst_case_cost_dollars == pytest.approx(52.0)
 
 
@@ -161,7 +269,7 @@ class TestOrderPlacer:
         assert outcome.status == "dry_run"
         assert outcome.dry_run is True
         assert outcome.request_body["ticker"] == order().ticker
-        assert "yes_price" in outcome.request_body
+        assert outcome.request_body["price"] == "0.5000"
 
     async def test_observers_see_every_order(self):
         seen = []
@@ -177,6 +285,93 @@ class TestOrderPlacer:
 
         outcome = await OrderPlacer(observers=[explode]).place(order())
         assert outcome.status == "dry_run"
+
+
+class TestTheV2ResponseIsUnverifiedAndSaysSo:
+    """**No order has ever been placed by this project**, so the response shape
+    below is transcribed from Kalshi's OpenAPI spec and has never been observed.
+
+    This class exists because the *previous* version had the same gap and hid
+    it: it read `response["order"]["status"]` with a default of `"resting"`. V2
+    emits neither an `order` envelope nor a `status` field, so every live order
+    would have been recorded as resting with a null order id -- a plausible
+    default over an unread response, which is the failure mode this repo has hit
+    most often (`tasks/lessons.md`, "the WebSocket path was dead").
+
+    The protection is structural rather than documentary: an unreadable response
+    produces `unrecognised_response`, which no caller can mistake for success.
+    A skipped test next to confident assertions does not stop the assertions
+    from being believed.
+    """
+
+    class _FakeRest:
+        def __init__(self, response):
+            self.response = response
+            self.calls = []
+
+        async def post(self, path, json_body=None):
+            self.calls.append((path, json_body))
+            return self.response
+
+    async def test_the_order_goes_to_the_v2_path(self):
+        rest = self._FakeRest(
+            {"order_id": "abc", "fill_count": "0.00", "remaining_count": "20.00"}
+        )
+        await OrderPlacer(rest, dry_run=False).place(order())
+        assert rest.calls[0][0] == ORDERS_PATH
+        assert ORDERS_PATH == "/portfolio/events/orders"
+
+    @pytest.mark.parametrize(
+        "fill, remaining, expected",
+        [
+            ("0.00", "20.00", "resting"),
+            ("20.00", "0.00", "filled"),
+            ("5.00", "15.00", "partially_filled"),
+            ("0.00", "0.00", "unfilled"),
+        ],
+    )
+    async def test_status_is_derived_from_the_fill_counts(
+        self, fill, remaining, expected
+    ):
+        rest = self._FakeRest(
+            {"order_id": "abc", "fill_count": fill, "remaining_count": remaining}
+        )
+        outcome = await OrderPlacer(rest, dry_run=False).place(order())
+        assert outcome.status == expected
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {},                                          # empty
+            {"order": {"status": "resting"}},            # the LEGACY shape
+            {"order_id": "abc"},                         # no counts
+            {"fill_count": "0.00", "remaining_count": "20.00"},   # no id
+            None,
+        ],
+    )
+    async def test_an_unreadable_response_never_reads_as_success(self, response):
+        """Including the legacy envelope, which is the shape the old parser
+        expected -- if Kalshi ever answers that way, we must notice."""
+        rest = self._FakeRest(response)
+        outcome = await OrderPlacer(rest, dry_run=False).place(order())
+        assert outcome.status == STATUS_UNRECOGNISED
+        assert "may have been placed" in outcome.error_text
+
+    def test_unreadable_counts_do_not_default_to_resting(self):
+        assert status_from_counts(None, None) == STATUS_UNRECOGNISED
+        assert status_from_counts(0.0, None) == STATUS_UNRECOGNISED
+
+    async def test_the_measured_fee_is_kept_when_the_exchange_reports_one(self):
+        """`average_fee_paid` is the reading `core/fees.py` is hedging for want
+        of. It arrives in the order response, so the fee-calibration trades do
+        not also need a `/portfolio/fills` poll to be useful."""
+        rest = self._FakeRest({
+            "order_id": "abc", "fill_count": "20.00", "remaining_count": "0.00",
+            "average_fill_price": "0.5000", "average_fee_paid": "0.0200",
+        })
+        outcome = await OrderPlacer(rest, dry_run=False).place(order())
+        assert outcome.average_fee_paid_dollars == "0.0200"
+        assert outcome.average_fill_price_dollars == "0.5000"
 
 
 @pytest.fixture

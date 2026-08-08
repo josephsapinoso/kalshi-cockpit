@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-08-08T06:04:10.879259+00:00",
+  "note": "Verbatim `price_ranges` / `price_level_structure` values from /events?with_nested_markets=true, one entry per DISTINCT grid across game-level markets. `price_ranges` is Kalshi's source of truth for valid limit prices; `price_level_structure` is a label and must not be keyed off (Kalshi: 'new structures are introduced over time'). Counts are of markets, and are a fact about the day this ran.",
+  "events_scanned": 9791,
+  "game_markets_seen": 1426,
+  "structure_counts": {
+    "linear_cent": 1426
+  },
+  "grids": [
+    {
+      "price_level_structure": "linear_cent",
+      "price_ranges": [
+        {
+          "end": "1.0000",
+          "start": "0.0000",
+          "step": "0.0100"
+        }
+      ],
+      "example_ticker": "KXNCAAFGAME-26SEP19MSUND-ND",
+      "example_status": "active"
+    }
+  ]
+}

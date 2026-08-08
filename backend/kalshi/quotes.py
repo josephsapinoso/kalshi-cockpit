@@ -113,6 +113,19 @@ class LiveQuote:
     def tradeable(self) -> bool:
         return self.market.status == TRADEABLE_STATUS
 
+    @property
+    def price_grid(self):
+        """Which limit prices this market accepts right now, or None.
+
+        Read from the same payload as the book, at the same instant, rather than
+        from the recorded row. A market's `price_level_structure` can change
+        while it is open -- Kalshi publishes a `price_level_structure_updated`
+        lifecycle event -- so a grid cached at recommendation time is exactly as
+        stale as the price beside it, and this module exists because that
+        staleness matters.
+        """
+        return self.market.price_grid
+
     def age_ms(self, now_ms: int) -> int:
         """How old this observation is. Normally a round trip, never negative.
 

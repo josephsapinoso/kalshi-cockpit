@@ -782,10 +782,39 @@ decision.
       bettable, but this price was read 4m ago and will move".
       17 guards verified by disabling; two were decoration on the first pass and
       both were real defects rather than missing tests.
-- [ ] **Deci-cent asks can't fill.** Limit prices floor to whole cents, so a
-      50.5c ask rests at 50c on the ~25% of markets that tick in half-cents.
-      Safe for money, but it corrupts the paper record with orders that never
-      fill. Needs checking against Kalshi's write API.
+- [x] ~~**Deci-cent asks can't fill.**~~ — **done 2026-08-08.** Checking it
+      against Kalshi's write API turned a rounding fix into an endpoint
+      migration, and found a second defect on the way. `docs/adr/0007`.
+      **Prices now snap to the market's own `price_ranges`**, which Kalshi
+      documents as the source of truth and explicitly tells clients not to infer
+      from `price_level_structure`. No default grid: unreadable resolves to
+      `None` at ingest and the order path refuses, because assuming whole cents
+      is the bug.
+      **The order goes to `POST /portfolio/events/orders` (V2)**, because the
+      legacy path takes integer cents and cannot express 50.5c at all. It is
+      also absent from Kalshi's current API reference — we had been posting to a
+      deprecated endpoint for the whole project, invisibly, because nothing has
+      ever posted. V2 quotes the **YES leg only** (`bid`/`ask`), so buying NO at
+      `p` is selling YES at `1 - p`; `time_in_force` and
+      `self_trade_prevention_type` are required and were absent.
+      **The response defect found in the same change:** V2 emits no `status`
+      field, and the old parser read `response["order"]["status"]` defaulting to
+      `"resting"` — so every live order would have been recorded as resting with
+      a null order id. Status is now derived from the fill counts and an
+      unreadable response is `unrecognised_response`, which nothing can mistake
+      for success.
+      **Measured before believing the size of it:**
+      `scripts/capture_price_grids.py` walked the live exchange —
+      **1,426 game markets, all `linear_cent`.** So this costs no fills today;
+      the "~25%" is a fact about all Kalshi markets, not about the ones we
+      price. That does **not** mean sub-cent game markets don't exist (60 of
+      2,145 on 2026-08-06, and a market's grid can change while it is open).
+      6 guards verified by disabling; one of them was decoration on the first
+      pass — a redundant bound check — and was deleted rather than kept.
+      1,139 tests.
+      **Dividend:** the V2 response carries `average_fee_paid` per contract, so
+      the fee-calibration trades will read the true fee out of the order
+      response itself rather than needing a `/portfolio/fills` poll.
 - [x] ~~**Calibration panel leaks the number it suppresses**~~ — **done
       2026-08-07.** It rendered `implied` and `actual` on every row, and
       `gap = actual - implied`, so the suppressed finding sat one subtraction

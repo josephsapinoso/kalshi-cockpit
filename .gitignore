@@ -91,3 +91,6 @@ Thumbs.db
 # deliberate and travels with the repo; only machine-local settings are ignored.
 # ---------------------------------------------------------------------------
 .claude/settings.local.json
+
+# Agent worktrees (ADR 0003). Separate checkouts, never content of this one.
+.claude/worktrees/

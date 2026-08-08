@@ -15,16 +15,28 @@ from pathlib import Path
 
 from backend.config import GateConfig, StalenessConfig
 from backend.gate import evaluate_gate, recommendation_freshness
+from backend.kalshi.grid import parse_price_grid
 from backend.kalshi.orders import (
     OrderPlacer,
     OrderRefused,
     OrderRequest,
-    api_price_cents,
 )
 from backend.store import db
 
 DAY_MS = 86_400_000
 ARMED = GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+
+# The grid every live game market carried on 2026-08-08 (1,426 of 1,426).
+WHOLE_CENT = parse_price_grid(
+    [{"start": "0.0000", "end": "1.0000", "step": "0.0100"}],
+    structure="linear_cent",
+)
+# Kalshi's published half-cent structure. Shown beside the whole-cent one
+# because the difference between them is the whole point of this section.
+HALF_CENT = parse_price_grid(
+    [{"start": "0.0000", "end": "1.0000", "step": "0.0050"}],
+    structure="center_half_edge_half_cent",
+)
 
 
 def rule(title: str) -> None:
@@ -131,27 +143,49 @@ def main(root: Path) -> None:
     fresh = next(c for c in decision.conditions if c.name == "data_fresh")
     print(f"\n  [{'PASS' if fresh.met else 'FAIL'}] data_fresh -- {fresh.detail}")
 
-    rule("5. Price rounding: away from paying more, and refuse off-grid.")
-    for tenths, action in ((509, "buy"), (501, "sell"), (500, "buy")):
-        print(f"  {tenths} tenths, {action:<4} -> {api_price_cents(tenths, action)}c")
+    rule("5. Prices snap to the MARKET'S grid, away from paying more.")
+    print("  Kalshi publishes `price_ranges` per market and rejects anything")
+    print("  off it. Whole cents are legal on every structure -- which is why")
+    print("  flooring to a cent was never rejected, and simply never filled.\n")
+    for grid, label in ((WHOLE_CENT, "linear_cent"), (HALF_CENT, "half-cent")):
+        for side, tenths in (("yes", 505), ("no", 405)):
+            built = OrderRequest(
+                ticker="T", side=side, action="buy", count=1,
+                limit_price_tenths=tenths, price_grid=grid,
+            )
+            print(
+                f"  {label:<12} buy {side:<3} @ {tenths / 10:>5.1f}c  ->  "
+                f"send {built.book_side} {built.api_price_dollars}  "
+                f"(we pay {built.fill_price_tenths / 10:.1f}c)"
+            )
+    print("\n  On the half-cent grid the NO bet costs 40.5c. Flooring sent an")
+    print("  offer to sell YES at 60c against a resting bid of 59.5c -- legal,")
+    print("  recorded as a placed bet, and unfillable.\n")
     for tenths, action in ((9, "buy"), (999, "sell")):
         try:
-            api_price_cents(tenths, action)
+            OrderRequest(
+                ticker="T", side="yes", action=action, count=1,
+                limit_price_tenths=tenths, price_grid=WHOLE_CENT,
+            )
         except OrderRefused as exc:
-            print(f"\n  {tenths} tenths, {action} -> OrderRefused")
-            print(f"    {exc}")
+            print(f"  {tenths} tenths, {action} -> OrderRefused")
+            print(f"    {exc}\n")
 
     rule("6. A dry run. The body is exactly what would be sent.")
     order = OrderRequest(
         ticker="KXNFLGAME-26AUG27KCBAL-KC", side="yes", action="buy",
-        count=20, limit_price_tenths=509, recommendation_id=recent,
+        count=20, limit_price_tenths=509, price_grid=WHOLE_CENT,
+        recommendation_id=recent,
     )
     import asyncio
 
     outcome = asyncio.run(OrderPlacer().place(order))
 
     print(f"  status                {outcome.status}")
-    print(f"  limit price sent      {order.api_price}c  (from 50.9c, rounded down)")
+    print(
+        f"  limit price sent      {order.api_price_dollars}  "
+        f"(from 50.9c, snapped down)"
+    )
     print(f"  worst-case cost       ${order.worst_case_cost_dollars:.2f}")
     print(f"  client_order_id       {order.client_order_id}")
     print(f"\n  body: {outcome.request_body_json}")
