@@ -147,9 +147,28 @@ Three smaller ones, all from the same review:
   `GET /markets/{ticker}/orderbook`, compare the NO side's quantity against
   `yes_ask_size_fp`.
 
+### Found while deciding whether to deploy — fixed, and it was the same shape
+
+The hub's loop had no `except` around it, and `_load_subscriptions` opens the
+database. `open_db` refuses an unrecognised schema version, **which is exactly
+the state on the first boot after this deploy's migration** if the API comes up
+before the runner has migrated. The task would have died, nothing would have
+restarted it, and `/api/health` would have gone on reporting the ticker
+available — because that checked `hub is not None`, a claim about construction.
+
+A dead hub still answers `/api/stream/quotes` with snapshots and heartbeats,
+both empty, which renders as a quiet market. That is the exact failure a ticker
+introduces and the one the heartbeat exists to prevent, arriving through the
+door nobody was watching.
+
+Now: the cycle is wrapped, the failure is broadcast as `down` rather than only
+logged, the loop retries, and health reports `is_running`.
+
 ### What to look at once it is live
 
-- `live_quotes_available` on `/api/health` says whether the ticker is running.
+- `live_quotes_available` on `/api/health` says whether the ticker is running —
+  the loop, not the object. If it is `false` on the live instance, the hub died
+  and the log has the reason.
 - The feed header on the Board: `LIVE`, `FEED DOWN`, `FEED SILENT`, `NO LIVE
   ROWS`. `NO LIVE ROWS` is the expected state for most of the day.
 - **The rewrite destination is read at Next's start, not at build**, and it

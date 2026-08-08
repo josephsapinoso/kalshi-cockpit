@@ -299,6 +299,20 @@ class QuoteHub:
     def is_down(self) -> bool:
         return self._down_reason is not None
 
+    @property
+    def is_running(self) -> bool:
+        """Whether the feed loop is actually alive.
+
+        **Not `hub is not None`.** `/api/health` reported the ticker available
+        on the strength of the object existing, which is a claim about
+        construction rather than about anything running -- and the loop can die:
+        `open_db` raises on an unrecognised schema version, which is precisely
+        the state on the first boot after a migration. A dead hub still serves
+        snapshots and heartbeats with nothing in them, so it renders as a quiet
+        market, which is the failure a ticker exists to avoid.
+        """
+        return self._task is not None and not self._task.done()
+
     async def start(self) -> None:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="quote-hub")
@@ -319,38 +333,60 @@ class QuoteHub:
         service that has told us ten times it is unavailable.
         """
         while True:
-            subscriptions = await asyncio.to_thread(self._load_subscriptions)
-            if not subscriptions:
-                # Nothing bettable, so nothing to stream. Not an error -- it is
-                # the state for most of the day -- but it is broadcast so the
-                # client can say "no live rows" rather than "connecting...".
-                await self._broadcast({"type": "idle"})
-                await asyncio.sleep(self._resubscribe_s)
-                continue
-
-            socket = self._socket_factory(sorted(self._subscriptions))
-            self._down_reason = None
-            await self._broadcast({"type": "up", "tickers": len(self._subscriptions)})
-            feed = asyncio.create_task(socket.run(), name="quote-hub-socket")
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(feed), timeout=self._resubscribe_s
-                )
-            except asyncio.TimeoutError:
-                # The refresh interval elapsed with the feed healthy: rebuild the
-                # subscription list and reconnect.
-                feed.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await feed
-            except FeedDied as exc:
-                self._down_reason = str(exc)
-                await self._broadcast({"type": "down", "reason": str(exc)})
-                await asyncio.sleep(self._resubscribe_s)
+                await self._one_cycle()
             except asyncio.CancelledError:
-                feed.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await feed
                 raise
+            except Exception as exc:                            # noqa: BLE001
+                # **The loop must outlive anything that is not a cancellation.**
+                # `_load_subscriptions` opens the database, and `open_db` refuses
+                # an unrecognised schema version -- so the first boot after a
+                # migration, with the runner yet to migrate, killed this task
+                # outright. Nothing restarted it and nothing said so: a dead hub
+                # still answers `/api/stream/quotes` with snapshots and
+                # heartbeats, both empty, which reads as a quiet market.
+                #
+                # Broadcast rather than only logged, for the same reason
+                # `FeedDied` is: the person holding the phone is the one who
+                # needs to know the prices stopped, and Fly's log tail has
+                # usually rolled past it by the time anyone looks.
+                self._down_reason = f"{type(exc).__name__}: {exc}"
+                logger.exception("quote hub cycle failed; retrying")
+                await self._broadcast({"type": "down", "reason": self._down_reason})
+                await asyncio.sleep(self._resubscribe_s)
+
+    async def _one_cycle(self) -> None:
+        """One subscription window: read the rows, hold the feed, come back."""
+        subscriptions = await asyncio.to_thread(self._load_subscriptions)
+        if not subscriptions:
+            # Nothing bettable, so nothing to stream. Not an error -- it is the
+            # state for most of the day -- but it is broadcast so the client can
+            # say "no live rows" rather than "connecting...".
+            await self._broadcast({"type": "idle"})
+            await asyncio.sleep(self._resubscribe_s)
+            return
+
+        socket = self._socket_factory(sorted(self._subscriptions))
+        self._down_reason = None
+        await self._broadcast({"type": "up", "tickers": len(self._subscriptions)})
+        feed = asyncio.create_task(socket.run(), name="quote-hub-socket")
+        try:
+            await asyncio.wait_for(asyncio.shield(feed), timeout=self._resubscribe_s)
+        except asyncio.TimeoutError:
+            # The refresh interval elapsed with the feed healthy: rebuild the
+            # subscription list and reconnect.
+            feed.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await feed
+        except FeedDied as exc:
+            self._down_reason = str(exc)
+            await self._broadcast({"type": "down", "reason": str(exc)})
+            await asyncio.sleep(self._resubscribe_s)
+        except asyncio.CancelledError:
+            feed.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await feed
+            raise
 
     def _load_subscriptions(self) -> list[_Subscription]:
         """Read the bettable rows. Runs on a thread -- sqlite3 is blocking."""

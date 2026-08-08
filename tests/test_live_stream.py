@@ -415,6 +415,108 @@ class TestTheStream:
         await stream.aclose()
 
 
+class TestTheHubOutlivesItsOwnFailures:
+    """A dead hub is indistinguishable from a quiet market, and that is the
+    whole failure a ticker introduces.
+
+    `_load_subscriptions` opens the database, and `open_db` refuses an
+    unrecognised schema version -- which is exactly the state on the first boot
+    after a migration, before the runner has migrated. The loop had no `except`
+    around it, so the task died, nothing restarted it, and
+    `/api/health` went on reporting the ticker available because that only
+    checked the hub object existed.
+    """
+
+    async def test_a_failing_cycle_does_not_kill_the_loop(self, stream_db):
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        hub = QuoteHub(path, socket_factory=FakeSocket, heartbeat_s=5.0,
+                       resubscribe_s=0.1)
+
+        calls = {"n": 0}
+        original = hub._load_subscriptions
+
+        def explode():
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise RuntimeError("database schema is version 1, expected 2")
+            return original()
+
+        hub._load_subscriptions = explode
+        await hub.start()
+        try:
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                if calls["n"] > 2:
+                    break
+        finally:
+            await hub.stop()
+
+        assert calls["n"] > 2, "the loop stopped at the first failure"
+
+    async def test_a_failing_cycle_is_broadcast_not_only_logged(self, stream_db):
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        hub = QuoteHub(path, socket_factory=FakeSocket, heartbeat_s=30.0,
+                       resubscribe_s=0.1)
+        hub._load_subscriptions = lambda: (_ for _ in ()).throw(
+            RuntimeError("database schema is version 1, expected 2")
+        )
+        stream = hub.subscribe()
+        await asyncio.wait_for(anext(stream), timeout=2.0)      # snapshot
+        await hub.start()
+        try:
+            event = await asyncio.wait_for(anext(stream), timeout=3.0)
+        finally:
+            await hub.stop()
+
+        assert event["type"] == "down"
+        assert "schema" in event["reason"]
+        await stream.aclose()
+
+    async def test_health_reports_the_loop_running_not_the_object_existing(
+        self, stream_db
+    ):
+        """The discriminating case: a constructed hub that never started."""
+        path, conn, now = stream_db
+        hub = QuoteHub(path, socket_factory=FakeSocket)
+
+        assert hub.is_running is False, "an unstarted hub is not a live ticker"
+        await hub.start()
+        assert hub.is_running is True
+        await hub.stop()
+        assert hub.is_running is False
+
+    async def test_the_health_endpoint_does_not_advertise_a_dead_ticker(
+        self, stream_db
+    ):
+        """The claim `/api/health` makes is what the Board acts on.
+
+        It opens the stream only when `live_quotes_available` is true, so a
+        health check that reports on the hub *object* rather than on the hub
+        *running* points the page at a feed that will never send a quote —
+        and the page then shows "LIVE" over prices nothing is refreshing.
+        """
+        import httpx
+        from backend.api.routes import create_app
+        from backend.config import AppConfig
+
+        path, conn, now = stream_db
+        hub = QuoteHub(path, socket_factory=FakeSocket)
+        app = create_app(
+            AppConfig(instance_mode="live", auth_token="t", db_path=path),
+            quote_hub=hub,
+        )
+
+        # Driven without a lifespan, so the hub exists and has never started --
+        # the same shape as a hub whose loop died.
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            body = (await c.get("/api/health")).json()
+
+        assert body["live_quotes_available"] is False
+
+
 class TestTheWireFormat:
     def test_an_event_is_one_sse_frame(self):
         frame = sse({"type": "heartbeat", "at_ms": 1})

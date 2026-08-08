@@ -296,7 +296,13 @@ def create_app(
             # stream only when this is true, so the demo shows a static page
             # rather than an EventSource reconnect loop against a 503 -- which
             # is what a browser does with a failing stream, forever, silently.
-            "live_quotes_available": hub is not None,
+            #
+            # `is_running`, not `hub is not None`. The latter is a claim about
+            # construction: a hub whose loop had died still satisfied it, and a
+            # dead hub serves empty snapshots and heartbeats that read as a
+            # quiet market. Health must report the thing running, not the object
+            # existing.
+            "live_quotes_available": hub is not None and hub.is_running,
         }
 
     @app.get("/api/stream/quotes")
