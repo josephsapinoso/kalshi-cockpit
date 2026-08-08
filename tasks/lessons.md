@@ -1698,3 +1698,45 @@ evidence record — and `/api/health` never answers at all in this failure, so
 Fly's health check catches it, which is the one merciful detail. Two-step
 deploys are not ceremony: the first step is the one that finds out whether the
 image boots.
+
+---
+
+## 2026-08-08 — The counter you are told to watch was counting the other population
+
+The fast cadence's whole justification is a composition — sleep plus pass must
+stay inside the 30s Kalshi limit — and `Tempo.observe_pass_duration` exists to
+say when a real pass breaks it. It was called after **every** pass and always
+compared against the **fast** interval.
+
+The live instance's first pass tripped it:
+
+    a pass took 14.9s; ... worst-case gap 32.2s, past the 30s Kalshi quote limit
+
+That pass discovered 167 events, quoted 1,426 markets and joined 228 rows for
+CLV. It was a *full* pass, on the 900s cadence, with the window **closed** and
+no quote pass running at all — 14.9s is what a healthy full pass costs. The
+arithmetic in the warning described a cadence that was not running.
+
+Full passes happen every 900s forever, so `passes_over_quote_budget` would have
+been ~96 routine entries a day. This repo's own rule, written down twice
+already: **if most inputs trip it, it is a state, not an exception, and logging
+it as an exception destroys the log's value as a diagnostic.** The counter was
+the single signal that the fast cadence had stopped working, and it was
+guaranteed to be dominated by passes doing exactly what they should.
+
+**What made it invisible.** The function took a duration and nothing else, so it
+*could not* tell the populations apart — the caller had `kind` in a local
+variable and used it two lines below. And the test carried the intent in prose:
+its docstring said *"a quote pass slow enough to break the composition"* while
+the code it exercised had no notion of a quote pass. A docstring naming the
+population is not the code selecting it.
+
+**How to apply:** when a check is about one population, make the population a
+**required** argument rather than a comment — a keyword-only `kind` that the
+caller must supply cannot be forgotten the way a docstring can. And when one
+number can be tripped by two different situations, ask what the reader is
+supposed to *do* about each: "the fast cadence is decoration" needs a fix, "the
+once-per-window full pass spans one confirmation gap" is structural and needs
+nothing. Two responses means two counters. Related:
+[[two-populations-in-one-record]], [[no-result-and-rejected-are-different]],
+[[computing-the-right-statistic-and-then-ignoring-it]].

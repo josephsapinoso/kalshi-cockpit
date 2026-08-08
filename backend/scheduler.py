@@ -175,7 +175,8 @@ class Tempo:
     last_full_ms: Optional[int] = None
     slow_passes: int = 0
     fast_passes: int = 0
-    slow_passes_overrun: int = 0
+    quote_passes_overrun: int = 0
+    full_passes_overrun_in_window: int = 0
 
     def interval_s(self) -> float:
         """The sleep to take next. Passed to `run_forever` as a callable."""
@@ -200,7 +201,13 @@ class Tempo:
     def completed_quote_pass(self, now_ms: int) -> None:
         self.fast_passes += 1
 
-    def observe_pass_duration(self, seconds: float, *, max_kalshi_quote_age_s: float) -> bool:
+    def observe_pass_duration(
+        self,
+        seconds: float,
+        *,
+        max_kalshi_quote_age_s: float,
+        kind: str,
+    ) -> bool:
         """Whether a pass that took this long still fits the fast cadence.
 
         The startup check uses an *allowance* for how long a pass takes. This
@@ -208,6 +215,28 @@ class Tempo:
         composition turns the fast cadence into wasted requests, and the symptom
         -- rows expiring between passes -- is indistinguishable from a quiet
         board, so it has to be said out loud rather than inferred.
+
+        **`kind` is not optional, and the first live pass is why.** This warned
+        on *every* pass against the *fast* interval, and the first full pass on
+        the live instance -- 167 events discovered, 1,426 markets quoted, 228
+        rows joined for CLV, 14.9s, entirely normal -- tripped it while the
+        window was closed and no quote pass was running at all. Full passes
+        happen every 900s forever, so the counter Joe was told to watch would
+        have been ~96 routine entries a day and could never have surfaced the
+        one condition it exists for. That is this repo's own rule: if most
+        inputs trigger it, it is a state, not an exception, and logging it as an
+        exception destroys the log's value as a diagnostic.
+
+        The two questions, which are not the same question:
+
+        - **quote pass** -- "is the fast cadence decoration?" A quote pass runs
+          on the 15s interval, so its duration goes straight into the gap
+          between confirmations. This is the diagnostic.
+        - **full pass** -- "does the once-per-window full pass push rows past
+          the limit while they are bettable?" Structural rather than
+          surprising: one gap in sixty, every window. Counted separately, and
+          only while the window is open, because outside it nothing is bettable
+          and the arithmetic describes a cadence that is not running.
         """
         ok = quote_refresh_survives_interval(
             self.fast_interval_s,
@@ -215,25 +244,46 @@ class Tempo:
             max_kalshi_quote_age_s=max_kalshi_quote_age_s,
             pass_duration_s=seconds,
         )
-        if not ok:
-            self.slow_passes_overrun += 1
+        if ok:
+            return True
+
+        gap_s = self.fast_interval_s * (1 + JITTER) + seconds
+
+        if kind == "quote":
+            self.quote_passes_overrun += 1
             logger.warning(
-                "a pass took %.1fs; with a %.0fs fast interval and %.0f%% jitter "
-                "the worst-case gap between confirmations is %.1fs, past the %.0fs "
-                "Kalshi quote limit. Rows will expire between passes and the "
-                "board will look quiet rather than stale.",
-                seconds, self.fast_interval_s, JITTER * 100,
-                self.fast_interval_s * (1 + JITTER) + seconds,
+                "a QUOTE pass took %.1fs; with a %.0fs fast interval and %.0f%% "
+                "jitter the worst-case gap between confirmations is %.1fs, past "
+                "the %.0fs Kalshi quote limit. The fast cadence is not keeping "
+                "rows inside the limit -- they expire between passes, and an "
+                "expired row looks exactly like a row nobody wanted.",
+                seconds, self.fast_interval_s, JITTER * 100, gap_s,
                 max_kalshi_quote_age_s,
             )
-        return ok
+            return False
+
+        if self.window_open:
+            self.full_passes_overrun_in_window += 1
+            logger.info(
+                "a full pass took %.1fs inside an open window, so the one "
+                "confirmation gap spanning it is %.1fs against a %.0fs limit -- "
+                "rows read as expired around each full pass. Expected once per "
+                "window; only a QUOTE pass overrun means the fast cadence is "
+                "failing.",
+                seconds, gap_s, max_kalshi_quote_age_s,
+            )
+        return False
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "window_open": self.window_open,
             "slow_passes": self.slow_passes,
             "fast_passes": self.fast_passes,
-            "passes_over_quote_budget": self.slow_passes_overrun,
+            # Named for the population each counts. One aggregate covering both
+            # read as "the fast cadence is failing" while counting full passes
+            # doing exactly what they are supposed to.
+            "passes_over_quote_budget": self.quote_passes_overrun,
+            "full_passes_over_limit_in_window": self.full_passes_overrun_in_window,
         }
 
 

@@ -277,7 +277,9 @@ async def main() -> int:
             tempo.window_open = window.is_open
             elapsed = time.monotonic() - started
             tempo.observe_pass_duration(
-                elapsed, max_kalshi_quote_age_s=staleness.max_kalshi_quote_age_s
+                elapsed,
+                max_kalshi_quote_age_s=staleness.max_kalshi_quote_age_s,
+                kind=kind,
             )
             if kind == "full":
                 tempo.completed_full_pass(stamp)

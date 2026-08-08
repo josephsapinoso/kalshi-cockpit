@@ -263,7 +263,7 @@ class TestTempo:
         tempo.window_open = True
         assert tempo.interval_s() == 15.0
 
-    def test_an_overrunning_pass_is_reported_not_absorbed(self):
+    def test_an_overrunning_quote_pass_is_reported_not_absorbed(self):
         """A quote pass slow enough to break the composition has to say so.
 
         The symptom -- rows expiring between passes despite the fast cadence --
@@ -271,12 +271,67 @@ class TestTempo:
         left to be noticed.
         """
         tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
-        assert tempo.observe_pass_duration(2.0, max_kalshi_quote_age_s=30)
-        assert tempo.slow_passes_overrun == 0
+        assert tempo.observe_pass_duration(2.0, max_kalshi_quote_age_s=30, kind="quote")
+        assert tempo.quote_passes_overrun == 0
 
-        assert not tempo.observe_pass_duration(20.0, max_kalshi_quote_age_s=30)
-        assert tempo.slow_passes_overrun == 1
+        assert not tempo.observe_pass_duration(
+            20.0, max_kalshi_quote_age_s=30, kind="quote"
+        )
+        assert tempo.quote_passes_overrun == 1
         assert tempo.as_dict()["passes_over_quote_budget"] == 1
+
+    def test_a_slow_full_pass_is_not_counted_against_the_quote_budget(self):
+        """The counter has to count the population it is named for.
+
+        Measured on the live instance's very first pass: a full pass discovering
+        167 events, quoting 1,426 markets and joining 228 rows for CLV took
+        14.9s -- entirely normal, on a 900s cadence -- and raised
+        `passes_over_quote_budget` while the window was closed and no quote pass
+        was running at all. Full passes happen forever, so the counter would
+        have been ~96 routine entries a day, and the one condition it exists to
+        surface could never have been seen in it.
+        """
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+
+        assert not tempo.observe_pass_duration(
+            14.9, max_kalshi_quote_age_s=30, kind="full"
+        )
+        assert tempo.quote_passes_overrun == 0, (
+            "a full pass raised the quote-cadence alarm. That counter is the "
+            "only signal that the fast cadence has stopped working, and a "
+            "population that trips it every 900s makes it unreadable."
+        )
+        assert tempo.as_dict()["passes_over_quote_budget"] == 0
+
+    def test_a_slow_full_pass_counts_only_while_the_window_is_open(self):
+        """Two questions, so two counters -- and the closed-window case is not
+        a finding at all.
+
+        With the window shut the fast cadence is not running: the sleep after
+        this pass is 900s, so arithmetic about a 15s interval describes a
+        cadence that does not exist. Open, it is a real but structural fact --
+        one confirmation gap per window spans the full pass.
+        """
+        closed = Tempo(slow_interval_s=900.0, fast_interval_s=15.0)
+        closed.observe_pass_duration(14.9, max_kalshi_quote_age_s=30, kind="full")
+        assert closed.full_passes_overrun_in_window == 0
+
+        openw = Tempo(slow_interval_s=900.0, fast_interval_s=15.0, window_open=True)
+        openw.observe_pass_duration(14.9, max_kalshi_quote_age_s=30, kind="full")
+        assert openw.full_passes_overrun_in_window == 1
+        assert openw.as_dict()["full_passes_over_limit_in_window"] == 1
+        assert openw.as_dict()["passes_over_quote_budget"] == 0
+
+    def test_a_pass_inside_the_budget_counts_nothing_either_way(self):
+        """A guard that fires on everything and one that fires on nothing look
+        the same from the counter. Pin the negative case for both kinds."""
+        tempo = Tempo(slow_interval_s=900.0, fast_interval_s=15.0, window_open=True)
+        for kind in ("quote", "full"):
+            assert tempo.observe_pass_duration(
+                2.0, max_kalshi_quote_age_s=30, kind=kind
+            )
+        assert tempo.quote_passes_overrun == 0
+        assert tempo.full_passes_overrun_in_window == 0
 
 
 class TestACallableInterval:

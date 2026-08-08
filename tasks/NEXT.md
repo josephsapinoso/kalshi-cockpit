@@ -1,5 +1,79 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-08, 05:2xZ — deployed, and the demo found the bug for us)
+
+**Both instances are on the new image.** Demo verified, live verified, live
+machine `started`, checks 1/1, **restarts 0**, volume attached.
+
+    demo  https://kalshi-cockpit-demo.fly.dev   five pages 200, no error text,
+                                                instance_mode=demo, forged
+                                                bearer on /api/orders -> 403
+    live  https://kalshi-cockpit.fly.dev        five pages 307 -> /login,
+                                                /api/orders 401 with and
+                                                without a forged bearer
+
+    {"status":"ok","instance_mode":"live","live_trading_enabled":false,
+     "execution_available":false,"notifications_configured":true,
+     "live_quotes_available":true}
+
+**The migration ran.** `unchanged_confirmed: 50` on the first pass is a v2
+column doing its job, so the schema change reached the volume before uvicorn
+opened it.
+
+### The two-step deploy paid for itself on its first use
+
+The demo crash-looped: `can't open file '/app/scripts/migrate_db.py'`, exit 2
+under `set -e`, ten restarts, machine gone. `.dockerignore` denies `scripts/*`
+and allowlists by hand; the allowlist named `run_loop.py` and nothing else,
+because it was written when the entrypoint ran one script. **Live would have
+taken the same crash loop on the volume holding the only copy of the record.**
+
+`TestTheEntrypointRunsWhatItMustRunFirst` asserted the migration runs before
+uvicorn and passed throughout — it was true, and the file it named was not in
+the image. The allowlist is now derived from the entrypoint rather than
+maintained by hand. See `tasks/lessons.md`.
+
+**Also fixed before the live deploy: the diagnostic you were told to watch was
+counting the wrong population.** `observe_pass_duration` ran on every pass and
+always compared against the *fast* interval, so the first full pass — 167
+events, 1,426 markets, 228 rows joined, 14.9s, healthy, window closed — raised
+`passes_over_quote_budget`. Full passes happen every 900s forever, so that
+counter would have been ~96 routine entries a day and could never have shown
+the one condition it exists for. `kind` is now a required argument and full
+passes get their own counter.
+
+### Read this before believing the ticker is verified
+
+**`ws.py` still has not opened a socket in production.** `live_quotes_available:
+true` says the hub *loop* is running, which is exactly what it was changed to
+mean — but `_one_cycle` returns early with `{"type": "idle"}` when no row is
+bettable, and with `surfaced: 0` and the odds budget spent there have been no
+bettable rows. So no WebSocket has been opened on the live instance, and the
+things you asked me to watch for — reconnect loops, memory growth on a 1GB
+machine — **cannot be observed yet.** They become observable the first time a
+window opens with a surfaced row, not before.
+
+### What to look at, and when
+
+The budget day rolls at **10:00Z**. Until then no sweep can fire (`24 of 16
+credits spent since 10:00Z`), so the window stays closed, no quote passes run,
+and `surfaced: 0` means nothing at all. After the first sweep of the new day:
+
+- `surfaced` — this is the first time the sentence "still 0 after a full window
+  with the fast cadence running is the honest no-edge result" can be true.
+- `passes_over_quote_budget` — now genuinely means the fast cadence is failing.
+  `full_passes_over_limit_in_window` is the structural one and is expected to
+  be nonzero, roughly once per window.
+- The socket. First time `ws.py` runs for real.
+
+**One number to keep an eye on that nobody has flagged yet:** the CLV pass
+joined 228 rows and scored **0**, all of them `skipped_entry_after_close`. That
+is the documented cost of requiring the entry to precede the close, and the
+earlier run had 34 scored, so the scored rows are simply not re-joined — but
+228/228 skipped is worth a second look if it does not move once games settle.
+
+---
+
 ## Joe's asks, 2026-08-08 — four of them; two are done
 
 Raised in chat while the quote-refresh work was landing.
