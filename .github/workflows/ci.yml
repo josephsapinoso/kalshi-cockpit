@@ -1,8 +1,17 @@
-# Tests, warehouse build, and a secret scan on every push.
+# Tests, warehouse build, frontend build, and a secret scan on every push.
 #
 # This repo is intended to go public and the live instance holds real money, so
 # the secret scan is not a formality -- it is the last thing standing between a
 # private key and a public commit.
+#
+# Which makes the way it broke worth stating. From 2026-08-07 19:17Z the secret
+# scan failed on **every** push -- 36 in a row -- because its private-key grep
+# matched the phrase rather than the material, and two files legitimately
+# contain the phrase: `docker/entrypoint.sh` validating a decoded key's format,
+# and `tests/test_logging_redaction.py` proving the redactor strips a PEM block.
+# A check that is always red is not a check. Nobody can tell the run that found
+# a real key from the 36 that found a comment about one, and CI red becomes the
+# resting state rather than a signal. See `tasks/inbox/ci.md`.
 
 name: CI
 
@@ -76,9 +85,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      # Belt and braces. gitleaks scans history; this catches the specific
-      # shapes this project would leak, in the working tree, with a message
-      # that says what to do about it.
+      # Belt and braces, and the two nets cover different ground. gitleaks
+      # scans only the commits **in this push** (`git log -p -1` for a
+      # single-commit push), so a key committed last week and still sitting in
+      # the tree is invisible to it on every push after the one that added it.
+      # This scans the tracked tree at HEAD, every time.
       - name: Project-specific checks
         run: |
           set -euo pipefail
@@ -89,15 +100,77 @@ jobs:
             fail=1
           fi
 
-          if git ls-files | grep -Ei '\.(pem|key|p8|pkcs8)$'; then
+          # .pfx and .p12 are PKCS#12 -- a private key in a container with a
+          # different extension. .gitignore refuses .pfx and says nothing about
+          # .p12, and this check knew about neither, so the two disagreed about
+          # what counts as a key file.
+          if git ls-files | grep -Ei '\.(pem|key|p8|pkcs8|pfx|p12)$'; then
             echo "::error::A key file is tracked."
             fail=1
           fi
 
-          if git grep -nE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- . ':!*.yml'; then
+          # Key *material*, not the words for it. Two shapes, and between them
+          # they cover how a key actually arrives in a commit:
+          #
+          #   own_line  a PEM header alone on its line -- a key pasted verbatim
+          #             into any file, at any indentation.
+          #   inline    a PEM header followed immediately by a base64 body --
+          #             the .env / JSON single-line escaped form.
+          #
+          # Neither matches a header quoted inside source with nothing after
+          # it, which is what the two legitimate files contain. There is no
+          # path exclusion any more: the old `:!*.yml` was there only to stop
+          # this workflow matching itself, and it made a key pasted into
+          # `warehouse/profiles.yml` -- a file that exists to hold a connection
+          # -- unscannable.
+          own_line='^[[:space:]]*-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[[:space:]]*$'
+          inline='-----BEGIN( [A-Z0-9]+)* PRIVATE KEY-----[^A-Za-z0-9+/]{0,4}[A-Za-z0-9+/]{40,}'
+
+          # The patterns are exercised against known answers before they are
+          # trusted against the tree. A regex that has quietly stopped matching
+          # anything passes the real check forever and looks exactly like a
+          # clean repo -- which is the failure this step just spent 36 pushes
+          # demonstrating in the other direction. The canary body is random
+          # bytes, never a key.
+          tmp="$(mktemp -d)"
+          body="$(head -c 48 /dev/urandom | base64 | tr -d '\n')"
+          printf -- '-----BEGIN RSA PRIVATE KEY-----\n%s\n-----END RSA PRIVATE KEY-----\n' \
+            "$body" > "$tmp/pasted"
+          printf -- 'KALSHI_PRIVATE_KEY="-----BEGIN EC PRIVATE KEY-----\\n%s"\n' \
+            "$body" > "$tmp/escaped"
+          printf -- 'if grep -q -- "-----BEGIN OPENSSH PRIVATE KEY-----" "$f"; then\n' \
+            > "$tmp/mentioned"
+
+          # `-e` throughout, never a bare pattern: `$inline` begins with `---`
+          # and grep reads that as options. The canary found this on the first
+          # local run of this step, which is the whole argument for having one.
+          if ! grep -qE -e "$own_line" "$tmp/pasted"; then
+            echo "::error::the pasted-key pattern no longer matches a pasted key."
+            echo "::error::This step cannot detect anything. Fix it before merging."
+            fail=1
+          fi
+          if ! grep -qE -e "$inline" "$tmp/escaped"; then
+            echo "::error::the escaped-key pattern no longer matches an escaped key."
+            echo "::error::This step cannot detect anything. Fix it before merging."
+            fail=1
+          fi
+          if grep -qE -e "$own_line" -e "$inline" "$tmp/mentioned"; then
+            echo "::error::the patterns match a header quoted in source again."
+            echo "::error::That is the false positive that made this step red on"
+            echo "::error::36 consecutive pushes. Match the material, not the phrase."
+            fail=1
+          fi
+          rm -rf "$tmp"
+
+          if git grep -nE -e "$own_line" -e "$inline"; then
             echo "::error::Private key material found in the working tree."
             echo "::error::If this key was ever real, ROTATE IT -- it is compromised."
             fail=1
           fi
 
+          # What this does not establish: it reads the tree at HEAD, so a key
+          # that was committed and later deleted is gone from here and lives on
+          # in history. Only a full-history scan finds that, and gitleaks above
+          # is scoped to the push. If a key is ever suspected, rotate first and
+          # run `gitleaks detect --log-opts=--all` by hand second.
           exit $fail
