@@ -4,9 +4,45 @@
 
 **State:** 1,206 tests, ruff green, seven pushes, **CI green on every one**.
 `lane/frontend-wip` is verified and merged; the branch can be deleted.
-**Still not deployed** — the live instance is on the pre-ADR-0007 image, so
-the next deploy carries the V2 order path, the price-grid snap, the order
-record, the ticket sheet and the logging fix below. Deploying is your call.
+
+### Both instances are deployed, on `a567ee7`
+
+**Demo first as a canary, then live** — the ordering that paid for itself last
+time. Demo verified before live was triggered.
+
+    demo  https://kalshi-cockpit-demo.fly.dev   five pages 200 over 20
+                                                requests, no error text,
+                                                instance_mode=demo,
+                                                /api/orders -> 403 with and
+                                                without a forged bearer
+    live  https://kalshi-cockpit.fly.dev        five pages 307 -> /login,
+                                                /api/orders 401 with and
+                                                without a forged bearer
+
+    {"status":"ok","instance_mode":"live","live_trading_enabled":false,
+     "execution_available":false,"notifications_configured":true,
+     "live_quotes_available":true}
+
+**The ticket sheet was tapped on the deployed demo**, not only locally: opens
+at 320 and 390, fits both, returns **403**, focus stays inside the dialog.
+
+**No migration ran, and that was checked rather than hoped.** `SCHEMA_VERSION`
+is 2, the volume was already at 2, and the only `schema.sql` change since the
+previous deploy was comment text on two existing `orders` columns — verified
+from the diff before triggering. The price grid is not persisted at all, so
+ADR 0007 needed nothing from the volume.
+
+**The live deploy failed once, correctly.** `confirm_live` arrived empty from
+the GitHub mobile web form and the guard stopped the job at step 3, before
+flyctl. That is the safeguard working and the failure mode `tasks/PHONE.md`
+already records: the mobile form is unreliable for workflows with inputs. Use
+`gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`.
+
+**Still unobserved, and it needs the `Ops` workflow:** machine state, restart
+count, and the log stream. Two things to look for in the logs, both of which
+only production can show — that the migration was a **no-op**, and that
+`backend.*` INFO lines now appear *at all*, which is the whole point of the
+logging fix below.
 
 ### The lane is merged, and none of its defects were layout
 
