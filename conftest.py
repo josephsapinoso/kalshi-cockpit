@@ -25,6 +25,29 @@ def fixtures_dir() -> Path:
     return FIXTURES
 
 
+@pytest.fixture(autouse=True)
+def no_live_agent_calls(monkeypatch):
+    """No test may reach the Anthropic API, whatever is in the environment.
+
+    `backend/config.py` calls `load_dotenv()` at import, and every test imports
+    it, so a developer with `ANTHROPIC_API_KEY` in `.env` had the key in
+    `os.environ` for the whole suite. `AgentConfig.from_env()` reads exactly
+    that, so the moment a test drives a *surfaced* row through
+    `run_pricing_pass`, the Skeptic fires for real -- billed, over the network,
+    and only on the machines that hold the secret.
+
+    That is the failure `tasks/lessons.md` already names twice: **a test that
+    depends on an input it does not supply is measuring the environment.** It
+    would pass locally by calling Claude and pass in CI by silently skipping the
+    review, and the two runs would be asserting different things under one name.
+
+    So the key is removed for every test, and any test that wants a verdict
+    injects a config and a client of its own. `raising=False` because most
+    machines -- CI included -- do not have it set at all.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
 def load_fixture(name: str):
     """Load a captured API payload, skipping the test if it hasn't been captured.
 

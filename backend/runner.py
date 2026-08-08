@@ -55,8 +55,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
+from .agents.review import ReviewCandidate, review_surfaced
 from .config import OddsConfig, RiskConfig
 from .core.devig import DevigError, consensus_devig
 from .core.suppression import SuppressionConfig
@@ -128,6 +130,14 @@ class PassCounts:
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
     dropped_game_started: int = 0
+    # How many rows the Skeptic was asked about, and how many it refused. Both
+    # are structurally zero while `surfaced` is zero, which is the whole history
+    # of this project so far -- reported anyway, because the day they are not is
+    # the day the agent fleet starts costing money and blocking bets, and that
+    # should be visible in the pass log rather than inferred from a Discord
+    # digest.
+    skeptic_reviewed: int = 0
+    skeptic_blocked: int = 0
     # Why the pass did or did not spend an odds credit, in words. A pass that
     # skips the sweep silently looks exactly like one that swept and found
     # nothing, and those two need opposite responses.
@@ -397,6 +407,53 @@ def link_discovered_events(
     return linked
 
 
+def _skeptic_context(
+    *,
+    market,
+    event,
+    outcome: str,
+    recommendation,
+    devig_result,
+    metadata: dict,
+    books: BookConsensusInput,
+) -> dict[str, Any]:
+    """The Skeptic's prompt inputs for one judged row.
+
+    Read off the **recommendation** rather than recomputed from the candidate
+    wherever both could answer: the agent must attack the row that would be
+    sold, not a second derivation of it that could differ by a rounding step.
+    """
+    index = devig_result.index_of(outcome)
+    return {
+        "ticker": market.ticker,
+        "market_title": market.title,
+        "outcome_name": outcome,
+        "event_title": event.title,
+        "kalshi_ask_cents": recommendation.entry_ask_tenths / 10,
+        "consensus_fair_cents": recommendation.fair_probability * 100,
+        "edge_cents": recommendation.edge_tenths / 10,
+        "quote_age_s": recommendation.kalshi_quote_age_ms / 1000,
+        "odds_age_s": recommendation.odds_age_ms / 1000,
+        "book_count": metadata["book_count"],
+        "market_width_points": metadata["market_width"],
+        "depth_at_ask": recommendation.depth_at_ask,
+        "devig_methods": {
+            name: values[index] for name, values in devig_result.all_methods().items()
+        },
+        # The SPORTSBOOK's kickoff. Kalshi's runs three hours late, and handing
+        # an agent a start time three hours after the real one invites it to
+        # reason about a game it thinks has not begun.
+        "commence_iso": (
+            None
+            if books.commence_ms is None
+            else datetime.fromtimestamp(
+                books.commence_ms / 1000, tz=timezone.utc
+            ).isoformat()
+        ),
+        "matched_sportsbook_teams": list(books.outcomes),
+    }
+
+
 def run_pricing_pass(
     conn,
     events: Sequence[DiscoveredEvent],
@@ -405,6 +462,7 @@ def run_pricing_pass(
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
     counts: Optional[PassCounts] = None,
+    review=review_surfaced,
 ) -> PassCounts:
     """Devig what is stored and write recommendations. Touches no network.
 
@@ -412,6 +470,26 @@ def run_pricing_pass(
     A candidate with no edge is the normal answer and is still recorded: it is a
     scored observation on the closing line, which is what makes 300 of them
     reachable without placing 300 bets.
+
+    **Judging and persisting are two phases, and the gap between them is the
+    point.** The pass used to build a row and write it in the same breath. The
+    Skeptic folds its verdict into `suppressed_reason`, so a row already on disk
+    is orderable for the duration of one Anthropic round trip -- the endpoint
+    reads the database, not this function's local variables. So every row is
+    collected first, the surfaced ones are reviewed as one batch, verdicts are
+    applied, and only then does anything reach the database.
+
+    Persisting in a second loop is safe for the dedupe in `persist_if_changed`,
+    which compares against the most recent stored row for a `(ticker, side)`:
+    each pair is judged exactly once per pass, so no entry in the batch can be
+    the thing another entry would have compared against.
+
+    `review` is a parameter and not just an import because it is the one leg of
+    this function that leaves the process. Everything else here is arithmetic
+    over a local database; this reaches Anthropic and is billed. A test that
+    surfaces a row and forgets to substitute it would spend money on whichever
+    machines happen to hold the key -- so the seam is in the signature, where it
+    is visible, rather than resolved from module scope where it is not.
     """
     stamp = now if now is not None else now_ms()
     risk = risk or RiskConfig()
@@ -447,6 +525,11 @@ def run_pricing_pass(
             "reason unrelated to the bets would be indistinguishable from a "
             "slate with no edge."
         )
+
+    # Judged but not yet written. Surfaced rows carry the Skeptic's prompt
+    # inputs; everything else carries an empty mapping, because nothing will
+    # ask it anything.
+    pending: list[ReviewCandidate] = []
 
     alias_cache: dict[str, TeamAliases] = {}
     linked = link_discovered_events(conn, events, now=stamp, alias_cache=alias_cache)
@@ -570,21 +653,76 @@ def run_pricing_pass(
                     current_exposure_dollars=exposure,
                     created_ms=stamp,
                 )
-                if persist_if_changed(conn, recommendation) is None:
-                    # Same ask, same fair value as the last row for this side.
-                    # Re-recording it would add a row and no information -- but
-                    # the existing row is stamped with this pass's ages, so it
-                    # stays as fresh as the quote behind it actually is.
-                    counts.unchanged_confirmed += 1
-                    continue
+                pending.append(
+                    ReviewCandidate(
+                        recommendation=recommendation,
+                        prompt_kwargs=(
+                            _skeptic_context(
+                                market=market,
+                                event=event,
+                                outcome=side_outcome,
+                                recommendation=recommendation,
+                                devig_result=devig_result,
+                                metadata=metadata,
+                                books=books,
+                            )
+                            if recommendation.surfaced
+                            else {}
+                        ),
+                    )
+                )
 
-                counts.recommendations += 1
-                if recommendation.surfaced:
-                    counts.surfaced += 1
-                elif recommendation.suppressed_reason:
-                    counts.suppressed += 1
+    judged = _review_and_persist(conn, pending, counts=counts, review=review)
 
     logger.info("pricing pass: %s", counts.as_dict())
+    return judged
+
+
+def _review_and_persist(
+    conn, pending: Sequence[ReviewCandidate], *, counts: PassCounts, review
+) -> PassCounts:
+    """Phase two: attack the surfaced rows, then write everything.
+
+    The Skeptic sees only the rows that would be surfaced. That is a cost
+    decision as much as a design one -- a live pass builds ~100 rows and nearly
+    all of them have no edge, so reviewing the lot would buy a hundred "no"s a
+    pass at 96 passes a day. It also means the bill today is exactly zero calls,
+    because `surfaced` has never been anything but zero.
+    """
+    positions = [i for i, c in enumerate(pending) if c.recommendation.surfaced]
+    outcome = review([pending[i] for i in positions])
+    counts.skeptic_reviewed += outcome.reviewed
+    counts.skeptic_blocked += outcome.blocked
+
+    # Positional, so it is worth stating what would happen if it stopped being
+    # true: a short list would make `zip` drop the tail silently, and the
+    # dropped rows would persist as surfaced without ever having been reviewed.
+    # That is the one failure here that money could reach.
+    if len(outcome.recommendations) != len(positions):
+        raise RuntimeError(
+            f"the Skeptic returned {len(outcome.recommendations)} rows for "
+            f"{len(positions)} surfaced candidates. Refusing to persist a slate "
+            f"whose reviewed rows cannot be matched to their verdicts."
+        )
+    amended = dict(zip(positions, outcome.recommendations))
+
+    for index, candidate in enumerate(pending):
+        rec = amended.get(index, candidate.recommendation)
+
+        if persist_if_changed(conn, rec) is None:
+            # Same ask, same fair value as the last row for this side.
+            # Re-recording it would add a row and no information -- but the
+            # existing row is stamped with this pass's ages, so it stays as
+            # fresh as the quote behind it actually is.
+            counts.unchanged_confirmed += 1
+            continue
+
+        counts.recommendations += 1
+        if rec.surfaced:
+            counts.surfaced += 1
+        elif rec.suppressed_reason:
+            counts.suppressed += 1
+
     return counts
 
 

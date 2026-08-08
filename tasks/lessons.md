@@ -2227,3 +2227,74 @@ true of both and distinguishes nothing. Related:
 [[two-limits-on-one-quantity]] — same shape, with time rather than tightness
 deciding which reader wins; [[when-a-document-and-the-live-api-disagree]] — the
 five-second check that settles it beats any amount of reading.
+
+---
+
+## 2026-08-08 — Sync code that is only ever called from a coroutine
+
+`run_pricing_pass` is sync and `structured_call` is async, so the agent batch
+needed one boundary. `asyncio.run` at the seam is the obvious answer, it is what
+the design note in `tasks/NEXT.md` proposed, and it is **wrong in production and
+only in production**:
+
+```
+RuntimeError: asyncio.run() cannot be called from a running event loop
+```
+
+`run_once` and `run_quote_pass` are `async def` and call the pricing pass
+directly. So on the deployed instance the pass always executes *inside* a
+running loop — the one place `asyncio.run` refuses. Every test in the file
+called it from sync code and passed. Written as a bare `asyncio.run` it would
+have gone green fifteen times, deployed clean, and raised the first time a row
+surfaced, which is the rarest event this system has.
+
+**Why the usual instinct misses it:** "is there a loop running?" reads like an
+environmental detail, and the answer looks like it depends on the caller. It
+does not — the *production* callers are all coroutines and the *test* callers
+are all sync, so the test suite systematically exercises the branch that
+production never takes. A conditional (`try: get_running_loop()`) would have
+made that worse rather than better: two paths, one of them never covered.
+
+**How to apply:** a sync function whose real callers are coroutines has an
+async boundary problem even though nothing in its signature says so. Run the
+batch on a dedicated thread with its own loop, which behaves identically in and
+out of a loop, and **write the test that calls the function the way production
+calls it** — here, one test wrapping the pass in `asyncio.run`. Before adding
+an async seam, grep for who calls the function and check whether any of them is
+a coroutine; the answer is not visible from the function itself. Related:
+[[a-test-that-passes-on-the-bug-is-not-a-test]], and
+[[an-idle-threadpool-hides-every-thread-safety-bug]] — the same shape, where
+the local environment never arranges the condition that production does.
+
+---
+
+## 2026-08-08 — A secret in `.env` makes the test suite behave differently per machine
+
+`backend/config.py` calls `load_dotenv()` at import and every test imports it,
+so `ANTHROPIC_API_KEY` was in `os.environ` for the whole suite on any machine
+with it set. `AgentConfig.from_env()` reads exactly that. So the first test to
+drive a *surfaced* row through the pricing pass called Claude for real — billed,
+over the network — on a laptop, and silently skipped the review in CI, where the
+key is unset.
+
+Both runs were green. They were asserting different things under one name: one
+tested the wiring, the other tested that an unconfigured fleet does nothing.
+Verified by removing the guard and running with a deliberately invalid key,
+which produced a real `401` from `api.anthropic.com` — the request had left the
+machine.
+
+**Why this is not just a test-hygiene point:** it is the environment-measurement
+failure this file already records twice (a demo seed that contradicted itself
+across a budget-day roll, an assertion comparing against `odds 1800s old` while
+CI produced `1802s`), but with a *credential* as the hidden input, so the two
+behaviours diverge by who is running rather than by when. A flake announces
+itself; this does not.
+
+**How to apply:** an autouse fixture deletes the key for the whole suite, so no
+test can reach a paid API by accident — including tests nobody has written yet,
+which is the point. Any test wanting a verdict injects a config and a client.
+And the seam that leaves the process is a **parameter** on `run_pricing_pass`
+rather than a module-level import, so the one leg of that function which costs
+money is visible in its signature. The general rule: if a function's behaviour
+changes based on a secret it reads from ambient state, a test cannot pin it —
+pass the dependency in, and neutralise the ambient state globally.

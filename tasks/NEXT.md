@@ -1191,15 +1191,53 @@ decision.
       downstream grouping can pool them. Measured on the fixture: back
       `2.24/1.79` sums to 1.00509, lay `2.28/1.81` sums to 0.99108 — devig
       removes an overround, and an underround gives it nothing to remove.
-- [ ] **Wire up the agent fleet.** `backend/agents/*` is imported by nothing —
-      `skeptic.apply_verdict` is never called from the engine or the API. ~40
-      green tests imply a safety layer that can't block anything.
-      `tests/test_has_callers.py` now asserts this is *still* true, so wiring it
-      up turns that test red and points at the list the entry should join.
+- [x] ~~**Wire up the agent fleet.**~~ — **done 2026-08-08.**
+      `backend/agents/review.py` is the seam; `run_pricing_pass` collects,
+      reviews the surfaced rows in one batch, applies verdicts, then persists.
+      All four decisions below were implemented as designed. The
+      `test_has_callers` exception is closed and `apply_verdict` /
+      `review_surfaced` are ordinary entries in `MUST_HAVE_CALLERS`.
 
-      **The design, worked out 2026-08-08 and deliberately not built** — it is
-      a restructure of `run_pricing_pass` and I would not start one I could not
-      finish. Four decisions, each of which took a while to arrive at:
+      **It has run against the real Anthropic API, which the design note said
+      would not be possible.** The first end-to-end run surfaced a row and the
+      Skeptic *blocked* it — correctly, and for a reason no deterministic check
+      could have reached: the test fixture's market title still read "Houston
+      vs San Diego Winner?" under an event titled "Pittsburgh vs New York M",
+      so the contract being priced was not the fixture matched against the
+      book. That is a fixture bug rather than a finding about the venue, and it
+      is exactly the failure class in the Skeptic's own docstring (FIXTURE
+      MISMATCH). Fixed in the fixture; the point is that the layer works.
+
+      **The design note's decision 3 was wrong and would have shipped broken.**
+      `asyncio.run` at the seam raises whenever the pass runs inside a loop —
+      which is always, in production, because `run_once` and `run_quote_pass`
+      are coroutines calling the sync pass directly. It passes every sync test.
+      The batch now runs on a dedicated thread with its own loop, with a test
+      that calls the pass the way the scheduler does. See `tasks/lessons.md`.
+
+      **Also found: the suite was making live API calls on any machine with the
+      key in `.env`.** `backend/config.py` calls `load_dotenv()` at import, so
+      `AgentConfig.from_env()` saw the key in every test. The same test called
+      Claude locally and skipped the review in CI — green both times, asserting
+      different things. An autouse fixture in `conftest.py` now removes it for
+      the whole suite, and the reviewer is a **parameter** on `run_pricing_pass`
+      so the one leg that costs money is visible in the signature.
+
+      Seven guards verified by disabling: the thread seam, the contracts
+      zeroing, the right-hand text split, the per-candidate failure boundary,
+      review-before-persist, the verdict/row alignment check, and the conftest
+      key removal (verified with a deliberately invalid key, which produced a
+      real 401 from `api.anthropic.com` — proof the request had left the box).
+      One of them caught a weak test of my own: it was passing through the
+      exception path rather than a real verdict.
+
+      **Still needs `ANTHROPIC_API_KEY` as a Fly secret** before it does
+      anything on the live instance. Without it the fleet is unconfigured and
+      every row comes back untouched, which is the live behaviour today.
+
+      **The original design note, kept because it is the clearest statement of
+      why each decision is what it is** — four decisions, each of which took a
+      while to arrive at:
 
       1. **Run the Skeptic only on rows that would be surfaced**
          (`suggested_contracts > 0`, no suppression reason). Not on every
@@ -1217,6 +1255,7 @@ decision.
       3. **`run_pricing_pass` is sync and `structured_call` is async.** Either
          make the pass async (touches every caller and test) or run the batch
          through `asyncio.run` at the one seam. Prefer the seam.
+         *(The seam was right; `asyncio.run` was not — see above.)*
       4. **A Skeptic outage must not stop the pass.** `structured_call`
          already returns `None` on failure and `apply_verdict` already treats
          `None` as "no opinion", so this falls out — but assert it, because
@@ -1227,10 +1266,15 @@ decision.
       returns `None` without it, which degrades to no commentary rather than
       failing.
 
-      **And it cannot be verified against real data.** Zero surfaced rows means
-      zero verdicts, so the wiring can be proven correct only against fixtures
-      until the tool finds its first actionable row. Say that in the module
-      rather than letting ~40 green tests imply otherwise.
+      ~~**And it cannot be verified against real data.**~~ — **partly wrong,
+      and worth keeping for the correction.** The claim was that zero surfaced
+      rows means zero verdicts, so the wiring could only be proven against
+      fixtures. True of the *live record*, and false of the wiring: a captured
+      slate with one number nudged (the NO bid on one market, which sets the
+      derived YES ask) surfaces a row, and that row went to the real API and
+      came back blocked. What remains unverified is narrower and still worth
+      saying in the module — **no live instance has ever produced a surfaced
+      row, so this path has never run on data the tool found by itself.**
 
 ~30 more findings are triaged in `tasks/audit-2026-08-07.md`.
 

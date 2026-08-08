@@ -112,7 +112,11 @@ def build_prompt(
     quote_age_s: float,
     odds_age_s: float,
     book_count: int,
-    market_width_points: float,
+    # `None` when fewer than two books contributed, so disagreement could not be
+    # measured at all. Passed through as null rather than rounded to 0.0: zero
+    # width is a legitimate reading (two books quoting identically) and the two
+    # states must not share a representation on the way to the agent either.
+    market_width_points: Optional[float],
     depth_at_ask: Optional[float],
     devig_methods: dict[str, float],
     commence_iso: Optional[str],
@@ -138,7 +142,9 @@ def build_prompt(
         "sportsbook_consensus": {
             "fair_cents": round(consensus_fair_cents, 1),
             "books_used": book_count,
-            "market_width_points": round(market_width_points, 2),
+            "market_width_points": (
+                None if market_width_points is None else round(market_width_points, 2)
+            ),
             "odds_age_seconds": round(odds_age_s, 1),
             "matched_teams": matched_sportsbook_teams,
             "devig_by_method_cents": {

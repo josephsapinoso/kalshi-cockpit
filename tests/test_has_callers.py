@@ -110,6 +110,17 @@ MUST_HAVE_CALLERS = [
         "whose product is a tool nobody can use, with no module holding more "
         "than one of them",
     ),
+    (
+        "apply_verdict",
+        "`backend/agents/*` goes back to being ~40 green tests implying a "
+        "safety layer that can block nothing -- the fourth module in this "
+        "project to be complete, tested, and called by nothing",
+    ),
+    (
+        "review_surfaced",
+        "`apply_verdict` has a definition and no path to it from a pass, so "
+        "the Skeptic is wired up on paper only",
+    ),
 ]
 
 # Two symbols are deliberately NOT above, and it is worth saying why rather than
@@ -194,20 +205,11 @@ def test_the_symbol_is_used_outside_its_own_module_and_tests(symbol, consequence
     )
 
 
-def test_the_agent_fleet_is_still_the_known_exception():
-    """Deliberately inverted, so wiring it up makes this file fail.
-
-    `backend/agents/*` carries ~40 green tests implying a safety layer that can
-    block nothing: `skeptic.apply_verdict` is not called from the engine or the
-    API. Asserting the *current* state rather than the desired one means the day
-    someone connects it, this test goes red and points at the list above --
-    which is where the entry belongs from then on.
-    """
-    assert callers_of("apply_verdict") == [], (
-        "`apply_verdict` now has a caller. Move `apply_verdict` into "
-        "MUST_HAVE_CALLERS and delete this test -- the exception has been "
-        "closed, and leaving it here would let it silently open again."
-    )
+# The agent-fleet exception that used to live here is closed. It asserted the
+# *current* state -- that `apply_verdict` had no caller -- so that wiring the
+# fleet up would turn this file red and point at the list above. It did, on
+# 2026-08-08, and `apply_verdict` and `review_surfaced` are now entries in
+# MUST_HAVE_CALLERS rather than a documented exception beside it.
 
 
 def _dockerignore_patterns() -> list[str]:

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Optional
 
 from .config import RiskConfig
@@ -200,6 +200,39 @@ def build_recommendation(
         odds_age_ms=candidate.odds_age_ms,
         suppressed_reason=suppressed_reason,
         reason_text=_explain(candidate, fair, edge_tenths, contracts, reasons),
+    )
+
+
+def with_added_suppression(
+    rec: Recommendation, *, reason: str, problem: str
+) -> Recommendation:
+    """A judged row, re-stated as refused for one more reason.
+
+    **Three fields move together or the screens disagree.** `suppressed_reason`
+    alone is enough to stop `POST /api/orders` -- it refuses on a reason before
+    it looks at anything else -- but the Board splits on `suggested_contracts`
+    first, so a row carrying a reason *and* a positive size renders as an
+    actionable card the server then refuses with a 422. That is the failure this
+    repo already names: a screen offering a row the server will not sell. And
+    `reason_text` is what the card actually shows, so leaving it reading
+    "Buy 3." beside a refusal is the same defect in prose.
+
+    `ev_net_dollars` goes to zero for consistency with `build_recommendation`,
+    which records `0.0` on any row it sizes at zero contracts.
+
+    The decision clause is replaced rather than appended. This is only ever
+    called on a surfaced row, whose `reason_text` ends in `". Buy {n}."`, so
+    the last `". "` is the boundary between the head and the decision --
+    including on a team whose own name contains one ("St. Louis Cardinals"),
+    which is why the split is from the right.
+    """
+    head = rec.reason_text.rsplit(". ", 1)[0]
+    return replace(
+        rec,
+        suppressed_reason=reason,
+        suggested_contracts=0,
+        ev_net_dollars=0.0,
+        reason_text=f"{head}. Not actionable -- {problem}.",
     )
 
 
