@@ -1,6 +1,46 @@
 # Next — your checklist
 
-## READ FIRST (2026-08-09) — the gate is blocked by the odds budget, and the guards are fine
+## READ FIRST (2026-08-09, latest) — the 20K tier is bought; the key is not installed
+
+Two steps, in order, and step 1 is Joe's:
+
+1. `bash scripts/setup_odds_key.sh` — the key never passes through an agent.
+2. `gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
+
+`main` carries `ODDS_DAILY_CREDIT_BUDGET = 400` (was 16) and
+`ODDS_MONTHLY_CREDIT_BUDGET = 13000`. **Not deployed**, though approved: the live
+machine has not restarted since 04:37Z, so the wizard has not run, and 400/day
+against the old 500/month key would burn the free tier's remainder for nothing.
+
+**400, not 645.** Spend is capped by the scheduler, not the budget:
+`MIN_SLOT_SEPARATION_MS` gives each sport ≤12 useful slots/day, so six leagues
+cannot exceed ~432/day whatever the budget says. 400 puts the *fixture schedule*
+in charge, which is the state the scheduler was written for and has never been
+in. The gap to 20,000 is deliberate headroom for a backfill.
+
+**A guard that was missing.** `BudgetState.spent_this_month` had been computed
+since the module was written and checked by nothing. Fine while every call cost
+6 credits; not fine once the historical endpoints (10× per call) exist, since a
+backfill can spend the month between two daily resets. `can_afford` now checks
+three ceilings — the provider's, ours-per-month, ours-per-day — and unset means
+uncapped, never 0.
+
+### Candlestick retention: ~80 days, measured
+
+`scripts/measure_candlestick_retention.py`, free, unauthenticated. Bars at every
+age to 79 days; at 80+ the market is **gone**, not delisted — constructed
+tickers 404 while the same construction resolves both sides at 5d and 60d.
+Addendum on `docs/adr/0011`.
+
+- **Scoring: unaffected.** And it refutes the open worry that some of the 190
+  unscoreable rows had aged out — every one is inside the window, so the
+  ordering rule is the whole explanation.
+- **Backtest: this is the horizon.** ~80 days ≈ 1,200 MLB games, above the 300
+  the gate needs. Costing and the rule it must not break are below.
+
+---
+
+## The gate is blocked by the odds budget, and the guards are fine
 
 Instrumented in `8c37e44` and **answered on the first pass** (live, 04:38Z):
 

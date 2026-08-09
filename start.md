@@ -63,7 +63,49 @@ First pass: `recommendations: 4, suppressed: 4, surfaced: 0, unchanged_confirmed
 36`, `clv_scored: 0`, `rows_joined: 190`. See the CLV watch item below — 190 is
 the residue, and nothing new has scored yet.
 
-## Start here — the gate is blocked by odds credits, and that is a decision for Joe
+## Start here — two steps, in order. The first one is Joe's
+
+**1. Install the new Odds API key.** The 20K tier is bought; the key is not
+installed anywhere. Live is still running the old free-tier key.
+
+    bash scripts/setup_odds_key.sh
+
+Hidden entry, verifies against the live API before writing anything, reports
+`x-requests-remaining` so the tier is confirmed rather than assumed, writes
+`.env` and the Fly secret. The key never passes through an agent — a live Odds
+API key reached a transcript once and had to be rotated, and this provider takes
+its credential in a query string.
+
+**2. Then deploy.** `main` carries `ODDS_DAILY_CREDIT_BUDGET = 400` (from 16)
+and a monthly ceiling of 13,000.
+
+    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
+
+**Deliberately not deployed yet**, though it was approved: the machine has not
+restarted since 04:37Z, so the wizard has not run, and 400/day against a
+500/month key would burn what is left of the free tier for nothing. Deploy after
+step 1.
+
+Then watch `gate progress (24h)` over a day. **`stale_odds` should fall sharply
+and `no_edge` rise.** That is the whole point of the change and it is measurable,
+not assumed.
+
+### Also answered this session: candlestick retention is ~80 days
+
+`scripts/measure_candlestick_retention.py`, free. Every bucket to 79 days serves
+bars; at 80+ the market is gone entirely — not delisted, *gone*, verified by
+constructing tickers directly. Addendum on `docs/adr/0011`.
+
+Nothing changes for scoring (80 days is far more than the path needs, and it
+refutes the worry that some of the 190 unscoreable rows had aged out). It is the
+binding horizon for a **historical-odds backtest**, which is the open idea: ~80
+days is ~1,200 MLB games, still well above the gate's 300. Costing and the rule
+it must not break (backtest rows must never count toward the 300) are in
+`tasks/NEXT.md`. Not built — deliberately, pending this number, which is now in.
+
+---
+
+## The gate is blocked by odds credits — the finding that led to all of the above
 
 Live is on `a133584` and answered this on its first pass (04:38Z):
 
