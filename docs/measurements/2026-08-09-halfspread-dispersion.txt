@@ -1,0 +1,298 @@
+    429; backing off 0.7s
+started 2026-08-09T20:54:17.427218+00:00  days=14 window=180m
+
+panel counts: {'events_probed': 219, 'bars_seen': 78047, 'markets_ok': 438, 'kept_wider_than_one_tick': 230, 'events_outside_horizon': 980, 'events_league_out_of_scope': 1218, 'events_no_start_time': 6369}
+live counts: {'events_in_scope': 154, 'markets_seen': 2001, 'events_out_of_scope': 48}
+
+==============================================================================
+PRIMARY (Arm B) -- settled in-scope games, final 180 minutes before the true start, 1-minute bars. This is the window `runner.record_recommendations` operates in.
+==============================================================================
+  n: 219 games, 438 markets, 78047 observations
+     (games is the independent count; observations is not)
+
+  half-spread, tenths of a cent:
+    per observation   n=78047   mean=  5.01 sd=  0.27 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    one per market    n=438     mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    one per game      n=219     mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    within-market sd  n=438     mean=  0.08 sd=  0.25 min=  0.0 p50=  0.0 p90=   0.4 p99=   1.1 max=    1.7 distinct=29
+
+  price grid: step(tenths)=[10] structures=['linear_cent']
+  at the tick floor (spread <= one step): 77817 (99.7%) -- censored from below
+  markets ever quoting wider than one tick: 44 of 438
+
+  derived-ask identity: not checkable here (candlesticks publish yes_ask directly). See the live cross-section.
+
+  spurious slope Var(half_spread)/Var(edge), by assumed sd(edge) in tenths:
+    sd(edge)=5     per-observation   0.0029   per-game   0.0000
+    sd(edge)=10    per-observation   0.0007   per-game   0.0000
+    sd(edge)=15    per-observation   0.0003   per-game   0.0000
+    sd(edge)=20    per-observation   0.0002   per-game   0.0000
+
+  selection bound -- the worst spurious slope ANY cut of this population could give:
+    support (tenths): [5.0, 10.0]   observed wide fraction: 0.2947%
+    worst-case sd (even split on the extremes): 2.50 tenths -> slope 0.0625 at sd(edge)=10
+    slope at sd(edge)=10 if the wide fraction were:
+         1%  0.0025
+         5%  0.0119
+        10%  0.0225
+        25%  0.0469
+        50%  0.0625
+
+  by league:
+    Pro Baseball             n=65201   mean=  5.02 sd=  0.28 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    Pro Basketball (W)       n=12846   mean=  5.01 sd=  0.21 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by market type:
+    moneyline                n=78047   mean=  5.01 sd=  0.27 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by price bucket (Grid A, on the derived ask):
+    [10,200)                 n=1521    mean=  5.03 sd=  0.40 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    [200,800)                n=74999   mean=  5.01 sd=  0.27 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    [800,990)                n=1527    mean=  5.00 sd=  0.13 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by minutes to kickoff:
+    0-15m                    n=6567    mean=  5.04 sd=  0.43 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    15-60m                   n=19631   mean=  5.01 sd=  0.24 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    180-720m                 n=421     mean=  5.01 sd=  0.24 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    60-180m                  n=51428   mean=  5.01 sd=  0.26 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by two-sided book:
+    True                     n=78047   mean=  5.01 sd=  0.27 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+==============================================================================
+PRIMARY, narrowed -- the final 15 minutes only. ADR 0011 scores CLV against a candlestick inside this window.
+==============================================================================
+  n: 219 games, 438 markets, 6567 observations
+     (games is the independent count; observations is not)
+
+  half-spread, tenths of a cent:
+    per observation   n=6567    mean=  5.04 sd=  0.43 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    one per market    n=438     mean=  5.02 sd=  0.27 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=3
+    one per game      n=219     mean=  5.02 sd=  0.34 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    within-market sd  n=438     mean=  0.07 sd=  0.34 min=  0.0 p50=  0.0 p90=   0.0 p99=   2.0 max=    2.5 distinct=7
+
+  price grid: step(tenths)=[10] structures=['linear_cent']
+  at the tick floor (spread <= one step): 6517 (99.2%) -- censored from below
+  markets ever quoting wider than one tick: 16 of 438
+
+  derived-ask identity: not checkable here (candlesticks publish yes_ask directly). See the live cross-section.
+
+  spurious slope Var(half_spread)/Var(edge), by assumed sd(edge) in tenths:
+    sd(edge)=5     per-observation   0.0076   per-game   0.0045
+    sd(edge)=10    per-observation   0.0019   per-game   0.0011
+    sd(edge)=15    per-observation   0.0008   per-game   0.0005
+    sd(edge)=20    per-observation   0.0005   per-game   0.0003
+
+  selection bound -- the worst spurious slope ANY cut of this population could give:
+    support (tenths): [5.0, 10.0]   observed wide fraction: 0.7614%
+    worst-case sd (even split on the extremes): 2.50 tenths -> slope 0.0625 at sd(edge)=10
+    slope at sd(edge)=10 if the wide fraction were:
+         1%  0.0025
+         5%  0.0119
+        10%  0.0225
+        25%  0.0469
+        50%  0.0625
+
+  by league:
+    Pro Baseball             n=5458    mean=  5.04 sd=  0.45 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    Pro Basketball (W)       n=1109    mean=  5.03 sd=  0.37 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by market type:
+    moneyline                n=6567    mean=  5.04 sd=  0.43 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by price bucket (Grid A, on the derived ask):
+    [10,200)                 n=135     mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    [200,800)                n=6298    mean=  5.04 sd=  0.44 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+    [800,990)                n=134     mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+
+  by minutes to kickoff:
+    0-15m                    n=6567    mean=  5.04 sd=  0.43 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+  by two-sided book:
+    True                     n=6567    mean=  5.04 sd=  0.43 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=   10.0 distinct=2
+
+==============================================================================
+CONTROL (Arm A) -- every in-scope market open right now, any time to kickoff. Shows whether the probe can see a wide spread when one exists.
+==============================================================================
+  n: 132 games, 1071 markets, 1071 observations
+     (games is the independent count; observations is not)
+
+  half-spread, tenths of a cent:
+    per observation   n=1071    mean= 42.34 sd= 39.85 min=  5.0 p50= 30.0 p90= 100.0 p99= 185.0 max=  205.0 distinct=39
+    one per market    n=1071    mean= 42.34 sd= 39.85 min=  5.0 p50= 30.0 p90= 100.0 p99= 185.0 max=  205.0 distinct=39
+    one per game      n=132     mean= 20.98 sd= 22.45 min=  5.0 p50= 10.0 p90=  50.0 p99=  95.0 max=  125.0 distinct=21
+    within-market sd  n=0
+
+  price grid: step(tenths)=[10] structures=['linear_cent']
+  at the tick floor (spread <= one step): 156 (14.6%) -- censored from below
+  markets ever quoting wider than one tick: 915 of 1071
+
+  derived-ask identity yes_ask == 1000 - no_bid: 1071 checked, 0 violations
+
+  spurious slope Var(half_spread)/Var(edge), by assumed sd(edge) in tenths:
+    sd(edge)=5     per-observation  63.5113   per-game  20.1582
+    sd(edge)=10    per-observation  15.8778   per-game   5.0395
+    sd(edge)=15    per-observation   7.0568   per-game   2.2398
+    sd(edge)=20    per-observation   3.9695   per-game   1.2599
+
+  selection bound -- the worst spurious slope ANY cut of this population could give:
+    support (tenths): [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0, 105.0, 110.0, 115.0, 120.0, 125.0, 130.0, 135.0, 140.0, 145.0, 150.0, 155.0, 160.0, 165.0, 170.0, 175.0, 185.0, 190.0, 200.0, 205.0]   observed wide fraction: 85.4342%
+    worst-case sd (even split on the extremes): 100.00 tenths -> slope 100.0000 at sd(edge)=10
+    slope at sd(edge)=10 if the wide fraction were:
+         1%  3.9600
+         5%  19.0000
+        10%  36.0000
+        25%  75.0000
+        50%  100.0000
+
+  by league:
+    NCAA Football            n=30      mean=  9.33 sd=  5.88 min=  5.0 p50=  5.0 p90=  15.0 p99=  25.0 max=   25.0 distinct=5
+    Pro Baseball             n=205     mean= 11.78 sd= 12.37 min=  5.0 p50= 10.0 p90=  15.0 p99=  90.0 max=  100.0 distinct=12
+    Pro Basketball (W)       n=96      mean= 12.45 sd=  9.79 min=  5.0 p50= 10.0 p90=  30.0 p99=  50.0 max=   50.0 distinct=9
+    Pro Football             n=740     mean= 56.02 sd= 40.45 min=  5.0 p50= 45.0 p90= 115.0 p99= 200.0 max=  205.0 distinct=39
+
+  by market type:
+    moneyline                n=138     mean= 10.51 sd=  8.56 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+    spread                   n=508     mean= 59.62 sd= 47.21 min=  5.0 p50= 40.0 p90= 125.0 p99= 205.0 max=  205.0 distinct=39
+    total                    n=425     mean= 32.02 sd= 22.82 min=  5.0 p50= 25.0 p90=  55.0 p99= 100.0 max=  140.0 distinct=24
+
+  by price bucket (Grid A, on the derived ask):
+    [10,200)                 n=61      mean= 20.90 sd= 16.76 min=  5.0 p50= 15.0 p90=  45.0 p99=  55.0 max=   55.0 distinct=11
+    [200,800)                n=895     mean= 44.42 sd= 41.85 min=  5.0 p50= 30.0 p90= 105.0 p99= 190.0 max=  205.0 distinct=39
+    [800,990)                n=108     mean= 39.63 sd= 26.08 min=  5.0 p50= 50.0 p90=  60.0 p99= 110.0 max=  140.0 distinct=19
+    off-grid                 n=7       mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+
+  by minutes to kickoff:
+    0-15m                    n=8       mean= 16.25 sd= 29.76 min=  5.0 p50=  5.0 p90=  95.0 p99=  95.0 max=   95.0 distinct=2
+    15-60m                   n=11      mean= 28.64 sd= 34.32 min=  5.0 p50= 10.0 p90=  90.0 p99= 100.0 max=  100.0 distinct=7
+    180-720m                 n=19      mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    2880m+                   n=836     mean= 51.37 sd= 40.35 min=  5.0 p50= 40.0 p90= 110.0 p99= 190.0 max=  205.0 distinct=39
+    60-180m                  n=32      mean=  7.81 sd=  7.06 min=  5.0 p50=  5.0 p90=  15.0 p99=  35.0 max=   35.0 distinct=5
+    720-2880m                n=165     mean=  9.76 sd=  3.73 min=  5.0 p50= 10.0 p90=  15.0 p99=  20.0 max=   20.0 distinct=4
+
+  by two-sided book:
+    False                    n=13      mean=  6.15 sd=  4.00 min=  5.0 p50=  5.0 p90=   5.0 p99=  20.0 max=   20.0 distinct=2
+    True                     n=1058    mean= 42.78 sd= 39.88 min=  5.0 p50= 30.0 p90= 100.0 p99= 185.0 max=  205.0 distinct=39
+
+==============================================================================
+CONTROL, moneyline only -- the market type `runner.record_recommendations` writes rows about.
+==============================================================================
+  n: 69 games, 138 markets, 138 observations
+     (games is the independent count; observations is not)
+
+  half-spread, tenths of a cent:
+    per observation   n=138     mean= 10.51 sd=  8.56 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+    one per market    n=138     mean= 10.51 sd=  8.56 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+    one per game      n=69      mean= 10.51 sd=  7.79 min=  5.0 p50=  7.5 p90=  20.0 p99=  42.5 max=   42.5 distinct=11
+    within-market sd  n=0
+
+  price grid: step(tenths)=[10] structures=['linear_cent']
+  at the tick floor (spread <= one step): 68 (49.3%) -- censored from below
+  markets ever quoting wider than one tick: 70 of 138
+
+  derived-ask identity yes_ask == 1000 - no_bid: 138 checked, 0 violations
+
+  spurious slope Var(half_spread)/Var(edge), by assumed sd(edge) in tenths:
+    sd(edge)=5     per-observation   2.9317   per-game   2.4245
+    sd(edge)=10    per-observation   0.7329   per-game   0.6061
+    sd(edge)=15    per-observation   0.3257   per-game   0.2694
+    sd(edge)=20    per-observation   0.1832   per-game   0.1515
+
+  selection bound -- the worst spurious slope ANY cut of this population could give:
+    support (tenths): [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0, 45.0, 50.0]   observed wide fraction: 50.7246%
+    worst-case sd (even split on the extremes): 22.50 tenths -> slope 5.0625 at sd(edge)=10
+    slope at sd(edge)=10 if the wide fraction were:
+         1%  0.2005
+         5%  0.9619
+        10%  1.8225
+        25%  3.7969
+        50%  5.0625
+
+  by league:
+    NCAA Football            n=30      mean=  9.33 sd=  5.88 min=  5.0 p50=  5.0 p90=  15.0 p99=  25.0 max=   25.0 distinct=5
+    Pro Baseball             n=64      mean= 12.11 sd=  9.67 min=  5.0 p50= 10.0 p90=  25.0 p99=  45.0 max=   45.0 distinct=8
+    Pro Basketball (W)       n=12      mean= 11.25 sd= 13.56 min=  5.0 p50=  5.0 p90=  30.0 p99=  50.0 max=   50.0 distinct=4
+    Pro Football             n=32      mean=  8.12 sd=  3.90 min=  5.0 p50=  5.0 p90=  15.0 p99=  20.0 max=   20.0 distinct=4
+
+  by market type:
+    moneyline                n=138     mean= 10.51 sd=  8.56 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+
+  by price bucket (Grid A, on the derived ask):
+    [10,200)                 n=7       mean=  6.43 sd=  2.26 min=  5.0 p50=  5.0 p90=  10.0 p99=  10.0 max=   10.0 distinct=2
+    [200,800)                n=123     mean= 10.69 sd=  8.80 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+    [800,990)                n=7       mean= 12.14 sd=  7.49 min=  5.0 p50= 10.0 p90=  25.0 p99=  25.0 max=   25.0 distinct=5
+    off-grid                 n=1       mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+
+  by minutes to kickoff:
+    180-720m                 n=2       mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    2880m+                   n=110     mean= 11.82 sd=  9.11 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+    60-180m                  n=2       mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    720-2880m                n=24      mean=  5.42 sd=  1.38 min=  5.0 p50=  5.0 p90=   5.0 p99=  10.0 max=   10.0 distinct=2
+
+  by two-sided book:
+    True                     n=138     mean= 10.51 sd=  8.56 min=  5.0 p50= 10.0 p90=  20.0 p99=  45.0 max=   50.0 distinct=9
+
+==============================================================================
+CONTEXT -- leagues Kalshi lists that `discovery.IN_SCOPE_LEAGUES` excludes. Not the population; printed so the exclusion is visible.
+==============================================================================
+  n: 48 games, 726 markets, 726 observations
+     (games is the independent count; observations is not)
+
+  half-spread, tenths of a cent:
+    per observation   n=726     mean= 18.40 sd= 12.29 min=  5.0 p50= 15.0 p90=  35.0 p99=  60.0 max=  105.0 distinct=16
+    one per market    n=726     mean= 18.40 sd= 12.29 min=  5.0 p50= 15.0 p90=  35.0 p99=  60.0 max=  105.0 distinct=16
+    one per game      n=48      mean= 12.92 sd=  8.15 min=  5.0 p50= 10.0 p90=  20.0 p99=  40.0 max=   40.0 distinct=6
+    within-market sd  n=0
+
+  price grid: step(tenths)=[10] structures=['linear_cent']
+  at the tick floor (spread <= one step): 135 (18.6%) -- censored from below
+  markets ever quoting wider than one tick: 591 of 726
+
+  derived-ask identity yes_ask == 1000 - no_bid: 726 checked, 0 violations
+
+  spurious slope Var(half_spread)/Var(edge), by assumed sd(edge) in tenths:
+    sd(edge)=5     per-observation   6.0389   per-game   2.6597
+    sd(edge)=10    per-observation   1.5097   per-game   0.6649
+    sd(edge)=15    per-observation   0.6710   per-game   0.2955
+    sd(edge)=20    per-observation   0.3774   per-game   0.1662
+
+  selection bound -- the worst spurious slope ANY cut of this population could give:
+    support (tenths): [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 75.0, 80.0, 100.0, 105.0]   observed wide fraction: 81.4050%
+    worst-case sd (even split on the extremes): 50.00 tenths -> slope 25.0000 at sd(edge)=10
+    slope at sd(edge)=10 if the wide fraction were:
+         1%  0.9900
+         5%  4.7500
+        10%  9.0000
+        25%  18.7500
+        50%  25.0000
+
+  by league:
+    Pro Football Preseason   n=726     mean= 18.40 sd= 12.29 min=  5.0 p50= 15.0 p90=  35.0 p99=  60.0 max=  105.0 distinct=16
+
+  by market type:
+    moneyline                n=32      mean=  5.00 sd=  0.00 min=  5.0 p50=  5.0 p90=   5.0 p99=   5.0 max=    5.0 distinct=1
+    spread                   n=390     mean= 20.31 sd= 12.14 min=  5.0 p50= 20.0 p90=  30.0 p99=  80.0 max=  105.0 distinct=15
+    total                    n=304     mean= 17.35 sd= 12.11 min=  5.0 p50= 15.0 p90=  35.0 p99=  50.0 max=   60.0 distinct=12
+
+  by price bucket (Grid A, on the derived ask):
+    [10,200)                 n=165     mean= 13.30 sd=  7.83 min=  5.0 p50= 10.0 p90=  25.0 p99=  35.0 max=   40.0 distinct=8
+    [200,800)                n=494     mean= 20.78 sd= 12.79 min=  5.0 p50= 20.0 p90=  35.0 p99=  75.0 max=  105.0 distinct=15
+    [800,990)                n=67      mean= 13.36 sd= 12.14 min=  5.0 p50= 10.0 p90=  35.0 p99=  55.0 max=   55.0 distinct=11
+
+  by minutes to kickoff:
+    2880m+                   n=726     mean= 18.40 sd= 12.29 min=  5.0 p50= 15.0 p90=  35.0 p99=  60.0 max=  105.0 distinct=16
+
+  by two-sided book:
+    True                     n=726     mean= 18.40 sd= 12.29 min=  5.0 p50= 15.0 p90=  35.0 p99=  60.0 max=  105.0 distinct=16
+
+==============================================================================
+INSTRUMENT CONTROL -- can a candlestick show a wide spread at all?
+==============================================================================
+  15 of 15 live wider-than-one-tick markets came back wider than one tick in their latest 1-minute bar
+  exact match (bar is up to 60s older than the book): 13 of 15
+  widest bar seen: 410 tenths
+  Control passed: the reader can represent width, and found none in the pre-game window.
+
+wrote docs/measurements/2026-08-09-halfspread-dispersion.json
+
+What this bounds: the `Var(half_spread)` term in the CLV signal test's C2 confound, on the unselected pre-game population. It does not measure the selected one -- see the module docstring.

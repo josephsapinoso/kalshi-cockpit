@@ -1,0 +1,1927 @@
+{
+ "started": "2026-08-09T20:54:17.427218+00:00",
+ "days": 14,
+ "window_minutes": 180,
+ "panel_counts": {
+  "events_probed": 219,
+  "bars_seen": 78047,
+  "markets_ok": 438,
+  "kept_wider_than_one_tick": 230,
+  "events_outside_horizon": 980,
+  "events_league_out_of_scope": 1218,
+  "events_no_start_time": 6369
+ },
+ "live_counts": {
+  "events_in_scope": 154,
+  "markets_seen": 2001,
+  "events_out_of_scope": 48
+ },
+ "instrument_control": {
+  "checked": 15,
+  "shows_width": 15,
+  "exact_match": 13,
+  "max_candle_spread_tenths": 410,
+  "checks": [
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-NYJ2",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 2,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-NYJ3",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 3,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC17",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 4,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC14",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 5,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG2",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 6,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG3",
+    "live_spread_tenths": 410,
+    "candle_spread_tenths": 410,
+    "bar_age_s": 7,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC18",
+    "live_spread_tenths": 380,
+    "candle_spread_tenths": 380,
+    "bar_age_s": 9,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13BALIND-IND2",
+    "live_spread_tenths": 350,
+    "candle_spread_tenths": 350,
+    "bar_age_s": 12,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG5",
+    "live_spread_tenths": 340,
+    "candle_spread_tenths": 340,
+    "bar_age_s": 14,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13CHICAR-CAR3",
+    "live_spread_tenths": 330,
+    "candle_spread_tenths": 330,
+    "bar_age_s": 15,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-NYJ5",
+    "live_spread_tenths": 330,
+    "candle_spread_tenths": 330,
+    "bar_age_s": 16,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG4",
+    "live_spread_tenths": 350,
+    "candle_spread_tenths": 340,
+    "bar_age_s": 17,
+    "exact": false,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC10",
+    "live_spread_tenths": 330,
+    "candle_spread_tenths": 320,
+    "bar_age_s": 19,
+    "exact": false,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG6",
+    "live_spread_tenths": 320,
+    "candle_spread_tenths": 320,
+    "bar_age_s": 20,
+    "exact": true,
+    "shows_width": true
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-LAR3",
+    "live_spread_tenths": 310,
+    "candle_spread_tenths": 310,
+    "bar_age_s": 21,
+    "exact": true,
+    "shows_width": true
+   }
+  ]
+ },
+ "panel": {
+  "n_observations": 78047,
+  "n_markets": 438,
+  "n_games": 219,
+  "overall": {
+   "n": 78047,
+   "mean": 5.014734711135598,
+   "sd": 0.27102849290386316,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 10.0,
+   "distinct": 2
+  },
+  "per_market": {
+   "n": 438,
+   "mean": 5.0,
+   "sd": 0.0,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 5.0,
+   "distinct": 1
+  },
+  "per_game": {
+   "n": 219,
+   "mean": 5.0,
+   "sd": 0.0,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 5.0,
+   "distinct": 1
+  },
+  "within_market_sd": {
+   "n": 438,
+   "mean": 0.07641470313135837,
+   "sd": 0.25250347352766667,
+   "min": 0.0,
+   "p50": 0.0,
+   "p90": 0.37061900179554524,
+   "p99": 1.14831311682092,
+   "max": 1.6771803638795708,
+   "distinct": 29
+  },
+  "spurious_slope_by_sd_edge": {
+   "5": 0.002938257758629576,
+   "10": 0.000734564439657394,
+   "15": 0.0003264730842921751,
+   "20": 0.0001836411099143485
+  },
+  "spurious_slope_per_game_by_sd_edge": {
+   "5": 0.0,
+   "10": 0.0,
+   "15": 0.0,
+   "20": 0.0
+  },
+  "selection_bound": {
+   "support": [
+    5.0,
+    10.0
+   ],
+   "observed_wide_fraction": 0.0029469422271195564,
+   "worst_case_sd": 2.5,
+   "worst_case_slope_by_sd_edge": {
+    "5": 0.25,
+    "10": 0.0625,
+    "15": 0.027777777777777776,
+    "20": 0.015625
+   },
+   "slope_if_wide_fraction_were": {
+    "0.01": 0.0024750000000000006,
+    "0.05": 0.011874999999999998,
+    "0.1": 0.02250000000000001,
+    "0.25": 0.04687499999999999,
+    "0.5": 0.0625
+   }
+  },
+  "identity": {
+   "checked": 0,
+   "violations": 0,
+   "violating_tickers": []
+  },
+  "tick": {
+   "distinct_tenths": [
+    10
+   ],
+   "structures": [
+    "linear_cent"
+   ],
+   "at_floor": 77817,
+   "at_floor_fraction": 0.9970530577728804
+  },
+  "by_league": {
+   "Pro Baseball": {
+    "n": 65201,
+    "mean": 5.015950675603135,
+    "sd": 0.28195558863671805,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "Pro Basketball (W)": {
+    "n": 12846,
+    "mean": 5.008562976802118,
+    "sd": 0.2067403188516293,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_market_type": {
+   "moneyline": {
+    "n": 78047,
+    "mean": 5.014734711135598,
+    "sd": 0.27102849290386316,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_price_bucket": {
+   "[10,200)": {
+    "n": 1521,
+    "mean": 5.032873109796187,
+    "sd": 0.4040852727250295,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "[200,800)": {
+    "n": 74999,
+    "mean": 5.014600194669263,
+    "sd": 0.26979215641291526,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "[800,990)": {
+    "n": 1527,
+    "mean": 5.003274394237066,
+    "sd": 0.12791110009577347,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_time_to_start": {
+   "0-15m": {
+    "n": 6567,
+    "mean": 5.038069133546521,
+    "sd": 0.43462214486105005,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "15-60m": {
+    "n": 19631,
+    "mean": 5.011206764810758,
+    "sd": 0.2364492175420947,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "180-720m": {
+    "n": 421,
+    "mean": 5.01187648456057,
+    "sd": 0.24339550512968167,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "60-180m": {
+    "n": 51428,
+    "mean": 5.0131251458349535,
+    "sd": 0.25583873772667776,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_two_sided": {
+   "True": {
+    "n": 78047,
+    "mean": 5.014734711135598,
+    "sd": 0.27102849290386316,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "widest": [
+   {
+    "ticker": "KXMLBGAME-26AUG072215DETSF-SF",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 420,
+    "yes_ask_tenths": 440,
+    "minutes_to_start": 27.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG072145TBSEA-SEA",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 510,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 125.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG072145TBSEA-SEA",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 510,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 124.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG072145TBSEA-SEA",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 510,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 123.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG072145TBSEA-SEA",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 510,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 122.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061940MINKC-MIN",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 440,
+    "yes_ask_tenths": 460,
+    "minutes_to_start": 11.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061940MINKC-MIN",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 440,
+    "yes_ask_tenths": 460,
+    "minutes_to_start": 2.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061940MINKC-KC",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 540,
+    "yes_ask_tenths": 560,
+    "minutes_to_start": 78.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061910CWSBOS-CWS",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 350,
+    "yes_ask_tenths": 370,
+    "minutes_to_start": 73.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061910CWSBOS-CWS",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 350,
+    "yes_ask_tenths": 370,
+    "minutes_to_start": 70.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061910CWSBOS-CWS",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 350,
+    "yes_ask_tenths": 370,
+    "minutes_to_start": 69.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061910CWSBOS-BOS",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 630,
+    "yes_ask_tenths": 650,
+    "minutes_to_start": 70.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061910CWSBOS-BOS",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 630,
+    "yes_ask_tenths": 650,
+    "minutes_to_start": 69.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061420TORCHC-CHC",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 500,
+    "yes_ask_tenths": 520,
+    "minutes_to_start": 2.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061240ATHCIN-CIN",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 600,
+    "yes_ask_tenths": 620,
+    "minutes_to_start": 66.0
+   }
+  ],
+  "markets_ever_wider_than_one_tick": 44
+ },
+ "panel_final_15m": {
+  "n_observations": 6567,
+  "n_markets": 438,
+  "n_games": 219,
+  "overall": {
+   "n": 6567,
+   "mean": 5.038069133546521,
+   "sd": 0.43462214486105005,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 10.0,
+   "distinct": 2
+  },
+  "per_market": {
+   "n": 438,
+   "mean": 5.017123287671233,
+   "sd": 0.2665592335350597,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 10.0,
+   "distinct": 3
+  },
+  "per_game": {
+   "n": 219,
+   "mean": 5.0228310502283104,
+   "sd": 0.33709641690030595,
+   "min": 5.0,
+   "p50": 5.0,
+   "p90": 5.0,
+   "p99": 5.0,
+   "max": 10.0,
+   "distinct": 2
+  },
+  "within_market_sd": {
+   "n": 438,
+   "mean": 0.06520221843106819,
+   "sd": 0.34363505086796814,
+   "min": 0.0,
+   "p50": 0.0,
+   "p90": 0.0,
+   "p99": 2.0,
+   "max": 2.5,
+   "distinct": 7
+  },
+  "spurious_slope_by_sd_edge": {
+   "5": 0.007555856352144783,
+   "10": 0.0018889640880361957,
+   "15": 0.0008395395946827537,
+   "20": 0.0004722410220090489
+  },
+  "spurious_slope_per_game_by_sd_edge": {
+   "5": 0.004545359771480995,
+   "10": 0.0011363399428702488,
+   "15": 0.0005050399746089995,
+   "20": 0.0002840849857175622
+  },
+  "selection_bound": {
+   "support": [
+    5.0,
+    10.0
+   ],
+   "observed_wide_fraction": 0.007613826709304096,
+   "worst_case_sd": 2.5,
+   "worst_case_slope_by_sd_edge": {
+    "5": 0.25,
+    "10": 0.0625,
+    "15": 0.027777777777777776,
+    "20": 0.015625
+   },
+   "slope_if_wide_fraction_were": {
+    "0.01": 0.0024750000000000006,
+    "0.05": 0.011874999999999998,
+    "0.1": 0.02250000000000001,
+    "0.25": 0.04687499999999999,
+    "0.5": 0.0625
+   }
+  },
+  "identity": {
+   "checked": 0,
+   "violations": 0,
+   "violating_tickers": []
+  },
+  "tick": {
+   "distinct_tenths": [
+    10
+   ],
+   "structures": [
+    "linear_cent"
+   ],
+   "at_floor": 6517,
+   "at_floor_fraction": 0.9923861732906959
+  },
+  "by_league": {
+   "Pro Baseball": {
+    "n": 5458,
+    "mean": 5.0403078050567975,
+    "sd": 0.44711777658184204,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "Pro Basketball (W)": {
+    "n": 1109,
+    "mean": 5.027051397655545,
+    "sd": 0.3667767852013118,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_market_type": {
+   "moneyline": {
+    "n": 6567,
+    "mean": 5.038069133546521,
+    "sd": 0.43462214486105005,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_price_bucket": {
+   "[10,200)": {
+    "n": 135,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   },
+   "[200,800)": {
+    "n": 6298,
+    "mean": 5.039695141314703,
+    "sd": 0.4437341572715821,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "[800,990)": {
+    "n": 134,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   }
+  },
+  "by_time_to_start": {
+   "0-15m": {
+    "n": 6567,
+    "mean": 5.038069133546521,
+    "sd": 0.43462214486105005,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_two_sided": {
+   "True": {
+    "n": 6567,
+    "mean": 5.038069133546521,
+    "sd": 0.43462214486105005,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "widest": [
+   {
+    "ticker": "KXMLBGAME-26AUG061940MINKC-MIN",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 440,
+    "yes_ask_tenths": 460,
+    "minutes_to_start": 11.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061940MINKC-MIN",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 440,
+    "yes_ask_tenths": 460,
+    "minutes_to_start": 2.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG061420TORCHC-CHC",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 500,
+    "yes_ask_tenths": 520,
+    "minutes_to_start": 2.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG052140DETSEA-SEA",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 580,
+    "yes_ask_tenths": 600,
+    "minutes_to_start": 8.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051840WSHPHI-PHI",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 640,
+    "yes_ask_tenths": 660,
+    "minutes_to_start": 14.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051840WSHPHI-PHI",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 640,
+    "yes_ask_tenths": 660,
+    "minutes_to_start": 13.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051840NYMCLE-NYM",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 480,
+    "yes_ask_tenths": 500,
+    "minutes_to_start": 14.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051840NYMCLE-NYM",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 480,
+    "yes_ask_tenths": 500,
+    "minutes_to_start": 13.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 11.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 10.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 9.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 7.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 6.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG051835LAABAL-BAL",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 560,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 5.0
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG021337STLTOR-TOR",
+    "half_spread_tenths": 10.0,
+    "yes_bid_tenths": 540,
+    "yes_ask_tenths": 560,
+    "minutes_to_start": 3.0
+   }
+  ],
+  "markets_ever_wider_than_one_tick": 16
+ },
+ "live_pre_game_in_scope": {
+  "n_observations": 1071,
+  "n_markets": 1071,
+  "n_games": 132,
+  "overall": {
+   "n": 1071,
+   "mean": 42.338935574229694,
+   "sd": 39.84699924252228,
+   "min": 5.0,
+   "p50": 30.0,
+   "p90": 100.0,
+   "p99": 185.0,
+   "max": 205.0,
+   "distinct": 39
+  },
+  "per_market": {
+   "n": 1071,
+   "mean": 42.338935574229694,
+   "sd": 39.84699924252228,
+   "min": 5.0,
+   "p50": 30.0,
+   "p90": 100.0,
+   "p99": 185.0,
+   "max": 205.0,
+   "distinct": 39
+  },
+  "per_game": {
+   "n": 132,
+   "mean": 20.984848484848484,
+   "sd": 22.44892683150208,
+   "min": 5.0,
+   "p50": 10.0,
+   "p90": 50.0,
+   "p99": 95.0,
+   "max": 125.0,
+   "distinct": 21
+  },
+  "within_market_sd": {
+   "n": 0
+  },
+  "spurious_slope_by_sd_edge": {
+   "5": 63.51133394534285,
+   "10": 15.877833486335712,
+   "15": 7.056814882815872,
+   "20": 3.969458371583928
+  },
+  "spurious_slope_per_game_by_sd_edge": {
+   "5": 20.158172635445364,
+   "10": 5.039543158861341,
+   "15": 2.2397969594939293,
+   "20": 1.2598857897153353
+  },
+  "selection_bound": {
+   "support": [
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0,
+    45.0,
+    50.0,
+    55.0,
+    60.0,
+    65.0,
+    70.0,
+    75.0,
+    80.0,
+    85.0,
+    90.0,
+    95.0,
+    100.0,
+    105.0,
+    110.0,
+    115.0,
+    120.0,
+    125.0,
+    130.0,
+    135.0,
+    140.0,
+    145.0,
+    150.0,
+    155.0,
+    160.0,
+    165.0,
+    170.0,
+    175.0,
+    185.0,
+    190.0,
+    200.0,
+    205.0
+   ],
+   "observed_wide_fraction": 0.8543417366946778,
+   "worst_case_sd": 100.0,
+   "worst_case_slope_by_sd_edge": {
+    "5": 400.0,
+    "10": 100.0,
+    "15": 44.44444444444444,
+    "20": 25.0
+   },
+   "slope_if_wide_fraction_were": {
+    "0.01": 3.96,
+    "0.05": 18.999999999999996,
+    "0.1": 36.00000000000001,
+    "0.25": 75.0,
+    "0.5": 100.0
+   }
+  },
+  "identity": {
+   "checked": 1071,
+   "violations": 0,
+   "violating_tickers": []
+  },
+  "tick": {
+   "distinct_tenths": [
+    10
+   ],
+   "structures": [
+    "linear_cent"
+   ],
+   "at_floor": 156,
+   "at_floor_fraction": 0.14565826330532214
+  },
+  "by_league": {
+   "NCAA Football": {
+    "n": 30,
+    "mean": 9.333333333333334,
+    "sd": 5.878397362849466,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 15.0,
+    "p99": 25.0,
+    "max": 25.0,
+    "distinct": 5
+   },
+   "Pro Baseball": {
+    "n": 205,
+    "mean": 11.78048780487805,
+    "sd": 12.371312596964096,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 15.0,
+    "p99": 90.0,
+    "max": 100.0,
+    "distinct": 12
+   },
+   "Pro Basketball (W)": {
+    "n": 96,
+    "mean": 12.447916666666666,
+    "sd": 9.789311551877498,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 30.0,
+    "p99": 50.0,
+    "max": 50.0,
+    "distinct": 9
+   },
+   "Pro Football": {
+    "n": 740,
+    "mean": 56.020270270270274,
+    "sd": 40.44523651412748,
+    "min": 5.0,
+    "p50": 45.0,
+    "p90": 115.0,
+    "p99": 200.0,
+    "max": 205.0,
+    "distinct": 39
+   }
+  },
+  "by_market_type": {
+   "moneyline": {
+    "n": 138,
+    "mean": 10.507246376811594,
+    "sd": 8.561157967874012,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 20.0,
+    "p99": 45.0,
+    "max": 50.0,
+    "distinct": 9
+   },
+   "spread": {
+    "n": 508,
+    "mean": 59.61614173228347,
+    "sd": 47.213707214042174,
+    "min": 5.0,
+    "p50": 40.0,
+    "p90": 125.0,
+    "p99": 205.0,
+    "max": 205.0,
+    "distinct": 39
+   },
+   "total": {
+    "n": 425,
+    "mean": 32.023529411764706,
+    "sd": 22.819484177594546,
+    "min": 5.0,
+    "p50": 25.0,
+    "p90": 55.0,
+    "p99": 100.0,
+    "max": 140.0,
+    "distinct": 24
+   }
+  },
+  "by_price_bucket": {
+   "[10,200)": {
+    "n": 61,
+    "mean": 20.901639344262296,
+    "sd": 16.755429673453875,
+    "min": 5.0,
+    "p50": 15.0,
+    "p90": 45.0,
+    "p99": 55.0,
+    "max": 55.0,
+    "distinct": 11
+   },
+   "[200,800)": {
+    "n": 895,
+    "mean": 44.41899441340782,
+    "sd": 41.84899533037777,
+    "min": 5.0,
+    "p50": 30.0,
+    "p90": 105.0,
+    "p99": 190.0,
+    "max": 205.0,
+    "distinct": 39
+   },
+   "[800,990)": {
+    "n": 108,
+    "mean": 39.629629629629626,
+    "sd": 26.084830483334702,
+    "min": 5.0,
+    "p50": 50.0,
+    "p90": 60.0,
+    "p99": 110.0,
+    "max": 140.0,
+    "distinct": 19
+   },
+   "off-grid": {
+    "n": 7,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   }
+  },
+  "by_time_to_start": {
+   "0-15m": {
+    "n": 8,
+    "mean": 16.25,
+    "sd": 29.764702249476645,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 95.0,
+    "p99": 95.0,
+    "max": 95.0,
+    "distinct": 2
+   },
+   "15-60m": {
+    "n": 11,
+    "mean": 28.636363636363637,
+    "sd": 34.31742925123068,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 90.0,
+    "p99": 100.0,
+    "max": 100.0,
+    "distinct": 7
+   },
+   "180-720m": {
+    "n": 19,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   },
+   "2880m+": {
+    "n": 836,
+    "mean": 51.369617224880386,
+    "sd": 40.34994631713984,
+    "min": 5.0,
+    "p50": 40.0,
+    "p90": 110.0,
+    "p99": 190.0,
+    "max": 205.0,
+    "distinct": 39
+   },
+   "60-180m": {
+    "n": 32,
+    "mean": 7.8125,
+    "sd": 7.064159097160822,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 15.0,
+    "p99": 35.0,
+    "max": 35.0,
+    "distinct": 5
+   },
+   "720-2880m": {
+    "n": 165,
+    "mean": 9.757575757575758,
+    "sd": 3.7256710034675593,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 15.0,
+    "p99": 20.0,
+    "max": 20.0,
+    "distinct": 4
+   }
+  },
+  "by_two_sided": {
+   "False": {
+    "n": 13,
+    "mean": 6.153846153846154,
+    "sd": 3.9970403251589475,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 20.0,
+    "max": 20.0,
+    "distinct": 2
+   },
+   "True": {
+    "n": 1058,
+    "mean": 42.783553875236294,
+    "sd": 39.88496494868552,
+    "min": 5.0,
+    "p50": 30.0,
+    "p90": 100.0,
+    "p99": 185.0,
+    "max": 205.0,
+    "distinct": 39
+   }
+  },
+  "widest": [
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-LAR6",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 250,
+    "yes_ask_tenths": 660,
+    "minutes_to_start": 46297.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-NYJ2",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 190,
+    "yes_ask_tenths": 600,
+    "minutes_to_start": 50162.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-NYJ3",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 160,
+    "yes_ask_tenths": 570,
+    "minutes_to_start": 50162.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC17",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 170,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 50367.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC14",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 260,
+    "yes_ask_tenths": 670,
+    "minutes_to_start": 50367.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG2",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 200,
+    "yes_ask_tenths": 610,
+    "minutes_to_start": 50602.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG3",
+    "half_spread_tenths": 205.0,
+    "yes_bid_tenths": 170,
+    "yes_ask_tenths": 580,
+    "minutes_to_start": 50602.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-SF2",
+    "half_spread_tenths": 200.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 550,
+    "minutes_to_start": 46297.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-LAR10",
+    "half_spread_tenths": 190.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 46297.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13ARILAC-LAC18",
+    "half_spread_tenths": 190.0,
+    "yes_bid_tenths": 160,
+    "yes_ask_tenths": 540,
+    "minutes_to_start": 50367.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-SF3",
+    "half_spread_tenths": 185.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 520,
+    "minutes_to_start": 46297.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP10SFLAR-LAR11",
+    "half_spread_tenths": 175.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 500,
+    "minutes_to_start": 46297.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13BALIND-IND2",
+    "half_spread_tenths": 175.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 500,
+    "minutes_to_start": 50162.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13NYJTEN-TEN11",
+    "half_spread_tenths": 170.0,
+    "yes_bid_tenths": 100,
+    "yes_ask_tenths": 440,
+    "minutes_to_start": 50162.106933333336
+   },
+   {
+    "ticker": "KXNFLSPREAD-26SEP13DALNYG-NYG5",
+    "half_spread_tenths": 170.0,
+    "yes_bid_tenths": 150,
+    "yes_ask_tenths": 490,
+    "minutes_to_start": 50602.106933333336
+   }
+  ],
+  "markets_ever_wider_than_one_tick": 915
+ },
+ "live_pre_game_moneyline": {
+  "n_observations": 138,
+  "n_markets": 138,
+  "n_games": 69,
+  "overall": {
+   "n": 138,
+   "mean": 10.507246376811594,
+   "sd": 8.561157967874012,
+   "min": 5.0,
+   "p50": 10.0,
+   "p90": 20.0,
+   "p99": 45.0,
+   "max": 50.0,
+   "distinct": 9
+  },
+  "per_market": {
+   "n": 138,
+   "mean": 10.507246376811594,
+   "sd": 8.561157967874012,
+   "min": 5.0,
+   "p50": 10.0,
+   "p90": 20.0,
+   "p99": 45.0,
+   "max": 50.0,
+   "distinct": 9
+  },
+  "per_game": {
+   "n": 69,
+   "mean": 10.507246376811594,
+   "sd": 7.785388001288235,
+   "min": 5.0,
+   "p50": 7.5,
+   "p90": 20.0,
+   "p99": 42.5,
+   "max": 42.5,
+   "distinct": 11
+  },
+  "within_market_sd": {
+   "n": 0
+  },
+  "spurious_slope_by_sd_edge": {
+   "5": 2.9317370300357073,
+   "10": 0.7329342575089268,
+   "15": 0.32574855889285637,
+   "20": 0.1832335643772317
+  },
+  "spurious_slope_per_game_by_sd_edge": {
+   "5": 2.4244906532241126,
+   "10": 0.6061226633060282,
+   "15": 0.2693878503582347,
+   "20": 0.15153066582650704
+  },
+  "selection_bound": {
+   "support": [
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    40.0,
+    45.0,
+    50.0
+   ],
+   "observed_wide_fraction": 0.5072463768115942,
+   "worst_case_sd": 22.5,
+   "worst_case_slope_by_sd_edge": {
+    "5": 20.25,
+    "10": 5.0625,
+    "15": 2.25,
+    "20": 1.265625
+   },
+   "slope_if_wide_fraction_were": {
+    "0.01": 0.20047500000000004,
+    "0.05": 0.9618749999999998,
+    "0.1": 1.8225000000000007,
+    "0.25": 3.796875,
+    "0.5": 5.0625
+   }
+  },
+  "identity": {
+   "checked": 138,
+   "violations": 0,
+   "violating_tickers": []
+  },
+  "tick": {
+   "distinct_tenths": [
+    10
+   ],
+   "structures": [
+    "linear_cent"
+   ],
+   "at_floor": 68,
+   "at_floor_fraction": 0.4927536231884058
+  },
+  "by_league": {
+   "NCAA Football": {
+    "n": 30,
+    "mean": 9.333333333333334,
+    "sd": 5.878397362849466,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 15.0,
+    "p99": 25.0,
+    "max": 25.0,
+    "distinct": 5
+   },
+   "Pro Baseball": {
+    "n": 64,
+    "mean": 12.109375,
+    "sd": 9.674575551897613,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 25.0,
+    "p99": 45.0,
+    "max": 45.0,
+    "distinct": 8
+   },
+   "Pro Basketball (W)": {
+    "n": 12,
+    "mean": 11.25,
+    "sd": 13.559283412727483,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 30.0,
+    "p99": 50.0,
+    "max": 50.0,
+    "distinct": 4
+   },
+   "Pro Football": {
+    "n": 32,
+    "mean": 8.125,
+    "sd": 3.9031237489989987,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 15.0,
+    "p99": 20.0,
+    "max": 20.0,
+    "distinct": 4
+   }
+  },
+  "by_market_type": {
+   "moneyline": {
+    "n": 138,
+    "mean": 10.507246376811594,
+    "sd": 8.561157967874012,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 20.0,
+    "p99": 45.0,
+    "max": 50.0,
+    "distinct": 9
+   }
+  },
+  "by_price_bucket": {
+   "[10,200)": {
+    "n": 7,
+    "mean": 6.428571428571429,
+    "sd": 2.2587697572631282,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 10.0,
+    "p99": 10.0,
+    "max": 10.0,
+    "distinct": 2
+   },
+   "[200,800)": {
+    "n": 123,
+    "mean": 10.691056910569106,
+    "sd": 8.795906366125053,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 20.0,
+    "p99": 45.0,
+    "max": 50.0,
+    "distinct": 9
+   },
+   "[800,990)": {
+    "n": 7,
+    "mean": 12.142857142857142,
+    "sd": 7.49149177264394,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 25.0,
+    "p99": 25.0,
+    "max": 25.0,
+    "distinct": 5
+   },
+   "off-grid": {
+    "n": 1,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   }
+  },
+  "by_time_to_start": {
+   "180-720m": {
+    "n": 2,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   },
+   "2880m+": {
+    "n": 110,
+    "mean": 11.818181818181818,
+    "sd": 9.113608025347009,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 20.0,
+    "p99": 45.0,
+    "max": 50.0,
+    "distinct": 9
+   },
+   "60-180m": {
+    "n": 2,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   },
+   "720-2880m": {
+    "n": 24,
+    "mean": 5.416666666666667,
+    "sd": 1.3819269959814167,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 10.0,
+    "max": 10.0,
+    "distinct": 2
+   }
+  },
+  "by_two_sided": {
+   "True": {
+    "n": 138,
+    "mean": 10.507246376811594,
+    "sd": 8.561157967874012,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 20.0,
+    "p99": 45.0,
+    "max": 50.0,
+    "distinct": 9
+   }
+  },
+  "widest": [
+   {
+    "ticker": "KXWNBAGAME-26AUG11PHXLA-PHX",
+    "half_spread_tenths": 50.0,
+    "yes_bid_tenths": 520,
+    "yes_ask_tenths": 620,
+    "minutes_to_start": 3182.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121610MILSD-MIL",
+    "half_spread_tenths": 45.0,
+    "yes_bid_tenths": 510,
+    "yes_ask_tenths": 600,
+    "minutes_to_start": 4272.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121540COLAZ-COL",
+    "half_spread_tenths": 40.0,
+    "yes_bid_tenths": 340,
+    "yes_ask_tenths": 420,
+    "minutes_to_start": 4242.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121545HOUSF-HOU",
+    "half_spread_tenths": 40.0,
+    "yes_bid_tenths": 470,
+    "yes_ask_tenths": 550,
+    "minutes_to_start": 4247.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121610MILSD-SD",
+    "half_spread_tenths": 40.0,
+    "yes_bid_tenths": 370,
+    "yes_ask_tenths": 450,
+    "minutes_to_start": 4272.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121340BALMIN-BAL",
+    "half_spread_tenths": 30.0,
+    "yes_bid_tenths": 450,
+    "yes_ask_tenths": 510,
+    "minutes_to_start": 4122.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121415PHISTL-PHI",
+    "half_spread_tenths": 30.0,
+    "yes_bid_tenths": 550,
+    "yes_ask_tenths": 610,
+    "minutes_to_start": 4157.1069333333335
+   },
+   {
+    "ticker": "KXWNBAGAME-26AUG11PHXLA-LA",
+    "half_spread_tenths": 30.0,
+    "yes_bid_tenths": 400,
+    "yes_ask_tenths": 460,
+    "minutes_to_start": 3182.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121545HOUSF-SF",
+    "half_spread_tenths": 25.0,
+    "yes_bid_tenths": 440,
+    "yes_ask_tenths": 490,
+    "minutes_to_start": 4247.1069333333335
+   },
+   {
+    "ticker": "KXNCAAFGAME-26SEP11MIZZKU-KU",
+    "half_spread_tenths": 25.0,
+    "yes_bid_tenths": 290,
+    "yes_ask_tenths": 340,
+    "minutes_to_start": 47702.106933333336
+   },
+   {
+    "ticker": "KXNCAAFGAME-26SEP19MSUND-ND",
+    "half_spread_tenths": 25.0,
+    "yes_bid_tenths": 890,
+    "yes_ask_tenths": 940,
+    "minutes_to_start": 59192.106933333336
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG111840PITMIA-PIT",
+    "half_spread_tenths": 20.0,
+    "yes_bid_tenths": 490,
+    "yes_ask_tenths": 530,
+    "minutes_to_start": 2982.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG111840PITMIA-MIA",
+    "half_spread_tenths": 20.0,
+    "yes_bid_tenths": 470,
+    "yes_ask_tenths": 510,
+    "minutes_to_start": 2982.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121415PHISTL-STL",
+    "half_spread_tenths": 20.0,
+    "yes_bid_tenths": 400,
+    "yes_ask_tenths": 440,
+    "minutes_to_start": 4157.1069333333335
+   },
+   {
+    "ticker": "KXMLBGAME-26AUG121505TBATH-TB",
+    "half_spread_tenths": 20.0,
+    "yes_bid_tenths": 630,
+    "yes_ask_tenths": 670,
+    "minutes_to_start": 4207.1069333333335
+   }
+  ],
+  "markets_ever_wider_than_one_tick": 70
+ },
+ "live_out_of_scope_leagues": {
+  "n_observations": 726,
+  "n_markets": 726,
+  "n_games": 48,
+  "overall": {
+   "n": 726,
+   "mean": 18.395316804407713,
+   "sd": 12.287059200545368,
+   "min": 5.0,
+   "p50": 15.0,
+   "p90": 35.0,
+   "p99": 60.0,
+   "max": 105.0,
+   "distinct": 16
+  },
+  "per_market": {
+   "n": 726,
+   "mean": 18.395316804407713,
+   "sd": 12.287059200545368,
+   "min": 5.0,
+   "p50": 15.0,
+   "p90": 35.0,
+   "p99": 60.0,
+   "max": 105.0,
+   "distinct": 16
+  },
+  "per_game": {
+   "n": 48,
+   "mean": 12.916666666666666,
+   "sd": 8.154327412825387,
+   "min": 5.0,
+   "p50": 10.0,
+   "p90": 20.0,
+   "p99": 40.0,
+   "max": 40.0,
+   "distinct": 6
+  },
+  "within_market_sd": {
+   "n": 0
+  },
+  "spurious_slope_by_sd_edge": {
+   "5": 6.038872951908263,
+   "10": 1.5097182379770657,
+   "15": 0.6709858835453626,
+   "20": 0.37742955949426643
+  },
+  "spurious_slope_per_game_by_sd_edge": {
+   "5": 2.6597222222222223,
+   "10": 0.6649305555555556,
+   "15": 0.29552469135802467,
+   "20": 0.1662326388888889
+  },
+  "selection_bound": {
+   "support": [
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0,
+    45.0,
+    50.0,
+    55.0,
+    60.0,
+    75.0,
+    80.0,
+    100.0,
+    105.0
+   ],
+   "observed_wide_fraction": 0.8140495867768595,
+   "worst_case_sd": 50.0,
+   "worst_case_slope_by_sd_edge": {
+    "5": 100.0,
+    "10": 25.0,
+    "15": 11.11111111111111,
+    "20": 6.25
+   },
+   "slope_if_wide_fraction_were": {
+    "0.01": 0.99,
+    "0.05": 4.749999999999999,
+    "0.1": 9.000000000000002,
+    "0.25": 18.75,
+    "0.5": 25.0
+   }
+  },
+  "identity": {
+   "checked": 726,
+   "violations": 0,
+   "violating_tickers": []
+  },
+  "tick": {
+   "distinct_tenths": [
+    10
+   ],
+   "structures": [
+    "linear_cent"
+   ],
+   "at_floor": 135,
+   "at_floor_fraction": 0.1859504132231405
+  },
+  "by_league": {
+   "Pro Football Preseason": {
+    "n": 726,
+    "mean": 18.395316804407713,
+    "sd": 12.287059200545368,
+    "min": 5.0,
+    "p50": 15.0,
+    "p90": 35.0,
+    "p99": 60.0,
+    "max": 105.0,
+    "distinct": 16
+   }
+  },
+  "by_market_type": {
+   "moneyline": {
+    "n": 32,
+    "mean": 5.0,
+    "sd": 0.0,
+    "min": 5.0,
+    "p50": 5.0,
+    "p90": 5.0,
+    "p99": 5.0,
+    "max": 5.0,
+    "distinct": 1
+   },
+   "spread": {
+    "n": 390,
+    "mean": 20.307692307692307,
+    "sd": 12.14369910726915,
+    "min": 5.0,
+    "p50": 20.0,
+    "p90": 30.0,
+    "p99": 80.0,
+    "max": 105.0,
+    "distinct": 15
+   },
+   "total": {
+    "n": 304,
+    "mean": 17.351973684210527,
+    "sd": 12.111507524896448,
+    "min": 5.0,
+    "p50": 15.0,
+    "p90": 35.0,
+    "p99": 50.0,
+    "max": 60.0,
+    "distinct": 12
+   }
+  },
+  "by_price_bucket": {
+   "[10,200)": {
+    "n": 165,
+    "mean": 13.303030303030303,
+    "sd": 7.833435905781754,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 25.0,
+    "p99": 35.0,
+    "max": 40.0,
+    "distinct": 8
+   },
+   "[200,800)": {
+    "n": 494,
+    "mean": 20.779352226720647,
+    "sd": 12.791139819421291,
+    "min": 5.0,
+    "p50": 20.0,
+    "p90": 35.0,
+    "p99": 75.0,
+    "max": 105.0,
+    "distinct": 15
+   },
+   "[800,990)": {
+    "n": 67,
+    "mean": 13.35820895522388,
+    "sd": 12.136907438276562,
+    "min": 5.0,
+    "p50": 10.0,
+    "p90": 35.0,
+    "p99": 55.0,
+    "max": 55.0,
+    "distinct": 11
+   }
+  },
+  "by_time_to_start": {
+   "2880m+": {
+    "n": 726,
+    "mean": 18.395316804407713,
+    "sd": 12.287059200545368,
+    "min": 5.0,
+    "p50": 15.0,
+    "p90": 35.0,
+    "p99": 60.0,
+    "max": 105.0,
+    "distinct": 16
+   }
+  },
+  "by_two_sided": {
+   "True": {
+    "n": 726,
+    "mean": 18.395316804407713,
+    "sd": 12.287059200545368,
+    "min": 5.0,
+    "p50": 15.0,
+    "p90": 35.0,
+    "p99": 60.0,
+    "max": 105.0,
+    "distinct": 16
+   }
+  },
+  "widest": [
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-LAR5",
+    "half_spread_tenths": 105.0,
+    "yes_bid_tenths": 180,
+    "yes_ask_tenths": 390,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-LAR3",
+    "half_spread_tenths": 100.0,
+    "yes_bid_tenths": 250,
+    "yes_ask_tenths": 450,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-KC5",
+    "half_spread_tenths": 80.0,
+    "yes_bid_tenths": 290,
+    "yes_ask_tenths": 450,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-LAR7",
+    "half_spread_tenths": 80.0,
+    "yes_bid_tenths": 180,
+    "yes_ask_tenths": 340,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-KC7",
+    "half_spread_tenths": 75.0,
+    "yes_bid_tenths": 240,
+    "yes_ask_tenths": 390,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-KC14",
+    "half_spread_tenths": 60.0,
+    "yes_bid_tenths": 160,
+    "yes_ask_tenths": 280,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-KC3",
+    "half_spread_tenths": 60.0,
+    "yes_bid_tenths": 380,
+    "yes_ask_tenths": 500,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLTOTAL-26AUG15LARKC-34",
+    "half_spread_tenths": 60.0,
+    "yes_bid_tenths": 610,
+    "yes_ask_tenths": 730,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLTOTAL-26AUG15LARKC-40",
+    "half_spread_tenths": 60.0,
+    "yes_bid_tenths": 350,
+    "yes_ask_tenths": 470,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLTOTAL-26AUG14TBNYJ-15",
+    "half_spread_tenths": 55.0,
+    "yes_bid_tenths": 800,
+    "yes_ask_tenths": 910,
+    "minutes_to_start": 7322.1069333333335
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-LAR8",
+    "half_spread_tenths": 50.0,
+    "yes_bid_tenths": 180,
+    "yes_ask_tenths": 280,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG15LARKC-LAR10",
+    "half_spread_tenths": 50.0,
+    "yes_bid_tenths": 160,
+    "yes_ask_tenths": 260,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLTOTAL-26AUG15LARKC-25",
+    "half_spread_tenths": 50.0,
+    "yes_bid_tenths": 750,
+    "yes_ask_tenths": 850,
+    "minutes_to_start": 8582.106933333333
+   },
+   {
+    "ticker": "KXNFLSPREAD-26AUG14TBNYJ-NYJ10",
+    "half_spread_tenths": 45.0,
+    "yes_bid_tenths": 160,
+    "yes_ask_tenths": 250,
+    "minutes_to_start": 7322.1069333333335
+   },
+   {
+    "ticker": "KXNFLTOTAL-26AUG15LARKC-22",
+    "half_spread_tenths": 45.0,
+    "yes_bid_tenths": 750,
+    "yes_ask_tenths": 840,
+    "minutes_to_start": 8582.106933333333
+   }
+  ],
+  "markets_ever_wider_than_one_tick": 591
+ }
+}
