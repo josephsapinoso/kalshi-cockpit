@@ -97,6 +97,39 @@ live data before the window opened. They measured *how many* echo pairs exist,
 never how any of them moves, so they cannot have informed a threshold about
 movement. But they are data, they were looked at, and they are on the record.
 
+### Amendment 2 — cadence only, after run 1 was uninformative by its own criterion
+
+Run 1 (12 polls, 20 s apart, 12 echo pairs, 19 calls) returned **TOO THIN TO
+ANSWER**, and it failed on the informativeness criterion fixed in advance, not
+on its result. Its full output is in `RESULTS` below and in
+`2026-08-09-combo-leg-echo.json`; nothing about it is discarded.
+
+Two censoring mechanisms, both visible in that data:
+
+1. **9 of 12 matched legs had exactly one distinct cost** across the four
+   minutes. Pre-registered: that is a defect of the window, not a finding.
+2. **9 of 12 combinations stopped being quoted within 20–80 s**, `yes_ask` going
+   unreadable while `status` stayed `active`. The joint's quote lives *tens of
+   seconds*; the matched leg ticks on a scale of *minutes*. Sampled at 20 s,
+   the two barely overlap, so only 2 move events existed to classify — and they
+   split 1 `tracks` / 1 `frozen`, which is as close to no information as two
+   observations can be.
+
+The fix is cadence, and it is forced by the mechanism: **sample inside the
+quote's lifetime**. Run 2 polls every **4 s** for 75 rounds (5 min), rediscovers
+every 12 rounds so a live pair always exists, retires a pair after 8 consecutive
+unreadable asks (which can neither create nor destroy a move event, since one
+requires both asks readable), and tracks up to 40 pairs. Cost ≈ 100 free
+unauthenticated calls.
+
+Run 2 is extended **because run 1 was uninformative, not because of its
+direction** — 1 versus 1 has no direction. Both runs are reported. Run 2 is
+primary; run 1's two events are pooled into the final table and identified.
+
+Again unchanged: the echo definition and its 0.02 tolerance, the matched-leg
+choice, the move-event definition, `MOVE_TENTHS`, `TRACK_TOL`, the 80% share,
+the floors of 5 events and 3 pairs, what counts as `n`, and rule R1.
+
 ### Definitions — fixed before collection
 
 - `cost_to_buy_leg(L)` is **imported** from

@@ -323,21 +323,38 @@ async def run(
     discovery_rounds: int,
     interval_s: float,
     max_pairs: int,
+    discover_every: int = 0,
+    retire_after: int = 0,
 ) -> list[Pair]:
     pairs: list[Pair] = []
     known: set[str] = set()
+
+    def retired(pair: Pair) -> bool:
+        """Stop polling a pair whose combination has stopped being quoted.
+
+        A move event requires BOTH combo asks readable, so retiring a pair
+        after `retire_after` consecutive unreadable asks can neither create nor
+        destroy one. It only keeps dead tickers out of the batch. Zero disables
+        it.
+        """
+        if retire_after <= 0 or len(pair.samples) < retire_after:
+            return False
+        return all(
+            s.combo_ask is None for s in pair.samples[-retire_after:]
+        )
 
     for round_index in range(rounds):
         if round_index:
             await asyncio.sleep(interval_s)
 
-        # Discovery runs in the FIRST rounds only, then stops. Staggering the
-        # starts is what interleaving buys -- a pair discovered in round 3
-        # still has most of the window ahead of it -- but discovering in every
-        # round costs a page read and a leg batch each time for pairs that
-        # arrive too late to contribute a move event. Observation continues for
-        # every tracked pair to the end of the run either way.
-        discovering = round_index < discovery_rounds and len(pairs) < max_pairs
+        # Discovery runs in the first rounds, and then -- if `discover_every`
+        # is set -- periodically, because a combination stops being quoted long
+        # before the run ends and a window with no live pair in it measures
+        # nothing. Observation continues for every tracked pair regardless.
+        discovering = len(pairs) < max_pairs and (
+            round_index < discovery_rounds
+            or (discover_every > 0 and round_index % discover_every == 0)
+        )
 
         page: list[dict] = []
         if discovering:
@@ -348,8 +365,9 @@ async def run(
         # discovering, every leg of every quoted combination on the page. One
         # request set, one moment, so a combination and its leg are read
         # together rather than argued to be contemporaneous.
+        live = [p for p in pairs if not retired(p)]
         wanted: list[str] = []
-        for pair in pairs:
+        for pair in live:
             wanted.extend([pair.combo_ticker, pair.matched_leg_ticker])
         if discovering:
             for market in page:
@@ -369,7 +387,7 @@ async def run(
         for market in page:
             rows.setdefault(market.get("ticker") or "", market)
 
-        for pair in pairs:
+        for pair in live:
             pair.samples.append(sample_for(pair, round_index, now_ms, rows))
 
         if discovering:
@@ -381,9 +399,9 @@ async def run(
                 pair.samples.append(sample_for(pair, round_index, now_ms, rows))
 
         logger.info(
-            "round %d/%d%s: %d tracked pairs, %d API calls so far",
+            "round %d/%d%s: %d tracked (%d live), %d API calls so far",
             round_index + 1, rounds, " (discovering)" if discovering else "",
-            len(pairs), reader.calls,
+            len(pairs), len([p for p in pairs if not retired(p)]), reader.calls,
         )
 
     return pairs
@@ -491,6 +509,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=12)
     parser.add_argument("--discovery-rounds", type=int, default=4)
+    parser.add_argument("--discover-every", type=int, default=0)
+    parser.add_argument("--retire-after", type=int, default=0)
     parser.add_argument("--interval", type=float, default=20.0)
     parser.add_argument("--max-pairs", type=int, default=12)
     parser.add_argument("--json", type=Path, default=None)
@@ -508,6 +528,8 @@ def main() -> int:
                 discovery_rounds=args.discovery_rounds,
                 interval_s=args.interval,
                 max_pairs=args.max_pairs,
+                discover_every=args.discover_every,
+                retire_after=args.retire_after,
             )
             return pairs, reader.calls
 
