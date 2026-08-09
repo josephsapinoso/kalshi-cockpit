@@ -1105,8 +1105,13 @@ class TestTheCapsStillBindThroughTheSizer:
             "INSERT INTO orders (client_order_id, recommendation_id, submitted_ms, "
             "ticker, side, action, order_type, count, limit_price_tenths, status, "
             "request_body_json, dry_run) "
+            # `dry_run = 1`: since ADR 0010 an order sizes against its own
+            # population, and every order this project places is paper. A live
+            # row here would leave the paper budget untouched and the request
+            # would succeed -- which is the correct behaviour and not the one
+            # under test.
             "VALUES ('o1', ?, ?, ?, 'yes', 'buy', 'limit', 790, 500, 'resting', "
-            "'{}', 0)",
+            "'{}', 1)",
             (rec, now, TICKER),
         )
         conn.commit()

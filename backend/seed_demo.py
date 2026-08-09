@@ -35,6 +35,7 @@ from .engine import (
     persist_recommendation,
 )
 from .store import db
+from .store.orders import DEPTH_CAPPED_TAKER
 
 DEFAULT_SEED = 1337
 
@@ -403,12 +404,36 @@ def seed_history(
         )
         counts["closing_lines"] += 1
 
+        # A settlement settles a **position**, so the seeded history needs the
+        # paper order it closes. Since schema v4 `settlements.order_id` is
+        # `NOT NULL`, and the previous form here -- `INSERT OR IGNORE` without
+        # it -- inserted **nothing at all** while reporting a count, which is
+        # `tasks/lessons.md` on `OR IGNORE` reproduced exactly: a constraint
+        # failure converted into a plausible no-op. Plain `INSERT` below, so a
+        # fixture that stops matching the schema fails loudly instead of
+        # emptying the calibration mart in silence.
         contracts = 20
+        order = conn.execute(
+            "INSERT INTO orders (client_order_id, recommendation_id, "
+            "submitted_ms, ticker, side, action, order_type, count, "
+            "limit_price_tenths, status, request_body_json, dry_run, "
+            "fill_assumption, assumed_filled_count) "
+            "VALUES (?, ?, ?, ?, ?, 'buy', 'limit', ?, ?, 'dry_run', '{}', 1, "
+            "?, ?)",
+            (
+                f"seed-{i:04d}", cursor.lastrowid, created, ticker, side,
+                contracts, ask, DEPTH_CAPPED_TAKER, contracts,
+            ),
+        )
         pnl = (1000 - ask if won else -ask) * contracts / 1000 * 100
         conn.execute(
-            "INSERT OR IGNORE INTO settlements (ticker, settled_ms, result, "
-            "contracts, pnl_cents) VALUES (?, ?, ?, ?, ?)",
-            (ticker, created + 10_800_000, "yes" if won else "no", contracts, int(pnl)),
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run, fill_assumption) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+            (
+                order.lastrowid, ticker, created + 10_800_000,
+                "yes" if won else "no", contracts, int(pnl), DEPTH_CAPPED_TAKER,
+            ),
         )
         counts["settlements"] += 1
 

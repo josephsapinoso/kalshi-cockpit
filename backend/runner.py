@@ -83,7 +83,7 @@ from .odds.client import store_quotes
 from .odds.timing import SweepDecision, decide_sweeps
 from .store import db
 from .store.db import ask_for_side, now_ms
-from .store.orders import current_exposure_dollars
+from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
 
 logger = logging.getLogger(__name__)
 
@@ -527,7 +527,10 @@ def run_pricing_pass(
         "chain runner configuration",
         now=stamp,
     )
-    exposure = current_exposure_dollars(conn)
+    # The same population the resulting order will be admitted against.
+    # Sizing a recommendation against a budget the order endpoint does not
+    # use is how a card offers a size the server then refuses.
+    exposure = current_exposure_dollars(conn, dry_run=ORDERS_ARE_DRY_RUNS)
     if exposure is None:
         # Raise rather than pass `None` down to `size_position`. It would
         # refuse -- correctly -- but it would refuse *every candidate on the

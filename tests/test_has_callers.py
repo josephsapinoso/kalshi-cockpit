@@ -84,6 +84,13 @@ MUST_HAVE_CALLERS = [
         "state this file exists to detect",
     ),
     (
+        "run_settlement_pass",
+        "no paper position ever closes, so paper exposure only ratchets up "
+        "until the order endpoint refuses everything -- a cap that can only "
+        "close is an off switch, which is exactly why ADR 0008 declined to "
+        "count paper exposure at all",
+    ),
+    (
         "run_scoring_pass",
         "closing lines are never fetched, so `score_recommendations` has "
         "nothing to score even once it is called",

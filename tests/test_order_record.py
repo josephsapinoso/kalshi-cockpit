@@ -642,8 +642,8 @@ class TestTheCapBindsOnceOrdersAreLive:
 
         first = await _post(_app(path, FakeQuotes(), risk=risk), rec)
         assert first.status_code == 200, first.text
-        # And the dry run it just wrote consumes none of the cap, which is the
-        # other half of why the cap does not bind in production.
+        # Nothing was outstanding before it, so this is a true zero rather than
+        # the structural one it used to be.
         assert first.json()["exposure_before_dollars"] == 0.0
 
         writer = db.open_db(path)
@@ -654,12 +654,22 @@ class TestTheCapBindsOnceOrdersAreLive:
                     ticker="OTHER", side="yes", action="buy", count=200,
                     limit_price_tenths=500, price_grid=WHOLE_CENT,
                 ),
-                dry_run=False, submitted_ms=1,
+                # **Paper**, matching the population the endpoint places into.
+                # This was `dry_run=False` and the test passed only because
+                # exposure counted live rows unconditionally -- so it was
+                # blocking a paper order with live capital, which ADR 0010
+                # identifies as the thing that would refuse the first real order
+                # for a fictional reason. Since every order this project places
+                # is paper, the blocking order has to be paper too.
+                dry_run=True, submitted_ms=1,
             )
         finally:
             writer.close()
-        # $100 of live exposure against a $100 cap leaves no room at all.
-        conn.execute("UPDATE orders SET status = 'resting' WHERE dry_run = 0")
+        # $100 of paper exposure against a $100 cap leaves no room at all.
+        conn.execute(
+            "UPDATE orders SET status = 'resting' WHERE client_order_id NOT IN "
+            "(SELECT client_order_id FROM orders ORDER BY id LIMIT 1)"
+        )
         conn.commit()
 
         second = await _post(_app(path, FakeQuotes(), risk=risk), rec)
@@ -789,14 +799,13 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
         finally:
             reader.close()
 
-    def test_a_dry_run_consumes_none_of_the_cap(self, conn, tmp_path):
-        """Stated as a test rather than only in a docstring.
+    def test_a_dry_run_consumes_none_of_the_LIVE_cap(self, conn, tmp_path):
+        """Paper positions are not capital, so they never touch a live budget.
 
-        `current_exposure_dollars` counts `dry_run = 0`, so a dry-run row
-        contributes nothing to the sum it is checked against -- which is why
-        this refusal has never fired in production and cannot until a live
-        order exists. If that ever changes silently, paper trading starts
-        refusing itself with nothing able to release the budget.
+        This is the half of the old behaviour that survives ADR 0010, and it is
+        the one that matters for safety: whatever paper exposure is outstanding,
+        the first real order still sees a clean budget and is never refused for
+        a fictional reason.
         """
         path = tmp_path / "record.db"
         writer = db.open_db(path)
@@ -807,9 +816,45 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
                     self._live(count=100, price_tenths=900, coid=f"dry-{index}"),
                     dry_run=True,
                     submitted_ms=index,
-                    max_exposure_dollars=1.0,      # $270 of paper against $1
+                    max_exposure_dollars=1_000.0,
                 )
             assert len(_rows(writer)) == 3
-            assert current_exposure_dollars(writer) == pytest.approx(0.0)
+            assert current_exposure_dollars(writer, dry_run=False) == pytest.approx(0.0)
+        finally:
+            writer.close()
+
+    def test_a_dry_run_DOES_consume_the_paper_cap(self, conn, tmp_path):
+        """The half ADR 0010 reverses, and the reason it was safe to reverse.
+
+        This test previously asserted the opposite -- that $270 of paper against
+        a $1 cap was admitted -- because nothing closed a paper position, so
+        counting them would have let exposure ratchet up until the endpoint
+        refused everything. A cap that can only close is an off switch, and
+        ADR 0008 declined it for that reason.
+
+        `backend/settlement.py` is what changed the argument: paper capital is
+        released now. What that buys is the thing worth having -- the cap
+        **binds in production**, on paper, before it has ever guarded real
+        money. This repo has twice shipped a money guard that could not fire
+        and read as defence in depth.
+        """
+        path = tmp_path / "record.db"
+        writer = db.open_db(path)
+        try:
+            reserve_order(
+                writer, self._live(count=100, price_tenths=900, coid="dry-0"),
+                dry_run=True, submitted_ms=0, max_exposure_dollars=1_000.0,
+            )
+            with pytest.raises(ExposureCapExceeded):
+                reserve_order(
+                    writer,
+                    self._live(count=100, price_tenths=900, coid="dry-1"),
+                    dry_run=True,
+                    submitted_ms=1,
+                    max_exposure_dollars=100.0,   # $180 of paper against $100
+                )
+            # Rolled back entirely, so a refusal leaves nothing behind -- a
+            # stranded `pending` row would count as exposure by design.
+            assert len(_rows(writer)) == 1
         finally:
             writer.close()

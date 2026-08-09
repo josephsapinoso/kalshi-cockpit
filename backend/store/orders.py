@@ -95,6 +95,30 @@ STATUS_PENDING = "pending"
 # direction that refuses an order rather than permitting one.
 TERMINAL_STATUSES = ("unfilled", "rejected", "canceled")
 
+# The only fill assumption this project has. Named rather than implied: a dry
+# run never rests in a book, so "did it fill" has no observed answer, and any
+# answer is a policy. `docs/adr/0010` sets out why this one is defensible and
+# where it is optimistic.
+#
+# It says: filled in full, at the order's own limit, because `POST /api/orders`
+# refuses when the resting size at our price is smaller than the order -- so
+# every order this project writes is a marketable limit inside the depth we
+# just observed. `assumed_filled_count` is therefore `count` on every row today,
+# which is a measured `0 of N differ` rather than a coincidence to rely on: the
+# two are separate columns so the day a partial-fill policy exists, neither
+# changes meaning.
+DEPTH_CAPPED_TAKER = "depth_capped_taker"
+
+# Every order this project places is a dry run, and the decision lives here
+# rather than at the two call sites that used to hardcode it.
+#
+# It is load-bearing in a way a literal `True` hides: it selects which
+# **exposure population** an order sizes against. The order endpoint's advisory
+# read and `reserve_order`'s authoritative check must agree about that, and two
+# hardcoded booleans in two files are free to stop agreeing -- at which point an
+# order is sized against one budget and admitted against another.
+ORDERS_ARE_DRY_RUNS = True
+
 # V2 expresses a market order by omitting `price`. This repo never omits it --
 # `OrderRequest` cannot be constructed without a tradeable limit -- so every row
 # this module writes is a limit order.
@@ -239,8 +263,9 @@ def _insert_intent(
             "INSERT INTO orders ("
             "client_order_id, recommendation_id, submitted_ms, ticker, side, "
             "action, order_type, count, limit_price_tenths, status, "
-            "request_body_json, dry_run, idempotency_key"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "request_body_json, dry_run, idempotency_key, fill_assumption, "
+            "assumed_filled_count"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 order.client_order_id,
                 order.recommendation_id,
@@ -256,6 +281,12 @@ def _insert_intent(
                 canonical_body_json(body),
                 1 if dry_run else 0,
                 idempotency_key,
+                # Written with the intent, not at settlement, because it
+                # describes how this order will be *read* and that has to be
+                # fixed before the outcome is known. Deciding it afterwards is
+                # how a record gets scored under whichever assumption suits it.
+                DEPTH_CAPPED_TAKER,
+                int(order.count),
             ),
         )
     except sqlite3.Error as exc:
@@ -334,11 +365,19 @@ def reserve_order(
     What this does **not** do, stated because the shape invites assuming
     otherwise:
 
-    - **It cannot bind on a dry run.** `current_exposure_dollars` counts only
-      `dry_run = 0`, so a dry-run row contributes nothing to the sum it is
-      checked against. That is correct rather than a limitation -- a dry run
-      commits no capital -- but it does mean this refusal has never fired in
-      production and cannot until a live order exists.
+    - **It compares like with like, and that is what makes it able to fire.**
+      The exposure read below takes this call's own `dry_run`, so a paper order
+      is checked against paper positions and a live order against live ones.
+      It used to count `dry_run = 0` unconditionally, which meant a paper order
+      contributed nothing to the sum it was checked against and this refusal
+      could not fire in production at all. It can now -- on paper, which is the
+      point: a money guard that has never executed is not defence in depth.
+      Paper exposure is only safe to count because `backend/settlement.py`
+      releases it; see ADR 0010.
+
+    - **It still says nothing about live risk.** Paper positions are not
+      capital. The two populations are never pooled, so a live order's budget is
+      untouched by however much fictional exposure is outstanding.
     """
     previous_isolation = conn.isolation_level
     # Explicit transaction control. Left at the sqlite3 default, the module
@@ -366,7 +405,7 @@ def reserve_order(
                 conn, order, dry_run=dry_run, submitted_ms=submitted_ms,
                 idempotency_key=idempotency_key,
             )
-            exposure = current_exposure_dollars(conn)
+            exposure = current_exposure_dollars(conn, dry_run=dry_run)
         except Exception:
             conn.execute("ROLLBACK")
             raise

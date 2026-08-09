@@ -528,7 +528,8 @@ class TestExposure:
         """
         events, _ = joined
         monkeypatch.setattr(
-            "backend.runner.current_exposure_dollars", lambda _conn: None
+            "backend.runner.current_exposure_dollars",
+        lambda _conn, **_kw: None,
         )
         with pytest.raises(RuntimeError, match="exposure could not be read"):
             run_pricing_pass(conn, events, risk=RiskConfig())

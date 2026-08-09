@@ -71,6 +71,7 @@ from ..store import db
 from ..store.orders import (
     DuplicateOrder,
     ExposureCapExceeded,
+    ORDERS_ARE_DRY_RUNS,
     current_exposure_dollars,
     find_by_idempotency_key,
     order_exposure_dollars,
@@ -1027,7 +1028,10 @@ def create_app(
         #    step 9 a real risk control rather than a re-run of the engine's
         #    arithmetic: the sizer applies the position and exposure caps
         #    against the portfolio as it stands at this instant.
-        exposure = current_exposure_dollars(conn)
+        # The population this order will join, not a different one. Sizing
+        # against live exposure and then reserving against paper (or the
+        # reverse) would admit an order the cap was never applied to.
+        exposure = current_exposure_dollars(conn, dry_run=ORDERS_ARE_DRY_RUNS)
         if exposure is None:
             raise HTTPException(
                 status_code=422,
@@ -1227,7 +1231,7 @@ def create_app(
         except OrderRefused as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        placer = OrderPlacer(dry_run=True)
+        placer = OrderPlacer(dry_run=ORDERS_ARE_DRY_RUNS)
 
         # 14. **Write it down before sending it.**
         #

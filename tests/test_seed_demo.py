@@ -151,3 +151,77 @@ class TestTheSeededSpendSurvivesTheBudgetDayRoll:
             f"seeded at {hour:02d}:30Z, {counts['odds_sweeps']} sweeps recorded "
             f"but only {spent.spent_today} credits fall inside the budget day"
         )
+
+
+class TestTheSeededHistoryActuallyLands:
+    """`seed_history` reported 400 settlements while writing zero.
+
+    The insert was `INSERT OR IGNORE`, which suppresses *every* constraint
+    failure on the statement -- including the `NOT NULL` that says the row is
+    incomplete. Schema v4 made `settlements.order_id` `NOT NULL`, so from that
+    commit the seeder silently emptied `mart_calibration`, and the counter beside
+    it went on saying 400. `tasks/lessons.md` already carries this exact failure
+    under a different table.
+
+    So the assertion is on the **rows**, never on the returned count: the count
+    is the thing that lied.
+    """
+
+    def _seeded(self, tmp_path, n=25):
+        """Slate first, then history — the order `backend.seed_demo` uses.
+
+        `seed_history` alone raises on a foreign key: its recommendations
+        reference a `strategy_configs` row that only `seed_all` writes. Worth
+        stating, because calling it standalone looks reasonable and fails for a
+        reason that has nothing to do with what is under test here.
+        """
+        from backend.seed_demo import seed_all, seed_history
+        from backend.store import db
+
+        path = tmp_path / "history.db"
+        seed_all(path)
+        reported = seed_history(path, n=n)
+        return reported, db.open_db(path, read_only=True)
+
+    def test_the_settlement_rows_exist_and_match_the_count(self, tmp_path):
+        reported, conn = self._seeded(tmp_path)
+        try:
+            actual = conn.execute(
+                "SELECT COUNT(*) AS n FROM settlements"
+            ).fetchone()["n"]
+            assert actual == reported["settlements"], (
+                f"reported {reported['settlements']} settlements and wrote "
+                f"{actual}"
+            )
+            assert actual > 0
+        finally:
+            conn.close()
+
+    def test_every_settlement_points_at_a_real_order(self, tmp_path):
+        """A settlement settles a position, and the join has to find it.
+
+        `order_id` is a foreign key, and SQLite does not enforce one unless
+        `PRAGMA foreign_keys` is on -- so the constraint alone is not the
+        guarantee. Asserting the join is.
+        """
+        _, conn = self._seeded(tmp_path)
+        try:
+            orphans = conn.execute(
+                "SELECT COUNT(*) AS n FROM settlements s "
+                "LEFT JOIN orders o ON o.id = s.order_id WHERE o.id IS NULL"
+            ).fetchone()["n"]
+            assert orphans == 0
+        finally:
+            conn.close()
+
+    def test_the_seeded_history_is_paper(self, tmp_path):
+        """It is synthetic, so it must never be counted as live exposure or
+        pooled into a live P&L."""
+        _, conn = self._seeded(tmp_path)
+        try:
+            live = conn.execute(
+                "SELECT COUNT(*) AS n FROM settlements WHERE dry_run = 0"
+            ).fetchone()["n"]
+            assert live == 0
+        finally:
+            conn.close()

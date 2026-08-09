@@ -88,6 +88,7 @@ from backend.scheduler import (  # noqa: E402
     run_forever,
 )
 from backend.scoring import run_scoring_pass  # noqa: E402
+from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db  # noqa: E402
 
 
@@ -107,9 +108,11 @@ class CombinedPass:
     exists to prevent one column over.
     """
 
-    def __init__(self, recording, scoring=None, alerts=None, *, kind="full", seconds=0.0):
+    def __init__(self, recording, scoring=None, alerts=None, *, kind="full",
+                 seconds=0.0, settlement=None):
         self.recording = recording
         self.scoring = scoring
+        self.settlement = settlement
         self.alerts = alerts
         self.kind = kind
         self.seconds = seconds
@@ -119,6 +122,13 @@ class CombinedPass:
         merged.update(self.recording.as_dict())
         if self.scoring is not None:
             merged.update({f"clv_{k}": v for k, v in self.scoring.as_dict().items()})
+        # Prefixed, like the scoring counts, so `settled: 0` cannot be misread
+        # as a recording number. Two passes reporting into one line need their
+        # own namespaces or the reader has to know which is which.
+        if self.settlement is not None:
+            merged.update(
+                {f"settle_{k}": v for k, v in self.settlement.as_dict().items()}
+            )
         if self.alerts is not None:
             merged.update(
                 {k: v for k, v in self.alerts.as_dict().items() if v}
@@ -241,6 +251,11 @@ async def main() -> int:
                     now=stamp,
                 )
                 scoring = await run_scoring_pass(conn, kalshi)
+                # Full pass only. A settled market stays settled, so asking
+                # every fifteen seconds during an open window would spend
+                # requests to be told the same thing -- and the fast cadence
+                # exists to keep quotes inside 30s, which this does not touch.
+                settlement = await run_settlement_pass(conn, kalshi)
             else:
                 # Kalshi only. No credit, no candlesticks -- the point is to
                 # re-confirm the quote behind every row before its 30s runs out,
@@ -249,6 +264,7 @@ async def main() -> int:
                     conn, kalshi, risk=risk, suppression=suppression, now=stamp,
                 )
                 scoring = None
+                settlement = None
 
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
@@ -286,7 +302,10 @@ async def main() -> int:
             else:
                 tempo.completed_quote_pass(stamp)
 
-            return CombinedPass(counts, scoring, alerts, kind=kind, seconds=elapsed)
+            return CombinedPass(
+                counts, scoring, alerts, kind=kind, seconds=elapsed,
+                settlement=settlement,
+            )
 
         log.info(
             "starting loop: full pass every %.0fs, quote pass every %.0fs while "
