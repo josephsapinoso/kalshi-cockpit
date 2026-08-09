@@ -1,7 +1,7 @@
 # The leg echo: live coupling, or a transient mint-time state?
 
 Date: 2026-08-09
-Status: **PRE-REGISTERED — no data collected yet**
+Status: **complete — pre-registered, then run. Verdict: TOO THIN TO ANSWER.**
 
 Everything above the `RESULTS` heading was written and committed to git before
 a single observation was taken. That is the point of it. A rule chosen after
@@ -102,7 +102,7 @@ movement. But they are data, they were looked at, and they are on the record.
 Run 1 (12 polls, 20 s apart, 12 echo pairs, 19 calls) returned **TOO THIN TO
 ANSWER**, and it failed on the informativeness criterion fixed in advance, not
 on its result. Its full output is in `RESULTS` below and in
-`2026-08-09-combo-leg-echo.json`; nothing about it is discarded.
+`2026-08-09-combo-leg-echo-run1.json`; nothing about it is discarded.
 
 Two censoring mechanisms, both visible in that data:
 
@@ -218,4 +218,143 @@ Stated in advance so it cannot be quietly narrowed later.
 
 ## RESULTS
 
-*(empty — to be appended after the run, without touching anything above)*
+Status: **complete. Verdict: TOO THIN TO ANSWER.**
+
+### The verdict, by the rule fixed in advance
+
+| | run 1 | run 2 | pooled |
+|---|---|---|---|
+| cadence | 12 polls × 20 s | 75 polls × 4 s | — |
+| echo pairs tracked | 12 | 38 | **50** |
+| pairs contributing a move event | 2 | 0 | **2** |
+| **move events (`n`)** | **2** | **0** | **2** |
+| `tracks` | 1 | 0 | **1** |
+| `frozen` | 1 | 0 | **1** |
+| `other` | 0 | 0 | 0 |
+
+`n = 2` against a floor of 5; 2 contributing pairs against a floor of 3. Both
+floors fail, and the two events split one each way. **The pre-registered
+verdict is TOO THIN TO ANSWER, and it is reported as it fell.**
+
+Consequently **exclusion rule R1 is not activated.** R1 was conditioned on a
+TRANSIENT verdict, that verdict was not reached, and a rule that fires on a
+result it did not get is not a rule. It stands written, unused.
+
+Nothing here reinstates anything ADR 0012's addendum withdrew. The 94%, the
+22.4% and both combo claims stay withdrawn, and the leg echo stays unexplained.
+
+### Why it is too thin — this part *is* the transferable finding
+
+The design cannot work at any cadence, and both runs say so the same way.
+
+**The matched leg does not move.** Across both runs, **45 of 50 matched legs
+showed exactly one distinct cost** for the whole window — 9 of 12 in run 1 and
+36 of 38 in run 2. This is precisely the condition the pre-registration named in
+advance as a defect of the window rather than a result, which is the only reason
+it is safe to read it now.
+
+**The combination stops being quoted in tens of seconds.** `yes_ask` goes
+unreadable while `status` stays `active`. In run 2, 38 pairs yielded 379 polls
+with a readable combo ask and **341 consecutive-poll pairs with both sides
+readable** — a large exposure that produced zero qualifying leg moves.
+
+So the two clocks do not overlap. The joint's quote lives on a scale of tens of
+seconds; the matched leg ticks on a scale of minutes. **Polling faster does not
+help** (run 2 was 5× faster and produced *fewer* move events than run 1), and
+polling longer does not help either, because the combination is gone. The ADR's
+proposed test — "record whether the ask moves tick-for-tick with the matched
+leg" — is not answerable on this data source at this cost, and that is a fact
+about the venue, not about effort.
+
+### Exploratory — NOT pre-registered, and not a verdict
+
+Everything in this section was found by looking at the data after the fact. It
+is recorded because it names the next experiment, and it is fenced off because
+nothing in it was predicted in advance. **No claim below may be cited as
+measured.** Read `n` before every one of them: the largest is 8.
+
+**1. The ask flips between two values while the leg stands still.** Repeatedly,
+at 4-second resolution, the same combination ticker returned the echo value and
+then a distinctly different value, in blocks of several seconds, with the
+matched leg's cost constant throughout:
+
+    matched leg KXMLBGAME-26AUG091605DETSF-DET, cost 0.55 for all 44 polls
+    combo ask   0.549 ×1, 0.148 ×5, 0.549 ×4, 0.148 ×3, 0.549 ×7, none ×4, ...
+
+    matched leg KXWNBAGAME-26AUG09PHXWSH-WSH, cost 0.53 for all 30 polls
+    combo ask   0.537 ×9, 0.317 ×3, 0.536 ×10, none ×8
+
+Nineteen such combo-ask moves of ≥ 0.5c occurred while tracked. **This fits
+neither hypothesis.** It is not tick-for-tick coupling — the leg never moved. It
+is not a state fixed at mint — the echo value leaves and comes back minutes
+later.
+
+**2. The echoed price is a resting order, not a computed number.** Of 8 live
+echo combinations whose order books were read, 5 had any book at all, and in
+**5 of those 5 the top NO level derived to a `yes_ask` within 2c of one of the
+legs' costs** — the derived-ask identity `yes_ask = 1 − best_no_bid` holding
+exactly, as the `kalshi-api` skill records:
+
+    303B0A8CB24  legs [0.70, 0.64]  NO bid 0.377 × 641  ->  ask 0.623
+    FBC1DDE3F26  legs [0.82, 0.76, 0.72]
+                 NO bids 0.278 × 71 -> 0.722   and   0.557 × 112 -> 0.443
+
+The second is the shape that suggests a mechanism: the **top** level echoes a
+leg (0.722 vs 0.72) while the **deeper** level (0.443) looks like something a
+joint could plausibly be. If the echo is one participant resting an order
+priced off a single leg, then the flipping in (1) is that order being posted and
+pulled, and neither of this document's two hypotheses was ever the right pair.
+
+**3. The list endpoint and the book disagree.** 3 of the 8 carried a
+`yes_ask_dollars` on `/markets` while `/markets/{ticker}/orderbook` was empty,
+and one combination read `0.0000 / 1.0000` on `/markets/{ticker}` for 18
+consecutive polls while the list endpoint quoted it at 0.463. **Every combo
+price this project has recorded — all 2,116 rows of the harvest — comes from
+the list endpoint.** Whether those quotes were backed by a book at the moment
+they were read is unknown and was never checked.
+
+### The next experiment, pre-registered here
+
+Fixed now, so the next session does not choose it after seeing data:
+
+> **E2.** For each combination carrying a `yes_ask` on `/markets`, read
+> `/markets/{ticker}/orderbook` in the same pass. Record (a) whether the book is
+> non-empty, (b) whether `1 − best_no_bid` reproduces the list `yes_ask`, and
+> (c) whether any level derives to within 2c of a leg's cost. Report the rate of
+> each with its `n`, split by scope, and report the **book-empty rate first** —
+> if a material share of quoted rows have no book, the harvest's population is
+> not what it was taken to be, and that supersedes every other question here.
+
+E2 needs no leg to move and no combination to survive, which is exactly why it
+is answerable where this one was not.
+
+### Cost
+
+≈ 210 free, unauthenticated Kalshi reads across both runs, the failed first
+attempt, and the diagnostics — against the ADR's "~20" estimate, which assumed
+a test that turned out not to be answerable. **Zero Odds API credits. Zero
+orders. Zero lookups. No mutation of any kind, and no credential in the
+process.**
+
+### Raw data
+
+- `2026-08-09-combo-leg-echo-run1.json` — 12 pairs, 12 polls each at 20 s.
+- `2026-08-09-combo-leg-echo-run2.json` — 38 pairs, 75 polls at 4 s.
+- `2026-08-09-combo-leg-echo-books.json` — the 8 exploratory order books.
+
+These markets are gone within minutes: the runs can be repeated, never
+reproduced.
+
+### What these results do not establish
+
+In addition to the five limits fixed in advance, all of which still apply:
+
+- **Not that the echo is unexplained by either hypothesis.** `n = 2` licenses
+  no statement about the hypotheses at all. The exploratory section suggests
+  both may be wrong; it does not show it.
+- **Nothing about the flipping's cause.** Quoter behaviour, replica skew
+  between endpoints, and a genuinely flickering book all predict what was seen.
+- **Nothing about the 2,116-row harvest's validity.** Observation 3 raises the
+  question; only E2 answers it.
+- **Not a null result.** "Too thin to answer" is the absence of a measurement,
+  not evidence that the echo does not move with its leg.

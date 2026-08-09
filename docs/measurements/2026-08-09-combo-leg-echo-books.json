@@ -1,0 +1,219 @@
+[
+  {
+    "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20260C42DC17535-8FB5D59F405",
+    "list_ask": 0.859,
+    "leg_costs": [
+      0.9,
+      0.84
+    ],
+    "no_book": [
+      [
+        0.141,
+        12.0
+      ]
+    ],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXMLBTOTAL-26AUG091335ATHBOS",
+        "market_ticker": "KXMLBTOTAL-26AUG091335ATHBOS-5",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXMLBTOTAL-26AUG091335NYMPIT",
+        "market_ticker": "KXMLBTOTAL-26AUG091335NYMPIT-9",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202690A48955E72-880777E63D3",
+    "list_ask": 0.381,
+    "leg_costs": [
+      0.4,
+      0.91
+    ],
+    "no_book": [],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXWNBA3PT-26AUG09PHXWSH",
+        "market_ticker": "KXWNBA3PT-26AUG09PHXWSH-WSHSCITRON22-2",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXWNBAPTS-26AUG09PHXWSH",
+        "market_ticker": "KXWNBAPTS-26AUG09PHXWSH-WSHSAUSTIN0-10",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202693942AC20EB-DF0EF9B3994",
+    "list_ask": 0.681,
+    "leg_costs": [
+      0.62,
+      0.69
+    ],
+    "no_book": [],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXWNBASPREAD-26AUG09PHXWSH",
+        "market_ticker": "KXWNBASPREAD-26AUG09PHXWSH-PHX4",
+        "side": "no"
+      },
+      {
+        "event_ticker": "KXWNBATOTAL-26AUG09PHXWSH",
+        "market_ticker": "KXWNBATOTAL-26AUG09PHXWSH-177",
+        "side": "no"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVECROSSCATEGORY-S2026E26A1669EAE-303B0A8CB24",
+    "list_ask": 0.623,
+    "leg_costs": [
+      0.7,
+      0.64
+    ],
+    "no_book": [
+      [
+        0.377,
+        641.0
+      ]
+    ],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXWNBASPREAD-26AUG09DALMIN",
+        "market_ticker": "KXWNBASPREAD-26AUG09DALMIN-MIN2",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXWNBATOTAL-26AUG09DALMIN",
+        "market_ticker": "KXWNBATOTAL-26AUG09DALMIN-174",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVECROSSCATEGORY-S2026E76E5949533-FB507BEEFD4",
+    "list_ask": 0.811,
+    "leg_costs": [
+      0.82,
+      0.87
+    ],
+    "no_book": [
+      [
+        0.189,
+        25.0
+      ]
+    ],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXITFWMATCH-26AUG09MANAIK",
+        "market_ticker": "KXITFWMATCH-26AUG09MANAIK-AIK",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXMLBGAME-26AUG091335NYMPIT",
+        "market_ticker": "KXMLBGAME-26AUG091335NYMPIT-NYM",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVECROSSCATEGORY-S2026295C432278E-03C0B71BF6A",
+    "list_ask": 0.256,
+    "leg_costs": [
+      0.12,
+      0.22,
+      0.26
+    ],
+    "no_book": [],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXMLBHR-26AUG091610LADAZ",
+        "market_ticker": "KXMLBHR-26AUG091610LADAZ-LADMBETTS50-1",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXMLBHR-26AUG091610LADAZ",
+        "market_ticker": "KXMLBHR-26AUG091610LADAZ-LADSOHTANI17-1",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXMLBSPREAD-26AUG091610LADAZ",
+        "market_ticker": "KXMLBSPREAD-26AUG091610LADAZ-LAD4",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVECROSSCATEGORY-S2026BFDD32EFD3A-ED642D125B9",
+    "list_ask": 0.611,
+    "leg_costs": [
+      0.77,
+      0.61
+    ],
+    "no_book": [
+      [
+        0.389,
+        29.0
+      ]
+    ],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+        "market_ticker": "KXMLBHRR-26AUG091610LADAZ-LADFFREEMAN5-1",
+        "side": "yes"
+      },
+      {
+        "event_ticker": "KXWNBAPTS-26AUG09PHXWSH",
+        "market_ticker": "KXWNBAPTS-26AUG09PHXWSH-WSHSCITRON22-15",
+        "side": "yes"
+      }
+    ]
+  },
+  {
+    "ticker": "KXMVECROSSCATEGORY-S2026D19497EA2DA-FBC1DDE3F26",
+    "list_ask": 0.722,
+    "leg_costs": [
+      0.8200000000000001,
+      0.76,
+      0.72
+    ],
+    "no_book": [
+      [
+        0.278,
+        71.0
+      ],
+      [
+        0.557,
+        112.0
+      ]
+    ],
+    "yes_book": [],
+    "legs": [
+      {
+        "event_ticker": "KXMLBSPREAD-26AUG091435BALTEX",
+        "market_ticker": "KXMLBSPREAD-26AUG091435BALTEX-TEX4",
+        "side": "no"
+      },
+      {
+        "event_ticker": "KXMLBTOTAL-26AUG091605DETSF",
+        "market_ticker": "KXMLBTOTAL-26AUG091605DETSF-11",
+        "side": "no"
+      },
+      {
+        "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+        "market_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+        "side": "yes"
+      }
+    ]
+  }
+]

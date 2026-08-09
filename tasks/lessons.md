@@ -3134,3 +3134,38 @@ different object from a bucket of zeros, and a table that renders them
 identically will be read as the second. If the sample cannot cover the range,
 say the control cannot run — do not print it with a confident heading and let
 the reader infer flatness from three empty cells.
+
+---
+
+## 2026-08-09 — Two clocks that never overlap, so the test cannot be run
+
+ADR 0012's addendum proposed a decisive ~20-call test: re-read a combination and
+the leg it echoes, and see whether the ask moves tick-for-tick with the leg. It
+was pre-registered properly, run twice, and returned `n = 2` move events and
+then `n = 0` — **too thin to answer**, at ~210 calls.
+
+The reason is structural and no amount of effort fixes it. A combination's quote
+is readable for **tens of seconds**; its matched leg's price ticks on a scale of
+**minutes**. Across both runs, **45 of 50 matched legs showed exactly one
+distinct cost** for the whole window. Polling 5x faster produced *fewer*
+qualifying events, not more, because the constraint is the overlap of two
+lifetimes, not the sample rate.
+
+The pre-registration is what made this readable rather than embarrassing. It had
+fixed, in advance, that `n` counts **move events**, and that a matched leg with
+one distinct value is a *defect of the window* while a combo ask with one
+distinct value is a *result*. Without that asymmetry written down first, "the
+ask never moved" would have been reported as evidence of no coupling — a
+confident verdict from a measurement that could not have produced any other
+outcome.
+
+This is the sibling of the control that could not reach its confound, one entry
+above. There, a control's range excluded the effect. Here, the two observations
+the test requires exist in disjoint time windows.
+
+**How to apply:** before designing an "A moves with B" test, write down the
+timescale on which A changes and the timescale on which B is *observable at
+all*. If they do not overlap, the test does not exist at any cadence — say so
+and design a different one, rather than spending the budget discovering it. And
+when a design can only return one answer, that is not a finding: naming which
+outcome would be a defect, in advance, is what stops it becoming one.
