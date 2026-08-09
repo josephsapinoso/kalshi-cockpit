@@ -1,8 +1,15 @@
 # E2: is a combination's list quote backed by an order book?
 
 Date: 2026-08-09
-Status: **pre-registered — everything above `RESULTS` was committed to git
-before a single order book was read.**
+Status: **complete.** Everything above `RESULTS` was committed to git (`554b719`)
+before a single order book was read; nothing in it was edited afterwards.
+
+**Headline, with its `n` first:** 4 of 20 quoted combinations had an empty
+order book — 20.0%, 95% CI [8.1%, 41.6%]. **All four were rows whose list ask
+had vanished 3.4 seconds later**; of the 14 still quoted at both ends of the
+pass, 0 had an empty book (CI [0.0%, 21.5%]). Separately, and arguably worse:
+the list ask and the book-derived ask disagreed on **5 of 16** rows, three of
+them by 1.2–3.6c *against* the buyer.
 
 ## The pre-registered question
 
@@ -120,5 +127,219 @@ Fixed in advance so it cannot be quietly narrowed later.
 
 ## RESULTS
 
-*(Not yet run. This section is written after collection and nothing above it
-changes.)*
+Status: **complete.** One pass, 20 combinations, **24 Kalshi calls**, zero Odds
+API credits, zero orders, zero rows aborted on a malformed envelope. Raw data:
+`2026-08-09-combo-e2-book-empty.json`; the 20 captured order books are pinned
+as a wire fixture at `tests/fixtures/combo_orderbooks.json`.
+
+The whole pass spanned **3.4 seconds** from the list read to the last book
+read. Combinations were 15.1–36.9 s old when read.
+
+### (a) The book-empty rate — reported first, as pre-registered
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| **book empty** (no level on either side) | **4/20** | **20.0%** | **[8.1%, 41.6%]** |
+| NO side empty (`yes_ask` cannot derive) | 4/20 | 20.0% | [8.1%, 41.6%] |
+
+Those two lines are identical because **no book in this sample carried a single
+YES level.** Every non-empty book was one resting NO bid — 15 of 16 had exactly
+one level, one had two. "Non-empty" here means one bid, not a book.
+
+Read `n` first: 4 of 20. The interval runs from 8% to 42%, so this sample is
+consistent with anything from "one row in twelve" to "two rows in five".
+
+#### The contemporaneity control changes how (a) should be read
+
+The same 20 list rows, re-read after the whole book pass:
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| still carrying an ask 3.4 s later | 14/20 | 70.0% | [48.1%, 85.5%] |
+| …of those, book empty | **0/14** | **0.0%** | **[0.0%, 21.5%]** |
+| of the 6 whose ask had gone, book empty | 4/6 | 66.7% | [30.0%, 90.3%] |
+
+**All four empty books belonged to rows whose list ask had disappeared 3.4
+seconds later.** Every row still quoted at both ends of the pass had a book.
+
+One test was run on this (Fisher exact, two-sided, on the pre-registered
+control): **p = 0.0031**. That is one test, on a 2×2 whose smallest cell is
+zero, and the association may be close to definitional — if a book emptying and
+a quote ending are the same event seen through two endpoints, the table has to
+look like this. It is reported because the control was fixed in advance, not
+because p < 0.05 means much at these counts.
+
+**0/14 is not "backed quotes are always backed."** Its interval reaches 21.5%.
+Fourteen rows cannot exclude a one-in-five rate.
+
+### (b) Does `1 − best_no_bid` reproduce the list ask?
+
+Denominator: the 16 rows with a NO bid at all. A row with no NO side has
+nothing to reproduce the ask with; counting it as a failure would re-report (a)
+inside (b).
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| reproduces exactly (≤ 0.0005) | 11/16 | 68.8% | [44.4%, 85.8%] |
+| within 2c | 13/16 | 81.2% | [57.0%, 93.4%] |
+| **book-derived ask WORSE than the list ask** | **3/16** | **18.8%** | **[6.6%, 43.0%]** |
+
+Every difference, in full — eleven exact, then:
+
+    -0.0490   list 0.5490   book best NO bid 0.5000 -> derived 0.5000
+    -0.0010   list 0.4830   book best NO bid 0.5180 -> derived 0.4820
+    +0.0120   list 0.4240   book best NO bid 0.5640 -> derived 0.4360
+    +0.0240   list 0.1730   book best NO bid 0.8030 -> derived 0.1970
+    +0.0360   list 0.3660   book best NO bid 0.5980 -> derived 0.4020
+
+The sign is the part that costs money. On three rows the price you could
+actually pay was **1.2c, 2.4c and 3.6c worse** than the list quoted. The
+project's entire fee headroom is 0.38 points.
+
+The `-0.0490` row is worth naming: its book had two NO levels, 0.4530 and
+0.5000. The **top** level derives to 0.5000, but the **deeper** one derives to
+0.5470 — 0.2c from the list's 0.5490. The list ask reproduced a level that was
+not the top of book. That is the same shape the leg-echo document's exploratory
+section flagged, and it is `n = 1`.
+
+**This cannot be separated from a genuine 3.4-second price move.** Nothing here
+distinguishes "the list row was stale" from "the book moved between the two
+reads", and a 3.6c move in 3.4 seconds on a provisional combination is not
+implausible.
+
+### (c) Does any level derive to within 2c of a leg's cost?
+
+Denominator: the 10 rows with a non-empty book **and** every leg priceable.
+Six rows were excluded for an unpriceable leg — all six carried 10 to 15 legs,
+so the exclusion is not random with respect to leg count.
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| a level echoes a leg (≤ 0.02) | 1/10 | 10.0% | [1.8%, 40.4%] |
+
+**This is not comparable to the exploratory "5 of 5" it was written to follow
+up.** Those 8 books were read on combinations *selected because their list ask
+already echoed a leg*. These 20 were not selected on anything. (c) here is a
+base rate over unselected rows; the exploratory number was conditional on the
+echo. Putting them in the same sentence would be the error this project has
+already withdrawn two combo claims for.
+
+### Split by scope — every cell is small and none is claimed
+
+| scope | n | empty | NO-side empty | reproduces | echoes |
+|---|---|---|---|---|---|
+| cross_game | 11 | 2/11 | 2/11 | 6/9 | 1/3 |
+| same_game | 4 | 0/4 | 0/4 | 3/4 | 0/4 |
+| mixed | 5 | 2/5 | 2/5 | 2/3 | 0/3 |
+| undecodable | 0 | — | — | — | — |
+
+Largest contributor: `cross_game`, 11/20 = 55% of the pooled rate. The parts do
+not visibly disagree, but four rows cannot agree or disagree with anything.
+**No scope-level claim is made here.**
+
+### Structure of the sample, for whoever reads this next
+
+- **19 of 20 non-empty books were a single resting bid.** There is no depth.
+- **6 of 20 rows were quoted at 0.0020** — 10-to-15-leg parlays, each with an
+  identical NO bid of `0.9980 × 300`. Almost certainly one automated quoter.
+- **3 of 20 rows had non-zero volume and open interest** (202, 213 and 509
+  contracts), so this population is not entirely untraded junk — and **one of
+  those three had an empty book** while the list quoted it at 0.1470.
+- Ages 15–37 s. Only the newest combinations are quoted at all, so the sample
+  is young by necessity, not by choice.
+
+---
+
+## What this changes about the 2,116 stored combo prices
+
+Plainly: **it does not invalidate them, and it does not clear them.**
+
+What is now on the record, with its `n`:
+
+1. **A row can carry a list ask with nothing resting behind it.** 4 of 20
+   (8%–42%). That was previously an 8-row anecdote; it is now a measured rate
+   with a wide interval.
+2. **In this sample, that happened only to rows that were about to stop being
+   quoted.** 0 of 14 still-quoted rows had an empty book. The economical
+   reading is that the list endpoint's ask lags the book by seconds at
+   end-of-life, so a list-only harvest collects some rows whose price was
+   already gone. Fourteen rows cannot make that a rule.
+3. **The list ask and the book-derived ask disagree often enough to matter.**
+   5 of 16, three of them 1.2–3.6c in the direction that costs money.
+
+What follows, concretely:
+
+- **Any money decision on a combination must price off the order book, not the
+  `/markets` row.** Finding (3) is a 1–4c effect against a 0.38-point headroom.
+  This is the actionable one, and it is cheap: one call per candidate.
+- **Any future combo harvest should read the book in the same pass, or at
+  minimum re-read the list a few seconds later and drop rows whose ask has
+  gone.** The re-read costs one batched call per pass and would have caught all
+  four empty-book rows here.
+- **The 2,116 stored rows keep a second caveat.** They already cannot support
+  the two withdrawn claims in ADR 0012's addendum. Now they also carry an
+  unmeasured fraction — this sample says somewhere in 8%–42% — of asks that had
+  no resting size behind them. Nothing here recovers which rows those were, and
+  those markets are gone.
+- **Nothing here reinstates anything.** The 94%, the 22.4% and both combo
+  claims stay withdrawn.
+
+---
+
+## What this does NOT establish
+
+In addition to the six limits fixed before collection, all of which still
+apply:
+
+- **Not that the list endpoint is stale rather than the book flickering.** The
+  causal direction between "the book empties" and "the quote ends" is not
+  observable in a single re-read, and a quoter posting and pulling produces the
+  same table.
+- **Not that a backed quote stays backed.** 0/14 has an interval reaching
+  21.5%. It is not zero.
+- **Not that the (b) disagreements are pricing errors.** A 3.4-second gap
+  separates the two reads and a real move inside it is not excluded.
+- **Nothing at a finer time resolution than one re-read.** No time series was
+  taken; a book that emptied and refilled inside the pass would be invisible.
+- **Nothing about the echo hypothesis.** (c)'s 1/10 is a base rate on
+  unselected rows and says nothing about combinations selected for echoing.
+- **Nothing about the 2,116 rows individually.** This measures the population
+  they came from, later, and transfers only if that population is stable.
+- **Not a null result anywhere it reads like one.** Every zero above is a small
+  count with an interval attached.
+- **Not an edge.** No fair value, no combo fee model.
+
+### One arithmetic artifact, declared
+
+`0.62 − 0.64` is `−0.020000000000000018` in binary floating point, so a level
+exactly two cents from a leg fails `≤ 0.02`. The threshold was pre-registered
+at 0.02 and is **not** retuned here — adding an epsilon after seeing the data
+is precisely the move this document exists to avoid. It cannot have moved the
+reported rate: no scored row came within 0.001 of the boundary, and
+`tests/test_combo_book_presence.py` asserts that against the run's own JSON.
+`analyse_combo_domination` and `measure_combo_leg_echo` carry the same knife
+edge, so this is the project's existing behaviour, not a defect introduced here.
+
+---
+
+## Objections to the pre-registration, recorded separately
+
+E2 was run exactly as written. These are the places where, having run it, the
+specification looks under-determined. They are recorded here rather than folded
+into the protocol, because amending a pre-registration after seeing its data is
+how one stops meaning anything.
+
+1. **E2 fixes a scope split without fixing a sample size.** Splitting 20 rows
+   four ways yields cells of 0 to 11 and twelve numbers nobody can read. The
+   table is printed as required and nothing in it is claimed. A split is only
+   informative once the pooled `n` can survive being quartered.
+2. **E2's (b) does not name a denominator.** If empty-book rows count as
+   reproduction failures, (b) silently re-reports (a) and both look worse
+   together. The denominator used here — rows with a NO bid — was fixed before
+   collection and declared, but that was this session's choice, not E2's.
+3. **"In the same pass" is not simultaneity.** A REST pass takes seconds, and a
+   combination's quote lives tens of seconds; E2 does not name that confound.
+   The contemporaneity control was added to bound it, and it turned out to be
+   the difference between reporting "20% of quoted rows have no book" and
+   reporting what actually happened. Without it this run would have produced
+   the tidier, worse-supported number.

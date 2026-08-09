@@ -328,6 +328,12 @@ Fixed now, so the next session does not choose it after seeing data:
 E2 needs no leg to move and no combination to survive, which is exactly why it
 is answerable where this one was not.
 
+**E2 has since been run.** See `2026-08-09-combo-e2-book-empty.md`: 4 of 20
+quoted combinations had an empty book (CI [8.1%, 41.6%]), all four on rows
+whose list ask had gone 3.4 s later, and the list ask disagreed with the
+book-derived ask on 5 of 16. It does not resolve observation 3 above; it puts a
+`n` and an interval on it.
+
 ### Cost
 
 ≈ 210 free, unauthenticated Kalshi reads across both runs, the failed first
