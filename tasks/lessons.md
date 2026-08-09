@@ -3318,3 +3318,39 @@ easier to write and reads as more confident.
   measurements here were right. The prose about them was wrong five times.
   Related: [[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
   [[computing-the-right-statistic-and-then-ignoring-it]].
+
+---
+
+## 2026-08-09 — A guard standing behind a stricter guard is decoration
+
+`read_market_result` refuses a settled outcome in three steps: the status must
+be `finalized`, the `result` must be one of `yes`/`no`, and it must agree with
+`settlement_value_dollars`. The disable-check found the middle one **passing on
+its own break** — replacing `if result not in RESULTS: return None` with
+`result = market.get("result") or "no"`, which fabricates a loss for every
+market whose outcome is unpublished, left the whole file green.
+
+Nothing was wrong with the code. The test deformed a captured market by setting
+`result = ""` while leaving `settlement_value_dollars` in place, so the
+*cross-check* caught the break and the membership test never had to. Every test
+that could have failed was standing behind a stricter one.
+
+**Why it happens:** a break is written by editing one line, but a test is
+written by deforming one field. Defence in depth means several lines can catch
+one deformation, and the outermost one gets the credit. The suite then reports
+health for a guard that has never once been exercised — and it will keep doing
+so until the day a payload arrives that only that guard would have refused,
+which is exactly the day it matters.
+
+**How to apply:**
+
+- **Verify each guard against a payload only that guard refuses.** Here that
+  meant *removing* `settlement_value_dollars` rather than contradicting it —
+  which is also the more realistic shape, since the key is absent, not empty,
+  on all 289 unsettled markets in the two captures.
+- **Run the disable-check per guard, not per function.** A function-level break
+  is caught by whichever check fires first and tells you nothing about the rest.
+- **A layered refusal needs one test per layer.** If two layers cannot be told
+  apart by any input, one of them is genuinely redundant — delete it or say in
+  the comment that it is belt-and-braces, rather than leaving a reader to
+  believe it is load-bearing.

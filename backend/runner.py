@@ -1062,20 +1062,29 @@ def upsert_discovered(conn, events: Sequence[DiscoveredEvent], *, now: int) -> N
         )
         for market in event.markets:
             conn.execute(
+                # `result` is COALESCEd, and that is the whole point of it being
+                # here. Every market discovery sees is `active` with an empty
+                # `result`, so `result = excluded.result` would erase, on the very
+                # next pass, whatever `market_results.py` had just recorded --
+                # silently, and only for markets whose event is still open, which
+                # is the hardest possible version of that bug to notice.
+                # An outcome is written once and never unwritten from this path.
                 "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
                 "title, yes_side_team, market_type, strike, price_structure, "
-                "close_ms, status, volume_24h, open_interest, first_seen_ms, "
-                "last_seen_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "close_ms, status, result, volume_24h, open_interest, "
+                "first_seen_ms, last_seen_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(ticker) DO UPDATE SET "
                 "last_seen_ms = excluded.last_seen_ms, status = excluded.status, "
+                "result = COALESCE(excluded.result, kalshi_markets.result), "
                 "volume_24h = excluded.volume_24h, "
                 "open_interest = excluded.open_interest",
                 (
                     market.ticker, market.event_ticker, market.series_ticker,
                     market.title, market.yes_side, market.market_type,
                     market.strike, market.price_structure, market.close_ms,
-                    market.status, market.volume_24h, market.open_interest,
-                    now, now,
+                    market.status, market.result, market.volume_24h,
+                    market.open_interest, now, now,
                 ),
             )
     conn.commit()
