@@ -1,0 +1,42 @@
+Capture: 2026-08-09-combo-domination.json
+  55 rounds, 88000 distinct markets, 2116 measured, 2116 judgeable
+Contemporaneous filter: kept 2116 of 2116; dropped 0 whose legs and joint were read more than 90s apart or carried no stamp.
+
+Domination rate by scope -- READ CROSS-GAME FIRST
+  Cross-game legs are near-independent, so their joint sits near the
+  product of the marginals, far below the cheapest leg's ask. A high
+  cross-game rate means the method is measuring staleness, not
+  pricing, and no same-game claim may be built on it.
+
+  scope              n  dominated    rate
+  cross_game      1612        179   11.1%
+  mixed            135         12    8.9%
+  same_game        344         63   18.3%
+  undecodable       25          5   20.0%
+
+Margin distribution (combination ask - cheapest leg cost)
+  A staleness artefact clusters just above zero. A real pricing
+  property has a tail.
+  cross_game             n=1612  min -0.390  median -0.133  max +0.638
+  mixed                  n=135   min -0.374  median -0.153  max +0.320
+  same_game              n=344   min -0.378  median -0.092  max +0.427
+
+Domination rate by combination age -- THE STALENESS CONTROL
+  A stale-leg artefact must GROW with age. A real property is flat.
+  <1m        n=2015  dominated 250    12.4%
+  1-2m       n=32    dominated 3       9.4%
+  2-5m       n=0
+  5-10m      n=0
+  >10m       n=0
+
+Dominated same-game combinations: 63
+  KXMVECROSSCATEGORY-S2026E26A1669EAE-303D98969A7 ask 0.547 vs leg 0.120 (+0.427) 0.6m
+  KXMVECROSSCATEGORY-S202666687069D48-B080720520D ask 0.682 vs leg 0.260 (+0.422) 0.6m
+  KXMVECROSSCATEGORY-S2026056AA4BB7D0-0645396B476 ask 0.514 vs leg 0.110 (+0.404) 0.6m
+  KXMVESPORTSMULTIGAMEEXTENDED-S20264C31FAF5B8B-015246E8983 ask 0.544 vs leg 0.150 (+0.394) 0.3m
+  KXMVECROSSCATEGORY-S20269088A5E9C21-59A71450260 ask 0.500 vs leg 0.160 (+0.340) 0.4m
+  KXMVESPORTSMULTIGAMEEXTENDED-S2026DC4533A6A40-EC92959CEDE ask 0.580 vs leg 0.240 (+0.340) 0.7m
+  KXMVESPORTSMULTIGAMEEXTENDED-S202642A10CE91F8-E97286075BF ask 0.514 vs leg 0.210 (+0.304) 0.2m
+  KXMVECROSSCATEGORY-S2026B1AAE8B1338-A57D5623554 ask 0.824 vs leg 0.540 (+0.284) 0.2m
+  KXMVECROSSCATEGORY-S2026BF508F3EBD9-3E51515BFDF ask 0.369 vs leg 0.110 (+0.259) 0.9m
+  KXMVESPORTSMULTIGAMEEXTENDED-S202609F3F0814C0-40989538F60 ask 0.697 vs leg 0.440 (+0.257) 0.8m
