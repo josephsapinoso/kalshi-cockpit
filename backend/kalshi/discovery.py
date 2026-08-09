@@ -84,6 +84,34 @@ _UNKNOWN_SCOPES_THIS_PASS: dict[tuple[str, str], str] = {}
 # must not itself become the flood it replaced.
 _MAX_SCOPES_NAMED = 40
 
+# The same three pieces, one axis over: leagues nobody has classified.
+#
+# `competition_scope` had an aggregated warning and a drift test. `competition`
+# had neither, so `"Pro Football Preseason"` -- one string away from the
+# `"Pro Football"` in `IN_SCOPE_LEAGUES` -- dropped 48 events and 726 markets in
+# total silence. See `OUT_OF_SCOPE_LEAGUES`.
+#
+# Deduped on the **league** rather than on `(series, league)`, unlike the scope
+# warning, because the action item is per league: "classify this value". Kalshi
+# lists one league across many series (`KXNFLGAME`, `KXNFLSPREAD`,
+# `KXNFLTOTAL`), so a per-pair key would say the same thing three times and grow
+# with the number of market types Kalshi ships. The series are still carried, on
+# the line, as the evidence for where the value was seen.
+_WARNED_LEAGUES: set[str] = set()
+
+# league -> series tickers it was seen on, for the pass currently running.
+# Cleared per pass because it feeds the count on the `discovery:` line; the
+# naming is per process. Same split as `_WARNED_SCOPES` /
+# `_UNKNOWN_SCOPES_THIS_PASS`, for the same reason: a developer action item
+# cannot change within a process, an operational count changes every pass.
+_UNKNOWN_LEAGUES_THIS_PASS: dict[str, set[str]] = {}
+
+# Cap on how many leagues one warning names, for the same reason as
+# `_MAX_SCOPES_NAMED`. It bites: measured against the live exchange on
+# 2026-08-09, ~100 leagues carry game-level markets and are unclassified, so the
+# uncapped line would be a flood folded into one record.
+_MAX_LEAGUES_NAMED = 40
+
 # The last `discovery:` summary actually logged, as the tuple that line renders.
 #
 # The summary prints unconditionally on a full pass and, on a quote pass, only
@@ -203,6 +231,102 @@ IN_SCOPE_LEAGUES: dict[str, str] = {
     "Pro Hockey": "icehockey_nhl",
 }
 
+# Leagues that carry game-level markets and are excluded **on purpose**, with the
+# reason per entry. `EXCLUDED_SCOPES` for the other axis.
+#
+# This map changes nothing about what gets priced -- `sport_key` still comes from
+# `IN_SCOPE_LEAGUES` alone. What it changes is that an absent league is an
+# unanswered question rather than an answered one, so the warning below can mean
+# *"nobody has looked at this value"* instead of *"we looked and said no"*.
+#
+# It exists because the accident it prevents happened, twice, one value apart.
+# The comment on `IN_SCOPE_LEAGUES` records the first: "Womens Pro Basketball"
+# and "College Football" were guessed, Kalshi says "Pro Basketball (W)" and
+# "NCAA Football", and both leagues vanished from the Board in silence. The
+# second is the entry at the top of this map -- `"Pro Football"` is in scope and
+# Kalshi spells preseason `"Pro Football Preseason"`, which is a different
+# string, so **48 events and 726 markets** were dropped with no warning, no
+# counter and no red test (measured against the live exchange, 2026-08-09).
+#
+# The scope axis had an aggregated warning and a drift test against the captured
+# payloads. The league axis had neither, and a comment explaining one instance of
+# a hazard is not evidence the hazard was handled everywhere.
+#
+# **Adding an entry here must never be the reflex for silencing the warning.**
+# The warning firing on an unclassified value is the safety property. On the live
+# exchange roughly a hundred leagues carry game-level markets and are dropped;
+# they are deliberately left unclassified and loud, because nobody has looked at
+# them and a one-line reason copy-pasted a hundred times would say so falsely.
+# Only a league somebody has actually decided about belongs here.
+OUT_OF_SCOPE_LEAGUES: dict[str, str] = {
+    # **This is a decision Joe owns, and it is recorded, not taken here.**
+    #
+    # For excluding: preseason football is a different generating process.
+    # Starters play limited snaps, outcomes turn on roster and playing-time
+    # decisions that no power rating contains, and the sportsbook consensus this
+    # project devigs is itself thinner and later-forming there. Including it
+    # mixes two populations in one evidence record.
+    #
+    # Against excluding: it is real volume in August, when the in-scope slate is
+    # thin -- a measured 19-game day, MLB and WNBA only -- and the gate's counter
+    # needs independent games.
+    #
+    # What makes it a decision rather than a toggle: rows written before and
+    # after the switch would not be poolable, and **nothing in the schema marks
+    # which population a row came from**. `recommendations` stores `ticker` only;
+    # the sole league cut in the analysis path joins
+    # `recommendations.ticker -> kalshi_markets.series_ticker ->
+    # kalshi_series.league` (`backend/analysis/clv.py`), and `KXNFLGAME`,
+    # `KXNFLSPREAD` and `KXNFLTOTAL` each carry *both* league strings --
+    # preseason and regular season, same series, same `competition_scope`
+    # ("Game"), differing only in `product_metadata.competition`. Worse,
+    # `kalshi_series.league` is written on first insert and never updated
+    # (`upsert_discovered`'s `ON CONFLICT` sets `last_seen_ms` only), so that one
+    # row would freeze on whichever population was seen first and silently
+    # relabel every row on both sides of the switch, retroactively. See
+    # `tests/fixtures/events_nfl_preseason.json`, which pins exactly that shape.
+    "Pro Football Preseason": (
+        "a different generating process from the regular season -- limited "
+        "starter snaps, roster-decision outcomes no power rating carries, and a "
+        "thinner consensus to devig. Excluded so the evidence record holds one "
+        "population. Including it is Joe's call and needs a population column "
+        "first: the series ticker cannot split it, because KXNFLGAME carries "
+        "both leagues."
+    ),
+    # ADR 0001: out of scope for v1, and named there. Not permanent -- both are
+    # config, not code.
+    "MLS": (
+        "the long tail of soccer: thin, and each league needs its own alias "
+        "table before it can be matched at all. ADR 0001."
+    ),
+    "CFL": (
+        "spread markets only, and no Odds API consensus subscribed for it. "
+        "ADR 0001 lists it as observed, not in scope."
+    ),
+    "League of Legends": (
+        "esports -- no sportsbook consensus worth devigging against on The Odds "
+        "API. ADR 0001."
+    ),
+    "Valorant": (
+        "esports -- no sportsbook consensus worth devigging against on The Odds "
+        "API. ADR 0001."
+    ),
+    "CS2": (
+        "esports -- no sportsbook consensus worth devigging against on The Odds "
+        "API. ADR 0001."
+    ),
+    "Dota 2": (
+        "esports -- no sportsbook consensus worth devigging against on The Odds "
+        "API. ADR 0001."
+    ),
+}
+
+# Leagues already classified either way. A value outside this set is what the
+# warning below is for.
+CLASSIFIED_LEAGUES: frozenset[str] = frozenset(IN_SCOPE_LEAGUES) | frozenset(
+    OUT_OF_SCOPE_LEAGUES
+)
+
 _SERIES_RE = re.compile(r"^KX([A-Z0-9]+?)(GAME|SPREAD|TEAMTOTAL|TOTAL)$")
 
 
@@ -278,6 +402,23 @@ def classify_series(event: dict) -> SeriesInfo:
                 "%s has no competition_scope; falling back to the ticker suffix",
                 series_ticker,
             )
+
+    # A league nobody has classified, on a market we would otherwise price.
+    #
+    # Gated on `is_game_level` deliberately. Kalshi puts a `competition` on
+    # elections, companies and crypto too -- 352 distinct values live, of which
+    # roughly a hundred carry a game-level market. `House` and `Tesla Inc.` are
+    # not an unanswered question about league scope, and naming them would make
+    # the line unreadable, which is the failure the aggregation exists to
+    # prevent. The question this warning asks is "should this league be devigged
+    # against?", and that question only exists where there is a fixture to price.
+    #
+    # Counted every pass, named once per process, and the naming happens in
+    # `discover_from_events` as a single aggregated line -- never here, per
+    # event. Warning per event is what produced the 962-line burst on the scope
+    # axis; see `_WARNED_SCOPES`.
+    if is_game_level and league and league not in CLASSIFIED_LEAGUES:
+        _UNKNOWN_LEAGUES_THIS_PASS.setdefault(league, set()).add(series_ticker)
 
     return SeriesInfo(
         series_ticker=series_ticker,
@@ -521,14 +662,16 @@ def reset_scope_warnings() -> None:
     only one that sees the warning. An autouse fixture calls it between tests.
 
     It clears **every** per-process warning set, not only the scope one. A second
-    set was added later for `no occurrence_datetime`, and a reset that knows
-    about one of two is worse than no reset: the covered case stays deterministic
-    while the uncovered one silently acquires an order dependency, so the failure
-    appears in whichever test happens to be collected second.
+    set was added later for `no occurrence_datetime`, and a third for unclassified
+    leagues; a reset that knows about two of three is worse than no reset: the
+    covered cases stay deterministic while the uncovered one silently acquires an
+    order dependency, so the failure appears in whichever test happens to be
+    collected second.
     """
     global _LAST_SUMMARY
     _WARNED_SCOPES.clear()
     _WARNED_NO_COMMENCE.clear()
+    _WARNED_LEAGUES.clear()
     _LAST_SUMMARY = None
 
 
@@ -596,6 +739,75 @@ def _warn_about_new_unknown_scopes() -> None:
     )
 
 
+def _warn_about_new_unclassified_leagues() -> None:
+    """Name every newly-seen unclassified league, once, in a single line.
+
+    The `competition` twin of `_warn_about_new_unknown_scopes`, built on the same
+    three pieces and called from the same place, at the end of a pass rather than
+    per event. It exists because the scope axis had this defence and the league
+    axis had none: `"Pro Football Preseason"` is one string away from the
+    `"Pro Football"` in `IN_SCOPE_LEAGUES` and dropped 48 events and 726 markets
+    with no warning, no counter and no red test.
+
+    Two deliberate differences from its twin, both about keeping the line short
+    enough to read:
+
+    - Only leagues carrying a **game-level** market reach here (the gate is in
+      `classify_series`). Kalshi puts a `competition` on elections and equities;
+      those are not an unanswered question about league scope.
+    - Dedupe is per league, not per (series, league), because "classify this
+      value" is one action item however many series carry it.
+
+    Emits nothing when the pass introduced no league the process has not already
+    named, which is every pass after the first. The per-pass *count* is on the
+    `discovery:` line regardless, at zero as well, so silence here still cannot
+    be read as "the problem went away".
+
+    The ones already looked at are in `IN_SCOPE_LEAGUES` or
+    `OUT_OF_SCOPE_LEAGUES` and never reach here. This line is for a value
+    **nobody has classified**, which is why it stays loud: adding a league to
+    `OUT_OF_SCOPE_LEAGUES` to quieten it is a decision, and a decision leaves a
+    reason beside the entry rather than a silence.
+
+    It says "unclassified" where the scope line says "unrecognised", on purpose.
+    Two axes fail the same way and a reader -- or a grep -- must be able to tell
+    which one fired without reading the rest of the sentence.
+    """
+    new_leagues = {
+        league: series
+        for league, series in _UNKNOWN_LEAGUES_THIS_PASS.items()
+        if league not in _WARNED_LEAGUES
+    }
+    if not new_leagues:
+        return
+    _WARNED_LEAGUES.update(new_leagues)
+
+    def render(league: str) -> str:
+        series = sorted(new_leagues[league])
+        extra = f" +{len(series) - 1}" if len(series) > 1 else ""
+        return f"{league!r} ({series[0]}{extra})"
+
+    # Widest first, so truncation drops the leagues costing the fewest series
+    # rather than the ones late in the alphabet.
+    named = sorted(new_leagues, key=lambda lg: (-len(new_leagues[lg]), lg))
+    truncated = max(0, len(named) - _MAX_LEAGUES_NAMED)
+    shown = ", ".join(render(lg) for lg in named[:_MAX_LEAGUES_NAMED])
+    if truncated:
+        shown += f", and {truncated} more"
+
+    logger.warning(
+        "%d unclassified competition (league) value(s) across %d series carry "
+        "game-level markets and are dropped from pricing with no decision "
+        "recorded. Named once per process; the per-pass count is "
+        "`unknown_leagues` on the discovery summary line. Classify each in "
+        "IN_SCOPE_LEAGUES (with an Odds API sport key) or in "
+        "OUT_OF_SCOPE_LEAGUES (with the reason): %s",
+        len(new_leagues),
+        sum(len(series) for series in new_leagues.values()),
+        shown,
+    )
+
+
 def discover_from_events(
     events: Iterable[dict], *, always_log_summary: bool = True
 ) -> list[DiscoveredEvent]:
@@ -613,9 +825,10 @@ def discover_from_events(
     keeps the behaviour it had. A default that quietened output would silence
     the one-shot scripts, where every pass is the only pass.
     """
-    # The *count* is per-pass; the warnings are per-process. Only this is
-    # cleared. See `_WARNED_SCOPES`.
+    # The *counts* are per-pass; the warnings are per-process. Only these are
+    # cleared. See `_WARNED_SCOPES` and `_WARNED_LEAGUES`.
     _UNKNOWN_SCOPES_THIS_PASS.clear()
+    _UNKNOWN_LEAGUES_THIS_PASS.clear()
     discovered: list[DiscoveredEvent] = []
     rejected: dict[str, int] = {
         "not_game_level": 0,
@@ -674,27 +887,31 @@ def discover_from_events(
         )
 
     _warn_about_new_unknown_scopes()
+    _warn_about_new_unclassified_leagues()
 
-    # `unknown_scopes` is printed unconditionally, including at zero, and that is
-    # the point of it: it is what replaces a per-pass warning stream, so a pass
-    # that says nothing about unknown scopes must be distinguishable from a pass
-    # that found none. A dropped zero would put the reader back where the
-    # warnings left them -- unable to tell silence from absence.
+    # `unknown_scopes` and `unknown_leagues` are printed unconditionally,
+    # including at zero, and that is the point of them: they are what replaces a
+    # per-pass warning stream, so a pass that says nothing about an unknown value
+    # must be distinguishable from a pass that found none. A dropped zero would
+    # put the reader back where the warnings left them -- unable to tell silence
+    # from absence.
     #
-    # This line is emitted *after* the warning above for the same reason the
-    # warning is now one line: on 2026-08-09 this summary was itself lost from
-    # the live log stream, sitting immediately behind a 962-line burst. A line
-    # whose job is to be readable must not be queued behind a flood.
+    # This line is emitted *after* the warnings above for the same reason those
+    # warnings are now one line each: on 2026-08-09 this summary was itself lost
+    # from the live log stream, sitting immediately behind a 962-line burst. A
+    # line whose job is to be readable must not be queued behind a flood.
     global _LAST_SUMMARY
     summary = (
         len(discovered),
         len(_UNKNOWN_SCOPES_THIS_PASS),
+        len(_UNKNOWN_LEAGUES_THIS_PASS),
         ", ".join(f"{k}={v}" for k, v in rejected.items() if v) or "none",
     )
     if always_log_summary or summary != _LAST_SUMMARY:
         _LAST_SUMMARY = summary
         logger.info(
-            "discovery: %d priceable events; unknown_scopes=%d; rejected %s",
+            "discovery: %d priceable events; unknown_scopes=%d; "
+            "unknown_leagues=%d; rejected %s",
             *summary,
         )
     return discovered

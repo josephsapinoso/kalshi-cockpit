@@ -9,16 +9,19 @@ emptying the universe.
 
 from __future__ import annotations
 
+import collections
 import logging
 
 import pytest
 
 from conftest import load_fixture
 from backend.kalshi.discovery import (
+    CLASSIFIED_LEAGUES,
     EXCLUDED_SCOPES,
     FIXTURE_SCOPES,
     IN_SCOPE_LEAGUES,
     NON_FIXTURE_SCOPES,
+    OUT_OF_SCOPE_LEAGUES,
     PERIOD_SCOPES,
     classify_series,
     coverage_by_league,
@@ -31,6 +34,31 @@ from backend.kalshi.discovery import (
 @pytest.fixture(scope="module")
 def events():
     return load_fixture("events_sports_nested.json")
+
+
+@pytest.fixture(scope="module")
+def preseason_capture():
+    """`GET /events?series_ticker=KXNFLGAME`, captured 2026-08-09.
+
+    A separate capture from `events_sports_nested.json` because that one -- a
+    walk of the whole sports universe on 2026-08-06 -- contains no preseason
+    market, which is exactly why every test in this file passed while the league
+    classifier was dropping 48 events and 726 markets.
+    See `scripts/capture_preseason_fixture.py`.
+    """
+    return load_fixture("events_nfl_preseason.json")
+
+
+@pytest.fixture(scope="module")
+def preseason_events(preseason_capture):
+    return preseason_capture["events"]
+
+
+def _leagues_in(events):
+    return {
+        ((e.get("product_metadata") or {}).get("competition") or "").strip()
+        for e in events
+    } - {""}
 
 
 @pytest.fixture(scope="module")
@@ -128,6 +156,79 @@ class TestMetadataDrift:
             f"drops those markets."
         )
 
+    def test_every_league_in_the_captures_is_explicitly_classified(
+        self, events, preseason_events
+    ):
+        """The scope test's twin, on the axis that had no test at all.
+
+        `competition_scope` had a drift test and an aggregated warning.
+        `competition` had neither, and the same failure happened one value over:
+        `IN_SCOPE_LEAGUES` says `"Pro Football"`, Kalshi spells preseason
+        `"Pro Football Preseason"`, and 48 events / 726 markets left the universe
+        without a warning, a counter or a red test.
+
+        It runs over **both** captures on purpose. The 2026-08-06 walk contains
+        no preseason market, so on that fixture alone this test would have been
+        green throughout the bug -- which is this repo's lesson that a
+        fixture-based test protects against the API changing, not against
+        misreading it on day one.
+        """
+        leagues = _leagues_in(events) | _leagues_in(preseason_events)
+        unknown = leagues - CLASSIFIED_LEAGUES
+        assert not unknown, (
+            f"unclassified competition value(s): {sorted(unknown)}. Add each to "
+            f"IN_SCOPE_LEAGUES (with its Odds API sport key) or to "
+            f"OUT_OF_SCOPE_LEAGUES (with the reason it is declined). Leaving one "
+            f"unclassified silently drops every game-level market in it."
+        )
+
+    def test_the_two_league_maps_do_not_overlap(self):
+        """A league cannot be both priced and declined.
+
+        An overlap would make the answer depend on lookup order, and
+        `sport_key` reads `IN_SCOPE_LEAGUES` while the warning reads both -- so
+        the contradiction would resolve as "priced, and silently".
+        """
+        assert not (set(IN_SCOPE_LEAGUES) & set(OUT_OF_SCOPE_LEAGUES))
+        assert CLASSIFIED_LEAGUES == set(IN_SCOPE_LEAGUES) | set(
+            OUT_OF_SCOPE_LEAGUES
+        )
+
+    def test_every_declined_league_states_a_reason(self):
+        """The map's whole value is the reason column.
+
+        Without it, `OUT_OF_SCOPE_LEAGUES` is a mute list and adding a name to it
+        becomes the cheapest way to silence the warning -- the reflex the module
+        comment forbids. A reason has to cost something to write.
+        """
+        for league, reason in OUT_OF_SCOPE_LEAGUES.items():
+            assert isinstance(reason, str)
+            assert len(reason.split()) >= 8, (
+                f"{league!r} is declined with a reason too short to be one: "
+                f"{reason!r}"
+            )
+
+    def test_declining_a_league_does_not_change_what_is_priced(self):
+        """`OUT_OF_SCOPE_LEAGUES` records a decision; it must not make one.
+
+        The map is documentation plus a warning filter. If it ever fed
+        `sport_key`, moving a league between the maps would silently change the
+        population in the evidence record -- the failure ADR 0011 is about.
+        """
+        for league in OUT_OF_SCOPE_LEAGUES:
+            info = classify_series(
+                {
+                    "series_ticker": "KXFAKEGAME",
+                    "product_metadata": {
+                        "competition": league,
+                        "competition_scope": "Game",
+                    },
+                }
+            )
+            assert info.is_game_level, league
+            assert info.sport_key is None, f"{league} acquired a sport key"
+            assert not info.in_scope, league
+
     def test_spread_and_total_scopes_count_as_per_fixture(self):
         """The exact bug: spreads and totals resolve on one fixture."""
         assert "spread" in FIXTURE_SCOPES
@@ -159,6 +260,397 @@ class TestMetadataDrift:
         for league in ("Pro Basketball (W)", "NCAA Football"):
             if league in seen:
                 assert league in IN_SCOPE_LEAGUES, f"{league} present but unmapped"
+
+
+class TestNflPreseasonIsExcludedByDecisionNotByOmission:
+    """The league the map missed, pinned against a real capture.
+
+    `IN_SCOPE_LEAGUES` says `"Pro Football"`. Kalshi spells NFL preseason
+    `"Pro Football Preseason"`, which is a different string, so 48 events and
+    726 markets were dropped from the universe with **no warning, no counter and
+    no failing test** -- exactly the failure the comment four lines above
+    `IN_SCOPE_LEAGUES` already recorded for `"Pro Basketball (W)"` and
+    `"NCAA Football"`.
+
+    Preseason stays out. What changes is that it is out *on purpose*: the reason
+    is in `OUT_OF_SCOPE_LEAGUES`, and a league nobody has looked at is now as
+    loud on this axis as an unrecognised scope has been on the other.
+
+    Whether to trade it is Joe's call, not this file's. The tests below assert
+    the current answer and the machinery around it, not that the answer is right.
+    """
+
+    def test_the_capture_contains_the_case_it_was_captured_for(
+        self, preseason_capture, preseason_events
+    ):
+        """A truncated or out-of-season re-capture must fail here, loudly.
+
+        `scripts/capture_preseason_fixture.py` re-run in November returns
+        regular-season events only. That fixture would still parse, still be
+        real, and would silently stop testing the thing it exists to test --
+        which is how this fixture's older sibling stayed green through the bug.
+        """
+        assert preseason_capture["series_ticker"] == "KXNFLGAME"
+        assert preseason_capture["captured_at"]
+        assert len(preseason_events) >= 32, (
+            f"{len(preseason_events)} events; the capture is short of the 32 "
+            f"that KXNFLGAME returned on 2026-08-09"
+        )
+        by_league = collections.Counter(
+            (e["product_metadata"] or {}).get("competition") for e in preseason_events
+        )
+        assert by_league["Pro Football Preseason"] >= 16, by_league
+        assert by_league["Pro Football"] >= 16, by_league
+
+    def test_one_series_ticker_carries_both_populations(self, preseason_events):
+        """The fact that makes inclusion a schema problem, not a config flag.
+
+        Preseason and the regular season share `KXNFLGAME` and both read
+        `competition_scope == "Game"`. Neither the series nor the scope can tell
+        them apart -- only `product_metadata.competition` does. The evidence
+        record stores neither: `recommendations` keys on `ticker`, and the one
+        league cut in the analysis path joins out through
+        `kalshi_series.league`, which is **one row per series**. So a switch to
+        including preseason would relabel both populations with a single value.
+        """
+        pairs = {
+            (
+                e.get("series_ticker"),
+                (e["product_metadata"] or {}).get("competition"),
+                (e["product_metadata"] or {}).get("competition_scope"),
+            )
+            for e in preseason_events
+        }
+        assert pairs == {
+            ("KXNFLGAME", "Pro Football", "Game"),
+            ("KXNFLGAME", "Pro Football Preseason", "Game"),
+        }, sorted(pairs)
+
+    def test_preseason_is_game_level_and_still_not_priced(self, preseason_events):
+        """Not excluded as junk. Excluded as a population.
+
+        The distinction matters: these are real per-fixture moneylines that the
+        classifier recognises as game-level and declines anyway. Asserting only
+        `not in_scope` would also pass if the scope filter had thrown them out
+        for the wrong reason.
+        """
+        preseason = [
+            e
+            for e in preseason_events
+            if (e["product_metadata"] or {}).get("competition")
+            == "Pro Football Preseason"
+        ]
+        assert preseason
+        for event in preseason:
+            info = classify_series(event)
+            assert info.is_game_level, event["event_ticker"]
+            assert info.market_type == "moneyline"
+            assert info.sport_key is None, "preseason acquired a sport key"
+            assert not info.in_scope
+
+    def test_discovery_keeps_the_regular_season_and_drops_preseason(
+        self, preseason_events
+    ):
+        """The population boundary, asserted on the output rather than the map."""
+        discovered = discover_from_events(preseason_events)
+        assert {e.league for e in discovered} == {"Pro Football"}
+        assert len(discovered) == 16
+
+    def test_a_classified_league_warns_about_nothing(self, preseason_events, caplog):
+        """The decision is recorded, so the log stops repeating it.
+
+        Same rule as `PERIOD_SCOPES`: a warning naming an action item already
+        answered is one readers learn to skip, and this line shares a stream with
+        boot lines that three sessions could not read.
+        """
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(preseason_events)
+
+        assert not [
+            r for r in caplog.records if "unclassified" in r.getMessage()
+        ], [r.getMessage() for r in caplog.records]
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        # The count has to agree with the silence, or the two halves of the
+        # reporting contradict each other and neither can be trusted.
+        assert len(summaries) == 1
+        assert "unknown_leagues=0" in summaries[0], summaries[0]
+
+    def test_the_preseason_spelling_is_pinned_verbatim(self):
+        """Guards the string itself, which is the whole bug.
+
+        Tidying it to "NFL Preseason" or "Pro Football (Preseason)" would restore
+        the silent drop and every other test here would stay green, because they
+        all read the same constant.
+        """
+        assert "Pro Football Preseason" in OUT_OF_SCOPE_LEAGUES
+        assert "Pro Football" in IN_SCOPE_LEAGUES
+
+
+class TestUnclassifiedLeaguesAreAnnouncedOncePerProcess:
+    """The `competition` twin of the `competition_scope` warning.
+
+    An unrecognised scope produced an aggregated warning, a per-pass counter and
+    a red drift test. An unrecognised **league** produced none of the three: it
+    was simply absent from the Board. That asymmetry is what let
+    `"Pro Football Preseason"` cost 48 events and 726 markets in silence.
+
+    The volume constraint is the same one that shaped its twin and is not
+    negotiable. Discovery runs on every pass -- every ~22s on the quote cadence
+    -- into a 100-line log buffer, and this repo has already put 962 lines into
+    that buffer once and hidden its own boot lines. **A logging rate is a
+    property of the caller, not of the code.** So: one line per process, never
+    per pass, asserted by running the classifier repeatedly in one process and
+    counting the lines.
+    """
+
+    def _events(self, ticker, league, n, scope="Game"):
+        """`n` separate EVENTS in one series, in an unclassified league.
+
+        Events rather than markets, for the reason recorded on the scope tests:
+        `classify_series` runs once per event, so one event with twelve markets
+        warns once no matter what the code does.
+        """
+        return [
+            {
+                "event_ticker": f"{ticker}-26AUG07-{i}",
+                "series_ticker": ticker,
+                "product_metadata": {
+                    "competition": league,
+                    "competition_scope": scope,
+                },
+                "markets": [
+                    {"ticker": f"{ticker}-26AUG07-{i}-A", "yes_sub_title": "A"}
+                ],
+            }
+            for i in range(n)
+        ]
+
+    def _lines(self, caplog):
+        return [
+            r.getMessage() for r in caplog.records if "unclassified" in r.getMessage()
+        ]
+
+    def test_an_unclassified_league_is_named(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(self._events("KXKORFGAME", "Korea K League 1", 4))
+
+        lines = self._lines(caplog)
+        assert len(lines) == 1, lines
+        assert "'Korea K League 1'" in lines[0]
+        assert "KXKORFGAME" in lines[0]
+
+    def test_one_league_across_many_series_is_named_once(self, caplog):
+        """Dedupe is per league, not per (series, league).
+
+        Kalshi lists one league across a moneyline, a spread and a total series
+        -- `KXNFLGAME`, `KXNFLSPREAD`, `KXNFLTOTAL` all carry
+        `"Pro Football Preseason"`. A per-pair key would say the same thing three
+        times and grow with every market type Kalshi ships.
+        """
+        events = [
+            *self._events("KXFAKEGAME", "Fake League", 3),
+            *self._events("KXFAKESPREAD", "Fake League", 3, scope="Spread"),
+            *self._events("KXFAKETOTAL", "Fake League", 3, scope="Point Total"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        lines = self._lines(caplog)
+        assert len(lines) == 1, lines
+        # All three series are still evidence of where it was seen.
+        assert "KXFAKEGAME +2" in lines[0], lines[0]
+
+    def test_the_line_count_does_not_grow_with_the_population(self, caplog):
+        """The property the whole aggregation exists for.
+
+        Live carries ~100 unclassified game-level leagues. A per-league line
+        would be 100 records into a 100-line buffer on the first pass of every
+        fresh process, and would take the `discovery:` summary behind it as
+        collateral -- measured, on the scope axis, on 2026-08-09.
+        """
+        events = []
+        for i in range(300):
+            events.extend(self._events(f"KXL{i}GAME", f"League {i}", 2))
+
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        lines = self._lines(caplog)
+        assert len(lines) == 1, f"{len(lines)} lines for 300 unclassified leagues"
+        assert "300 unclassified" in lines[0]
+        # Named, but capped -- an action item running to hundreds is not one.
+        assert "and 260 more" in lines[0], lines[0]
+
+    def test_a_repeated_league_is_named_once_for_the_life_of_the_process(
+        self, caplog
+    ):
+        """One line per process, never per pass. Discovery runs every ~22s.
+
+        This is the assertion the task called for by name: run the classifier
+        repeatedly in one process and count the lines. Re-warning per pass is
+        what put 98 of the 100 lines in the live log buffer and buried
+        `[migrate] ...` and `API starting: ...` so completely that neither could
+        be read from production.
+        """
+        events = self._events("KXKORFGAME", "Korea K League 1", 4)
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            first = len(self._lines(caplog))
+            for _ in range(60):
+                discover_from_events(events)
+            after = len(self._lines(caplog))
+
+        assert first == 1
+        assert after == 1, f"{after - first} lines repeated across 60 later passes"
+
+    def test_a_league_first_seen_on_a_later_pass_is_still_named(self, caplog):
+        """Aggregation must not become "warn at boot and then go quiet".
+
+        The guarantee is per league, not per process-start: a value nobody has
+        named gets named on whichever pass first sees it. Kalshi lists preseason
+        in late July and NCAAF in August -- a new league genuinely appears
+        mid-process.
+        """
+        first = self._events("KXAGAME", "League A", 3)
+        later = [*first, *self._events("KXBGAME", "League B", 3)]
+
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(first)
+            discover_from_events(later)
+
+        lines = self._lines(caplog)
+        assert len(lines) == 2, lines
+        assert "'League A'" in lines[0] and "'League B'" not in lines[0]
+        # The second line carries only what is new. Re-naming the first would
+        # rebuild the per-pass repeat one aggregation level up.
+        assert "'League B'" in lines[1]
+        assert "'League A'" not in lines[1], lines[1]
+
+    def test_a_league_with_no_game_level_markets_is_not_an_action_item(
+        self, caplog
+    ):
+        """`House` and `Tesla Inc.` carry a `competition` too.
+
+        352 distinct league strings live, ~100 of them with a game-level market.
+        The question this warning asks is "should this league be devigged
+        against?", which only exists where there is a fixture to price. Naming
+        elections and equities is how the line becomes unreadable -- the failure
+        the aggregation exists to prevent, arrived at from the other side.
+        """
+        events = [
+            *self._events("KXHOUSE", "House", 3, scope="Season"),
+            *self._events("KXNFLMVP", "Fantasy League", 3, scope="Awards"),
+        ]
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        assert not self._lines(caplog), self._lines(caplog)
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert "unknown_leagues=0" in summaries[0], summaries[0]
+
+    def test_the_count_still_reports_on_every_pass(self, caplog):
+        """Silence must not read as "the problem went away".
+
+        That worry is the whole reason a per-pass warning is tempting, and it is
+        a real worry -- so the count carries it. If this number stopped being
+        printed, deduplicating the line would be hiding the problem rather than
+        quietening it.
+        """
+        events = self._events("KXKORFGAME", "Korea K League 1", 4)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            discover_from_events(events)
+
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert len(summaries) == 2
+        assert all("unknown_leagues=1" in m for m in summaries), summaries
+
+    def test_the_count_is_the_current_pass_not_a_running_total(self, caplog):
+        """The count is operational state, so it has to describe *now*.
+
+        The naming is per process and the count is per pass, and the two are
+        only safe together because the count can fall. A cumulative one would
+        keep reporting a league Kalshi has stopped listing, and since the
+        warning deliberately never repeats, that stale number would be the only
+        thing left saying anything -- silence plus a wrong number is worse than
+        either alone.
+
+        This is the test that was missing when the guard was first broken to
+        check it: removing the per-pass `clear()` left every other league test
+        green, because none of them ran a pass that should have counted fewer.
+        """
+        unclassified = self._events("KXKORFGAME", "Korea K League 1", 3)
+        classified = self._events("KXMLBGAME", "Pro Baseball", 3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(unclassified)
+            discover_from_events(classified)
+
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert len(summaries) == 2, summaries
+        assert "unknown_leagues=1" in summaries[0], summaries[0]
+        assert "unknown_leagues=0" in summaries[1], summaries[1]
+
+    def test_the_two_axes_are_reported_separately(self, caplog):
+        """A reader must be able to tell which axis fired without parsing prose.
+
+        The scope line says "unrecognised", this one says "unclassified", and the
+        summary carries both counts. Merging the vocabularies would mean a grep
+        for one silently matched the other.
+        """
+        events = [
+            # Unclassified league, recognised scope.
+            *self._events("KXKORFGAME", "Korea K League 1", 2),
+            # Classified league, unrecognised scope.
+            *self._events("KXMLBHIT", "Pro Baseball", 2, scope="Hits"),
+        ]
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        leagues = self._lines(caplog)
+        scopes = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ]
+        assert len(leagues) == 1, leagues
+        assert len(scopes) == 1, scopes
+        assert "'Korea K League 1'" in leagues[0]
+        assert "'Korea K League 1'" not in scopes[0]
+        assert "'Hits'" in scopes[0]
+        assert "'Hits'" not in leagues[0]
+
+        summary = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ][0]
+        assert "unknown_scopes=1" in summary, summary
+        assert "unknown_leagues=1" in summary, summary
+
+    def test_an_unclassified_league_never_raises(self, caplog):
+        """Discovery runs inside the supervised loop process.
+
+        Nothing on this path may be fatal: a league Kalshi renames overnight has
+        to announce and continue, because the thing that clears a crash-looping
+        supervisor is a laptop and `flyctl`, and this tool is operated from a
+        phone. An announcement is a guard; a crash is a laptop job.
+        """
+        hostile = [
+            {"series_ticker": "KXXGAME", "product_metadata": {"competition": "Neŵ"}},
+            {"series_ticker": "KXYGAME", "product_metadata": {"competition": "  "}},
+            {"series_ticker": "", "product_metadata": {"competition": "No Series"}},
+            {"series_ticker": "KXZGAME", "product_metadata": None},
+            {"series_ticker": "KXWGAME"},
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            assert discover_from_events(hostile) == []
+            # And the aggregated line still renders with an odd value in it.
+            for line in self._lines(caplog):
+                assert isinstance(line, str)
 
 
 class TestPeriodMarketsAreExcludedByDecisionNotByOmission:
