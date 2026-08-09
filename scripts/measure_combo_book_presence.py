@@ -123,6 +123,28 @@ that gets quietly edited afterwards stops meaning anything.
 Neither fix makes E2's recorded rates wrong. They make them rates about a
 population that is not the one anybody wanted to know about.
 
+E3 -- added after E2, pre-registered before it ran
+--------------------------------------------------
+E2 left one explanation for (b) untested: **MVE list asks may come from a
+pricing engine rather than from the collection's own order book.** That
+predicts every disagreement E2 saw, and E2 could not rule it out because the
+observation that separates it was on the wire and was not recorded --
+`no_bid_dollars` off the *same list payload* as `yes_ask_dollars`.
+
+It separates them because it decomposes the (b) gap into two terms:
+
+    list_ask - book_derived_ask
+        = [list_ask - (1 - list_no_bid)]      the ENGINE term
+        + [list_no_bid - book_best_no_bid]    the SKEW term
+
+The engine term is computed from two fields of **one payload, read at one
+moment**. No latency between endpoints and no price move can produce it. If it
+is non-zero, the list ask is not the complement of the list row's own NO bid,
+and (b) is a statement about a pricing engine rather than about staleness.
+
+`docs/measurements/2026-08-09-combo-e3-list-no-bid.md` fixes the denominators,
+the decision rule and the stopping rule before collection.
+
 What this does not establish
 ----------------------------
 - **Nothing about the 2,116 stored rows themselves.** Those markets are gone.
@@ -318,6 +340,11 @@ class Row:
     legs: tuple[dict, ...]
     list_ask: float
     list_bid: Optional[float]
+    # E3. The list row's OWN NO bid, off the same payload as `list_ask`. This
+    # was on the wire during E2 and was not recorded, and it is the one
+    # observation that separates the two explanations for (b). See the module
+    # docstring's E3 section.
+    list_no_bid: Optional[float]
     list_observed_ms: int
     volume: Optional[float]
     open_interest: Optional[float]
@@ -328,8 +355,50 @@ class Row:
     book_error: str = ""
     still_quoted_after: Optional[bool] = None
     confirm_ask: Optional[float] = None
+    confirm_no_bid: Optional[float] = None
 
     # -- derived, all from the pure functions above ------------------------
+
+    # -- E3: which term of the decomposition carries the (b) disagreement ---
+    #
+    #   list_ask - book_derived_ask
+    #       = [list_ask - (1 - list_no_bid)]     <- the ENGINE term
+    #       + [list_no_bid - book_best_no_bid]   <- the SKEW term
+    #
+    # The engine term lives entirely inside ONE payload read at ONE moment, so
+    # no amount of latency between endpoints can produce it. If it is non-zero
+    # the list ask is not derived from the list row's own NO bid, and (b) is
+    # about a pricing engine rather than about staleness.
+
+    @property
+    def list_internal_ask(self) -> Optional[float]:
+        """`1 - list_no_bid`, the ask the list row's OWN no-bid implies."""
+        nb = self.list_no_bid
+        return None if nb is None else 1.0 - nb
+
+    @property
+    def engine_gap(self) -> Optional[float]:
+        """`list_ask - (1 - list_no_bid)`. Within one payload, one moment."""
+        implied = self.list_internal_ask
+        return None if implied is None else self.list_ask - implied
+
+    @property
+    def skew_gap(self) -> Optional[float]:
+        """`list_no_bid - book_best_no_bid`. Across two endpoints."""
+        book_bid = best_no_bid(self.book)
+        if self.list_no_bid is None or book_bid is None:
+            return None
+        return self.list_no_bid - book_bid
+
+    @property
+    def list_is_internally_derived(self) -> Optional[bool]:
+        gap = self.engine_gap
+        return None if gap is None else abs(gap) <= GRID_TOL
+
+    @property
+    def list_no_bid_matches_book(self) -> Optional[bool]:
+        gap = self.skew_gap
+        return None if gap is None else abs(gap) <= GRID_TOL
 
     @property
     def empty(self) -> bool:
@@ -447,6 +516,11 @@ async def collect(
                 legs=legs,
                 list_ask=quote.ask,
                 list_bid=quote.bid,
+                # Parsed with the same `dollars` every other price here uses,
+                # so an unreadable value is None and never 0.0 -- 0 is a legal
+                # NO bid and a parser that returns it on garbage cannot be
+                # told apart from one that read correctly.
+                list_no_bid=dollars(market.get("no_bid_dollars")),
                 list_observed_ms=now_ms,
                 volume=_number(market.get("volume_fp")),
                 open_interest=_number(market.get("open_interest_fp")),
@@ -501,6 +575,7 @@ async def collect(
         again = confirm.get(row.ticker)
         quote = readable_quote(again) if again else None
         row.confirm_ask = quote.ask if quote else None
+        row.confirm_no_bid = dollars(again.get("no_bid_dollars")) if again else None
         row.still_quoted_after = quote is not None
 
     if capture and captured:
@@ -669,6 +744,44 @@ def report(rows: list[Row], calls: int) -> None:
                   f"   book derives {[round(p, 4) for p in derived_levels]}")
             print(f"            {verdict}")
 
+    # -- E3 ---------------------------------------------------------------
+    have_nb = [r for r in scored if r.list_no_bid is not None]
+    print("\n  (E3) IS THE LIST ASK DERIVED FROM THE LIST ROW'S OWN NO BID?")
+    print(f"      rows whose list payload carried a readable no_bid_dollars: "
+          f"{len(have_nb)}/{len(scored)}")
+    if not have_nb:
+        print("      The field is absent or unreadable on every MVE row here.")
+        print("      E3 CANNOT BE ANSWERED from the list endpoint. Registered,")
+        print("      not guessed.")
+    else:
+        print("\n      (d) ENGINE TERM -- inside ONE payload, at ONE moment.")
+        print("          |list_ask - (1 - list_no_bid)| <= 0.0005. Latency")
+        print("          between endpoints cannot produce a failure here.")
+        _rate("the list ask IS its own no-bid's complement",
+              sum(1 for r in have_nb if r.list_is_internally_derived),
+              len(have_nb), indent="          ")
+        both = [r for r in have_nb if r.skew_gap is not None]
+        print("\n      (e) SKEW TERM -- list no-bid vs the BOOK's best no-bid,")
+        print("          across two endpoints seconds apart.")
+        _rate("the list no-bid equals the book's best no-bid",
+              sum(1 for r in both if r.list_no_bid_matches_book),
+              len(both), indent="          ")
+        print("\n      (f) THE DECOMPOSITION ON EACH (b) DISAGREEMENT")
+        rows_b = [r for r in both if r.reproduces is False]
+        if not rows_b:
+            print("          No (b) disagreement had both terms readable.")
+        for row in rows_b:
+            print(f"          {row.ticker[-13:]:<13} "
+                  f"total {row.ask_diff:+.4f} = "
+                  f"engine {-(row.engine_gap or 0.0):+.4f} + "
+                  f"skew {-(row.skew_gap or 0.0):+.4f}")
+        print("\n          Reading it: a non-zero ENGINE term means the list")
+        print("          ask is not this row's own no-bid complement, so (b)")
+        print("          is about a pricing engine, not about staleness. A")
+        print("          zero engine term with a non-zero SKEW term means the")
+        print("          list is book-derived and the two endpoints are simply")
+        print("          reading different snapshots.")
+
     priceable = [r for r in scored if r.legs_all_priceable and not r.empty]
     print("\n  (c) DOES ANY LEVEL DERIVE TO WITHIN 2c OF A LEG'S COST?")
     print(f"      denominator is the {len(priceable)} rows with a non-empty book"
@@ -787,6 +900,7 @@ def to_json(rows: list[Row], calls: int) -> dict:
                 "legs_all_priceable": r.legs_all_priceable,
                 "list_ask": r.list_ask,
                 "list_bid": r.list_bid,
+                "list_no_bid": r.list_no_bid,
                 "list_observed_ms": r.list_observed_ms,
                 "volume": r.volume,
                 "open_interest": r.open_interest,
@@ -802,6 +916,11 @@ def to_json(rows: list[Row], calls: int) -> dict:
                 "echoes_a_leg": r.echoes_a_leg,
                 "still_quoted_after": r.still_quoted_after,
                 "confirm_ask": r.confirm_ask,
+                "confirm_no_bid": r.confirm_no_bid,
+                "engine_gap": r.engine_gap,
+                "skew_gap": r.skew_gap,
+                "list_is_internally_derived": r.list_is_internally_derived,
+                "list_no_bid_matches_book": r.list_no_bid_matches_book,
             }
             for r in rows
         ],

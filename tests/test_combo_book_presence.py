@@ -171,7 +171,8 @@ class TestEchoScoringRefusesRatherThanSubstitutes:
         row = Row(
             ticker="T", series="S", collection="", scope="cross_game",
             created_ms=None, legs=({"side": "yes", "market_ticker": "L"},),
-            list_ask=0.5, list_bid=None, list_observed_ms=0,
+            list_ask=0.5, list_bid=None, list_no_bid=None,
+            list_observed_ms=0,
             volume=None, open_interest=None,
             leg_costs=[], legs_all_priceable=False,
             book={"no_dollars": [["0.5000", "10"]], "yes_dollars": []},
@@ -226,7 +227,8 @@ class TestReproductionIsGridEquality:
         return Row(
             ticker="T", series="S", collection="", scope="cross_game",
             created_ms=None, legs=(), list_ask=list_ask, list_bid=None,
-            list_observed_ms=0, volume=None, open_interest=None,
+            list_no_bid=None, list_observed_ms=0, volume=None,
+            open_interest=None,
             book={"no_dollars": [[f"{no_bid:.4f}", "10"]], "yes_dollars": []},
         )
 
@@ -245,7 +247,8 @@ class TestReproductionIsGridEquality:
         row = Row(
             ticker="T", series="S", collection="", scope="cross_game",
             created_ms=None, legs=(), list_ask=0.5, list_bid=None,
-            list_observed_ms=0, volume=None, open_interest=None,
+            list_no_bid=None, list_observed_ms=0, volume=None,
+            open_interest=None,
             book={"no_dollars": [], "yes_dollars": []},
         )
         assert row.reproduces is None
