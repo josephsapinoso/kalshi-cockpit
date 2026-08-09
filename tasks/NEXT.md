@@ -50,6 +50,32 @@ scopes and counting the other 261. **The first pass now emits 2 lines where it
 emitted 963.** The `no occurrence_datetime` warning four lines away had the
 identical undeduplicated shape, latent, and is deduped per series.
 
+### Watch item, and it qualifies the previous handoff: 59 was a batch, not a rate
+
+Three passes on the record now, and the CLV counter did not keep moving:
+
+    03:17  pass 1  full   scored 59  skipped 190  rows_joined 249
+    03:30  pass 2  quote  (CLV runs on full passes only)
+    03:44  pass 3  full   scored  0  skipped 190  rows_joined 190  lines_stored 44
+
+`rows_joined` fell by exactly 59 — the scored rows dropping out of the join.
+What is left is the 190 permanent residue ADR 0011 predicted. **The 59 was the
+backlog being scored retroactively in one step, and the full pass since scored
+nothing new**, while storing 44 fresh closing lines.
+
+That is not yet a fault, and it is not yet growth either. The pricing pass wrote
+`recommendations: 1` and then `0`, with `unchanged_confirmed: 39/40` — the
+dedupe stamping existing rows rather than writing new ones, which is correct and
+means `created_ms` stays put. A row can only score if a *new* row is written
+before its game's close, so the counter's growth rate is bounded by how often
+the pass writes a genuinely new recommendation, not by how many lines are
+stored.
+
+So: `clv_scored` went from **structurally impossible** to **possible**, which is
+the real win and stands. It has not yet been shown to *accumulate*. Read
+`rows_joined` and `recommendations` together over a full day before believing
+either story; if `rows_joined` stays pinned at 190, no new row is scoring.
+
 ### So the next deploy is the first one whose boot lines can actually be read
 
 `[migrate] /data/live.db already at schema v5` and `API starting:

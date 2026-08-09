@@ -69,7 +69,7 @@ The gate needs four things. Two just changed status:
 
 | Condition | State |
 |---|---|
-| ≥300 scored **games** | now growing — was structurally impossible |
+| ≥300 scored **games** | possible — was structurally impossible. **Not yet shown to accumulate**: the 59 was one retroactive batch and the next full pass scored 0. See NEXT.md. |
 | positive CLV surviving the always-valid bound | measurable for the first time |
 | `fee_predicted == fee_actual` on every fill | **blocked — needs real fills** |
 | fresh data | fine |
@@ -84,11 +84,12 @@ Worth telling him that plainly rather than building around it.
 
 ## Watch, over the next few days
 
-- **The scored ratio.** 59 of 249 is the *backlog* being scored retroactively.
-  New rows are created 45–15 min before kickoff and scored against a line at
-  kickoff, so most should now score. If the ratio does not improve on fresh
-  rows, the composition moved again — read `clv_skipped_entry_after_close`
-  first.
+- **The scored ratio.** 59 of 249 was the *backlog* being scored retroactively,
+  and one step is all it has taken so far: the next full pass scored 0 and
+  `rows_joined` fell to exactly the 190 residue. The binding quantity is
+  `recommendations` — the pass writes 0–1 new rows and confirms ~40 existing
+  ones, and only a *new* row can score. Read `rows_joined` and `recommendations`
+  together; `rows_joined` pinned at 190 means nothing fresh is scoring.
 - **`surfaced` is still 0**, and has always been. That is the honest no-edge
   result, not a fault. Everything downstream of it — the agent fleet, the
   settlement pass, the exposure cap, `ws.py` — is wired and idle for that one
