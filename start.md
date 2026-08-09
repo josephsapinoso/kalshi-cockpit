@@ -1,7 +1,7 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09, end of the session that built the paper settlement path and
-fixed the CLV horizon.
+Written 2026-08-09, end of the session that built the paper settlement path,
+fixed the CLV horizon, and deployed both instances.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
@@ -9,81 +9,97 @@ follow it"*.
 ---
 
 Read CLAUDE.md, tasks/NEXT.md, and tasks/lessons.md first. NEXT.md is the
-actionable checklist; todo.md is just the build log. The top of NEXT.md carries
-this session's handoff in more detail.
+actionable checklist; todo.md is just the build log.
 
-## State
+## State — and the thing that finally happened
 
-- `main` is `aa9474a`. 1,302 tests, ruff green, `dbt build` 11 nodes green, CI
-  green on every push.
-- **Demo is deployed on the current image and verified** — five pages 200,
-  `instance_mode=demo`.
-- **Live is still on `89bf56a`** and is thirteen commits behind. It carries two
-  migrations it has never run: v3 → v4 → v5.
+`main` is `7eae154`. 1,302 tests, ruff green, `dbt build` 11 nodes green, CI
+green on every push. **Both instances are deployed on the current image**, live
+included: `restarts=0`, one machine, volume attached, gate locked,
+`execution_available: false`, five pages 307 → `/login`, `/api/orders` 401 with
+and without a forged bearer.
 
-## The one thing outstanding: deploy live
+The first live pass on the new image:
 
-The classifier blocks the live deploy from a session and blocks
-`Ops -f instance=live` intermittently, so this needs Joe:
+    CLV scoring at 0.0h horizon: {'scored': 59, 'skipped_entry_after_close': 190,
+                                  'rows_joined': 249}
 
-    Actions -> Deploy -> Run workflow -> live -> type kalshi-cockpit
+**`scored` has been 0 for the entire life of this project.** The evidence layer
+is recording for the first time. The 190 skipped are the honest residue ADR 0011
+predicted — rows created after their market's closing line was observed.
 
-**Use the browser URL, not the GitHub app.** Last time it dispatched *nothing* —
-no run was created at all, which is worse than the previously-recorded failure
-where `confirm_live` arrived empty and the guard stopped the job. Check a run
-actually appears in `gh run list --workflow Deploy` before believing it went.
+Also confirmed running: `settlement pass: {'positions_open': 0, 'settled': 0,
+'still_unresolved': 0, 'refused': 0}`, and `skeptic_reviewed` /
+`skeptic_blocked` now print in the pricing-pass line instead of being inferred
+from `surfaced: 0`.
 
-Demo cannot pre-test the migrations, and it is worth knowing why rather than
-trusting the canary further than it goes: the entrypoint **seeds before it
-migrates**, and `seed_all` calls `init_db`, which builds the database at the
-current version. So `migrate_db.py` on demo is a no-op by construction. What
-demo proves is that the image boots. Live's volume is the only real test of
-v3 → v5, and what backs it is that the boot script was run against genuine v3
-and v4 databases carrying rows, twice each, plus a subprocess test.
+## Start here — one cheap check I could not complete
 
-## Then verify these, in this order
+Run `Ops -f instance=live -f action=logs` and **count the
+`unrecognised competition_scope` lines**.
 
-1. **The two boot lines**, unobserved for three sessions:
+    gh workflow run Ops -f instance=live -f action=logs
 
-       [migrate] /data/live.db migrated v3 -> v5
-       INFO backend.api.routes: API starting: instance_mode=live
+Expect **zero**. Those warnings are now deduplicated for the life of the
+process, not per pass — but the very first pass of a fresh process still emits
+all 94 at once, and that is what I saw: 94 of the 100 lines in the buffer, which
+pushed the two boot lines out again. Any pass after the first should be clean.
 
-   They were unreadable because **98 of the 100 lines in the log buffer** were
-   one repeated discovery warning. That is fixed; if they are still missing,
-   something new is flooding the stream rather than the window being too small.
+If it is zero, the log stream is readable for the first time and
+`[migrate] /data/live.db migrated v3 -> v5` / `API starting: instance_mode=live`
+become catchable on the next deploy. **Those two lines are still unobserved** —
+v5 running was confirmed by its effects (`CLV scoring at 0.0h`, the settlement
+pass, the skeptic counters), which is an inference, not a reading.
 
-2. **`clv_scored` stops being 0.** This is the headline and the reason the
-   horizon work happened. Live has joined 249 rows and scored **none**, on every
-   pass, because the closing line was read an hour before kickoff and no
-   recommendation can exist that early. The first non-zero `clv_scored` will be
-   the first evidence this project has ever recorded.
+If it is *not* zero, the per-process dedupe is not holding in production and
+`backend/kalshi/discovery.py` needs another look.
 
-   If it is still 0 after a full pass, read `clv_skipped_entry_after_close`
-   before anything else — the composition may have moved again.
+## Then: what actually moves the gate now
 
-3. **The pass line now carries `skeptic_reviewed` / `skeptic_blocked` and
-   `settle_*` keys.** All will be 0. That is honest: nothing has ever surfaced,
-   so the fleet has nothing to review and there are no paper positions to
-   settle. They print now rather than being inferred from `surfaced: 0`.
+The gate needs four things. Two just changed status:
 
-## What landed this session
+| Condition | State |
+|---|---|
+| ≥300 scored **games** | now growing — was structurally impossible |
+| positive CLV surviving the always-valid bound | measurable for the first time |
+| `fee_predicted == fee_actual` on every fill | **blocked — needs real fills** |
+| fresh data | fine |
 
-- **ADR 0010 + `backend/settlement.py` + schema v4** — paper positions close
-  against Kalshi's own `result`, and `max_exposure_dollars` binds in production
-  for the first time, on paper, scoped so live and paper never pool.
-- **ADR 0011 + schema v5** — the close is the last pre-game quote. Primary
-  horizon 1.0 → 0.0, control 6.0 → 1.0, and `recommendations.clv_horizon_hours`
-  so the column can never become a silent mixture.
-- **The log flood and the missing fleet counters** — both were comments claiming
-  a property the code one line away did not provide.
+So the binding constraint is no longer code. It is **the four fee-calibration
+trades** — minimum-size orders at ~10c/30c/50c/80c in the Kalshi app, a few
+dollars, which read the true fee off `average_fee_paid` in the V2 order
+response. Joe has pre-authorised these; they have not happened. Until they do,
+the gate cannot open however much CLV accumulates.
+
+Worth telling him that plainly rather than building around it.
+
+## Watch, over the next few days
+
+- **The scored ratio.** 59 of 249 is the *backlog* being scored retroactively.
+  New rows are created 45–15 min before kickoff and scored against a line at
+  kickoff, so most should now score. If the ratio does not improve on fresh
+  rows, the composition moved again — read `clv_skipped_entry_after_close`
+  first.
+- **`surfaced` is still 0**, and has always been. That is the honest no-edge
+  result, not a fault. Everything downstream of it — the agent fleet, the
+  settlement pass, the exposure cap, `ws.py` — is wired and idle for that one
+  reason.
+- **Candlestick retention.** Some of the 190 may be unscoreable because their
+  candles aged out rather than because of the ordering rule. Nobody has measured
+  Kalshi's retention window.
+
+## Unbuilt, if there is time
+
+- **Research screen** — Scout findings with sources and timestamps.
+- **Playbook screen** — lessons, config versions, proposals awaiting approval.
 
 ## Traps that bite, from this session specifically
 
 - **Capture the payload before writing the parser, and point the capture at the
   states the code will branch on.** `?status=settled` returns markets whose
   `status` field reads `finalized`; matching `"settled"` would have settled
-  nothing forever. 247 existing fixture markets were all `active` and could say
-  nothing about it.
+  nothing forever. The 247 existing fixture markets were all `active` and could
+  say nothing about it.
 - **When adding a `NOT NULL` column, grep every `INSERT OR IGNORE INTO` that
   table.** v4 turned the demo seeder into a silent no-op — zero settlements
   written, count of 400 returned.
@@ -94,23 +110,22 @@ and v4 databases carrying rows, twice each, plus a subprocess test.
   passed their disable-check because every fixture set the column by hand. Write
   the writer test, the exclusion test and the migration test *before* updating
   fixtures.
+- **A demo deploy cannot test a migration.** The entrypoint seeds before it
+  migrates, and `seed_all` calls `init_db`, which builds the database at the
+  current version. Demo proves the image boots, nothing more.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** ~16 credits
   a day, shared with live.
-- Don't take a subagent's headline claim as fact before it goes in
-  `lessons.md`.
 
 ## Open, recorded rather than acted on
 
 - **`ws.py` has still never opened a socket on live.** It cannot until a row
   surfaces.
-- **Nothing has ever surfaced on live**, so the settlement pass, the agent
-  fleet and the exposure cap all have nothing to act on yet. All three are
-  wired and report zero honestly.
 - **Exposure is fee-exclusive while the cap is spent fee-inclusive (~2%).**
   Re-costed while migrating for v4 and deliberately left open.
+- **In-play is still an open question** — Joe rejected closing it. The three
+  guards stay on while it is open; reopening means designing the regime,
+  starting with what replaces the closing line.
 - Local `.env` has `DISCORD_BOT_TOKEN`/`DISCORD_CHANNEL_ID` but the code reads
   `DISCORD_WEBHOOK_URL`. Live is configured correctly; local runs only.
-- Two items still need Joe and neither is urgent: **one combo price lookup**,
-  and the **four fee-calibration trades** in the Kalshi app.
-- Unbuilt screens: **Research** (Scout findings) and **Playbook** (lessons,
-  config versions, proposals awaiting approval).
+- **One combo price lookup** still needs Joe — `POST .../lookup`, no money,
+  yields a measured same-game correlation.

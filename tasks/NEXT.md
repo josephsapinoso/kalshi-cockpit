@@ -67,6 +67,30 @@ disable-check rather than by writing them:
 
 ---
 
+## DEPLOYED (2026-08-09, ~03:17Z) — and `clv_scored` left zero
+
+Live is on the current image. `restarts=0`, one machine, volume attached, gate
+locked, five pages 307 -> /login, `/api/orders` 401 with and without a forged
+bearer. First pass on the new image:
+
+    CLV scoring at 0.0h horizon: {'scored': 59, 'skipped_entry_after_close': 190,
+                                  'rows_joined': 249}
+    settlement pass: {'positions_open': 0, 'settled': 0, 'still_unresolved': 0,
+                      'refused': 0}
+    pricing pass: {... 'surfaced': 0, 'skeptic_reviewed': 0, 'skeptic_blocked': 0 ...}
+
+**`scored` had been 0 for the project's entire life.** The evidence layer is
+recording. The gate's binding constraint is no longer code — it is the four
+fee-calibration trades, which need Joe.
+
+**Still unobserved:** the `[migrate]` and `API starting` boot lines. v5 running
+was confirmed by its effects, which is an inference. The first pass of a fresh
+process still emits all 94 scope warnings at once and fills the 100-line buffer;
+any *later* pass should be clean, and checking that is the first task next
+session. See `start.md`.
+
+---
+
 ## HANDOFF (2026-08-09, ~00:10Z — the settlement path is built, nothing is deployed)
 
 **State:** 1,288 tests, ruff green, `dbt build` 11 nodes green, pushed. `main`
