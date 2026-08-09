@@ -1,211 +1,207 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09 ~15:25Z, end of the session that removed the duplicate pass
-line, made exposure count the fee, found a fourth wrong wire key, built the
-Playbook screen, and discovered that the combo lookup Joe authorised never
-needed to be spent.
+Written 2026-08-09 ~17:00Z, end of the session that refuted the scheduler
+diagnosis, found the combo harness manufacturing its own confound, created three
+agents, and learned that Joe's real bankroll is a tenth of what the tool assumes.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
 
 ---
 
-Read CLAUDE.md, tasks/NEXT.md, and tasks/lessons.md first. NEXT.md is the
+Read CLAUDE.md, tasks/NEXT.md and tasks/lessons.md first. NEXT.md is the
 actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is at `e26ab21` for code and a few docs commits above it — check
-`git log -1`. Pushed, CI green on every push. **1,405 tests**, ruff
-green, `next build` clean, six pages measured at 320/390/430 and looked at.
+`main` is pushed and **CI green on all three jobs** (Frontend, Tests +
+warehouse, Secret scan). 1,435 tests, ruff clean.
 
-**Demo is deployed and verified** on the current image: six pages 200,
-`instance_mode=demo`, `execution_available: false`, `/playbook` serving.
+**Nothing was deployed.** Live is still on `e950c49` and carries none of this
+session's work. `fly.live.toml` changed, so a deploy is now a real change rather
+than a no-op. **Deploying live is Joe's call.**
 
-**Live is on `e950c49`** (machine `7812601a239428`, pass 38 at 15:18Z, healthy).
-It does **not** carry this session's five changes. None is urgent: the gate is
-locked, the order path is dry-run only, and the two money-path changes make it
-stricter rather than looser. **Deploying live is Joe's call.**
+Three new agents in `.claude/agents/`, loading automatically:
+**`partner`** (Joe's equal in decision-making, directs both fleets),
+**`measurement-skeptic`** (audits a claim before it enters the record),
+**`sharp-bettor`** (reviews the product as someone who bets for a living).
+Use them. `partner` is a good first call of a session.
 
-    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
+## READ THIS FIRST — Joe's bankroll is $100/week, not $1,000
 
-## READ THIS FIRST — the gate freeze was an empty slate, and it is settled
+Told to us at ~17:00Z on 2026-08-09, and it invalidates config that is deployed:
 
-**Decided by Joe on 2026-08-09: accept the schedule unchanged. `docs/adr/0014`.**
-Do not reopen this without new evidence; the three options previously written
-here were answering a misdiagnosis.
+    fly.live.toml:97   BANKROLL_DOLLARS = "1000"
+    config.py:196      bankroll_dollars: float = 1000.0
+    config.py:200      max_exposure_dollars: float = 400.0
 
-The story on record was that `no_edge` had frozen at exactly 177 for ten hours
-because `odds/timing.py` only fires 45-15 min before kickoff, so most passes
-price against odds that have aged out. **Today's first kickoff in any in-scope
-league was 16:15Z and the frozen interval ran 05:51Z-15:45Z.** There was not one
-fixture on the slate for the whole of it. The counter did not move because
-nothing asked it a question. Lesson written; the general form is that an
-explanation predicting every observation you have is not thereby a good one --
-ask what it forbids.
+**Kelly sizing derives from the bankroll, so every suggested size is 10x too
+large.** The demo's `BUY 15 / COST $7.54` would be one or two contracts at his
+real number. Most concrete safety issue open, and a one-line change — but do the
+arithmetic first, because it may not be a clean scale-down:
 
-Three measurements settled it, all free:
+- The conservative fee model charges ~1c/contract on sports. On a 10c contract
+  that is 10% of stake. At a $100 bankroll, quarter-Kelly on a 1-2% edge is a
+  position of a few dollars, so there may be a **minimum viable bankroll below
+  which this strategy cannot clear its own fee at all.** Work the number out and
+  say it. If it is above $100, that is the finding and it gets said plainly
+  rather than engineered around.
+- `max_exposure_dollars = 400` against a $100 bankroll is a cap that cannot
+  bind. Set it deliberately, not proportionally.
 
-    Today's slate: 19 games (mlb 15, wnba 4)
-    Slots planned at the deployed 2h separation: 6   (36 credits of 400)
-    Distinct games covered: 18 of 19
-    Loosening MIN_SLOT_SEPARATION_MS to 1h: 8 sweeps, 19 of 19  -- buys ONE game
+He also said he is **a beginner** and wants tooltips.
 
-    15:46:44Z  basketball_wnba (scheduled): 3 game(s) from 16:30Z
-               odds_sweeps 1, odds_quotes_stored 762,
-               recommendations 24, surfaced 0, suppressed 8
-               no_edge 177 -> 193   (+16 in one pass; the 05:36Z sweep did +16 too)
+## The gate, re-evaluated under $100/week — and it should NOT be lowered
 
-So a real open window writes ~24 rows: **16 no_edge, 8 suppressed, 0 actionable.**
-That is the honest answer on fresh odds, not a blocked rule.
+Joe asked for this explicitly. The gate is right, and it is answering a question
+he is not asking.
 
-`scripts/measure_slot_coverage.py --date YYYYMMDD` re-measures this, so a winter
-slate is a measurement rather than an argument. CLAUDE.md's caveat asks for
-exactly that re-read.
+**The gate governs whether *this software* places orders**, not whether Joe may
+bet. He can open the Kalshi app whenever he likes. "I want to bet $100 this
+week" is not an argument about the gate.
 
-**The arithmetic that makes it moot.** The gate counts 300 independent *games*
-and a slate is ~19. So 300 is **at minimum 16 days away even if every game were
-actionable**, and the observed actionable rate is zero. Nothing about scheduling
-moves a number bounded by the size of the slate. The two levers that do move it
-are unchanged: the **four fee-calibration trades** (a hard gate condition, Joe's,
-and no amount of CLV substitutes for it) and a **historical backfill**, where the
-~80-day candlestick horizon is ~1,200 MLB games and the budget headroom to
-13,000/month was reserved for it.
+The 300-game floor does **not** scale with stake. It comes from what it takes to
+detect closing-line value at all — practitioner consensus is 200-300 minimum —
+which is a fact about statistics, not about bankroll. A smaller stake does not
+make a weaker signal easier to detect.
 
-**Do NOT relax `MAX_ODDS_AGE_S` or any suppression threshold.** That is how a
-fabricated edge enters the record, and the record is the product.
+At $100/week the risk is not ruin. It is **self-deception**: betting, losing
+slowly, and believing the tool said so. Arming the order path on zero evidence
+lets the software claim authority it has not earned, and the record — which is
+the product — becomes a mixture of decisions the strategy made and decisions a
+human made while looking at it.
 
-## The `discovery:` verification — answered, and the answer is "yes, but"
+**Two things do follow from the new information:**
 
-Two quote passes are on the record (pass 34 at 14:18Z, pass 36 at 14:48Z) and
-**both printed a `discovery:` line**. That is not a defect: the line prints on a
-quote pass when its numbers change, and they did —
+1. **Spend the first ~$5 on the fee-calibration trades, not on a bet.** Four
+   minimum-size orders at ~10c/30c/50c/80c in the Kalshi app, then read the true
+   fee off `average_fee_paid`. They are a *gate condition* no amount of CLV can
+   satisfy, and they recover ~0.25 of the 0.63-point edge the conservative fee
+   model currently spends as a hedge. Highest-value use of week one by a
+   distance, and it is instrument calibration rather than gambling.
+2. **Stop presenting an empty board.** Joe's instruction — "the mispricing
+   should be a factor, it shouldn't filter out prospects" — and the sharp-bettor
+   review reached this independently. The resolution relaxes nothing:
+   suppression and staleness keep governing what is **bettable** and what the
+   order endpoint accepts; they stop governing what is **visible**. Show the
+   whole slate ranked by edge, honestly labelled.
 
-    rejected not_game_level=7208 -> 7206 -> 7201 -> 7195 -> 7171 -> 7185
+**Do not** reach the gate by changing what it counts. `docs/adr/0005` exists to
+prevent exactly that.
 
-`not_game_level` drifts every pass as markets close, so the change-detector
-almost never suppresses anything. **The mechanism works exactly as written and
-buys close to nothing**, because the dedupe key includes a counter that is never
-stable. If the volume matters, key it on the fields describing discovery's
-*answer* — `priceable events` and `unknown_scopes` — not on the reject counts.
+## Next task: build the backfill
 
-The volume worry is moot anyway: quote passes are rare now (2 of 7 recent
-passes), because the window is open so seldom. Same root cause as the section
-above.
+Agreed with Joe. It is the only route to 300 scored games that does not take
+years — ~80 days of candlestick retention is ~1,200 MLB games — and the 20K odds
+key is being kept for its historical-odds access.
+`ODDS_DAILY_CREDIT_BUDGET` is back at 400, `ODDS_MONTHLY_CREDIT_BUDGET` is
+13,000, and the gap to 20,000 is reserved for this.
 
-## Still blocked on Joe, and it is the binding constraint
+**Three things to settle before writing the loop. Do not skip them.**
 
-**The four fee-calibration trades** — minimum-size orders at ~10c/30c/50c/80c
-in the Kalshi app, a few dollars, read the true fee off `average_fee_paid`. He
-pre-authorised them; they have not happened. `fee_predicted == fee_actual` is a
-gate condition and no amount of CLV moves it. Say so plainly rather than
-building around it.
+1. **Predict the outcome first, in writing.** The live engine has produced
+   **0 actionable in ~200 fresh-odds decisions**. Nothing suggests it behaves
+   differently over history, so the likely result is ~0 actionable out of
+   ~1,200 and **the gate does not open**. That is not failure. Framed as "fill
+   the counter" it looks like one; framed as **"measure the actionable rate at
+   n=1,200 instead of n=200"** it is the most valuable thing in the project — it
+   either ends this strategy honestly or overturns the current picture. Say
+   which goal you are building for.
+2. **Schema v6: a provenance column, before a single backfilled row is
+   written.** `recommendations` has 27 columns and none records where a row came
+   from. Write retrospective rows into that table and the evidence record
+   becomes a silent mixture that `evaluate_gate` reads as one population.
+   `docs/adr/0011` already fixed this one level down — `clv_horizon_hours` was
+   added because `clv_tenths` was becoming "a silent mixture of two regimes".
+   Same shape, one level up.
+3. **Look-ahead is the whole risk.** Reconstructing a decision at time T from
+   historical odds and candlestick bars is where hindsight leaks in. State, for
+   every input, when it was observable relative to T. The convenient column is
+   usually contaminated, and a backtest that flatters is worse than none.
 
-**The combo lookup is no longer on this list** — see below.
+Costing: historical endpoints are **10x per call**, which is why the daily cap
+exists at all. `can_afford` checks three ceilings; unset means uncapped, never 0.
 
-## What this session closed
+## OPEN TICKET — is ADR 0012's 94% same-game refusal rate real?
 
-Five items, none of them deployed to live. Full detail at the top of NEXT.md.
+Full ticket at the top of `tasks/NEXT.md`. Short version: `leg_quote` cached
+each leg for the **whole run**, so a combination found in round 40 was priced
+against a leg quote from round 1 — 39 minutes stale. A stale leg quote is the
+exact alternative explanation ADR 0012 names for its 94% figure, so **the
+harness was manufacturing the confound the finding has to rule out.**
 
-1. **One log line per pass.** `pricing pass:` was a strict subset of
-   `pass N ok`. The recorded reason it was "not removable" was wrong —
-   `run_chain.py` has always printed the same dict. What it did carry uniquely
-   is a pass that recorded and then died in scoring; that moved to
-   `counts_survive_a_late_failure` in `run_loop.py`.
-2. **Exposure counts the fee.** ADR 0008's gap 3, deferred across three ADRs as
-   "needs a fee column". It needed no column — the fee is a function of two
-   columns already stored. What blocked it was that exposure was a SQL `SUM`
-   and the fee model is not expressible in SQL.
-3. **The combo lookup was never needed.** Joint prices are readable for free
-   from `/markets`. The authorised lookup is **unspent**. See below.
-4. **`orderbook()` returned `{}` for every market on the exchange** — the
-   fourth wrong wire key here. Fixed, and `tests/test_parsers_return_
-   something.py` is now the mechanical guard that catches all four.
-5. **Playbook screen** at `/playbook`. Research screen deliberately not built.
+Fixed this session: cache cleared per round, `Quote.observed_ms` and
+`Combo.created_ms` recorded. The test is a re-run compared against cross-game
+23% / mixed 47% / same-game 94%. **Cross-game is the control** — if staleness
+drove it, cross-game must fall too.
 
-## Combos: a validated method waiting on a sample
+And read `n` first: **18**. Eighteen same-game combinations, none two-sided.
+Have `measurement-skeptic` audit before anything is written into the ADR.
 
-**Kalshi mints ~700 provisional combination markets a minute**, `GET /markets`
-returns them with `mve_selected_legs` and a live quote, and nothing has to be
-created. Paging depth-first cannot find them — 5,000 consecutive markets span
-6m48s of `created_time` and a quote decays in ~2 minutes — so you poll the
-newest page instead.
+## What this session established
 
-    .venv\Scripts\python.exe scripts\measure_combo_correlation.py --rounds 26
+- **`docs/adr/0014`** — the sweep schedule is accepted unchanged. The ten-hour
+  "gate did not accumulate" panic was an **empty slate**: first in-scope kickoff
+  16:15Z, frozen interval 05:51Z-15:45Z. Measured, the same slate plans **6
+  slots covering 18 of 19 games**; loosening the separation buys exactly one more
+  game. `scripts/measure_slot_coverage.py --date` re-measures it on any slate.
+- A real window, read live at 15:46:44Z: **24 rows — 16 no_edge, 8 suppressed,
+  0 actionable.** The honest answer on fresh odds.
+- **`docs/adr/0013`** — period markets (12 WNBA quarter scopes) excluded by
+  decision, not omission. The warning was narrowed, not weakened; three
+  mutations each turn a different test red.
+- **`docs/reviews/2026-08-09-sharp-bettor-ui-review.md`**, with a table marking
+  which claims were re-verified against source. Three verified defects:
+  **ages freeze when the feed is off** (`LiveBoard.tsx:124` guards the
+  `setInterval` behind `enabled`, and `:171` renders `FeedStatus` only when
+  enabled), **`/api/suppression` has no caller** (the fifth "built but never
+  called"), and **the Ledger never renders `clv_tenths`** — the scoreboard does
+  not show the score.
+- **The power-ratings model has never run.** `model_probability` defaults to
+  `None` and nothing in `backend/` assigns it, though CLAUDE.md calls it half
+  the premise. Note the direction: it was specified as an *additional* filter,
+  so its absence makes the tool **less** restrictive and does **not** explain
+  `surfaced=0`. What it means is the tool has exactly one opinion — the
+  sportsbook consensus — so it can only catch Kalshi lagging the books, and
+  `lessons.md` already suspects Kalshi is the sharp side, which makes that set
+  close to empty by construction.
 
-**The control decides which estimator is admissible.** Cross-game legs are
-near-independent, so their true rho is 0. Over 55 minutes, 46,916 markets:
+## In flight when this session ended
 
-    cross-game, TWO-SIDED, n=23    rho at mid  +0.003   sd 0.089
-    cross-game, ask only,  n=308   rho at ask  +0.234   sd 0.254
+- **The combo harvest was still running** (~70 min against a nominal 55; the
+  per-round leg re-reads cost what they should). It writes
+  `docs/measurements/2026-08-09-combo-domination.json` **only at the end**, so
+  if the session was cleared the run is lost and must be re-run:
 
-At the mid the method returns the right answer. **The ask-only population is
-refused** — sd 0.254 spanning −0.757 to +0.898, and a bias you cannot subtract
-is a refusal rather than an offset. A 26-minute run replicates it.
+      .venv\Scripts\python.exe scripts\measure_combo_correlation.py ^
+          --pages 4 --rounds 55 --interval 60 --json docs\measurements\<date>.json
+      .venv\Scripts\python.exe scripts\analyse_combo_domination.py <capture>
 
-**No same-game correlation has been measured.** 18 same-game combinations
-appeared, none two-sided, and 17 of 18 had an ask outside the Frechet bounds.
+- **Two UI reviews were running** — `partner` and `sharp-bettor`, both given the
+  $100/week and beginner constraints, with Joe asking that their **consensus**
+  guide the UI direction. If their output did not land, re-run them.
 
-**That refusal rate is the second finding**: 23% cross-game, 47% mixed, 94%
-same-game. An ask above `min(marginal)` is one no dependence structure
-produces, and the clean gradient through `mixed` is what same-game pairs
-driving it looks like. Suggestive, not claimed — a stale leg quote is
-identical. The sharper test needs no correlation: compare the combination's ask
-against the cheapest leg's own **ask**. Leg quotes are now in the `--json`.
+## Traps from this session specifically
 
-`docs/adr/0012`; both runs in `docs/measurements/`.
-
-The lookup remains available for the one thing reading cannot do: pricing a
-combination nobody has built.
-
-## Work that is self-contained, if you want more
-
-- **Is a same-game combination dominated by its own cheapest leg?** The
-  sharpest open question and it needs no correlation estimate. 17 of 18
-  same-game asks sat above `min(leg mid)`; if they also sit above the cheapest
-  leg's *ask*, the combination costs more than a leg that pays out in a
-  superset of cases — dominated outright, and directly checkable. Leg bids and
-  asks are recorded in the `--json` **as of the code, not as of the last
-  run** -- verified 2026-08-09: the 55-minute capture carries no `leg_quotes`
-  on any of its 484 records, so the stored data cannot answer this and a fresh
-  harvest is required rather than optional:
-
-      .venv\Scripts\python.exe scripts\measure_combo_correlation.py --pages 4 --rounds 55 --interval 60 --json out.json
-
-  Watch for the confound: a stale leg quote produces the same symptom.
-- **Research screen — do not build it yet.** It reads Scout findings; there is
-  no table, the agent is called by nothing, and wiring it means billed
-  Anthropic calls on a schedule. A screen over a structurally empty source
-  looks like a feature. Say so rather than building it.
-- **`ws.py` has still never opened a socket on live.** It cannot until a row
-  surfaces.
-- **In-play is still an open question** — Joe rejected closing it. Reopening
-  means designing the regime, starting with what replaces the closing line.
-
-## Traps that bite, from this session specifically
-
-- **A search whose ordering correlates with what you are looking for cannot
-  report absence.** Three separate `/markets` walks returned zero quoted
-  combinations and each felt like more evidence. Depth in a cursor walk *is*
-  age there, so the walk was measuring its own latency. Widening it is the
-  least informative next move — change the axis.
-- **A test that two paths agree cannot see a defect they share.** The exposure
-  ticket and the exposure cap were pinned against each other and both left the
-  fee out. Ask what both would have to get wrong for the pinning test to stay
-  green, then check that.
-- **Assert that a parser returns something NON-EMPTY.** Four wrong wire keys,
-  every one returning a well-formed empty collection. Nothing else catches
-  them, because every assertion about the *contents* is vacuously satisfied.
-- **Look at the page after the overflow check passes.** It found three defects
-  the measurement could not, including `{floor} observations` rendering as
-  `100observations` and a sixth nav link pushing the Gate off-screen.
+- **A frozen counter is not evidence of a stuck mechanism.** Establish that the
+  inputs existed over the interval measured. The wrong story was persuasive
+  because it pattern-matched a lesson already in `lessons.md`, so it felt
+  confirmed rather than proposed. Corollary: an explanation that predicts every
+  observation you have is not thereby a good one — **ask what it forbids.**
+- **A comment defending a design can sit four lines from the bug it hides.** The
+  leg cache's comment claimed it preserved contemporaneity; it destroyed it.
+- **`if x` is not `if x is not None`.** Written again this session, in new code,
+  right after reading the lesson about it. An epoch-zero timestamp was being
+  filed as missing.
+- **An agent's confident number can be wrong.** A subagent reported the deployed
+  odds budget as 16 by reading `config.py`'s default; the deployed value is 400
+  in `fly.live.toml`, six lines under a comment saying so. Verify before
+  repeating.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** The budget
   is shared with live.
 
-## Do not repeat these inferences
+## Still blocked on Joe
 
-- `active_quoters` is `[]` on **all 14,240** published collection legs while
-  those same leg markets are two-sided with real open interest. It is not a
-  liquidity signal.
-- `/markets` is ~99.8% `KXMVE` — that is a fact about discovery hygiene, and
-  the reason is now measured: ~700 user-built combination markets a minute.
+- **The four fee-calibration trades.** More valuable than ever — see the gate
+  section. Pre-authorised, ~$5, and a hard gate condition.
+- **Deploying live.** Nothing from this session is on the live machine.
