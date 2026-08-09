@@ -1,5 +1,95 @@
 # Next — your checklist
 
+## HANDOFF (2026-08-09, ~00:10Z — the settlement path is built, nothing is deployed)
+
+**State:** 1,288 tests, ruff green, `dbt build` 11 nodes green, pushed. `main`
+is `2353bd1`. **Both instances are still on `89bf56a`** — everything below is
+local and unshipped.
+
+### Deploy this, and demo first — it carries schema v4
+
+    gh workflow run Deploy -f instance=demo
+    # then, from the browser (the classifier blocks live from a session):
+    # Actions -> Deploy -> Run workflow -> live -> type kalshi-cockpit
+
+**v4 rebuilds `settlements`.** The rebuild is idempotent at every crash point
+and was verified by running `scripts/migrate_db.py` twice against a genuine v3
+database, but it is the first migration in this project that is not purely
+additive, so the canary matters more than usual.
+
+Three things to read in the log once it lands. The first two are the claims
+`start.md` asked me to verify and I could not — see why below:
+
+    [migrate] /data/live.db migrated v3 -> v4
+    INFO backend.api.routes: API starting: instance_mode=live
+    backend.settlement: settlement pass: {'positions_open': 0, 'settled': 0, ...}
+
+### Why claims 1 and 2 were unverifiable, which turned out to be a real defect
+
+`flyctl logs` returns a line-bounded buffer, and **98 of the 100 lines in it were
+one warning** — `unrecognised competition_scope`, 94 distinct series, not one of
+them a sport (`KXFED`, `KXWMT`, AP polls, draft picks). A quote pass re-emits the
+whole set every 15s while the window is open. The boot lines were pushed out
+within seconds of every boot.
+
+The dedupe was there and was being cleared at the top of every pass, by a fix
+for "warned once at boot then went quiet". Both halves defended in prose, four
+lines apart. Now: the warning names a developer action item **once per process**,
+and `discovery:` prints `unknown_scopes=N` every pass, including at zero. The
+live stream should be readable for the first time.
+
+Claim 3 is answered: **the fleet has never run.** The live pass line reads
+`'surfaced': 0` — and carried neither `skeptic_reviewed` nor `skeptic_blocked`,
+because `ALWAYS_REPORT` omitted the two fields whose own comment says they are
+"reported anyway". Fixed; they print now.
+
+### What landed
+
+- **ADR 0010** — the paper settlement path, six decisions, three of them
+  measurement decisions. Written after the capture, not before.
+- **`backend/settlement.py`** — reads Kalshi's `result`, writes one row per
+  position, releases its capital. On the full pass only.
+- **Schema v4** — `settlements` is per-position (`order_id`, `dry_run`,
+  `fill_assumption`, `depth_at_order`, `UNIQUE (order_id)`); `orders` gains
+  `fill_assumption` and `assumed_filled_count`.
+- **`max_exposure_dollars` binds in production for the first time**, on paper.
+  This reverses ADR 0008, and only settlement makes it safe. Paper and live are
+  separate budgets, never pooled, so the first real order sees a clean one.
+- **The migration framework stopped parsing SQL.** Five readers recovered index
+  names from statement text; one is the boot script, under `set -e`. v4's
+  `ALTER TABLE ... RENAME` would have exited 1 there. Verified by restoring the
+  old parser and watching it happen.
+
+### Two things worth your attention
+
+1. **I introduced a silent regression and caught it late.** v4's `NOT NULL
+   order_id` turned `seed_demo`'s `INSERT OR IGNORE` into a no-op: zero
+   settlements written, count of 400 returned, calibration mart quietly empty.
+   The rule now in `lessons.md` is mechanical — when adding a `NOT NULL`, grep
+   every `INSERT OR IGNORE INTO <table>` in the repo. I ran it; nothing else is
+   affected.
+2. **One disable-check stayed green and it was a real gap**, not a false alarm:
+   `positions_awaiting_settlement` and the exposure query encode the same
+   "which positions are open" rule, and only one had a test for the case v4
+   exists for. Both covered now.
+
+### Still open
+
+- **The two boot lines are still unobserved.** They need a deploy; the flood
+  that hid them is fixed.
+- **No live instance has ever produced a surfaced row**, so the settlement pass
+  will report `positions_open: 0` indefinitely and the fleet still costs
+  nothing. Both are honest zeros, and both are now *printed* rather than
+  inferred.
+- **`ws.py` has still never opened a socket on live.** Unchanged.
+- Exposure is fee-exclusive against a fee-inclusive cap (~2%). Re-costed while
+  migrating and deliberately left open: adding a column is cheap, changing what
+  `limit_price_tenths` means is not.
+- Two things need Joe, neither urgent: **one combo price lookup**, and the
+  **four fee-calibration trades**.
+
+---
+
 ## HANDOFF (2026-08-08, evening — demo is deployed, live is one tap away)
 
 **State:** 1,243 tests, ruff green, frontend builds, **pushed**, CI green on
@@ -1662,11 +1752,23 @@ decision.
       commit nothing. What it does is make `client_order_id` durable before the
       request goes out, and join the CLV price to the executed one. It also
       turned up a second implementation of exposure. Handoff at the top.
-- [ ] **A paper settlement path.** Now the prerequisite for the thing the item
-      above was expected to deliver. Paper orders cannot count toward exposure
-      while nothing closes them — `settlements` has no writer, so paper exposure
-      would only ratchet up until the endpoint refused everything. Until this
-      exists, the cap is exercised only by tests.
+- [x] ~~**A paper settlement path.**~~ — **done 2026-08-09.**
+      `backend/settlement.py`, `docs/adr/0010`, schema v4. `settlements` gets
+      its first writer, and `max_exposure_dollars` binds in production for the
+      first time — on paper, scoped to the paper population so the first live
+      order still sees a clean budget. That reverses ADR 0008's refusal, and
+      only settlement makes it safe: exposure that can only ratchet up is a cap
+      that can only close.
+      **The capture came before the parser and the first finding would have
+      broken everything silently:** `GET /markets?status=settled` returns
+      markets whose `status` reads `finalized`, and `finalized` is rejected as
+      a filter. `status == "settled"` matches zero markets forever and reports
+      it as "nothing settled yet". Three more from the same 44 rows are in
+      `tasks/lessons.md`.
+      Paper P&L is walled off from the gate by construction, not by convention
+      — `gate.py` does not read `settlements` and a test asserts it. The module
+      docstring states what paper P&L does not establish.
+      Eleven guards verified by disabling; one stayed green and was a real gap.
 - [ ] **Make placement idempotent, before the gate opens.** Each request mints a
       fresh `client_order_id`, so two taps are two orders; the `UNIQUE`
       constraint stops a duplicate row and not a duplicate order. Costs nothing
