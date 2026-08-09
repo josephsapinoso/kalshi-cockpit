@@ -508,12 +508,22 @@ async def survey(
             await asyncio.sleep(interval_s)
         result.rounds += 1
         fresh_this_round = 0
-        # A fresh cache per round, and one stamp for the round. Within a round
-        # a joint and its legs are read seconds apart, which is the
-        # contemporaneity this comparison needs; across rounds they are not,
-        # and a cache held for the whole run silently priced a round-40 combo
-        # against a round-1 leg. See `leg_quote`.
-        round_ms = int(time.time() * 1000)
+        # A fresh cache per round. Across rounds a cache silently priced a
+        # round-40 combo against a round-1 leg; see `leg_quote`.
+        #
+        # **Each quote is stamped when it is READ, not once per round.** The
+        # first version of this took one `round_ms` at the top of the loop and
+        # gave it to the joint and to every leg, which made
+        # `joint_observed_ms - leg observed_ms` identically zero for all 2,116
+        # rows of the 2026-08-09 capture. The analysis then "filtered" on that
+        # gap and reported "kept 2116 of 2116; dropped 0" as though it were
+        # evidence of contemporaneity. It was a tautology: a guard that cannot
+        # fire, written to check the one property the harness could not
+        # violate. `tasks/lessons.md` has this exact rule and it was broken in
+        # new code the same day it was re-read.
+        #
+        # A round takes ~84s, so the round stamp also understated ages by up to
+        # a round -- enough to make 69 combinations report a NEGATIVE age.
         cache: dict[str, Optional[Quote]] = {}
 
         for series in MVE_SERIES:
@@ -539,7 +549,9 @@ async def survey(
                     continue
                 result.with_legs += 1
 
-                joint = readable_quote(market, observed_ms=round_ms)
+                joint = readable_quote(
+                    market, observed_ms=int(time.time() * 1000)
+                )
                 if joint is None:
                     result.refused["joint_unquoted"] += 1
                     continue
@@ -571,7 +583,8 @@ async def survey(
                 quotes: list[Quote] = []
                 for leg in legs:
                     quote = await leg_quote(
-                        api, leg["market_ticker"], cache, observed_ms=round_ms
+                        api, leg["market_ticker"], cache,
+                        observed_ms=int(time.time() * 1000),
                     )
                     marginal = (
                         None if quote is None else marginal_for_leg(leg, quote)

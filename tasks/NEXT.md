@@ -1,6 +1,34 @@
 # Next — your checklist
 
-## OPEN TICKET — ADR 0012's 94% same-game refusal rate is under suspicion
+## CLOSED 2026-08-09 — the 94% is withdrawn, and the replacement died too
+
+**Answered. `docs/adr/0012` addendum. Do not act on either number.**
+
+The re-run gave same-game 22.4% against 94%, and cross-game fell with it, which
+looked like the staleness verdict. **`measurement-skeptic` refused it and was
+right.** Three things, each independently fatal:
+
+1. **17/18 is one expected outcome on the non-refusal side.** It should never
+   have been printed as a rate, and no smaller rate replaces it.
+2. **The two runs are different populations** — same-game went 3.7% -> 16.3% of
+   the measurable sample, two-sided fell 5x. Not comparable.
+3. **A leg echo explains 86% of every domination event in every scope.** The
+   combination's ask equals one of its own legs' costs to within 2c. Excluding
+   those: cross-game 1.9%, same-game 3.3%, on 19 games, intervals overlapping.
+   **119 rows match a leg that is not the cheapest** — impossible under any
+   dependence structure, so for that subset the quote is not a joint at all.
+
+Also found, both mine: the age control **cannot run** (nothing older than ~71s
+is ever sampled; the confound lives at 39 minutes), and the contemporaneity
+filter was a **tautology** — one stamp per round on the joint and every leg made
+the gap identically zero, and it printed "dropped 0" as evidence. Both fixed.
+
+**Next step is ~20 free API calls, not another 70-minute harvest**: re-read the
+near-leg tickers and record whether the combo ask moves tick-for-tick with the
+matched leg.
+
+### Superseded — the original ticket
+
 
 **Raised 2026-08-09 by Joe. Not overturned — suspected. Settle it, don't assume
 it either way.**

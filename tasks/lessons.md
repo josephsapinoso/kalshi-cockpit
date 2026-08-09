@@ -3054,3 +3054,83 @@ every observation you have is not thereby a good explanation. Ask what it
 forbids. "The scheduler is too restrictive" and "there are no games today" made
 identical predictions about every counter on the log line, and were separated
 only by a fact neither of them mentioned.
+
+---
+
+## 2026-08-09 — A guard written to prove a property the code cannot violate
+
+`analyse_combo_domination.py` filtered its sample on the gap between when a
+combination's joint was read and when its legs were read, refusing any pair more
+than 90 seconds apart. It printed, as the first line of every run:
+
+    Contemporaneous filter: kept 2116 of 2116; dropped 0
+
+That is a tautology. The harvest took **one** `time.time()` at the top of each
+round and stamped it on the joint *and* on every leg, so the gap was identically
+zero for all 2,116 rows. The filter could not fire. Its threshold was chosen,
+documented and tested, and there was no input the harness could produce that
+would trip it.
+
+Worse, the accompanying test built a 60,000 ms gap **by hand** and asserted the
+filter caught it. It passed. So the guard had been "verified by watching it
+fire" on a value the system was structurally incapable of emitting.
+
+Two more failures rode along on the same stamp:
+
+- The round stamp was taken at the round's **start**, and a round took ~84s, so
+  ages were understated by up to a round. **69 combinations reported a negative
+  age** — observed before they were minted.
+- Those 69 rows then fell through every age bucket (the first required
+  `age_ms >= 0`) and never reached the `unknown` line. **3.3% of the sample
+  vanished from the table built to catch confounds**, silently.
+
+**Why it survived:** the guard, its threshold, its test and its output line were
+written in one sitting from one mental model — the shape this file already has
+three entries about. What was new is that the usual defence failed too. "Verify
+a guard by disabling it and watching the test fail" does not help when the guard
+is checked against synthetic input, because breaking the guard still turns the
+synthetic test red. The disable-check confirms the *test* exercises the guard,
+not that the *system* can reach it.
+
+**How to apply:** for any guard on a measured quantity, ask **what real input
+would trip this, and has the system ever produced one?** Then assert the answer
+in the data rather than in a fixture — here, that the observed gaps are not all
+identical. A distribution with one distinct value is the signature: if every row
+returns the same number, the number is a property of the code, not of the world.
+
+Corollary, and it is the cheap version of the check: **print the distinct count
+next to any filter's output.** "dropped 0" reads as reassurance; "dropped 0 of
+2116, all gaps = 0" reads as a bug. Related:
+[[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[the-zero-that-means-no-measurement-passes-every-threshold]].
+
+---
+
+## 2026-08-09 — The control that cannot reach the confound it was built for
+
+The same analysis reported domination rate bucketed by combination age, under
+the heading **"THE STALENESS CONTROL"**, with the note that a stale-quote
+artefact must grow with age while a real property stays flat. The table:
+
+    <1m   n=2015  12.4%      2-5m  n=0
+    1-2m  n=32     9.4%      5-10m n=0      >10m n=0
+
+Read as written, that is a flat rate and staleness is refuted. It is nothing of
+the kind. The harvest only ever sees **quoted** markets, and a combination quote
+on this venue lives one to two minutes, so no older combination is ever sampled:
+observed ages ran 9s to 71s. **The confound being tested lived at 39 minutes.**
+The control's entire domain sat inside the region where the effect could not
+appear, and its three empty cells were structural absence printed as evidence of
+flatness.
+
+This is [[a-frozen-counter-is-not-evidence-of-a-stuck-mechanism]] one turn
+further on: there, a rate was computed over an interval with no inputs; here, a
+control was computed over a range that excluded the hypothesis. Same question
+unasked — *could this measurement have seen the thing it is looking for?*
+
+**How to apply:** before believing a control, state the range over which the
+effect would appear and check the sample covers it. An empty bucket is a
+different object from a bucket of zeros, and a table that renders them
+identically will be read as the second. If the sample cannot cover the range,
+say the control cannot run — do not print it with a confident heading and let
+the reader infer flatness from three empty cells.

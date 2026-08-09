@@ -168,3 +168,73 @@ class TestAMissingStampIsUnknownAndNeverZero:
         )
         assert verdict.age_ms == 61_000
         assert verdict.gap_ms == 60_000
+
+
+class TestTheLegEchoIsDetected:
+    """The artefact that killed the first reading of this measurement.
+
+    86% of dominated rows in the 2026-08-09 capture had a combination ask equal
+    to one of their own legs' costs to within 2c, against a 3-7% base rate.
+    Excluding them took cross-game domination from 11.1% to 1.9% and same-game
+    from 18.3% to 3.3%. It has to be detected before any rate is printed, not
+    discovered afterwards by someone auditing the conclusion.
+    """
+
+    def test_an_ask_equal_to_a_leg_is_flagged_as_an_echo(self):
+        legs = [
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "yes"},
+            {"market_ticker": "KXB-26AUG09AAABBB-Y", "side": "yes"},
+        ]
+        quotes = [{"bid": 0.15, "ask": 0.18}, {"bid": 0.75, "ask": 0.78}]
+        v = acd.verdict_for(_record(legs, quotes, joint_ask=0.78))
+        assert v.echoes_a_leg
+
+    def test_matching_a_dearer_leg_is_flagged_separately(self):
+        """The discriminator, and the reason the echo is not just staleness.
+
+        Dependence can only push a joint toward the CHEAPEST leg. An ask sitting
+        on a dearer leg is above `min(marginal)`, which no dependence structure
+        produces -- so it cannot be a mispriced joint at all. 119 rows in the
+        capture do this.
+        """
+        legs = [
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "yes"},
+            {"market_ticker": "KXB-26AUG09AAABBB-Y", "side": "yes"},
+        ]
+        quotes = [{"bid": 0.15, "ask": 0.18}, {"bid": 0.75, "ask": 0.78}]
+        v = acd.verdict_for(_record(legs, quotes, joint_ask=0.78))
+        assert v.echoes_a_dearer_leg, "0.78 is the dearer leg, not the cheapest"
+
+        cheap = acd.verdict_for(_record(legs, quotes, joint_ask=0.18))
+        assert cheap.echoes_a_leg
+        assert not cheap.echoes_a_dearer_leg
+
+    def test_an_ordinary_joint_is_not_an_echo(self):
+        """Below both legs, which is where dependence puts a real joint."""
+        legs = [
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "yes"},
+            {"market_ticker": "KXB-26AUG09AAABBB-Y", "side": "yes"},
+        ]
+        quotes = [{"bid": 0.15, "ask": 0.18}, {"bid": 0.75, "ask": 0.78}]
+        v = acd.verdict_for(_record(legs, quotes, joint_ask=0.12))
+        assert not v.echoes_a_leg
+        assert not v.dominated
+
+
+class TestANegativeAgeIsNotSilentlyDropped:
+    """69 of 2,116 rows had a negative age and vanished from the age table.
+
+    The first bucket required `age_ms >= 0`, so they fell through every bucket
+    without reaching the `unknown` line -- a silent drop inside the table built
+    to catch confounds. A combination cannot be observed before it was minted,
+    so a negative age means the stamp is wrong and every age is suspect.
+    """
+
+    def test_a_negative_age_is_kept_and_readable(self):
+        legs = [{"market_ticker": "KXA-26AUG09AAABBB-X", "side": "yes"}]
+        quotes = [{"bid": 0.55, "ask": 0.60, "observed_ms": 1_000}]
+        v = acd.verdict_for(
+            _record(legs, quotes, joint_ask=0.70,
+                    created_ms=61_000, observed_ms=1_000)
+        )
+        assert v.age_ms == -60_000, "a negative age must survive, not become None"

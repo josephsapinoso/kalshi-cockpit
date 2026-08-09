@@ -158,3 +158,64 @@ That Kalshi's combo book is *right* about dependence. The control establishes
 that the method recovers a known answer on a population where the answer is
 known. Whether a same-game rho read this way predicts anything is a separate
 question, and it needs the sample that does not yet exist.
+
+---
+
+## Addendum, 2026-08-09 — the 94% is withdrawn, and not replaced
+
+**"same-game 17 of 18, 94%" must be withdrawn as a rate.** It is one expected
+outcome on the non-refusal side. CLAUDE.md requires ≥5 on each side before a
+normal approximation may speak, and 17/18 is not close. It was quoted in this
+ADR and was load-bearing in `tasks/NEXT.md`.
+
+A fresh 55-minute capture on fixed code gives **77/344 = 22.4%** for the same
+quantity. **That is not a correction of the 94%, because the two runs are not
+the same population**: same-game rose from 3.7% to 16.3% of the measurable
+sample, distinct-per-scanned went 53% → 100%, and the two-sided rate fell 5x.
+Different sampling windows into a firehose.
+
+**The staleness mechanism proposed for the 94% is falsified by the old data.**
+All 17 refusals have a combo ask within 1.7c of one of their leg mids (median
+1.0c). A leg quote read up to 39 minutes earlier cannot agree with the
+combination's ask to a cent seventeen times out of seventeen.
+
+**What is actually there is a leg echo.** In both captures the combination's
+`yes_ask_dollars` is frequently equal to one of its own legs' prices:
+
+    tolerance 2c        dominated rows      non-dominated rows
+    cross_game            152/179  85%          46/1433  3.2%
+    same_game              54/63   86%          21/281   7.5%
+
+Still 77% / 68% at 0.5c. **119 echo rows match a leg that is not the cheapest**
+— a joint above `min(marginal)` that no dependence structure produces. For that
+subset, the quote at the combination's ticker is evidently not the joint over
+`mve_selected_legs`.
+
+Excluding echoes, the 2026-08-09 capture reads:
+
+    domination      cross 179/1612 11.1% -> 27/1414 1.9%
+                    same   63/344  18.3% ->  9/269  3.3%
+    Frechet refusal cross 228/1612 14.1% -> 26/1405 1.9%
+                    same   77/344  22.4% -> 11/268  4.1%
+
+Clustering by **game** rather than by combination — 344 same-game rows come from
+19 games and share legs — the intervals overlap: same-game 18.3% [13.4, 25.2],
+cross-game 11.1% [8.6, 16.3]. Two games carry a third of the dominated
+same-game rows.
+
+**So the refusal gradient this ADR reported is not evidence of same-game
+dependence.** It is largely one artefact, and the same-game excess is an excess
+of the *pathology* (21.8% of rows vs 12.3% cross-game), not of dependence — the
+tell being that the excess persists among rows matching a **dearer** leg
+(1.61x), which dependence cannot explain at all.
+
+**What still stands from the original ADR:** the method returns rho ≈ 0 on
+two-sided cross-game combinations; the ask-only population is refused; and no
+same-game correlation has been measured. **0 of 344** same-game joints were
+two-sided in the new capture, so that last point is unchanged and stronger.
+
+**Resolve the echo before re-running anything.** Re-read a handful of the
+near-leg tickers live and record whether `yes_ask_dollars` moves tick-for-tick
+with the matched leg. If it does, the MVE-as-correlation programme needs a
+different data source. If not, the echo is a transient mint-time state and can
+be excluded by a rule stated in advance. ~20 API calls, free.

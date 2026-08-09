@@ -158,21 +158,36 @@ key is being kept for its historical-odds access.
 Costing: historical endpoints are **10x per call**, which is why the daily cap
 exists at all. `can_afford` checks three ceilings; unset means uncapped, never 0.
 
-## OPEN TICKET — is ADR 0012's 94% same-game refusal rate real?
+## CLOSED — ADR 0012's 94% is withdrawn, and so is its replacement
 
-Full ticket at the top of `tasks/NEXT.md`. Short version: `leg_quote` cached
-each leg for the **whole run**, so a combination found in round 40 was priced
-against a leg quote from round 1 — 39 minutes stale. A stale leg quote is the
-exact alternative explanation ADR 0012 names for its 94% figure, so **the
-harness was manufacturing the confound the finding has to rule out.**
+The re-run looked decisive: same-game refusal 94% -> 22.4% with the cross-game
+control falling too. **`measurement-skeptic` refused it and was right.** See the
+`docs/adr/0012` addendum. Three independent reasons, and the third is the one
+that matters:
 
-Fixed this session: cache cleared per round, `Quote.observed_ms` and
-`Combo.created_ms` recorded. The test is a re-run compared against cross-game
-23% / mixed 47% / same-game 94%. **Cross-game is the control** — if staleness
-drove it, cross-game must fall too.
+**A leg echo explains 86% of every domination event in every scope.** The
+combination's quoted ask frequently *equals one of its own legs' costs* to
+within 2c (base rate 3-7%), and **119 rows match a leg that is not the
+cheapest** — impossible under any dependence structure. For that subset the
+quote at the combination's ticker is evidently not a joint over
+`mve_selected_legs`. Excluding echoes: cross-game 1.9%, same-game 3.3%, on 19
+games, with overlapping intervals once clustered by game rather than by row.
 
-And read `n` first: **18**. Eighteen same-game combinations, none two-sided.
-Have `measurement-skeptic` audit before anything is written into the ADR.
+Also: 17/18 is one expected outcome and should never have been a rate; and the
+two runs are different populations (same-game 3.7% -> 16.3% of the sample).
+
+**The next step is ~20 free API calls, not another 70-minute harvest.** Re-read
+the near-leg tickers live and record whether the combo ask moves tick-for-tick
+with the matched leg. If it does, MVE-as-correlation needs a different data
+source. If not, the echo is a transient mint-time state and can be excluded by a
+rule fixed in advance.
+
+**Two bugs of mine that this exposed, both now fixed** and both worth carrying:
+the contemporaneity filter was a **tautology** (one `round_ms` stamped on the
+joint and every leg made the gap identically zero for all 2,116 rows, and it
+printed "kept 2116 of 2116, dropped 0" as though that were evidence), and the
+age table **silently dropped 69 negative-age rows** — inside the table built to
+catch confounds.
 
 ## What this session established
 

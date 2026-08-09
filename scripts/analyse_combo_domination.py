@@ -43,14 +43,28 @@ domination should therefore be rare. **If cross-game matches same-game, the
 signal is staleness and the finding is refused.** This is the same structure
 that made ADR 0012's correlation control usable.
 
-**Age is the second control.** A stale-quote artefact must grow with the
-combination's age: the longer since it was minted, the more its legs have moved.
-A real pricing property is flat in age. Reported as a bucketed table rather than
-a single rate, because the shape is the evidence.
+**The leg echo is what actually decides it, and it was found only after the
+first result was believed.** 86% of dominated rows have an ask equal to one of
+their own legs' costs to within 2c, against a 3-7% base rate -- and 119 of them
+match a leg that is *not the cheapest*, which no dependence structure can
+produce. For that subset the quote at the combination's ticker is evidently not
+a joint over `mve_selected_legs`. Excluding echoes, the 2026-08-09 capture reads
+**cross-game 1.9%, same-game 3.3%** rather than 11.1% and 18.3%, on 19 games.
+The echo block prints first for that reason.
 
-**The observation gap is the third.** `observed_ms` records when each quote was
-read. A combination whose legs were read at a different moment than its joint is
-not evidence about either. Reported, and filterable.
+**Age is NOT a working control here, despite being reported.** Only *quoted*
+markets are visible and a combo quote lives 1-2 minutes, so no combination older
+than that is ever sampled: observed ages run 9s to 71s. The staleness confound
+this was built to test lives at **39 minutes**. Empty buckets are structural
+absence, not flatness. The table stays because deleting it would hide that the
+control cannot run.
+
+**The observation gap is reported and was, in the first version, a tautology.**
+One `round_ms` was stamped on the joint and on every leg, so the gap was
+identically zero for all 2,116 rows and the filter printed "dropped 0" as though
+it were evidence. Quotes are now stamped at their own read time. Any capture
+written before that fix shows a gap of exactly 0 everywhere and its
+contemporaneity is unverified, not confirmed.
 
 What this does not establish
 ----------------------------
@@ -115,6 +129,23 @@ AGE_BUCKETS_MIN = (1, 2, 5, 10)
 MAX_CONTEMPORANEOUS_GAP_MS = 90_000
 
 
+# A combination whose ask sits this close to one of its own legs' costs is
+# treated as an **echo** rather than a joint price.
+#
+# Measured 2026-08-09 on the first capture: 85% of dominated cross-game rows and
+# 86% of dominated same-game rows matched a leg to within 2c, against base rates
+# of 3.2% and 7.5% among non-dominated rows. At 0.5c it is still 77% and 68%.
+# Decisive detail: **81 of 198 cross-game echo rows matched a leg that was not
+# the cheapest one.** A joint above `min(marginal)` is impossible under any
+# dependence structure, so those rows are not mispriced joints -- for that
+# subset the quote at the combination's ticker is not a joint over
+# `mve_selected_legs` at all.
+#
+# Until that is resolved, an echo row is evidence about Kalshi's minting, not
+# about dependence, and no domination or Frechet claim may be built on it.
+ECHO_TOLERANCE = 0.02
+
+
 @dataclass(frozen=True)
 class Verdict:
     ticker: str
@@ -122,8 +153,24 @@ class Verdict:
     joint_ask: float
     cheapest_leg_cost: float
     cheapest_leg_ticker: str
+    leg_costs: tuple[float, ...]
     age_ms: Optional[int]
     gap_ms: Optional[int]
+
+    @property
+    def echoes_a_leg(self) -> bool:
+        return any(
+            abs(self.joint_ask - c) <= ECHO_TOLERANCE for c in self.leg_costs
+        )
+
+    @property
+    def echoes_a_dearer_leg(self) -> bool:
+        """Matches a leg that is not the cheapest — unexplainable by dependence."""
+        hits = [
+            c for c in self.leg_costs
+            if abs(self.joint_ask - c) <= ECHO_TOLERANCE
+        ]
+        return bool(hits) and min(hits) > self.cheapest_leg_cost + 1e-9
 
     @property
     def margin(self) -> float:
@@ -195,6 +242,7 @@ def verdict_for(record: dict) -> Optional[Verdict]:
         joint_ask=joint_ask,
         cheapest_leg_cost=cheapest_cost,
         cheapest_leg_ticker=cheapest_ticker,
+        leg_costs=tuple(c for c, _ in costs),
         age_ms=age,
         gap_ms=gap,
     )
@@ -237,6 +285,31 @@ def report(verdicts: Sequence[Verdict], *, contemporaneous_only: bool) -> None:
             return
         verdicts = kept
 
+    # ---- The echo, first, because it decides whether the rest means anything.
+    echoes = [v for v in verdicts if v.echoes_a_leg]
+    dominated_all = [v for v in verdicts if v.dominated]
+    dom_echo = [v for v in dominated_all if v.echoes_a_leg]
+    print()
+    print("LEG ECHO -- READ THIS BEFORE ANY RATE BELOW")
+    print("  A combination whose ask equals one of its own legs' costs to "
+          f"within {ECHO_TOLERANCE * 100:.0f}c is not")
+    print("  evidence about dependence. For that subset the quote at the")
+    print("  combination's ticker appears not to be a joint at all.")
+    print(
+        f"  echo rows: {len(echoes)} of {len(verdicts)} "
+        f"({100.0 * len(echoes) / max(1, len(verdicts)):.1f}%)"
+    )
+    print(
+        f"  of DOMINATED rows: {len(dom_echo)} of {len(dominated_all)} "
+        f"({100.0 * len(dom_echo) / max(1, len(dominated_all)):.0f}%)"
+    )
+    dearer = [v for v in echoes if v.echoes_a_dearer_leg]
+    print(
+        f"  matching a NON-cheapest leg: {len(dearer)} -- impossible under any "
+        f"dependence structure"
+    )
+    clean = [v for v in verdicts if not v.echoes_a_leg]
+    print(f"  remaining after excluding echoes: {len(clean)}")
     print()
     print("Domination rate by scope -- READ CROSS-GAME FIRST")
     print("  Cross-game legs are near-independent, so their joint sits near the")
@@ -244,17 +317,25 @@ def report(verdicts: Sequence[Verdict], *, contemporaneous_only: bool) -> None:
     print("  cross-game rate means the method is measuring staleness, not")
     print("  pricing, and no same-game claim may be built on it.")
     print()
-    print(f"  {'scope':<14} {'n':>5} {'dominated':>10} {'rate':>7}")
+    print(f"  {'scope':<14} {'n':>5} {'dom':>5} {'rate':>7}   "
+          f"{'n':>5} {'dom':>5} {'rate':>7}  (excluding echoes)")
     for scope in ("cross_game", "mixed", "same_game", "undecodable"):
         group = [v for v in verdicts if v.scope == scope]
+        sub = [v for v in clean if v.scope == scope]
         if not group:
-            print(f"  {scope:<14} {0:>5} {'-':>10} {'-':>7}")
+            print(f"  {scope:<14} {0:>5}")
             continue
         hits = [v for v in group if v.dominated]
-        rate = 100.0 * len(hits) / len(group)
+        shits = [v for v in sub if v.dominated]
         print(
-            f"  {scope:<14} {len(group):>5} {len(hits):>10} {rate:>6.1f}%"
+            f"  {scope:<14} {len(group):>5} {len(hits):>5} "
+            f"{100.0 * len(hits) / len(group):>6.1f}%   "
+            f"{len(sub):>5} {len(shits):>5} "
+            f"{(100.0 * len(shits) / len(sub)) if sub else 0:>6.1f}%"
         )
+    print("  The right-hand block is the one to read. `n` per scope is rows,")
+    print("  NOT independent events -- combinations share legs and games, so a")
+    print("  proportion's standard error over these is understated.")
 
     print()
     print("Margin distribution (combination ask - cheapest leg cost)")
@@ -265,10 +346,26 @@ def report(verdicts: Sequence[Verdict], *, contemporaneous_only: bool) -> None:
         print(_describe(scope, group))
 
     print()
-    print("Domination rate by combination age -- THE STALENESS CONTROL")
-    print("  A stale-leg artefact must GROW with age. A real property is flat.")
-    aged = [v for v in verdicts if v.age_ms is not None]
-    unknown = len(verdicts) - len(aged)
+    print("Domination rate by combination age -- UNDERPOWERED, READ THE CAVEAT")
+    print("  A stale-leg artefact must GROW with age, and a real property is")
+    print("  flat -- but this capture cannot test that. Only QUOTED markets are")
+    print("  visible and a combo quote lives ~1-2 min, so nothing older is ever")
+    print("  sampled. The confound the ticket names lives at 39 MINUTES. Empty")
+    print("  buckets below are structural absence, not evidence of flatness.")
+    # Negative ages are surfaced, never dropped. The first version bucketed on
+    # `age_ms >= lo` with `lo = 0`, so 69 of 2,116 rows fell through every
+    # bucket and vanished from the table built to catch confounds -- the same
+    # silent-drop failure the table exists to prevent, inside the table.
+    negative = [v for v in verdicts if v.age_ms is not None and v.age_ms < 0]
+    aged = [v for v in verdicts if v.age_ms is not None and v.age_ms >= 0]
+    unknown = len([v for v in verdicts if v.age_ms is None])
+    if negative:
+        print(
+            f"  WARNING: {len(negative)} rows have a NEGATIVE age (min "
+            f"{min(v.age_ms for v in negative) / 1000:.1f}s) -- the combination "
+            f"was minted after the stamp that claims to have observed it. The "
+            f"stamp is wrong, so every age below is suspect."
+        )
     if not aged:
         print(
             f"  No combination carries an age ({unknown} unknown). This capture "
