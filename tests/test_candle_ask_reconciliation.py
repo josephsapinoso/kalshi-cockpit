@@ -41,6 +41,7 @@ from scripts.reconcile_candle_ask import (
     Bar,
     Book,
     best_bid,
+    bracketed,
     compare,
     parse_bar,
     spread_by_volume,
@@ -237,6 +238,33 @@ class TestTheTestWouldNoticeADisagreement:
         assert result.ask_delta == 0
         assert result.bid_delta == -10
 
+    def test_the_control_does_not_cover_the_side_the_test_consumes(self):
+        """The control's blind spot, pinned so the write-up cannot overclaim it.
+
+        CONTROL compares `bar.yes_bid` to `book.yes_bid`. TEST derives from
+        `book.no_bid`. So a bar whose NO side is stale — here, a bar ask a tick
+        away — passes the control and fails only the test. The control proves
+        the *bar* is the right bar for the YES side; it says nothing about the
+        freshness of the quantity the ask is derived from.
+        """
+        result = compare(_row(), _book(yes=500, no=490), _book(yes=500, no=490),
+                         [_bar(bid=500, ask=520)])
+        assert result.bid_delta == 0      # control passes
+        assert result.ask_delta == 10     # test fails anyway
+
+    def test_both_reads_are_recorded_so_a_later_reader_can_see_which_side_moved(self):
+        """`t0` alone cannot distinguish a YES-side move from a NO-side one.
+
+        A `book_moved` row with a passing control is either harmless (the NO
+        side moved after the bar) or the signature of a real ask problem, and
+        only `t1` tells them apart.
+        """
+        result = compare(_row(), _book(yes=500, no=490), _book(yes=500, no=470),
+                         [_bar()])
+        assert result.verdict == "book_moved"
+        assert (result.book_yes_bid, result.book_no_bid) == (500, 490)
+        assert (result.t1_yes_bid, result.t1_no_bid) == (500, 470)
+
     def test_deci_cent_prices_survive_the_comparison_in_tenths(self):
         """An off-whole-cent price must compare exactly, not round to a cent.
 
@@ -248,6 +276,48 @@ class TestTheTestWouldNoticeADisagreement:
                          [_bar(bid=845, ask=887)])
         assert result.derived_yes_ask == 887
         assert result.ask_delta == 0
+
+
+class TestTheBracketDropsBarsTheBookReadSatInside:
+    """The one guard with no runtime control, so it needs a test.
+
+    The harness's CONTROL compares `yes_bid`; the TEST consumes `no_bid`. A bar
+    carrying a stale NO side therefore passes the control and is caught by
+    nothing except this filter. An earlier draft of this test module claimed
+    "the harness's own CONTROL row is what checks it at runtime" — that was
+    wrong, and the correction is the reason these tests exist.
+    """
+
+    def test_the_bar_stamped_at_start_ts_is_dropped(self):
+        """Kalshi's window is inclusive at BOTH ends.
+
+        Requesting `start_ts=120` returns the bar stamped 120, which covers
+        `(60, 120]` — an interval that began before the `t0` reads finished.
+        Comparing against it would put a book read inside the interval it is
+        measured against, which is the exact error the bracket exists to stop.
+        """
+        bars = [Bar(end_period_ts=t) for t in (120, 180, 240)]
+        assert [b.end_period_ts for b in bracketed(bars, 120, 240)] == [180, 240]
+
+    def test_the_bar_stamped_at_end_ts_is_kept(self):
+        """`(end_ts-60, end_ts]` closes before `t1`, so it is fully bracketed."""
+        bars = [Bar(end_period_ts=240)]
+        assert bracketed(bars, 120, 240) == bars
+
+    def test_a_bar_past_the_window_is_dropped(self):
+        """A bar closing after the `t1` read is not bracketed by it."""
+        bars = [Bar(end_period_ts=300)]
+        assert bracketed(bars, 120, 240) == []
+
+    def test_an_empty_window_yields_no_bars_not_a_stale_one(self):
+        """Nothing in range must produce `no_bars`, never the nearest bar.
+
+        ADR 0016 input 7: "the obvious 'nearest bar' selection leaks up to a
+        minute of future." Returning the closest bar rather than none is how
+        that leak would arrive here.
+        """
+        bars = [Bar(end_period_ts=60), Bar(end_period_ts=600)]
+        assert bracketed(bars, 120, 240) == []
 
 
 class TestSamplingCoversTheRangeRatherThanTheTop:

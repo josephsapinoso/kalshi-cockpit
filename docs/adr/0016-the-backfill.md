@@ -424,10 +424,17 @@ explicit `depth_not_reconstructable` state rather than as silence.
 > The offline version below is still worth running once the live volume is
 > reachable, and should be, before Phase 1's credits are spent.
 >
-> Input 5 moves to clean; the §3.1 tally becomes 13 clean / 8 partial / 7
-> contaminated. Two conditions attach to Phase 0 — a bar publishes a boundary
-> value where the live path returns `None`, and bar coverage is not one per
-> minute per market. Both are in the write-up's §7.
+> Input 5 moves to clean **only under a stated rule** — with 11 and 13, not the
+> unconditional list. The rule: *exclude bars publishing `yes_ask = 1000` or
+> `yes_bid = 0` where the opposing bid is absent*, because there the bar
+> publishes a number and `derive_yes_ask` returns `None`. That is a real
+> construction difference at the boundary; the identity is exact everywhere
+> else tested. The §3.1 tally becomes 13 clean / 8 partial / 7 contaminated.
+>
+> Two conditions attach to Phase 0 — the boundary rule above, and bar coverage,
+> which is **not** one bar per minute per market (41.6% of game markets returned
+> one over a 2-minute window, CI 35.4–48.1, measured mostly days from kickoff so
+> a lower bound at `T`). Both are in the write-up's §7.
 
 **Does the candle's published `yes_ask.close` equal the ask this project
 derives?** Live, the ask is `1000 − best_no_bid` and the schema is emphatic that

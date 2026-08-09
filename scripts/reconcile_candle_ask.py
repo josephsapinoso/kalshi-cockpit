@@ -44,8 +44,11 @@ A same-pass run cannot show that the identity held on 2026-06-01. It can show
 whether the identity is **the same construction at all** -- which is the actual
 question §3.3 asks, since a construction difference (a rounding convention, an
 off-by-a-tick, a different source book) would be a property of the endpoint, not
-of the day. A time-varying disagreement would escape this design; a structural
-one cannot.
+of the day. A time-varying disagreement would escape this design. So would one
+confined to moving or one-sided books -- and one is: at the boundary, where a
+side of the book is empty, a bar publishes a number while `derive_yes_ask`
+returns `None`. Only a structural difference **on quiet two-sided books** is
+excluded.
 
 The bracketing protocol, and why a naive comparison would be meaningless
 -----------------------------------------------------------------------
@@ -86,6 +89,12 @@ Per comparable market, three claims -- but only the first is an independent test
   the bracketing or the timing is broken and the TEST result means nothing --
   a failed TEST beside a passing CONTROL is the only reading that indicts the
   ask.
+
+  **The control has a blind spot, and it is the side the TEST uses.** It
+  compares `yes_bid`; the TEST derives from `no_bid`. A bar carrying a stale NO
+  side passes the control and is caught by nothing but the constancy filter and
+  `bracketed()`. The control proves the right bar was picked for the YES side,
+  not that the ask's input was fresh.
 - **DERIVED NO ASK** (ADR input 6): `1000 - bar.yes_bid.close ==
   derive_no_ask(book_yes_bid)`. Algebraically implied by the control, not
   independent of it, and reported only so the ADR's input 6 row has a number.
@@ -434,6 +443,12 @@ class Comparison:
     volume: float
     book_yes_bid: Optional[int]
     book_no_bid: Optional[int]
+    # Both reads are recorded, not just `t0`. Without `t1` a later reader cannot
+    # tell **which side** of an excluded `book_moved` row moved -- and since the
+    # TEST consumes `no_bid` while the CONTROL only covers `yes_bid`, a NO-side
+    # move is exactly the case that needs to be visible after the fact.
+    t1_yes_bid: Optional[int]
+    t1_no_bid: Optional[int]
     derived_yes_ask: Optional[int]
     derived_no_ask: Optional[int]
     bar_yes_bid_close: Optional[int]
@@ -456,6 +471,8 @@ def compare(
         volume=parse_quantity(market.get("volume_fp")) or 0.0,
         book_yes_bid=t0.yes_bid_tenths,
         book_no_bid=t0.no_bid_tenths,
+        t1_yes_bid=t1.yes_bid_tenths,
+        t1_no_bid=t1.no_bid_tenths,
         derived_yes_ask=derive_yes_ask(t0.no_bid_tenths),
         derived_no_ask=derive_no_ask(t0.yes_bid_tenths),
         bar_yes_bid_close=None,
@@ -497,6 +514,23 @@ def compare(
     return result
 
 
+def bracketed(bars: list[Bar], start_ts: int, end_ts: int) -> list[Bar]:
+    """Bars whose whole interval lies strictly between the two book reads.
+
+    A bar stamped `end_period_ts = e` covers `(e - 60, e]`. `start_ts` is the
+    first minute boundary after the `t0` reads finished, so the bar stamped
+    `start_ts` itself *began* before `t0` and must be dropped — hence the strict
+    `>`. Kalshi's window is **inclusive at both ends**, so that bar is returned
+    and would otherwise be compared against a book read from inside it.
+
+    This filter is the only thing standing between a stale bar and the TEST.
+    The runtime CONTROL cannot cover it: the control compares `yes_bid`, while
+    the TEST consumes `no_bid`, so a bar carrying a stale NO side passes the
+    control and fails nothing.
+    """
+    return [b for b in bars if start_ts < b.end_period_ts <= end_ts]
+
+
 async def one_market(
     reader: Reader, row: dict, start_ts: int, end_ts: int
 ) -> Optional[Comparison]:
@@ -505,8 +539,7 @@ async def one_market(
         bars = await reader.candles(row["series"], row["ticker"], start_ts, end_ts)
     except httpx.HTTPStatusError:
         bars = []
-    bars = [b for b in bars if start_ts < b.end_period_ts <= end_ts]
-    return compare(row, row["t0"], row["t1"], bars)
+    return compare(row, row["t0"], row["t1"], bracketed(bars, start_ts, end_ts))
 
 
 async def read_books(reader: Reader, rows: list[dict], key: str) -> None:
