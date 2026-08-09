@@ -95,6 +95,7 @@ async def main() -> int:
             budget = CreditBudget(
                 conn,
                 daily_budget=odds_config.daily_credit_budget,
+                monthly_budget=odds_config.monthly_credit_budget,
                 day_start_hour=odds_config.budget_day_start_utc_hour,
             )
             async with OddsClient(odds_config, budget) as odds:

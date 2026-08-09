@@ -21,11 +21,18 @@ opportunity appears.
 
 Choosing the intervals
 ----------------------
-The slow one is bounded by **odds credits, not Kalshi**. The free tier is ~500 a
-month and one sweep costs `markets x regions` = 6, so roughly 16 credits a day
-= two sweeps. The budget refuses over-spend rather than failing, so a short
-interval does not overspend -- it just produces passes that record Kalshi quotes
-and skip the odds leg. **900s (15 min) is a sensible default.**
+The slow one is bounded by **odds credits, not Kalshi**. One sweep costs
+`markets x regions` = 6. On the old 500/month free tier that meant ~16 credits a
+day -- two sweeps, two fifteen-minute windows, and a measured `stale_odds` on
+256 of 265 suppressed rows because a full pass every 900s writes rows all day
+against odds that are fresh for half an hour of it. The 20K tier (2026-08-09)
+lifts the daily cap to 400, at which point the *scheduler* binds instead: each
+sport has at most twelve useful slots a day (`MIN_SLOT_SEPARATION_MS`), so six
+in-scope leagues cannot spend more than ~432 a day however large the budget is.
+
+The budget refuses over-spend rather than failing, so a short interval does not
+overspend -- it just produces passes that record Kalshi quotes and skip the odds
+leg. **900s (15 min) is a sensible default.**
 
 The fast one is bounded by the Kalshi quote limit, which is 30 seconds. That is
 the whole reason this file grew a second cadence: a row is bettable only while
@@ -218,6 +225,7 @@ async def main() -> int:
     budget = CreditBudget(
         conn,
         daily_budget=odds_config.daily_credit_budget,
+        monthly_budget=odds_config.monthly_credit_budget,
         day_start_hour=odds_config.budget_day_start_utc_hour,
     )
     state = LoopState()

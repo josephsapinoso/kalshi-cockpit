@@ -566,3 +566,118 @@ class TestDriftActuallyComputesADifference:
         )
         conn.commit()
         assert CreditBudget(conn, daily_budget=16).state(NOW).drift is None
+
+
+class TestTheMonthlyCeiling:
+    """`spent_this_month` was computed from day one and checked by nothing.
+
+    A number on a dashboard, not a guard. Survivable while every call cost 6
+    credits and the daily cap bounded the month by arithmetic nobody had to do;
+    not survivable once a caller can spend 10x per call, which is what the
+    historical endpoints charge. A backfill loop could then spend the month
+    between two daily resets and every guard would report healthy.
+
+    Three ceilings now, and they must stay distinguishable: the provider's
+    (authoritative, refuses because they stop answering), ours-per-month
+    (reserves headroom for another lane), and ours-per-day (paces the slate).
+    """
+
+    def _spend(self, conn, credits, *, now_ms=NOW, endpoint="/odds"):
+        """Book `credits` of spend as one row, so day and month both see it."""
+        conn.execute(
+            "INSERT INTO api_credits (called_ms, endpoint, cost) VALUES (?, ?, ?)",
+            (now_ms, endpoint, credits),
+        )
+        conn.commit()
+
+    def test_an_unset_ceiling_refuses_nothing(self, conn):
+        """Absence is not a zero.
+
+        `monthly_budget=None` must behave exactly as the module did before the
+        ceiling existed. A default that refused everything would be the
+        never-resolve-to-zero failure pointed the other way.
+        """
+        self._spend(conn, 100_000)
+        budget = CreditBudget(conn, daily_budget=16, monthly_budget=None)
+        assert budget.state(NOW).remaining_this_month is None
+        # Only the daily cap should be talking here.
+        assert not budget.can_afford(6, NOW)
+        assert CreditBudget(conn, daily_budget=1_000_000).can_afford(6, NOW)
+
+    def test_the_month_refuses_what_the_day_would_allow(self, conn):
+        """The gap the ceiling exists for, stated as the two disagreeing.
+
+        Spend sits inside today's budget and past the month's. Before the
+        ceiling this call went ahead. Asserting *both* answers matters: if the
+        daily cap also refused, this test would pass without the monthly check
+        existing at all.
+        """
+        self._spend(conn, 900)
+        budget = CreditBudget(conn, daily_budget=400, monthly_budget=1_000)
+
+        cheap_enough_for_today = CreditBudget(conn, daily_budget=400)
+        assert cheap_enough_for_today.can_afford(200, NOW) is False, (
+            "fixture no longer isolates the monthly check; the day refuses too"
+        )
+
+        # Today has room for 60 more (900 of 400 is over, so pick a fresh day).
+        tomorrow = NOW + 86_400_000
+        assert CreditBudget(conn, daily_budget=400).can_afford(200, tomorrow)
+        assert not budget.can_afford(200, tomorrow), (
+            "the monthly ceiling did not fire on a call the day allowed"
+        )
+
+    def test_a_call_inside_both_ceilings_is_allowed(self, conn):
+        self._spend(conn, 100)
+        budget = CreditBudget(conn, daily_budget=400, monthly_budget=13_000)
+        assert budget.can_afford(6, NOW)
+
+    def test_the_providers_count_still_wins(self, conn):
+        """Ours is a reserve; theirs is the one that stops answering."""
+        conn.execute(
+            "INSERT INTO api_credits (called_ms, endpoint, cost, "
+            "remaining_reported) VALUES (?, '/odds', 6, 2)",
+            (NOW,),
+        )
+        conn.commit()
+        budget = CreditBudget(conn, daily_budget=400, monthly_budget=13_000)
+        assert not budget.can_afford(6, NOW)
+
+    def test_remaining_this_month_floors_at_zero_rather_than_going_negative(
+        self, conn
+    ):
+        """Overspend is possible -- a call can cost more than predicted.
+
+        Reporting -40 remaining would read as a measurement; 0 reads as
+        exhausted, which is the actionable state.
+        """
+        self._spend(conn, 1_040)
+        budget = CreditBudget(conn, daily_budget=400, monthly_budget=1_000)
+        assert budget.state(NOW).remaining_this_month == 0
+
+    def test_the_month_boundary_is_the_calendar_month_not_the_sports_day(
+        self, conn
+    ):
+        """The day rolls at 10:00Z for slate reasons; the month cannot.
+
+        The monthly boundary belongs to The Odds API, and reconciliation against
+        `x-requests-used` only works if we agree with theirs.
+        """
+        july = ms("2026-07-31T23:00:00")
+        # 11:00Z, deliberately past the 10:00Z roll, so this is a new *sports
+        # day* as well as a new month. At 01:00Z it would not be: the sports day
+        # beginning 10:00Z on the 31st runs through midnight into the 1st, and
+        # the daily cap would refuse the call for its own reasons -- which is
+        # this test passing without the month boundary being exercised at all.
+        august = ms("2026-08-01T11:00:00")
+        self._spend(conn, 900, now_ms=july)
+
+        budget = CreditBudget(conn, daily_budget=400, monthly_budget=1_000)
+        assert budget.state(july).spent_this_month == 900
+        assert budget.state(august).spent_this_month == 0, (
+            "July's spend followed us into August"
+        )
+        assert budget.state(august).spent_today == 0, (
+            "the fixture is not on a fresh sports day; the daily cap will decide"
+        )
+        assert budget.can_afford(200, august)

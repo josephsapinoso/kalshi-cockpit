@@ -55,6 +55,23 @@ def _int(key: str, default: int) -> int:
         raise ConfigError(f"{key}={raw!r} is not an integer.") from exc
 
 
+def _int_or_none(key: str) -> Optional[int]:
+    """An integer setting whose absence is meaningful, not a zero.
+
+    Unset means "no ceiling of our own"; `0` would mean "refuse every call".
+    Collapsing those two into one value is the failure this repo keeps
+    rediscovering -- see `tasks/lessons.md` on the zero that means "no
+    measurement" passing every threshold.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{key}={raw!r} is not an integer.") from exc
+
+
 def _float(key: str, default: float) -> float:
     raw = os.getenv(key, "").strip()
     if not raw:
@@ -111,6 +128,14 @@ class OddsConfig:
     daily_credit_budget: int
     regions: list[str]
     markets: list[str]
+    # Our own monthly ceiling, distinct from the plan's. `None` means uncapped
+    # by us -- the provider's `x-requests-remaining` is still authoritative and
+    # still refuses. It exists because the daily cap bounds a month only if you
+    # multiply it out, which nothing did, and because the historical endpoints
+    # cost 10x per call: a backfill can spend a month inside one day without any
+    # daily cap objecting. Defaults to None so an unconfigured deployment keeps
+    # exactly the behaviour it had.
+    monthly_credit_budget: Optional[int] = None
     # The hour the daily credit budget rolls over, UTC. Not midnight: UTC
     # midnight is 5pm PT, the middle of the US evening slate, so it splits one
     # night's games across two budget days. See `odds/timing.py`.
@@ -127,6 +152,7 @@ class OddsConfig:
             api_key=_require("ODDS_API_KEY"),
             base_url=_optional("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4"),
             daily_credit_budget=_int("ODDS_DAILY_CREDIT_BUDGET", 16),
+            monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
                 m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
@@ -149,6 +175,7 @@ class OddsConfig:
             api_key="",
             base_url=_optional("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4"),
             daily_credit_budget=_int("ODDS_DAILY_CREDIT_BUDGET", 16),
+            monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
                 m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m

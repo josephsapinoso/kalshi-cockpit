@@ -44,8 +44,25 @@ primary_region = "ord"
   LIVE_TRADING_ENABLED = "false"
   LIVE_GATE_MIN_SCORED_RECOMMENDATIONS = "300"
 
-  # Free tier is 500 credits/month. An unmetered poll loop drains it in a day.
-  ODDS_DAILY_CREDIT_BUDGET = "16"
+  # 20K tier, 20,000 credits/month (2026-08-09). A sweep costs markets x
+  # regions = 6.
+  #
+  # 400/day, not 645 (= 20000/31), because spend is capped by the scheduler
+  # rather than the budget: MIN_SLOT_SEPARATION_MS gives each sport at most 12
+  # useful slots a day, so six in-scope leagues cannot exceed ~432/day whatever
+  # this says. 400 sits just under that ceiling and costs at most ~12,400 in a
+  # month, which leaves headroom under the monthly cap below.
+  #
+  # It was 16 until the live instance showed what that cost: stale_odds on 256
+  # of 265 suppressed rows, and actionable=0 of the 300 games the gate needs.
+  ODDS_DAILY_CREDIT_BUDGET = "400"
+
+  # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
+  # month only if you multiply it out, and it cannot bound a caller that spends
+  # 10x per call -- which the historical endpoints do. The gap to 20,000 is
+  # deliberate headroom for that work.
+  ODDS_MONTHLY_CREDIT_BUDGET = "13000"
+
   ODDS_REGIONS = "us,eu"
   ODDS_MARKETS = "h2h,spreads,totals"
 

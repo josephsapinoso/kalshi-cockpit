@@ -556,6 +556,7 @@ def create_app(
             budget=CreditBudget(
                 conn,
                 daily_budget=odds.daily_credit_budget,
+                monthly_budget=odds.monthly_credit_budget,
                 day_start_hour=odds.budget_day_start_utc_hour,
             ),
             now_ms=db.now_ms(),

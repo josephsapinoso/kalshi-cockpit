@@ -1,11 +1,19 @@
 """Credit accounting and allocation for The Odds API.
 
-The free tier is **500 credits a month** and a call costs
-`len(markets) x len(regions)`. Requesting h2h + spreads + totals across `us` and
-`eu` is therefore **6 credits per sport per sweep**. An unmetered poll loop over
-four leagues drains the entire month in a bit over a day.
+The plan is the **20K tier: 20,000 credits a month** (bought 2026-08-09,
+replacing the 500/month free tier). A call costs `len(markets) x len(regions)`,
+so h2h + spreads + totals across `us` and `eu` is **6 credits per sport per
+sweep**. An unmetered poll loop over four leagues still drains the month in
+under a week.
 
-So spending is metered here, and the meter has two properties that matter:
+**Why the tier changed, because it is the reason any of this matters.** On the
+free tier the meter allowed ~2 sweeps a day, each opening a 15-minute window of
+usable odds, against a full pass every 900s. The live instance measured the
+consequence directly: `stale_odds` was 256 of 265 suppressions in 24h, and
+`actionable` was 0 of the 300 games the gate needs. The budget was not a
+safeguard on a working system, it *was* the binding constraint.
+
+So spending is metered here, and the meter has three properties that matter:
 
 **It reconciles against the server, not against our own optimism.** Every
 response carries `x-requests-remaining`; we record it alongside what we
@@ -15,6 +23,14 @@ runs out mid-slate.
 
 **It refuses rather than warns.** `can_afford` returning False blocks the call.
 A budget that logs a warning and proceeds is not a budget.
+
+**It caps the month as well as the day.** `spent_this_month` was computed from
+the first version of this module and never checked by anything -- a number on a
+dashboard, not a guard. That was survivable while every call cost 6 credits and
+the daily cap bounded the month by arithmetic. It stops being survivable the
+moment a caller can spend 10x per call, which is what the historical endpoints
+do (`10 x markets x regions`), so a single backfill loop could spend the month
+between two daily resets without the daily cap ever objecting.
 
 **Allocation is not decided here.** It used to be: `plan_sweep` ranked sports
 by soonest kickoff and returned everything the budget allowed, so the day's
@@ -59,10 +75,23 @@ class BudgetState:
     spent_this_month: int
     remaining_reported: Optional[int]
     used_reported: Optional[int] = None
+    monthly_budget: Optional[int] = None
 
     @property
     def remaining_today(self) -> int:
         return max(0, self.daily_budget - self.spent_today)
+
+    @property
+    def remaining_this_month(self) -> Optional[int]:
+        """`None` when no monthly ceiling is configured, never a fabricated 0.
+
+        An absent ceiling and an exhausted one are different states and must not
+        share a representation -- `tasks/lessons.md`, the zero that means "no
+        measurement" passing every threshold.
+        """
+        if self.monthly_budget is None:
+            return None
+        return max(0, self.monthly_budget - self.spent_this_month)
 
     @property
     def drift(self) -> Optional[int]:
@@ -108,10 +137,12 @@ class CreditBudget:
         daily_budget: int,
         *,
         day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+        monthly_budget: Optional[int] = None,
     ):
         self.conn = conn
         self.daily_budget = daily_budget
         self.day_start_hour = day_start_hour
+        self.monthly_budget = monthly_budget
 
     def day_start_ms(self, now_ms: int) -> int:
         return day_start_ms(now_ms, hour=self.day_start_hour)
@@ -131,6 +162,7 @@ class CreditBudget:
         ).fetchone()
         return BudgetState(
             daily_budget=self.daily_budget,
+            monthly_budget=self.monthly_budget,
             spent_today=int(day),
             spent_this_month=int(month),
             remaining_reported=(
@@ -144,10 +176,19 @@ class CreditBudget:
         )
 
     def can_afford(self, cost: int, now_ms: int) -> bool:
-        """Whether a call of `cost` credits is within today's budget.
+        """Whether a call of `cost` credits is within budget -- day and month.
 
-        Also refuses when the server says we have less than the call costs,
-        even if our own tally disagrees -- their count is authoritative.
+        Three ceilings, checked cheapest-to-recover-from last. The server's
+        count wins over ours wherever they disagree, because theirs is the one
+        that stops answering.
+
+        The monthly check is not redundant with the daily one. The daily cap
+        bounds the month only if you multiply it by the days remaining, which
+        nothing did; and it cannot bound a caller that spends 10x per call
+        inside a single day. It is also not redundant with `remaining_reported`:
+        that is the *plan's* limit, while this is ours, and the gap between them
+        is the headroom deliberately reserved for another lane (historical
+        backfill) that would otherwise be starved by whoever spends first.
         """
         state = self.state(now_ms)
         if state.remaining_reported is not None and state.remaining_reported < cost:
@@ -155,6 +196,14 @@ class CreditBudget:
                 "refusing %d-credit call: the API reports only %d credits left "
                 "this period",
                 cost, state.remaining_reported,
+            )
+            return False
+        remaining_month = state.remaining_this_month
+        if remaining_month is not None and remaining_month < cost:
+            logger.warning(
+                "refusing %d-credit call: %d of %d monthly credits already "
+                "spent. The daily cap cannot see this.",
+                cost, state.spent_this_month, self.monthly_budget,
             )
             return False
         if state.remaining_today < cost:
