@@ -27,29 +27,65 @@ Three new agents in `.claude/agents/`, loading automatically:
 **`sharp-bettor`** (reviews the product as someone who bets for a living).
 Use them. `partner` is a good first call of a session.
 
-## READ THIS FIRST — Joe's bankroll is $100/week, not $1,000
+## READ THIS FIRST — do NOT just set BANKROLL_DOLLARS to 100
 
-Told to us at ~17:00Z on 2026-08-09, and it invalidates config that is deployed:
+Joe's real bankroll is **$100/week**, not the $1,000 in `fly.live.toml:97`. An
+earlier draft of this handoff called that a one-line fix. **It is a trap, and
+setting it would silently disable the evidence record.**
 
-    fly.live.toml:97   BANKROLL_DOLLARS = "1000"
-    config.py:196      bankroll_dollars: float = 1000.0
-    config.py:200      max_exposure_dollars: float = 400.0
+Verified by running `size_position` directly:
 
-**Kelly sizing derives from the bankroll, so every suggested size is 10x too
-large.** The demo's `BUY 15 / COST $7.54` would be one or two contracts at his
-real number. Most concrete safety issue open, and a one-line change — but do the
-arithmetic first, because it may not be a clean scale-down:
+    bankroll  min_order  contracts  refused  constraint
+      1000       10         15       False    kelly
+       700       10         10       False    kelly
+       400       10          0       True     below_min_order_contracts
+       100       10          0       True     below_min_order_contracts
+       100        3          0       True     below_min_order_contracts
+       100        1          1       False    kelly
 
-- The conservative fee model charges ~1c/contract on sports. On a 10c contract
-  that is 10% of stake. At a $100 bankroll, quarter-Kelly on a 1-2% edge is a
-  position of a few dollars, so there may be a **minimum viable bankroll below
-  which this strategy cannot clear its own fee at all.** Work the number out and
-  say it. If it is above $100, that is the finding and it gets said plainly
-  rather than engineered around.
-- `max_exposure_dollars = 400` against a $100 bankroll is a cap that cannot
-  bind. Set it deliberately, not proportionally.
+At $100 with the deployed `MIN_ORDER_CONTRACTS=10`, quarter-Kelly on the edges
+this tool actually finds sizes to under one contract, so **every row is
+refused**. And `gate.py:285` defines the counter as:
 
-He also said he is **a beginner** and wants tooltips.
+    "actionable": "r.suppressed_reason IS NULL AND r.suggested_contracts > 0"
+
+So `actionable` would be **structurally 0 forever**, the 300-game counter could
+never increment, and the Gate screen would go on saying "0 of 300, keep
+recording" without ever naming the cause. Both review agents found this
+independently.
+
+**Two limits on one quantity, again**, and the repo has the lesson: at $100 the
+minimum net edge needed to reach 10 contracts is ~10c at the 50c band, while
+`edge_ceiling_tenths = 40` (4c) suppresses anything above 4c as a suspected
+bug. **The two ranges do not intersect.** There is no price on the board where
+an edge is simultaneously large enough to size and small enough to be believed.
+Break-even is ~$250 at the wings, **~$300 before the 50c band works at all.**
+
+### What to do instead
+
+1. **Decouple the gate's counter from his real bankroll.** Score actionability
+   against a fixed reference bankroll for the *counter*, and against his real
+   bankroll for what he is *permitted to buy*. This relaxes nothing — the 300
+   floor, the CLV noise guard, every staleness and suppression rule stay exactly
+   where they are. It stops his deposit size from disabling the measurement.
+2. **Replace the flat `min_order_contracts`, do not just lower it.** Measured,
+   the Model A per-order rounding penalty it exists to prevent is **0.00c at
+   50c** — the band the strategy trades — and 0.8c at the wings. A
+   price-independent constant is standing in for a price-dependent quantity.
+   `verify_positive_after_fees` in `sizing.py` already re-evaluates the order at
+   the real size with the real fee; let that be the guard.
+3. **Re-scale the caps, which are inert at $100.** `max_position_dollars=100`
+   is 100% of bankroll, `max_exposure_dollars=400` is 400%, and
+   `max_daily_loss_dollars=100` fires only after the whole week is gone. A
+   safety system that cannot bind is worse than none, because it reassures.
+   ~$15 / ~$40 / ~$25 reproduces the $1,000 ratios.
+4. **Write the test that would have caught this**: at the configured bankroll,
+   assert some edge below `edge_ceiling_tenths` produces a non-zero size. That
+   test is the real deliverable; the config change is the easy half.
+
+`BANKROLL_DOLLARS` should be his **running balance**, not his weekly top-up —
+$100/week is a flow. Nothing in the config or the Gate screen makes that
+distinction.
 
 ## The gate, re-evaluated under $100/week — and it should NOT be lowered
 

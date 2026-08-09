@@ -40,7 +40,11 @@ type Quote = {
   observed_ms: number;
 };
 
-type Status = "connecting" | "live" | "idle" | "down" | "silent";
+type Status = "connecting" | "live" | "idle" | "down" | "silent" | "disabled";
+
+// How often the age strings are re-rendered. A quote is bettable for 30s, so a
+// second is fine resolution and cheap: it re-renders text, nothing refetches.
+const AGE_TICK_MS = 1_000;
 
 export default function LiveBoard({
   rows,
@@ -55,7 +59,9 @@ export default function LiveBoard({
   oddsLimitMs: number;
 }) {
   const [quotes, setQuotes] = useState<Map<number, Quote>>(new Map());
-  const [status, setStatus] = useState<Status>(enabled ? "connecting" : "idle");
+  const [status, setStatus] = useState<Status>(
+    enabled ? "connecting" : "disabled",
+  );
   const [reason, setReason] = useState<string | null>(null);
   const [lastFrameMs, setLastFrameMs] = useState<number | null>(null);
   // Direction of the last move per row, for the flash. Held in a ref because it
@@ -128,6 +134,41 @@ export default function LiveBoard({
     return () => clearInterval(timer);
   }, [enabled, lastFrameMs]);
 
+  // **The age strings must advance whether or not anything is streaming.**
+  //
+  // Every other clock on this screen was driven by an arriving frame, so with
+  // the feed off, idle, or dead, `merged` never recomputed and a card kept
+  // rendering "quote 32s ago" indefinitely. A price is bettable for 30s; one
+  // frozen at 32s while five minutes pass reads as *nearly fresh* when it is
+  // long dead. That is the half-dead-container failure this component's
+  // docstring exists to prevent -- prevented for the streaming case only.
+  //
+  // Unconditional, and deliberately not gated on `enabled`: the disabled case
+  // is the one where nothing else was updating it.
+  const [now, setNow] = useState<number | null>(null);
+  const mountedAt = useRef<number | null>(null);
+  useEffect(() => {
+    mountedAt.current = Date.now();
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), AGE_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Elapsed since hydration. `null` until the first client tick, so the server
+  // render and the first client render agree and hydration does not mismatch.
+  //
+  // Mount-relative rather than absolute, and the tradeoff is deliberate. The
+  // row carries a *relative* age computed on the server, so the unaccounted
+  // gap is server-render-to-hydration -- bounded, and typically well under a
+  // second. The alternative is to derive an absolute observation time from a
+  // server `now_ms`, which imports client/server clock skew that is unbounded
+  // and silent. A small bounded error beats an unbounded one, and this is the
+  // direction the repo already chose for `occurrence_datetime`: record the
+  // discrepancy rather than correct it away.
+  const elapsed = now !== null && mountedAt.current !== null
+    ? Math.max(0, now - mountedAt.current)
+    : 0;
+
   // A flash is a one-shot. Without clearing it the animation would replay on
   // every unrelated re-render, so the page would twitch at random.
   useEffect(() => {
@@ -142,7 +183,26 @@ export default function LiveBoard({
     () =>
       rows.map((row) => {
         const quote = streaming ? quotes.get(row.id) : undefined;
-        if (!quote) return { row, move: undefined };
+        if (!quote) {
+          // No live quote, so age the recorded one by hand. `null` stays
+          // `null`: an age the server could not compute is unknown, and
+          // starting an unknown at zero and counting up would invent the one
+          // number this card exists to be honest about.
+          return {
+            row: {
+              ...row,
+              quote_age_now_ms:
+                row.quote_age_now_ms == null
+                  ? row.quote_age_now_ms
+                  : row.quote_age_now_ms + elapsed,
+              odds_age_now_ms:
+                row.odds_age_now_ms == null
+                  ? row.odds_age_now_ms
+                  : row.odds_age_now_ms + elapsed,
+            } as Recommendation,
+            move: undefined,
+          };
+        }
         return {
           // The live numbers replace the recorded ones, and `price_is_current`
           // with them: the card's "this price was read 4m ago" note is about a
@@ -156,19 +216,26 @@ export default function LiveBoard({
             edge_cents: quote.edge_cents,
             depth_at_ask: quote.depth_at_ask,
             suggested_contracts: quote.contracts,
-            quote_age_now_ms: Math.max(0, Date.now() - quote.observed_ms),
+            // `now` rather than a fresh `Date.now()`, so this ages on the tick
+            // between frames instead of only when one arrives. A streaming
+            // feed that goes quiet for two minutes must show two minutes.
+            quote_age_now_ms: Math.max(0, (now ?? Date.now()) - quote.observed_ms),
             price_is_current: true,
             freshness_confirmed: false,
           } as Recommendation,
           move: moves.get(row.id),
         };
       }),
-    [rows, quotes, moves, streaming],
+    [rows, quotes, moves, streaming, now, elapsed],
   );
 
   return (
     <>
-      {enabled && <FeedStatus status={status} reason={reason} />}
+      {/* Rendered unconditionally. Hiding it when the feed is disabled left the
+          one case with no other indicator at all: no banner, and until the tick
+          above, no moving clock either -- so a dead feed and a healthy quiet one
+          were pixel-identical. */}
+      <FeedStatus status={status} reason={reason} />
       <div className="grid gap-4 sm:grid-cols-2">
         {merged.map(({ row, move }) => (
           <div key={row.id} className={move ? `tick-${move}` : undefined}>
@@ -238,6 +305,14 @@ function FeedStatus({
         "The connection is open and nothing has arrived, including the " +
         "heartbeat. Treat every price below as frozen.",
       tone: "text-negative",
+    },
+    disabled: {
+      label: "NO LIVE FEED",
+      detail:
+        "This instance holds no Kalshi credentials, so nothing is streaming. " +
+        "Every price below is the one recorded when the page loaded and is " +
+        "ageing — read the age on each card, not the price alone.",
+      tone: "text-muted",
     },
   };
   const { label, detail, tone } = copy[status];
