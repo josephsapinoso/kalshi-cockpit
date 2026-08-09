@@ -1,5 +1,64 @@
 # Next — your checklist
 
+## READ FIRST (2026-08-09, later) — the log stream drops lines, and the number everyone quoted was a 10% sample
+
+The one cheap check the previous handoff asked for is **done, and the answer is
+zero.** The per-process scope dedupe holds in production. Evidence, because a
+count off `flyctl logs` cannot settle it on its own:
+
+    03:17:05  94 warnings, all one timestamp, all from pass 1 of a fresh process
+    03:30:46  pass 2 -- zero new warnings; the 94 had aged to 91 in the buffer
+
+The buffer rolls forward and no warning carries a second timestamp. The dedupe
+was never broken; a count taken from a lossy buffer just cannot distinguish
+"re-emitted" from "still sitting there". **The timestamp is the discriminator,
+not the count.**
+
+### What the check turned up instead, which is larger
+
+`unknown_scopes=962` prints on the same line as those 94 warnings. Two counts of
+one quantity, disagreeing tenfold, printed together and never read against each
+other. Measured against the live exchange
+(`scripts/measure_unknown_scopes.py`, free, no odds credits):
+
+| | Recorded in this file | Actually |
+|---|---|---|
+| unknown (series, scope) pairs | 94 | **962** |
+| distinct scopes | — | **317** |
+| in leagues we price | "none of them a sport" | **227 pairs, 56 scopes** |
+
+**The exclusion is still correct** — every excluded scope in a priceable league
+is a future, an award, or a period/prop market (`Extra Innings`, `YRFI/NRFI`,
+`First 5 Innings Winner`, WNBA `1st Half Winner`, `Win Totals`, `Draft`). No
+game-level moneyline, spread or total is being dropped. But that was true by
+luck rather than by the reasoning on record, and the reassuring sentence came
+from a sample nobody knew was a sample.
+
+### Fly drops log lines. Absence is not evidence of non-emission
+
+962 lines in ~90ms into a 100-line buffer: ~90% dropped, **including the
+neighbouring `discovery:` summary**, which is unconditional, was verified to
+emit locally, and is proven to have run by its own return value appearing one
+line later. It still was not in the stream.
+
+So **the two boot lines were never merely "pushed out"** — they were competing
+with a 962-line burst, and any conclusion drawn from a line *not* appearing in
+`flyctl logs` is unfounded.
+
+Fixed in `f7adbad`: one aggregated warning per process, naming the 56 priceable
+scopes and counting the other 261. **The first pass now emits 2 lines where it
+emitted 963.** The `no occurrence_datetime` warning four lines away had the
+identical undeduplicated shape, latent, and is deduped per series.
+
+### So the next deploy is the first one whose boot lines can actually be read
+
+`[migrate] /data/live.db already at schema v5` and `API starting:
+instance_mode=live` have been unobserved for three sessions. Nothing was ever
+wrong with them. **Deploy live and read the log — that is the check now**, and
+it is the first time it has had a fair chance of working.
+
+---
+
 ## READ FIRST (2026-08-09) — the gate's counter cannot grow, and it is arithmetic
 
 Found while reading the live logs. **`clv_scored` has been 0 on every recent

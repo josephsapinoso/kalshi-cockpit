@@ -33,26 +33,35 @@ Also confirmed running: `settlement pass: {'positions_open': 0, 'settled': 0,
 `skeptic_blocked` now print in the pricing-pass line instead of being inferred
 from `surfaced: 0`.
 
-## Start here — one cheap check I could not complete
+## Start here — deploy live, then read the boot lines
 
-Run `Ops -f instance=live -f action=logs` and **count the
-`unrecognised competition_scope` lines**.
+That check is **done. The dedupe holds; zero new warnings on the second pass.**
+See the top of `tasks/NEXT.md` for the evidence and for what it turned up
+instead, which was bigger than the check:
 
+- The unknown-scope population is **962 pairs over 317 scopes**, not the 94 this
+  file used to claim. The 94 was the ~10% of a 90ms burst that Fly's log
+  pipeline did not drop. The exclusion is still correct — nothing priceable is
+  being dropped — but the sentence "none of them a sport" was drawn from a
+  sample nobody knew was a sample.
+- **Fly drops log lines under a burst, and takes neighbours with it.** The
+  `discovery:` summary has never appeared in production despite being
+  unconditional and verified to emit locally. Absence in `flyctl logs` is not
+  evidence a line was not emitted.
+- Fixed in `f7adbad`: the first pass now emits **2 lines where it emitted 963**.
+
+**`main` is `f7adbad` and live is still on `7eae154`.** So:
+
+    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
     gh workflow run Ops -f instance=live -f action=logs
 
-Expect **zero**. Those warnings are now deduplicated for the life of the
-process, not per pass — but the very first pass of a fresh process still emits
-all 94 at once, and that is what I saw: 94 of the 100 lines in the buffer, which
-pushed the two boot lines out again. Any pass after the first should be clean.
+`[migrate] /data/live.db already at schema v5` and `API starting:
+instance_mode=live` have been unobserved for three sessions, and nothing was
+ever wrong with them. This is the first deploy whose boot lines have a fair
+chance of surviving the stream. Also expect one aggregated warning naming ~56
+scopes, and a `discovery:` line — which will be its first appearance ever.
 
-If it is zero, the log stream is readable for the first time and
-`[migrate] /data/live.db migrated v3 -> v5` / `API starting: instance_mode=live`
-become catchable on the next deploy. **Those two lines are still unobserved** —
-v5 running was confirmed by its effects (`CLV scoring at 0.0h`, the settlement
-pass, the skeptic counters), which is an inference, not a reading.
-
-If it is *not* zero, the per-process dedupe is not holding in production and
-`backend/kalshi/discovery.py` needs another look.
+I did not deploy live: it is on the list that needs asking, and Joe was away.
 
 ## Then: what actually moves the gate now
 
