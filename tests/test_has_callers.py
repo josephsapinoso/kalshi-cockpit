@@ -46,7 +46,27 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Directories that do not count as a caller. A feature called only by its own
 # tests and its own demo seeder is a feature that has not shipped.
-NOT_A_CALLER = ("tests", "warehouse", ".venv", "node_modules", "__pycache__")
+#
+# `.claude/worktrees` is here for a sharper reason than the others, and it is
+# the one that would let this whole file pass over the bug it exists to catch.
+# A parallel lane's worktree is a full second copy of the repo. Walking it means
+# a symbol whose only caller lives in *another branch's* copy counts as called
+# here -- so during any parallel session this test can go green on `main` for a
+# symbol that has no caller on `main`. That is precisely the state
+# `score_recommendations` was in for eleven build steps.
+#
+# It is also why the file was flaky: a lane writing to its worktree mid-walk
+# makes `rglob` yield a path that no longer exists by the time it is read, which
+# surfaced as `FileNotFoundError` on an unrelated symbol. The crash was the
+# cheap symptom; the silent pass is the expensive one.
+NOT_A_CALLER = (
+    "tests",
+    "warehouse",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".claude",
+)
 
 # The seeder is not a caller either, for the same reason tests are not: it is
 # what `persist_recommendation` had for eleven build steps while the chain that
