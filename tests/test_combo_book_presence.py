@@ -39,11 +39,14 @@ from measure_combo_book_presence import (  # noqa: E402
     GRID_TOL,
     Row,
     book_is_empty,
+    book_signature,
     derived_yes_ask,
     derived_yes_prices,
     echo_gap,
+    eligible,
     parse_levels,
     read_book,
+    round_robin,
     wilson,
 )
 
@@ -127,11 +130,31 @@ class TestARenamedEnvelopeRaisesRatherThanReadingAsEmpty:
 
 class TestTheDerivedAskIdentity:
     def test_yes_ask_is_one_minus_the_best_no_bid(self):
-        book = {"no_dollars": [["0.4530", "93"], ["0.5000", "102"]],
+        # The levels are deliberately NOT symmetric about 0.5. The original
+        # anchor here was the run's own `[0.4530, 0.5000]`, asserting 0.500 --
+        # and at 0.5000 the two conventions this test is named for agree,
+        # because `1 - 0.5 == 0.5`. It discriminated max-vs-first and not
+        # `1 - p` vs `p`, which is the `clv_tenths(500, 500, "no")` failure
+        # wearing the name of the identity it does not check.
+        book = {"no_dollars": [["0.4530", "93"], ["0.6000", "102"]],
                 "yes_dollars": []}
-        # Best NO bid is the HIGHEST NO price, so the derived ask is the
-        # LOWEST. Taking the first level instead would have given 0.547 here.
-        assert derived_yes_ask(book) == pytest.approx(0.500)
+        # Best NO bid is the HIGHEST NO price (0.6000), so the derived YES ask
+        # is 1 - 0.6000. Each wrong implementation now gives a DIFFERENT and
+        # wrong number, and no two of them collide:
+        #   first level rather than best   -> 0.547
+        #   the NO price itself, not 1 - p -> 0.600
+        #   1 - the lowest NO bid          -> 0.547
+        assert derived_yes_ask(book) == pytest.approx(0.400)
+
+    def test_the_anchor_would_catch_each_wrong_convention(self):
+        # A guard is decoration until it is watched failing, so the three
+        # near-miss implementations are computed here and asserted DIFFERENT
+        # from the right answer, on the same levels the test above uses.
+        levels = [0.4530, 0.6000]
+        right = 1.0 - max(levels)
+        assert right != pytest.approx(1.0 - levels[0])   # first, not best
+        assert right != pytest.approx(max(levels))       # p, not 1 - p
+        assert right != pytest.approx(1.0 - min(levels))  # worst, not best
 
     def test_an_empty_book_derives_no_ask_rather_than_zero(self):
         assert derived_yes_ask({"no_dollars": [], "yes_dollars": []}) is None
@@ -226,6 +249,81 @@ class TestReproductionIsGridEquality:
             book={"no_dollars": [], "yes_dollars": []},
         )
         assert row.reproduces is None
+
+
+class TestSelectionSpansTheSeriesRatherThanTheFirstOne:
+    """The defect that voided E2's transfer, pinned so it cannot come back.
+
+    `DISCOVERY_SERIES` is an ordered tuple and the pages were concatenated, so
+    "the first 20 eligible rows in discovery order" took 20/20 from the first
+    series -- while the 2,116-row harvest it was meant to inform is 66% the
+    *second*. Nothing errored and nothing looked short. The sample simply did
+    not contain the population.
+    """
+
+    def test_concatenating_the_pages_would_take_only_the_first_series(self):
+        # The bug, stated as arithmetic. This is what the old code did.
+        a = [{"s": "A", "i": i} for i in range(50)]
+        b = [{"s": "B", "i": i} for i in range(50)]
+        first20 = (a + b)[:20]
+        assert {row["s"] for row in first20} == {"A"}, (
+            "if this ever passes with B in it, the concatenation is no longer "
+            "the failure mode this test was written for"
+        )
+
+    def test_round_robin_takes_from_every_series(self):
+        a = [{"s": "A", "i": i} for i in range(50)]
+        b = [{"s": "B", "i": i} for i in range(50)]
+        first20 = round_robin([a, b])[:20]
+        assert {row["s"] for row in first20} == {"A", "B"}
+        assert sum(1 for r in first20 if r["s"] == "A") == 10
+        assert sum(1 for r in first20 if r["s"] == "B") == 10
+
+    def test_a_short_series_shows_up_as_a_short_sample_not_an_absent_one(self):
+        # Under-supply must degrade gracefully: the other series fills in, but
+        # the short one is still represented rather than silently dropped.
+        a = [{"s": "A", "i": i} for i in range(50)]
+        b = [{"s": "B", "i": i} for i in range(3)]
+        out = round_robin([a, b])[:20]
+        assert sum(1 for r in out if r["s"] == "B") == 3
+        assert len(out) == 20
+
+    def test_max_legs_matches_the_harvests_own_eligibility_rule(self):
+        # `measure_combo_correlation` refuses above 3 legs, so the 2,116 stored
+        # rows are 2- and 3-leg only. A sample at 10-15 legs is not a sample of
+        # them, whatever its `n`.
+        four = {"mve_selected_legs": [{}, {}, {}, {}],
+                "yes_ask_dollars": "0.5000"}
+        three = {"mve_selected_legs": [{}, {}, {}],
+                 "yes_ask_dollars": "0.5000"}
+        assert eligible(four) is True            # unrestricted, as E2 ran
+        assert eligible(four, max_legs=3) is False
+        assert eligible(three, max_legs=3) is True
+
+
+class TestAPooledRateIsSplitOnTheQuoterThatCarriesIt:
+    def test_identical_books_share_a_signature(self):
+        one = {"no_dollars": [["0.9980", "300.00"]], "yes_dollars": []}
+        two = {"no_dollars": [["0.9980", "300.00"]], "yes_dollars": []}
+        assert book_signature(one) == book_signature(two)
+
+    def test_a_different_size_is_a_different_quoter(self):
+        # Same price, different resting size, so not the same order. Grouping
+        # on price alone would merge two quoters into one cluster.
+        one = {"no_dollars": [["0.9980", "300.00"]], "yes_dollars": []}
+        two = {"no_dollars": [["0.9980", "301.00"]], "yes_dollars": []}
+        assert book_signature(one) != book_signature(two)
+
+    def test_the_captured_run_contains_exactly_one_six_row_cluster(self):
+        # Pinned to the bytes: E2's pooled 68.8% "reproduces" was a blend of a
+        # 6/6 cluster and 5/10 on everything else.
+        from collections import Counter
+
+        sigs = Counter(book_signature(e[ORDERBOOK_KEY]) for e in captured())
+        clusters = {s: n for s, n in sigs.items() if n > 1 and s != ((), ())}
+        assert list(clusters.values()) == [6]
+        (sig,) = clusters
+        assert sig == ((), ((0.998, 300.0),))
 
 
 class TestWilsonSpeaksHonestlyAtSmallN:

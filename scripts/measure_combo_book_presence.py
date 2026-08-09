@@ -49,10 +49,20 @@ Definitions -- fixed before collection
   `yes_ask` derives from the NO bid alone, so a book with only YES levels
   cannot back a list ask either.
 - *reproduces*: `|(1 - best_no_bid) - list_ask| <= 0.0005` -- equality on the
-  deci-cent grid, since the derived-ask identity held on 2,145 real quotes with
-  zero violations (`.claude/skills/kalshi-api/SKILL.md`). The raw difference is
-  recorded for every row regardless, so a near-miss is visible rather than
-  binned as a failure.
+  deci-cent grid. Half a deci-cent, because 0.001 is a real tick here, so
+  anything wider would report a genuine one-tick disagreement as agreement.
+  The raw difference is recorded for every row regardless, so a near-miss is
+  visible rather than binned as a failure.
+
+  **This tolerance is NOT underwritten by SKILL.md's 2,145-quote check**, and
+  an earlier version of this docstring said it was. That check was
+  `yes_ask == 1000 - no_bid` *within a single market-summary row*, on markets
+  from `/events?with_nested_markets=true` -- an endpoint SKILL.md itself says
+  "excludes MVE entirely". It establishes that a summary payload is internally
+  consistent on non-combo markets. It says nothing about whether an MVE row's
+  summary ask is derived from that market's own order book, which is precisely
+  the question this harness exists to ask. The tolerance's *value* is unchanged
+  from the pre-registration; only its stated justification was wrong.
 - *derived yes price of a level*: `1 - p` for a NO level at `p`, and `p` itself
   for a YES level. Both are prices on the YES scale, which is the scale a leg's
   cost-to-buy is on.
@@ -64,13 +74,14 @@ Definitions -- fixed before collection
   re-implemented: `yes -> yes_ask`, `no -> 1 - yes_bid`. One path, so this
   cannot disagree with the version the 2,116-row harvest used.
 
-Sampling -- fixed before collection
------------------------------------
+Sampling -- CHANGED AFTER E2 RAN. See "What changed, and why" below.
+--------------------------------------------------------------------
 One `/markets?series_ticker=...&status=open&limit=1000` per series in
 `DISCOVERY_SERIES` (newest-first, no paging -- CLAUDE.md forbids walking
-`/markets` blind), then the **first `--max-books` eligible rows in discovery
-order**, then one batched read of every leg of those rows, then one orderbook
-read each, then one batched re-read of the same combinations' list quotes.
+`/markets` blind), then a **round-robin across the series** of eligible rows
+optionally restricted to `--max-legs`, then one batched read of every leg of
+those rows, then one orderbook read each, then one batched re-read of the same
+combinations' list quotes.
 
 That last read is a **contemporaneity control**, not a bonus. A combination
 stops being quoted within tens of seconds (measured, same document), so an
@@ -80,14 +91,55 @@ the two reads". The re-read splits those: a row whose list ask is still present
 
 Budget: 2 + 1 + N + 1 calls. At the default N=20 that is 24.
 
+What changed after E2 ran, and why
+----------------------------------
+E2's numbers in `docs/measurements/2026-08-09-combo-e2-book-empty.md` were
+produced under the **original** selection rule -- "the first `--max-books`
+eligible rows in discovery order", with no leg restriction -- and are NOT
+re-run. Two defects in that rule were found by auditing E2's own output against
+data already committed in this repo, and both are fixed here for future runs.
+They are recorded rather than silently rewritten, because a pre-registration
+that gets quietly edited afterwards stops meaning anything.
+
+1. **The selection rule could not reach the second series.** `DISCOVERY_SERIES`
+   is a tuple, the pages are concatenated in tuple order, and "the first N
+   eligible rows in discovery order" therefore fills entirely from
+   `KXMVESPORTSMULTIGAMEEXTENDED` before `KXMVECROSSCATEGORY` is ever reached.
+   E2's sample was 20/20 the first series and 0/20 the second -- while the
+   2,116-row harvest this was meant to inform is 1,395/2,116 (66%) the
+   *second*. That is a structural non-overlap, not bad luck, and no interval
+   from such a sample transfers to that population. Selection is now a
+   **round-robin across the series**, so each contributes.
+
+2. **The selection rule could not match the harvest's own leg-count rule.**
+   `measure_combo_correlation` refuses anything over three legs
+   (`too_many_legs_for_equicorrelation`, 10,228 rows refused), so the 2,116
+   stored rows are 911 two-leg and 1,205 three-leg and *nothing else*. E2's
+   sample ran 2 to 15 legs with only 3 of 20 rows at 2-3 -- 17 of 20 sampled
+   rows had a leg count that occurs zero times in the target population.
+   `--max-legs` now exists so a run can be restricted to the harvest's own
+   eligibility rule.
+
+Neither fix makes E2's recorded rates wrong. They make them rates about a
+population that is not the one anybody wanted to know about.
+
 What this does not establish
 ----------------------------
 - **Nothing about the 2,116 stored rows themselves.** Those markets are gone.
-  This measures the population they were drawn from, on a later slate, and
-  transfers only to the extent that population is stable.
+  This measures the population they were drawn from, on a later slate. The
+  pre-registration framed the transfer risk as *temporal* ("transfers only to
+  the extent that population is stable"). That was the wrong axis and E2 proved
+  it: the binding risk is **structural non-overlap on series and leg count**,
+  which was checkable from files already in this repo at zero cost and was not
+  checked. A run whose sample does not span the target's series mix and leg-
+  count range transfers to nothing, however stable the population is.
 - **Nothing about why a book is empty.** A replica lag between two endpoints, a
   quoter that posts and pulls within the gap, and a list price that was never
   backed by resting size all predict the same observation here.
+- **Nothing that separates age from exposure.** Discovery is newest-first and
+  the books are read in that same order, so a row's position, its age, and its
+  list-to-book gap are perfectly collinear. Nothing in this design can
+  attribute an empty book to one rather than another.
 - **Nothing about tradeability.** These rows are provisional with zero volume
   and zero open interest. A resting level is not a fill.
 - **Nothing about non-eligible combinations.** Rows with no readable ask are
@@ -110,6 +162,7 @@ import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Optional
 
@@ -217,6 +270,25 @@ def echo_gap(book: dict, leg_costs: list[float]) -> Optional[float]:
     return min(abs(p - c) for p in prices for c in leg_costs)
 
 
+def book_signature(book: dict) -> tuple:
+    """A book's exact resting shape -- every level, price and size, in order.
+
+    Two rows sharing a signature are being quoted by the same thing. In E2 six
+    rows carried an identical `0.9980 x 300` NO bid, and those six were 6/6 on
+    "reproduces" while the other ten were 5/10 -- so the pooled 68.8% was a
+    blend of 100% and a coin flip, and the scope table hid it by putting all
+    six in one cell. CLAUDE.md: a pooled number is not a finding until the
+    parts agree.
+
+    Defined on the book's bytes, not on any outcome, so grouping by it cannot
+    be a forking path. A cluster is any signature carried by more than one row.
+    """
+    return (
+        tuple((p, s) for p, s in parse_levels(book, YES_SIDE)),
+        tuple((p, s) for p, s in parse_levels(book, NO_SIDE)),
+    )
+
+
 def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """95% Wilson score interval. Correct at the small `n` this run produces.
 
@@ -312,20 +384,45 @@ async def read_book(reader: PublicReader, ticker: str, depth: int) -> dict:
     return book
 
 
-def eligible(market: dict) -> bool:
-    if not (market.get("mve_selected_legs") or []):
+def eligible(market: dict, *, max_legs: Optional[int] = None) -> bool:
+    legs = market.get("mve_selected_legs") or []
+    if not legs:
+        return False
+    if max_legs is not None and len(legs) > max_legs:
         return False
     return readable_quote(market) is not None
 
 
+def round_robin(pages: list[list[dict]]) -> list[dict]:
+    """Interleave the series' pages so no one series can fill the sample.
+
+    Concatenating them and taking the first N is what E2 did, and because
+    `DISCOVERY_SERIES` is an ordered tuple that guaranteed 20/20 from the first
+    series -- while the population the run was meant to inform is 66% the
+    second. The failure is silent: the sample looks like 20 rows, not like 20
+    rows from one of two strata. Interleaving makes an under-supplied series
+    show up as a short sample rather than as an absent one.
+    """
+    out: list[dict] = []
+    for column in zip_longest(*pages):
+        out.extend(row for row in column if row is not None)
+    return out
+
+
 async def collect(
-    reader: PublicReader, *, max_books: int, depth: int, capture: Optional[Path]
+    reader: PublicReader,
+    *,
+    max_books: int,
+    depth: int,
+    capture: Optional[Path],
+    max_legs: Optional[int] = None,
 ) -> list[Row]:
-    page: list[dict] = []
+    pages: list[list[dict]] = []
     for series in DISCOVERY_SERIES:
         rows = await reader.markets_page(series)
         logger.info("%s: %d open rows", series, len(rows))
-        page.extend(rows)
+        pages.append(rows)
+    page = round_robin(pages)
 
     now_ms = int(time.time() * 1000)
     chosen: list[Row] = []
@@ -334,7 +431,7 @@ async def collect(
         if len(chosen) >= max_books:
             break
         ticker = market.get("ticker") or ""
-        if not ticker or ticker in seen or not eligible(market):
+        if not ticker or ticker in seen or not eligible(market, max_legs=max_legs):
             continue
         seen.add(ticker)
         quote = readable_quote(market)
@@ -356,7 +453,11 @@ async def collect(
             )
         )
 
-    logger.info("chose %d eligible combinations", len(chosen))
+    logger.info(
+        "chose %d eligible combinations across %d series: %s",
+        len(chosen), len(DISCOVERY_SERIES),
+        dict(Counter(r.series for r in chosen)),
+    )
     if not chosen:
         return []
 
@@ -450,6 +551,24 @@ def report(rows: list[Row], calls: int) -> None:
     print("\n  READ n FIRST. This is one pass over one slate; the interval, not")
     print("  the point estimate, is the result.")
 
+    # Printed BEFORE any rate, because E2's rates were all about a population
+    # nobody wanted: 20/20 rows from one of two series, 17/20 at a leg count
+    # that occurs zero times in the 2,116-row harvest. A sample that does not
+    # span the target does not transfer, and that has to be visible first.
+    print("\n  SAMPLE COMPOSITION -- does this sample span the population it")
+    print("  is meant to inform? The 2,116-row harvest is 66% KXMVECROSSCATEGORY")
+    print("  and 100% two- or three-leg. A cell at 0 here voids the transfer.")
+    for series, count in sorted(Counter(r.series for r in rows).items()):
+        print(f"    {series:<32} {count:>3}/{len(rows)}")
+    legs = Counter(len(r.legs) for r in rows)
+    print(f"    leg counts                       "
+          f"{dict(sorted(legs.items()))}")
+    within = sum(n for k, n in legs.items() if k <= 3)
+    print(f"    rows at 2-3 legs (the harvest's own rule)  "
+          f"{within}/{len(rows)}")
+    if len(rows) and within < len(rows):
+        print("    ^ rows above 3 legs are OUTSIDE the harvest's population.")
+
     print("\n  (a) BOOK-EMPTY RATE -- reported first, as pre-registered")
     _rate("book empty (no level on either side)",
           sum(1 for r in scored if r.empty), len(scored))
@@ -477,6 +596,79 @@ def report(rows: list[Row], calls: int) -> None:
                            and abs(r.ask_diff) <= ECHO_TOLERANCE),
           len(withbook))
 
+    # The pooled rate above is not a finding until the parts agree, and the
+    # scope split does not expose this grouping -- in E2 all six cluster rows
+    # were `cross_game`, so the cell read 6/9 with every success one quoter.
+    sigs = Counter(book_signature(r.book) for r in withbook)
+    clustered = [r for r in withbook if sigs[book_signature(r.book)] > 1]
+    singles = [r for r in withbook if sigs[book_signature(r.book)] == 1]
+    print("\n      SPLIT ON IDENTICAL BOOK SIGNATURE -- rows whose book is")
+    print("      byte-identical to another row's are one automated quoter, and")
+    print("      a rate pooled over them is a blend, not a rate.")
+    _rate("rows sharing a book with another row", len(clustered),
+          len(withbook), indent="      ")
+    _rate("...of those, reproduces",
+          sum(1 for r in clustered if r.reproduces), len(clustered),
+          indent="      ")
+    _rate("everything else, reproduces",
+          sum(1 for r in singles if r.reproduces), len(singles),
+          indent="      ")
+    for sig, count in sigs.most_common():
+        if count > 1:
+            print(f"        x{count}: yes={list(sig[0])} no={list(sig[1])}")
+
+    # Direction, printed as counts on both sides rather than as a summary. In
+    # E2 this was 3 against and 2 in favour with the LARGEST in the buyer's
+    # favour -- which does not support a directional cost claim, and the
+    # write-up made one anyway.
+    against = [r for r in withbook
+               if r.ask_diff is not None and r.ask_diff > GRID_TOL]
+    infavour = [r for r in withbook
+                if r.ask_diff is not None and r.ask_diff < -GRID_TOL]
+    print(f"\n      direction: {len(against)} against the buyer, "
+          f"{len(infavour)} in the buyer's favour")
+    biggest_diff = max(
+        (r for r in withbook if r.ask_diff is not None),
+        key=lambda r: abs(r.ask_diff), default=None,
+    )
+    if biggest_diff is not None:
+        side = ("against the buyer" if biggest_diff.ask_diff > 0
+                else "in the buyer's favour")
+        print(f"      largest single disagreement {biggest_diff.ask_diff:+.4f}"
+              f" -- {side}")
+        print("      With counts this small the sign of the largest row is not")
+        print("      evidence of a direction. State the effect, not a bias.")
+
+    # The contemporaneity re-read is not only a control on (a). It adjudicates
+    # each (b) disagreement row by row, and E2's write-up said the disagreements
+    # "cannot be separated from a genuine price move" while this column sat in
+    # its own JSON unused. If the re-read landed on the book's derived value,
+    # the list was lagging and caught up. If the list barely moved while the
+    # book stayed elsewhere, a transient move does not explain it.
+    disagree = [r for r in withbook if r.reproduces is False]
+    if disagree:
+        print("\n      EACH DISAGREEMENT, ADJUDICATED BY THE RE-READ")
+        for row in disagree:
+            derived_levels = sorted(derived_yes_prices(row.book))
+            if row.confirm_ask is None:
+                verdict = "NOT ADJUDICABLE -- the ask was gone at the re-read"
+            elif abs(row.confirm_ask - (row.derived_ask or 0.0)) <= GRID_TOL:
+                verdict = "a move/lag: the list caught up to the book"
+            elif any(abs(row.confirm_ask - p) <= GRID_TOL
+                     for p in derived_levels):
+                verdict = ("the list tracks a level that is NOT the best bid "
+                           "-- not a move")
+            elif abs(row.confirm_ask - row.list_ask) <= ECHO_TOLERANCE:
+                verdict = ("NOT a move: the list held its own value across "
+                           "the book read")
+            else:
+                verdict = "neither read matches the book"
+            print(f"        {row.ticker[-13:]:<13} list {row.list_ask:.4f}"
+                  f" -> re-read "
+                  f"{f'{row.confirm_ask:.4f}' if row.confirm_ask is not None else 'GONE'}"
+                  f"   book derives {[round(p, 4) for p in derived_levels]}")
+            print(f"            {verdict}")
+
     priceable = [r for r in scored if r.legs_all_priceable and not r.empty]
     print("\n  (c) DOES ANY LEVEL DERIVE TO WITHIN 2c OF A LEG'S COST?")
     print(f"      denominator is the {len(priceable)} rows with a non-empty book"
@@ -486,6 +678,30 @@ def report(rows: list[Row], calls: int) -> None:
           f"{sum(1 for r in scored if not r.legs_all_priceable)}")
     _rate("a level echoes a leg (<= 0.02)",
           sum(1 for r in priceable if r.echoes_a_leg), len(priceable))
+
+    # A pre-registered exclusion still has a direction, and the write-up has to
+    # say which way it moved the number. This computes the counterfactual on
+    # the excluded rows' PARTIAL leg sets -- which is all that exists for them,
+    # and is stated as such rather than presented as a rate.
+    excluded = [r for r in scored if not r.legs_all_priceable and not r.empty]
+    if excluded:
+        would = sum(
+            1 for r in excluded
+            if (g := echo_gap(r.book, r.leg_costs)) is not None
+            and g <= ECHO_TOLERANCE
+        )
+        k = sum(1 for r in priceable if r.echoes_a_leg)
+        n = len(priceable)
+        alt_n = n + len(excluded)
+        print(f"      DIRECTION OF THE EXCLUSION: had the {len(excluded)} "
+              f"excluded rows been")
+        print(f"      scored on their partial leg sets, {would} would have "
+              f"counted as echoes,")
+        print(f"      giving {k + would}/{alt_n} = {(k + would) / alt_n:.1%} "
+              f"against the reported {k}/{n} = {k / n:.1%}.")
+        print("      The exclusion is defensible, but it is not direction-free "
+              "and the")
+        print("      write-up must say which way it moved the number.")
 
     print("\n  SPLIT BY SCOPE -- a pooled number is not a finding until the")
     print("  parts agree, and every cell here is small.")
@@ -515,20 +731,29 @@ def report(rows: list[Row], calls: int) -> None:
               "of the pooled rate")
 
     print("\n  PER ROW")
+    print("    'exposure' is THIS row's own list-to-book gap, not the pass's")
+    print("    total. Reporting one scalar for the whole pass overstates the")
+    print("    early rows' exposure and understates the late ones'. Discovery")
+    print("    is newest-first and books are read in that order, so exposure,")
+    print("    age and read position are collinear and cannot be separated.")
     for row in scored:
         no_levels = parse_levels(row.book, NO_SIDE)
         yes_levels = parse_levels(row.book, YES_SIDE)
         diff = row.ask_diff
         gap = row.gap_to_leg
+        exposure = (row.book_observed_ms - row.list_observed_ms) / 1000.0
         print(
             f"    {row.ticker[-13:]:<13} {row.scope:<11} "
+            f"legs{len(row.legs):>3}  "
             f"list {row.list_ask:.4f}  "
             f"book yes{len(yes_levels):>2}/no{len(no_levels):<2}  "
             f"derived "
             f"{f'{row.derived_ask:.4f}' if row.derived_ask is not None else '  none'}"
             f"  diff {f'{diff:+.4f}' if diff is not None else '   n/a'}"
             f"  leggap {f'{gap:.4f}' if gap is not None else '  n/a'}"
-            f"  {'still quoted' if row.still_quoted_after else 'GONE'}"
+            f"  exposure {exposure:>5.2f}s"
+            f"  re-read "
+            f"{f'{row.confirm_ask:.4f}' if row.confirm_ask is not None else '  GONE'}"
         )
         if row.leg_costs:
             print(f"        legs " + ", ".join(
@@ -590,6 +815,14 @@ def main() -> int:
         help="how many eligible combinations to read a book for. One call "
              "each, and the whole run is budgeted at 2 + 1 + N + 1.",
     )
+    parser.add_argument(
+        "--max-legs", type=int, default=None,
+        help="restrict selection to combinations with at most this many legs. "
+             "Pass 3 to match the 2,116-row harvest's own eligibility rule "
+             "(measure_combo_correlation refuses anything above 3), which is "
+             "the only way a rate from this harness can be about that "
+             "population. Default: no restriction, as E2 ran.",
+    )
     parser.add_argument("--depth", type=int, default=10)
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument(
@@ -606,7 +839,7 @@ def main() -> int:
             reader = PublicReader(client)
             rows = await collect(
                 reader, max_books=args.max_books, depth=args.depth,
-                capture=args.capture,
+                capture=args.capture, max_legs=args.max_legs,
             )
             return rows, reader.calls
 
