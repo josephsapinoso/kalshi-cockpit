@@ -25,7 +25,7 @@ from typing import Optional
 from .config import RiskConfig
 from .core.devig import DevigResult
 from .core.ev import edge_after_fees_tenths, evaluate
-from .core.prices import PRICE_MAX, format_price
+from .core.prices import PRICE_MAX, format_price, format_probability
 from .core.sizing import size_position
 from .core.suppression import SuppressionConfig, evaluate_suppression
 from .store.db import now_ms
@@ -301,12 +301,13 @@ def _explain(
     # every card, immediately under the fair value and beside the real ask, and
     # `consensus fair 53.8c` put a probability in a price's clothes at the one
     # spot where a left-to-right scan reads the wrong number as the thing you
-    # pay. Derived from the same integer tenths the price is, so the two
-    # renderings cannot disagree by a rounding step.
-    fair_tenths = int(round(fair * PRICE_MAX))
+    # pay. Through `format_probability` rather than a local `f"{p*100:.1f}%"`,
+    # so this and the card's own figure derive from the same integer tenths and
+    # cannot disagree by a rounding step.
+    fair_percent = format_probability(fair)
     ask = format_price(candidate.ask_tenths)
     head = (
-        f"{candidate.outcome_name}: consensus fair {fair_tenths / 10:.1f}%, "
+        f"{candidate.outcome_name}: consensus fair {fair_percent}, "
         f"Kalshi asks {ask} ({edge_tenths / 10:+.1f}c after fees)"
     )
     if problems:

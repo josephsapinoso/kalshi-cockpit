@@ -492,6 +492,23 @@ def measure(
     )
 
 
+def _now_ms() -> int:
+    """The one clock every observation stamp comes from.
+
+    A seam rather than an inline `time.time()` at each site, for a reason this
+    harness has already paid for once. Contemporaneity here is the *difference*
+    between two stamps, and the property that matters -- each quote stamped when
+    it is read, not once per round -- is invisible against a real clock whenever
+    a round completes inside a millisecond. So the assertions that were supposed
+    to protect it either passed vacuously or failed at random depending on how
+    fast the machine was.
+
+    With one seam a test can drive the clock and the two behaviours give
+    different answers. See `tasks/lessons.md` on guards that cannot fire.
+    """
+    return int(time.time() * 1000)
+
+
 async def survey(
     api: KalshiRestClient,
     *,
@@ -549,9 +566,7 @@ async def survey(
                     continue
                 result.with_legs += 1
 
-                joint = readable_quote(
-                    market, observed_ms=int(time.time() * 1000)
-                )
+                joint = readable_quote(market, observed_ms=_now_ms())
                 if joint is None:
                     result.refused["joint_unquoted"] += 1
                     continue
@@ -584,7 +599,7 @@ async def survey(
                 for leg in legs:
                     quote = await leg_quote(
                         api, leg["market_ticker"], cache,
-                        observed_ms=int(time.time() * 1000),
+                        observed_ms=_now_ms(),
                     )
                     marginal = (
                         None if quote is None else marginal_for_leg(leg, quote)

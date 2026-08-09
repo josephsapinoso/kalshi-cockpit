@@ -18,6 +18,7 @@ dependence is not a question a fixture can answer.
 
 from __future__ import annotations
 
+import itertools
 import importlib.util
 import json
 import sys
@@ -533,26 +534,56 @@ class TestAJointAndItsLegsAreReadAtTheSameMoment:
         assert first.marginals[0] == pytest.approx(0.325)
         assert second.marginals[0] == pytest.approx(0.625)
 
-    async def test_every_leg_carries_the_stamp_of_its_own_round(self):
+    async def test_every_quote_is_stamped_when_it_is_read(self, monkeypatch):
         """Contemporaneity is filterable in the output, not taken on trust.
 
         The analysis needs to drop any combination whose legs were read at a
         different moment. It can only do that if the moment is recorded, and
         these markets are gone within minutes, so it cannot be recovered later.
+
+        **This test previously asserted the opposite and was flaky as well as
+        vacuous.** It required every leg to carry the *same* stamp as its joint,
+        which is precisely the tautology this harness shipped once: one
+        `round_ms` on the joint and every leg made the gap identically zero for
+        all 2,116 rows of the 2026-08-09 capture, and the analysis then printed
+        "kept 2116 of 2116; dropped 0" as though that were evidence of
+        contemporaneity. Against a real clock and an in-memory fake API the old
+        assertion passed whenever a round finished inside one millisecond and
+        failed when it did not -- so it was decoration that also broke the suite
+        at random.
+
+        The clock is injected here and advances one millisecond per read, so
+        "stamped per read" and "stamped per round" give different answers.
         """
+        ticks = itertools.count(1_700_000_000_000)
+        monkeypatch.setattr(mcc, "_now_ms", lambda: next(ticks))
+
         api = self._api([(0.30, 0.35), (0.60, 0.65)])
         result = await mcc.survey(
             api, pages=1, rounds=2, interval_s=0.0, max_legs=3
         )
+        assert len(result.measurements) == 2, result.refused
+
+        per_round = []
         for measurement in result.measurements:
             joint_ms = measurement.combo.joint.observed_ms
             assert joint_ms is not None
-            for quote in measurement.leg_quotes:
-                assert quote.observed_ms == joint_ms
+            stamps = {joint_ms} | {q.observed_ms for q in measurement.leg_quotes}
+            assert None not in stamps, "a quote reached the output unstamped"
+            # Per read, not per round. Under a per-round stamp this set would
+            # collapse to one element -- which is exactly what the capture that
+            # produced the withdrawn 94% claim did.
+            assert len(stamps) > 1, (
+                "every quote in this round carries one stamp, so the gap "
+                "between a joint and its legs is zero by construction and any "
+                "filter on it cannot fire"
+            )
+            per_round.append(stamps)
 
-        stamps = {m.combo.joint.observed_ms for m in result.measurements}
-        assert len(stamps) == 2, (
-            "both rounds carry one stamp, so the rounds cannot be told apart"
+        # And the rounds are distinguishable from each other, which is what the
+        # per-round cache reset exists to make true.
+        assert not per_round[0] & per_round[1], (
+            "the two rounds share a stamp, so they cannot be told apart"
         )
 
     async def test_the_combination_records_when_it_was_minted(self):
