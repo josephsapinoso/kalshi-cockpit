@@ -33,9 +33,39 @@ Also confirmed running: `settlement pass: {'positions_open': 0, 'settled': 0,
 `skeptic_blocked` now print in the pricing-pass line instead of being inferred
 from `surfaced: 0`.
 
-## Start here — deploy live, then read the boot lines
+## DEPLOYED (2026-08-09, 04:07Z) — and the boot lines were read, at last
 
-That check is **done. The dedupe holds; zero new warnings on the second pass.**
+Live is on `e885bca`. One machine `started`, 1/1 checks, same machine ID so it
+restarted in place on the volume, gate locked, `execution_available: false`,
+five pages 307 → `/login`, `/api/orders` 401 with and without a forged bearer.
+
+**The entire first pass is 10 log lines. It was 963.** Nothing is buried any
+more, and three things that had never been observed are now on the record:
+
+    [entrypoint] instance_mode=live db=/data/cockpit.db
+    [migrate] /data/cockpit.db already at schema v5
+    INFO backend.api.routes: API starting: instance_mode=live live_trading_enabled=False
+    INFO run_loop: starting loop: full pass every 900s, quote pass every 15s ...
+    WARNING backend.kalshi.discovery: 317 unrecognised competition_scope value(s)
+        across 962 series ... (56 named, 261 counted)          <- one line, was 962
+    INFO backend.kalshi.discovery: discovery: 167 priceable events;
+        unknown_scopes=962; rejected ...                       <- FIRST TIME EVER
+    ... sweep decision, pricing pass, CLV, scoring, settlement, pass 1 ok
+
+- **`already at schema v5` is now a reading, not an inference.** It had only ever
+  been argued from effects.
+- **The `discovery:` summary appeared in production for the first time**, in the
+  same millisecond as the warning that used to destroy it. That is the burst
+  hypothesis confirmed by the fix: the line was always emitted and never arrived.
+- The db path is `/data/cockpit.db`, not `/data/live.db` as older notes said.
+
+First pass: `recommendations: 4, suppressed: 4, surfaced: 0, unchanged_confirmed:
+36`, `clv_scored: 0`, `rows_joined: 190`. See the CLV watch item below — 190 is
+the residue, and nothing new has scored yet.
+
+## The check this file used to open with — done
+
+**The dedupe holds; zero new warnings on the second pass.**
 See the top of `tasks/NEXT.md` for the evidence and for what it turned up
 instead, which was bigger than the check:
 
@@ -50,18 +80,8 @@ instead, which was bigger than the check:
   evidence a line was not emitted.
 - Fixed in `f7adbad`: the first pass now emits **2 lines where it emitted 963**.
 
-**`main` is `f7adbad` and live is still on `7eae154`.** So:
-
-    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
-    gh workflow run Ops -f instance=live -f action=logs
-
-`[migrate] /data/live.db already at schema v5` and `API starting:
-instance_mode=live` have been unobserved for three sessions, and nothing was
-ever wrong with them. This is the first deploy whose boot lines have a fair
-chance of surviving the stream. Also expect one aggregated warning naming ~56
-scopes, and a `discovery:` line — which will be its first appearance ever.
-
-I did not deploy live: it is on the list that needs asking, and Joe was away.
+Both were verified against the deployed instance afterwards — see the top of
+this file.
 
 ## Then: what actually moves the gate now
 

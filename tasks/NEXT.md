@@ -76,12 +76,31 @@ the real win and stands. It has not yet been shown to *accumulate*. Read
 `rows_joined` and `recommendations` together over a full day before believing
 either story; if `rows_joined` stays pinned at 190, no new row is scoring.
 
-### So the next deploy is the first one whose boot lines can actually be read
+### DEPLOYED and READ (2026-08-09, 04:07Z) — the burst hypothesis is confirmed
 
-`[migrate] /data/live.db already at schema v5` and `API starting:
-instance_mode=live` have been unobserved for three sessions. Nothing was ever
-wrong with them. **Deploy live and read the log — that is the check now**, and
-it is the first time it has had a fair chance of working.
+Live is on `e885bca`. One machine `started`, 1/1 checks, restarted in place on
+the volume, gate locked, five pages 307, `/api/orders` 401 with and without a
+forged bearer.
+
+**The first pass is now 10 log lines. It was 963.** Three things never before
+observed:
+
+    [migrate] /data/cockpit.db already at schema v5      <- a reading, not an inference
+    INFO backend.api.routes: API starting: instance_mode=live ...
+    INFO backend.kalshi.discovery: discovery: 167 priceable events;
+         unknown_scopes=962; rejected ...                <- first appearance ever
+
+That third line is the confirmation. It is emitted in the **same millisecond**
+as the aggregated warning, from code that never changed — so the reason it had
+never arrived was the 962-line burst sitting in front of it, exactly as
+diagnosed. The one warning now reads `317 unrecognised competition_scope
+value(s) across 962 series ... (56 named, 261 counted)`.
+
+Also: the live db is `/data/cockpit.db`, not `/data/live.db` as earlier notes in
+this file said.
+
+First pass on the new image: `recommendations: 4, suppressed: 4, surfaced: 0,
+unchanged_confirmed: 36`, `clv_scored: 0`, `clv_rows_joined: 190`.
 
 ---
 
