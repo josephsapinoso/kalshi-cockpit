@@ -4,8 +4,15 @@
 answer. That is the point: everything below is fixed now so that the choice of
 question cannot be made after the number exists.
 
-**Status: registered. UNDERPOWERED at the sample size that exists today.**
-See the power check. The registered action is to **wait**, not to run.
+**Status: registered, amended once. UNDERPOWERED at the sample size that exists
+today.** See the power check. The registered action is to **wait**, not to run.
+
+> **AMENDMENT 1, 2026-08-09 — read it before reading anything below.**
+> Seventeen registered passages are superseded, extended or completed. Each is
+> marked in place with a pointer and **none has been deleted**; the amendment is
+> appended at the end of this file and it, not the original text, governs.
+> **No data had been observed when it was written.**
+> See [Amendment 1](#amendment-1--2026-08-09).
 
 - Owner: pre-registrar (agent), on behalf of Joe.
 - Scored against by: `measurement-skeptic`, after the run.
@@ -60,6 +67,12 @@ excluded, and the brief's blanket "all rows" is refused.
 
 ### C2. The half-spread confound is not mentioned, and it dominates the design
 
+> **[SUPERSEDED IN PART by Amendment 1 §A5 — text retained.]** "The largest
+> finding in this document" is withdrawn: C2 is **a mechanism whose magnitude is
+> unmeasured**. The `sd(half_spread) = 4` below is *assumed*, and ADR 0006
+> measures the pre-game spread at 1.00c at **every percentile including the
+> maximum**. The mechanism is real; the 0.16 is not a finding.
+
 This is the largest finding in this document and it was not in the brief.
 
 `clv_tenths` and `edge_tenths` are both computed against the **same**
@@ -79,8 +92,10 @@ Cov(edge, CLV)  contains  +Var(half_spread)
 **A strictly positive slope arises from shared spread variation with exactly
 zero predictive power.** The spurious slope is approximately
 `Var(half_spread) / Var(edge_tenths)`. On Kalshi sports markets a plausible
-half-spread SD of 4 tenths against an `edge_tenths` SD of 10 tenths gives a
-spurious `beta` of about **0.16** — from mechanics alone, before any signal.
+half-spread SD of 4 tenths **[ASSUMED — no measurement supports it; ADR 0006
+contradicts it]** against an `edge_tenths` SD of 10 tenths **[ASSUMED]** gives a
+spurious `beta` of about **0.16** **[ASSUMED, derived from two assumed inputs]**
+— from mechanics alone, before any signal.
 That is a third of the smallest effect this test could resolve even at the
 gate's floor (§ power check), so it is not a rounding detail.
 
@@ -157,6 +172,11 @@ value per tenth of claimed edge.**
 - `beta > 1` — the engine systematically *understates* its own edge. Treated as
   implausible; if observed it is a bug report, not a finding (rule 1: a large
   apparent edge is a bug until proven otherwise).
+  > **[SUPERSEDED by Amendment 1 §A3 — text retained.]** "Treated as
+  > implausible" is wrong. The engine understates its own edge **by
+  > construction** — worst-of-four devig, and a regressor deliberately shrunk
+  > (F2). `beta > 1` is a flag for investigation, not a verdict. The BUG
+  > condition is now on the always-valid *lower* limit, not the point estimate.
 
 **The direction is one-sided and is fixed here.** The boundary in §6 is the
 two-sided Robbins bound, used one-sided; that is conservative and is stated
@@ -172,12 +192,21 @@ condition, it has a different null (§5), and it is registered here as a
 
 ## 2. The population, and the exclusions
 
+> **[SUPERSEDED IN PART by Amendment 1 §A1 and §A2 — text retained.]** Two
+> defects. (a) The `suppressed_reason` predicate below is written against a
+> single code, but the column is a **comma-joined composite**, so
+> `'stale_odds,wide_market'` was *retained* — §A1 replaces the predicate.
+> (b) Four codes are adjudicated here; the code can emit **thirteen** — §A2
+> adjudicates every one, including `edge_within_method_noise`, which punches a
+> price-dependent hole in the interior of the regressor.
+
 **Included:** every row of `recommendations` with
 
 - `clv_scored_ms IS NOT NULL` and `clv_tenths IS NOT NULL`, and
 - `clv_horizon_hours = 0.0`, and
 - `suppressed_reason` either NULL or **not** in (`stale_odds`,
-  `stale_kalshi_quote`), and
+  `stale_kalshi_quote`), and — **[SUPERSEDED by Amendment 1 §A1]**: the column
+  is a composite, so this must be a delimited substring test, not equality —
 - a non-NULL `half_spread_tenths` from the §S1 join.
 
 **Excluded, with the reason each exclusion is independent of the outcome:**
@@ -198,6 +227,11 @@ own rule:
 | `wide_market` | Book disagreement affects the `fair` estimate, which is the regressor's *content*, not a contaminant of it. Excluding it would remove exactly the rows where the edge estimate is least reliable — which is a hypothesis about the answer, not an exclusion rule. |
 | `suspicious_edge` | This rule is a pure function of `edge_tenths` (`edge_ceiling_tenths = 40.0`). Excluding it **truncates the regressor from above**, shrinking `sd(edge_tenths)` and destroying the power the slope depends on. Keeping it is the only defensible choice for a slope test. |
 | `no_edge` rows (`reference_contracts = 0`, not suppressed) | These are the low end of the regressor's range. A slope needs both ends. |
+
+> **[INCOMPLETE — completed by Amendment 1 §A2.]** The two tables above cover
+> six codes between them. `core/suppression.py` emits **eleven**, `engine.py`
+> adds `sizing:refused`, and `agents/skeptic.py` appends `skeptic_defect` /
+> `skeptic_suspicious`. The seven unadjudicated ones are adjudicated in §A2.
 
 **No exclusion in this document references `clv_tenths`, `settled_win`, or any
 outcome.** Every one is decidable from the row's inputs before the game is
@@ -249,6 +283,12 @@ believed, chosen so a wrong implementation gives a *different* answer:
 - **Duplicating every observation `k` times must leave `beta_hat` and its
   standard error bit-identical.** The naive estimator returns `stderr/sqrt(k)`
   on that input, so this states the old bug as an invariant.
+
+> **[INCOMPLETE — a third and fourth anchor are added by Amendment 1 §A7.]**
+> Both anchors above are about the **standard error**. Neither pins the
+> **partial-slope arithmetic**, so an estimator that accepted `half_spread` and
+> never used it — which is C2's contamination left entirely in place — passes
+> both.
 
 **Fewer than 2 clusters returns `None`, never a number.**
 
@@ -311,6 +351,12 @@ the half-spread. So under zero predictive power and zero drift,
 E[clv_tenths] = -half_spread  ~=  -5 to -15 tenths
 ```
 
+> **[SUPERSEDED by Amendment 1 §A6 — text retained.]** The null is
+> **approximately −5 tenths, measured** (ADR 0006: pre-game spread 1.00c at
+> mean, median, p90, p99 **and maximum**, 3,483 minutes over 20 games). The
+> −15 end requires a 3.00c spread, which was observed only **in-play** and never
+> pre-game. `−5 to −15` was **[ASSUMED]** and its wide end is contradicted.
+
 not 0. A strategy with genuine predictive power can therefore show **negative**
 mean CLV purely because it crossed a spread. Reporting "mean CLV is negative,
 therefore no edge" would be wrong, and reporting "mean CLV is positive,
@@ -331,6 +377,12 @@ This is stated now because the failure it prevents is
 sitting beside a contradicting bucket verdict, where the verdict is what gets
 read.
 
+> **[EXTENDED by Amendment 1 §A4.]** Correct but one-directional. As written, a
+> `beta_hat` carried entirely by `suspicious_edge` rows — selected by a
+> threshold **on the regressor itself**, hence maximum leverage — is declared
+> SIGNAL. §A4 adds: the per-group view **can downgrade a verdict even though it
+> cannot create one**, by a pre-registered leave-one-group-out rule.
+
 **The record is looked at repeatedly as it grows, so the boundary is
 always-valid, not fixed-sample.** A two-standard-error rule re-evaluated against
 an accumulating database is not one look; measured on 1,200 pure-noise sequences
@@ -343,6 +395,14 @@ The cost is real and stated: 3.66 standard errors at `G = 300` rather than 2,
 about 1.8x the effect size.
 
 ### The decision rule, verbatim
+
+> **[SUPERSEDED by Amendment 1 §A3 and §A4 — text retained.]** The SIGNAL and
+> BUG clauses below are replaced. They test an always-valid *interval* against
+> the null of zero and a bare *point estimate* against the ceiling of one, which
+> is inconsistent: at `G = 300` this document's own numbers give
+> `se(beta_hat) ~= 0.115`, so a true `beta` of exactly 1.0 lands above 1.0 half
+> the time and is classified BUG. The NO SIGNAL and UNRESOLVED clauses stand,
+> subject to §A4's downgrade rule.
 
 > **SIGNAL.** Declared if and only if, at a look taken when `G >= 300`,
 > `beta_hat > always_valid_multiplier(G, tuning=300, alpha=0.05) * se_cluster(beta_hat)`
@@ -371,12 +431,22 @@ about 1.8x the effect size.
 
 **0.40 is fixed now and here is why.** At the gate's floor of `G = 300` the
 smallest resolvable `beta` is about 0.42 under the central noise assumption
-(power check). A negative verdict that could not have detected a real effect is
-not a negative result, so NO SIGNAL requires ruling out the smallest effect this
-design can see. 0.40 also has an independent reading: it is roughly the
-pass-through at which a typical 20-tenth claimed edge yields 8 tenths of CLV,
-against the 3.8 tenths of total fee headroom the venue offers. Below 0.40 there
-is nothing to trade even if the slope is real.
+**[ASSUMED — see §A5 on the word "central"]** (power check). A negative verdict
+that could not have detected a real effect is not a negative result, so NO
+SIGNAL requires ruling out the smallest effect this design can see. 0.40 also
+has an independent reading: it is roughly the pass-through at which a typical
+20-tenth claimed edge **[ASSUMED]** yields 8 tenths of CLV, against the 3.8
+tenths of total fee headroom the venue offers **[COMPUTED FROM CODE —
+`core/fees.py` via CLAUDE.md's 52.00% bar]**. Below 0.40 there is nothing to
+trade even if the slope is real.
+
+> **[SUPERSEDED IN PART by Amendment 1 §A5 — text retained. The threshold of
+> 0.40 itself STANDS.]** The second derivation is **not independent**. It
+> computes `0.40 x 20 = 8`, observes `8 > 3.8`, and presents that as
+> confirmation; taken as a derivation it gives `3.8 / 20 = 0.19`, not 0.40. It
+> establishes only that 0.40 clears the economic minimum. The first derivation
+> inherits `sigma_eps / sigma_x = 2` entirely. §A5 supplies the defence that is
+> actually load-bearing and was missing.
 
 **Multiplicity arithmetic, computed now.** Grid A is 3 tests and Grid B is 10.
 At the conventional per-test alpha of 0.0455 that is `13 * 0.0455 = 0.59`
@@ -467,6 +537,11 @@ Caveats written afterwards are selected to be survivable. These are written now.
   `half_spread_tenths` is correctly measured on enough rows (P1). If P1 lands
   between 0.90 and 1.00, the residual contamination is proportional to the
   missing fraction and must be stated as a number.
+  > **[SUPERSEDED by Amendment 1 §A8.3 — text retained.]** The proportionality
+  > claim is wrong. §S1 **drops** rows with a NULL half-spread; it does not
+  > impute them. Residual contamination on retained rows is therefore **zero**,
+  > and what the missing fraction creates instead is a **selection** problem of
+  > unknown direction. §A8 adds two further omissions.
 - **Candlestick closes are unsized.** A price nobody could have transacted counts
   the same as one that could.
 - **The scored sample skews early, by construction.** Rows created inside the
@@ -510,10 +585,19 @@ one closing line, so the design effect is close to the row count and `G` is the
 honest denominator.
 
 Central assumptions, stated so they can be checked against the record when it
-exists: `sigma_eps = 20` tenths (2c of pre-game price movement in the final
-45 minutes) and `sigma_x = 10` tenths (`edge_tenths` truncated above at 40 by
-`edge_ceiling_tenths`, with mass at the low end). Both are estimates and both are
+exists: `sigma_eps = 20` tenths **[ASSUMED]** (2c of pre-game price movement in
+the final 45 minutes) and `sigma_x = 10` tenths **[ASSUMED]** (`edge_tenths`
+truncated above at 40 by `edge_ceiling_tenths` **[COMPUTED FROM CODE, but see
+Amendment 1 §A5.1 — the truncation is on the *net* edge and does not bind where
+this claims]**, with mass at the low end). Both are estimates and both are
 reported as measured quantities in the write-up.
+
+> **[SUPERSEDED IN PART by Amendment 1 §A5.2 — text retained. The arithmetic
+> STANDS.]** The word **"central"** is withdrawn wherever it qualifies
+> `sigma_eps / sigma_x = 2` in this section and in the table below. Nothing
+> measures the ratio; "central" claims a location in a distribution that has not
+> been observed. Read it as **ASSUMED** throughout. §A5.2 records why the
+> assumption's error nonetheless runs in the safe direction.
 
 ### Smallest resolvable `beta`, against the always-valid boundary
 
@@ -547,6 +631,12 @@ Recall `beta = 1` is full pass-through and is the **ceiling** of plausibility.
 plausible effect are the same number.** That was not arranged; the floor came
 from practitioner consensus on CLV and the 0.42 came from the noise arithmetic.
 They agree, which is a mild independent check on both.
+
+> **[SUPERSEDED by Amendment 1 §A5.3 — text retained.]** Not a check of any
+> kind, and it *was* arranged. The multiplier in the column above is
+> `always_valid_multiplier(G, tuning=300)`: the boundary is **tuned to** the
+> gate's floor. Finding agreement at `G = 300` is the tuning parameter
+> reappearing in its own output. The word "independent" is withdrawn.
 
 ### The same arithmetic for the level test, against the real headroom
 
@@ -630,6 +720,15 @@ band. And 4c is `edge_ceiling_tenths = 40.0`, at which `suspicious_edge`
 suppresses the row. So on the live profile `max(1, 0) = 1` for essentially every
 row in the record.
 
+> **[SUPERSEDED by Amendment 1 §A5.1 — text retained.]** Two errors, and they
+> compound. (a) `edge_ceiling_tenths` is a threshold on the **net** edge; the
+> table above is in **gross** gap. At 50c a 4.0c gross gap stores a *net* edge
+> of 2.0c, and `suspicious_edge` does not trip until a **6.0c** gross gap and
+> 4 contracts. Suppression therefore does **not** close the multi-contract band.
+> (b) The 4c row of the table is the point at which contracts reach **2**, not
+> the point at which they are still 0. Measured across the retained band,
+> `sizing.contracts` runs **1 to 8**.
+
 **Three consequences for this design, and the first is the significant one:**
 
 1. **It is uniform, which is good.** Every row's `edge_tenths` is computed on the
@@ -639,6 +738,13 @@ row in the record.
    and therefore a *smaller* per-contract fee and therefore an even bigger stored
    edge — a positive feedback manufacturing slope out of nothing. **At $100 that
    hazard is absent. At $1,000 it would be present.**
+   > **[SUPERSEDED by Amendment 1 §A5.1 — text retained. This item is FALSE.]**
+   > The basis is **not** uniform and the hazard is **present at $100**. Measured
+   > by running `size_position` at the live profile, `sizing.contracts` runs
+   > **1 to 8** across the retained, unsuppressed range. `edge_tenths` is
+   > therefore a **discontinuous, and at two prices non-monotonic**, function of
+   > the underlying gross gap, and **nothing in the schema records which basis a
+   > row used**. This is the item the document marked as good news.
 2. **The n=1 penalty is larger than the headroom being hunted.** Measured from
    `core.fees.calculate_fee`, the per-contract taker fee at 30c is **2.000c at
    one contract against 1.500c at ten** — a 0.5-point difference, where the
@@ -733,8 +839,19 @@ WHERE r.clv_scored_ms IS NOT NULL
        OR r.suppressed_reason NOT IN ('stale_odds', 'stale_kalshi_quote'));
 ```
 
+> **[SUPERSEDED by Amendment 1 §A1 — query retained.]** The final predicate is
+> wrong: `suppressed_reason` is a comma-joined composite, so
+> `'stale_odds,wide_market'` equals neither literal and was **retained**. The
+> governing query is the one in §A1. `tests/test_preregistration_population.py`
+> pins the replacement and asserts this defect directly.
+
 Rows with `half_spread_tenths IS NULL` are **dropped and counted**, never
 imputed. The dropped count is P1's numerator and is reported at every look.
+
+> **[EXTENDED by Amendment 1 §A8.2.]** "Dropped and counted" conflates two
+> populations that must be counted separately: rows with **no quote at all**,
+> and rows whose joined quote **disagrees** with `entry_ask_tenths`. §S1 refuses
+> only the first.
 
 ### Required output of every run, in this order
 
@@ -776,3 +893,766 @@ rule that every harness carries its own limits.
 | Stopping rule | §7 |
 | Result destination | `docs/measurements/2027-XX-XX-clv-signal-test-result.md`, written either way |
 | Verdict at registration | **UNDERPOWERED — wait, do not run** |
+| Amendments | **1**, dated 2026-08-09, below. No data observed at amendment. |
+
+---
+
+# Amendment 1 — 2026-08-09
+
+**Applying the `measurement-skeptic` audit of the registration above.**
+
+Nothing above has been deleted or rewritten. Seventeen passages carry a
+`[SUPERSEDED]`, `[EXTENDED]` or `[INCOMPLETE]` marker in place, each pointing at
+the section here that replaces or completes it. **Where this amendment and the
+original text conflict, this amendment governs.** The original stays because
+the record is the product:
+a pre-registration whose text is quietly rewritten after its first audit is not
+a pre-registration, and the repo already carries that rule for ADRs — *"do not
+silently edit the numbers; the correction is an addendum that says what was
+believed, why, and what changed."* The stakes are higher here, because this
+document's entire function is to be fixed in advance.
+
+## A0. What had been observed when this was written: nothing
+
+This is the clause that makes an amendment legitimate rather than
+contamination, so it is stated rather than assumed.
+
+**No data was observed, at any point, by anyone, before or during the writing of
+this amendment.** Specifically:
+
+- The live database was **not** queried. No connection was opened to it.
+- `scripts/run_chain.py` and `scripts/run_loop.py` were **not** run. No odds
+  credits were spent. No orders were placed and nothing was deployed.
+- `data/demo.db` was **not** read for any value. It is 100% synthetic and no
+  number from it is evidence about anything.
+- No value of `beta_hat`, `clv_tenths`, `sigma_eps`, `sigma_x`,
+  `sd(half_spread_tenths)`, `G`, `n_rows` or the P1 coverage fraction exists
+  anywhere, was computed, or was estimated from any record.
+
+Everything measured below was measured by **executing project code on
+synthetic inputs chosen here** — sweeping `size_position`, `calculate_fee` and
+`edge_after_fees_tenths` over a price and edge grid, and running
+`evaluate_suppression` to obtain the exact strings it emits. Those are
+properties of the code, not observations of the record. Every one is labelled
+**[COMPUTED FROM CODE]** below and each is reproducible from the repository
+alone.
+
+**Every change below is therefore blind to the answer.** None could have been
+chosen to favour a result, because no result exists. Per §7, `G` for the
+decision rule does not restart: the population definition is *narrowed* by §A2
+in ways decidable from inputs alone, and no look has been taken.
+
+## A1. The `suppressed_reason` predicate was broken. This is the fix.
+
+**What was registered.** §2 and §S1 excluded two suppression codes with
+
+```sql
+AND (r.suppressed_reason IS NULL
+     OR r.suppressed_reason NOT IN ('stale_odds', 'stale_kalshi_quote'))
+```
+
+**Why it was wrong.** `SuppressionResult.reason`
+(`backend/core/suppression.py:95-103`) returns
+`",".join(c.name for c in self.failures)` — a **comma-joined composite of every
+check that failed**, not one code. `backend/engine.py:506` already knows this
+and splits the column on `","` to build the suppression summary. So a row
+reading `'stale_odds,wide_market'` is equal to neither literal and `NOT IN`
+**retained** it — the exact population §2 excludes on the grounds that its
+regressor is contaminated by drift that has already happened.
+
+This is not an edge case, and the module says so in its own docstring: the
+checks are ordered cheapest-first but **all of them run**, deliberately, because
+"a row suppressed for staleness never reveals that it was also mis-matched, and
+the second fact is the more important one." Staleness co-occurs with other
+failures **by construction**. One dead odds feed trips several checks at once.
+**[COMPUTED FROM CODE]** — driving `evaluate_suppression` with a stale feed and
+a broken book returns the single string
+`stale_kalshi_quote,stale_odds,no_commence_time,no_depth,too_few_books,no_market_width,suspicious_edge`.
+
+**What now governs.** A delimited whole-field substring test:
+
+```sql
+AND (r.suppressed_reason IS NULL
+     OR (instr(',' || r.suppressed_reason || ',', ',stale_odds,')         = 0
+     AND instr(',' || r.suppressed_reason || ',', ',stale_kalshi_quote,') = 0))
+```
+
+Substitute this clause for the final clause of §S1's `WHERE`. Nothing else in
+§S1 changes.
+
+**`instr`, not `LIKE`, and the reason is not style.** The audit proposed
+`',' || r.suppressed_reason || ',' NOT LIKE '%,stale_odds,%'`. In SQLite `LIKE`
+treats `_` as a **single-character wildcard**, and every code in this vocabulary
+contains underscores — so that form also matches `,staleXodds,`. No such code
+exists today, which is precisely the problem: a predicate that is correct only
+because nobody has yet added a colliding name is a predicate with a trap in it.
+`instr` is a plain substring search with no metacharacters. The delimiting
+commas are still required, and for the other direction: without them, a future
+`stale_odds_upstream` would be silently excluded.
+
+**Verified against the values the code can actually produce, not against
+hand-written strings.** `tests/test_preregistration_population.py` builds every
+composite by running `evaluate_suppression` and `apply_verdict`, inserts them
+into a real schema-initialised database, and runs both predicates over them.
+**The test was written against the registered predicate first and watched go
+red** — three assertions failed, on `stale_odds,wide_market` and on the
+seven-code composite, and on the head-to-head. It then went green on the
+replacement. Per this repo's rule, a guard that has not been seen to fail is
+decoration. The red-state assertion is kept permanently in
+`test_the_superseded_predicate_let_the_multi_reason_row_through`, so the
+correction cannot regress into the defect without a test naming it.
+
+## A2. All thirteen suppression codes, adjudicated
+
+**What was registered.** §2 adjudicated **four** — `insufficient_depth`,
+`wide_market`, `suspicious_edge`, and unsuppressed `no_edge` rows — plus the two
+staleness exclusions.
+
+**Why that was incomplete.** `core/suppression.py` emits **eleven** codes.
+`engine.py:219` adds a `sizing:` code. `agents/skeptic.py:200` appends
+`skeptic_defect` or `skeptic_suspicious`, comma-joined onto whatever was already
+there. Seven of the eleven, plus both later families, had no ruling — which
+means the person who eventually runs this would have had to decide them **after
+seeing the data**, which is the freedom this document exists to remove.
+
+**What now governs.** Every code below is adjudicated. **Every reason given is
+decidable from the row's inputs before the game is played.** None references
+`clv_tenths`, `settled_win`, or any outcome.
+
+| Code | Verdict | Why, from inputs alone |
+|---|---|---|
+| `stale_kalshi_quote` | **EXCLUDE** | Registered. The ask behind *both* variables is >30s old. A function of input timestamps. |
+| `stale_odds` | **EXCLUDE** | Registered. The consensus behind `edge_tenths` aged past 900s, so part of the "edge" is drift that already happened. Contaminates the regressor. Timestamps only. |
+| `no_commence_time` | **EXCLUDE** *(new)* | No commence time means fixture identity was never checked. The `fair` behind `edge_tenths` may describe a **different game** from the one the Kalshi market settles on, in which case the regressor is not an estimate about this row at all. A function of whether a timestamp is present. |
+| `commence_skew` | **EXCLUDE** *(new)* | Same family, confirmed rather than unchecked: `abs(skew) > 4h` against a **measured** systematic offset of 3h (`SuppressionConfig.max_commence_skew_ms`) means two different fixtures sharing team names. Timestamps only. |
+| `no_depth` | **RETAIN** *(new)* | Same argument §2 already accepted for `insufficient_depth`: depth governs whether an order *fills*; it does not move the mid, and CLV is measured against a mid. `None` here means size was unreadable, which is a property of the quote payload, not of the game. |
+| `insufficient_depth` | **RETAIN** | Registered. |
+| `too_few_books` | **RETAIN** *(new)* | Same argument §2 accepted for `wide_market`: consensus quality is the regressor's **content**, not a contaminant of it. Excluding the rows where the edge estimate is least reliable is a hypothesis about the answer. Its effect belongs in §A4's per-group view, not in the population rule. |
+| `no_market_width` | **RETAIN** *(new)* | As above. Note it **always co-occurs with `too_few_books`** — both fire iff fewer than two books contributed — so it can never appear alone, and the two are one group in §A4. |
+| `wide_market` | **RETAIN** | Registered. |
+| `edge_within_method_noise` | **RETAIN** *(new — see A2.1)* | Excluding it removes a price-dependent interval from the **interior** of the regressor, which moves leverage to the tails and runs in the **flattering** direction. |
+| `suspicious_edge` | **RETAIN** | Registered. Excluding it truncates the regressor from above. **But see §A4:** because it is defined by a threshold *on the regressor itself*, it now carries a mandatory downgrade check. |
+| `sizing:refused` | **RETAIN** *(new)* | The refusal is about the operator's budget, the daily-loss kill switch, or a degenerate price — never about the game. All are input-decidable. **Exactly one value is producible** (see §A11.4). The degenerate-price case is handled by the price bound in §A2.2 instead. |
+| `skeptic_defect`, `skeptic_suspicious` | **RETAIN** *(new)* | The Skeptic's prompt (`agents/skeptic.py:104-162`) carries only pre-game fields — ask, consensus, ages, book count, width, depth, devig methods, commence time. **No settlement, no closing line, no score.** It is outcome-blind by construction. It also fires only on rows that cleared every deterministic check, so excluding it would truncate the high-edge end — the same argument that retains `suspicious_edge`. **Two conditions:** its verdict is non-deterministic and the model version is not recorded per row, so (a) it is a mandatory §A4 group, and (b) the write-up states what fraction of the population carries a `skeptic_*` code. |
+
+### A2.1. `edge_within_method_noise` — the one that matters, decided explicitly
+
+`suppression.py:225-234` suppresses when `0 < edge_tenths <= method_spread`. The
+audit is right that this is the dangerous one, and right about why: it removes
+rows from the **middle** of the regressor's range, and the width of the hole
+varies row by row with the devig spread — the module's own measurement is
+**~1.8 tenths on an even moneyline and ~20.3 tenths on a longshot**
+**[COMPUTED FROM CODE — `suppression.py:218-221`, quoting a prior measurement of
+real lines]**. So the hole is wider exactly where the price is more extreme, and
+price is the Grid A/B bucketing variable.
+
+**Decision: RETAIN, and the deciding argument is the direction of the error.**
+
+The case for excluding is that when the claimed edge is smaller than the
+disagreement between devig methods, the edge number is an artifact of method
+choice rather than a statement about the market (CLAUDE.md rules 1 and 2). That
+is true. But it is an argument about **measurement error in the regressor**, and
+it proves too much — it would justify excluding every row whose regressor is
+noisy. Classical measurement error in `x` **attenuates** the slope toward zero.
+Attenuation is the conservative direction. Excluding those rows removes the
+attenuated middle and leaves the tails, which **inflates** `beta_hat`. So
+excluding runs in the flattering direction and retaining runs in the safe one.
+That decides it.
+
+Three conditions attach:
+
+1. **The hole cannot be reconstructed from the record.**
+   `method_spread_probability` is a *parameter* of `evaluate_suppression` and is
+   **not a column of `recommendations`** **[COMPUTED FROM CODE — absent from
+   `store/schema.sql`]**. So the threshold that would tell us which rows sit in
+   the hole is not stored. This is a limitation, not a reason to exclude, and it
+   is added to §9 by §A8.
+2. `edge_within_method_noise` is a mandatory **§A4 group**.
+3. Because the code fires only on `0 < edge_tenths <= spread`, retaining it
+   keeps the regressor's support connected across zero. That connectivity is the
+   property the slope needs and it is the property exclusion would destroy.
+
+### A2.2. One exclusion the registration never stated, added here
+
+**§2 sets no bound on `entry_ask_tenths`, but Grid A and Grid B both do** —
+`[10, 990)`. As registered, a row outside that range would enter the pooled
+`beta` and appear in **no** bucket, so the pooled number and the per-group view
+would be computed on different populations, silently.
+
+**Add to §2's exclusions:** `r.entry_ask_tenths NOT BETWEEN 10 AND 989` is
+excluded. Decidable from the stored price alone. It also disposes of the
+degenerate-price arm of `sizing:refused` (`is_valid_price` rejects 0 and 1000 as
+settled outcomes), so no separate rule is needed for that.
+
+Add to §S1's `WHERE`:
+
+```sql
+AND r.entry_ask_tenths BETWEEN 10 AND 989
+```
+
+## A3. The `beta > 1 → BUG` rule is replaced
+
+**What was registered.** §6: SIGNAL "if and only if ... **and**
+`beta_hat <= 1.0`", and BUG if the boundary is cleared and `beta_hat > 1.0`,
+because "the engine cannot understate its own edge."
+
+**Why it was wrong.** The engine understates its own edge *by construction*, and
+this document says so twice in its own voice. Four mechanisms produce `beta > 1`
+with no defect anywhere:
+
+1. **Deliberate conservatism.** CLAUDE.md rule 2 requires the **worst of four
+   devig methods** for any money decision, so the stored `fair` understates true
+   fair by a positive amount — and by an amount that covaries with
+   longshot-ness, since the method spread is ~1.8 tenths on an even moneyline
+   and ~20.3 on a longshot **[COMPUTED FROM CODE]**. A systematically shrunk
+   numerator is a mechanism for a pass-through above one.
+2. **This document's own F2.** `edge_tenths` is "a *more conservative* edge than
+   the one the record's population predicate is built on, by up to 5 tenths"
+   (§9). A regressor deliberately shrunk by a positive amount produces
+   `beta > 1` mechanically.
+3. **This document's own C2.** A true `beta` of 0.90 plus the +0.16 confound C2
+   posits reads 1.06 and is classified **BUG**. The design forecloses its own
+   SIGNAL branch on its own stated numbers.
+4. **Sampling noise, which is the cleanest objection.** At `G = 300` this
+   document's own figures give
+   `se(beta_hat) ~= sigma_eps / (sigma_x * sqrt(G)) = 20 / (10 * sqrt(300)) = 0.1155`
+   **[ARITHMETIC ON TWO ASSUMED INPUTS]**. A true `beta` of **exactly 1.0**
+   therefore produces `beta_hat > 1.0` **half the time**, and is declared BUG
+   half the time. Full lossless pass-through — the most favourable outcome the
+   hypothesis admits — is a coin flip to be recorded as a defect report.
+
+The structural fault underneath all four: the rule tests an always-valid
+**interval** against the null of zero and a bare **point estimate** against the
+ceiling of one. Those are different standards of evidence applied to the two
+edges of the same estimate, in the same sentence.
+
+**What now governs.** Substitute for §6's SIGNAL and BUG clauses:
+
+> Let `m = always_valid_multiplier(G, tuning=300, alpha=0.05)` and
+> `se = se_cluster(beta_hat)`. The always-valid interval is
+> `[beta_hat - m*se, beta_hat + m*se]`.
+>
+> **BUG, NOT SIGNAL.** Declared if and only if, at a look taken when
+> `G >= 300`, the always-valid **lower** limit exceeds 1.0:
+> `beta_hat - m*se > 1.0`. Only then has the record ruled out full pass-through
+> from below, which is the only evidential state in which "the engine
+> understates its own edge" is established rather than guessed. This is a defect
+> report and no edge is claimed.
+>
+> **SIGNAL.** Declared if and only if, at a look taken when `G >= 300`, the
+> always-valid **lower** limit exceeds zero — `beta_hat > m*se` — **and** the
+> BUG condition above does not hold, **and** the verdict survives §A4.
+>
+> **`beta_hat > 1.0` with a lower limit at or below 1.0 is a FLAG, not a
+> verdict.** It is reported in those words, it triggers an investigation of
+> `edge_after_fees_tenths` and the devig path, and it **does not suppress the
+> finding**. The four mechanisms above are listed in the write-up beside it, and
+> the write-up states that a point estimate above one is the *expected* reading
+> under a deliberately conservative engine.
+
+Both edges of the estimate are now judged by the same always-valid interval, at
+the same alpha, from the same boundary. The BUG branch is not lost — it is moved
+to where it means something.
+
+## A4. The per-group view can downgrade a verdict, though it can never create one
+
+**What was registered.** §6: the per-population breakdown "cannot upgrade the
+verdict."
+
+**Why that was incomplete.** Correct, and one-directional. As written, a
+`beta_hat` carried entirely by `suspicious_edge` rows is declared SIGNAL — and
+`suspicious_edge` fires on `edge_tenths > edge_ceiling_tenths = 40.0`, a
+threshold **on the regressor itself**. Those rows therefore sit at the extreme
+right of the x-axis and carry maximum leverage in a least-squares fit, by
+construction rather than by accident. This repo's rule is that **a pooled number
+is not a finding until the parts agree**, and a rule that only ever blocks the
+parts from *helping* enforces half of it.
+
+**What now governs.** Add to §6:
+
+> **The pre-registered groups.** Fixed here, and no others may be introduced
+> after the data is read:
+>
+> - `suppressed_reason IS NULL` (unsuppressed)
+> - each retained code from §A2 present anywhere in the composite:
+>   `no_depth`, `insufficient_depth`, `too_few_books` (with `no_market_width`,
+>   which always co-occurs), `wide_market`, `edge_within_method_noise`,
+>   `suspicious_edge`, `sizing:refused`, `skeptic_*`
+> - the three Grid A price buckets
+>
+> Groups are **non-exclusive**: a composite row belongs to every group whose code
+> it carries.
+>
+> **Reported beside `beta_hat`, always.** For every group: `n_rows`,
+> `n_clusters`, and its **leverage share** — its share of `sum_i (x_tilde_i)^2`,
+> where `x_tilde` is `edge_tenths` residualised on `half_spread_tenths` and the
+> intercept, which is the quantity that actually weights the partial slope. The
+> **largest contributor's share is printed on the same line as `beta_hat`**, per
+> the repo's measurement rule.
+>
+> **The downgrade test (leave-one-group-out).** For each pre-registered group
+> whose removal leaves `G >= 300`, recompute `beta_hat` and its always-valid
+> interval on the remaining population. Then:
+>
+> - a **SIGNAL** verdict is downgraded to **UNRESOLVED** if any such
+>   recomputation returns `beta_hat <= 0`;
+> - a **NO SIGNAL** verdict is downgraded to **UNRESOLVED** if any such
+>   recomputation returns an always-valid upper limit at or above 0.40.
+>
+> The write-up names the group that caused the downgrade, in those words.
+>
+> **Groups whose removal would leave `G < 300` cannot be tested** and are **not**
+> grounds for downgrade — there is nothing left to compare against, and treating
+> that as a downgrade would foreclose SIGNAL whenever one group is most of the
+> sample, which is the same defect §A3 fixes. Their leverage share is reported,
+> and if it exceeds 0.50 the write-up must state that **the pooled result is one
+> group's result**.
+>
+> **This rule is strictly one-way.** It can turn SIGNAL or NO SIGNAL into
+> UNRESOLVED. It can never turn UNRESOLVED into anything, it can never raise a
+> verdict, and **no group result may be reported as a finding** — §6's
+> multiplicity arithmetic is unchanged and the groups remain descriptive.
+
+The test is on the **claim** (does the sign survive; does the ruling-out
+survive) rather than on statistical significance, deliberately: losing
+significance after discarding a quarter of the data is a power artefact, whereas
+a point estimate crossing zero when one group is removed is the parts
+disagreeing. That is a judgement, and it is fixed here in advance rather than
+made after the number exists.
+
+## A5. Two things corrected, not re-argued
+
+### A5.1. F2's item 1 is false, and it is the item the document marked as good news
+
+**What was registered.** F2 item 1: *"Every row's `edge_tenths` is computed on
+the same n=1 fee basis, so the regressor is internally comparable and no
+edge-correlated fee step contaminates the slope. … At $100 that hazard is
+absent. At $1,000 it would be present."*
+
+**Why it was wrong.** `engine.py:160-166` computes `edge_tenths` at
+`max(1, sizing.contracts)`, and `sizing.contracts` is **not** pinned at zero
+across the retained range. **[COMPUTED FROM CODE — `size_position` swept at the
+live `fly.live.toml` profile: `BANKROLL_DOLLARS=100`, `KELLY_FRACTION=0.25`,
+`MAX_POSITION_DOLLARS=10`, `MAX_EXPOSURE_DOLLARS=40`, zero open exposure;
+`kelly` binding throughout]**:
+
+| ask | gross gap 3.0c | 3.8c | 5.0c | 6.0c | 7.0c |
+|---|---:|---:|---:|---:|---:|
+| 20c | 1 | 2 | 4 | 5 | 7 |
+| 30c | 1 | 2 | 3 | 4 | 5 |
+| 50c | 1 | 1 | 3 | 4 | 5 |
+| 70c | 1 | 2 | 3 | 4 | 6 |
+| 80c | 1 | 3 | 5 | 6 | 8 |
+
+Contracts run **1 to 6 among unsuppressed rows**, and to **at least 8** among
+the `suspicious_edge` rows §2 deliberately retains. At ask 30c a 38-tenth gross
+gap gives **2** contracts; at ask 80c it reaches **8**. F2's own table stopped at
+the 4.0c row and read it as the point where contracts are still 0; it is the
+point where they reach 2.
+
+**The consequence, which is the part that matters.** `edge_tenths` is a
+**discontinuous step function** of the underlying gross gap, because the
+per-contract fee steps at each contract boundary. **[COMPUTED FROM CODE —
+`calculate_fee`, per-contract, tenths of a cent]**:
+
+| ask | n=1 | n=2 | n=3 | n=4 | n=5 | n=8 |
+|---|---:|---:|---:|---:|---:|---:|
+| 10c | 10.00 | 10.00 | 10.00 | 10.00 | 10.00 | 10.00 |
+| 20c | 20.00 | 15.00 | 13.33 | 12.50 | 12.00 | 11.25 |
+| 30c | 20.00 | 15.00 | 16.67 | 15.00 | 16.00 | 15.00 |
+| 40c | 20.00 | 20.00 | 20.00 | 17.50 | 18.00 | 17.50 |
+| **50c** | **20.00** | **20.00** | **20.00** | **20.00** | **20.00** | **20.00** |
+| 60c | 20.00 | 20.00 | 20.00 | 17.50 | 18.00 | 17.50 |
+| 70c | 20.00 | 15.00 | 16.67 | 15.00 | 16.00 | 15.00 |
+| 80c | 20.00 | 15.00 | 13.33 | 12.50 | 12.00 | 11.25 |
+| 90c | 10.00 | 10.00 | 10.00 | 10.00 | 10.00 | 10.00 |
+
+So within the retained band (`0 < edge_tenths <= 40`), `edge_tenths` jumps
+**[COMPUTED FROM CODE]**:
+
+| ask | jump at 1→2 | at 2→3 | at 3→4 |
+|---|---:|---:|---:|
+| 20c | **+5.0** | +1.7 | +0.8 |
+| 30c | **+5.0** | **−1.7** | +1.7 |
+| 40c | 0.0 | 0.0 | +2.5 |
+| **50c** | **0.0** | **0.0** | **0.0** |
+| 60c | 0.0 | 0.0 | +2.5 |
+| 70c | **+5.0** | **−1.7** | +1.7 |
+| 80c | **+5.0** | +1.7 | +0.8 |
+
+Four properties follow, and each is a statement about the regressor:
+
+1. **The largest jump is 5.0 tenths**, at 20c, 30c, 70c and 80c, on the 1→2
+   contract boundary. Against F2's own `sigma_x = 10` tenths **[ASSUMED]** that
+   is **half a standard deviation of the regressor, from arithmetic**.
+2. **It varies with price and is exactly 0.0 at 50c.** So the regressor's
+   measurement error is heteroskedastic in price — and price is the Grid A and
+   Grid B bucketing variable. Buckets therefore differ in how contaminated their
+   regressor is for reasons having nothing to do with signal.
+3. **It is non-monotonic at 30c and 70c.** The 2→3 boundary *lowers* the stored
+   edge by 1.7 tenths, so a **larger** true gap can store a **smaller**
+   `edge_tenths`. The audit did not name this and it is the sharper finding: a
+   regressor that is not a monotone function of the quantity it proxies is worse
+   than a noisy one.
+4. **Nothing in the schema records which basis a row used.** `contracts` is not
+   a column of `recommendations`; `suggested_contracts` is the *post*-suppression
+   number, zeroed whenever the row was suppressed
+   (`engine.py:205`), so it cannot be used to recover the basis on exactly the
+   rows §2 retains.
+
+**Direction of the effect on `beta`: unknown, and it is registered as unknown.**
+The dominant term runs toward attenuation — because a bigger gap buys more
+contracts and a smaller per-contract fee, `edge_tenths` moves *faster* than the
+true gap, which inflates `sd(x)` and deflates the slope, the safe direction. But
+the non-monotone segments at 30c and 70c reverse that locally, so the net sign is
+not provable a priori. It is **not** claimed to be conservative.
+
+**One further basis shift the audit did not name.** `sizing.contracts` also
+depends on `current_exposure_dollars`, `current_position_dollars` and
+`daily_pnl_dollars` (`sizing.py:140-182`) — the **operator's live account state
+at the instant of the pass**. Two identical markets evaluated an hour apart can
+store `edge_tenths` on different bases, and none of those three inputs is
+recorded per row. F2 item 4 anticipated this for `BANKROLL_DOLLARS` only.
+**Added to the required output:** report open exposure and daily P&L at every
+interim look, alongside `BANKROLL_DOLLARS`.
+
+**And the units error underneath it.** F2 states *"4c is
+`edge_ceiling_tenths = 40.0`, at which `suspicious_edge` suppresses"*, but
+`edge_ceiling_tenths` is a threshold on the **net** edge while F2's table is in
+**gross** gap. At 50c a 4.0c gross gap stores a *net* edge of **2.0c**.
+`suspicious_edge` first trips at these gross gaps **[COMPUTED FROM CODE]**:
+
+| ask | 20c | 30c | 40c | 50c | 60c | 70c | 80c |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| gross gap needed | 5.26c | 5.51c | 5.90c | **6.00c** | 5.77c | 5.50c | 5.21c |
+| contracts there | 4 | 4 | 4 | **4** | 4 | 4 | 5 |
+
+So suppression does **not** close the multi-contract band. It opens at 2
+contracts and stays open for another 2–3 tenths of a cent of gross gap before
+`suspicious_edge` fires, and even then those rows are **retained** by §2.
+
+### A5.2. "Central" is withdrawn. 0.40 stands, on a different argument.
+
+**What was registered.** `sigma_eps / sigma_x = 2` described as "central", and
+0.40 defended by two derivations described as independent of each other.
+
+**Why it was wrong.** *(a)* Nothing measures the ratio. "Central" claims a
+location in a distribution nobody has observed; the honest label is **ASSUMED**,
+and it is applied above. *(b)* The two derivations are not independent. The
+first inherits `sigma_eps / sigma_x = 2` **entirely** — 0.42 *is* that
+assumption run through the boundary. The second, *"the pass-through at which a
+typical 20-tenth claimed edge yields 8 tenths of CLV, against 3.8 tenths of
+headroom"*, taken literally as a derivation gives `3.8 / 20 = 0.19`, not 0.40.
+What it actually does is compute `0.40 x 20 = 8`, observe `8 > 3.8`, and present
+that as confirmation. It confirms only that **0.40 clears the economic
+minimum** — a necessary condition, not a second estimate. It must stop being
+described as independent.
+
+**What now governs. 0.40 is kept**, and the defence that carries it is the one
+the audit correctly identifies as strongest and as missing from the
+registration:
+
+> **Using the minimum detectable effect as the NO-SIGNAL threshold is right in
+> principle.** A negative verdict that could not have detected a real effect is
+> not a negative result. Setting the threshold at the smallest effect the design
+> can resolve is what makes NO SIGNAL mean "we could have seen it and it was not
+> there" rather than "we looked with an instrument too blunt to see it."
+>
+> **And the error runs safe.** If the true `sigma_eps / sigma_x` is worse than
+> the assumed 2, then `se` is larger, the always-valid interval is wider, its
+> upper limit exceeds 0.40 more often, and **NO SIGNAL becomes harder to
+> declare**. The failure mode of a bad assumption here is therefore **permanent
+> UNRESOLVED — never a false kill.** Since the NO SIGNAL branch is the one that
+> stops work on arming real money (§8), an assumption whose error can only delay
+> that verdict and never manufacture it is the right way round.
+>
+> `sigma_eps`, `sigma_x` and their ratio remain **reportable at every interim
+> look**, and the existing instruction stands: if per-game CLV noise comes in
+> above 30 tenths, this document is amended to raise the floor.
+
+### A5.3. The 300-game agreement is not a check on anything
+
+**What was registered.** *"The gate's 300-game floor and the smallest `n` at
+which this test can resolve a plausible effect are the same number. That was not
+arranged … They agree, which is a mild independent check on both."*
+
+**Why it was wrong.** It was arranged. The multiplier producing 0.42 is
+`gate.always_valid_multiplier(G, tuning=300, alpha=0.05)`, and `tuning=300` is
+the gate's floor — the boundary's mixture parameter is **set to** the number the
+agreement is then read as corroborating. `gate.py`'s own docstring says the
+mixture parameter "is tied to the pre-registered floor (300 games) so the bound
+is near its best across the range the gate actually operates in." Finding the
+minimum-detectable effect to be near its best at `G = 300` is the tuning
+parameter reappearing in its own output.
+
+**What now governs.** The sentence is withdrawn. The 300 floor stands on the
+practitioner-consensus argument alone, which was always its actual basis, and
+the write-up must not present the coincidence as evidence.
+
+## A6. The level-test null is −5 tenths, measured
+
+**What was registered.** §5: `E[clv_tenths] = -half_spread ~= -5 to -15 tenths`.
+
+**Why it was wrong.** The −15 end requires a 3.00c spread. `docs/adr/0006-in-play-evidence.md`
+**measures** the pre-game Kalshi spread at **1.00c at mean, median, p90, p99 and
+maximum**, across **3,483 pre-game minutes over 20 games** (14 MLB, 6 WNBA,
+2026-08-07/08), in both leagues, agreeing on every line. A 3.00c spread appears
+only **in-play** (p99), which this measurement excludes by construction. The
+registered range was **[ASSUMED]** and its wide end is contradicted by the one
+measurement in the repo that bears on it.
+
+**What now governs.** §5's null reads:
+
+> Under zero predictive power and zero drift,
+> `E[clv_tenths] = -half_spread ~= -5 tenths` **[MEASURED FROM DATA — ADR 0006,
+> pre-game half-spread 0.50c, 3,483 minutes over 20 games, MLB and WNBA]**.
+
+Two qualifications, both required in the write-up:
+
+- ADR 0006 measures **candlestick** spreads at 1-minute granularity. Roughly 25%
+  of Kalshi markets tick in deci-cents (CLAUDE.md), so a whole-cent spread field
+  may be quantising away sub-cent variation. The **level** of 1.00c is measured;
+  the **dispersion** is not resolved by that instrument, which is why §A5 leaves
+  C2's `sd` open rather than replacing 4 with 0.
+- It is two leagues on one August slate. It says nothing about NFL, NBA or NCAAF
+  spreads, and §9's seasonal caveat already covers that.
+
+## A7. Two more §3 invariants — and the audit's third anchor is not enough on its own
+
+**What was registered.** §3 asserts two properties of the cluster-robust
+estimator: duplicating every observation `k` times leaves `beta_hat` and its
+standard error bit-identical, and singleton clusters reproduce classical OLS
+exactly.
+
+**Why that was incomplete.** Both are anchors on the **standard error**. Neither
+pins the **partial-slope arithmetic**, so an estimator that accepts
+`half_spread_tenths` and never uses it — which leaves C2's contamination
+entirely in place, the single thing the control exists for — passes both.
+
+**What now governs.** Two further invariants, asserted as tests before any
+result is believed:
+
+> **A3-c. With `half_spread` held constant, `beta` must equal the
+> simple-regression slope of `clv_tenths` on `edge_tenths`.** With the control
+> constant it is collinear with the intercept, so it can carry no information
+> and the partial slope must collapse onto the simple one.
+>
+> **A3-d. With `half_spread` correlated with `edge_tenths`, and `clv_tenths`
+> generated exactly as `a + b*edge + c*half_spread` with no noise, `beta` must
+> return `b` and `gamma` must return `c`, to floating-point tolerance.**
+
+**A3-c is the audit's proposal and it is necessary but not sufficient — verified
+rather than argued.** **[COMPUTED FROM CODE — throwaway reference
+implementations on synthetic inputs, no repository data]**: with `n = 500`,
+`x ~ N(0, 10)`, `w` held at the constant 5.0 and
+`y = 3 + 0.6x + 2w + N(0, 2)`, a correct two-regressor estimator and one that
+**ignores the control entirely** both return `beta = 0.600979`, identical to the
+simple slope. **A3-c does not catch the defect it is aimed at.** What it does
+catch is real but narrower: a naive `inv(X'X)` on that input raises
+`Singular matrix`, so A3-c pins the rank-deficiency handling.
+
+**A3-d catches it.** With `w = 0.5x + N(0, 5)` and `y = 3 + 0.6x + 2w` exactly,
+the correct estimator returns `beta = 0.600000`, `gamma = 2.000000`; the
+control-ignoring one returns `beta = 1.625292` against a true 0.600 — an error of
+**2.7x**, in the **inflating** direction, which is exactly the shape C2
+describes. Both invariants are registered; A3-d is the one that pins the partial
+arithmetic and it must be present.
+
+**Fewer than 2 clusters returns `None`, never a number** — unchanged.
+
+## A8. Three additions to §9, "what this cannot establish"
+
+**Why they are needed.** §9 as registered omits the entries that could actually
+overturn the result. Caveats that cannot overturn anything are the ones that get
+written; these are the other kind.
+
+### A8.1. The shared `−entry_ask` term contaminates beyond the half-spread
+
+Add to §9:
+
+> - **Controlling `half_spread` removes only the *deterministic* part of the
+>   shared-ask contamination.** C2 decomposes the ask as mid plus half-spread,
+>   but `clv_tenths` and `edge_tenths` share the **whole** `-entry_ask` term, not
+>   just its spread component. **Any transient dislocation in the entry ask — a
+>   momentary thin book, a single large resting order, a quote taken mid-update —
+>   lowers both `edge` and `clv` together**, and such a dislocation is by
+>   definition not captured by the half-spread of that same quote. The residual
+>   covariance is therefore positive and is **not** removed by `gamma`. Its
+>   magnitude is unmeasured and no attempt is made here to bound it.
+
+### A8.2. The half-spread control may be joined from the wrong quote — and P1 conflates two failures
+
+§S1 joins *the latest quote at or before `created_ms`*, which is **not
+necessarily the quote that set `entry_ask_tenths`**. If they differ, the control
+is measured with error, the control is **attenuated**, and — because
+under-controlling for a positively-contaminating confound leaves part of it in —
+the residual bias in `beta` is **positive**. The flattering direction.
+
+The check is free, because the derived-ask identity is exact
+**[COMPUTED FROM CODE — `runner.py:875-895`: a YES ask is filled by the resting
+NO bid, so `yes_ask = 1000 - no_bid`; a NO ask is filled by the resting YES bid,
+so `no_ask = 1000 - yes_bid`]**. Add to §S1's select list:
+
+```sql
+  CASE r.side
+    WHEN 'yes' THEN ((1000 - q.no_bid_tenths)  = r.entry_ask_tenths)
+    WHEN 'no'  THEN ((1000 - q.yes_bid_tenths) = r.entry_ask_tenths)
+  END                                             AS quote_matches_entry,
+```
+
+**And P1 is split, because as registered it conflates two different failures**
+and refuses only the second. Three counts are reported, never two:
+
+| Count | Meaning | Treatment |
+|---|---|---|
+| `matched` | a quote joined **and** `quote_matches_entry` is true | the analysis population |
+| `quote_mismatch` | a quote joined and the identity **fails** | **retained**, but counted and reported separately |
+| `no_quote` | the join returned nothing; `half_spread_tenths IS NULL` | dropped, never imputed |
+
+- **P1's 0.90 floor now applies to `matched / total`**, not to non-NULL
+  half-spread coverage. That is a strictly tighter gate than the one registered.
+- `quote_mismatch` rows are **retained** — the alternative is an exclusion whose
+  rate correlates with book activity, which is worse — but if
+  `quote_mismatch / total` exceeds 0.05 the write-up must state, in these words,
+  that the half-spread control is attenuated on that fraction and that the
+  residual bias in `beta` runs **positive**.
+
+### A8.3. The P1 shortfall is a selection problem, not a proportional one
+
+**What was registered.** §9: *"If P1 lands between 0.90 and 1.00, the residual
+contamination is proportional to the missing fraction and must be stated as a
+number."*
+
+**Why it was wrong.** §S1 **drops** rows with a NULL half-spread; it does not
+impute them. So there is **zero** residual contamination on the rows that are
+retained — every one of them has a real control. What the missing fraction
+creates is a different problem entirely, and a worse-behaved one.
+
+**What now governs.** Replace that bullet with:
+
+> - **A P1 shortfall is a selection problem of unknown direction, not a residual
+>   contamination.** Retained rows are fully controlled. The rows that are gone
+>   are those for which no readable pre-entry quote existed, which is a
+>   liquidity-flavoured and time-of-day-flavoured criterion, and the direction in
+>   which that shifts `beta` is **not known and is not estimated here**. Stating
+>   it as "contamination proportional to the missing fraction" would understate
+>   it, because a proportional bias shrinks to nothing as coverage approaches 1
+>   while a selection effect need not.
+
+### A8.4. Two limitations that follow from this amendment
+
+Also add to §9:
+
+> - **`edge_tenths` is a discontinuous and locally non-monotonic function of the
+>   underlying gross gap, and the record does not say which basis each row
+>   used.** See §A5.1. Steps of up to 5.0 tenths, varying with price, zero at
+>   50c, negative at 30c and 70c. The direction of the resulting bias in `beta`
+>   is unknown and is not claimed to be conservative.
+> - **`method_spread_probability` is not stored**, so the rows that
+>   `edge_within_method_noise` would have removed cannot be identified in the
+>   record, and the width of the hole that rule punches in the regressor cannot
+>   be measured after the fact. §A2.1 retains those rows precisely because the
+>   alternative is an unmeasurable, price-dependent exclusion.
+
+## A9. Consequences for the required output of every run
+
+§S1's output list is amended. The harness prints, in this sequence:
+
+1. `G`, `n_rows`, `unclustered_rows`, and **three** coverage counts —
+   `matched`, `quote_mismatch`, `no_quote` — with `matched / total` named as the
+   P1 fraction (§A8.2).
+2. `sigma_eps`, `sigma_x`, their ratio, `sd(half_spread_tenths)`, and the implied
+   spurious slope `Var(half_spread)/Var(edge)` — each labelled **measured**, and
+   the ratio explicitly compared against the **assumed** 2 (§A5.2).
+3. `BANKROLL_DOLLARS`, **open exposure and daily P&L** (§A5.1), and the
+   `strategy_config_version` distribution.
+4. The smallest resolvable `beta` at this `G`, **before** `beta_hat` is printed.
+5. `beta_hat`, `se_cluster`, the multiplier, **both** limits of the always-valid
+   interval, the **largest group's leverage share on the same line** (§A4), and
+   the verdict — including the §A3 flag if `beta_hat > 1.0` with a lower limit at
+   or below 1.0.
+6. The §A4 per-group table with every group's `n_rows`, `n_clusters` and leverage
+   share, and the leave-one-group-out result for every testable group.
+7. Grid A, then Grid B, each labelled **DESCRIPTIVE — CANNOT PRODUCE A FINDING**,
+   with `family_wise_p` and `family_wise_verdict` above them.
+8. `horizons_agree`, labelled as the weak control it is.
+9. §9 **as amended by §A8**, reproduced verbatim.
+
+## A10. What this amendment does not change, stated so the absence is deliberate
+
+- **The primary estimand, the direction, the cluster key, the horizon, the
+  boundary, the `G >= 300` floor, the stopping rule, the 0.40 threshold and the
+  result destination all stand unchanged.**
+- **The UNDERPOWERED verdict stands. The registered action is still to wait, not
+  to run.** Nothing here makes the test runnable at a smaller `G`.
+- **Grid A's bucket edges stand.** They are derived from the n=1 fee model, and
+  §A5.1 shows the fee is *not* flat across `[200, 800)` at n≥2 — which is a
+  reason the edges must **not** be re-derived later, exactly as F2 item 2 already
+  says. Re-deriving them now, after seeing that contracts vary, would be choosing
+  a cut after learning something about the data-generating process.
+- **C2's `sd(half_spread) = 4` is not replaced with a number.** ADR 0006
+  contradicts it, but ADR 0006's instrument (1-minute whole-cent candlesticks)
+  cannot resolve sub-cent dispersion. A parallel lane is measuring it. **Marked
+  placeholder:** the governing figure will be
+  `docs/measurements/2026-08-09-halfspread-dispersion.md`, which **does not exist
+  at the time of this amendment**. Until it does, C2's magnitude is
+  **unmeasured** and the 0.16 may not be quoted as a finding in any write-up.
+- **F1's status, re-verified at this commit:** `backend/store/schema.sql:330`
+  still reads `edge_tenths REAL NOT NULL, -- gross, before fees`, and the code
+  still stores net. The correction is on a lane not yet merged to `main`. F1's
+  conclusion is unaffected — this analysis is designed against the code.
+- **P2, P3, P4 stand unchanged.** P1 is tightened by §A8.2.
+
+## A11. Where the audit is itself wrong or incomplete
+
+The audit is not above correction either. Five items, each verified.
+
+1. **The proposed third §3 anchor does not catch the defect it names.** The
+   audit asks for "with `half_spread` held constant, `beta` must equal the
+   simple-regression slope" on the grounds that the two registered anchors do not
+   pin the partial-slope arithmetic. Measured (§A7): an estimator that ignores
+   the control entirely returns **exactly** the simple slope on that input and
+   passes. The anchor is necessary but not sufficient; §A7 keeps it for what it
+   does catch (rank deficiency) and adds A3-d, which does catch it.
+
+2. **"Jumps up to 6 tenths at each contract boundary" is 5.0 tenths.** Measured
+   from `calculate_fee`: the 1→2 boundary at 20c, 30c, 70c and 80c moves the
+   per-contract fee from 20.00 to 15.00 tenths, so the jump is **5.0**. The
+   document's own F2 item 2 already gives this correctly as "a 0.5-point
+   difference". The audit's "0 at 50c" is confirmed exactly. The audit also
+   misses two smaller structures: a **+2.5** tenth jump at 40c and 60c on the
+   3→4 boundary, and — the more important one — a **−1.7** tenth jump at 30c and
+   70c on the 2→3 boundary, which makes the regressor **non-monotonic**, not
+   merely discontinuous.
+
+3. **"~6.1c gross gap" at 50c is 6.00c.** Confirmed in substance: tripping
+   `suspicious_edge` at 50c takes a **6.00c** gross gap at **4** contracts, and
+   the audit's conclusion — that suppression does not close the multi-contract
+   band — is correct and is the load-bearing part.
+
+4. **`sizing:<constraint>` has exactly one producible value, not a family.**
+   `engine.py:218` writes it only when `sizing.refused`, and the only path that
+   sets `refused=True` is `_refuse()` (`sizing.py:216-226`), which hardcodes
+   `binding_constraint="refused"`. So the only string is **`sizing:refused`**.
+   The other constraint names — `kelly`, `no_edge`, `max_position_dollars`,
+   `max_exposure_dollars`, `max_order_contracts`, `stake_below_one_contract` —
+   never reach `suppressed_reason`. Adjudicating a family that cannot exist would
+   have been harmless; assuming the record can be grouped by it would not.
+
+5. **The audit's list of eleven codes is missing two, and they are
+   composite-forming.** `agents/skeptic.py:200` appends `skeptic_defect` or
+   `skeptic_suspicious` **with a comma** onto whatever reason already exists
+   (`f"{existing_reason},{tag}"`), and `agents/review.py:115` is wired into
+   `runner.py`, so these are live codes and not a plan. A predicate built for
+   eleven codes would have been correct for thirteen only by luck. §A2
+   adjudicates them; `tests/test_preregistration_population.py` pins the append
+   format.
+
+One further note, on the audit's suggested `LIKE` form: `LIKE` reads `_` as a
+single-character wildcard and every code in this vocabulary contains
+underscores, so the delimited `LIKE` predicate is correct only because no code
+name currently collides. §A1 uses `instr` instead, which has no metacharacters.
+
+---
+
+**Amendment 1 ends. No data had been observed when it was written (§A0).**
