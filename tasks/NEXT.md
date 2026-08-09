@@ -6,11 +6,29 @@
 is `2353bd1`. **Both instances are still on `89bf56a`** — everything below is
 local and unshipped.
 
-### Deploy this, and demo first — it carries schema v4
+### Demo is deployed and green. **Live is the one thing outstanding.**
 
-    gh workflow run Deploy -f instance=demo
-    # then, from the browser (the classifier blocks live from a session):
+    # from the browser -- the classifier blocks live from a session:
     # Actions -> Deploy -> Run workflow -> live -> type kalshi-cockpit
+
+Demo went out on `2353bd1` and verified: five pages 200, `instance_mode=demo`,
+and both boot lines readable —
+
+    [migrate] /data/demo.db already at schema v4
+    INFO backend.api.routes: API starting: instance_mode=demo ...
+
+**What the canary did not prove, and cannot.** The entrypoint *seeds before it
+migrates*, and `seed_all` calls `init_db`, which builds the database at the
+current version and stamps it. So `migrate_db.py` on demo is a no-op **by
+construction** — "already at v4" there means the seeder had just created it at
+v4, not that a transition ran. Demo proves the image boots and that the schema
+file and the v4 shape agree on a fresh database. It says nothing about v3 → v4.
+
+Live's volume is the only real test of that, and it is the first non-additive
+migration in this project. What backs it instead: the boot script was run twice
+against a genuine v3 database carrying rows (migrated, then no-op, orders
+preserved, index present), and `test_the_migration_step_actually_runs_on_a_real_
+old_database` runs it as a subprocess against a database wound back one version.
 
 **v4 rebuilds `settlements`.** The rebuild is idempotent at every crash point
 and was verified by running `scripts/migrate_db.py` twice against a genuine v3
