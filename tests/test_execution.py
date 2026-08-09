@@ -9,6 +9,7 @@ a live buy at 99c in the predecessor project.
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import sqlite3
@@ -31,6 +32,8 @@ from backend.gate import (
     clv_by_population,
     evaluate_gate,
     live_ages,
+    log_gate_progress,
+    population_counts,
     recommendation_freshness,
 )
 from backend.kalshi.grid import parse_price_grid
@@ -756,6 +759,108 @@ class TestTheGateCountsTheRightPopulation:
         assert groups["actionable"].n_rows == 1
         assert groups["no_edge"].n_rows == 1
         assert groups["suppressed"].n_rows == 2
+
+    def test_population_counts_partition_every_row(self, gate_db):
+        """The parts must sum to the whole, or the progress line is a lie.
+
+        `population_counts` reads `POPULATIONS`, so this also pins the property
+        that makes sharing them worth it: whatever the gate admits is exactly
+        what the progress line counts toward admission. A row that belongs to
+        no population would be invisible to both, and a row in two would be
+        double-counted in one of them.
+        """
+        conn = _conn(gate_db)
+        _add_recommendation(conn, ticker="A", contracts=5)
+        _add_recommendation(conn, ticker="B", contracts=0)
+        _add_recommendation(conn, ticker="C", suppressed="suspicious_edge")
+        _add_recommendation(conn, ticker="D", suppressed="stale_odds", contracts=7)
+
+        counts = population_counts(conn)
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM recommendations"
+        ).fetchone()["n"]
+
+        assert sum(counts.values()) == total == 4
+        assert counts["actionable"] == 1
+        assert counts["no_edge"] == 1
+        # Suppressed wins over a positive size: D is refused, not bettable.
+        assert counts["suppressed"] == 2
+
+    def test_a_suppressed_row_never_counts_as_progress_toward_the_gate(
+        self, gate_db
+    ):
+        """The whole reason this counter exists.
+
+        Live has written recommendations on every pass since it was deployed and
+        every one was suppressed, so the 300-game floor cannot be approached at
+        all — however long the loop runs and however well CLV scoring works.
+        A counter that moved on suppressed rows would report progress toward a
+        threshold it can never reach, which is worse than reporting nothing.
+        """
+        conn = _conn(gate_db)
+        for i in range(50):
+            _add_recommendation(
+                conn, ticker=f"S{i}", suppressed="edge_within_method_noise",
+                contracts=3,
+            )
+
+        counts = population_counts(conn)
+        assert counts["suppressed"] == 50
+        assert counts["actionable"] == 0
+
+    def test_the_window_excludes_rows_older_than_it(self, gate_db):
+        conn = _conn(gate_db)
+        _add_recommendation(conn, ticker="OLD", contracts=5, created_ms=1_000)
+        _add_recommendation(conn, ticker="NEW", contracts=5, created_ms=9_000)
+
+        assert population_counts(conn, since_ms=5_000)["actionable"] == 1
+        assert population_counts(conn, since_ms=0)["actionable"] == 2
+
+    def test_the_progress_line_prints_zero_rather_than_nothing(
+        self, gate_db, caplog
+    ):
+        """Zero is the value this counter has held for the project's life.
+
+        A line filtered out at zero cannot be told from a line that stopped
+        being computed — the failure `tasks/lessons.md` records twice, and both
+        times on a counter whose interesting value *was* zero.
+        """
+        conn = _conn(gate_db)
+        with caplog.at_level(logging.INFO, logger="backend.gate"):
+            log_gate_progress(conn, since_ms=0, required=300)
+
+        lines = [r.getMessage() for r in caplog.records if "gate progress" in
+                 r.getMessage()]
+        assert len(lines) == 1
+        assert "actionable=0 of 300 needed" in lines[0]
+        assert "suppressed by: none" in lines[0], lines[0]
+
+    def test_the_progress_line_names_why_rows_were_suppressed(
+        self, gate_db, caplog
+    ):
+        """`actionable=0` alone cannot separate a quiet slate from a bad rule.
+
+        A dominant reason is a miscalibration to investigate; a spread of them
+        with `no_edge` large is the honest no-edge answer. Both are findings,
+        and they are different ones.
+        """
+        conn = _conn(gate_db)
+        for i in range(3):
+            _add_recommendation(
+                conn, ticker=f"N{i}", suppressed="edge_within_method_noise"
+            )
+        _add_recommendation(conn, ticker="W", suppressed="wide_market")
+        _add_recommendation(conn, ticker="OK", contracts=4)
+
+        with caplog.at_level(logging.INFO, logger="backend.gate"):
+            log_gate_progress(conn, since_ms=0, required=300)
+
+        line = [r.getMessage() for r in caplog.records
+                if "gate progress" in r.getMessage()][0]
+        assert "actionable=1 of 300 needed" in line
+        assert "suppressed=4" in line
+        assert "edge_within_method_noise=3" in line
+        assert "wide_market=1" in line
 
     def test_a_refused_row_is_not_counted_as_the_strategys_edge(self, gate_db):
         """The discriminating case, and the reason this is not merely tidier.

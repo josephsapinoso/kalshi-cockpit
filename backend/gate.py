@@ -288,6 +288,76 @@ POPULATIONS: dict[str, str] = {
 }
 
 
+def population_counts(conn, since_ms: int = 0) -> dict[str, int]:
+    """How many rows fell into each population, over a window.
+
+    Distinct from `clv_by_population`, which reports the CLV *of scored rows*.
+    This counts rows written at all, and it exists because the gate's binding
+    quantity is the size of the `actionable` set: a row that is suppressed or
+    sized to zero can never contribute to the 300-game floor, however well the
+    CLV machinery works downstream of it.
+
+    That number has been zero for the project's life and was readable only
+    through an authenticated endpoint, so the one counter that decides whether
+    the gate can *ever* open was the one nobody could see from the log stream.
+
+    It reads `POPULATIONS` rather than restating the predicates. Two SQL
+    fragments encoding one definition is the failure `tasks/lessons.md` records
+    under deleting one of two paths -- and here the two copies would be the
+    gate's own admission criteria and the number used to judge progress toward
+    them, which is the worst possible pair to let drift.
+    """
+    counts = {}
+    for name, predicate in POPULATIONS.items():
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM recommendations r "  # noqa: S608
+            f"WHERE r.created_ms >= ? AND ({predicate})",
+            (since_ms,),
+        ).fetchone()
+        counts[name] = int(row["n"])
+    return counts
+
+
+# How far back `log_gate_progress` looks. A day, so the line answers "is this
+# system producing anything the gate can count?" rather than "did the last
+# fifteen minutes happen to be quiet" -- most of a day is out-of-window anyway.
+GATE_PROGRESS_WINDOW_MS = 24 * 60 * 60 * 1000
+
+
+def log_gate_progress(conn, *, since_ms: int, required: int) -> dict[str, int]:
+    """Print the gate's binding counter, and why rows are not reaching it.
+
+    **Full passes only.** At the 15s quote cadence this would be ~5,700 lines a
+    day, which is the flood that made the live log stream unreadable for three
+    sessions; see `backend/kalshi/discovery.py`. Once per 900s is 96.
+
+    Printed unconditionally, including at zero, for the reason the repo keeps
+    rediscovering: a counter that is filtered out when it is zero cannot be
+    told from one that stopped being computed, and zero is precisely the value
+    this one has held for the project's entire life.
+
+    The suppression breakdown sits on the same line because the two numbers are
+    only useful together. `actionable=0` alone says the gate cannot progress; it
+    does not say whether that is an honest quiet slate (`no_edge` dominating) or
+    a rule firing on everything, which would be a miscalibration rather than a
+    finding about the market.
+    """
+    from .engine import suppression_summary
+
+    counts = population_counts(conn, since_ms)
+    reasons = suppression_summary(conn, since_ms)
+    logger.info(
+        "gate progress (24h): actionable=%d of %d needed, no_edge=%d, "
+        "suppressed=%d; suppressed by: %s",
+        counts["actionable"],
+        required,
+        counts["no_edge"],
+        counts["suppressed"],
+        ", ".join(f"{k}={v}" for k, v in reasons.items()) or "none",
+    )
+    return counts
+
+
 def clustered_clv(conn, population: Optional[str] = None) -> ClusteredMean:
     """Scored CLV, grouped into one cluster per game.
 

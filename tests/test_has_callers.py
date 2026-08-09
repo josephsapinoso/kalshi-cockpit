@@ -506,3 +506,78 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         """A boot step pointing at a missing file fails the deploy, loudly --
         but only on the deploy, which is the worst place to find out."""
         assert (ROOT / "scripts" / "migrate_db.py").exists()
+
+
+class TestTheQuoteCadenceStaysQuiet:
+    """Per-pass work must be guarded by `kind == "full"`, structurally.
+
+    A quote pass runs every 15s while the window is open. Anything called
+    unguarded there runs ~5,700 times a day, and this project has already lost
+    its production log stream to exactly that: 962 warnings per pass overran a
+    100-line buffer and made the boot lines unreadable for three sessions
+    (`tasks/lessons.md`, 2026-08-09).
+
+    The guard is asserted on the *source*, by AST, rather than by running the
+    loop. Driving 61 quote passes to count log lines is the test I tried first;
+    it needs a full fake exchange and it passes for the wrong reason the moment
+    the window is closed, because then no quote pass fires at all.
+
+    `run_scoring_pass` and `run_settlement_pass` are listed alongside the new
+    one because they are guarded today for their own reasons -- credits and
+    pointless requests -- and an enumeration that only names the newest case is
+    a list someone will forget to extend.
+    """
+
+    FULL_PASS_ONLY = (
+        "log_gate_progress",
+        "run_scoring_pass",
+        "run_settlement_pass",
+        "daily_digest",
+    )
+
+    def _guarded_calls(self) -> set[str]:
+        """Names called anywhere inside an `if kind == "full":` body."""
+        tree = ast.parse((ROOT / "scripts" / "run_loop.py").read_text("utf-8"))
+        guarded: set[str] = set()
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            is_full_gate = (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "kind"
+                and len(test.comparators) == 1
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value == "full"
+                and isinstance(test.ops[0], ast.Eq)
+            )
+            if not is_full_gate:
+                continue
+            for inner in node.body:
+                for call in ast.walk(inner):
+                    if not isinstance(call, ast.Call):
+                        continue
+                    func = call.func
+                    if isinstance(func, ast.Name):
+                        guarded.add(func.id)
+                    elif isinstance(func, ast.Attribute):
+                        guarded.add(func.attr)
+        return guarded
+
+    def test_the_expensive_calls_are_all_behind_the_full_pass_guard(self):
+        guarded = self._guarded_calls()
+        missing = [name for name in self.FULL_PASS_ONLY if name not in guarded]
+        assert not missing, (
+            f"{missing} run on the 15s quote cadence -- ~5,700 times a day"
+        )
+
+    def test_the_guard_this_test_looks_for_actually_exists(self):
+        """Anchors the test against its own vacuity.
+
+        If `run_loop` were rewritten to dispatch on something other than
+        `kind == "full"`, `_guarded_calls` would return an empty set and every
+        assertion above would pass by finding nothing to check.
+        """
+        assert self._guarded_calls(), "no `if kind == \"full\":` block found"

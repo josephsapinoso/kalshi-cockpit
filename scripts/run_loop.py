@@ -87,6 +87,10 @@ from backend.scheduler import (  # noqa: E402
     quote_refresh_survives_interval,
     run_forever,
 )
+from backend.gate import (  # noqa: E402
+    GATE_PROGRESS_WINDOW_MS,
+    log_gate_progress,
+)
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db  # noqa: E402
@@ -284,6 +288,11 @@ async def main() -> int:
                     now_ms=stamp,
                     day_start_ms=budget.day_start_ms(stamp),
                     gate_required=gate_config.min_scored_recommendations,
+                )
+                log_gate_progress(
+                    conn,
+                    since_ms=stamp - GATE_PROGRESS_WINDOW_MS,
+                    required=gate_config.min_scored_recommendations,
                 )
 
             # Set after the pass, from stored state, so the next cadence follows
