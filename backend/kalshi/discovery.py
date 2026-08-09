@@ -350,6 +350,17 @@ class DiscoveredMarket:
     # at 50c and never fill. See `kalshi/grid.py`.
     price_grid: Optional[PriceGrid] = None
 
+    # Kalshi's own settled outcome, `None` while it is not known. See
+    # `read_market_result` for why `None` and `"no"` must not be confused.
+    #
+    # On today's exchange this is `None` for every market discovery sees: the
+    # `/events?status=open` walk carries only `active` markets. It is read here
+    # anyway because the alternative -- a field the parser does not look at --
+    # is how a payload change goes unnoticed, and because a market that settles
+    # early inside a still-open event is a shape this project has not disproved.
+    # `market_results.py` is what actually fills the column.
+    result: Optional[str] = None
+
 
 @dataclass(frozen=True)
 class DiscoveredEvent:
@@ -382,6 +393,58 @@ def _float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+# The only `status` that means a market's outcome is known, and the two values
+# `result` then takes. Both measured against `tests/fixtures/markets_settled.json`
+# rather than documented: 42 of 42 markets returned by `?status=settled` report
+# `finalized`, and `finalized` is itself rejected as a filter with HTTP 400.
+#
+# `backend/settlement.py` holds the same two facts for the paper-P&L path, where
+# it needs to *raise* rather than return `None`. They are two readers of one wire
+# format, which this project has been burned by before, so
+# `tests/test_market_results.py` asserts they agree on all 44 captured markets --
+# neither can drift alone without a red test.
+SETTLED_STATUS = "finalized"
+RESULTS = frozenset({"yes", "no"})
+
+# The payload states the outcome twice. Cross-checked because it costs nothing
+# and is the only independent reading available.
+SETTLEMENT_VALUE = {"yes": "1.0000", "no": "0.0000"}
+
+
+def read_market_result(market: dict) -> Optional[str]:
+    """A market's settled outcome, or `None` if it is not known and trustworthy.
+
+    **`None` is not `"no"`.** Kalshi sends `result` as the empty string on every
+    market whose outcome is unpublished -- all 245 markets in the nested-events
+    capture and all 168 live game markets probed on 2026-08-09 read `""` -- so a
+    reader that treated a falsy `result` as a loss would record a loss for every
+    open market on the exchange. That is the `unreadable-never-zero` rule of
+    `tasks/lessons.md` in its most expensive form: this column is destined for
+    calibration, where a fabricated `no` is not a refused trade but a permanent
+    wrong answer.
+
+    Three states collapse to `None` here, deliberately, because discovery must
+    not fail a whole pass over one odd market: not settled yet, settled but
+    self-contradictory, and a status this parser does not recognise. The strict
+    sibling `settlement.read_outcome` raises on the latter two instead, and its
+    refusals are counted where they can be seen. Use that one when a payload
+    arriving unreadable is news; use this one where the answer is simply absent.
+    """
+    if market.get("status") != SETTLED_STATUS:
+        return None
+
+    result = market.get("result")
+    if result not in RESULTS:
+        return None
+
+    value = market.get("settlement_value_dollars")
+    if value is not None and value != SETTLEMENT_VALUE[result]:
+        # The payload contradicts itself, so neither reading is trustworthy.
+        return None
+
+    return result
 
 
 def build_market(
@@ -420,6 +483,7 @@ def build_market(
         volume_24h=_float(market.get("volume_24h_fp")),
         open_interest=_float(market.get("open_interest_fp")),
         price_structure=market.get("price_level_structure"),
+        result=read_market_result(market),
         # Field names verified against tests/fixtures/events_sports_nested.json
         # and tests/fixtures/market_single.json, not against memory. Prices
         # arrive as dollar STRINGS ("0.4500"), so `dollars_to_tenths` parses

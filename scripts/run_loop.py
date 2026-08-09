@@ -99,6 +99,7 @@ from backend.gate import (  # noqa: E402
     GATE_PROGRESS_WINDOW_MS,
     log_gate_progress,
 )
+from backend.market_results import run_market_result_pass  # noqa: E402
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db  # noqa: E402
@@ -149,10 +150,11 @@ class CombinedPass:
     """
 
     def __init__(self, recording, scoring=None, alerts=None, *, kind="full",
-                 seconds=0.0, settlement=None):
+                 seconds=0.0, settlement=None, market_results=None):
         self.recording = recording
         self.scoring = scoring
         self.settlement = settlement
+        self.market_results = market_results
         self.alerts = alerts
         self.kind = kind
         self.seconds = seconds
@@ -168,6 +170,14 @@ class CombinedPass:
         if self.settlement is not None:
             merged.update(
                 {f"settle_{k}": v for k, v in self.settlement.as_dict().items()}
+            )
+        # `outcome_` and not `settle_`: these two count different populations --
+        # settlement closes paper *positions*, this records the result of every
+        # *market* discovered, bet or not -- and one prefix over both would read
+        # as one number disagreeing with itself.
+        if self.market_results is not None:
+            merged.update(
+                {f"outcome_{k}": v for k, v in self.market_results.as_dict().items()}
             )
         if self.alerts is not None:
             merged.update(
@@ -285,7 +295,7 @@ async def main() -> int:
             the counts describing them are worth saying out loud before the
             traceback -- see `one_pass`.
             """
-            scoring = settlement = None
+            scoring = settlement = market_results = None
             if kind == "full":
                 scoring = await run_scoring_pass(conn, kalshi)
                 # Full pass only. A settled market stays settled, so asking
@@ -293,6 +303,11 @@ async def main() -> int:
                 # requests to be told the same thing -- and the fast cadence
                 # exists to keep quotes inside 30s, which this does not touch.
                 settlement = await run_settlement_pass(conn, kalshi)
+                # Same cadence and the same reason, and one request per event
+                # rather than per market. This is the only writer of
+                # `kalshi_markets.result`, which was NULL for every row of the
+                # project's life -- see `backend/market_results.py`.
+                market_results = await run_market_result_pass(conn, kalshi)
 
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
@@ -337,7 +352,7 @@ async def main() -> int:
 
             return CombinedPass(
                 counts, scoring, alerts, kind=kind, seconds=elapsed,
-                settlement=settlement,
+                settlement=settlement, market_results=market_results,
             )
 
         async def one_pass() -> CombinedPass:
