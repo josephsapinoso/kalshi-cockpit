@@ -53,6 +53,50 @@ being quoted. Paging is not used — `/markets` is newest-first, a page of 200
 spans well under a minute of minting, and CLAUDE.md forbids walking it blind.
 The sample accumulates over *time*.
 
+### Amendment 1 — sampling only, made before any time series was collected
+
+The protocol above yielded **zero echo pairs** on its first two rounds, so no
+observation of movement was possible and none was taken. Disclosed here rather
+than quietly folded into the table above, because an undisclosed amendment is
+how a pre-registration stops meaning anything.
+
+**What was wrong.** `limit=200` on a newest-first page. Kalshi is minting
+~1,900 combinations a minute in `KXMVESPORTSMULTIGAMEEXTENDED` right now, so
+200 rows span about **seventeen seconds** of minting — while a combination
+stays quoted for one to two minutes. The page was narrower than the lifetime of
+the thing being sampled, so most of the quoted population was never visible.
+Measured on the same slate, minutes apart:
+
+| page | series | quoted combinations | echo pairs |
+|---|---|---|---|
+| `limit=200` | 1 | 9 | **0** |
+| `limit=200` | all 8 (6 empty) | 16 | **0** |
+| `limit=1000` | 2 | 104 | **7** |
+
+This is not paging: page 2 is older than any live quote. It is the same newest
+slice of one page, widened until it contains the population.
+
+**What changed.** `PAGE_LIMIT` 200 → 1000; discovery over the two series that
+have any open market on this slate; batch size 60 → 200 tickers per request
+(verified to round-trip whole, combinations included); discovery confined to
+the first 4 rounds, observation still running all 12; interval 15 s → 20 s
+(window ≈ 4 min). Budget accordingly rises from 24 to **≈ 30 calls**, plus 4
+spent on the failed first attempt and ~10 on the diagnostics in the table
+above. Kalshi reads are free and unauthenticated; the ADR's "~20" was an
+estimate, not a constraint, and the constraint that matters — zero Odds API
+credits — is untouched.
+
+**What did NOT change, and this is the point:** the echo definition and its
+0.02 tolerance, the matched-leg choice, the move-event definition, `MOVE_TENTHS`,
+`TRACK_TOL`, the 80% share, the floors of 5 events and 3 pairs, what counts as
+`n`, and exclusion rule R1. Not one threshold that decides the verdict was
+touched, and no time series existed when this amendment was written.
+
+**One honest limitation it introduces:** the diagnostics above were run against
+live data before the window opened. They measured *how many* echo pairs exist,
+never how any of them moves, so they cannot have informed a threshold about
+movement. But they are data, they were looked at, and they are on the record.
+
 ### Definitions — fixed before collection
 
 - `cost_to_buy_leg(L)` is **imported** from

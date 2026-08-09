@@ -113,16 +113,28 @@ MIN_PAIRS = 3
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 
-# One series. `/markets` is newest-first and a page of 200 spans well under a
-# minute of minting, so paging is useless here (CLAUDE.md: never paginate
-# `/markets`); the sample accumulates over rounds instead. One series keeps the
-# per-round cost at two requests, and the echo appears in every scope, so scope
-# coverage is not what limits this measurement.
-DISCOVERY_SERIES = "KXMVESPORTSMULTIGAMEEXTENDED"
+# The two MVE series carrying any open market on this slate. The other six in
+# `measure_combo_correlation.MVE_SERIES` returned zero rows when checked, which
+# is a fact about the calendar; they are left out only because an empty page
+# costs a request.
+DISCOVERY_SERIES = ("KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY")
+
+# **Not 200.** `/markets` is newest-first and Kalshi mints ~1,900 combinations a
+# minute in one of these series, so 200 rows span about **seventeen seconds** of
+# minting -- while a combination stays quoted for one to two minutes. A 200-row
+# page therefore misses most of the quoted population, and it showed: 200 rows
+# yielded 9 quoted combinations and 0 echo pairs, where 1,000 rows across the
+# two series yielded 104 quoted and **7 echo pairs** for two extra requests.
+#
+# This is not paging. Page 2 would be older than any live quote; the whole
+# window is still the newest slice of one page, just a slice wide enough to
+# contain the thing being measured.
+PAGE_LIMIT = 1000
 
 # Cap on how many tickers go into one batched read, so a URL cannot silently
-# truncate. Kalshi accepts `tickers=a,b,c` on `/markets` (verified 2026-08-09).
-MAX_BATCH = 60
+# truncate. Kalshi accepts `tickers=a,b,c` on `/markets` (verified 2026-08-09,
+# combinations included), and 200 per request was verified to round-trip whole.
+MAX_BATCH = 200
 
 logger = logging.getLogger("measure_combo_leg_echo")
 
@@ -194,7 +206,7 @@ class PublicReader:
         response.raise_for_status()
         return response.json()
 
-    async def markets_page(self, series: str, *, limit: int = 200) -> list[dict]:
+    async def markets_page(self, series: str, *, limit: int = PAGE_LIMIT) -> list[dict]:
         payload = await self.get(
             "/markets", series_ticker=series, status="open", limit=limit
         )
@@ -305,7 +317,12 @@ def discover(
 
 
 async def run(
-    reader: PublicReader, *, rounds: int, interval_s: float, max_pairs: int
+    reader: PublicReader,
+    *,
+    rounds: int,
+    discovery_rounds: int,
+    interval_s: float,
+    max_pairs: int,
 ) -> list[Pair]:
     pairs: list[Pair] = []
     known: set[str] = set()
@@ -314,19 +331,27 @@ async def run(
         if round_index:
             await asyncio.sleep(interval_s)
 
-        # 1. Re-read the newest page. Discovery and observation are interleaved
-        #    deliberately: a combination minted in round 7 is observable for
-        #    five more rounds, whereas a discovery phase followed by an
-        #    observation phase would only ever watch the oldest pairs -- the
-        #    ones most likely to have already stopped being quoted.
-        page = await reader.markets_page(DISCOVERY_SERIES)
+        # Discovery runs in the FIRST rounds only, then stops. Staggering the
+        # starts is what interleaving buys -- a pair discovered in round 3
+        # still has most of the window ahead of it -- but discovering in every
+        # round costs a page read and a leg batch each time for pairs that
+        # arrive too late to contribute a move event. Observation continues for
+        # every tracked pair to the end of the run either way.
+        discovering = round_index < discovery_rounds and len(pairs) < max_pairs
 
-        # 2. One batched read carrying every tracked ticker AND every leg of
-        #    every quoted combination on the page. One request, one moment.
+        page: list[dict] = []
+        if discovering:
+            for series in DISCOVERY_SERIES:
+                page.extend(await reader.markets_page(series))
+
+        # One batched read carrying every tracked ticker AND, while
+        # discovering, every leg of every quoted combination on the page. One
+        # request set, one moment, so a combination and its leg are read
+        # together rather than argued to be contemporaneous.
         wanted: list[str] = []
         for pair in pairs:
             wanted.extend([pair.combo_ticker, pair.matched_leg_ticker])
-        if len(pairs) < max_pairs:
+        if discovering:
             for market in page:
                 if (market.get("ticker") or "") in known:
                     continue
@@ -347,9 +372,8 @@ async def run(
         for pair in pairs:
             pair.samples.append(sample_for(pair, round_index, now_ms, rows))
 
-        if len(pairs) < max_pairs:
-            fresh = discover(page, rows, known, round_index)
-            for pair in fresh:
+        if discovering:
+            for pair in discover(page, rows, known, round_index):
                 if len(pairs) >= max_pairs:
                     break
                 pairs.append(pair)
@@ -357,8 +381,9 @@ async def run(
                 pair.samples.append(sample_for(pair, round_index, now_ms, rows))
 
         logger.info(
-            "round %d/%d: %d tracked pairs, %d API calls so far",
-            round_index + 1, rounds, len(pairs), reader.calls,
+            "round %d/%d%s: %d tracked pairs, %d API calls so far",
+            round_index + 1, rounds, " (discovering)" if discovering else "",
+            len(pairs), reader.calls,
         )
 
     return pairs
@@ -465,8 +490,9 @@ def report(pairs: list[Pair], calls: int) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=12)
-    parser.add_argument("--interval", type=float, default=15.0)
-    parser.add_argument("--max-pairs", type=int, default=10)
+    parser.add_argument("--discovery-rounds", type=int, default=4)
+    parser.add_argument("--interval", type=float, default=20.0)
+    parser.add_argument("--max-pairs", type=int, default=12)
     parser.add_argument("--json", type=Path, default=None)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -479,6 +505,7 @@ def main() -> int:
             pairs = await run(
                 reader,
                 rounds=args.rounds,
+                discovery_rounds=args.discovery_rounds,
                 interval_s=args.interval,
                 max_pairs=args.max_pairs,
             )
