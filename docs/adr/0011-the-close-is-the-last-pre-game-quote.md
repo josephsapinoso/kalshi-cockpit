@@ -207,3 +207,36 @@ it lowers the benchmark's generosity, so if a positive CLV survives at the 0h
 horizon it means more than the same number would have meant at 1h. Equally, a
 result that was going to look good against an hour-old price may now look like
 nothing. That is the point of the change.
+
+---
+
+## Addendum, 2026-08-09 — the retention window is measured: ~80 days
+
+This ADR recorded candlestick retention as an unmeasured unknown. It is now
+measured, for free, by `scripts/measure_candlestick_retention.py`:
+
+    age (days)   probed  bars   empty   no market  candles err
+    0-9          2       2      0       0          0
+    ...          (every bucket to 79 identical)
+    70-79        2       2      0       0          0
+    80-89        2       0      0       2          0
+    90-99        2       0      0       2          0
+
+**Kalshi serves candlesticks for roughly 80 days, then the market disappears
+entirely.** Not merely delisted: `/markets?event_ticker=` returns nothing *and*
+every constructed market ticker 404s, while the identical construction resolves
+both sides of a game at 5 and 60 days. Listing and history expire together.
+
+Two consequences.
+
+**For scoring, none.** The close is read within minutes of kickoff and games
+settle the same day, so 80 days is two orders of magnitude more than the path
+needs. The worry this ADR filed — that some of the 190 unscoreable rows had aged
+out rather than been ordered wrongly — is refuted: every one of them is inside
+the window, so the ordering rule is the whole explanation.
+
+**For a historical backtest, it is the binding constraint and it is survivable.**
+The Odds API keeps snapshots back to 2020, but a sportsbook line older than ~80
+days has no Kalshi close to score against, and Rule 3 does not bend. So a
+backfill's horizon is ~80 days regardless of what the odds side offers — about
+1,200 MLB games, comfortably above the gate's 300.
