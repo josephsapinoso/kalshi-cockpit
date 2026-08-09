@@ -15,7 +15,7 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is `b3656a5`, pushed, CI green on every push. **1,405 tests**, ruff
+`main` is `bd569c5`, pushed, CI green on every push. **1,405 tests**, ruff
 green, `next build` clean, six pages measured at 320/390/430 and looked at.
 
 **Demo is deployed and verified** on the current image: six pages 200,
