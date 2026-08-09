@@ -135,7 +135,14 @@ It separates them because it decomposes the (b) gap into two terms:
 
     list_ask - book_derived_ask
         = [list_ask - (1 - list_no_bid)]      the ENGINE term
-        + [list_no_bid - book_best_no_bid]    the SKEW term
+        - [list_no_bid - book_best_no_bid]    the SKEW term
+
+**Note the minus.** Both terms are defined as "the list's value minus the other
+value", but an ask is `1 - bid`, so a difference in the *bid* enters the *ask*
+with a flipped sign. The pre-registration wrote this identity with a `+`; that
+was an arithmetic slip in the prose, corrected here and declared in the E3
+write-up's RESULTS. It changes nothing measured: (d) and (e) are each defined
+directly on their own term, not via the sum.
 
 The engine term is computed from two fields of **one payload, read at one
 moment**. No latency between endpoints and no price move can produce it. If it
@@ -363,7 +370,14 @@ class Row:
     #
     #   list_ask - book_derived_ask
     #       = [list_ask - (1 - list_no_bid)]     <- the ENGINE term
-    #       + [list_no_bid - book_best_no_bid]   <- the SKEW term
+    #       - [list_no_bid - book_best_no_bid]   <- the SKEW term
+    #
+    # The MINUS is not a typo. Both terms are "the list's value minus the
+    # other's", but an ask is `1 - bid`, so a bid difference enters the ask
+    # with a flipped sign. Equivalently, in terms of `ask_diff`, which this
+    # class defines as `derived_ask - list_ask`:
+    #
+    #   ask_diff = skew_gap - engine_gap
     #
     # The engine term lives entirely inside ONE payload read at ONE moment, so
     # no amount of latency between endpoints can produce it. If it is non-zero
@@ -771,10 +785,15 @@ def report(rows: list[Row], calls: int) -> None:
         if not rows_b:
             print("          No (b) disagreement had both terms readable.")
         for row in rows_b:
+            # `ask_diff` is `derived_ask - list_ask`, so the identity is
+            # ask_diff = skew - engine. Printed as an equation that actually
+            # balances, so a reader can check it rather than trust it.
+            engine = row.engine_gap or 0.0
+            skew = row.skew_gap or 0.0
+            assert abs((skew - engine) - (row.ask_diff or 0.0)) < 1e-9
             print(f"          {row.ticker[-13:]:<13} "
                   f"total {row.ask_diff:+.4f} = "
-                  f"engine {-(row.engine_gap or 0.0):+.4f} + "
-                  f"skew {-(row.skew_gap or 0.0):+.4f}")
+                  f"skew {skew:+.4f} - engine {engine:+.4f}")
         print("\n          Reading it: a non-zero ENGINE term means the list")
         print("          ask is not this row's own no-bid complement, so (b)")
         print("          is about a pricing engine, not about staleness. A")

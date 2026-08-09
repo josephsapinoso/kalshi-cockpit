@@ -1,8 +1,12 @@
 # E3: is an MVE list ask derived from that market's own order book at all?
 
 Date: 2026-08-09
-Status: **pre-registered — everything above `RESULTS` was committed to git
-before a single `no_bid_dollars` was read.**
+Status: **complete.** Everything above `RESULTS` was committed to git
+(`5dad526`) before a single `no_bid_dollars` was read; nothing in it was edited
+afterwards, including the prediction and the decision rule.
+
+**Answer: the list ask IS derived from the list row's own NO bid — 9 of 9 rows,
+exactly. The entire E2 (b) gap is cross-endpoint skew, not a pricing engine.**
 
 ## Why this exists
 
@@ -153,5 +157,183 @@ as such, not worked around.
 
 ## RESULTS
 
-*(Not yet run. This section is written after collection and nothing above it
-changes.)*
+Status: **complete.** One pass, **13 free unauthenticated Kalshi calls** (under
+the 24 budgeted, because fewer rows qualified), zero Odds API credits, zero
+orders, zero rows aborted on a malformed envelope. Raw data:
+`2026-08-09-combo-e3-list-no-bid.json`.
+
+**Headline: the engine term is zero on 9 of 9 rows.** `list_ask` is exactly
+`1 − list_no_bid` on every row in this sample, to the last deci-cent. The
+entire E2 (b) gap sits in the **skew** term.
+
+### The sampling fix worked — this is the first sample of the right population
+
+| | E2 (n = 20) | **E3 (n = 9)** | the 2,116-row harvest |
+|---|---|---|---|
+| `KXMVECROSSCATEGORY` | 0 | **5** | 1,395 (66%) |
+| `KXMVESPORTSMULTIGAMEEXTENDED` | 20 | **4** | 721 (34%) |
+| rows at 2–3 legs | 3 | **9/9** | 2,116/2,116 |
+
+Round-robin selection reached both series and `--max-legs 3` held. E3 is drawn
+from a population that structurally matches the harvest; E2 was not.
+
+The cost of that is `n`. Only **9** eligible rows existed at ≤3 legs across two
+1,000-row discovery pages — the harvest's population is a small minority of
+quoted combinations at any instant, which is itself worth knowing and was not
+previously on the record.
+
+### (d) The engine term — the pre-registered primary quantity
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| `\|list_ask − (1 − list_no_bid)\| ≤ 0.0005` | **9/9** | **100%** | **[70.1%, 100%]** |
+
+Not "within tolerance" — **exactly zero.** Every recorded `engine_gap` is
+either `0.0` or floating-point noise at 1e-17 (`2.78e-17`, `−5.55e-17`). There
+is no row where the list ask is anything other than the complement of the list
+row's own NO bid.
+
+This includes all three empty-book rows, and it includes both rows where the
+list disagreed with the book.
+
+### (e) The skew term
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| `list_no_bid` equals the book's best NO bid | 4/6 | 66.7% | [30.0%, 90.3%] |
+
+Denominator is the 6 rows with both a readable `list_no_bid` and a non-empty NO
+side, as pre-registered.
+
+### (f) The decomposition, on every (b) disagreement
+
+Two rows disagreed. Both decompose the same way:
+
+| row | `derived − list` | skew | engine |
+|---|---|---|---|
+| `…9-2E269187E84` | **+0.3050** | **+0.3050** | **0.0000** |
+| `…6-408218CBD70` | **+0.0470** | **+0.0470** | **0.0000** |
+
+**100% of the observed gap is skew. None of it is engine.**
+
+#### A sign error in the pre-registered formula, declared
+
+The pre-registration above writes the decomposition as
+
+    list_ask − book_derived_ask = [engine term] + [skew term]
+
+**The sign is wrong; it is a minus.** Both terms are defined as "the list's
+value minus the other value", but an ask is `1 − bid`, so a difference in the
+*bid* enters the *ask* flipped. The correct identity is
+`list_ask − derived_ask = engine − skew`, equivalently
+`ask_diff = skew − engine`.
+
+Nothing measured depended on it. **(d) and (e) are each defined directly on
+their own term**, not via the sum, so both rates and the decision rule are
+unaffected. What it did break was the harness's per-row decomposition line,
+which printed an equation that did not balance. It was caught by a test written
+to assert the identity, not by reading the output — and it was invisible in the
+data itself precisely because the engine term is zero on every row, which makes
+its sign unobservable. A second test with **both** terms non-zero now
+discriminates the two forms, and the harness asserts the identity before
+printing it.
+
+The pre-registration is left unedited above; this is the correction.
+
+`…9-2E269187E84` is worth naming. Its list row reported a best NO bid of
+**0.7070** while the book's best was **0.4020** — a **30.5-cent** disagreement
+between two endpoints read 0.71 s apart. The re-read then returned an ask of
+**0.5980**, which is the book's derived value **exactly**. The list moved to
+where the book already was.
+
+`…6-408218CBD70` moved the same direction and overshot: list 0.2950 → re-read
+0.3470, against a book deriving 0.3420. Consistent with a genuinely moving
+price observed at three different instants.
+
+### What the result answers, by the pre-registered decision rule
+
+The rule fixed before collection: **(d) high, (e) low → the list ask is derived
+from the list row's own no-bid, but the two endpoints read different snapshots.
+Replica skew, not a pricing engine.** That is the cell this run landed in.
+
+So E2's finding (b) is a **staleness/skew** finding, not a pricing-engine
+finding. The competing explanation that prompted E3 does not survive in this
+sample.
+
+**The pre-registered falsifier fired — and the falsifier was drawn slightly too
+wide.** It said a zero engine term everywhere means "the pricing-engine
+explanation is dead in this sample". Strictly, it is not. A pricing engine that
+emits a *mutually consistent* `(no_bid, yes_ask)` pair and disagrees with the
+book would produce exactly this table. What is genuinely excluded is the form
+of the hypothesis that predicts a **self-inconsistent summary row**.
+
+The honest narrowing is still substantial: the disagreement between `/markets`
+and the order book is a disagreement about **one** quantity, the best NO bid,
+not two. And on both disagreeing rows the list moved toward the book, not away
+from it. This is written down rather than smoothed over because over-claiming
+from a satisfied falsifier is exactly the failure E2's prose was corrected for.
+
+### The prediction, scored
+
+The pre-registration predicted **(d) ≥ 90% and (e) lower**. Both held: 100% and
+66.7%. The recorded hedge — that E2's `…0646AEECAFB` row, whose re-read matched
+the book's *deeper* level rather than its best, is hard to fit into this
+picture — is **unresolved**: no row in this sample showed that shape, and at
+`n = 9` its absence means nothing.
+
+### An observation that was not pre-registered, flagged as such
+
+On all **three** empty-book rows, the list payload carried a **non-zero** NO
+bid — 0.7810, 0.3000 and 0.5290 — while the order book carried no NO level at
+all. The two endpoints flatly contradicted each other about whether resting
+size existed.
+
+By the re-read, all three had `no_bid_dollars = 0.0` exactly, and
+`readable_quote` therefore refused them (an ask of 1.0 fails `0 < ask < 1`).
+
+This was not a pre-registered quantity and no rate is computed from it. It is
+recorded because it **measures** a mechanism that E2's revised write-up had only
+argued for: `yes_ask = 1 − no_bid` holds on the list row, so when a book empties
+the list's ask must eventually become unreadable rather than merely wrong. That
+is the forced direction which demoted E2's Fisher test — now observed rather
+than reasoned about.
+
+### Incidental: the book-empty rate on the right population
+
+E3's pass re-observes E2's (a) on a correctly-drawn sample. **This was not E3's
+registered question**, no threshold was fixed for it in advance, and it is one
+slate at `n = 9`. It is reported because suppressing a number because it was
+not the registered one is its own bias.
+
+| | k/n | rate | 95% Wilson |
+|---|---|---|---|
+| book empty | 3/9 | 33.3% | [12.1%, 64.6%] |
+| of the 6 still quoted at the re-read, book empty | 0/6 | 0.0% | [0.0%, 39.0%] |
+
+Per series: `KXMVECROSSCATEGORY` 2/5, `KXMVESPORTSMULTIGAMEEXTENDED` 1/4. **No
+pooled rate is claimed** and neither cell can agree or disagree with the other
+at these counts.
+
+The interval [12.1%, 64.6%] is too wide to be a finding. What it does do is
+remove the structural objection: this is the first book-empty observation drawn
+from a sample matching the harvest's series mix and leg-count rule. The
+qualitative statement — a combination's list ask can be unbacked — now holds on
+the right population. **No quantitative statement about the 2,116 rows follows,
+and none is made.**
+
+---
+
+## What E3 does NOT establish
+
+Beyond the six limits fixed before collection, all of which still apply:
+
+- **Not that `no_bid_dollars` itself comes from the book.** (d) shows the two
+  summary fields are consistent with each other, not where either originates.
+- **Not a rate for the 2,116 rows.** `n = 9`, one slate, and the interval on
+  every quantity here spans most of the plausible range.
+- **Not the direction of the lag, as a rule.** Two rows moved toward the book.
+  Two rows are two rows.
+- **Not that 30.5c skew is typical.** It is the largest value in a sample of
+  six, and the largest value in a small sample is the one most likely to be
+  extreme.
+- **Not an edge.** No fair value, no fee model, no order.

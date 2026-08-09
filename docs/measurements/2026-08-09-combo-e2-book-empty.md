@@ -233,6 +233,11 @@ rather than substituting 0. So the cell "book empty **and** still quoted", the
 cell that carries the whole p-value, is the cell the definitions forbid from
 being populated.
 
+That mechanism is no longer an argument. E3 measured it: `list_ask` is exactly
+`1 − list_no_bid` on 9 of 9 rows, and on all three of its empty-book rows the
+re-read returned `no_bid_dollars = 0.0`, at which point `readable_quote` refuses
+the row. The forced direction fires exactly as described.
+
 **But it is not a tautology, and the converse is falsified in-sample.** If the
 table could not fire on any input it would be worthless; it can. Two rows —
 `…7595CFE5F2` and `…B69FB10A5D4` — lost their list ask while **holding a
@@ -332,7 +337,16 @@ The earlier version noticed the deeper level was "0.2c from the list's 0.5490"
 and missed that the re-read matches it to the digit. At no point in the window
 does the list equal the top-of-book derivation. This is `n = 1` and is a
 pointer, not a finding: it says the list ask may not be a top-of-book
-derivation at all, which is exactly what the follow-up check below tests.
+derivation at all.
+
+**That pointer has since been followed and did not hold up.**
+`2026-08-09-combo-e3-list-no-bid.md` recorded `no_bid_dollars` off the same list
+payload — the observation that was on the wire during E2 and was not kept — and
+found `list_ask == 1 − list_no_bid` **exactly, on 9 of 9 rows**. The list ask is
+the complement of the list row's own NO bid. Both E2-style disagreements
+decompose to **100% skew, 0% engine**: the `/markets` row and the order book
+disagree about the best NO bid, by up to **30.5c**, and the list moves toward
+the book. So (b) is a staleness/skew finding. It is not a pricing engine.
 
 ### (c) Does any level derive to within 2c of a leg's cost?
 
@@ -485,10 +499,17 @@ cannot be read as having already answered it:
 > book-empty rate **per series**, never pooled, because the two series are
 > minted by different generators and nothing here shows they behave alike.
 
-Both changes are now in the harness (`round_robin`, `--max-legs 3`). The run
-itself is not made here: E2's numbers stand as recorded, and re-running the
-harness until the sample looks better is the move this document exists to
-avoid.
+Both changes are now in the harness (`round_robin`, `--max-legs 3`). **E2's
+numbers are not re-run under them** — re-running a harness until the sample
+looks better is the move this document exists to avoid.
+
+E3's pass did use the fixed sampling, and it worked: 5/9 `KXMVECROSSCATEGORY`,
+4/9 `KXMVESPORTSMULTIGAMEEXTENDED`, 9/9 at 2–3 legs. Its incidental book-empty
+rate is **3/9, CI [12.1%, 64.6%]** — too wide to be a finding, but the first
+such observation on a sample that structurally matches the harvest. It also
+showed the cost of doing this properly: only **9** eligible rows existed at ≤3
+legs across two 1,000-row discovery pages, so the `n` this measurement needs
+will take repeated passes across slates, not one bigger page.
 
 ---
 
@@ -511,9 +532,10 @@ apply — with one of them now known to have been the wrong limit:
   21.5%. It is not zero — and one direction of the association it sits inside
   is mechanism-forced.
 - **Not that any (b) disagreement is a pricing error.** The re-read adjudicates
-  4 of the 5 and splits them 2 for the move/lag story and 2 against; it does
-  not establish what the other explanation *is*. That is what the follow-up
-  check below was added to test.
+  4 of the 5 and splits them 2 for the move/lag story and 2 against. E3 has
+  since shown the gap is **cross-endpoint skew and not a pricing engine**, but
+  "skew" is a description of where the gap lives, not a claim that any
+  particular quoted price was wrong.
 - **Not that age, exposure or read position drives the empty books.** All three
   are perfectly collinear in this design and cannot be separated by any
   re-analysis of this data.

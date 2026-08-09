@@ -329,6 +329,98 @@ class TestAPooledRateIsSplitOnTheQuoterThatCarriesIt:
         assert sig == ((), ((0.998, 300.0),))
 
 
+class TestTheEngineTermSeparatesWhatTimingCannotExplain:
+    """E3. The gap `list_ask - (1 - list_no_bid)` lives inside ONE payload.
+
+    Latency between endpoints cannot produce it, which is the whole reason the
+    field was added: it is the only part of E2's (b) that a price move cannot
+    explain away.
+    """
+
+    def _row(self, list_ask: float, list_no_bid, no_bid_on_book=None) -> Row:
+        book = ({"no_dollars": [[f"{no_bid_on_book:.4f}", "10"]],
+                 "yes_dollars": []}
+                if no_bid_on_book is not None
+                else {"no_dollars": [], "yes_dollars": []})
+        return Row(
+            ticker="T", series="S", collection="", scope="cross_game",
+            created_ms=None, legs=(), list_ask=list_ask, list_bid=None,
+            list_no_bid=list_no_bid, list_observed_ms=0, volume=None,
+            open_interest=None, book=book,
+        )
+
+    def test_a_self_consistent_list_row_has_a_zero_engine_term(self):
+        row = self._row(0.2930, 0.7070)
+        assert row.engine_gap == pytest.approx(0.0, abs=1e-12)
+        assert row.list_is_internally_derived is True
+
+    def test_a_list_row_that_is_not_its_own_complement_is_caught(self):
+        # The falsifier. If this ever fires on real data, the list ask is not
+        # derived from that row's own NO bid.
+        row = self._row(0.2930, 0.6000)
+        assert row.list_is_internally_derived is False
+
+    def test_an_unreadable_no_bid_gives_none_not_zero(self):
+        # `None` means "cannot answer" and leaves (d)'s denominator. A 0.0
+        # substitution would silently score the row as a 100% engine gap.
+        row = self._row(0.2930, None)
+        assert row.engine_gap is None
+        assert row.list_is_internally_derived is None
+
+    def test_the_two_terms_account_for_the_whole_gap(self):
+        # The identity the decomposition rests on, with the sign it actually
+        # has. An ask is `1 - bid`, so a difference in the BID enters the ASK
+        # flipped:
+        #   list_ask - derived_ask = engine - skew
+        # equivalently, since ask_diff is `derived_ask - list_ask`:
+        #   ask_diff = skew - engine
+        #
+        # The E3 pre-registration wrote this with a `+`. Nothing measured
+        # depended on it -- (d) and (e) are each defined on their own term --
+        # but the per-row decomposition line printed an equation that did not
+        # balance, and this test is what caught it.
+        row = self._row(0.2930, 0.7070, no_bid_on_book=0.4020)
+        assert row.skew_gap == pytest.approx(0.3050)
+        assert row.engine_gap == pytest.approx(0.0, abs=1e-12)
+        assert row.list_ask - row.derived_ask == pytest.approx(
+            row.engine_gap - row.skew_gap
+        )
+        assert row.ask_diff == pytest.approx(row.skew_gap - row.engine_gap)
+
+    def test_the_identity_holds_when_BOTH_terms_are_non_zero(self):
+        # With engine == 0 everywhere in the real run, a sign error in the
+        # engine term is invisible. This row has both terms non-zero, so it
+        # discriminates the `+` form from the `-` form.
+        row = self._row(0.3000, 0.7070, no_bid_on_book=0.4020)
+        assert row.engine_gap == pytest.approx(0.007)
+        assert row.skew_gap == pytest.approx(0.3050)
+        assert row.ask_diff == pytest.approx(0.3050 - 0.007)
+        assert row.ask_diff != pytest.approx(0.3050 + 0.007)
+
+    def test_an_empty_book_gives_no_skew_term_rather_than_a_full_one(self):
+        # An empty book has no best bid to differ from. Scoring it as a
+        # mismatch would re-report E2's (a) inside E3's (e).
+        row = self._row(0.2190, 0.7810)
+        assert row.skew_gap is None
+        assert row.list_no_bid_matches_book is None
+        # ...but the engine term is still answerable, and that is the point:
+        # the list row carried a 0.7810 NO bid while the book carried none.
+        assert row.list_is_internally_derived is True
+
+    def test_the_recorded_e3_run_has_a_zero_engine_term_on_every_row(self):
+        run = json.loads(
+            (_ROOT / "docs" / "measurements"
+             / "2026-08-09-combo-e3-list-no-bid.json").read_text(encoding="utf-8")
+        )
+        gaps = [r["engine_gap"] for r in run["rows"]]
+        assert gaps, "no row recorded an engine term; E3 proves nothing"
+        assert all(g is not None and abs(g) < 1e-12 for g in gaps), (
+            "the headline claim of E3 is that this is exactly zero, not merely "
+            "within tolerance"
+        )
+        assert all(r["list_is_internally_derived"] for r in run["rows"])
+
+
 class TestWilsonSpeaksHonestlyAtSmallN:
     def test_zero_of_fourteen_does_not_claim_zero(self):
         lo, hi = wilson(0, 14)
