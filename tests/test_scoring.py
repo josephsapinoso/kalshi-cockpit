@@ -294,22 +294,44 @@ class TestTheScoringPassRespectsTheTemporalRule:
     modules and nothing links them, so this pins the interaction.
     """
 
-    async def test_a_recommendation_made_after_the_line_is_not_scored(self, conn):
-        """The live shape: the runner records right up to kickoff.
+    async def test_an_entry_after_the_line_is_not_scored(self, conn):
+        """The rule itself, at the primary horizon.
 
-        A recommendation written 30 minutes before the game cannot be scored
-        against the line read an hour before it. Without the rule this scored,
-        and the number depended entirely on which way the market drifted in the
-        intervening half hour.
+        The line is observed at kickoff, so an entry *after* kickoff post-dates
+        it. The runner refuses to record a started game now, but rows written
+        before that guard existed are on the live volume, and the rule is what
+        stops them being scored against a price that predates them.
         """
-        _seed(conn, created_ms=TRUE_COMMENCE - 30 * 60_000)
+        _seed(conn, created_ms=TRUE_COMMENCE + 30 * 60_000)
         counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
 
         assert counts.scored == 0
+        assert counts.skipped_entry_after_close == 1
         assert counts.skipped_no_mid == 0, "wrong reason -- the quote was readable"
         assert conn.execute(
             "SELECT clv_tenths FROM recommendations"
         ).fetchone()["clv_tenths"] is None
+
+    async def test_the_rule_is_relative_to_the_horizon_not_to_kickoff(self, conn):
+        """The same entry, scoreable at one horizon and not at another.
+
+        A recommendation 30 minutes before kickoff sits *after* a line read an
+        hour out and *before* one read at kickoff. That is the whole of ADR
+        0011 in one pair: the horizon decides which rows can be measured at all,
+        and at 1.0h against today's sweep timing the answer was none of them.
+        """
+        _seed(conn, created_ms=TRUE_COMMENCE - 30 * 60_000)
+
+        at_an_hour = await run_scoring_pass(
+            conn, FakeKalshi(), now=NOW, primary_horizon=1.0
+        )
+        assert at_an_hour.scored == 0
+        assert at_an_hour.skipped_entry_after_close == 1
+
+        at_kickoff = await run_scoring_pass(
+            conn, FakeKalshi(), now=NOW, primary_horizon=DEFAULT_HORIZON_HOURS
+        )
+        assert at_kickoff.scored == 1
 
     async def test_an_earlier_recommendation_on_the_same_game_is_scored(self, conn):
         """The discriminating pair: same fixture, same line, different entry time."""

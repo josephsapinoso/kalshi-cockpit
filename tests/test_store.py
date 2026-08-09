@@ -255,6 +255,33 @@ class TestMigration:
         assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
         conn.close()
 
+    def _seed_scored_recommendation(self, conn):
+        """One recommendation carrying a score taken at the old 1.0h horizon."""
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, first_seen_ms, last_seen_ms) "
+            "VALUES ('T', 0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale, approved_by_user) "
+            "VALUES (1, 0, 0, '{}', '', 0)"
+        )
+        line = conn.execute(
+            "INSERT INTO closing_lines (ticker, horizon_hours, observed_ms, "
+            "yes_bid_tenths, yes_ask_tenths) VALUES ('T', 1.0, 100, 510, 530)"
+        )
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, strategy_config_version, "
+            "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+            "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+            "kalshi_quote_age_ms, odds_age_ms, reason_text, clv_tenths, "
+            "clv_scored_ms, closing_line_id, clv_horizon_hours) "
+            "VALUES (0, 1, 'T', 'yes', 480, 0.55, 20.0, 0.1, 0.5, 0.02, 10, "
+            "1000, 60000, 'seeded', 40.0, 999, ?, 1.0)",
+            (line.lastrowid,),
+        )
+        conn.commit()
+
     def _seed_order(self, conn):
         """One market and one order, so a settlement row has something to point at.
 
@@ -275,6 +302,44 @@ class TestMigration:
             "VALUES ('c1', 0, 'T', 'yes', 'buy', 'limit', 3, 500, 'dry_run', "
             "'{}', 1)"
         )
+
+    def test_v5_returns_the_old_horizons_scores_to_the_queue(self, tmp_path):
+        """The migration's UPDATE, which nothing exercised.
+
+        Found by disabling: replacing v5's statements with `()` left the whole
+        store suite green. ADR 0011 moves the primary horizon, so a row scored
+        against the old 1.0h line holds a **control**-horizon value in the
+        primary column. Leaving it there is the silent mixture
+        `clv_horizon_hours` exists to prevent.
+        """
+        path = tmp_path / "v4scored.db"
+        conn = db.init_db(path)
+        self._seed_scored_recommendation(conn)
+
+        # Wind back to a genuine v4: the column did not exist there.
+        conn.execute("ALTER TABLE recommendations DROP COLUMN clv_horizon_hours")
+        conn.execute("UPDATE meta SET value = '4' WHERE key = 'schema_version'")
+        conn.commit()
+
+        assert 5 in db.migrate(conn)
+
+        row = conn.execute(
+            "SELECT clv_tenths, clv_scored_ms, closing_line_id, "
+            "clv_horizon_hours FROM recommendations"
+        ).fetchone()
+        assert row["clv_scored_ms"] is None, "the stale score survived"
+        assert row["clv_tenths"] is None
+        assert row["closing_line_id"] is None, (
+            "a pointer to a line the row is no longer scored against"
+        )
+        assert row["clv_horizon_hours"] is None
+
+        # Reversible: the line it was scored against is untouched, so the old
+        # value can be recomputed. Nothing was destroyed.
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM closing_lines WHERE horizon_hours = 1.0"
+        ).fetchone()["n"] == 1
+        conn.close()
 
     def test_columns_run_before_statements(self, tmp_path):
         """v3's index is over a column v3 itself adds, so the order is load-bearing.
@@ -343,7 +408,11 @@ class TestMigration:
         # what a crash between the last statement and the stamp leaves behind.
         conn.execute("UPDATE meta SET value = '3' WHERE key = 'schema_version'")
         conn.commit()
-        assert db.migrate(conn) == [4]
+        # `in`, not `==`: winding back to v3 re-runs every later step, so this
+        # list grows with each new version. Asserting equality would make every
+        # future migration turn this test red for a reason unrelated to what it
+        # checks -- which is that v4's rebuild does not fire twice.
+        assert 4 in db.migrate(conn)
 
         rows = conn.execute("SELECT COUNT(*) AS n FROM settlements").fetchone()
         assert rows["n"] == 1, "the rebuild ran again and dropped the real table"

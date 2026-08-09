@@ -17,6 +17,8 @@ import time
 
 import pytest
 
+from backend.analysis.clv import CONTROL_HORIZON_HOURS, DEFAULT_HORIZON_HOURS
+
 from backend.config import GateConfig, StalenessConfig
 from backend.engine import confirm_recommendation
 from backend.gate import (
@@ -394,7 +396,7 @@ _DEFAULT_EVENT = object()
 def _add_recommendation(
     conn, *, clv_tenths=None, scored=True, quote_age=1000, odds_age=60_000,
     suppressed=None, created_ms=None, ask=503, ticker="T", event=_DEFAULT_EVENT,
-    contracts=20,
+    contracts=20, horizon=DEFAULT_HORIZON_HOURS,
 ):
     """Insert one recommendation, and the market row it hangs off.
 
@@ -426,14 +428,17 @@ def _add_recommendation(
             fair_probability, edge_tenths, fee_predicted, ev_net_dollars,
             suggested_contracts, kelly_fraction, kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
-            clv_scored_ms
+            clv_scored_ms, clv_horizon_hours
         ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, ?, 0.02, ?, ?, ?,
-                  'test', ?, ?)
+                  'test', ?, ?, ?)
         """,
         (
             created_ms or int(time.time() * 1000), ticker, ask, contracts,
             quote_age, odds_age, suppressed, clv_tenths,
             int(time.time() * 1000) if scored else None,
+            # See the note in test_quote_refresh's builder: without this the
+            # gate cannot see the row and every test below reads 423.
+            horizon if scored else None,
         ),
     )
     conn.commit()
@@ -1288,3 +1293,51 @@ class TestTheGateCanActuallyOpen:
         assert not evaluate_gate(
             conn, armed, kalshi_quote_age_ms=900_000, odds_age_ms=60_000
         ).open
+
+
+class TestTheGateCountsOneHorizonOnly:
+    """Found by disabling: removing the horizon filter from `clustered_clv` left
+    the suite green.
+
+    Not an unreachable guard — a missing input. Every fixture scored every row
+    at one horizon, so a filter on it could not change any outcome. The
+    discriminating case needs two horizons in one database, which is exactly the
+    state ADR 0011 creates: the record now holds 1.0h lines as the control while
+    the primary is 0.0.
+    """
+
+    def test_a_row_scored_at_the_control_horizon_does_not_count(self, gate_db):
+        conn = _conn(gate_db)
+        _add_recommendation(
+            conn, clv_tenths=20.0, ticker="A", event="E1",
+            horizon=DEFAULT_HORIZON_HOURS,
+        )
+        _add_recommendation(
+            conn, clv_tenths=20.0, ticker="B", event="E2",
+            horizon=CONTROL_HORIZON_HOURS,
+        )
+
+        stats = clustered_clv(conn)
+        assert stats.n_rows == 1, (
+            "the gate averaged rows anchored at two different instants"
+        )
+        assert stats.n_clusters == 1
+
+    def test_changing_the_horizon_drops_the_counter_rather_than_blending(
+        self, gate_db
+    ):
+        """The consequence, asserted as the intended behaviour.
+
+        A horizon change must invalidate evidence *loudly*. If the counter held
+        steady while the anchor moved, the gate would be averaging two
+        measurements and reporting the mixture under one name — the failure
+        `clv_by_population` was built to end, one level down.
+        """
+        conn = _conn(gate_db)
+        for i in range(5):
+            _add_recommendation(
+                conn, clv_tenths=20.0, ticker=f"T{i}", event=f"E{i}",
+                horizon=CONTROL_HORIZON_HOURS,
+            )
+
+        assert clustered_clv(conn).n_rows == 0

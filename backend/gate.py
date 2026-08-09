@@ -53,6 +53,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .config import GateConfig, StalenessConfig
+from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .core.fees import FEE_MATCH_TOLERANCE_DOLLARS
 
 logger = logging.getLogger(__name__)
@@ -332,9 +333,20 @@ def clustered_clv(conn, population: Optional[str] = None) -> ClusteredMean:
         FROM recommendations r
         LEFT JOIN kalshi_markets m ON m.ticker = r.ticker
         WHERE r.clv_scored_ms IS NOT NULL AND r.clv_tenths IS NOT NULL
+          -- **Only the current primary horizon.** `clv_tenths` says what the
+          -- value is and nothing else says what it was measured against, so
+          -- without this the gate would average rows anchored at different
+          -- instants -- and the number that arms real money is the last place
+          -- a silent mixture belongs. ADR 0011.
+          --
+          -- The consequence is deliberate and is the point: changing the
+          -- horizon makes this counter **drop**, loudly, instead of quietly
+          -- blending the old evidence into the new.
+          AND r.clv_horizon_hours = :horizon
         {predicate}
         GROUP BY cluster_key
-        """
+        """,
+        {"horizon": DEFAULT_HORIZON_HOURS},
     ).fetchall()
 
     clusters = [(int(r["k"]), float(r["sum_y"])) for r in rows]

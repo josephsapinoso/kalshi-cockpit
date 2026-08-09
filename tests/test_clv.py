@@ -405,3 +405,46 @@ class TestTheEntryMustPrecedeTheClose:
         assert horizons_agree(conn, primary=1.0, control=6.0) is None, (
             "a row created after both observations was still compared"
         )
+
+
+class TestTheHorizonIsRecordedWithTheScore:
+    """Found by disabling: dropping `clv_horizon_hours` from the UPDATE left the
+    whole suite green.
+
+    Every fixture in this repo sets the column itself, so nothing exercised the
+    production writer — the classic "the test does not reach the guard" case
+    rather than an unreachable one. Without it `clv_tenths` is a bare number and
+    the gate, which counts only rows at the current primary horizon, silently
+    sees none of what scoring produces.
+    """
+
+    def test_scoring_stamps_the_horizon_it_used(self, conn):
+        add_recommendation(conn, ask=480)
+        store_closing_line(
+            conn, ClosingLine("MKT", 1.0, NOW, yes_bid_tenths=510, yes_ask_tenths=530)
+        )
+        assert score_recommendations(conn, horizon_hours=1.0, scored_ms=NOW)["scored"] == 1
+
+        row = conn.execute(
+            "SELECT clv_horizon_hours FROM recommendations"
+        ).fetchone()
+        assert row["clv_horizon_hours"] == 1.0
+
+    def test_it_stamps_zero_rather_than_leaving_it_null(self, conn):
+        """The primary horizon is 0.0, which is falsy.
+
+        A writer that skipped the column on a falsy value would leave every
+        production row NULL and invisible to the gate, while this class's other
+        test — which uses 1.0 — went on passing.
+        """
+        add_recommendation(conn, ask=480)
+        store_closing_line(
+            conn, ClosingLine("MKT", 0.0, NOW, yes_bid_tenths=510, yes_ask_tenths=530)
+        )
+        assert score_recommendations(conn, horizon_hours=0.0, scored_ms=NOW)["scored"] == 1
+
+        row = conn.execute(
+            "SELECT clv_horizon_hours FROM recommendations"
+        ).fetchone()
+        assert row["clv_horizon_hours"] == 0.0
+        assert row["clv_horizon_hours"] is not None

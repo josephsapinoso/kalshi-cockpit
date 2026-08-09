@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -202,6 +202,33 @@ _SETTLEMENTS_REBUILD_UNDO = (
 )
 
 
+# v5 returns every row scored at the old 1.0h horizon to the scoring queue.
+#
+# **This mutates the evidence record, which is why it is spelled out here.** ADR
+# 0011 moves the primary horizon to 0.0, and those rows hold a value measured
+# against 1.0h -- which is now the *control* horizon. Leaving them would put
+# control-horizon numbers in the primary column for ~34 rows, the exact silent
+# mixture the new `clv_horizon_hours` column exists to prevent.
+#
+# Nothing is destroyed and the operation is reversible: their `closing_lines`
+# rows at 1.0h are untouched, so the old scores can be recomputed from the
+# database at any time. `closing_line_id` is cleared with the rest because a
+# pointer to a line the row is no longer scored against is worse than none.
+#
+# Naturally idempotent -- after it runs, no row matches the predicate -- so this
+# step needs no `skip_statements_if_column` guard. It is safe under the version
+# gate for the reason that gate exists: v5 runs only on a database at v4, and a
+# v4 database cannot contain a score taken at any horizon but 1.0, because 1.0
+# is the only value `DEFAULT_HORIZON_HOURS` has ever had.
+_UNSCORE_THE_OLD_HORIZON = (
+    """
+    UPDATE recommendations
+       SET clv_tenths = NULL, closing_line_id = NULL, clv_scored_ms = NULL
+     WHERE clv_scored_ms IS NOT NULL
+    """,
+)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
     2: _Migration(
         columns=(
@@ -220,6 +247,16 @@ _MIGRATIONS: dict[int, _Migration] = {
             "ON orders(idempotency_key)",
         ),
         indexes=("idx_orders_idempotency",),
+    ),
+    5: _Migration(
+        columns=(("recommendations", "clv_horizon_hours", "REAL"),),
+        statements=_UNSCORE_THE_OLD_HORIZON,
+        undo_statements=(
+            # Nothing to undo. The clearing is not reversible from this table --
+            # and does not need to be, because `closing_lines` keeps every line
+            # it was scored against. Stated rather than left blank, so a future
+            # reader does not think it was forgotten.
+        ),
     ),
     4: _Migration(
         columns=(

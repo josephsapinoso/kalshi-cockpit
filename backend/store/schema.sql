@@ -366,9 +366,26 @@ CREATE TABLE IF NOT EXISTS recommendations (
     reason_text             TEXT NOT NULL,      -- plain language, for the Board
 
     -- CLV scoring, filled in after close. Positive = we beat the close.
+    --
+    -- `clv_horizon_hours` records which anchor produced `clv_tenths`, written
+    -- with the score and never inferred. Without it the value is a bare number
+    -- and moving the horizon -- ADR 0011 did -- blends two regimes with nothing
+    -- able to tell them apart. The gate reads only the current primary horizon,
+    -- so a future change invalidates evidence loudly (the counter drops)
+    -- instead of quietly averaging two different measurements together.
+    --
+    -- **Keep this comment here rather than above the column.** SQLite's
+    -- `ALTER TABLE ... DROP COLUMN` rewrites the stored CREATE TABLE text, and
+    -- a comment sitting immediately before the **last** column survives the
+    -- drop while the column does not -- leaving a trailing comma followed by
+    -- prose and `)`, which fails to reparse:
+    --     error in table recommendations after drop column: incomplete input
+    -- The migration tests build an "old" database by dropping exactly these
+    -- columns, so this is not hypothetical; it turned 72 tests red.
     closing_line_id         INTEGER REFERENCES closing_lines(id),
     clv_tenths              REAL,
-    clv_scored_ms           INTEGER
+    clv_scored_ms           INTEGER,
+    clv_horizon_hours       REAL
 );
 CREATE INDEX IF NOT EXISTS idx_recs_created ON recommendations(created_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_recs_open ON recommendations(suppressed_reason, created_ms DESC);

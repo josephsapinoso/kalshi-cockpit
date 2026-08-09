@@ -24,6 +24,7 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
+from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .config import RiskConfig
 from .core.devig import devig
 from .core.suppression import SuppressionConfig
@@ -384,23 +385,36 @@ def seed_history(
             "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
             "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
             "kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text, "
-            "clv_tenths, clv_scored_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            # `clv_horizon_hours` is not optional here even though the column
+            # is nullable. The gate counts only rows scored at the current
+            # primary horizon (ADR 0011), so a seeded row without it is
+            # invisible to every screen the seeded history exists to populate --
+            # and it would be invisible *silently*, as an empty Ledger rather
+            # than an error.
+            "clv_tenths, clv_scored_ms, clv_horizon_hours) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 created, version, ticker, side, ask, ask / 1000.0,
                 rng.gauss(5, 8), 0.15, 0.1, 0.01,
                 0 if suppressed else rng.randint(10, 30),
                 rng.randint(1000, 20000), rng.randint(30_000, 400_000),
                 suppressed, "seeded history",
-                close_mid - ask, created + 7_200_000,
+                close_mid - ask, created + 7_200_000, DEFAULT_HORIZON_HOURS,
             ),
         )
         counts["recommendations"] += 1
 
         conn.execute(
+            # The horizon comes from the constant, never a literal. A hardcoded
+            # 1.0 here would have kept pointing at the old anchor after ADR 0011
+            # moved it, so the seeded lines and the seeded scores would disagree
+            # about which close they describe.
             "INSERT OR IGNORE INTO closing_lines (ticker, horizon_hours, "
-            "observed_ms, yes_bid_tenths, yes_ask_tenths) VALUES (?, 1.0, ?, ?, ?)",
-            (ticker, created + 3_600_000, int(close_mid) - 10, int(close_mid) + 10),
+            "observed_ms, yes_bid_tenths, yes_ask_tenths) VALUES (?, ?, ?, ?, ?)",
+            (
+                ticker, DEFAULT_HORIZON_HOURS, created + 3_600_000,
+                int(close_mid) - 10, int(close_mid) + 10,
+            ),
         )
         counts["closing_lines"] += 1
 

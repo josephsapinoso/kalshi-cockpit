@@ -38,8 +38,7 @@ the last path by which anything could be scored.**
 
 This is [[two-limits-on-one-quantity]] on the one number the gate is built from.
 
-**`docs/adr/0011` decides it. Not yet implemented** — the ADR is written and
-the code is unchanged.
+**`docs/adr/0011` decides it, and it is now implemented** (schema v5).
 
 The close becomes the **last pre-game quote** (primary horizon 0, control 1.0h,
 which is where the ~34 already-scored rows sit). Shortening it is also the
@@ -47,7 +46,8 @@ which is where the ~34 already-scored rows sit). Shortening it is also the
 kickoff, so scoring against a price an hour out was measuring against a weaker
 benchmark and would have flattered any result it ever produced.
 
-Four things to build, in order:
+All four pieces landed, and the two that mattered most were found by the
+disable-check rather than by writing them:
 
 1. `DEFAULT_HORIZON_HOURS = 0.0`, `CONTROL_HORIZON_HOURS = 1.0`. **Watch for
    truthiness** — `0.0` is falsy and this repo has a lesson about zeros that

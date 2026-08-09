@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from backend.analysis.clv import DEFAULT_HORIZON_HOURS
+
 from backend.notify.alerts import Alerter
 from backend.store import db
 
@@ -308,15 +310,18 @@ class TestTheDigest:
         gets believed."""
         for i in range(4):
             rec = add_recommendation(conn, created_ms=NOW + i)
-            # Both columns, because `score_recommendations` writes them in one
-            # UPDATE and a row can never carry one without the other. The
-            # fixture used to set `clv_tenths` alone, which passed only because
+            # All **three** columns, because `score_recommendations` writes
+            # them in one UPDATE and a row can never carry a subset. The
+            # fixture set `clv_tenths` alone once, which passed only because
             # the digest had its own looser query -- a fixture that erases a
-            # distinction cannot test code that depends on it.
+            # distinction cannot test code that depends on it. It then missed
+            # `clv_horizon_hours` when ADR 0011 added it, and the symptom was a
+            # digest reporting zero scored games: the count the fixture exists
+            # to produce, silently absent rather than wrong.
             conn.execute(
-                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ? "
-                "WHERE id = ?",
-                (NOW, rec),
+                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ?, "
+                "clv_horizon_hours = ? WHERE id = ?",
+                (NOW, DEFAULT_HORIZON_HOURS, rec),
             )
         conn.commit()
 
@@ -358,9 +363,9 @@ class TestTheDigest:
         )
         for rec in (bet, refused_a, refused_b):
             conn.execute(
-                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ? "
-                "WHERE id = ?",
-                (NOW, rec),
+                "UPDATE recommendations SET clv_tenths = 5.0, clv_scored_ms = ?, "
+                "clv_horizon_hours = ? WHERE id = ?",
+                (NOW, DEFAULT_HORIZON_HOURS, rec),
             )
         conn.commit()
 

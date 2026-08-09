@@ -26,6 +26,8 @@ import uuid
 import httpx
 import pytest
 
+from backend.analysis.clv import DEFAULT_HORIZON_HOURS
+
 from backend.api.routes import create_app
 from backend.config import (
     AppConfig,
@@ -485,14 +487,20 @@ def _recommendation(
             entry_ask_tenths, depth_at_ask, fair_probability, edge_tenths,
             fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts,
             kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text,
-            clv_tenths, clv_scored_ms
+            clv_tenths, clv_scored_ms, clv_horizon_hours
         ) VALUES (?, 1, ?, ?, 'yes', ?, 500.0, ?, 20.0, 0.1, 0.5, 0.02, ?, ?, ?,
-                  ?, 'test', ?, ?)
+                  ?, 'test', ?, ?, ?)
         """,
         (
             created_ms, ticker, link_id, ask_tenths, fair_probability,
             suggested_contracts, quote_age, odds_age, suppressed, clv_tenths,
             created_ms if scored else None,
+            # The gate counts only rows scored at the current primary horizon,
+            # so a scored row without this is invisible to it -- and the symptom
+            # is a **locked gate**, which reads as the code refusing rather than
+            # as an incomplete fixture. Same trap as the `armed_db` that once
+            # armed the gate from `suggested_contracts = 0` rows.
+            DEFAULT_HORIZON_HOURS if scored else None,
         ),
     )
     conn.commit()

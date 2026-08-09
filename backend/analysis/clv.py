@@ -53,10 +53,35 @@ from ..store.db import now_ms
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HORIZON_HOURS = 1.0
+# **The last quote at or before kickoff.** `scoring.fetch_closing_line` asks for
+# a window that *ends* at `commence - horizon` and reaches `WINDOW_MINUTES` back,
+# so a horizon of zero reads the most recent print in the final quarter-hour
+# before the game -- which is the closing line in the ordinary sense of the term.
+#
+# It was 1.0, and that made the whole evidence layer inert. Four independently
+# reasonable numbers compose so that nothing can be scored (ADR 0011): a
+# recommendation cannot exist before the odds sweep that priced it, sweeps fire
+# 45-15 minutes before kickoff, and the 1h line is observed 60-75 minutes before
+# it. `created_ms <= observed_ms` was false for **every** row on every slate.
+# Live: 249 joined, 249 skipped, 0 scored.
+#
+# Shortening it is also the conservative direction, which was the surprise. A
+# market sharpens as the event approaches, so beating a price an hour out is an
+# easier claim than beating the close -- the old setting scored against a weaker
+# benchmark and would have flattered any number it produced.
+#
+# **0.0 is falsy.** Nothing may test this with `if horizon`; there is no bare
+# truthiness check on it today and there must not be one, for the reason this
+# repo already has a lesson about zeros that are legitimate measurements.
+DEFAULT_HORIZON_HOURS = 0.0
 # A second horizon, run alongside the first. If a finding survives one and not
 # the other, it was convergence.
-CONTROL_HORIZON_HOURS = 6.0
+#
+# 1.0 rather than the old 6.0: an hour is enough separation to detect drift, the
+# markets this project prices reliably have quotes that far out, and it is the
+# horizon every row scored before ADR 0011 already used -- so the record carries
+# control data instead of needing a season to accumulate it.
+CONTROL_HORIZON_HOURS = 1.0
 
 
 @dataclass(frozen=True)
@@ -232,9 +257,16 @@ def score_recommendations(
         value = clv_tenths(row["entry_ask_tenths"], mid, row["side"])
 
         conn.execute(
+            # `clv_horizon_hours` is written with the score, never inferred
+            # afterwards. Without it `clv_tenths` is a bare number with nothing
+            # saying which anchor produced it, so changing the horizon -- which
+            # ADR 0011 does -- would leave the column a silent mixture of two
+            # regimes. That is the failure this module already refuses one level
+            # up, where only the primary horizon is scored so the column cannot
+            # blend the two it fetches.
             "UPDATE recommendations SET clv_tenths = ?, closing_line_id = ?, "
-            "clv_scored_ms = ? WHERE id = ?",
-            (value, row["closing_id"], stamp, row["id"]),
+            "clv_scored_ms = ?, clv_horizon_hours = ? WHERE id = ?",
+            (value, row["closing_id"], stamp, horizon_hours, row["id"]),
         )
         counts["scored"] += 1
 
