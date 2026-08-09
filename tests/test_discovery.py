@@ -585,3 +585,121 @@ class TestTheNoCommenceWarningIsAlsoDeduplicated:
         ]
         assert len(summaries) == 2
         assert all("no_commence_time=3" in m for m in summaries), summaries
+
+
+class TestTheSummaryIsQuietOnTheQuoteCadence:
+    """The same line was right at 900s and a flood at 22s.
+
+    `discovery:` printed unconditionally so that silence could not be mistaken
+    for "discovery did not run". Correct, and sized for a pass every 900s — 96
+    lines a day. Then the odds budget went 16 -> 400, the window stopped
+    closing, and quote passes began running every ~22s: the identical line,
+    bit-identical, ~3,900 times a day, in a 100-line log buffer.
+
+    That is the 962-line scope burst reached from the other direction. Not a
+    loop that forgot to deduplicate — a correct per-pass line meeting a cadence
+    forty times faster than the one it was written for.
+
+    Two halves, and the tests below exist because neither works alone:
+    change-detection would restore the very ambiguity the unconditional print
+    prevents, and the full-pass heartbeat is what rules it out.
+    """
+
+    def _events(self, n, scope="Game", league="Pro Baseball"):
+        return [
+            {
+                "event_ticker": f"KXMLBGAME-26AUG07-{i}",
+                "series_ticker": "KXMLBGAME",
+                "product_metadata": {
+                    "competition": league, "competition_scope": scope,
+                },
+                # `occurrence_datetime` lives on the *market*, not the event --
+                # `event_commence_ms` walks `event["markets"]`. Putting it on
+                # the event made every fixture here unpriceable, so the first
+                # version of these tests asserted a changing `no_commence_time`
+                # count and would have passed against a discovery leg that
+                # found nothing at all.
+                "markets": [{
+                    "ticker": f"KXMLBGAME-26AUG07-{i}-A",
+                    "yes_sub_title": "A",
+                    "occurrence_datetime": "2026-08-07T18:00:00Z",
+                }],
+            }
+            for i in range(n)
+        ]
+
+    def _summaries(self, caplog):
+        return [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+
+    def test_an_unchanged_quote_pass_says_nothing(self, caplog):
+        events = self._events(3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events, always_log_summary=False)
+            for _ in range(60):
+                discover_from_events(events, always_log_summary=False)
+
+        # One line for the first pass — there was nothing to compare against —
+        # and silence for the sixty identical ones behind it.
+        assert len(self._summaries(caplog)) == 1, (
+            f"{len(self._summaries(caplog))} lines for 61 identical quote passes"
+        )
+
+    def test_a_changed_quote_pass_speaks_immediately(self, caplog):
+        """Quiet must not mean deaf. A change is the thing worth reading."""
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(self._events(3), always_log_summary=False)
+            discover_from_events(self._events(3), always_log_summary=False)
+            discover_from_events(self._events(5), always_log_summary=False)
+
+        summaries = self._summaries(caplog)
+        assert len(summaries) == 2, summaries
+        assert "3 priceable events" in summaries[0]
+        assert "5 priceable events" in summaries[1]
+
+    def test_the_full_pass_prints_even_when_nothing_changed(self, caplog):
+        """The heartbeat, and the reason change-detection is safe.
+
+        Without this, a quiet stretch is indistinguishable from a dead
+        discovery leg — which is exactly the failure the unconditional print was
+        added for. A full pass runs every 900s, so the gap is bounded.
+        """
+        events = self._events(3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events, always_log_summary=False)
+            for _ in range(5):
+                discover_from_events(events, always_log_summary=False)
+            discover_from_events(events)          # full pass
+            discover_from_events(events)          # full pass
+
+        assert len(self._summaries(caplog)) == 3, (
+            "the full pass stopped being a heartbeat"
+        )
+
+    def test_a_change_seen_only_by_a_full_pass_still_quietens_the_next_quote(
+        self, caplog
+    ):
+        """The two paths share one memory, and must.
+
+        If the full pass did not record what it printed, the next quote pass
+        would compare against a stale summary and re-announce a change already
+        on screen.
+        """
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(self._events(3))                        # full
+            discover_from_events(self._events(9))                        # full
+            discover_from_events(self._events(9), always_log_summary=False)
+
+        summaries = self._summaries(caplog)
+        assert len(summaries) == 2, summaries
+        assert "9 priceable events" in summaries[1]
+
+    def test_the_default_stays_loud_for_one_shot_callers(self, caplog):
+        """`run_chain.py` and the tests run one pass; quiet would be silent."""
+        events = self._events(3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            discover_from_events(events)
+
+        assert len(self._summaries(caplog)) == 2

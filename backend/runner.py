@@ -865,6 +865,7 @@ async def run_kalshi_pass(
     *,
     now: int,
     counts: PassCounts,
+    log_discovery_summary: bool = True,
 ) -> list[DiscoveredEvent]:
     """Discovery and the quotes it carries. Kalshi only; spends no odds credit.
 
@@ -873,11 +874,19 @@ async def run_kalshi_pass(
     can run every twenty seconds while the other can run twice a day, and
     keeping one implementation of it is what stops the two cadences drifting
     into two slightly different notions of what a quote is.
+
+    The two cadences do differ in one thing, and it is a property of the
+    cadence rather than of the work: how often the `discovery:` summary is worth
+    printing. A quote pass passes False, so that line is emitted only when its
+    numbers change; the full pass always prints and is the heartbeat. See
+    `_LAST_SUMMARY` in `kalshi/discovery.py`.
     """
     # `events()` is an async *generator* -- it paginates lazily -- so it is
     # consumed rather than awaited.
     raw_events = [e async for e in kalshi_client.events(with_nested_markets=True)]
-    events = discover_from_events(raw_events)
+    events = discover_from_events(
+        raw_events, always_log_summary=log_discovery_summary
+    )
     upsert_discovered(conn, events, now=now)
     counts.markets_quoted = store_quotes_from_discovery(conn, events, now=now)
     return events
@@ -984,7 +993,10 @@ async def run_quote_pass(
     """
     stamp = now if now is not None else now_ms()
     counts = PassCounts(sweep_decision=QUOTE_PASS_SWEEP_DETAIL)
-    events = await run_kalshi_pass(conn, kalshi_client, now=stamp, counts=counts)
+    events = await run_kalshi_pass(
+        conn, kalshi_client, now=stamp, counts=counts,
+        log_discovery_summary=False,
+    )
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts
     )

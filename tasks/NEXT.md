@@ -30,20 +30,30 @@ the real question and it now has a growing sample instead of a starved one.
 `suspicious_edge=2` is new and is *not* an opportunity: it is CLAUDE.md's first
 rule firing, two edges large enough to be a bug until proven otherwise.
 
-### Watch this, and it is a real cost of the change
+### Log volume — the `discovery:` line is fixed; one duplicate remains
 
-**Log volume.** A quote pass emits three lines (`discovery:`, `pricing pass:`,
-`pass N ok`) and now runs every ~22s — roughly **12,000 lines a day**, so the
-100-line `flyctl logs` buffer covers about twelve minutes. That directly erodes
-the readability won earlier today by collapsing the 962-line scope burst.
+A quote pass emitted three lines and now runs every ~22s: ~12,000 lines a day,
+against a 100-line `flyctl logs` buffer covering twelve minutes. That eroded the
+readability won hours earlier by collapsing the 962-line scope burst.
 
-It is correct operation rather than a bug, so it was not "fixed" reflexively.
-But the `discovery:` line is now pure repetition — identical numbers every 22s
-(`166 priceable events; unknown_scopes=965`) — and it was designed for a 900s
-cadence where printing every pass made silence distinguishable from absence.
-The cheapest honest fix: emit it on full passes, and on a quote pass only when
-its numbers *change*. Same argument, one cadence down. Not done; flagged here
-so the next session does not rediscover an unreadable log stream.
+**`discovery:` is fixed.** It prints on every full pass — the heartbeat, so
+silence still cannot mean "discovery did not run" — and on a quote pass only
+when its numbers change. Both halves are needed and each is verified by
+disabling it: change-detection alone reintroduces the exact ambiguity the
+unconditional print existed to prevent.
+
+The general shape, which is the part worth carrying: **a logging rate is a
+property of the caller, not of the code.** This line was correct at 900s and a
+flood at 22s without one character of it changing. The trigger was the odds
+budget going 16 → 400 four hours earlier — a change in a different subsystem
+entirely.
+
+**Still duplicated, and not fixed:** `pricing pass:` is a strict subset of
+`pass N ok`, emitted ~4ms earlier by a different module (`runner.py` vs the
+scheduler in `run_loop.py`). In the loop it carries nothing the later line does
+not. It is not simply removable, because `run_chain.py` emits no `pass ok` line
+and would go silent. Worth ~4,000 lines/day if resolved; left alone rather than
+guessed at.
 
 ---
 

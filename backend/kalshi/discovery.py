@@ -84,6 +84,34 @@ _UNKNOWN_SCOPES_THIS_PASS: dict[tuple[str, str], str] = {}
 # must not itself become the flood it replaced.
 _MAX_SCOPES_NAMED = 40
 
+# The last `discovery:` summary actually logged, as the tuple that line renders.
+#
+# The summary prints unconditionally on a full pass and, on a quote pass, only
+# when it differs from this. Both halves are load-bearing and neither works
+# alone.
+#
+# Printing every pass was right at one cadence and wrong at the next. It was
+# written when a pass meant 900s -- 96 lines a day, and the argument for
+# unconditional printing is that a pass saying nothing about unknown scopes must
+# be distinguishable from a pass that found none. Then the odds budget went from
+# 16 credits a day to 400, the window stopped closing, and quote passes began
+# running every ~22s: the same line, bit-identical (`166 priceable events;
+# unknown_scopes=965`), roughly 3,900 times a day. The 100-line `flyctl logs`
+# buffer covers about twelve minutes of that.
+#
+# So this is the 962-line scope burst again, one order of magnitude slower and
+# arrived at from the opposite direction -- not a loop that forgot to
+# deduplicate, but a correct per-pass line meeting a cadence forty times faster
+# than the one it was sized for. **A logging rate is a function of the caller,
+# and a line that is cheap at one cadence is a flood at another.**
+#
+# Change-detection alone would reintroduce exactly the ambiguity the
+# unconditional print exists to prevent: silence would once again fail to
+# distinguish "nothing new" from "discovery did not run". The full pass is the
+# heartbeat that rules that out -- at least one line every 900s, whatever
+# happens -- and the change check carries anything that moves in between.
+_LAST_SUMMARY: Optional[tuple] = None
+
 # Series already reported as game-level with no `occurrence_datetime`. Same
 # hazard as the scope warning one branch away: it was per event and undeduped,
 # so a day on which Kalshi omits the field across a league floods the stream
@@ -395,8 +423,10 @@ def reset_scope_warnings() -> None:
     while the uncovered one silently acquires an order dependency, so the failure
     appears in whichever test happens to be collected second.
     """
+    global _LAST_SUMMARY
     _WARNED_SCOPES.clear()
     _WARNED_NO_COMMENCE.clear()
+    _LAST_SUMMARY = None
 
 
 def _warn_about_new_unknown_scopes() -> None:
@@ -458,11 +488,22 @@ def _warn_about_new_unknown_scopes() -> None:
     )
 
 
-def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
+def discover_from_events(
+    events: Iterable[dict], *, always_log_summary: bool = True
+) -> list[DiscoveredEvent]:
     """Classify a walk of `/events` into priceable game events.
 
     Everything rejected is rejected for a stated reason and counted, so
     "we found nothing" can be told apart from "we filtered everything".
+
+    `always_log_summary=False` is for the quote cadence, which runs every ~22s
+    while the window is open: the `discovery:` line is then emitted only when
+    its numbers change. Full passes leave it True and so remain the heartbeat
+    that keeps silence unambiguous. See `_LAST_SUMMARY`.
+
+    It defaults to True so every existing caller -- `run_chain.py`, the tests --
+    keeps the behaviour it had. A default that quietened output would silence
+    the one-shot scripts, where every pass is the only pass.
     """
     # The *count* is per-pass; the warnings are per-process. Only this is
     # cleared. See `_WARNED_SCOPES`.
@@ -536,12 +577,18 @@ def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
     # warning is now one line: on 2026-08-09 this summary was itself lost from
     # the live log stream, sitting immediately behind a 962-line burst. A line
     # whose job is to be readable must not be queued behind a flood.
-    logger.info(
-        "discovery: %d priceable events; unknown_scopes=%d; rejected %s",
+    global _LAST_SUMMARY
+    summary = (
         len(discovered),
         len(_UNKNOWN_SCOPES_THIS_PASS),
         ", ".join(f"{k}={v}" for k, v in rejected.items() if v) or "none",
     )
+    if always_log_summary or summary != _LAST_SUMMARY:
+        _LAST_SUMMARY = summary
+        logger.info(
+            "discovery: %d priceable events; unknown_scopes=%d; rejected %s",
+            *summary,
+        )
     return discovered
 
 
