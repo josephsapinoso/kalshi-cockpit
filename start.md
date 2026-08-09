@@ -17,8 +17,9 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is at `65584d7`, **committed but NOT pushed** — CI has not run on any of
-this. 1,535 tests, ruff clean, `next build` clean, 11 dbt nodes green.
+`main` is at `5ee1c22`, **pushed, and CI is green on all three jobs** (Frontend,
+Tests + warehouse, Secret scan). 1,535 tests, ruff clean, `next build` clean,
+11 dbt nodes green.
 
 **Nothing is deployed.** Live is still on `e950c49` and carries none of the last
 two sessions' work. `fly.live.toml` has changed substantially, so a deploy is a
@@ -135,7 +136,6 @@ in `a92ac42`.
 - **The four fee-calibration trades.** ~$5, pre-authorised, a hard gate
   condition no amount of CLV can satisfy, and the highest-value use of week one.
 - **Deploying live.** Nothing from the last two sessions is on the live machine.
-- **Pushing `main`.** Committed, not pushed. CI has not run.
 
 ## Traps from this session specifically
 

@@ -2,8 +2,8 @@
 
 ## 2026-08-09, ~19:30Z — the bankroll trap is fixed; the backfill cannot open the gate
 
-`main` at `65584d7`, **committed but not pushed**. 1,535 tests, ruff clean,
-`next build` clean, 11 dbt nodes green. Nothing deployed.
+`main` at `5ee1c22`, **pushed and CI green on all three jobs**. 1,535 tests,
+ruff clean, `next build` clean, 11 dbt nodes green. Nothing deployed.
 
 ### Done
 
@@ -21,12 +21,11 @@
 
 ### Next, in the order `partner` set it
 
-1. **Push and let CI run.** Nothing has been verified by CI.
-2. **`publish` wired into the live loop plus retrieval**, so the evidence record
+1. **`publish` wired into the live loop plus retrieval**, so the evidence record
    leaves the volume. Currently the only copy is on a Fly disk.
-3. **The signal test.** Does the strategy have predictive power at all? Every
+2. **The signal test.** Does the strategy have predictive power at all? Every
    other line of work is downstream of this.
-4. **The maker histogram**, then the maker test only if it clears — ADR 0017's
+3. **The maker histogram**, then the maker test only if it clears — ADR 0017's
    precondition. Plot the edge distribution between the taker bar and 1.00–1.50
    points below it, 18c–82c only. No mass, kill the line for free.
 
