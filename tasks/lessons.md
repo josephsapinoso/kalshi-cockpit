@@ -3318,3 +3318,87 @@ easier to write and reads as more confident.
   measurements here were right. The prose about them was wrong five times.
   Related: [[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
   [[computing-the-right-statistic-and-then-ignoring-it]].
+
+## 2026-08-09 — A sample whose strata do not overlap the target proves nothing, at any `n`
+
+**Pattern:** a measurement fixed its thresholds, denominators, statistic and
+stopping rule before collection — and did not fix its **sampling frame**. The
+selection rule was "the first 20 eligible rows in discovery order". The series
+list it discovered from was an ordered `tuple` whose pages were concatenated, so
+the sample filled entirely from the first series and could never reach the
+second — while the population the rate was meant to inform was **66% the
+second**. The same rule imposed no leg-count restriction, while the target was
+100% two- and three-leg by construction, because the harvest's own analyser
+refuses anything larger. **17 of 20 sampled rows had a leg count that occurs
+zero times in the target.** The structurally comparable subsample was `n = 3`.
+
+Nothing errored. Nothing looked short. The run returned exactly 20 rows and a
+95% interval, and the write-up transferred that interval to a population it had
+not touched.
+
+**Why it happens:** pre-registration discipline concentrates on the *analysis* —
+the parts a bad actor could tune after seeing data. The sampling frame feels
+like plumbing, so it gets a sentence rather than a table. And the failure is
+silent by nature: an under-sampled stratum and an absent one look identical in
+the output, because both are just "rows we have".
+
+Both defects were checkable, at zero cost, against a JSON file **already
+committed to this repo**. Nobody ran the comparison, because nobody thought of
+the sample as a thing that could be wrong.
+
+**How to apply:**
+
+- **A pre-registration must fix the sampling frame, not only the analysis.**
+  Name the strata and the expected share of each. "The first N eligible rows" is
+  a rule that satisfies almost any specification while sampling almost anything.
+- **Print the sample's composition beside the target's, before any rate.** Make
+  it the first block of output. A cell at zero voids the transfer and must be
+  visible without being looked for.
+- **Interleave, never concatenate, when drawing across strata.** Concatenation
+  plus a head-N is a silent single-stratum sample. With a round-robin an
+  under-supplied stratum shows up as a *short* sample instead of an *absent*
+  one — which is a failure you can see.
+- **Match the target's own eligibility rule.** If the stored population was
+  built by a filter, the sample must pass that same filter, or it is a sample of
+  something else.
+- **"Transfers only if the population is stable" is usually the wrong caveat.**
+  Temporal drift is the risk people write down; structural non-overlap is the
+  one that actually voids the transfer, and it is checkable today rather than
+  arguable forever. Related:
+  [[a-pooled-number-is-not-a-finding-until-the-parts-agree]].
+
+## 2026-08-09 — A term that is zero everywhere has an unobservable sign
+
+**Pattern:** a measurement decomposed an observed gap into two terms and wrote
+the identity down with the wrong sign — `a + b` where the arithmetic gives
+`a − b`, because the quantity is an *ask* and the terms are differences in
+*bids*, and `ask = 1 − bid` flips a bid difference on the way in. The formula
+went into the pre-registration, into the harness, and into a per-row output line
+that printed an equation which did not balance.
+
+It survived reading the output, because the run measured one term as **exactly
+zero on every row**. `0 + b` and `0 − b` differ only in the sign of a number
+that was being printed anyway, and a zero term has no sign to check. The result
+that made the finding clean is the same thing that made the error invisible.
+
+**Why it happens:** sign conventions get checked against an example, and the
+example is drawn from the data — which is exactly the case that cannot
+discriminate. It is the same defect as an equality anchored at `0.5` in a test
+for `1 − p` versus `p`: at 0.5 both conventions agree, so the test named for the
+identity cannot see it.
+
+**How to apply:**
+
+- **Test an identity on inputs where every term is non-zero and no two terms are
+  equal.** A decomposition test where one term is zero verifies the other term,
+  not the decomposition.
+- **Never anchor a convention test on a fixed point of the transformation.**
+  `1 − p` at `p = 0.5`, a ratio at 1, a difference at 0 — each collapses the
+  distinction the test exists to make. Pick a value where each wrong
+  implementation yields a *different* wrong answer, and assert they differ.
+- **Assert the identity in the code that prints it.** An equation in output is a
+  claim, and a reader will trust it rather than add it up. One `assert` before
+  the `print` turns an unread line into a guard.
+- **When a term comes back exactly zero, ask what that zero is hiding.** A clean
+  result suppresses evidence about everything the term feeds into. Related:
+  [[a-guard-written-to-prove-a-property-the-code-cannot-violate]].
