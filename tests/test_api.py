@@ -139,6 +139,137 @@ class TestBoard:
         assert row["strategy_config_version"] >= 1
 
 
+class TestTheRowSaysWhatLeavesTheAccount:
+    """`COST` was the stake alone, with `FEE` beside it and no total anywhere.
+
+    The understatement is 3.6% at 50c and 10% at 10c -- against 0.38 points of
+    total headroom. Every figure here is computed server-side: a second
+    implementation of the fee curve in the browser would be two money
+    calculations one refresh apart, and the curve itself is an unresolved hedge
+    between two disagreeing sources.
+    """
+
+    async def test_the_total_is_the_stake_plus_the_fee(self, demo_app):
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
+        assert row["total_cost_dollars"] == pytest.approx(
+            row["stake_dollars"] + row["fee_predicted"]
+        )
+
+    async def test_the_total_exceeds_the_stake_whenever_there_is_a_fee(
+        self, demo_app
+    ):
+        """The assertion that fails if the total is silently the stake again."""
+        rows = [r for r in sized_rows((await get(demo_app, "/api/board")).json())
+                if r["fee_predicted"] > 0]
+        assert rows
+        assert all(r["total_cost_dollars"] > r["stake_dollars"] for r in rows)
+
+    async def test_the_stake_is_the_ask_times_the_size(self, demo_app):
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
+        assert row["stake_dollars"] == pytest.approx(
+            row["ask_tenths"] * row["suggested_contracts"] / 1000
+        )
+
+
+class TestTheRowSaysWhatHappensWhenItLoses:
+    """Nothing on the card said what the downside was.
+
+    The demo's best row is +$0.26 expected with a standard deviation of $7.48 --
+    29 times the mean. Ten such bets is a 46% chance of a losing week even if the
+    edge is entirely real, and a beginner supplied with only the mean will
+    conclude the tool is broken or double up.
+    """
+
+    async def test_the_deviation_is_the_binary_one_for_the_whole_position(
+        self, demo_app
+    ):
+        """A contract settles at $1 or $0, so its payoff spread is exactly $1.
+
+        The fee is deterministic and contributes no variance, so the position's
+        deviation is `contracts * sqrt(p(1-p))` and nothing else. Reproduced on
+        the demo's best row before anything derived from it was rendered:
+        15 contracts at p=0.5385 gives $7.478.
+        """
+        import math
+
+        for row in sized_rows((await get(demo_app, "/api/board")).json()):
+            p = row["fair_probability"]
+            assert row["sd_dollars"] == pytest.approx(
+                row["suggested_contracts"] * math.sqrt(p * (1 - p))
+            )
+
+    async def test_the_deviation_dwarfs_the_expected_value(self, demo_app):
+        """The finding itself, asserted so it cannot quietly stop being true."""
+        row = max(
+            sized_rows((await get(demo_app, "/api/board")).json()),
+            key=lambda r: r["suggested_contracts"],
+        )
+        assert row["sd_dollars"] > 10 * abs(row["ev_net_dollars"])
+
+    async def test_an_unsized_row_has_no_deviation(self, demo_app):
+        """Zero contracts is zero risk, not an unmeasurable one."""
+        body = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+        assert body["suppressed"]
+        assert all(r["sd_dollars"] == 0 for r in body["suppressed"])
+
+    async def test_ten_bets_this_shape_lose_money_almost_half_the_time(
+        self, demo_app
+    ):
+        """The review's 46%, reproduced from the payload rather than quoted."""
+        row = max(
+            sized_rows((await get(demo_app, "/api/board")).json()),
+            key=lambda r: r["suggested_contracts"],
+        )
+        assert row["losing_run_bets"] == 10
+        assert row["losing_run_probability"] == pytest.approx(0.456, abs=0.005)
+
+    async def test_a_row_with_no_position_reports_no_run_probability(
+        self, demo_app
+    ):
+        """`None`, never 0.5 and never 0: there is no run to lose."""
+        body = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+        assert body["suppressed"]
+        assert all(r["losing_run_probability"] is None for r in body["suppressed"])
+
+
+class TestAProbabilityIsSentAsOne:
+    async def test_the_fair_value_is_sent_as_a_percentage(self, demo_app):
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
+        assert row["fair_percent_display"].endswith("%")
+
+    async def test_it_agrees_with_the_probability_it_came_from(self, demo_app):
+        row = sized_rows((await get(demo_app, "/api/board")).json())[0]
+        assert float(row["fair_percent_display"].removesuffix("%")) == pytest.approx(
+            row["fair_probability"] * 100, abs=0.06
+        )
+
+
+class TestTheWholeSlateIsAvailable:
+    """Mispricing is a factor, not a filter.
+
+    With zero actionable across ~200 decisions, the rows that did not survive
+    are the only content the board has. Returning them relaxes nothing:
+    `suggested_contracts` is still 0 on every one, and the order endpoint
+    re-derives the decision server-side.
+    """
+
+    async def test_the_rest_of_the_slate_is_hidden_by_default(self, demo_app):
+        assert (await get(demo_app, "/api/board")).json()["no_edge"] == []
+
+    async def test_the_no_edge_rows_are_returned_with_the_rejected_ones(
+        self, demo_app
+    ):
+        body = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+        assert len(body["no_edge"]) == body["counts"]["no_edge"]
+        assert body["no_edge"]
+
+    async def test_no_returned_row_outside_surfaced_offers_a_size(self, demo_app):
+        """Visible is not bettable. If this fails, the board is offering a bet."""
+        body = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+        for row in body["no_edge"] + body["suppressed"]:
+            assert row["suggested_contracts"] == 0
+
+
 class TestTheBoardCannotOfferWhatTheServerWillRefuse:
     """`surfaced` is a claim about this instant, not about the whole record.
 

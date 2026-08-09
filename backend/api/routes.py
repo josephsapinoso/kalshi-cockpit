@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import secrets
 from contextlib import asynccontextmanager
+from statistics import NormalDist
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -48,7 +50,12 @@ from ..core.parlay import (
     value_parlay,
 )
 from ..core.ev import edge_after_fees_tenths
-from ..core.prices import format_price, is_valid_price, tenths_to_dollars
+from ..core.prices import (
+    format_price,
+    format_probability,
+    is_valid_price,
+    tenths_to_dollars,
+)
 from ..core.sizing import size_position, verify_positive_after_fees
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
@@ -451,7 +458,11 @@ def create_app(
     def board(
         conn=Depends(get_conn),
         include_suppressed: bool = Query(
-            False, description="Include rejected candidates and why"
+            False,
+            description=(
+                "Include the rest of the slate: rejected candidates with their "
+                "reasons, and the ones with no edge at all"
+            ),
         ),
         limit: int = Query(100, le=500),
     ) -> dict:
@@ -512,6 +523,18 @@ def create_app(
             "surfaced": surfaced,
             "expired": expired,
             "suppressed": suppressed if include_suppressed else [],
+            # The rest of the slate, and the reason it is returned at all:
+            # mispricing is a factor, not a filter. A board that shows only the
+            # rows that survived every check cannot be read as evidence about
+            # the checks -- and with zero actionable across ~200 decisions, the
+            # rows that did not survive are the only content there is.
+            #
+            # **This relaxes nothing.** `suggested_contracts` is still 0 on
+            # every row here, the suppression reasons are unchanged, and the
+            # order endpoint re-derives all of it server-side. Suppression and
+            # staleness stop governing what is *visible*; they keep governing
+            # what is bettable.
+            "no_edge": no_edge if include_suppressed else [],
             "counts": {
                 "surfaced": len(surfaced),
                 "expired": len(expired),
@@ -1622,6 +1645,32 @@ def _live_ages(
     }
 
 
+# A week of betting at the rate this tool could ever support. Stated as a
+# constant and sent with the probability it produces, so the screen cannot
+# report the number against a different run length than the one it was
+# computed for.
+LOSING_RUN_BETS = 10
+
+
+def _losing_run_probability(ev_dollars: float, sd_dollars: float) -> Optional[float]:
+    """How often `LOSING_RUN_BETS` bets of this shape end down, edge and all.
+
+    Normal approximation to the sum of ten independent bets, each with mean
+    `ev_dollars` and deviation `sd_dollars`:
+    ``P(sum < 0) = Phi(-sqrt(k) * mu / sigma)``.
+
+    **`None` when there is no position**, never 0.5 and never 0. A row the
+    engine did not size has no run to lose, and an unmeasurable probability
+    that renders as a number is the failure this repo has recorded twice.
+
+    Verified against the review's figure: the demo's best row is +$0.2619 with
+    a $7.4778 deviation, which gives 0.456 -- the 46% quoted there.
+    """
+    if sd_dollars <= 0:
+        return None
+    return NormalDist().cdf(-math.sqrt(LOSING_RUN_BETS) * ev_dollars / sd_dollars)
+
+
 def _serialise(
     row,
     *,
@@ -1643,6 +1692,19 @@ def _serialise(
     """
     ask = row["entry_ask_tenths"]
     live = _live_ages(row, now_ms=now_ms, staleness=staleness)
+    contracts = row["suggested_contracts"] or 0
+    fee = row["fee_predicted"] or 0.0
+    # A binary contract settles at $1 or $0, so one contract's payoff has a
+    # spread of exactly $1 and a standard deviation of sqrt(p(1-p)). The fee is
+    # deterministic and adds no variance, so the position's deviation is just
+    # that times the size. Reproduced against the demo's best row before
+    # anything derived from it was rendered: 15 contracts at p=0.5385 gives
+    # $7.478, against $0.262 expected -- 29 times the mean.
+    fair = row["fair_probability"]
+    sd = contracts * math.sqrt(max(0.0, fair * (1.0 - fair)))
+    # Cost stays in integer tenths until the last step. `ask * contracts` is
+    # exact; `tenths_to_dollars(ask) * contracts` is not.
+    stake = tenths_to_dollars(ask * contracts)
     return {
         **live,
         "id": row["id"],
@@ -1658,6 +1720,11 @@ def _serialise(
         "ask_dollars": tenths_to_dollars(ask),
         "fair_probability": row["fair_probability"],
         "fair_display": format_price(int(round(row["fair_probability"] * 1000))),
+        # The same number as a percentage, which is what it actually is. Kept
+        # beside `fair_display` rather than replacing it because the ticker,
+        # the ledger and any script reading this payload move at different
+        # speeds -- but nothing on screen may render the `c` form any more.
+        "fair_percent_display": format_probability(row["fair_probability"]),
         "edge_tenths": row["edge_tenths"],
         "edge_cents": row["edge_tenths"] / 10.0,
         "fee_predicted": row["fee_predicted"],
@@ -1670,4 +1737,23 @@ def _serialise(
         "suppressed_reason": row["suppressed_reason"],
         "reason_text": row["reason_text"],
         "clv_tenths": row["clv_tenths"],
+        # -- what it costs, and what it costs you when it loses ---------------
+        #
+        # The card showed `COST` as stake alone and `FEE` beside it with no
+        # total anywhere, which understates what leaves the account by 3.6% at
+        # 50c and 10% at 10c. Computed here and not in the browser: the fee
+        # curve is an unresolved hedge between two disagreeing sources, and a
+        # second implementation of it in TypeScript would be two money
+        # calculations one refresh apart.
+        "stake_dollars": stake,
+        "total_cost_dollars": stake + fee,
+        "sd_dollars": sd,
+        # How often a run of `LOSING_RUN_BETS` bets this shape ends down, if the
+        # edge is entirely real. The answer on the demo's best row is 46%, and
+        # that is the number a beginner does not supply from memory: without it
+        # a losing week reads as a broken tool or an invitation to double up.
+        "losing_run_bets": LOSING_RUN_BETS,
+        "losing_run_probability": _losing_run_probability(
+            row["ev_net_dollars"], sd
+        ),
     }
