@@ -410,6 +410,25 @@ explicit `depth_not_reconstructable` state rather than as silence.
 
 ### 3.3 One free verification, before anything else
 
+> **Done, 2026-08-09 — they agree.**
+> `docs/measurements/2026-08-09-candle-ask-reconciliation.md`,
+> `scripts/reconcile_candle_ask.py`. 51 observations across 46 distinct markets,
+> zero mismatches, in integer tenths, including 8 genuinely sub-cent prices.
+>
+> **Re-scoped, and the difference matters.** The design below reconciles against
+> the live `kalshi_quotes` table; that database was not reachable from the lane
+> that ran this, so it captured a fresh quote and the candle covering the same
+> moment in one pass instead. That excludes a *structural* construction
+> difference — which is what this section asks about — but it does **not** cover
+> the retention window, so a time-varying disagreement would have escaped it.
+> The offline version below is still worth running once the live volume is
+> reachable, and should be, before Phase 1's credits are spent.
+>
+> Input 5 moves to clean; the §3.1 tally becomes 13 clean / 8 partial / 7
+> contaminated. Two conditions attach to Phase 0 — a bar publishes a boundary
+> value where the live path returns `None`, and bar coverage is not one per
+> minute per market. Both are in the write-up's §7.
+
 **Does the candle's published `yes_ask.close` equal the ask this project
 derives?** Live, the ask is `1000 − best_no_bid` and the schema is emphatic that
 asks are derived, never stored as published. The candle publishes `yes_ask`
