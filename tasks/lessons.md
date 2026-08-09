@@ -3169,3 +3169,89 @@ all*. If they do not overlap, the test does not exist at any cadence — say so
 and design a different one, rather than spending the budget discovering it. And
 when a design can only return one answer, that is not a finding: naming which
 outcome would be a defect, in advance, is what stops it becoming one.
+
+---
+
+## 2026-08-09 — A risk control can be a threshold on the wrong quantity entirely
+
+`min_order_contracts = 10` was defended for the project's life on a true
+premise: under Model A the fee rounds up on the whole order, so a small order
+pays a rounding penalty a large one amortises away. Measured, that penalty is
+real — 0.88c per contract on a single contract at 20c.
+
+**And the sizer was already paying it.** `effective_price` charges the fee a
+*single* contract would pay, which is the most expensive per-contract fee any
+size pays — verified exhaustively across all 999 tradeable prices, sizes 1–200,
+maker and taker, with no exception. `full_kelly_fraction > 0` holds exactly when
+`fair > price + fee(1)`, and `EV(N) > 0` holds exactly when
+`fair > price + fee(N)/N`, so monotonicity makes the first imply the second at
+every size. The minimum was **refusing positive-EV orders**, not preventing
+negative-EV ones.
+
+Below about a $300 bankroll it refused *every* order the tool can produce, and
+it did so by returning a plausible zero that no screen explained.
+
+**Why it survived:** the justification was sound and was checked. Nobody asked
+the next question — whether the code downstream of the justification had already
+handled it. A comment naming a real hazard reads as evidence the hazard is
+covered, and it is only evidence that someone knew about it.
+
+**How to apply:** for any threshold, state the quantity it is protecting and
+then go and check what that quantity actually does across its whole range. Two
+things follow, and the second is the one that generalises:
+
+- **A price-independent constant standing in for a price-dependent quantity is
+  wrong at every value but one.** The penalty here is 0.00c at 50c and 0.88c at
+  20c; a single number cannot be right for both.
+- **When removing a guard, do not replace it with another guard — assert the
+  property that makes it unnecessary.** The first draft of this change replaced
+  the minimum with a whole-order EV re-check inside `size_position`. Given the
+  monotonicity above, that check can never fire: it was decoration with a better
+  name. What shipped instead is a test asserting per-contract cost never rises
+  with order size, so a future fee model that broke the property turns a test
+  red rather than letting a negative-EV order out quietly. Related:
+  [[a-test-that-passes-on-the-bug-is-not-a-test]],
+  [[two-limits-on-one-quantity]].
+
+Corollary on removal: a deleted setting still present in an environment must
+**raise**, not be ignored. `MIN_ORDER_CONTRACTS` was load-bearing and wrong, and
+silently ignoring it would leave everyone's mental model intact.
+
+---
+
+## 2026-08-09 — A measurement can be switched off by a number that is not about measurement
+
+The gate counted `suppressed_reason IS NULL AND suggested_contracts > 0`.
+`suggested_contracts` is sized against the operator's bankroll. So the size of
+the deposit decided what counted as **evidence**, and at the real bankroll of
+$100 quarter-Kelly sizes under one contract on every edge this tool finds —
+making the counter structurally zero, the 300-game floor unreachable however
+long the system ran, and the Gate screen's "0 of 300, keep recording" true,
+unfalsifiable, and pointing at the wrong thing.
+
+Nothing would have errored. No test was red. The one screen reporting progress
+would have described a dead counter as progress.
+
+**Why it hid:** every part was correct. Sizing correctly reflects the bankroll.
+The predicate correctly identifies rows the strategy would bet. The floor is
+correctly 300. The defect is in the *join* — a measurement definition reaching
+through a money quantity — and a join has no line number to review. Same shape
+as [[code-with-no-caller-is-not-a-feature]]: the missing thing is not in any
+file.
+
+**How to apply:** ask of every counter, **"what could change this number that is
+not about the thing it measures?"** If the answer is anything — a deposit, a
+deploy, an uptime, a config edit — the counter is measuring that too. Here the
+fix is a second column scored against a reference profile fixed in code, so the
+record is a property of the strategy rather than of the account, and the two
+questions ("what may I buy" / "did the strategy have a bet") stop sharing one
+number.
+
+Two supporting rules that fell out of it, both worth carrying:
+
+- **Fixing it in code, not in config.** A configurable reference bankroll
+  rebuilds the same trap one level up.
+- **A screen must say which question its number answers.** "Actionable" reads as
+  "you can buy this". At a small bankroll it does not mean that, and the Gate
+  screen now says so in words. Related:
+  [[computing-the-right-statistic-and-then-ignoring-it]].
