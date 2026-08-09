@@ -67,6 +67,7 @@ from ..agents.base import AgentConfig
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
+from ..playbook import read_playbook
 from ..store import db
 from ..store.orders import (
     DuplicateOrder,
@@ -642,6 +643,20 @@ def create_app(
             "when an order is placed."
         )
         return payload
+
+    @app.get("/api/playbook")
+    def playbook(conn=Depends(get_conn), limit: int = 50) -> dict:
+        """What rules were in force, and the evidence recorded under each.
+
+        Reads the operational database, not the warehouse, so unlike
+        `/api/dashboards` it cannot 503 on an unbuilt lakehouse -- the columns
+        it needs are written by the same pass that writes a recommendation.
+
+        The one thing it must never do is report an empty `lessons` list as
+        "nothing to report". `historian_has_run` carries that distinction, and
+        the screen is required to render it.
+        """
+        return read_playbook(conn, limit=max(1, min(int(limit), 200)))
 
     @app.get("/api/dashboards")
     def dashboards() -> dict:

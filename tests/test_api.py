@@ -533,6 +533,63 @@ class TestDashboards:
         assert "dbt build" in response.json()["detail"]
 
 
+class TestPlaybook:
+    """The screen that reads `strategy_config_version` back.
+
+    It cannot 503 the way `/api/dashboards` can: everything it needs is written
+    by the same pass that writes a recommendation, so there is no separate
+    build step to be missing.
+    """
+
+    async def test_it_reports_the_versions_the_seed_recorded(self, demo_app):
+        body = (await get(demo_app, "/api/playbook")).json()
+        assert body["config_versions"], "the demo seed records a strategy config"
+        assert body["current_version"] is not None
+        assert sum(v["recommendations"] for v in body["config_versions"]) > 0
+
+    async def test_the_row_counts_agree_with_the_board(self, demo_app):
+        """Both read the same table, so a disagreement is a query bug.
+
+        Suppressed rows are included on purpose -- the suppression log is the
+        thing that makes the record auditable, and a playbook that counted only
+        surfaced rows would report a strategy as having produced nothing.
+        """
+        playbook = (await get(demo_app, "/api/playbook")).json()
+        board = (await get(
+            demo_app, "/api/board", params={"include_suppressed": "true"}
+        )).json()
+
+        counted = sum(v["recommendations"] for v in playbook["config_versions"])
+        shown = (
+            len(board["surfaced"]) + len(board["expired"])
+            + len(board["suppressed"])
+        )
+        assert counted >= shown, (
+            f"the playbook counted {counted} rows and the Board shows {shown}; "
+            f"they read the same table"
+        )
+
+    async def test_it_says_the_historian_has_not_run(self, demo_app):
+        """The demo seeds no lessons, and neither does live: nothing calls the
+        Historian. The payload has to carry that rather than an empty list."""
+        body = (await get(demo_app, "/api/playbook")).json()
+        assert body["historian_has_run"] is False
+        assert body["lessons"] == []
+
+    async def test_it_is_reachable_on_the_demo_instance(self, demo_app):
+        """No credentials, no order path, nothing to protect."""
+        assert (await get(demo_app, "/api/playbook")).status_code == 200
+
+    async def test_the_limit_is_bounded(self, demo_app):
+        """An unbounded `limit` from a query string is a free table scan."""
+        assert (await get(
+            demo_app, "/api/playbook", params={"limit": "100000"}
+        )).status_code == 200
+        assert (await get(
+            demo_app, "/api/playbook", params={"limit": "0"}
+        )).status_code == 200
+
+
 class TestBuilderParlay:
     async def test_a_typical_parlay_reports_the_book_hold(self, demo_app):
         body = {

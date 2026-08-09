@@ -10,7 +10,13 @@ const LINKS = [
   { href: "/builder", label: "Builder" },
   { href: "/dashboards", label: "Data" },
   { href: "/ledger", label: "Ledger" },
+  // Gate before Playbook, and the order is load-bearing at 390px. A sixth link
+  // does not clip the page -- the row scrolls, which is what `min-w-0
+  // overflow-x-auto` is for -- but it does push the last item out of sight, and
+  // the Gate is the screen that says whether money can move. The newest and
+  // least urgent page is the one that scrolls off.
   { href: "/gate", label: "Gate" },
+  { href: "/playbook", label: "Playbook" },
 ];
 
 export default function Nav() {

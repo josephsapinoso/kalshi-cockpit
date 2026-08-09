@@ -4,7 +4,7 @@ Run:  python -m scripts.check_ticket_sheet --width 390 --token <APP_AUTH_TOKEN>
 
 Why this exists rather than `check_mobile.py`
 ---------------------------------------------
-`check_mobile.py` measures the five pages as they *load*. The ticket sheet is
+`check_mobile.py` measures the six pages as they *load*. The ticket sheet is
 not on any of them: it exists only after a tap, it is `position: fixed`, and
 that combination defeats both halves of that script.
 

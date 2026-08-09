@@ -1,8 +1,9 @@
 # Next — your checklist
 
-## 2026-08-09, 06:00–08:15Z — four items closed, and one of them was Joe's
+## 2026-08-09, 06:00–09:00Z — five items closed, and one of them was Joe's
 
-`main` is pushed and CI-green. **1,383 tests**, ruff clean. Nothing was
+`main` is pushed and CI-green. **1,405 tests**, ruff clean, `next build` clean,
+five pages measured at 320/390/430 and looked at. Nothing was
 deployed, no order was placed, no gate was touched, no odds credit was spent.
 
 ### 1. One log line per pass, not two
@@ -106,6 +107,50 @@ So there is now a mechanical one — `tests/test_parsers_return_something.py`:
   reason. That check immediately found two that nothing read —
   `sports_coverage.json` and `occurrence_datetime_probe.json` — which is a
   lesson this repo already had, sitting live in the tree.
+
+### 5. Playbook screen — built. Research screen — deliberately not
+
+Joe's item 3 was "the Research and Playbook screens". **One of them should not
+be built yet, and saying so is the useful half.**
+
+**Research: not built.** It would read Scout findings. There is no table for
+them, `agents/scout.py` is called by nothing that runs, and wiring it means
+Anthropic calls with web search on a schedule. A screen over a source that is
+structurally empty is worse than no screen — it *looks* like a feature. This
+repo has the lesson: code with no caller is a plan, not a feature.
+
+**Playbook: built**, because its main source is real. `strategy_configs` is
+written by `engine.py` in production, and `recommendations.strategy_config_
+version` has been written since the engine existed and **read by nothing**.
+That matters: a threshold edit splits the evidence into halves that cannot be
+pooled, and the halves look exactly like one continuous record once totalled.
+
+`GET /api/playbook` + `/playbook`. Per version: recommendations, markets,
+unsuppressed, actionable, CLV scored, the diff from its predecessor, and a
+caveat when the version carries too few rows to say anything. Markets beside
+rows, deliberately — the row count measures uptime, not evidence.
+
+Two things it refuses to collapse:
+
+- **An empty lessons list is not "nothing to report".** `lessons` has one
+  writer, the Historian, and nothing calls it. The screen says *"The Historian
+  has never run"* — the same distinction `analysis/marts.py` draws between an
+  unbuilt warehouse and an empty one.
+- **`accepted_by_user` has three states.** NULL is "nobody decided", 0 is
+  "rejected". Collapsing them either empties the awaiting-approval list or puts
+  every rejected proposal back in front of Joe forever.
+
+Verified at 320/390/430 and **looked at**, which found three defects the
+measurement could not:
+
+- `grid-cols-2` at 320px painted "Recommendations" over its neighbour without
+  overflowing anything — `minmax(0, 1fr)` lets a column shrink below its own
+  content, so `scrollWidth` stays exactly equal to the viewport. This is the
+  "CONSENSUSKALSHI" defect; only the per-element check sees it.
+- `{floor} observations` across two JSX lines rendered as `100observations`.
+- **The sixth nav link pushed the Gate off-screen at 390px.** The row scrolls
+  rather than clipping, which is the designed degradation — but the Gate is the
+  screen that says whether money can move, so Playbook goes last instead.
 
 ### Still open, unchanged
 

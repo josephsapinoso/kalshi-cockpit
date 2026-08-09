@@ -534,3 +534,60 @@ export function formatKickoff(ms: number | null): string {
     minute: "2-digit",
   });
 }
+
+/** One strategy version, and the evidence recorded while it was in force. */
+export type ConfigVersion = {
+  version: number;
+  created_ms: number;
+  effective_from_ms: number;
+  effective_to_ms: number | null;
+  is_current: boolean;
+  approved_by_user: boolean;
+  rationale: string;
+  config: Record<string, unknown> | null;
+  recommendations: number;
+  markets: number;
+  unsuppressed: number;
+  actionable: number;
+  clv_scored: number;
+  /**
+   * A version with too few rows to say anything. Rendered as a caveat rather
+   * than used as a filter: a starved version is itself a finding, because it
+   * shortened every neighbouring version's sample too.
+   */
+  has_enough_to_say_anything: boolean;
+  changed_from_previous: Record<string, { from: unknown; to: unknown }>;
+};
+
+export type Lesson = {
+  id: number;
+  created_ms: number;
+  title: string;
+  body: string;
+  evidence: Record<string, unknown> | null;
+  sample_size: number | null;
+  proposed_config_diff: Record<string, unknown> | null;
+  /**
+   * Three states. `null` is "nobody has decided" and `false` is "rejected" --
+   * collapsing them would turn every proposal awaiting a human into one a
+   * human refused.
+   */
+  accepted_by_user: boolean | null;
+};
+
+export type Playbook = {
+  config_versions: ConfigVersion[];
+  current_version: number | null;
+  lessons: Lesson[];
+  proposals_awaiting_approval: Lesson[];
+  /**
+   * The distinction this screen must not collapse. `lessons` has exactly one
+   * writer and nothing that runs calls it, so an empty list means the agent is
+   * unwired -- not that the record contains nothing worth learning.
+   */
+  historian_has_run: boolean;
+  note: string;
+  min_rows_to_mean_anything: number;
+};
+
+export const fetchPlaybook = () => get<Playbook>("/api/playbook");

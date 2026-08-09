@@ -39,7 +39,7 @@ CHROME_CANDIDATES = [
     Path.home() / r"AppData\Local\Google\Chrome\Application\chrome.exe",
 ]
 
-PAGES = ["/", "/builder", "/dashboards", "/ledger", "/gate"]
+PAGES = ["/", "/builder", "/dashboards", "/ledger", "/playbook", "/gate"]
 
 # The measurement, run inside the page. Reports every element whose right edge
 # lands past the viewport, deepest-first, with enough identity to fix it.
