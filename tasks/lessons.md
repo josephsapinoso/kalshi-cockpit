@@ -2798,3 +2798,46 @@ scopes.py` walked `/events` without `with_nested_markets`, so it reported
 finds 167 and warns about neither. A measurement harness must issue the *same
 request* production issues, or it is measuring a different system and will
 manufacture findings about it. Related: [[a-window-resize-is-not-a-viewport-change]].
+
+---
+
+## 2026-08-09 — The counter that decides the project was behind an auth wall
+
+The gate needs 300 `actionable` games. That number had been zero for the
+project's life, and it was readable only through an authenticated endpoint —
+so the one counter that decides whether this project can ever reach a
+conclusion was the one nobody could see. Four passes of circumstantial evidence
+(`recommendations: 4, suppressed: 4`) had accumulated without anyone being able
+to check the obvious follow-up: *suppressed by what?*
+
+Printing it took one log line and answered the question on the first pass:
+
+    actionable=0 of 300, no_edge=161, suppressed=265;
+    stale_odds=256, too_few_books=73, no_market_width=73,
+    edge_within_method_noise=4
+
+**And the answer was not the one the evidence suggested.** "Every row is
+suppressed" reads as a miscalibrated guard. It was `stale_odds` at ~97%, which
+is the 16-credit odds budget — an *upstream resource limit* — surfacing as a
+suppression statistic three layers downstream. Had the number stayed invisible,
+the natural next move would have been to loosen a suppression threshold, which
+would have manufactured edges into the record while leaving the real constraint
+untouched.
+
+**How to apply:** if a threshold gates the whole project, its *progress counter*
+belongs wherever the project's health is already read — for a hosted service
+that is the log stream, not an endpoint needing a credential the operator keeps
+in one place. Ask "who can read this number, and from where?" when the guard is
+written, not when it has been zero for a month. Related:
+[[the-population-was-962-the-logs-showed-94]] — same session, same failure:
+the operational state existed and could not be seen.
+
+Two corollaries worth keeping, both about reading such a line:
+
+- **Co-occurring reasons are one population, not two.** `too_few_books=73` and
+  `no_market_width=73` are identical because a single-book consensus has no
+  width to measure — the causal link is already in this file. Two labels on one
+  cause doubles the apparent size of the problem.
+- **A reason breakdown does not partition its rows.** Reasons are comma-joined
+  per row and counted individually, so they sum above the row count. It answers
+  "how often did each rule fire", never "what share of rows did this explain".

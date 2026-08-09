@@ -63,23 +63,28 @@ First pass: `recommendations: 4, suppressed: 4, surfaced: 0, unchanged_confirmed
 36`, `clv_scored: 0`, `rows_joined: 190`. See the CLV watch item below — 190 is
 the residue, and nothing new has scored yet.
 
-## Start here — one reading, after a full day has accumulated
+## Start here — the gate is blocked by odds credits, and that is a decision for Joe
 
-    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit   # 8c37e44 not yet live
-    gh workflow run Ops -f instance=live -f action=logs
+Live is on `a133584` and answered this on its first pass (04:38Z):
 
-Look for the new line:
+    gate progress (24h): actionable=0 of 300 needed, no_edge=161, suppressed=265;
+    suppressed by: stale_odds=256, too_few_books=73, no_market_width=73,
+                   edge_within_method_noise=4
 
-    gate progress (24h): actionable=N of 300 needed, no_edge=N, suppressed=N;
-    suppressed by: ...
+**No guard is miscalibrated.** `stale_odds` is ~97% of suppressions and is the
+16-credit budget showing up as a row count: ~2 sweeps a day, 15 minutes each, and
+a full pass every 900s regardless — so ~94% of rows are priced against a
+consensus that has already aged out, and refusing them is correct.
 
-**Why it is the first thing.** Every recommendation live has written since
-deploy was suppressed — 5 for 5. The gate counts only `actionable` rows, so a
-~100% suppression rate means the 300-game floor can never be approached, no
-matter how well CLV works. n=5 proves nothing; the line makes it answerable.
-Full reasoning and how to read the three outcomes: top of `tasks/NEXT.md`.
+**The rows that did have fresh odds said `no_edge` 161 times and `actionable`
+0 times.** That is the premise of the project holding, not a fault.
 
-**`8c37e44` is on `main` and not yet deployed.** Live is on `e885bca`.
+So the 300-game floor is not reachable by waiting. The options are in
+`tasks/NEXT.md` — pay for more odds credits, spend the existing budget better
+(scheduling, not code), or accept that the record accumulates at zero. **Do not
+relax `MAX_ODDS_AGE_S`**; that manufactures edges into the record.
+
+This needs Joe's call, not more building.
 
 ## The check this file used to open with — done
 

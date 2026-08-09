@@ -1,45 +1,68 @@
 # Next — your checklist
 
-## READ FIRST (2026-08-09) — the gate may be blocked by suppression, not by CLV
+## READ FIRST (2026-08-09) — the gate is blocked by the odds budget, and the guards are fine
 
-**Open question, instrumented but not yet answered.** Every recommendation the
-live instance has written since deploy was suppressed — 5 for 5 across four
-passes:
+Instrumented in `8c37e44` and **answered on the first pass** (live, 04:38Z):
 
-    03:17  recommendations 1   suppressed 1
-    03:44  recommendations 0   suppressed 0
-    04:07  recommendations 4   suppressed 4
+    gate progress (24h): actionable=0 of 300 needed, no_edge=161, suppressed=265;
+    suppressed by: stale_odds=256, too_few_books=73, no_market_width=73,
+                   edge_within_method_noise=4
 
-The gate counts `actionable` = `suppressed_reason IS NULL AND
-suggested_contracts > 0` (`gate.py`, `POPULATIONS`). So **if that rate is really
-~100%, the 300-game floor cannot be approached at all** — however long the loop
-runs, and however well the CLV machinery works. That is the same arithmetic
-shape as the CLV-horizon bug at the top of this file, one level up: every
-component correct, product zero.
+426 rows in 24h. The worry that sent me looking — that a miscalibrated rule was
+refusing everything and pinning the gate's counter at zero — is **refuted**, and
+what replaced it is more useful.
 
-n=5 is far too small to conclude anything, which is the point — nobody could
-see the number. It was reachable only through the authenticated
-`/api/suppression`, and the local `.env` token deliberately differs from the
-Fly secret.
+**`stale_odds` is 256 of 265 suppressed rows (~97%), and it is structural, not a
+bug.** The odds budget is 16 credits/day at 6 a sweep, so ~2 sweeps, each opening
+a 15-minute window. A full pass runs every 900s regardless, so ~94% of passes
+write rows whose sportsbook consensus has already aged past `MAX_ODDS_AGE_S`.
+Those rows *should* be refused. This is the composition already recorded in
+`tasks/lessons.md` under two-limits-on-one-quantity — the tool is actionable
+about 30 minutes a day — now visible as a row count instead of an argument.
 
-**Now printed on every full pass** (`8c37e44`), so `Ops -f action=logs` answers
-it without credentials:
+**And the rows that did have fresh odds answered `no_edge` 161 times and
+`actionable` 0 times.** That is the honest no-edge result, on the population
+where the engine was actually able to speak. It is the premise of the whole
+project holding, not a fault:
 
-    gate progress (24h): actionable=N of 300 needed, no_edge=N, suppressed=N;
-    suppressed by: edge_within_method_noise=N, wide_market=N, ...
+> Kalshi's advantage is cost, not information. This tool exists to find out
+> whether an edge is there — not to assume one. (CLAUDE.md)
 
-**Read it after a full day.** Three outcomes, three different jobs:
+### What this means for the gate, stated plainly
 
-| Reading | Means | Do |
-|---|---|---|
-| `no_edge` dominates | the honest no-edge answer | nothing; this is the premise holding |
-| one reason dominates `suppressed` | a miscalibrated rule, or a real upstream fault | investigate that rule |
-| `actionable` grows | the gate is genuinely accumulating | watch `clv_rows_joined` next |
+The 300-game floor is not reachable by waiting. The binding constraint is odds
+credits, and it is upstream of everything: no credits → no fresh consensus → no
+actionable row → no CLV → no gate. Three options, and none is free:
 
-Note the third column matters: a dominant suppression reason is **not**
-automatically a bug to relax. `edge_within_method_noise` firing constantly is
-exactly what CLAUDE.md's first rule predicts on a venue priced to ~2c. Relaxing
-a guard because it fires often is how the record gets poisoned.
+1. **Pay for odds.** A larger Odds API tier buys more sweeps, more windows, more
+   rows with fresh consensus. This is the only one that changes the arithmetic
+   rather than the accounting.
+2. **Spend the existing budget better.** Two sweeps a day is a *scheduling*
+   choice. Concentrating them on the densest slate window, or sweeping one sport
+   rather than all, trades coverage for freshness. Cheap to try, bounded upside.
+3. **Accept it and let the record accumulate slowly.** At 0 actionable rows a
+   day the floor is never reached, so this is only honest if (2) moves the number
+   off zero first.
+
+**Do not "fix" this by relaxing `MAX_ODDS_AGE_S`.** A stale consensus priced
+against a live Kalshi ask is exactly how a fabricated edge enters the record,
+and the record is the product.
+
+### Two readings of this line that would be wrong
+
+- **The reason counts do not partition.** A row carries a comma-joined list and
+  `suppression_summary` counts each name, so 256+73+73+4 sums above the 265 rows.
+  Read them as "how often each rule fired", never as shares of a whole.
+- **`too_few_books=73` and `no_market_width=73` are one population, not two.**
+  Identical counts because they co-occur by construction: one book cannot
+  disagree with itself, so a single-book consensus has no measurable width.
+  `tasks/lessons.md` records that sharp-book anchoring *causes* the single-book
+  case. Counting them as two distinct problems would double the apparent size of
+  a small one.
+
+Caveat on scope: one day, one slate, in August — MLB and NFL preseason, with
+NBA, NHL and NCAAF out of season. A denser winter slate is a different
+measurement and this should be re-read then.
 
 
 ## READ FIRST (2026-08-09, later) — the log stream drops lines, and the number everyone quoted was a 10% sample
