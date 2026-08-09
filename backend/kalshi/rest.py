@@ -371,15 +371,41 @@ class KalshiRestClient:
             yield event
 
     async def markets_for_event(self, event_ticker: str) -> list[dict]:
-        """Markets for one event.
+        """Markets for one event. Complete, or it raises.
 
         Needed because **settled events do not carry nested markets** — for
         history you must walk events first, then fetch markets per event.
+
+        This used to send no `limit` and read one page, which meant it silently
+        took Kalshi's default and had no way to know it had been truncated. Both
+        halves of that were measured on 2026-08-09 with free unauthenticated
+        GETs:
+
+        - `/markets` with no `limit` returns **100** rows and a non-empty
+          `cursor`. So the default is 100, not 200, and it is a real ceiling.
+        - `limit` is capped at 1000; `limit=1001` is HTTP 400.
+        - **`?event_ticker=` ignores `limit` entirely and returns the whole
+          event with an empty cursor.** `KXWC-30` returns all 82 of its markets
+          for `limit=1`, `limit=10` and no limit alike. The largest event
+          observed anywhere was 82, so nothing in scope is near a page.
+
+        Paginating anyway, for one request's worth of nothing: with an empty
+        cursor `paginate` returns after a single call, so the normal cost is
+        unchanged, and if Kalshi ever does start paging this filter the tail
+        cannot go missing. A truncated answer here would not look like an error
+        — the missing markets would be counted `still_unresolved` by
+        `market_results.py` and re-queried on every pass, forever.
+
+        `paginate` also **raises when the `markets` key is absent** rather than
+        returning an empty list, which the hand-rolled `payload.get("markets")
+        or []` this replaces did not. A renamed envelope reading as "this event
+        has no markets" is this repo's most-repeated defect.
         """
-        payload = await self.get("/markets", event_ticker=event_ticker)
         return [
             m
-            for m in (payload.get("markets") or [])
+            async for m in self.paginate(
+                "/markets", "markets", event_ticker=event_ticker
+            )
             if not (m.get("ticker") or "").startswith(JUNK_PREFIX)
         ]
 

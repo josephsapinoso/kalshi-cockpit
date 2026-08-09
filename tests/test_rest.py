@@ -444,3 +444,85 @@ class TestTheOrderbookEnvelope:
         async with api:
             book = await api.orderbook("T")
         assert book == {"yes_dollars": [], "no_dollars": []}
+
+
+class TestMarketsForOneEventCannotComeBackShort:
+    """`markets_for_event` read exactly one page and sent no `limit`.
+
+    Measured on 2026-08-09 with free unauthenticated GETs, because none of this
+    was confirmed against the wire before:
+
+    - `/markets` with no `limit` returns **100** rows and a non-empty cursor.
+    - `limit` is capped at 1000; `limit=1001` is HTTP 400.
+    - `?event_ticker=` **ignores `limit`** and returns the whole event with an
+      empty cursor -- `KXWC-30` returns all 82 of its markets for `limit=1`.
+      The largest event found anywhere was 82, so nothing in scope is close.
+
+    So the old code was probably safe, and "probably" was the problem. A
+    truncated answer here does not look like an error: `market_results.py` would
+    count the missing tail `still_unresolved` and re-query it on every pass,
+    forever -- the same permanent leak by a second route.
+    """
+
+    @respx.mock
+    async def test_it_follows_a_cursor_rather_than_dropping_the_tail(self, api):
+        respx.get(f"{BASE}/markets").mock(side_effect=[
+            httpx.Response(
+                200, json={"markets": [{"ticker": "EV-A"}], "cursor": "next"}
+            ),
+            httpx.Response(
+                200, json={"markets": [{"ticker": "EV-B"}], "cursor": ""}
+            ),
+        ])
+        async with api:
+            markets = await api.markets_for_event("EV")
+        assert [m["ticker"] for m in markets] == ["EV-A", "EV-B"]
+
+    @respx.mock
+    async def test_the_normal_case_is_still_one_request(self, api):
+        """An empty cursor ends it, so the measured behaviour costs nothing."""
+        route = respx.get(f"{BASE}/markets").mock(
+            return_value=httpx.Response(200, json={
+                "markets": [{"ticker": "EV-A"}, {"ticker": "EV-B"}], "cursor": ""
+            })
+        )
+        async with api:
+            markets = await api.markets_for_event("EV")
+        assert len(markets) == 2
+        assert route.call_count == 1
+
+    @respx.mock
+    async def test_it_sends_an_explicit_limit(self, api):
+        """Never the server's default, which is 100 and was never checked."""
+        route = respx.get(f"{BASE}/markets").mock(
+            return_value=httpx.Response(200, json={"markets": [], "cursor": ""})
+        )
+        async with api:
+            await api.markets_for_event("EV")
+        assert "limit=" in str(route.calls[0].request.url)
+
+    @respx.mock
+    async def test_a_renamed_envelope_raises_instead_of_reading_as_no_markets(
+        self, api
+    ):
+        """This method used to do `payload.get("markets") or []`, which is the
+        repo's most-repeated defect: an event with no markets and an event whose
+        envelope was renamed are not the same event."""
+        respx.get(f"{BASE}/markets").mock(
+            return_value=httpx.Response(200, json={"marketz": [], "cursor": ""})
+        )
+        async with api:
+            with pytest.raises(KalshiAPIError, match="renamed"):
+                await api.markets_for_event("EV")
+
+    @respx.mock
+    async def test_junk_combination_markets_are_still_filtered(self, api):
+        respx.get(f"{BASE}/markets").mock(
+            return_value=httpx.Response(200, json={
+                "markets": [{"ticker": "KXMVE-JUNK"}, {"ticker": "EV-A"}],
+                "cursor": "",
+            })
+        )
+        async with api:
+            markets = await api.markets_for_event("EV")
+        assert [m["ticker"] for m in markets] == ["EV-A"]

@@ -14,6 +14,7 @@ timer, and a `finalized` market whose two statements of the outcome disagree.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -24,9 +25,12 @@ from backend.kalshi.discovery import (
     build_market,
     read_market_result,
 )
+from backend.config import MarketResultConfig
 from backend.market_results import (
-    MIN_AGE_AFTER_COMMENCE_MS,
+    MAX_REPORTED_ERRORS,
+    count_unreadable,
     markets_awaiting_result,
+    markets_by_ticker,
     record_result,
     run_market_result_pass,
 )
@@ -36,8 +40,10 @@ from backend.store import db
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+DEFAULTS = MarketResultConfig()
 NOW = 1_800_000_000_000
-COMMENCE = NOW - MIN_AGE_AFTER_COMMENCE_MS - 1
+COMMENCE = NOW - DEFAULTS.min_age_after_commence_ms - 1
+LONG_AGO = NOW - DEFAULTS.max_age_after_commence_ms - 1
 
 
 @pytest.fixture(scope="module")
@@ -69,7 +75,7 @@ def conn(tmp_path):
 
 
 def _market(conn, ticker, *, event="EV", result=None, commence_ms=COMMENCE,
-            close_ms=None):
+            close_ms=None, status="active"):
     """A market row and its event, written the way the code writes them."""
     conn.execute(
         "INSERT OR REPLACE INTO kalshi_events (event_ticker, commence_ms, "
@@ -79,8 +85,8 @@ def _market(conn, ticker, *, event="EV", result=None, commence_ms=COMMENCE,
     conn.execute(
         "INSERT OR REPLACE INTO kalshi_markets (ticker, event_ticker, status, "
         "result, close_ms, first_seen_ms, last_seen_ms) "
-        "VALUES (?, ?, 'active', ?, ?, 0, 0)",
-        (ticker, event, result, close_ms),
+        "VALUES (?, ?, ?, ?, ?, 0, 0)",
+        (ticker, event, status, result, close_ms),
     )
     conn.commit()
 
@@ -152,9 +158,19 @@ class TestReadingTheResultOffTheWire:
         assert all(read_market_result(m) is None for m in closed_unresolved)
 
     def test_a_determined_result_is_not_trusted_until_finalized(self, finalized):
-        """Kalshi sets `result` while the settlement timer runs, and a
-        `disputed` determination can be re-determined and amended. Trusting it
-        would put a reversible answer into a permanent record."""
+        """A status short of `finalized` is refused, whatever it carries.
+
+        The premise usually given for this -- that Kalshi *populates* `result`
+        at `determined` while the settlement timer runs -- is an **inference,
+        not a measurement**. The capture holds zero `determined` markets, and
+        its own `result_while_active` and `terminal_status_with_empty_result`
+        metadata arrays are both empty; what is measured is only that a
+        `settlement_timer_seconds` field exists, reading 60/90/120/300. So this
+        test asserts the conservative half, which is the half that survives
+        either way: an answer at a reversible status does not enter a permanent
+        record. If the inference is wrong, the pass is one timer late; if it is
+        right, a re-determined `disputed` market cannot rewrite history.
+        """
         determined = dict(finalized[0], status="determined")
         assert determined["result"] in RESULTS
         assert read_market_result(determined) is None
@@ -289,31 +305,255 @@ class TestTheUpsertWritesTheColumn:
 class TestChoosingWhatToAsk:
     def test_a_market_with_a_result_is_not_asked_about_again(self, conn):
         _market(conn, "A", result="yes")
-        assert markets_awaiting_result(conn, now=NOW) == {}
+        assert markets_awaiting_result(conn, now=NOW).by_event == {}
 
     def test_a_game_that_has_not_had_time_to_finish_is_left_alone(self, conn):
         _market(conn, "A", commence_ms=NOW - 60_000)
-        assert markets_awaiting_result(conn, now=NOW) == {}
+        assert markets_awaiting_result(conn, now=NOW).by_event == {}
 
     def test_it_gates_on_commence_not_the_scheduled_close(self, conn):
         """`close_time` runs up to three days past the game while a market is
         open, so gating on it would leave every outcome unrecorded for days."""
         _market(conn, "A", commence_ms=COMMENCE, close_ms=NOW + 3 * 86_400_000)
-        assert markets_awaiting_result(conn, now=NOW) == {"EV": ["A"]}
+        assert markets_awaiting_result(conn, now=NOW).by_event == {"EV": ["A"]}
 
     def test_markets_are_grouped_by_event(self, conn):
         _market(conn, "A", event="EV1")
         _market(conn, "B", event="EV1")
         _market(conn, "C", event="EV2")
         pending = markets_awaiting_result(conn, now=NOW)
-        assert pending == {"EV1": ["A", "B"], "EV2": ["C"]}
+        assert pending.by_event == {"EV1": ["A", "B"], "EV2": ["C"]}
 
     def test_max_events_bounds_the_requests_without_splitting_an_event(self, conn):
         _market(conn, "A", event="EV1", commence_ms=COMMENCE)
         _market(conn, "B", event="EV1", commence_ms=COMMENCE)
         _market(conn, "C", event="EV2", commence_ms=COMMENCE - 10_000)
         pending = markets_awaiting_result(conn, now=NOW, max_events=1)
-        assert pending == {"EV1": ["A", "B"]}
+        assert pending.by_event == {"EV1": ["A", "B"]}
+
+    def test_the_cap_says_how_many_events_it_left_out(self, conn):
+        """Silent truncation reads as 'covered everything' when it didn't."""
+        _market(conn, "A", event="EV1", commence_ms=COMMENCE)
+        _market(conn, "B", event="EV2", commence_ms=COMMENCE - 10_000)
+        _market(conn, "C", event="EV3", commence_ms=COMMENCE - 20_000)
+        pending = markets_awaiting_result(conn, now=NOW, max_events=1)
+        assert pending.deferred_events == 2
+
+    def test_the_cap_comes_from_config_when_no_argument_is_given(self, conn):
+        """The live loop passes no `max_events`, so the env var is the only
+        throttle that exists without a deploy."""
+        _market(conn, "A", event="EV1", commence_ms=COMMENCE)
+        _market(conn, "B", event="EV2", commence_ms=COMMENCE - 10_000)
+        capped = MarketResultConfig(max_events_per_pass=1)
+        pending = markets_awaiting_result(conn, now=NOW, config=capped)
+        assert list(pending.by_event) == ["EV1"]
+        assert pending.deferred_events == 1
+
+
+class TestTheAgeBoundStopsAskingForever:
+    """Finding B. `markets_awaiting_result` had no upper age bound and
+    `max_events` is unset on live, so a market that never finalizes was
+    re-queried on all 96 passes a day, permanently and invisibly."""
+
+    def test_a_market_older_than_the_window_is_not_asked_about(self, conn):
+        _market(conn, "A", commence_ms=LONG_AGO)
+        assert markets_awaiting_result(conn, now=NOW).by_event == {}
+
+    def test_the_dropped_population_gets_its_own_counter(self, conn):
+        """Not `still_unresolved`. That bucket means 'in the 7th inning', and
+        one counter over both a state that resolves in an hour and a state that
+        never resolves cannot show the leak."""
+        _market(conn, "A", event="EV1", commence_ms=LONG_AGO)
+        _market(conn, "B", event="EV2", commence_ms=COMMENCE)
+        pending = markets_awaiting_result(conn, now=NOW)
+        assert pending.by_event == {"EV2": ["B"]}
+        assert pending.abandoned_total == 1
+
+    def test_the_oldest_abandoned_market_is_named_with_its_age(self, conn):
+        _market(conn, "STUCK", event="EV1", commence_ms=NOW - 200 * 86_400_000)
+        _market(conn, "NEWER", event="EV2", commence_ms=LONG_AGO)
+        pending = markets_awaiting_result(conn, now=NOW)
+        assert pending.abandoned_total == 2
+        assert pending.abandoned_oldest.startswith("STUCK (")
+        assert "200d" in pending.abandoned_oldest
+
+    def test_nothing_abandoned_reports_zero_rather_than_going_quiet(self, conn):
+        _market(conn, "A", commence_ms=COMMENCE)
+        pending = markets_awaiting_result(conn, now=NOW)
+        assert pending.abandoned_total == 0
+        assert pending.abandoned_oldest == ""
+
+    def test_widening_the_window_brings_an_abandoned_market_back(self, conn):
+        """Abandonment is an age bound on a query, not a flag on a row. It has
+        to be reversible from config alone or the loss would be permanent."""
+        _market(conn, "A", commence_ms=LONG_AGO)
+        wide = MarketResultConfig(max_age_after_commence_s=365 * 24 * 60 * 60)
+        assert markets_awaiting_result(conn, now=NOW, config=wide).by_event == {
+            "EV": ["A"]
+        }
+
+    async def test_the_pass_reports_the_bound_on_every_line(self, conn):
+        _market(conn, "A", commence_ms=LONG_AGO)
+        counts = await run_market_result_pass(conn, FakeKalshi({}), now=NOW)
+        assert counts.as_dict()["abandoned_total"] == 1
+        assert "abandoned_oldest" in counts.as_dict()
+        assert counts.still_unresolved == 0, (
+            "an abandoned market must not fall into the bucket that also holds "
+            "a game currently in progress"
+        )
+
+
+class TestARefusalIsAskedOnceNotForever:
+    """Finding A. The write was guarded by `WHERE result IS NULL`; the *read*
+    was not, so a refused market stayed NULL, stayed in the queue, and produced
+    an identical ERROR on every pass -- 2 markets x 96 passes = 192 lines a day
+    from one tied game, forever."""
+
+    def _tie(self, finalized, ticker="A", event="EV"):
+        return dict(
+            finalized[0], ticker=ticker, event_ticker=event,
+            result="", settlement_value_dollars="0.5000",
+        )
+
+    async def test_a_refused_market_leaves_the_queue(self, conn, finalized):
+        _market(conn, "A")
+        kalshi = FakeKalshi({"EV": [self._tie(finalized)]})
+        first = await run_market_result_pass(conn, kalshi, now=NOW)
+        assert first.refused == 1
+
+        assert markets_awaiting_result(conn, now=NOW + 1).by_event == {}, (
+            "the row is still queued, so it will be re-refused every pass"
+        )
+
+    async def test_the_second_pass_neither_asks_nor_logs(
+        self, conn, finalized, caplog
+    ):
+        """The two passes in the audit's run were byte-identical. This is the
+        assertion that they cannot be again."""
+        _market(conn, "A")
+        kalshi = FakeKalshi({"EV": [self._tie(finalized)]})
+        await run_market_result_pass(conn, kalshi, now=NOW)
+
+        caplog.clear()
+        with caplog.at_level("ERROR", logger="backend.market_results"):
+            second = await run_market_result_pass(conn, kalshi, now=NOW + 1)
+
+        assert kalshi.asked == ["EV"], "the event was queried a second time"
+        assert second.refused == 0
+        assert second.errors == []
+        assert caplog.records == []
+
+    async def test_the_refusal_itself_is_unchanged_and_writes_no_outcome(
+        self, conn, finalized
+    ):
+        """Fix the consequence, not the refusal. A tie stays NULL."""
+        _market(conn, "A")
+        await run_market_result_pass(
+            conn, FakeKalshi({"EV": [self._tie(finalized)]}), now=NOW
+        )
+        result, status = _result_of(conn, "A")
+        assert result is None, "a tie was fabricated into an outcome"
+        assert status == SETTLED_STATUS
+
+    async def test_the_population_stays_visible_after_it_goes_quiet(
+        self, conn, finalized
+    ):
+        """`refused` returns to zero the pass after; the gauge does not, so the
+        stuck market cannot vanish from the log."""
+        _market(conn, "A")
+        kalshi = FakeKalshi({"EV": [self._tie(finalized)]})
+        first = await run_market_result_pass(conn, kalshi, now=NOW)
+        assert first.unreadable_total == 1
+
+        second = await run_market_result_pass(conn, kalshi, now=NOW + 1)
+        assert second.refused == 0
+        assert second.unreadable_total == 1
+        assert second.as_dict()["unreadable_total"] == 1
+
+    def test_count_unreadable_ignores_a_market_that_settled_normally(
+        self, conn
+    ):
+        _market(conn, "A", result="yes", status=SETTLED_STATUS)
+        assert count_unreadable(conn) == 0
+
+    async def test_a_sibling_still_pending_keeps_its_event_queried(
+        self, conn, finalized
+    ):
+        """A refused market must not take the rest of its fixture with it."""
+        _market(conn, "A", event="EV")
+        _market(conn, "B", event="EV")
+        tie = self._tie(finalized, ticker="A")
+        unsettled = dict(finalized[0], ticker="B", status="active", result="")
+        kalshi = FakeKalshi({"EV": [tie, unsettled]})
+
+        await run_market_result_pass(conn, kalshi, now=NOW)
+        second = await run_market_result_pass(conn, kalshi, now=NOW + 1)
+
+        assert kalshi.asked == ["EV", "EV"]
+        assert second.markets_pending == 1
+        assert second.still_unresolved == 1
+        assert second.refused == 0
+
+    async def test_the_error_list_in_the_log_line_is_bounded(self, conn):
+        """The counts dict rides inside one merged `pass N ok` record, so an
+        unbounded list makes a bad minute unreadable rather than informative."""
+        events = [f"EV{i}" for i in range(MAX_REPORTED_ERRORS + 4)]
+        for i, event in enumerate(events):
+            _market(conn, f"T{i}", event=event, commence_ms=COMMENCE - i)
+        counts = await run_market_result_pass(
+            conn, FakeKalshi({}, fail=set(events)), now=NOW
+        )
+        assert len(counts.errors) == len(events)
+        reported = counts.as_dict()["errors"]
+        assert len(reported) == MAX_REPORTED_ERRORS + 1
+        assert reported[-1].endswith("more")
+
+
+class TestAMalformedPayloadIsCountedNotRaised:
+    """Finding C. The per-event `try` wrapped only the `await`; the dict
+    comprehension after it was unguarded. A raise escaping here is not one bad
+    pass -- `tempo.completed_full_pass` runs after this, so the loop re-runs the
+    same full pass into the same deterministic raise until `LoopFailed` takes
+    the container down, and the same row is still in the same volume on
+    restart."""
+
+    async def test_a_bare_list_of_strings_does_not_escape(self, conn):
+        _market(conn, "A")
+        counts = await run_market_result_pass(
+            conn, FakeKalshi({"EV": ["not-a-market"]}), now=NOW
+        )
+        assert counts.errors and "not a dict" in counts.errors[0]
+        assert counts.recorded == 0
+
+    async def test_none_does_not_escape(self, conn):
+        _market(conn, "A")
+        counts = await run_market_result_pass(
+            conn, FakeKalshi({"EV": None}), now=NOW
+        )
+        assert counts.errors and "not a list" in counts.errors[0]
+
+    async def test_one_malformed_event_does_not_stop_the_others(
+        self, conn, finalized
+    ):
+        good = dict(finalized[0], ticker="B", event_ticker="EV2")
+        _market(conn, "A", event="EV1")
+        _market(conn, "B", event="EV2")
+        counts = await run_market_result_pass(
+            conn, FakeKalshi({"EV1": None, "EV2": [good]}), now=NOW
+        )
+        assert counts.recorded == 1
+        assert _result_of(conn, "B")[0] == good["result"]
+
+    def test_the_shape_check_names_what_arrived(self):
+        with pytest.raises(TypeError, match="not a list"):
+            markets_by_ticker(None, wanted={"A"})
+        with pytest.raises(TypeError, match="not a dict"):
+            markets_by_ticker(["A"], wanted={"A"})
+
+    def test_a_well_formed_payload_is_unaffected(self, finalized):
+        wanted = {finalized[0]["ticker"]}
+        indexed = markets_by_ticker(list(finalized), wanted=wanted)
+        assert set(indexed) == wanted
 
 
 class TestThePass:
@@ -396,3 +636,78 @@ class TestThePass:
         assert reported["refused"] == 0
         assert reported["still_unresolved"] == 0
         assert reported["markets_pending"] == 0
+        # The two bounds, reported before they have ever bitten. A bound that
+        # only appears in the log the day it drops something reads as no bound
+        # at all until then.
+        assert reported["unreadable_total"] == 0
+        assert reported["abandoned_total"] == 0
+
+
+class TestTheThresholdsAreTunableAndCannotKillTheContainer:
+    """Both bounds move by environment, and neither can raise.
+
+    `MarketResultConfig.load()` runs inside `scripts/run_loop.py`, which
+    `docker/entrypoint.sh` supervises with `wait -n`. A `ConfigError` there is a
+    container crash loop clearable only with `flyctl secrets unset` -- a laptop
+    job, and this tool is operated from a phone. That is the composition
+    `RETIRED_SETTINGS` already records, and it applies to any new setting on
+    this path. Announced, never enforced.
+    """
+
+    def test_the_ask_window_is_read_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv("MARKET_RESULT_MIN_AGE_S", "60")
+        monkeypatch.setenv("MARKET_RESULT_MAX_AGE_S", "86400")
+        config = MarketResultConfig.load()
+        assert config.min_age_after_commence_s == 60
+        assert config.max_age_after_commence_ms == 86_400_000
+
+    def test_the_per_pass_request_cap_is_read_from_the_environment(
+        self, monkeypatch
+    ):
+        """The audit's point: with the cap a compile-time constant and the loop
+        passing no value, a chatty pass had no throttle short of a deploy."""
+        monkeypatch.setenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", "25")
+        assert MarketResultConfig.load().max_events_per_pass == 25
+
+    def test_unset_means_uncapped_and_is_not_zero(self, monkeypatch):
+        monkeypatch.delenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", raising=False)
+        assert MarketResultConfig.load().max_events_per_pass is None
+
+    def test_a_cap_of_zero_is_refused_rather_than_meaning_ask_nothing(
+        self, monkeypatch, caplog
+    ):
+        monkeypatch.setenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", "0")
+        with caplog.at_level(logging.ERROR, logger="backend.config"):
+            config = MarketResultConfig.load()
+        assert config.max_events_per_pass is None
+        assert caplog.records
+
+    def test_garbage_announces_and_falls_back_instead_of_raising(
+        self, monkeypatch, caplog
+    ):
+        monkeypatch.setenv("MARKET_RESULT_MIN_AGE_S", "two hours")
+        with caplog.at_level(logging.ERROR, logger="backend.config"):
+            config = MarketResultConfig.load()
+        assert config.min_age_after_commence_s == DEFAULTS.min_age_after_commence_s
+        assert any(
+            "MARKET_RESULT_MIN_AGE_S" in r.getMessage() for r in caplog.records
+        ), "a value that is not read must say so, or it is silently ignored"
+
+    def test_an_inverted_window_announces_and_uses_both_defaults(
+        self, monkeypatch, caplog
+    ):
+        """Max below min would abandon every market on the exchange, quietly."""
+        monkeypatch.setenv("MARKET_RESULT_MIN_AGE_S", "86400")
+        monkeypatch.setenv("MARKET_RESULT_MAX_AGE_S", "60")
+        with caplog.at_level(logging.ERROR, logger="backend.config"):
+            config = MarketResultConfig.load()
+        assert config == DEFAULTS
+        assert caplog.records
+
+    def test_no_value_of_any_kind_can_raise(self, monkeypatch):
+        """The claim that matters for the container, asserted directly."""
+        for value in ["", "0", "-1", "nonsense", "1e9", " ", "999999999999"]:
+            monkeypatch.setenv("MARKET_RESULT_MIN_AGE_S", value)
+            monkeypatch.setenv("MARKET_RESULT_MAX_AGE_S", value)
+            monkeypatch.setenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", value)
+            assert MarketResultConfig.load() is not None

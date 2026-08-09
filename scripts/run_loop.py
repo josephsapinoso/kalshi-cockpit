@@ -68,6 +68,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.config import (  # noqa: E402
     GateConfig,
     KalshiConfig,
+    MarketResultConfig,
     OddsConfig,
     RiskConfig,
     StalenessConfig,
@@ -260,6 +261,11 @@ async def main() -> int:
     risk = RiskConfig.load()
     gate_config = GateConfig.load()
     staleness = StalenessConfig.load()
+    # Loaded once, here, rather than inside the pass: a bad value announces at
+    # ERROR and falls back to the default, and doing that on every pass would
+    # be 96 identical ERROR lines a day -- the exact failure the pass itself was
+    # just fixed for. It cannot raise; see `MarketResultConfig`.
+    market_result_config = MarketResultConfig.load()
     suppression = SuppressionConfig()
     budget = CreditBudget(
         conn,
@@ -306,8 +312,13 @@ async def main() -> int:
                 # Same cadence and the same reason, and one request per event
                 # rather than per market. This is the only writer of
                 # `kalshi_markets.result`, which was NULL for every row of the
-                # project's life -- see `backend/market_results.py`.
-                market_results = await run_market_result_pass(conn, kalshi)
+                # project's life. It is also the only *anything* for that
+                # column: nothing reads it yet, so this gives calibration its
+                # inputs rather than making calibration possible -- see
+                # `backend/market_results.py`.
+                market_results = await run_market_result_pass(
+                    conn, kalshi, config=market_result_config
+                )
 
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),

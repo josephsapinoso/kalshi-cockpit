@@ -85,6 +85,43 @@ def _float(key: str, default: float) -> float:
         raise ConfigError(f"{key}={raw!r} is not a number.") from exc
 
 
+def _int_announced(key: str, default: int, *, minimum: int = 1) -> int:
+    """An integer setting that **announces and falls back** instead of raising.
+
+    The deliberate opposite of `_int`, and the exception to this module's own
+    "unreadable is not zero" rule. That rule protects settings where a
+    substituted value is dangerous -- a risk cap, a credential. These are
+    polling cadences, where the default is safe and a raise is not: they are
+    loaded by `scripts/run_loop.py`, which `docker/entrypoint.sh` supervises
+    with `wait -n`, so a `ConfigError` here is a container crash loop clearable
+    only with `flyctl secrets unset` -- a laptop job, and this tool is operated
+    from a phone. That is exactly the composition `RETIRED_SETTINGS` records:
+    "refuse to start on bad config" times "recovery needs flyctl" equals "the
+    operator cannot recover from their only device".
+
+    So nothing is guessed silently. A bad value is logged at ERROR, names the
+    default it is falling back to, and the setting simply is not read.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.error(
+            "%s=%r is not an integer and is not read; using the default %d.",
+            key, raw, default,
+        )
+        return default
+    if value < minimum:
+        logger.error(
+            "%s=%d is below the minimum %d and is not read; using the default "
+            "%d.", key, value, minimum, default,
+        )
+        return default
+    return value
+
+
 def _bool(key: str, default: bool = False) -> bool:
     raw = os.getenv(key, "").strip().lower()
     if not raw:
@@ -343,6 +380,85 @@ class StalenessConfig:
             max_odds_age_s=_int("MAX_ODDS_AGE_S", 900),
             max_kalshi_quote_age_s=_int("MAX_KALSHI_QUOTE_AGE_S", 30),
         )
+
+
+@dataclass(frozen=True)
+class MarketResultConfig:
+    """How hard `backend/market_results.py` chases an outcome, and for how long.
+
+    All three are here rather than as module constants because they are the
+    knobs a *live* pass would need turned, and the only alternative on a
+    deployed instance is a code change plus a deploy. Being honest about what
+    that buys: these move with `fly secrets set`, which is still flyctl and
+    still a laptop. It removes the build-and-deploy, not the laptop. Nothing in
+    this dataclass can be changed from a phone, and nothing here can take the
+    instance down either -- see `_int_announced`.
+
+    **`max_age_after_commence_s` bounds coverage, so it costs something.** A
+    market whose game commenced longer ago than this is dropped from the queue
+    permanently: a settlement that genuinely lands on day eight is never
+    recorded, and the row stays NULL. That is the price of not spending ~96
+    requests a day forever on an event that will never settle -- one is already
+    in the capture, `closed` with no result roughly six months after its
+    scheduled expiration. Dropped markets are counted (`abandoned_total`) and
+    the oldest is named on every pass, so the population is visible rather than
+    silently truncated, and widening the window brings them straight back --
+    abandonment is a query-time age bound, not a flag written to any row.
+    """
+
+    min_age_after_commence_s: int = 2 * 60 * 60
+    max_age_after_commence_s: int = 7 * 24 * 60 * 60
+    # `None` means "ask about every event with anything outstanding", which is
+    # the behaviour the pass shipped with. Not 0 -- that would mean "ask about
+    # nothing", and collapsing those two is the confusion `_int_or_none` exists
+    # to prevent one field up.
+    max_events_per_pass: Optional[int] = None
+
+    @classmethod
+    def load(cls) -> "MarketResultConfig":
+        defaults = cls()
+        min_age = _int_announced(
+            "MARKET_RESULT_MIN_AGE_S", defaults.min_age_after_commence_s
+        )
+        max_age = _int_announced(
+            "MARKET_RESULT_MAX_AGE_S", defaults.max_age_after_commence_s
+        )
+        if max_age <= min_age:
+            logger.error(
+                "MARKET_RESULT_MAX_AGE_S=%d is not above MARKET_RESULT_MIN_AGE_S"
+                "=%d, which would leave nothing to ask about and abandon every "
+                "market. Neither is read; using the defaults %d and %d.",
+                max_age, min_age, defaults.min_age_after_commence_s,
+                defaults.max_age_after_commence_s,
+            )
+            min_age = defaults.min_age_after_commence_s
+            max_age = defaults.max_age_after_commence_s
+
+        raw_cap = os.getenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", "").strip()
+        cap: Optional[int] = None
+        if raw_cap:
+            cap = _int_announced("MARKET_RESULT_MAX_EVENTS_PER_PASS", 0)
+            if cap <= 0:
+                logger.error(
+                    "MARKET_RESULT_MAX_EVENTS_PER_PASS=%r is not a positive "
+                    "integer and is not read; the pass stays uncapped. Unset "
+                    "means uncapped; 0 would mean 'ask about nothing'.",
+                    raw_cap,
+                )
+                cap = None
+        return cls(
+            min_age_after_commence_s=min_age,
+            max_age_after_commence_s=max_age,
+            max_events_per_pass=cap,
+        )
+
+    @property
+    def min_age_after_commence_ms(self) -> int:
+        return self.min_age_after_commence_s * 1000
+
+    @property
+    def max_age_after_commence_ms(self) -> int:
+        return self.max_age_after_commence_s * 1000
 
 
 @dataclass(frozen=True)
