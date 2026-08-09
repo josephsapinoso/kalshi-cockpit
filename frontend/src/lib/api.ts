@@ -59,6 +59,16 @@ export type Recommendation = {
    */
   losing_run_probability: number | null;
   suggested_contracts: number;
+  /**
+   * The same decision sized at the **fixed reference bankroll**, which is what
+   * the gate's `actionable` counter reads — not what you may buy. At the
+   * deployed bankroll these differ, and a row can be counted as evidence while
+   * `suggested_contracts` is zero. Do not render it as a size to buy.
+   *
+   * `null` only on a pre-schema-v6 row that escaped the backfill, which is a
+   * different state from "no bet here".
+   */
+  reference_contracts: number | null;
   kelly_fraction: number;
   kalshi_quote_age_ms: number;
   odds_age_ms: number;
@@ -66,6 +76,16 @@ export type Recommendation = {
   suppressed_reason: string | null;
   reason_text: string;
   clv_tenths: number | null;
+  /**
+   * Which anchor `clv_tenths` was measured against. `null` when unscored.
+   *
+   * Never pool two values of this. The legacy `1` rows are scored against a
+   * weaker benchmark than the current `0`, so mixing them flatters the result;
+   * the gate counts only the primary horizon for exactly that reason.
+   *
+   * **`0` is a real horizon.** Nothing may test this for truthiness.
+   */
+  clv_horizon_hours: number | null;
   /**
    * The ages as they are *now*, sent only by the Board.
    *
@@ -143,6 +163,21 @@ export type Gate = {
   /** Every unmet condition, not just the first — the distance from open is the useful part. */
   reason: string;
   bankroll_dollars: number;
+  /**
+   * How many rows fell into each population over the **whole table**, at every
+   * horizon — not the scored subset the conditions read.
+   *
+   * `counts.actionable` is the gate's binding quantity: a suppressed or
+   * zero-sized row can never increment the 300-game floor however well the CLV
+   * machinery works downstream. It is sized at the fixed reference bankroll,
+   * so it does not move when the deposit does.
+   */
+  populations: {
+    since_ms: number;
+    counts: Record<string, number>;
+    predicates: Record<string, string>;
+    note: string;
+  };
   note: string;
 };
 
@@ -354,6 +389,20 @@ export type Ledger = {
   clv_scored_rows: number;
   clv_required: number;
   gate_open: boolean;
+  /** Rows in the whole table. Compare with `returned` to tell a slice from it. */
+  total: number;
+  /** How many rows `rows` actually holds. */
+  returned: number;
+  /** The `LIMIT` that was applied. */
+  limit: number;
+  /**
+   * The whole table counted by `clv_horizon_hours`, keyed as strings — `"0"`,
+   * `"1"`, `"unscored"`. Over the table rather than the returned window,
+   * because the legacy rows are the oldest and the window is newest-first.
+   */
+  horizons: Record<string, number>;
+  /** The anchor the gate counts. Everything else is record, not evidence. */
+  primary_horizon_hours: number;
 };
 
 /**

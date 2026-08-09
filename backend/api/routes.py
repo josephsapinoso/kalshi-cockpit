@@ -61,10 +61,13 @@ from ..core.sizing import size_position, verify_positive_after_fees
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
+from ..analysis.clv import DEFAULT_HORIZON_HOURS
 from ..gate import (
+    POPULATIONS,
     clustered_clv,
     evaluate_gate,
     live_ages,
+    population_counts,
     recommendation_freshness,
 )
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
@@ -640,11 +643,39 @@ def create_app(
         beside a Gate screen reading "9 of 300", and the flattering number is the
         one that gets believed. Both are returned so the ratio between them stays
         visible rather than being quietly folded away.
+
+        **The payload says whether it is a slice or the table.** `rows` is
+        windowed by `LIMIT`, and until `total` was returned beside it there was
+        no way to tell 1,000 rows from all of them -- so any count computed off
+        the payload was a claim about the most recent `limit` rows wearing the
+        label of a claim about the record. `SELECT COUNT(*)` is the cheapest
+        arithmetic in this file and it converts an unanswerable question into a
+        subtraction.
+
+        **And whether it is horizon-mixed.** `horizons` counts the whole table
+        by `clv_horizon_hours`, not the returned window, because that is the one
+        breakdown a slice cannot be trusted to report: the legacy 1.0h rows are
+        the *oldest* ones and `ORDER BY created_ms DESC` is precisely the window
+        that hides them. `primary_horizon_hours` names the anchor the gate
+        counts, so a reader does not have to know which key is the current one.
         """
         rows = conn.execute(
             "SELECT * FROM recommendations ORDER BY created_ms DESC LIMIT ?",
             (limit,),
         ).fetchall()
+        total = int(
+            conn.execute("SELECT COUNT(*) AS n FROM recommendations").fetchone()["n"]
+        )
+        # `null` for the unscored, keyed as a string because JSON object keys
+        # are strings and `0.0` and `1.0` must stay distinguishable from each
+        # other and from "not scored".
+        horizons = {
+            ("unscored" if r["h"] is None else f"{float(r['h']):g}"): int(r["n"])
+            for r in conn.execute(
+                "SELECT clv_horizon_hours AS h, COUNT(*) AS n "
+                "FROM recommendations GROUP BY clv_horizon_hours"
+            ).fetchall()
+        }
         scored = clustered_clv(conn)
 
         return {
@@ -653,6 +684,14 @@ def create_app(
             "clv_scored_rows": scored.n_rows,
             "clv_required": gate.min_scored_recommendations,
             "gate_open": _gate_open(conn, gate),
+            # Slice or table. `returned` is `len(rows)` and is sent anyway: the
+            # comparison a reader needs is a one-glance one, and making them
+            # count an array to make it is how the check stops being made.
+            "total": total,
+            "returned": len(rows),
+            "limit": limit,
+            "horizons": horizons,
+            "primary_horizon_hours": DEFAULT_HORIZON_HOURS,
         }
 
     @app.get("/api/suppression")
@@ -674,9 +713,63 @@ def create_app(
         is the point: a screen and a control that compute "open" separately will
         eventually disagree, and the direction that matters is the screen saying
         open while the control is not.
+
+        **`populations` is on this endpoint rather than an authenticated one of
+        its own, and that is the decision.** `gate.population_counts` answers
+        the question the conditions cannot: whether the `actionable` branch has
+        ever been taken over the *whole* table, rather than over the
+        scored-at-the-primary-horizon subset the conditions read. Until now it
+        existed only as a `logger.info` line inside `log_gate_progress`, i.e.
+        reachable only through `flyctl logs`, i.e. a laptop job -- and this tool
+        is operated from a phone.
+
+        **It is already an authenticated read on live**, which is the first
+        thing to be clear about: `frontend/src/middleware.ts` matches every path
+        but Next's static output, and answers an unauthenticated `/api/*` with a
+        401. So on the live deployment this is reachable only after signing in
+        at `/login`, and the session cookie is the only credential a phone
+        browser can actually carry. `require_auth` would add a *second*,
+        different one on top of it.
+
+        Three reasons it goes here and not behind `require_auth`:
+
+        - **A bearer token is not openable in a phone browser.** The whole
+          defect being fixed is that the number was reachable only from a
+          laptop. Putting it behind a header that neither the browser's address
+          bar nor the Next proxy sends would move it from one unreachable place
+          to another.
+        - **It reveals strictly less than this endpoint already does.** The
+          `scored_recommendations` condition's detail string already publishes
+          the same three population names with their game and row counts, over
+          the scored subset. This adds the un-scored denominator, which is the
+          more conservative of the two numbers.
+        - **`require_auth` 403s on the demo instance by design**, so an
+          authenticated variant would be unavailable on the one deployment
+          whose whole purpose is to be looked at.
+
+        The counts are over the whole table (`since_ms=0`), not the 24h window
+        `log_gate_progress` uses. That window answers "is this system producing
+        anything today"; this endpoint is asked "has it *ever*", and a zero over
+        all time is a much stronger statement than a zero over a quiet Sunday.
         """
         payload = evaluate_gate(conn, gate).to_dict()
         payload["bankroll_dollars"] = risk.bankroll_dollars
+        payload["populations"] = {
+            "since_ms": 0,
+            "counts": population_counts(conn, 0),
+            # What each name means, sent with the numbers. `no_edge` reading as
+            # a rejection is the specific misreading this repo has already had
+            # to correct once -- "no result and rejected are different
+            # outcomes", `tasks/lessons.md`.
+            "predicates": dict(POPULATIONS),
+            "note": (
+                "Counts of rows written, over the whole table and at every "
+                "horizon -- not of rows scored. `actionable` is sized at the "
+                "fixed reference bankroll, not the deployed one, so it is the "
+                "only one of the three that can ever increment the gate's "
+                "300-game floor."
+            ),
+        }
         payload["note"] = (
             "Freshness is not shown here because it is a property of a single "
             "order at a single instant, not of the system. It is checked again "
@@ -1746,6 +1839,19 @@ def _serialise(
         "fee_predicted": row["fee_predicted"],
         "ev_net_dollars": row["ev_net_dollars"],
         "suggested_contracts": row["suggested_contracts"],
+        # **The size the record counts, beside the size you may buy.** These are
+        # two different questions and the payload used to answer only the first,
+        # which made the second unanswerable from anywhere but a log line:
+        # `gate.POPULATIONS` splits `actionable` on `reference_contracts`, so a
+        # consumer holding only `suggested_contracts` cannot tell why a row was
+        # or was not counted, and at the deployed $100 bankroll the two columns
+        # genuinely differ on every row written since 78b5790. See ADR 0015.
+        #
+        # `None` is passed through rather than coerced to 0. A NULL here means a
+        # row that predates schema v6 and escaped the backfill, which is a
+        # different state from "the strategy had no bet", and the repo's rule is
+        # that unreadable resolves to `None`, never `0`.
+        "reference_contracts": row["reference_contracts"],
         "kelly_fraction": row["kelly_fraction"],
         "kalshi_quote_age_ms": row["kalshi_quote_age_ms"],
         "odds_age_ms": row["odds_age_ms"],
@@ -1753,6 +1859,22 @@ def _serialise(
         "suppressed_reason": row["suppressed_reason"],
         "reason_text": row["reason_text"],
         "clv_tenths": row["clv_tenths"],
+        # **Which anchor produced `clv_tenths`, carried rather than inferred.**
+        #
+        # `clv_tenths` is a bare number and nothing else in this payload says
+        # what it was measured against, so without this a consumer counting
+        # scored rows silently pools the current 0.0h anchor with the legacy
+        # 1.0h one that migration v5 tags and deliberately never re-scores.
+        # That mixture is not neutral: a 1h line is a weaker benchmark (a market
+        # sharpens as the event approaches -- `analysis/clv.py`), so pooling
+        # biases any resulting number in the **flattering** direction. It is
+        # exactly how a reconnaissance pass counted 743 scored rows against the
+        # 476 the gate reports at the primary horizon.
+        #
+        # `None` means unscored, and is distinct from any horizon value --
+        # including 0.0, which is a legitimate anchor and must never be tested
+        # for truthiness.
+        "clv_horizon_hours": row["clv_horizon_hours"],
         # -- what it costs, and what it costs you when it loses ---------------
         #
         # The card showed `COST` as stake alone and `FEE` beside it with no
