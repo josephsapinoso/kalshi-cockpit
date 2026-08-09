@@ -1,0 +1,1851 @@
+{
+  "api_calls": 19,
+  "echo_tolerance": 0.02,
+  "move_tenths": 0.005,
+  "track_tol": 0.005,
+  "pairs": [
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S2026F3E2496C2D4-F3016414754",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "undecodable",
+      "created_ms": 1786299337038,
+      "legs": [
+        {
+          "event_ticker": "KXPGATOP5-WYC26",
+          "market_ticker": "KXPGATOP5-WYC26-JTHO",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOUR-WYC26",
+          "market_ticker": "KXPGATOUR-WYC26-TKIM",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXPGATOP5-WYC26-JTHO",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.015,
+      "discovered_round": 0,
+      "samples": [
+        {
+          "round_index": 0,
+          "observed_ms": 1786299339286,
+          "combo_ask": 0.125,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.125,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.126,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.126,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": 0.271,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": 0.272,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": 0.272,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": 0.272,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": 0.272,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": 0.272,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": 0.282,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": 0.282,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.11,
+          "leg_bid": 0.07,
+          "leg_cost": 0.11,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S2026F0150C4A188-69A6E35DD80",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "undecodable",
+      "created_ms": 1786299318476,
+      "legs": [
+        {
+          "event_ticker": "KXMLBF5-26AUG091410CHCKC",
+          "market_ticker": "KXMLBF5-26AUG091410CHCKC-CHC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOUR-WYC26",
+          "market_ticker": "KXPGATOUR-WYC26-KYU",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXPGATOUR-WYC26-KYU",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.002999999999999999,
+      "discovered_round": 0,
+      "samples": [
+        {
+          "round_index": 0,
+          "observed_ms": 1786299339286,
+          "combo_ask": 0.024,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.021,
+          "leg_bid": 0.016,
+          "leg_cost": 0.021,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.022,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.019,
+          "leg_bid": 0.015,
+          "leg_cost": 0.019,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.028,
+          "leg_bid": 0.011,
+          "leg_cost": 0.028,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.02,
+          "leg_bid": 0.015,
+          "leg_cost": 0.02,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.02,
+          "leg_bid": 0.016,
+          "leg_cost": 0.02,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.02,
+          "leg_bid": 0.016,
+          "leg_cost": 0.02,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.026,
+          "leg_bid": 0.016,
+          "leg_cost": 0.026,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.026,
+          "leg_bid": 0.016,
+          "leg_cost": 0.026,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.026,
+          "leg_bid": 0.016,
+          "leg_cost": 0.026,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.026,
+          "leg_bid": 0.016,
+          "leg_cost": 0.026,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.02,
+          "leg_bid": 0.016,
+          "leg_cost": 0.02,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.021,
+          "leg_bid": 0.016,
+          "leg_cost": 0.021,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S20266E4FADB948E-54D496F0C02",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299316591,
+      "legs": [
+        {
+          "event_ticker": "KXATPMATCH-26AUG09FONSHE",
+          "market_ticker": "KXATPMATCH-26AUG09FONSHE-SHE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPMATCH-26AUG10DARNAK",
+          "market_ticker": "KXATPMATCH-26AUG10DARNAK-NAK",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXATPMATCH-26AUG09FONSHE-SHE",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.0030000000000000027,
+      "discovered_round": 0,
+      "samples": [
+        {
+          "round_index": 0,
+          "observed_ms": 1786299339286,
+          "combo_ask": 0.547,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": 0.54,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S2026C596C50E210-652D9662F48",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299306397,
+      "legs": [
+        {
+          "event_ticker": "KXATPMATCH-26AUG09FONSHE",
+          "market_ticker": "KXATPMATCH-26AUG09FONSHE-SHE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09AMEPOR",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09AMEPOR-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09CHISLA",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09CHISLA-3",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXATPMATCH-26AUG09FONSHE-SHE",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.0030000000000000027,
+      "discovered_round": 0,
+      "samples": [
+        {
+          "round_index": 0,
+          "observed_ms": 1786299339286,
+          "combo_ask": 0.547,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.547,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.55,
+          "leg_bid": 0.54,
+          "leg_cost": 0.55,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S202649E0FF85B99-4CA4F961C2C",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299297440,
+      "legs": [
+        {
+          "event_ticker": "KXLOLGAME-26AUG091315KCFNC",
+          "market_ticker": "KXLOLGAME-26AUG091315KCFNC-KC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLOLGAME-26AUG091600LYDIG",
+          "market_ticker": "KXLOLGAME-26AUG091600LYDIG-LY",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09PHXWSH",
+          "market_ticker": "KXWNBAGAME-26AUG09PHXWSH-WSH",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXWNBAGAME-26AUG09PHXWSH-WSH",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.0020000000000000018,
+      "discovered_round": 0,
+      "samples": [
+        {
+          "round_index": 0,
+          "observed_ms": 1786299339286,
+          "combo_ask": 0.532,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.532,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.532,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.532,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202633BA498C45A-B4C028C52E3",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786299326043,
+      "legs": [
+        {
+          "event_ticker": "KXATPMATCH-26AUG09FONSHE",
+          "market_ticker": "KXATPMATCH-26AUG09FONSHE-FON",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPSPREAD-26AUG09SEAQUE",
+          "market_ticker": "KXLEAGUESCUPSPREAD-26AUG09SEAQUE-SEA2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610TBSEA",
+          "market_ticker": "KXMLBGAME-26AUG091610TBSEA-SEA",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXLEAGUESCUPSPREAD-26AUG09SEAQUE-SEA2",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.0050000000000000044,
+      "discovered_round": 1,
+      "samples": [
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.235,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.24,
+          "leg_bid": 0.23,
+          "leg_cost": 0.24,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026DFDD865D10F-7AA1F927EC9",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "undecodable",
+      "created_ms": 1786299323691,
+      "legs": [
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-ANOR",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-BHOS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-BJAM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-HHAL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-MBRE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXPGATOP10-WYC26",
+          "market_ticker": "KXPGATOP10-WYC26-TKIM",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXPGATOP10-WYC26-MBRE",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": false,
+      "initial_gap": 0.007000000000000006,
+      "discovered_round": 1,
+      "samples": [
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.957,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.94,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.957,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.94,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.95,
+          "leg_bid": 0.93,
+          "leg_cost": 0.95,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026245221E3A33-FB908644A51",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "same_game",
+      "created_ms": 1786299318823,
+      "legs": [
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09DALMIN",
+          "market_ticker": "KXWNBA3PT-26AUG09DALMIN-DALPBUECKERS5-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09DALMIN",
+          "market_ticker": "KXWNBA3PT-26AUG09DALMIN-MINCWILLIAMS10-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09DALMIN",
+          "market_ticker": "KXWNBA3PT-26AUG09DALMIN-MINNCOLLIER24-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAAST-26AUG09DALMIN",
+          "market_ticker": "KXWNBAAST-26AUG09DALMIN-MINOMILES5-7",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+          "market_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09DALMIN",
+          "market_ticker": "KXWNBAPTS-26AUG09DALMIN-DALAFUDD35-10",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09DALMIN",
+          "market_ticker": "KXWNBAPTS-26AUG09DALMIN-MINKMCBRIDE21-15",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09DALMIN",
+          "market_ticker": "KXWNBAPTS-26AUG09DALMIN-MINOMILES5-15",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": false,
+      "initial_gap": 0.0020000000000000018,
+      "discovered_round": 1,
+      "samples": [
+        {
+          "round_index": 1,
+          "observed_ms": 1786299360068,
+          "combo_ask": 0.722,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.011,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.722,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": 0.722,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.72,
+          "leg_bid": 0.71,
+          "leg_cost": 0.72,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S2026152592B902C-5867C0D93BD",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299375538,
+      "legs": [
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09PHXWSH",
+          "market_ticker": "KXWNBAGAME-26AUG09PHXWSH-WSH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBASPREAD-26AUG09DALMIN",
+          "market_ticker": "KXWNBASPREAD-26AUG09DALMIN-MIN14",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXWNBASPREAD-26AUG09GSLA",
+          "market_ticker": "KXWNBASPREAD-26AUG09GSLA-GS14",
+          "side": "no"
+        }
+      ],
+      "matched_leg_ticker": "KXWNBAGAME-26AUG09PHXWSH-WSH",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.007000000000000006,
+      "discovered_round": 2,
+      "samples": [
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.537,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.53,
+          "leg_bid": 0.52,
+          "leg_cost": 0.53,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S202689B6956C759-F41A707E897",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299363449,
+      "legs": [
+        {
+          "event_ticker": "KXATPCHALLENGERMATCH-26AUG09ILABUT",
+          "market_ticker": "KXATPCHALLENGERMATCH-26AUG09ILABUT-ILA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPCHALLENGERMATCH-26AUG09POUSIM",
+          "market_ticker": "KXATPCHALLENGERMATCH-26AUG09POUSIM-POU",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXATPMATCH-26AUG09TIETIR",
+          "market_ticker": "KXATPMATCH-26AUG09TIETIR-TIR",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXATPMATCH-26AUG09TIETIR-TIR",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": true,
+      "initial_gap": 0.0050000000000000044,
+      "discovered_round": 2,
+      "samples": [
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.355,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.35,
+          "leg_bid": 0.33,
+          "leg_cost": 0.35,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.353,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.32,
+          "leg_bid": 0.31,
+          "leg_cost": 0.32,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": 0.353,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.32,
+          "leg_bid": 0.31,
+          "leg_cost": 0.32,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.32,
+          "leg_bid": 0.31,
+          "leg_cost": 0.32,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.32,
+          "leg_bid": 0.31,
+          "leg_cost": 0.32,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.33,
+          "leg_bid": 0.32,
+          "leg_cost": 0.33,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.35,
+          "leg_bid": 0.32,
+          "leg_cost": 0.35,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.35,
+          "leg_bid": 0.34,
+          "leg_cost": 0.35,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.36,
+          "leg_bid": 0.34,
+          "leg_cost": 0.36,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.4,
+          "leg_bid": 0.39,
+          "leg_cost": 0.4,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S20263BCEBC77644-DA7194C47F6",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299334656,
+      "legs": [
+        {
+          "event_ticker": "KXATPMATCH-26AUG09TIETIR",
+          "market_ticker": "KXATPMATCH-26AUG09TIETIR-TIE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFMATCH-26AUG09LABSEN",
+          "market_ticker": "KXITFMATCH-26AUG09LABSEN-LAB",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXITFWMATCH-26AUG09PEDSAN",
+          "market_ticker": "KXITFWMATCH-26AUG09PEDSAN-PED",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXATPMATCH-26AUG09TIETIR-TIE",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": false,
+      "initial_gap": 0.0030000000000000027,
+      "discovered_round": 2,
+      "samples": [
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.667,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.67,
+          "leg_bid": 0.66,
+          "leg_cost": 0.67,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": 0.679,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.68,
+          "leg_bid": 0.67,
+          "leg_cost": 0.68,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.68,
+          "leg_bid": 0.67,
+          "leg_cost": 0.68,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.69,
+          "leg_bid": 0.68,
+          "leg_cost": 0.69,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.69,
+          "leg_bid": 0.68,
+          "leg_cost": 0.69,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.68,
+          "leg_bid": 0.67,
+          "leg_cost": 0.68,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.68,
+          "leg_bid": 0.67,
+          "leg_cost": 0.68,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.66,
+          "leg_bid": 0.65,
+          "leg_cost": 0.66,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.67,
+          "leg_bid": 0.64,
+          "leg_cost": 0.67,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.61,
+          "leg_bid": 0.6,
+          "leg_cost": 0.61,
+          "leg_status": "active"
+        }
+      ]
+    },
+    {
+      "combo_ticker": "KXMVECROSSCATEGORY-S20265FD858C37DF-860CC3EAC05",
+      "collection": "KXMVECROSSCATEGORY-R",
+      "scope": "cross_game",
+      "created_ms": 1786299330544,
+      "legs": [
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09DALMIN",
+          "market_ticker": "KXWNBA3PT-26AUG09DALMIN-DALPBUECKERS5-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAAST-26AUG09GSLA",
+          "market_ticker": "KXWNBAAST-26AUG09GSLA-GSVBURTON22-7",
+          "side": "yes"
+        }
+      ],
+      "matched_leg_ticker": "KXWNBA3PT-26AUG09DALMIN-DALPBUECKERS5-2",
+      "matched_leg_side": "yes",
+      "matched_is_cheapest": false,
+      "initial_gap": 0.0010000000000000009,
+      "discovered_round": 2,
+      "samples": [
+        {
+          "round_index": 2,
+          "observed_ms": 1786299381101,
+          "combo_ask": 0.501,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 3,
+          "observed_ms": 1786299401295,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 4,
+          "observed_ms": 1786299421486,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 5,
+          "observed_ms": 1786299441700,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 6,
+          "observed_ms": 1786299461890,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 7,
+          "observed_ms": 1786299482079,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 8,
+          "observed_ms": 1786299502258,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 9,
+          "observed_ms": 1786299522549,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 10,
+          "observed_ms": 1786299542698,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        },
+        {
+          "round_index": 11,
+          "observed_ms": 1786299562880,
+          "combo_ask": null,
+          "combo_bid": null,
+          "combo_status": "active",
+          "leg_ask": 0.5,
+          "leg_bid": 0.49,
+          "leg_cost": 0.5,
+          "leg_status": "active"
+        }
+      ]
+    }
+  ]
+}
