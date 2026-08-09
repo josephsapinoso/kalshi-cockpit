@@ -74,8 +74,11 @@ export default async function LedgerPage() {
             <span className="font-semibold tracking-tight">
               {rec.team ?? rec.ticker}
             </span>
+            {/* Fair value as a percentage, ask as a price. Rendering both
+                with a `c` suffix put a probability and a price side by side in
+                the same unit, and only one of them is money. */}
             <span className="tabular text-sm text-muted">
-              {rec.fair_display} fair / {rec.ask_display} ask
+              {rec.fair_percent_display} fair / {rec.ask_display} ask
             </span>
             <span
               className={`tabular text-sm font-semibold ${
@@ -96,9 +99,49 @@ export default async function LedgerPage() {
             ) : (
               <span className="font-mono text-xs text-muted">no edge</span>
             )}
+            {/* **The score, on the scoreboard.** `clv_tenths` has been
+                serialised at `routes.py` since the evidence layer was built
+                and rendered nowhere, so this page showed the progress bar
+                towards 300 scored games and never the result of scoring any
+                of them.
+
+                `null` is *unscored*, which is most rows and is not a zero:
+                a game whose closing line has not been recorded yet has no
+                CLV, and printing 0.0c there would be the flattering reading
+                of an absence. Said in words rather than left blank, because a
+                blank cell reads as "nothing happened". */}
+            <span className="ml-auto shrink-0 font-mono text-xs">
+              {rec.clv_tenths === null ? (
+                <span className="text-muted">clv —</span>
+              ) : (
+                <span
+                  className={
+                    rec.clv_tenths > 0 ? "text-positive" : "text-negative"
+                  }
+                >
+                  clv {rec.clv_tenths > 0 ? "+" : ""}
+                  {(rec.clv_tenths / 10).toFixed(1)}c
+                </span>
+              )}
+            </span>
           </div>
         ))}
       </div>
+
+      {/* One permanent sentence, once, where CLV is. Not a tooltip: there is
+          no hover on a phone, and a tap target here would compete with
+          nothing useful. */}
+      <p className="mt-8 border-t pt-6 text-sm leading-relaxed text-muted">
+        <span className="font-semibold text-foreground">
+          CLV is the only scoreboard that works at this volume.
+        </span>{" "}
+        It asks whether the price you were offered beat Kalshi&rsquo;s own
+        closing line — the last price before the game starts, when everyone who
+        is going to bet has bet. Positive CLV means you were early to a move.
+        Profit and loss needs roughly 2,500 settled bets to say anything at
+        all; CLV says it in a few hundred, which is why the gate counts these
+        and not dollars.
+      </p>
     </Shell>
   );
 }
