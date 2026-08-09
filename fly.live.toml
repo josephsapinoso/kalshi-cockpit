@@ -47,15 +47,36 @@ primary_region = "ord"
   # 20K tier, 20,000 credits/month (2026-08-09). A sweep costs markets x
   # regions = 6.
   #
-  # 400/day, not 645 (= 20000/31), because spend is capped by the scheduler
-  # rather than the budget: MIN_SLOT_SEPARATION_MS gives each sport at most 12
-  # useful slots a day, so six in-scope leagues cannot exceed ~432/day whatever
-  # this says. 400 sits just under that ceiling and costs at most ~12,400 in a
-  # month, which leaves headroom under the monthly cap below.
+  # 16/day = 2 sweeps. Back to the free-tier figure on 2026-08-09 (Joe's call);
+  # the paid plan is kept, so this is one line away from 400 again.
   #
-  # It was 16 until the live instance showed what that cost: stale_odds on 256
-  # of 265 suppressed rows, and actionable=0 of the 300 games the gate needs.
-  ODDS_DAILY_CREDIT_BUDGET = "400"
+  # **The 400 was sized against a ceiling that does not bind.** The reasoning
+  # was "MIN_SLOT_SEPARATION_MS gives each sport at most 12 useful slots a day,
+  # so six leagues cannot exceed ~432/day". True, and irrelevant: the real bound
+  # is how many kickoff *clusters* a slate has, which is three per sport. A full
+  # August slate plans **six** sweeps -- 36 credits, not 400.
+  #
+  # What the cut actually costs, measured rather than argued
+  # (`scripts/measure_slot_coverage.py --date 20260809`, free):
+  #
+  #     2 sweeps/day  ->  16 of 19 games      (360 credits/month)
+  #     6 sweeps/day  ->  18 of 19 games    (1,080 credits/month)
+  #
+  # Two games a day. Greedy selection takes the largest clusters first, so the
+  # first two sweeps get the 13-game MLB block and the 3-game WNBA block; the
+  # other four buy stragglers. With `actionable` at 0 of ~200 fresh-odds
+  # decisions, those two games are currently worth nothing.
+  #
+  # The earlier note here said 16/day "cost" stale_odds on 256 of 265 rows. That
+  # reading does not survive `docs/adr/0014`: most of those passes had no window
+  # because the slate had no games, not because the budget was small.
+  #
+  # **Unmeasured:** August is two leagues. A winter slate spreads two sweeps
+  # across four whose clusters do not overlap, so 16-of-19 may not hold. Re-run
+  # the script once the NBA schedule is published.
+  #
+  # **Raise this before any backfill.** Historical endpoints cost 10x per call.
+  ODDS_DAILY_CREDIT_BUDGET = "16"
 
   # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
   # month only if you multiply it out, and it cannot bound a caller that spends
