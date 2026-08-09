@@ -32,9 +32,24 @@ rule firing, two edges large enough to be a bug until proven otherwise.
 
 ### Log volume — the `discovery:` line is fixed; one duplicate remains
 
-A quote pass emitted three lines and now runs every ~22s: ~12,000 lines a day,
-against a 100-line `flyctl logs` buffer covering twelve minutes. That eroded the
-readability won hours earlier by collapsing the 962-line scope burst.
+**Correction to the figure in the previous section: ~12,000 lines a day was
+wrong, and wrong in the alarming direction.** It assumed the window stays open
+all day. It does not. A sweep opens it for `MAX_ODDS_AGE_S` (900s) and then it
+shuts: measured on live, the 05:36Z sweep produced quote passes from 05:38:44 to
+05:51:14 — about 12.5 minutes, ~34 passes — and the next slot was 15:45Z, nine
+hours later. At 10–20 sweeps a day that is roughly **400–800 quote passes, so
+1,200–2,400 lines**, not 12,000.
+
+The fix is still worth having and the reasoning behind it is unchanged. The
+*size* of the problem was overstated by roughly 5x, by extrapolating a window
+that had been open for the twenty minutes I happened to be watching. Reading a
+rate off a burst is the same error as reading a population off a log buffer,
+which this file already records from earlier the same day.
+
+A quote pass emitted three lines every ~22s while the window is open, against a
+100-line `flyctl logs` buffer. That still eroded the readability won hours
+earlier by collapsing the 962-line scope burst — during exactly the windows when
+something interesting is happening.
 
 **`discovery:` is fixed.** It prints on every full pass — the heartbeat, so
 silence still cannot mean "discovery did not run" — and on a quote pass only
@@ -47,6 +62,13 @@ property of the caller, not of the code.** This line was correct at 900s and a
 flood at 22s without one character of it changing. The trigger was the odds
 budget going 16 → 400 four hours earlier — a change in a different subsystem
 entirely.
+
+**Verification status, stated exactly.** Proven by test — 61 identical quote
+passes produce one line, and disabling either half turns a different test red.
+**Not yet observed on live**, because the window closed minutes after the deploy
+and quote passes only run while it is open. The next window is ~15:45Z; the
+check is that `discovery:` appears once per *full* pass and not once per quote
+pass. Do not record this as confirmed until that has been read.
 
 **Still duplicated, and not fixed:** `pricing pass:` is a strict subset of
 `pass N ok`, emitted ~4ms earlier by a different module (`runner.py` vs the
