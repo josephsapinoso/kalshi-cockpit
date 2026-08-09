@@ -3588,3 +3588,47 @@ identity cannot see it.
 - **When a term comes back exactly zero, ask what that zero is hiding.** A clean
   result suppresses evidence about everything the term feeds into. Related:
   [[a-guard-written-to-prove-a-property-the-code-cannot-violate]].
+
+## 2026-08-09 — A defence built for one axis of a classifier is not a defence for the classifier
+
+**Pattern:** `discovery.classify_series` reads two metadata fields and rejects on
+either. One of them, `competition_scope`, had three defences: an explicit
+excluded-values set with a reason per entry, an aggregated per-process warning
+naming anything unclassified, and a drift test asserting every value in the
+captured payloads is classified either way. The other, `competition`, had none —
+a league absent from `IN_SCOPE_LEAGUES` was simply gone, with no warning, no
+counter and no failing test.
+
+So the failure the scope defences were built for happened again on the field
+next to them. `IN_SCOPE_LEAGUES` says `"Pro Football"`; Kalshi spells NFL
+preseason `"Pro Football Preseason"`; **48 events and 726 markets** left the
+universe in silence. The file's own comment, four lines above the map, already
+recorded the identical failure for `"Pro Basketball (W)"` and `"NCAA Football"`.
+
+**Why it happens:** a defence gets built where a bug was *found*, and the bug
+was found on one field. The prose then explains that field so well that the
+explanation reads as coverage. Nothing in the module says "the other field is
+undefended" — absence has no line number.
+
+**How to apply:**
+
+- **When a function rejects on N inputs, count the guards.** If one input has an
+  excluded-values map, a warning and a drift test and another has none, that is
+  the finding — before any evidence that the second one has broken.
+- **A fixture is only a drift test for what it happened to contain.** The
+  captured walk had no preseason market, so the scope drift test's league twin
+  would have been green throughout the bug. Capture the case, then assert on the
+  capture itself so an out-of-season re-capture fails loudly instead of quietly
+  ceasing to test anything.
+- **Break each guard separately, and break behaviour rather than expressions.**
+  Thirteen deformations here, applied one at a time; one stayed green and
+  exposed a genuinely missing test — the per-pass count was never asserted to
+  *fall*. A break applied alongside another is caught by whichever guard is
+  stricter, and a break that rewrites the asserted expression tests nothing.
+- **Two different populations can share every identifier but one.** Preseason and
+  regular-season NFL share the series ticker (`KXNFLGAME`) and the scope
+  (`"Game"`); only the league string differs, and the evidence record stores
+  neither the league on the row nor anything else that splits them. Before
+  widening a population, find the column that will mark which one a row came
+  from — if there isn't one, widening is not a config change. Related:
+  [[a-comment-explaining-one-instance-of-a-hazard-is-not-evidence-it-was-handled-everywhere]].
