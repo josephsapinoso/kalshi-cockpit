@@ -29,48 +29,48 @@ stricter rather than looser. **Deploying live is Joe's call.**
 
     gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
 
-## READ THIS FIRST — the gate did not accumulate, and the reason is new
+## READ THIS FIRST — the gate freeze was an empty slate, and it is settled
 
-Read at 15:19Z on 2026-08-09, ~10 hours after the 20K odds key landed:
+**Decided by Joe on 2026-08-09: accept the schedule unchanged. `docs/adr/0014`.**
+Do not reopen this without new evidence; the three options previously written
+here were answering a misdiagnosis.
 
-    15:18Z  gate progress (24h): actionable=0 of 300 needed, no_edge=177,
-            suppressed=271; suppressed by: stale_odds=254, too_few_books=63,
-            no_market_width=63, edge_within_method_noise=8, suspicious_edge=3
+The story on record was that `no_edge` had frozen at exactly 177 for ten hours
+because `odds/timing.py` only fires 45-15 min before kickoff, so most passes
+price against odds that have aged out. **Today's first kickoff in any in-scope
+league was 16:15Z and the frozen interval ran 05:51Z-15:45Z.** There was not one
+fixture on the slate for the whole of it. The counter did not move because
+nothing asked it a question. Lesson written; the general form is that an
+explanation predicting every observation you have is not thereby a good one --
+ask what it forbids.
 
-**`no_edge` is frozen at exactly 177**, the same figure recorded at 05:36Z. Not
-growing slowly — not moving at all, across ten hours and twenty-odd passes.
-`suppressed` creeps upward, `stale_odds` still dominates, `clv_rows_joined` is
-still 190 and `clv_scored` is 0 on every pass.
+Three measurements settled it, all free:
 
-**The budget stopped binding and the scheduler took over the same day.** Every
-full pass from 13:47Z to 15:18Z reports a sweep decision of the form:
+    Today's slate: 19 games (mlb 15, wnba 4)
+    Slots planned at the deployed 2h separation: 6   (36 credits of 400)
+    Distinct games covered: 18 of 19
+    Loosening MIN_SLOT_SEPARATION_MS to 1h: 8 sweeps, 19 of 19  -- buys ONE game
 
-    no sweep: next slot is basketball_wnba at 15:45Z-16:15Z for 3 game(s)
-    from 16:30Z, sweeping 45-15 min before first kickoff
+    15:46:44Z  basketball_wnba (scheduled): 3 game(s) from 16:30Z
+               odds_sweeps 1, odds_quotes_stored 762,
+               recommendations 24, surfaced 0, suppressed 8
+               no_edge 177 -> 193   (+16 in one pass; the 05:36Z sweep did +16 too)
 
-So the 400/day budget is barely touched. `odds/timing.py` only fires 45–15
-minutes before a fixture's kickoff, which is correct for freshness and means
-odds are stale for most of the day — and a full pass writes rows all day
-regardless. `events_linked` sat at 16 and `fair_prices_written` at 32 for the
-entire ten hours.
+So a real open window writes ~24 rows: **16 no_edge, 8 suppressed, 0 actionable.**
+That is the honest answer on fresh odds, not a blocked rule.
 
-**That is the finding to carry, and it is a shape this repo already has a
-lesson about:** two limits on one quantity, and the tighter one wins in
-silence. The odds budget was relaxed 16 → 400 and the *next* constraint bound
-immediately, so the visible symptom (`stale_odds` dominating) never changed.
-Nobody multiplied out how many passes a slot-based scheduler leaves with fresh
-odds.
+`scripts/measure_slot_coverage.py --date YYYYMMDD` re-measures this, so a winter
+slate is a measurement rather than an argument. CLAUDE.md's caveat asks for
+exactly that re-read.
 
-**What to do about it is a real decision, not a bug fix.** The honest options:
-
-1. **Accept it.** The tool is actionable in the pre-kickoff windows and nowhere
-   else, by design. Then `actionable=0` after a full day of *those windows* is
-   the answer, and 300 games is reached over weeks, not days.
-2. **Sweep more slots per sport.** Cheap — the budget has room. It trades
-   freshness at kickoff for coverage across the day, which is exactly the
-   trade `odds/timing.py` was written to refuse.
-3. **Change what the gate counts.** Only rows with fresh odds can be
-   `actionable`, and those exist for ~30 minutes per fixture.
+**The arithmetic that makes it moot.** The gate counts 300 independent *games*
+and a slate is ~19. So 300 is **at minimum 16 days away even if every game were
+actionable**, and the observed actionable rate is zero. Nothing about scheduling
+moves a number bounded by the size of the slate. The two levers that do move it
+are unchanged: the **four fee-calibration trades** (a hard gate condition, Joe's,
+and no amount of CLV substitutes for it) and a **historical backfill**, where the
+~80-day candlestick horizon is ~1,200 MLB games and the budget headroom to
+13,000/month was reserved for it.
 
 **Do NOT relax `MAX_ODDS_AGE_S` or any suppression threshold.** That is how a
 fabricated edge enters the record, and the record is the product.
@@ -165,8 +165,10 @@ combination nobody has built.
   same-game asks sat above `min(leg mid)`; if they also sit above the cheapest
   leg's *ask*, the combination costs more than a leg that pays out in a
   superset of cases — dominated outright, and directly checkable. Leg bids and
-  asks are recorded in the `--json` as of the last run, so one more harvest
-  answers it:
+  asks are recorded in the `--json` **as of the code, not as of the last
+  run** -- verified 2026-08-09: the 55-minute capture carries no `leg_quotes`
+  on any of its 484 records, so the stored data cannot answer this and a fresh
+  harvest is required rather than optional:
 
       .venv\Scripts\python.exe scripts\measure_combo_correlation.py --pages 4 --rounds 55 --interval 60 --json out.json
 

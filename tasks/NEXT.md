@@ -1,5 +1,138 @@
 # Next — your checklist
 
+## OPEN TICKET — ADR 0012's 94% same-game refusal rate is under suspicion
+
+**Raised 2026-08-09 by Joe. Not overturned — suspected. Settle it, don't assume
+it either way.**
+
+### The claim on the record
+
+`docs/adr/0012` reports that of **18** same-game combinations found, **17 had an
+ask outside the Frechet bounds** — a quoted combination price no dependence
+structure can produce. The refusal gradient was read as suggestive of strong
+positive same-game dependence:
+
+    cross-game   102/437   23%
+    mixed          9/19    47%
+    same-game     17/18    94%
+
+The ADR names one alternative explanation and does not rule it out: *"a stale
+leg quote looks identical."*
+
+### Why it is suspect
+
+`leg_quote` in `scripts/measure_combo_correlation.py` cached each leg's quote by
+ticker **with no expiry for the whole run**, and `survey`'s comment defended
+this as keeping a combination contemporaneous with its legs. It does the
+opposite. The cache pins a leg to the first moment *that run* saw it; Kalshi
+mints ~700 combinations a minute and the run keeps discovering them, so a
+combination first seen in round 40 was priced against a leg quote from round 1 —
+**39 minutes earlier**.
+
+Comparing a fresh joint against a 39-minute-old leg produces "the ask is
+impossible given the legs" whether or not anything is mispriced. **The harness
+was manufacturing the exact confound the ADR names as its alternative
+explanation**, and the effect grows with `--rounds`, so the recommended
+55-round invocation was the most affected.
+
+Fixed 2026-08-09: the cache is cleared per round, and `Quote.observed_ms` plus
+`Combo.created_ms` now record contemporaneity as data rather than as policy.
+
+### What settles it
+
+Re-run the harvest on the fixed code and compare refusal rates against the three
+above. **Cross-game is the control** — if staleness drove the gradient, the
+cross-game rate must fall too, not just same-game.
+
+    .venv\Scripts\python.exe scripts\measure_combo_correlation.py ^
+        --pages 4 --rounds 55 --interval 60 --json docs\measurements\<date>-combo.json
+
+Then read domination separately:
+
+    .venv\Scripts\python.exe scriptsnalyse_combo_domination.py <capture>
+
+### How to read the outcome
+
+| Result | Meaning |
+|---|---|
+| Same-game rate falls sharply, cross-game falls too | The gradient was substantially harness staleness. **Correct ADR 0012.** |
+| Same-game stays ~94%, cross-game falls | The gradient is real and now better evidenced. Strengthen the ADR. |
+| Both unchanged | The cache was not the driver. Record that the mechanism was ruled out. |
+
+### Read `n` before the effect size — this is the part most likely to bite
+
+**Eighteen.** Seventeen-of-eighteen reads as decisive and is a very small cell,
+and only 18 same-game combinations appeared in **46,916** markets. Whatever the
+new run says, the sample may still be too thin to carry a claim. Have
+`measurement-skeptic` audit before anything is written into the ADR — the
+first check it runs is whether the denominator existed at all.
+
+Also unchanged from the ADR: **none of the 18 was two-sided**, so every
+same-game number rests on the ask-only population, which ADR 0012 itself
+refuses for correlation (sd 0.254, spanning −0.757 to +0.898). A refusal rate
+computed on a population the same document refuses to invert is not obviously
+sound, and that tension predates this ticket.
+
+### Do not
+
+- Do not silently edit ADR 0012's numbers. If they are wrong, the correction is
+  an addendum that says what was believed, why, and what changed — the record
+  is the product.
+- Do not conclude "the cache explains it" without the cross-game control moving.
+  That is assuming the answer this ticket exists to test.
+
+---
+
+## 2026-08-09, ~16:00Z — the gate freeze was an empty slate. DECIDED: accept.
+
+**Joe chose option 1. `docs/adr/0014`. Do not reopen without new evidence.**
+
+The previous handoff diagnosed the ten-hour `no_edge=177` freeze as the sweep
+scheduler being too restrictive, and escalated three options. The diagnosis was
+wrong: **today's first in-scope kickoff was 16:15Z and the frozen interval ran
+05:51Z-15:45Z.** No games, so no slots, so no windows. The counter did not move
+because nothing asked it a question.
+
+What was measured, all free (ESPN + the repo's own `plan_sweep_slots`, no odds
+credits):
+
+    Today's slate: 19 games (mlb 15, wnba 4)
+    Slots at the deployed 2h separation: 6, covering 18 of 19 distinct games
+    Cost: 36 credits of 400
+    Loosening MIN_SLOT_SEPARATION_MS to 1h: 8 sweeps, 19 of 19 -- ONE more game
+
+And a real window, read live at 15:46:44Z:
+
+    basketball_wnba (scheduled): 3 game(s) from 16:30Z
+    odds_sweeps 1, odds_quotes_stored 762
+    recommendations 24, surfaced 0, suppressed 8
+    no_edge 177 -> 193      (+16, matching the 05:36Z sweep exactly)
+
+So one open window writes ~24 rows: **16 no_edge, 8 suppressed, 0 actionable.**
+
+**Option 2 refused** — there is no uncovered population to reach; it buys one
+game a day for 12 credits and costs freshness on the 13-game cluster.
+**Option 3 refused** — it reverses ADR 0005, and that was a safety property:
+`suspicious_edge` rows are the likeliest carriers of a systematic CLV, so
+pooling moves the mean rather than diluting it.
+
+**The arithmetic that makes it moot.** 300 independent games against a ~19-game
+slate is **16 days minimum even if every game were actionable**, and the rate is
+zero. The scheduler was never the binding constraint. The two levers that are:
+the **four fee-calibration trades** (still Joe's, still a hard gate condition)
+and a **historical backfill** (~80-day candlestick horizon, ~1,200 MLB games,
+budget headroom already reserved).
+
+Also corrected: this file's "≤12 useful slots/day per sport, so six leagues
+cannot exceed ~432/day" is a ceiling from the separation constant alone. The real
+bound is kickoff clusters — three per sport on an August slate, six sweeps total.
+The budget has ~11x the headroom that reasoning assumed.
+
+`scripts/measure_slot_coverage.py --date YYYYMMDD` makes this re-measurable on a
+winter slate rather than re-arguable.
+
+---
+
 ## 2026-08-09, 06:00–09:00Z — five items closed, and one of them was Joe's
 
 `main` is pushed and CI-green. **1,405 tests**, ruff clean, `next build` clean,

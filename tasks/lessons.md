@@ -3010,3 +3010,47 @@ plan rather than a feature, and this is the other half of that — an uncalled
 function is also an untested one, and it will be wrong on the day it is first
 used. Related: [[code-with-no-caller-is-not-a-feature]],
 [[the-websocket-path-was-dead-and-611-tests-said-otherwise]].
+
+---
+
+## 2026-08-09 — A frozen counter is not evidence of a stuck mechanism
+
+`no_edge` held at **exactly 177** for ten hours and twenty-odd passes on the
+live instance. The diagnosis written up from it was that the sweep scheduler
+only fires 45–15 minutes before a kickoff, so most passes price against odds
+that have aged out — with three options costed and a decision escalated to Joe.
+
+The scheduler was fine. **Today's first kickoff in any of the six in-scope
+leagues was 16:15Z, and the frozen interval ran 05:51Z to 15:45Z.** There was
+not one fixture on the slate for the whole of it. The counter did not move
+because nothing asked it a question.
+
+Every symptom was consistent with the wrong story. `stale_odds` dominated the
+suppression summary, `sweep_decision` said "no sweep" on every pass, and
+`events_linked` and `fair_prices_written` sat at 16 and 32 all day. All true,
+all exactly what an empty slate produces, and none of it distinguishes "the
+scheduler is refusing to fire" from "there is nothing to fire at".
+
+**Why it was persuasive:** it arrived pattern-matched to a lesson this file
+already had — [[two-limits-on-one-quantity]], the odds budget relaxed 16 → 400
+and the next constraint binding in silence. That shape was real and had happened
+twice. Recognising it made the conclusion feel confirmed rather than proposed,
+and nobody checked the cheapest thing: *were there any games?*
+
+**How to apply:** before diagnosing why a counter is not moving, establish that
+its inputs existed over the interval you measured. Ask what the denominator was.
+A rate computed over a window with an empty denominator is not a low rate, it is
+no measurement — the same error as [[one-observation-recorded-thirty-times]]
+seen from the other end, where the count was of uptime rather than of evidence.
+
+The check that settled it cost one free API call to a public schedule and a call
+into the repo's own `plan_sweep_slots`: today's slate generates **six** windows
+covering **18 of 19 games**, all after 15:45Z. That is now
+`scripts/measure_slot_coverage.py`, so the question is re-measurable on a winter
+slate rather than re-argued. `docs/adr/0014` records the decision.
+
+**And the corollary that generalises further:** an explanation which predicts
+every observation you have is not thereby a good explanation. Ask what it
+forbids. "The scheduler is too restrictive" and "there are no games today" made
+identical predictions about every counter on the log line, and were separated
+only by a fact neither of them mentioned.
