@@ -1,5 +1,58 @@
 # Next — your checklist
 
+## 2026-08-09, ~19:30Z — the bankroll trap is fixed; the backfill cannot open the gate
+
+`main` at `65584d7`, **committed but not pushed**. 1,535 tests, ruff clean,
+`next build` clean, 11 dbt nodes green. Nothing deployed.
+
+### Done
+
+- **ADR 0015** — the deposit no longer decides what counts as evidence. Schema
+  v6 adds `reference_contracts`; the gate, the digest, the Playbook screen and
+  the warehouse all count it. `min_order_contracts` deleted with no replacement
+  (the sizer already pays the worst per-contract fee, proved rather than
+  enumerated). Caps re-scaled 10/40/10. `BANKROLL_DOLLARS=100`.
+- **Five of that ADR's claims were corrected by `measurement-skeptic`**, two
+  refuted. The guard was not refusing everything — it was confining the evidence
+  to the wings, which is worse. See `start.md`.
+- **UI consensus, 7 of 8 items.** `/rejections` screen, whole slate visible,
+  `53.8%`, fee-inclusive total, variance, `clv_tenths` on the Ledger.
+- Four stale worktrees removed; `.claude/worktrees` no longer doubles every grep.
+
+### Next, in the order `partner` set it
+
+1. **Push and let CI run.** Nothing has been verified by CI.
+2. **`publish` wired into the live loop plus retrieval**, so the evidence record
+   leaves the volume. Currently the only copy is on a Fly disk.
+3. **The signal test.** Does the strategy have predictive power at all? Every
+   other line of work is downstream of this.
+4. **The maker histogram**, then the maker test only if it clears — ADR 0017's
+   precondition. Plot the edge distribution between the taker bar and 1.00–1.50
+   points below it, 18c–82c only. No mass, kill the line for free.
+
+### The backfill: designed, and the design says do not build it for the counter
+
+**ADR 0016.** 0 actionable in ~202 fresh-odds decisions puts a 95% ceiling of
+**35 actionable games** on a 1,200-game backfill, against a floor of 300. The
+gate cannot be reached this way and that is knowable now, before spending 9,600
+credits. Build it to *measure the rate at n=1,200*, or not at all.
+
+7 of 28 inputs are contaminated by look-ahead and `depth_at_ask` cannot be
+reconstructed at all. Phase 0 is free and time-critical — the Kalshi candlestick
+half expires at 80 days while the odds half never does.
+
+### The combo line: one free experiment left, then drop it
+
+The leg-echo test is **not answerable at any cadence** — combination quotes and
+leg ticks live on disjoint timescales. What is worth ~20 free calls is **E2**,
+pre-registered in `docs/measurements/2026-08-09-combo-leg-echo.md`: read the
+order book alongside the list quote and report the book-empty rate. 3 of 8
+quoted combinations had an empty book, and every combo price this project holds
+came from the list endpoint without that ever being checked.
+
+---
+
+
 ## CLOSED 2026-08-09 — the 94% is withdrawn, and the replacement died too
 
 **Answered. `docs/adr/0012` addendum. Do not act on either number.**
