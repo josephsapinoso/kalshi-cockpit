@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -379,3 +380,196 @@ class TestTheWholeCaptureInverts:
             f"only {answered} of {len(capture['combos'])} captured "
             f"combinations inverted; the capture may be stale"
         )
+
+
+class TestWhatItCostsToBuyALeg:
+    """The price actually paid for a leg, which is not its marginal.
+
+    `marginal_for_leg` returns a mid, because inverting a joint into a
+    correlation wants an unbiased probability. Deciding whether a combination
+    is worse than simply buying one of its legs wants the price you would
+    transact at instead. CLAUDE.md records a bucket that showed a +25.4 point
+    edge and lost money because it was bucketed on the mid and bought at the
+    ask; these are two different questions and must not share a number.
+    """
+
+    def test_a_yes_leg_costs_the_ask(self):
+        assert mcc.cost_to_buy_leg(
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "yes"},
+            mcc.Quote(ask=0.35, bid=0.30),
+        ) == pytest.approx(0.35)
+
+    def test_a_no_leg_costs_one_minus_the_bid_not_one_minus_the_ask(self):
+        """Anchored where the two candidate conventions give different answers.
+
+        To hold NO you sell YES, and you sell into the **bid**. On a 0.30/0.35
+        market that is 0.70. Reading it as `1 - ask` gives 0.65 -- understating
+        the cost by the whole spread, in the direction that manufactures
+        domination out of nothing. A symmetric quote would have passed under
+        both readings, which is the trap this repo hit on NO-side CLV, where
+        the anchor chosen sat exactly at 50c and the error vanished there.
+        """
+        cost = mcc.cost_to_buy_leg(
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "no"},
+            mcc.Quote(ask=0.35, bid=0.30),
+        )
+        assert cost == pytest.approx(0.70)
+        assert cost != pytest.approx(0.65)
+
+    def test_a_no_leg_with_no_bid_refuses(self):
+        """No bid means no sellable YES, so the NO cost is unknown, not 1.0."""
+        assert mcc.cost_to_buy_leg(
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "no"},
+            mcc.Quote(ask=0.35),
+        ) is None
+
+    def test_a_side_that_is_neither_refuses(self):
+        assert mcc.cost_to_buy_leg(
+            {"market_ticker": "KXA-26AUG09AAABBB-X", "side": "maybe"},
+            mcc.Quote(ask=0.35, bid=0.30),
+        ) is None
+
+    def test_buying_a_leg_never_costs_less_than_its_marginal(self, capture):
+        """The spread is paid on either side, so cost >= mid on every real leg.
+
+        Asserted across the whole capture rather than one constructed quote:
+        it holds by definition for both sides, so a wrong side-flip in either
+        function breaks it on some real market.
+        """
+        legs = capture["legs"]
+        checked = 0
+        for combo in capture["combos"]:
+            for leg in combo["mve_selected_legs"]:
+                quote = mcc.readable_quote(legs[leg["market_ticker"]])
+                if quote is None or quote.bid is None:
+                    continue
+                marginal = mcc.marginal_for_leg(leg, quote)
+                cost = mcc.cost_to_buy_leg(leg, quote)
+                assert marginal is not None and cost is not None
+                assert cost >= marginal - 1e-9, (
+                    f"{leg['market_ticker']} side={leg['side']} "
+                    f"cost {cost} below marginal {marginal}"
+                )
+                checked += 1
+        assert checked >= 10, f"only {checked} legs checked; capture may be stale"
+
+
+class TestAJointAndItsLegsAreReadAtTheSameMoment:
+    """The leg cache must not survive a round, and the data must show it.
+
+    Comparing a combination against its own legs only means anything if both
+    prices were read at the same moment. That used to be argued from the
+    caching policy -- and the policy did the opposite of what its comment
+    claimed. Caching by ticker alone pins a leg to the first time the *run* saw
+    it, so with Kalshi minting ~700 combinations a minute, a combination first
+    seen in round 40 was priced against a leg quote from round 1.
+
+    It is not a cosmetic staleness: it is the exact alternative explanation
+    `docs/adr/0012` gives for the 94% same-game Frechet refusal rate, so the
+    cache was manufacturing the confound that finding has to rule out.
+    """
+
+    @staticmethod
+    def _api(leg_prices_by_round):
+        """A fake exchange whose leg price moves between rounds."""
+
+        class FakeApi:
+            def __init__(self):
+                self.round = -1
+
+            async def request(self, method, path, params=None):
+                if path == "/markets":
+                    # Only the first series carries anything; the rest are
+                    # empty, which is a real state and keeps the fake small.
+                    if params.get("series_ticker") != mcc.MVE_SERIES[0]:
+                        return {"markets": [], "cursor": None}
+                    self.round += 1
+                    return {
+                        "markets": [{
+                            "ticker": f"KXMVE-26AUG09AAABBB-R{self.round}",
+                            "mve_collection_ticker": "COLL",
+                            "yes_ask_dollars": "0.1000",
+                            "yes_bid_dollars": "0.0500",
+                            "yes_sub_title": "",
+                            "created_time": "2026-08-09T15:00:00Z",
+                            "mve_selected_legs": [
+                                {"market_ticker": "KXA-26AUG09AAABBB-X",
+                                 "side": "yes"},
+                                {"market_ticker": "KXB-26AUG09CCCDDD-Y",
+                                 "side": "yes"},
+                            ],
+                        }],
+                        "cursor": None,
+                    }
+                if path.endswith("KXA-26AUG09AAABBB-X"):
+                    bid, ask = leg_prices_by_round[min(
+                        self.round, len(leg_prices_by_round) - 1
+                    )]
+                    return {"market": {
+                        "yes_bid_dollars": f"{bid:.4f}",
+                        "yes_ask_dollars": f"{ask:.4f}",
+                    }}
+                return {"market": {
+                    "yes_bid_dollars": "0.4500",
+                    "yes_ask_dollars": "0.5500",
+                }}
+
+        return FakeApi()
+
+    async def test_a_leg_that_moves_between_rounds_is_re_read(self):
+        """The property that fails under a run-long cache.
+
+        The leg goes 0.30/0.35 in round one to 0.60/0.65 in round two. Round
+        two's combination must carry the *new* marginal. Holding the cache
+        across rounds returns 0.325 for both, so this test states the old bug
+        as an invariant rather than checking the new number looks plausible.
+        """
+        api = self._api([(0.30, 0.35), (0.60, 0.65)])
+        result = await mcc.survey(
+            api, pages=1, rounds=2, interval_s=0.0, max_legs=3
+        )
+        assert len(result.measurements) == 2, result.refused
+        first, second = result.measurements
+        assert first.marginals[0] == pytest.approx(0.325)
+        assert second.marginals[0] == pytest.approx(0.625)
+
+    async def test_every_leg_carries_the_stamp_of_its_own_round(self):
+        """Contemporaneity is filterable in the output, not taken on trust.
+
+        The analysis needs to drop any combination whose legs were read at a
+        different moment. It can only do that if the moment is recorded, and
+        these markets are gone within minutes, so it cannot be recovered later.
+        """
+        api = self._api([(0.30, 0.35), (0.60, 0.65)])
+        result = await mcc.survey(
+            api, pages=1, rounds=2, interval_s=0.0, max_legs=3
+        )
+        for measurement in result.measurements:
+            joint_ms = measurement.combo.joint.observed_ms
+            assert joint_ms is not None
+            for quote in measurement.leg_quotes:
+                assert quote.observed_ms == joint_ms
+
+        stamps = {m.combo.joint.observed_ms for m in result.measurements}
+        assert len(stamps) == 2, (
+            "both rounds carry one stamp, so the rounds cannot be told apart"
+        )
+
+    async def test_the_combination_records_when_it_was_minted(self):
+        """Age is what separates staleness from a real pricing property.
+
+        A staleness artefact must grow with a combination's age; a real one is
+        flat in it. Without `created_ms` neither claim is checkable.
+        """
+        api = self._api([(0.30, 0.35)])
+        result = await mcc.survey(
+            api, pages=1, rounds=1, interval_s=0.0, max_legs=3
+        )
+        assert result.measurements
+        # Built from a datetime rather than pinned as a literal, so the
+        # expectation is fixed by the calendar instead of by whatever the
+        # parser happened to return the first time this ran.
+        expected = int(
+            datetime(2026, 8, 9, 15, 0, tzinfo=timezone.utc).timestamp() * 1000
+        )
+        assert result.measurements[0].combo.created_ms == expected

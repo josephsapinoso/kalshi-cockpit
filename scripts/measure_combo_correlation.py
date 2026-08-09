@@ -131,6 +131,7 @@ import json
 import logging
 import re
 import sys
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,6 +145,7 @@ from backend.core.correlation import (  # noqa: E402
     Leg,
     implied_correlation,
 )
+from backend.kalshi.discovery import parse_ms  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
 from backend.logging_setup import configure_logging  # noqa: E402
 
@@ -204,10 +206,19 @@ class Quote:
     legitimate bid here. `mid` is `None` when there is no bid, never the ask
     halved: a mid invented from one side is a made-up number wearing a name
     that means "the market's opinion".
+
+    `observed_ms` is when *we read it*, and it exists because comparing a
+    combination against its own legs is only meaningful if the two prices were
+    read at the same moment. That used to be argued from the caching policy;
+    the policy was wrong (see `leg_quote`). Recording the moment makes
+    contemporaneity a property the data can be filtered on rather than one the
+    reader has to take on trust -- the same reason this repo refuses to believe
+    a guard it has not watched fail.
     """
 
     ask: float
     bid: Optional[float] = None
+    observed_ms: Optional[int] = None
 
     @property
     def mid(self) -> Optional[float]:
@@ -218,15 +229,22 @@ class Quote:
         return None if self.bid is None else self.ask - self.bid
 
 
-def readable_quote(market: dict) -> Optional[Quote]:
-    """A usable quote, or None. An ask is required; a bid is a bonus."""
+def readable_quote(
+    market: dict, *, observed_ms: Optional[int] = None
+) -> Optional[Quote]:
+    """A usable quote, or None. An ask is required; a bid is a bonus.
+
+    `observed_ms` is supplied by the caller rather than read from a clock here,
+    so every quote taken in one pass carries one stamp -- the same discipline
+    `run_loop` uses for a pricing pass.
+    """
     ask = dollars(market.get("yes_ask_dollars"))
     if ask is None or not 0.0 < ask < 1.0:
         return None
     bid = dollars(market.get("yes_bid_dollars"))
     if bid is None or not 0.0 < bid <= ask:
         bid = None
-    return Quote(ask=ask, bid=bid)
+    return Quote(ask=ask, bid=bid, observed_ms=observed_ms)
 
 
 @dataclass
@@ -236,6 +254,13 @@ class Combo:
     joint: Quote
     legs: tuple[dict, ...]
     subtitle: str
+    # When Kalshi minted this combination. The staleness confound has a
+    # direction: if a combination looks dominated only because its legs moved
+    # after it was minted, the effect must GROW with the combination's age. A
+    # real pricing property is flat in it. Nothing else in this record can
+    # separate those two, so it is captured at read time -- these markets are
+    # gone within minutes and it cannot be recovered afterwards.
+    created_ms: Optional[int] = None
 
     @property
     def fixtures(self) -> tuple[Optional[str], ...]:
@@ -306,8 +331,31 @@ async def open_mve_markets(
 
 
 async def leg_quote(
-    api: KalshiRestClient, market_ticker: str, cache: dict[str, Optional[Quote]]
+    api: KalshiRestClient,
+    market_ticker: str,
+    cache: dict[str, Optional[Quote]],
+    *,
+    observed_ms: Optional[int] = None,
 ) -> Optional[Quote]:
+    """This leg's own quote, cached **within one round only**.
+
+    The cache exists so that two combinations sharing a leg in the same round
+    cost one request, not two. It is deliberately *not* held across rounds, and
+    the reason is worth stating because the opposite was argued here before.
+
+    Caching by ticker alone pins a leg to the first moment **this run** saw it.
+    Kalshi mints roughly 700 combinations a minute and a long run keeps
+    discovering them, so a combination first seen in round 40 would be priced
+    against a leg quote read in round 1 -- thirty-nine minutes earlier. That is
+    not "the leg price that was live when the combo was minted"; it is an
+    arbitrary earlier price, and it gets worse the longer the run, so the
+    recommended 55-round invocation was the most affected.
+
+    A stale leg is not a cosmetic problem here. It is the exact alternative
+    explanation `docs/adr/0012` names for the 94% same-game Frechet refusal
+    rate, so a cache that manufactures staleness was standing behind the
+    finding it would have to be ruled out for.
+    """
     if market_ticker in cache:
         return cache[market_ticker]
     try:
@@ -321,7 +369,7 @@ async def leg_quote(
     # an ask alone overstates it, and every marginal overstated pushes the
     # inverted rho down by an amount nothing in the output would show.
     market = payload.get("market") or {}
-    quote = readable_quote(market)
+    quote = readable_quote(market, observed_ms=observed_ms)
     if quote is None or quote.bid is None:
         cache[market_ticker] = None
         return None
@@ -354,6 +402,37 @@ def marginal_for_leg(leg: dict, quote: Quote) -> Optional[float]:
     logger.warning(
         "leg %s has side %r, which is neither yes nor no; refusing the "
         "combination rather than assuming",
+        leg.get("market_ticker"), side,
+    )
+    return None
+
+
+def cost_to_buy_leg(leg: dict, quote: Quote) -> Optional[float]:
+    """What it costs to take this leg on the side the combination takes.
+
+    The marginal above is a **mid** -- the right number for inverting a joint
+    into a correlation. This is a different question: it is the price you would
+    actually pay, which is what decides whether a combination is worse than
+    simply buying one of its legs. Bucketing on the mid and transacting at the
+    ask is the error CLAUDE.md records costing a +25.4 point "edge" that lost
+    money.
+
+    Buying the YES side costs the yes ask. Buying the NO side costs
+    `1 - yes_bid`, **not** `1 - yes_ask`: to hold NO you sell YES, and you sell
+    into the bid. Using the ask there understates the cost by the full spread
+    and would manufacture domination out of nothing.
+
+    A sibling of `marginal_for_leg` and for the reason that function gives: one
+    path, so this rule and any test of it cannot hold separate copies. Returns
+    `None` when the NO side has no bid -- refusing the leg, never substituting.
+    """
+    side = str(leg.get("side") or "yes").lower()
+    if side == "yes":
+        return quote.ask
+    if side == "no":
+        return None if quote.bid is None else 1.0 - quote.bid
+    logger.warning(
+        "leg %s has side %r, which is neither yes nor no; refusing to price it",
         leg.get("market_ticker"), side,
     )
     return None
@@ -422,12 +501,6 @@ async def survey(
     max_legs: int,
 ) -> Survey:
     result = Survey()
-    # Leg quotes are cached across rounds on purpose: a combo minted at 06:27
-    # is being compared against the leg prices that were live when it was
-    # minted, and re-reading a leg minutes later would price the joint and its
-    # legs at two different moments. Same reason `run_loop` takes one stamp for
-    # a whole pass.
-    cache: dict[str, Optional[Quote]] = {}
     seen: set[str] = set()
 
     for round_index in range(rounds):
@@ -435,6 +508,13 @@ async def survey(
             await asyncio.sleep(interval_s)
         result.rounds += 1
         fresh_this_round = 0
+        # A fresh cache per round, and one stamp for the round. Within a round
+        # a joint and its legs are read seconds apart, which is the
+        # contemporaneity this comparison needs; across rounds they are not,
+        # and a cache held for the whole run silently priced a round-40 combo
+        # against a round-1 leg. See `leg_quote`.
+        round_ms = int(time.time() * 1000)
+        cache: dict[str, Optional[Quote]] = {}
 
         for series in MVE_SERIES:
             try:
@@ -459,7 +539,7 @@ async def survey(
                     continue
                 result.with_legs += 1
 
-                joint = readable_quote(market)
+                joint = readable_quote(market, observed_ms=round_ms)
                 if joint is None:
                     result.refused["joint_unquoted"] += 1
                     continue
@@ -484,12 +564,15 @@ async def survey(
                     joint=joint,
                     legs=tuple(legs),
                     subtitle=str(market.get("yes_sub_title") or ""),
+                    created_ms=parse_ms(market.get("created_time")),
                 )
 
                 marginals: list[float] = []
                 quotes: list[Quote] = []
                 for leg in legs:
-                    quote = await leg_quote(api, leg["market_ticker"], cache)
+                    quote = await leg_quote(
+                        api, leg["market_ticker"], cache, observed_ms=round_ms
+                    )
                     marginal = (
                         None if quote is None else marginal_for_leg(leg, quote)
                     )
@@ -700,9 +783,15 @@ async def main() -> int:
                             "legs": list(m.combo.legs),
                             "marginals": list(m.marginals),
                             "leg_quotes": [
-                                {"bid": q.bid, "ask": q.ask}
+                                {
+                                    "bid": q.bid,
+                                    "ask": q.ask,
+                                    "observed_ms": q.observed_ms,
+                                }
                                 for q in m.leg_quotes
                             ],
+                            "created_ms": m.combo.created_ms,
+                            "joint_observed_ms": m.combo.joint.observed_ms,
                             "independent_joint": m.independent_joint,
                             "joint_bid": m.combo.joint.bid,
                             "joint_mid": m.combo.joint.mid,
