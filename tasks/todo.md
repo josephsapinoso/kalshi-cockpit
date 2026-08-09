@@ -414,6 +414,36 @@ preseason, so it measures the calendar. Combo fee structure unverified.
 
 ---
 
+### 14. Five closures, none of them deployed to live ✅ (2026-08-09)
+
+- [x] **One log line per pass.** `pricing pass:` deleted; the failure path it
+      uniquely covered moved to `counts_survive_a_late_failure` in `run_loop`.
+      The "run_chain would go silent" premise was wrong — it has always printed
+      the same dict.
+- [x] **Exposure counts the fee** (`store.orders.exposure_contribution`). ADR
+      0008 gap 3, closed with no migration: the fee is a function of two columns
+      already stored. Two implementations pinned by a test agreed and both
+      omitted the fee.
+- [x] **Combo joint prices are readable for free.** ~700 provisional
+      combination markets a minute on `/markets`, each with
+      `mve_selected_legs` and a quote. `scripts/measure_combo_correlation.py`;
+      ADR 0012. **Joe's authorised lookup is unspent and off the critical
+      path.** The control validates the method at the mid (cross-game rho
+      −0.033 where truth is 0) and refuses the ask-only population (sd 0.235).
+      No same-game correlation measured yet.
+- [x] **`orderbook()` returned `{}` for every market** — the fourth wrong wire
+      key. Raises now, and `tests/test_parsers_return_something.py` is the
+      mechanical guard: every parser, on a real capture, must return something
+      non-empty. All four historical bugs die to that line.
+- [x] **Playbook screen** — `/api/playbook` + `/playbook`. Reads
+      `strategy_config_version`, which had been written since the engine was
+      built and read by nothing. Research screen deliberately not built: its
+      source is structurally empty.
+
+**1,405 tests, ruff green, next build clean, 320/390/430 clean on six pages.**
+Demo deployed and verified. Live not deployed — Joe's call.
+
+
 ## Open questions
 
 - **Fee calibration is deadlocked by design.** Reading the real fee needs a
