@@ -115,9 +115,17 @@ def publish(
 ) -> dict[str, int]:
     """Write a dated snapshot of each table. Returns row counts.
 
-    Empty tables are skipped rather than written as zero-row files: a
-    zero-row Parquet file with an inferred schema is a schema guess, and
-    DuckDB will happily union it against a real one and produce nulls.
+    **Empty tables ARE written**, as zero-row files carrying the schema from
+    `PRAGMA table_info`. This docstring said the opposite until 2026-08-09 --
+    it described the first version's behaviour, which was changed in
+    `_table_to_arrow` and not here, so the module contained two docstrings
+    contradicting each other about the case that actually occurs. The reasoning
+    for the change is in `_table_to_arrow`: skipping made
+    `read_parquet('.../fills/**')` raise *"No files found"* and fail the whole
+    dbt build, and "no fills yet" is this project's normal state.
+
+    A table that cannot be read at all (a `sqlite3.Error` -- typically it does
+    not exist) is skipped with a warning and does not appear in the counts.
     """
     from .db import now_ms
 
@@ -164,7 +172,21 @@ def latest_partition(lake_root: Path | str, table: str) -> Optional[Path]:
 
 
 def lake_summary(lake_root: Path | str) -> dict[str, dict]:
-    """What is in the lake. Used by the Dashboards screen and by `dbt` docs."""
+    """What is in the lake: partition count and date range, per table.
+
+    **Nothing calls this.** The docstring claimed it was "used by the Dashboards
+    screen and by `dbt` docs" until 2026-08-09; `grep -rn lake_summary` over the
+    whole repo returns this definition and no other line -- no route, no script,
+    no test. The same is true of `latest_partition` above it.
+
+    Left in place deliberately rather than deleted: whether the analytical limb
+    survives at all is an open decision, and removing the function would settle
+    it by accident. But a docstring naming a caller that does not exist is worse
+    than no docstring -- it is the failure this repo records as "code with no
+    caller is not a feature, it is a plan", with the plan written as though it
+    had already happened. If you are about to rely on this, you are its first
+    caller.
+    """
     root = Path(lake_root)
     if not root.exists():
         return {}
