@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 import time
@@ -101,6 +102,34 @@ from backend.gate import (  # noqa: E402
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db  # noqa: E402
+
+
+@contextlib.contextmanager
+def counts_survive_a_late_failure(log, kind: str, counts):
+    """Say what the pass achieved before letting the exception through.
+
+    A pass records first and then scores, settles and alerts. If it dies in the
+    second half, `run_forever` logs a traceback -- which says *where* it broke
+    and nothing about what had already been written. "Did the sweep fire before
+    it died" is the first question anyone asks of a failed pass, and the answer
+    was on disk the whole time.
+
+    This is the one job `run_pricing_pass` did by logging its counts inline,
+    and it did it on every *successful* pass too -- four milliseconds before
+    `pass N ok` printed a superset of the same dict, at the quote cadence,
+    against a 100-line `flyctl logs` buffer.
+
+    Re-raises. The loop's failure counting is what decides whether the process
+    lives, and swallowing here would make a dead pass look like a quiet slate.
+    """
+    try:
+        yield
+    except Exception:
+        log.error(
+            "%s pass died after recording. Counts at the point it broke: %s",
+            kind, counts.as_dict(),
+        )
+        raise
 
 
 class CombinedPass:
@@ -248,35 +277,22 @@ async def main() -> int:
             slow_interval_s=args.interval, fast_interval_s=args.fast_interval
         )
 
-        async def one_pass() -> CombinedPass:
-            # One stamp for the whole pass, shared with the alerter: it finds
-            # the rows this pass wrote by `created_ms = stamp`, and a second
-            # clock reading would miss every one of them.
-            stamp = db.now_ms()
-            started = time.monotonic()
-            kind = tempo.pass_kind(stamp)
+        async def score_settle_and_alert(kind, counts, stamp, started):
+            """Everything after the recording half of a pass.
 
+            Split out only to name a failure boundary. Past this point an
+            exception has already-written `recommendations` rows behind it, and
+            the counts describing them are worth saying out loud before the
+            traceback -- see `one_pass`.
+            """
+            scoring = settlement = None
             if kind == "full":
-                counts = await run_once(
-                    conn, kalshi, odds, budget,
-                    config=odds_config, risk=risk, suppression=suppression,
-                    now=stamp,
-                )
                 scoring = await run_scoring_pass(conn, kalshi)
                 # Full pass only. A settled market stays settled, so asking
                 # every fifteen seconds during an open window would spend
                 # requests to be told the same thing -- and the fast cadence
                 # exists to keep quotes inside 30s, which this does not touch.
                 settlement = await run_settlement_pass(conn, kalshi)
-            else:
-                # Kalshi only. No credit, no candlesticks -- the point is to
-                # re-confirm the quote behind every row before its 30s runs out,
-                # and neither of those touches that.
-                counts = await run_quote_pass(
-                    conn, kalshi, risk=risk, suppression=suppression, now=stamp,
-                )
-                scoring = None
-                settlement = None
 
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
@@ -323,6 +339,31 @@ async def main() -> int:
                 counts, scoring, alerts, kind=kind, seconds=elapsed,
                 settlement=settlement,
             )
+
+        async def one_pass() -> CombinedPass:
+            # One stamp for the whole pass, shared with the alerter: it finds
+            # the rows this pass wrote by `created_ms = stamp`, and a second
+            # clock reading would miss every one of them.
+            stamp = db.now_ms()
+            started = time.monotonic()
+            kind = tempo.pass_kind(stamp)
+
+            if kind == "full":
+                counts = await run_once(
+                    conn, kalshi, odds, budget,
+                    config=odds_config, risk=risk, suppression=suppression,
+                    now=stamp,
+                )
+            else:
+                # Kalshi only. No credit, no candlesticks -- the point is to
+                # re-confirm the quote behind every row before its 30s runs out,
+                # and neither of those touches that.
+                counts = await run_quote_pass(
+                    conn, kalshi, risk=risk, suppression=suppression, now=stamp,
+                )
+
+            with counts_survive_a_late_failure(log, kind, counts):
+                return await score_settle_and_alert(kind, counts, stamp, started)
 
         log.info(
             "starting loop: full pass every %.0fs, quote pass every %.0fs while "

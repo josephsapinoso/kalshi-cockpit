@@ -692,10 +692,18 @@ def run_pricing_pass(
                     )
                 )
 
-    judged = _review_and_persist(conn, pending, counts=counts, review=review)
-
-    logger.info("pricing pass: %s", counts.as_dict())
-    return judged
+    # Deliberately does NOT log its counts. Every caller reports them and each
+    # reports a superset: the loop's `pass N ok` carries these fields plus the
+    # scoring, settlement and alert counts, and `run_chain.py` prints the same
+    # dict as indented JSON. A line here was a second copy of the loop's, four
+    # milliseconds earlier, at the quote cadence -- about a third of the log
+    # volume for nothing, against a 100-line `flyctl logs` buffer.
+    #
+    # The one thing that copy did carry was a full pass that priced fine and
+    # then died in scoring. `run_loop.py` reports the counts on that path
+    # explicitly, which is where the knowledge of "there is more to come"
+    # actually lives.
+    return _review_and_persist(conn, pending, counts=counts, review=review)
 
 
 def _review_and_persist(
