@@ -1,5 +1,47 @@
 # Next — your checklist
 
+## READ FIRST (2026-08-09) — the gate may be blocked by suppression, not by CLV
+
+**Open question, instrumented but not yet answered.** Every recommendation the
+live instance has written since deploy was suppressed — 5 for 5 across four
+passes:
+
+    03:17  recommendations 1   suppressed 1
+    03:44  recommendations 0   suppressed 0
+    04:07  recommendations 4   suppressed 4
+
+The gate counts `actionable` = `suppressed_reason IS NULL AND
+suggested_contracts > 0` (`gate.py`, `POPULATIONS`). So **if that rate is really
+~100%, the 300-game floor cannot be approached at all** — however long the loop
+runs, and however well the CLV machinery works. That is the same arithmetic
+shape as the CLV-horizon bug at the top of this file, one level up: every
+component correct, product zero.
+
+n=5 is far too small to conclude anything, which is the point — nobody could
+see the number. It was reachable only through the authenticated
+`/api/suppression`, and the local `.env` token deliberately differs from the
+Fly secret.
+
+**Now printed on every full pass** (`8c37e44`), so `Ops -f action=logs` answers
+it without credentials:
+
+    gate progress (24h): actionable=N of 300 needed, no_edge=N, suppressed=N;
+    suppressed by: edge_within_method_noise=N, wide_market=N, ...
+
+**Read it after a full day.** Three outcomes, three different jobs:
+
+| Reading | Means | Do |
+|---|---|---|
+| `no_edge` dominates | the honest no-edge answer | nothing; this is the premise holding |
+| one reason dominates `suppressed` | a miscalibrated rule, or a real upstream fault | investigate that rule |
+| `actionable` grows | the gate is genuinely accumulating | watch `clv_rows_joined` next |
+
+Note the third column matters: a dominant suppression reason is **not**
+automatically a bug to relax. `edge_within_method_noise` firing constantly is
+exactly what CLAUDE.md's first rule predicts on a venue priced to ~2c. Relaxing
+a guard because it fires often is how the record gets poisoned.
+
+
 ## READ FIRST (2026-08-09, later) — the log stream drops lines, and the number everyone quoted was a 10% sample
 
 The one cheap check the previous handoff asked for is **done, and the answer is

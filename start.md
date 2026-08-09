@@ -63,6 +63,24 @@ First pass: `recommendations: 4, suppressed: 4, surfaced: 0, unchanged_confirmed
 36`, `clv_scored: 0`, `rows_joined: 190`. See the CLV watch item below — 190 is
 the residue, and nothing new has scored yet.
 
+## Start here — one reading, after a full day has accumulated
+
+    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit   # 8c37e44 not yet live
+    gh workflow run Ops -f instance=live -f action=logs
+
+Look for the new line:
+
+    gate progress (24h): actionable=N of 300 needed, no_edge=N, suppressed=N;
+    suppressed by: ...
+
+**Why it is the first thing.** Every recommendation live has written since
+deploy was suppressed — 5 for 5. The gate counts only `actionable` rows, so a
+~100% suppression rate means the 300-game floor can never be approached, no
+matter how well CLV works. n=5 proves nothing; the line makes it answerable.
+Full reasoning and how to read the three outcomes: top of `tasks/NEXT.md`.
+
+**`8c37e44` is on `main` and not yet deployed.** Live is on `e885bca`.
+
 ## The check this file used to open with — done
 
 **The dedupe holds; zero new warnings on the second pass.**
