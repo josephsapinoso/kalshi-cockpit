@@ -192,3 +192,44 @@ class TestOrderbookAndPriceValidityAgree:
     @pytest.mark.parametrize("tenths", [1, 500, 999])
     def test_real_quotes_are_valid(self, tenths):
         assert prices.is_valid_price(tenths)
+
+
+class TestAProbabilityIsNotAPrice:
+    """`CONSENSUS FAIR 53.8c` was a probability wearing a price's suffix.
+
+    It sat immediately left of the real ask, at the same type size, so a
+    left-to-right scan read the wrong number as the thing you pay.
+    """
+
+    @pytest.mark.parametrize(
+        "probability,expected",
+        [
+            (0.5385, "53.8%"),
+            (0.5, "50%"),
+            (0.6628, "66.3%"),
+            (0.0, "0%"),
+            (1.0, "100%"),
+            (None, "--"),
+        ],
+    )
+    def test_renders_as_a_percentage(self, probability, expected):
+        assert prices.format_probability(probability) == expected
+
+    def test_never_carries_a_cent_suffix(self):
+        """The whole defect, in one assertion, across the whole range."""
+        for tenths in range(0, prices.PRICE_MAX + 1):
+            assert not prices.format_probability(tenths / 1000).endswith("c")
+
+    def test_agrees_digit_for_digit_with_the_price_rendering(self):
+        """Both come off the same integer tenths, so they cannot disagree.
+
+        A separate ``f"{p * 100:.1f}%"`` prints ``53.9%`` where the stored
+        price rendering says ``53.8c`` -- one rounding step apart, with nothing
+        on screen to say which of the two had moved. Asserted over the whole
+        range rather than at one value, because the two forms agree everywhere
+        except the prices whose third decimal is exactly a half.
+        """
+        for tenths in range(0, prices.PRICE_MAX + 1):
+            assert prices.format_probability(tenths / 1000).removesuffix(
+                "%"
+            ) == prices.format_price(tenths).removesuffix("c")

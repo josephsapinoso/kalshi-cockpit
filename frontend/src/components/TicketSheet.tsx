@@ -28,8 +28,9 @@ import {
  * unresolved hedge between two disagreeing sources (`core/fees.py`); shipping a
  * copy of it to the browser so this could multiply out a total would put two
  * implementations of a money calculation one refresh apart. Where a number is
- * genuinely absent -- the total cost before you confirm -- the sheet says so
- * rather than deriving it. See `tasks/inbox/frontend.md`.
+ * genuinely absent the sheet says so rather than deriving it. The fee-inclusive
+ * total used to be one of those; the read routes now send it, so it is
+ * rendered rather than explained away. See `tasks/inbox/frontend.md`.
  *
  * **2. Everything above the button is a preview; everything below the answer is
  * authoritative.** The endpoint takes a recommendation id and a size and
@@ -254,7 +255,12 @@ export default function TicketSheet({
                 }
               >
                 <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-                  <Figure label="Consensus fair" value={rec.fair_display} />
+                  {/* A percentage. The `c` form of this number sat beside the
+                      ask at the same size and read as a second price. */}
+                  <Figure
+                    label="Consensus fair"
+                    value={rec.fair_percent_display}
+                  />
                   <Figure label="Kalshi asks" value={rec.ask_display} />
                   <Figure
                     label="Edge, net of fees"
@@ -280,6 +286,16 @@ export default function TicketSheet({
                     value={resized ? "—" : dollars(rec.fee_predicted)}
                     muted={resized}
                   />
+                  {/* The fee-inclusive figure the server now sends for the
+                      authorised size. It replaces the sentence that used to
+                      sit at the bottom of this section saying there was no
+                      total -- which was true only because the payload did not
+                      carry one, never because a total was unwanted. */}
+                  <Figure
+                    label="Total cost"
+                    value={resized ? "—" : dollars(rec.total_cost_dollars)}
+                    muted={resized}
+                  />
                   <Figure
                     label="Expected, net"
                     value={resized ? "—" : signedDollars(rec.ev_net_dollars)}
@@ -290,6 +306,13 @@ export default function TicketSheet({
                           ? "positive"
                           : "negative"
                     }
+                    muted={resized}
+                  />
+                  {/* Not the fee, and not scaled by anything here. The one
+                      number on this sheet that says what being wrong costs. */}
+                  <Figure
+                    label="Swing, 1 SD"
+                    value={resized ? "—" : dollars(rec.sd_dollars)}
                     muted={resized}
                   />
                 </div>
@@ -303,18 +326,24 @@ export default function TicketSheet({
                   </p>
                 )}
 
-                {/* No total on this side of the confirm, and that is a
-                    decision rather than an omission. `/api/board` sends a
-                    per-contract price and a size and no cost; multiplying them
-                    here would put a money calculation in the browser that the
-                    server already owns, and the answer would be wrong anyway
-                    the moment the order re-prices. `worst_case_cost_dollars`
-                    on the board row would let this line be a number --
-                    requested in `tasks/inbox/frontend.md`. */}
+                {/* The total is now the server's, for the size on record, and
+                    it is still a preview. Both halves are said: the number
+                    exists, and the order re-prices. */}
                 <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted">
-                  No total until you confirm. The order is priced at whatever
-                  Kalshi says then, and the worst-case cost comes back with the
-                  answer.
+                  {resized ? (
+                    <>
+                      Every figure above describes {authorised} contracts. The
+                      order re-prices at whatever Kalshi says when you confirm,
+                      and the worst-case cost comes back with the answer.
+                    </>
+                  ) : (
+                    <>
+                      The total is the stake plus the predicted fee, for this
+                      size at the recorded price. The order re-prices at
+                      whatever Kalshi says when you confirm, and the worst-case
+                      cost comes back with the answer.
+                    </>
+                  )}
                 </p>
               </Section>
 

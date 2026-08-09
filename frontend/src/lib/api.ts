@@ -20,11 +20,44 @@ export type Recommendation = {
   ask_display: string;
   ask_dollars: number;
   fair_probability: number;
+  /**
+   * The fair value with a **cent** suffix. Do not render it.
+   *
+   * A fair value is a probability; `53.8c` sitting immediately left of a real
+   * ask at the same type size is the one place a left-to-right scan reads the
+   * wrong number as what you pay. Kept in the type because the payload still
+   * carries it and a script may read it — `fair_percent_display` is the one
+   * that goes on screen.
+   *
+   * @deprecated Render `fair_percent_display`.
+   */
   fair_display: string;
+  /** The same number as `53.8%`, off the same integer tenths. */
+  fair_percent_display: string;
   edge_tenths: number;
   edge_cents: number;
   fee_predicted: number;
   ev_net_dollars: number;
+  /** Ask times size. What the contracts cost, before the fee. */
+  stake_dollars: number;
+  /** Stake plus fee: what actually leaves the account, and the loss if wrong. */
+  total_cost_dollars: number;
+  /**
+   * One standard deviation of this position's outcome, in dollars.
+   *
+   * `contracts * sqrt(p(1-p))` — a contract settles at $1 or $0, so its payoff
+   * spread is exactly $1, and the fee is deterministic and adds no variance.
+   * Zero on an unsized row, which is a real answer rather than a missing one.
+   */
+  sd_dollars: number;
+  /** The run length `losing_run_probability` is computed for. */
+  losing_run_bets: number;
+  /**
+   * How often that many bets of this shape end down, with the edge entirely
+   * real. **`null` when there is no position** — there is no run to lose, and
+   * a number there would be a claim nothing measured.
+   */
+  losing_run_probability: number | null;
   suggested_contracts: number;
   kelly_fraction: number;
   kalshi_quote_age_ms: number;
@@ -82,6 +115,14 @@ export type Board = {
   /** Sized, and the consensus has aged out. Returned rather than dropped. */
   expired: Recommendation[];
   suppressed: Recommendation[];
+  /**
+   * The rest of the slate: candidates with no edge at all.
+   *
+   * Sent under the same flag as `suppressed`, and empty without it. Mispricing
+   * is a factor, not a filter — with zero actionable across ~200 decisions the
+   * rows that did not survive are the only content the Board has.
+   */
+  no_edge: Recommendation[];
   counts: {
     surfaced: number;
     expired: number;
@@ -462,6 +503,19 @@ export const fetchBoard = (includeSuppressed = false) =>
 export const fetchLedger = () => get<Ledger>("/api/ledger");
 
 export const fetchGate = () => get<Gate>("/api/gate");
+
+/**
+ * How often each suppression rule fired.
+ *
+ * The shape is the route's, read before it was typed: `{"counts": {reason: n}}`,
+ * already sorted by count descending server-side, with a row failing several
+ * checks counted once under each. So the values sum to more than the number of
+ * rejected rows, and that is correct rather than a bug to normalise away.
+ */
+export type Suppression = { counts: Record<string, number> };
+
+export const fetchSuppression = (sinceMs = 0) =>
+  get<Suppression>(`/api/suppression?since_ms=${sinceMs}`);
 
 export const fetchHealth = () =>
   get<{

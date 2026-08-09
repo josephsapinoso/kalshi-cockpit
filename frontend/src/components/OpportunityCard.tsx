@@ -85,7 +85,13 @@ export default function OpportunityCard({
           chosen: the Board goes two-up at `sm`, so a card at 640px is *
           narrower* than one at 430px and three columns overlap again there. */}
       <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 lg:grid-cols-3">
-        <Figure label="Consensus fair" value={rec.fair_display} />
+        {/* A percentage, not a price. `fair_display` renders the same number
+            as `53.8c`, and it sat here immediately left of the real ask at the
+            same type size -- the one place a left-to-right scan reads the
+            wrong number as what you pay. The unit is the whole fix: 53.8% and
+            50.3c cannot be confused for each other the way 53.8c and 50.3c
+            can. */}
+        <Figure label="Consensus fair" value={rec.fair_percent_display} />
         <Figure
           // The arrow carries the direction as well as the colour flash. Roughly
           // one man in twelve cannot separate the two hues, and a ticker whose
@@ -125,14 +131,50 @@ export default function OpportunityCard({
           }`}
         >
           <Figure label="Buy" value={`${rec.suggested_contracts}`} />
-          <Figure label="Cost" value={`$${(rec.ask_dollars * rec.suggested_contracts).toFixed(2)}`} />
-          <Figure label="Fee" value={`$${rec.fee_predicted.toFixed(2)}`} />
+          {/* The headline figure is the fee-inclusive one, and the stake and
+              the fee move below it into the small print.
+              `COST` used to be the stake alone with `FEE` beside it and no
+              total anywhere on the card -- an understatement of 3.6% at 50c
+              and 10% at 10c, against 0.38 points of total headroom. Both
+              numbers come off the payload; nothing here adds them. */}
+          <Figure
+            label="Total cost"
+            value={`$${rec.total_cost_dollars.toFixed(2)}`}
+          />
           <Figure
             label="Expected"
             value={`${rec.ev_net_dollars >= 0 ? "+" : ""}$${rec.ev_net_dollars.toFixed(2)}`}
             tone={rec.ev_net_dollars >= 0 ? "positive" : "negative"}
           />
+          {/* What happens when it is wrong, which nothing on this card said.
+              One standard deviation of the position, computed on the server
+              from the same fair probability the edge came from. */}
+          <Figure label="Swing, 1 SD" value={`$${rec.sd_dollars.toFixed(2)}`} />
         </div>
+      )}
+
+      {rec.suggested_contracts > 0 && (
+        <p className="mt-2 text-xs leading-relaxed text-muted">
+          <span className="font-mono">${rec.stake_dollars.toFixed(2)}</span> for
+          the contracts and{" "}
+          <span className="font-mono">${rec.fee_predicted.toFixed(2)}</span> in
+          fees. All of it is lost if this settles the other way.
+          {rec.losing_run_probability !== null && (
+            <>
+              {" "}
+              The swing is{" "}
+              <span className="font-mono">
+                {(rec.sd_dollars / Math.max(1e-9, Math.abs(rec.ev_net_dollars))).toFixed(0)}
+              </span>
+              × the expected value, so {rec.losing_run_bets} bets this shape end
+              down{" "}
+              <span className="font-mono">
+                {Math.round(rec.losing_run_probability * 100)}%
+              </span>{" "}
+              of the time — with the edge completely real.
+            </>
+          )}
+        </p>
       )}
 
       <p className="mt-4 text-sm leading-relaxed text-muted">{rec.reason_text}</p>

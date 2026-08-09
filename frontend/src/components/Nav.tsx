@@ -5,16 +5,24 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 
+// Six links, and the count is a budget rather than a coincidence. A seventh
+// does not clip the page -- the row scrolls, which is what `min-w-0
+// overflow-x-auto` below is for -- but it does push the last item out of sight,
+// and the Gate is the screen that says whether money can move. So adding one
+// means removing one.
+//
+// Rejections took Builder's slot. Builder prices sportsbook parlays: it cannot
+// change a bet on this venue, and for a beginner it can change one in the wrong
+// direction. Rejections answers "which check is refusing everything", which on
+// a board showing 0 actionable of ~200 is the only question there is. The page
+// is still served at `/builder` for anyone who wants it.
 const LINKS = [
   { href: "/", label: "Board" },
-  { href: "/builder", label: "Builder" },
+  { href: "/rejections", label: "Rejections" },
   { href: "/dashboards", label: "Data" },
   { href: "/ledger", label: "Ledger" },
-  // Gate before Playbook, and the order is load-bearing at 390px. A sixth link
-  // does not clip the page -- the row scrolls, which is what `min-w-0
-  // overflow-x-auto` is for -- but it does push the last item out of sight, and
-  // the Gate is the screen that says whether money can move. The newest and
-  // least urgent page is the one that scrolls off.
+  // Gate before Playbook, and the order is load-bearing at 390px: the newest
+  // and least urgent page is the one that scrolls off.
   { href: "/gate", label: "Gate" },
   { href: "/playbook", label: "Playbook" },
 ];

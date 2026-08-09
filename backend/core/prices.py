@@ -126,6 +126,30 @@ def format_price(tenths: Optional[Union[int, float]]) -> str:
     return f"{cents:.1f}c"
 
 
+def format_probability(probability: Optional[float]) -> str:
+    """A probability as a percentage. **Never with a cent suffix.**
+
+    0.5385 -> "53.8%",  0.5 -> "50%",  None -> "--"
+
+    A fair value is a probability, not a price. Rendered through
+    :func:`format_price` it came out as ``53.8c`` and sat immediately left of a
+    real ask at the same type size, which is the one place a left-to-right scan
+    reads the wrong number as the thing you pay.
+
+    Derived from the **same integer tenths** ``format_price`` uses, so the two
+    renderings can never disagree by a rounding step: 0.5385 is 538 tenths, and
+    538 tenths is ``53.8c`` as a price and ``53.8%`` as a probability. A
+    separate ``f"{p * 100:.1f}%"`` would print ``53.9%`` beside a stored
+    ``53.8c`` and there would be no way to tell which one had moved.
+    """
+    if probability is None:
+        return "--"
+    percent = tenths_to_cents(int(round(probability * PRICE_MAX)))
+    if abs(percent - round(percent)) < 1e-9:
+        return f"{int(round(percent))}%"
+    return f"{percent:.1f}%"
+
+
 def is_valid_price(tenths: Optional[Union[int, float]]) -> bool:
     """True if the price is a tradeable level, strictly inside 0 and $1.00.
 

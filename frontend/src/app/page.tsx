@@ -1,7 +1,8 @@
 import Link from "next/link";
+import HowToRead from "@/components/HowToRead";
 import LiveBoard from "@/components/LiveBoard";
-import OpportunityCard from "@/components/OpportunityCard";
-import { TicketProvider, TicketTrigger } from "@/components/TicketProvider";
+import SlateRow, { type SlateState } from "@/components/SlateRow";
+import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
 import { fetchBoard, fetchHealth, fetchWindow } from "@/lib/api";
 import type { ActionableWindow } from "@/lib/api";
@@ -11,10 +12,24 @@ export const dynamic = "force-dynamic";
 export default async function BoardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ suppressed?: string }>;
+  searchParams: Promise<{ rejected?: string }>;
 }) {
   const params = await searchParams;
-  const showSuppressed = params.suppressed === "1";
+  /**
+   * **Rejected rows are visible by default**, and `?rejected=0` hides them.
+   *
+   * The parameter used to be `?suppressed=1` and defaulted to off, so the
+   * ordinary state of this page was a blank screen with a count of things it
+   * was not showing. On a slate where 0 of ~200 rows are actionable, the ones
+   * that were refused are the only content the board has, and which check
+   * refused them is the most useful thing on it.
+   *
+   * Nothing about the decision changed: every row below carries zero
+   * contracts, no ticket opens on one, and the order endpoint re-derives
+   * suppression and staleness inside the request regardless of what this page
+   * chose to draw.
+   */
+  const showRejected = params.rejected !== "0";
 
   let board, health;
   // The window is fetched separately and allowed to fail on its own. It is
@@ -23,7 +38,7 @@ export default async function BoardPage({
   let actionable: ActionableWindow | null = null;
   try {
     [board, health] = await Promise.all([
-      fetchBoard(showSuppressed),
+      fetchBoard(showRejected),
       fetchHealth(),
     ]);
     actionable = await fetchWindow().catch(() => null);
@@ -51,6 +66,25 @@ export default async function BoardPage({
   // between "bettable" and "priced now" is a decision the order endpoint makes,
   // and a page that derived it separately would eventually disagree with it.
   const priceStale = board.counts.price_stale ?? 0;
+
+  /**
+   * Everything the engine judged and will not bet, in one list.
+   *
+   * Ordered expired → rejected → no-edge, which is decreasing order of "the
+   * machinery found something". `no_edge` and `suppressed` arrive empty unless
+   * the page asked for them, so this collapses to the expired rows alone when
+   * rejected rows are hidden.
+   */
+  const rest: { rec: (typeof board.expired)[number]; state: SlateState }[] = [
+    ...board.expired.map((rec) => ({ rec, state: "expired" as SlateState })),
+    ...board.suppressed.map((rec) => ({ rec, state: "rejected" as SlateState })),
+    ...board.no_edge.map((rec) => ({ rec, state: "no-edge" as SlateState })),
+  ];
+
+  /** Rows the server counted and this page asked it not to send. */
+  const hidden = showRejected
+    ? 0
+    : board.counts.suppressed + board.counts.no_edge;
 
   return (
     <Shell>
@@ -99,12 +133,14 @@ export default async function BoardPage({
           <Stat label="Suppressed" value={board.counts.suppressed} />
           <Stat label="No edge" value={board.counts.no_edge} />
           <Link
-            href={showSuppressed ? "/" : "/?suppressed=1"}
+            href={showRejected ? "/?rejected=0" : "/"}
             className="ml-auto rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-card"
           >
-            {showSuppressed ? "Hide rejected" : "Show rejected"}
+            {showRejected ? "Hide rejected" : "Show rejected"}
           </Link>
         </div>
+
+        <HowToRead />
 
         {board.surfaced.length === 0 ? (
           <div className="rounded-2xl border bg-card p-7">
@@ -155,71 +191,75 @@ export default async function BoardPage({
           />
         )}
 
-        {/* Kept rather than hidden. "There is nothing to bet" and "there was
-            something and the moment has passed" are different answers, and only
-            one of them means the machinery is working. */}
-        {board.expired.length > 0 && (
-          <section className="mt-14">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-              The moment has passed
-            </h2>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-              The engine sized {board.expired.length}{" "}
-              {board.expired.length === 1 ? "bet" : "bets"} that can no longer be
-              placed. One clock decides that now. The Kalshi price is re-read
-              from the exchange at the moment of the order, so its age never
-              expires a row — what does is the sportsbook consensus behind the
-              fair value, which stands for{" "}
-              {Math.round(board.staleness.max_odds_age_s / 60)}{" "}
-              {/* Explicit, not a literal space after the expression. JSX
-                  collapsed that one and rendered "15minutes" -- the same defect
-                  `tasks/lessons.md` already records, in the same paragraph,
-                  reintroduced while rewriting it. No automated check in this repo
-                  sees it; only reading the page does. */}
-              minutes and can only be refreshed by spending one of the
-              day&apos;s two odds credits. They are shown because a board that
-              silently drops them looks identical to a board that never found
-              anything.
-            </p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {/* Expired rows open the ticket too, with Confirm off. Tapping one
-                  and being told which clock ran out and what refreshes it is
-                  more use than a card that does nothing when touched -- and the
-                  server would refuse it either way, which is the point the sheet
-                  makes. */}
-              {board.expired.map((rec) => (
-                <TicketTrigger key={rec.id} rec={rec} actionable={false}>
-                  <OpportunityCard
-                    rec={rec}
-                    expired
-                    quoteLimitMs={board.staleness.max_kalshi_quote_age_s * 1000}
-                    oddsLimitMs={board.staleness.max_odds_age_s * 1000}
-                  />
-                </TicketTrigger>
-              ))}
-            </div>
-          </section>
-        )}
+        {/* **The rest of the slate, one line per row.**
+            Three states that used to be a card grid each, or hidden entirely.
+            A card per rejected row is unscannable at ~200 decisions, and a
+            card is also the wrong shape: it is the format the bettable rows
+            use, and these cannot be bet.
 
-        {showSuppressed && board.suppressed.length > 0 && (
+            Nothing in this list is tappable. There is no ticket for a row the
+            server will refuse, and offering a sheet with a permanently dead
+            Confirm would suggest the decision is reversible from here. The
+            expired rows lost their ticket in this change and that is the
+            trade: one line each, no order path, and the reason in words. */}
+        {(rest.length > 0 || hidden > 0) && (
           <section className="mt-14">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
-              Rejected, and why
+              The rest of the slate
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-              Kept rather than discarded. A rule firing constantly is either
-              miscalibrated or catching a real upstream problem, and both are
-              findings.
+              {rest.length > 0 ? (
+                <>
+                  {rest.length}{" "}
+                  {rest.length === 1 ? "candidate" : "candidates"} the engine
+                  judged and will not bet.{" "}
+                </>
+              ) : (
+                <>Nothing here, because this view is hiding it.{" "}</>
+              )}
+              Rejected rows are shown by default: a board that hides what it
+              refused cannot be read as evidence about the rules doing the
+              refusing, and with nothing bettable most days this is the entire
+              content of the page.{" "}
+              {board.expired.length > 0 && (
+                <>
+                  The <span className="font-mono text-xs">EXPIRED</span> rows
+                  were sized and are past the{" "}
+                  {Math.round(board.staleness.max_odds_age_s / 60)}
+                  {/* Explicit, not a literal space after the expression. JSX
+                      collapsed that one and rendered "15minutes" -- the same
+                      defect `tasks/lessons.md` already records. No automated
+                      check in this repo sees it; only reading the page does. */}
+                  {" "}minute consensus limit, which only an odds credit
+                  refreshes.{" "}
+                </>
+              )}
+              Suppression and staleness still decide what is bettable; they
+              stopped deciding what is visible.
             </p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {/* Not tappable. There is no ticket for a rejected candidate --
-                  the card already carries the reason, and offering a sheet with
-                  a permanently dead Confirm would suggest the decision is
-                  reversible from here. */}
-              {board.suppressed.map((rec) => (
-                <OpportunityCard key={rec.id} rec={rec} suppressed />
+            <div className="mt-6 divide-y border-y">
+              {rest.map(({ rec, state }) => (
+                <SlateRow
+                  key={rec.id}
+                  rec={rec}
+                  state={state}
+                  oddsLimitMs={board.staleness.max_odds_age_s * 1000}
+                />
               ))}
             </div>
+            {/* Outside the list's own guard, deliberately. With the rejected
+                rows hidden and nothing expired, `rest` is empty -- and a
+                section that vanishes entirely is how a page comes to look like
+                it found nothing when it is only declining to show it. */}
+            {hidden > 0 && (
+              <p className="mt-4 text-sm text-muted">
+                {hidden} further {hidden === 1 ? "row is" : "rows are"} hidden.{" "}
+                <Link href="/" className="underline">
+                  Show rejected
+                </Link>
+                .
+              </p>
+            )}
           </section>
         )}
       </TicketProvider>
