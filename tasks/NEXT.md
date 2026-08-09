@@ -1,8 +1,8 @@
 # Next — your checklist
 
-## 2026-08-09, 06:00–07:30Z — three items closed, and one of them was Joe's
+## 2026-08-09, 06:00–08:15Z — four items closed, and one of them was Joe's
 
-`main` is pushed and CI-green. **1,361 tests**, ruff clean. Nothing was
+`main` is pushed and CI-green. **1,383 tests**, ruff clean. Nothing was
 deployed, no order was placed, no gate was touched, no odds credit was spent.
 
 ### 1. One log line per pass, not two
@@ -73,6 +73,39 @@ Also corrected: `active_quoters` is `[]` on **all 14,240** published legs while
 those same leg markets are two-sided with 21,247 contracts of open interest. It
 is not a liquidity signal, and "0 of 13,806 legs quoted" said nothing about
 whether a combination could be priced.
+
+### 4. `orderbook()` returned an empty book for every market on the exchange
+
+Found by accident while probing for a market with a genuinely empty book: the
+probe found none, and then reported `{}` for a market carrying **21,256
+contracts of open interest and a two-sided quote**. Two facts that cannot both
+be true.
+
+`KalshiRestClient.orderbook` read `payload["orderbook"]`. The envelope is
+**`orderbook_fp`**, and the sides inside it are `yes_dollars` / `no_dollars` —
+not the socket's names. With `or {}` behind the lookup it returned an empty
+book, always, silently.
+
+**It has no callers**, which is the only reason it never cost anything. It now
+raises `MalformedOrderbookResponse` on a missing envelope, because an empty book
+is a legitimate state on this venue and a renamed field is not, and the two must
+not share a return value.
+
+**This is the fourth wrong wire key in this project**, after `data["yes"]`,
+`multivariate_event_collections`, and `competition_scope == "game"`. All four
+returned something empty, correctly typed and plausible. The prose rule against
+it was written after the first and did not stop the next three.
+
+So there is now a mechanical one — `tests/test_parsers_return_something.py`:
+
+- **Every parser, run on a real capture, must return something non-empty.** One
+  line each. All four historical bugs die to it; nothing else catches them,
+  because a wrong key yields a well-formed empty collection that satisfies every
+  assertion written about its contents.
+- **Every fixture must be read by some test**, or be listed as evidence with a
+  reason. That check immediately found two that nothing read —
+  `sports_coverage.json` and `occurrence_datetime_probe.json` — which is a
+  lesson this repo already had, sitting live in the tree.
 
 ### Still open, unchanged
 

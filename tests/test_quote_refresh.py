@@ -42,6 +42,7 @@ from backend.kalshi.quotes import (
     QuoteUnavailable,
     parse_market_quote,
 )
+from backend.kalshi.rest import ORDERBOOK_KEY
 from backend.store import db
 from backend.store.db import ask_for_side
 
@@ -87,6 +88,55 @@ class TestTheCaptureItself:
         """
         assert "GAME" in capture["ticker"] or "SPREAD" in capture["ticker"] \
             or "TOTAL" in capture["ticker"], capture["ticker"]
+
+    def test_it_captured_a_non_empty_order_book(self, capture):
+        """Otherwise every orderbook assertion below is `None` in, `None` out."""
+        book = capture["orderbook"][ORDERBOOK_KEY]
+        assert book["yes_dollars"], "no YES levels in the capture"
+        assert book["no_dollars"], "no NO levels in the capture"
+
+
+class TestTheOrderbookEnvelopeIsTheOneKalshiSends:
+    """The key was guessed, the guess was wrong, and nothing said so.
+
+    `KalshiRestClient.orderbook` read `payload["orderbook"]` with `or {}` behind
+    it, so it returned an empty book for **every market on the exchange** --
+    including this capture's, which carries a two-sided quote and six-figure
+    resting size. It had no callers, which is the only reason it never cost
+    anything.
+
+    Third time in this project: `data["yes"]` against `yes_dollars_fp`, then
+    `multivariate_event_collections` against `multivariate_contracts`, now this.
+    Each returned something empty and plausible.
+
+    The client's *behaviour* on a renamed envelope is asserted in
+    `tests/test_rest.py`, where the HTTP layer is intercepted so the real
+    request path runs. Here the claims are about the captured payload.
+    """
+
+    def test_the_envelope_key_is_orderbook_fp(self, capture):
+        assert ORDERBOOK_KEY in capture["orderbook"], sorted(capture["orderbook"])
+        assert "orderbook" not in capture["orderbook"], (
+            "Kalshi now sends both keys -- decide which one this reads rather "
+            "than letting the constant pick by accident"
+        )
+
+    def test_the_sides_are_not_named_the_way_the_socket_names_them(self, capture):
+        """The assumption that started all of this.
+
+        The socket sends `price_dollars` / `delta_fp`; REST sends
+        `[price_string, size_string]` pairs under `yes_dollars` / `no_dollars`.
+        Two endpoints, one concept, different shapes -- asserted so that reading
+        one parser's field names into the other fails here rather than in
+        production.
+        """
+        book = capture["orderbook"][ORDERBOOK_KEY]
+        assert set(book) == {"yes_dollars", "no_dollars"}, sorted(book)
+        price, size = book["yes_dollars"][0]
+        assert isinstance(price, str) and isinstance(size, str)
+        assert 0.0 < float(price) < 1.0
+        assert float(size) > 0
+
 
 
 class TestTheTwoEndpointsAgree:

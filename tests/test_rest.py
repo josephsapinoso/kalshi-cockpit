@@ -19,7 +19,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from backend.config import KalshiConfig
 from backend.kalshi.auth import KalshiAuth, signed_path
-from backend.kalshi.rest import KalshiAPIError, KalshiRestClient
+from backend.kalshi.rest import (
+    ORDERBOOK_KEY,
+    KalshiAPIError,
+    KalshiRestClient,
+    MalformedOrderbookResponse,
+)
 
 BASE = "https://api.test.kalshi.com/trade-api/v2"
 
@@ -365,3 +370,77 @@ class TestARenamedKeyIsLoudNotEmpty:
         )
         async with api as client:
             assert [e async for e in client.paginate("/events", "events")] == []
+
+
+class TestTheOrderbookEnvelope:
+    """`orderbook()` read `payload["orderbook"]`; the wire key is
+    `orderbook_fp`.
+
+    With `or {}` behind it, that returned an empty book for **every market on
+    the exchange** — including one carrying 21,000 contracts of open interest
+    and a two-sided quote — and reported no error at all.
+
+    Third time in this project: the predecessor's `data["yes"]` against
+    `yes_dollars_fp`, `combos.py` reading the path-shaped
+    `multivariate_event_collections` against the wire's
+    `multivariate_contracts`, and this. Each returned something empty and
+    plausible, which is indistinguishable from "there is none".
+
+    The payload's *shape* is pinned against a real capture in
+    `tests/test_quote_refresh.py`. These are about what the client does with it.
+    """
+
+    @respx.mock
+    async def test_it_returns_the_book_under_the_key_kalshi_actually_sends(
+        self, api
+    ):
+        respx.get(f"{BASE}/markets/T/orderbook").mock(
+            return_value=httpx.Response(200, json={
+                ORDERBOOK_KEY: {
+                    "yes_dollars": [["0.5800", "552.00"]],
+                    "no_dollars": [["0.0100", "1058328.00"]],
+                }
+            })
+        )
+        async with api:
+            book = await api.orderbook("T")
+        assert book["yes_dollars"] == [["0.5800", "552.00"]]
+        assert book["no_dollars"] == [["0.0100", "1058328.00"]]
+
+    @respx.mock
+    async def test_a_renamed_envelope_raises_rather_than_reading_as_empty(
+        self, api
+    ):
+        """The guard, and the exact payload the old code was happy with.
+
+        This body has the *old* key, so the previous implementation returned
+        `{}` from it and called that a book. An empty book is a legitimate state
+        on this venue and a renamed field is not, so the two must not share a
+        return value.
+        """
+        respx.get(f"{BASE}/markets/T/orderbook").mock(
+            return_value=httpx.Response(200, json={
+                "orderbook": {"yes_dollars": [], "no_dollars": []}
+            })
+        )
+        async with api:
+            with pytest.raises(MalformedOrderbookResponse) as raised:
+                await api.orderbook("T")
+        assert ORDERBOOK_KEY in str(raised.value)
+        assert "T" in str(raised.value), "the message must name the market"
+
+    @respx.mock
+    async def test_a_genuinely_empty_book_is_returned_not_refused(self, api):
+        """The state the refusal must NOT swallow.
+
+        A real market nobody is quoting has empty level lists under the right
+        key. Refusing that would trade one indistinguishable pair for another.
+        """
+        respx.get(f"{BASE}/markets/T/orderbook").mock(
+            return_value=httpx.Response(200, json={
+                ORDERBOOK_KEY: {"yes_dollars": [], "no_dollars": []}
+            })
+        )
+        async with api:
+            book = await api.orderbook("T")
+        assert book == {"yes_dollars": [], "no_dollars": []}

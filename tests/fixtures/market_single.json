@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-08-08T03:39:54.108677+00:00",
-  "note": "Verbatim API responses. `nested` is the market object as /events returns it; `single` is the whole /markets/{ticker} payload. The order path refreshes quotes from `single`, and a test asserts the two agree field for field.",
+  "captured_at": "2026-08-09T07:17:29.033592+00:00",
+  "note": "Verbatim API responses. `nested` is the market object as /events returns it; `single` is the whole /markets/{ticker} payload; `orderbook` is the whole /markets/{ticker}/orderbook payload. The order path refreshes quotes from `single`, and a test asserts the two agree field for field. The orderbook envelope is here because its key was guessed wrong -- `orderbook`, not `orderbook_fp` -- and the guess returned an empty book rather than an error.",
   "ticker": "KXNCAAFGAME-26SEP19MSUND-ND",
   "event_ticker": "KXNCAAFGAME-26SEP19MSUND",
   "nested": {
@@ -16,7 +16,7 @@
     "expected_expiration_time": "2026-09-20T02:30:00Z",
     "expiration_time": "2026-09-21T23:30:00Z",
     "expiration_value": "",
-    "last_price_dollars": "0.9400",
+    "last_price_dollars": "0.9500",
     "latest_expiration_time": "2026-09-21T23:30:00Z",
     "liquidity_dollars": "0.0000",
     "market_type": "binary",
@@ -25,7 +25,7 @@
     "no_sub_title": "Notre Dame",
     "notional_value_dollars": "1.0000",
     "occurrence_datetime": "2026-09-20T02:30:00Z",
-    "open_interest_fp": "2419.34",
+    "open_interest_fp": "2422.48",
     "open_time": "2026-05-20T19:10:00Z",
     "previous_price_dollars": "0.9400",
     "previous_yes_ask_dollars": "0.9400",
@@ -47,12 +47,12 @@
     "ticker": "KXNCAAFGAME-26SEP19MSUND-ND",
     "title": "Will Notre Dame win the Michigan St. vs Notre Dame college football game?",
     "updated_time": "2026-07-13T21:35:19.647908Z",
-    "volume_24h_fp": "1.05",
-    "volume_fp": "2982.36",
+    "volume_24h_fp": "3.14",
+    "volume_fp": "2985.50",
     "yes_ask_dollars": "0.9400",
-    "yes_ask_size_fp": "640.95",
+    "yes_ask_size_fp": "641.00",
     "yes_bid_dollars": "0.8900",
-    "yes_bid_size_fp": "342.44",
+    "yes_bid_size_fp": "343.49",
     "yes_sub_title": "Notre Dame"
   },
   "single": {
@@ -69,7 +69,7 @@
       "expected_expiration_time": "2026-09-20T02:30:00Z",
       "expiration_time": "2026-09-21T23:30:00Z",
       "expiration_value": "",
-      "last_price_dollars": "0.9400",
+      "last_price_dollars": "0.9500",
       "latest_expiration_time": "2026-09-21T23:30:00Z",
       "liquidity_dollars": "0.0000",
       "market_type": "binary",
@@ -78,7 +78,7 @@
       "no_sub_title": "Notre Dame",
       "notional_value_dollars": "1.0000",
       "occurrence_datetime": "2026-09-20T02:30:00Z",
-      "open_interest_fp": "2419.34",
+      "open_interest_fp": "2422.48",
       "open_time": "2026-05-20T19:10:00Z",
       "previous_price_dollars": "0.9400",
       "previous_yes_ask_dollars": "0.9400",
@@ -100,13 +100,85 @@
       "ticker": "KXNCAAFGAME-26SEP19MSUND-ND",
       "title": "Will Notre Dame win the Michigan St. vs Notre Dame college football game?",
       "updated_time": "2026-07-13T21:35:19.647908Z",
-      "volume_24h_fp": "1.05",
-      "volume_fp": "2982.36",
+      "volume_24h_fp": "3.14",
+      "volume_fp": "2985.50",
       "yes_ask_dollars": "0.9400",
-      "yes_ask_size_fp": "640.95",
+      "yes_ask_size_fp": "641.00",
       "yes_bid_dollars": "0.8900",
-      "yes_bid_size_fp": "342.44",
+      "yes_bid_size_fp": "343.49",
       "yes_sub_title": "Notre Dame"
+    }
+  },
+  "orderbook": {
+    "orderbook_fp": {
+      "no_dollars": [
+        [
+          "0.0100",
+          "1058328.00"
+        ],
+        [
+          "0.0200",
+          "3008.00"
+        ],
+        [
+          "0.0300",
+          "2307.00"
+        ],
+        [
+          "0.0400",
+          "709.55"
+        ],
+        [
+          "0.0500",
+          "166.27"
+        ],
+        [
+          "0.0600",
+          "641.00"
+        ]
+      ],
+      "yes_dollars": [
+        [
+          "0.5800",
+          "552.00"
+        ],
+        [
+          "0.5900",
+          "312.00"
+        ],
+        [
+          "0.6000",
+          "192.00"
+        ],
+        [
+          "0.6100",
+          "703.00"
+        ],
+        [
+          "0.6200",
+          "64.00"
+        ],
+        [
+          "0.6400",
+          "1.00"
+        ],
+        [
+          "0.6700",
+          "1.00"
+        ],
+        [
+          "0.8500",
+          "850.00"
+        ],
+        [
+          "0.8800",
+          "114.46"
+        ],
+        [
+          "0.8900",
+          "343.49"
+        ]
+      ]
     }
   }
 }

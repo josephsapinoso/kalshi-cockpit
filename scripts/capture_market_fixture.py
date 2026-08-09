@@ -8,12 +8,21 @@ twice by assuming two endpoints agree about field names: `apply_snapshot` read
 path-shaped `multivariate_event_collections` while the wire key was
 `multivariate_contracts`. Both returned something plausible and empty.
 
-So the fixture stores **both** representations of the same ticker, captured
+So the fixture stores **three** representations of the same ticker, captured
 seconds apart in one run:
 
-    nested   the market object as `/events` returns it, already pinned by
-             tests/fixtures/events_sports_nested.json and parsed by discovery.py
-    single   the whole `/markets/{ticker}` payload, envelope included
+    nested      the market object as `/events` returns it, already pinned by
+                tests/fixtures/events_sports_nested.json, parsed by discovery.py
+    single      the whole `/markets/{ticker}` payload, envelope included
+    orderbook   the whole `/markets/{ticker}/orderbook` payload, envelope
+                included
+
+**The third one was added because the guess had already been made and was
+wrong.** `KalshiRestClient.orderbook` read `payload["orderbook"]`; the wire key
+is `orderbook_fp`, and the inner sides are `yes_dollars` / `no_dollars` rather
+than `yes` / `no`. It returned an empty dict for every market on the exchange,
+including one with 21,000 contracts of open interest and a two-sided quote. It
+had no callers, which is the only reason it never cost anything.
 
 A test then asserts the two carry the same quote fields. If Kalshi ever renames
 one and not the other, that comparison fails instead of the order path quietly
@@ -111,18 +120,29 @@ async def capture() -> int:
         # guessed at, and a guess that returns `{}` reads as "no such market".
         single = await api.request("GET", f"/markets/{ticker}")
 
+        # Same treatment, same reason. Captured from the same ticker seconds
+        # later so the book and the summary fields describe one moment: a book
+        # read minutes after its market row cannot be checked against it.
+        orderbook = await api.request(
+            "GET", f"/markets/{ticker}/orderbook", params={"depth": 10}
+        )
+
     payload: dict[str, Any] = {
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "note": (
             "Verbatim API responses. `nested` is the market object as /events "
-            "returns it; `single` is the whole /markets/{ticker} payload. The "
+            "returns it; `single` is the whole /markets/{ticker} payload; "
+            "`orderbook` is the whole /markets/{ticker}/orderbook payload. The "
             "order path refreshes quotes from `single`, and a test asserts the "
-            "two agree field for field."
+            "two agree field for field. The orderbook envelope is here because "
+            "its key was guessed wrong -- `orderbook`, not `orderbook_fp` -- "
+            "and the guess returned an empty book rather than an error."
         ),
         "ticker": ticker,
         "event_ticker": event_ticker,
         "nested": nested,
         "single": single,
+        "orderbook": orderbook,
     }
     OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -138,6 +158,9 @@ async def capture() -> int:
             f"  {field:<16} nested={nested.get(field)!r:<12} "
             f"single={market.get(field)!r}"
         )
+    print(f"  orderbook envelope keys : {sorted(orderbook)}")
+    for key, side in (orderbook.get("orderbook_fp") or {}).items():
+        print(f"    {key:<12} {len(side or [])} levels, top={(side or [None])[0]}")
     return 0
 
 

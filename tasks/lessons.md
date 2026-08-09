@@ -2965,3 +2965,48 @@ the cost rather than quoting the previous deferral. And when two paths compute
 one quantity, ask what they would *both* have to get wrong for the pinning test
 to stay green — then check that specific thing, because it is the only failure
 the test is blind to.
+
+---
+
+## 2026-08-09 — The fourth wrong wire key, and the cheap test that finds all of them
+
+`KalshiRestClient.orderbook` read `payload["orderbook"]`. The envelope Kalshi
+sends is **`orderbook_fp`**, and with `or {}` behind the lookup the method
+returned an empty book for every market on the exchange — including one with
+21,256 contracts of open interest and a two-sided quote — reporting nothing.
+
+That is the fourth instance of one shape in this project's short life:
+
+| Read | Sent | Returned |
+|---|---|---|
+| `data["yes"]` (predecessor) | `yes_dollars_fp` | 0 levels, always |
+| `multivariate_event_collections` | `multivariate_contracts` | `[]` |
+| `product_metadata` scope `"game"` | `"Game"` | 6 events of 24 |
+| `payload["orderbook"]` | `orderbook_fp` | `{}` for every market |
+
+Every one returned something **empty, plausible, and typed correctly**. None
+raised. The prose rule against this was written after the first, followed for
+some endpoints, and skipped for the next three — so "capture the payload before
+writing the parser" has now failed as a defence three times, and it needs a
+mechanical check rather than more resolve.
+
+**The check: for every function returning a collection, assert against a real
+capture that it comes back NON-EMPTY.** Not that its fields parse — that its
+length is greater than zero. Every one of the four failures dies instantly to
+that one line, and none of them died to anything else, because the wrong key
+produces a perfectly well-formed empty collection that satisfies any assertion
+written about its *contents*.
+
+The corollary is where this one was actually caught, and it was luck: **a liquid
+market reported an empty book.** An output that is empty where the input is
+obviously not is worth one minute of suspicion, even mid-way through unrelated
+work. The finding came from a probe looking for a market with a genuinely empty
+book, which failed to find one and returned `{}` for a market with 21,000 open
+contracts — two facts that cannot both be true.
+
+Note what *limited* the damage, and that it is not a defence: `orderbook()` had
+no callers. `tests/test_has_callers.py` exists because code with no caller is a
+plan rather than a feature, and this is the other half of that — an uncalled
+function is also an untested one, and it will be wrong on the day it is first
+used. Related: [[code-with-no-caller-is-not-a-feature]],
+[[the-websocket-path-was-dead-and-611-tests-said-otherwise]].

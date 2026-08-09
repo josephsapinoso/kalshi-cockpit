@@ -66,6 +66,20 @@ _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 JUNK_PREFIX = "KXMVE"
 
+# The envelope `/markets/{ticker}/orderbook` actually returns. Pinned as a
+# constant so a test can assert it against a captured payload rather than
+# against whoever last remembered it -- this is the third time in this project a
+# plausible-but-wrong wire key has returned something empty and plausible.
+ORDERBOOK_KEY = "orderbook_fp"
+
+
+class MalformedOrderbookResponse(RuntimeError):
+    """The orderbook envelope was not where it was expected.
+
+    Separate from `KalshiAPIError` because the request *succeeded*: this is a
+    200 whose shape we cannot read, which needs the opposite response to a 500.
+    """
+
 
 class KalshiAPIError(RuntimeError):
     """A Kalshi request failed in a way we could not recover from."""
@@ -370,14 +384,42 @@ class KalshiRestClient:
         ]
 
     async def orderbook(self, ticker: str, depth: int = 10) -> dict:
-        """Order book for one market.
+        """Order book for one market. Raises rather than returning an empty one.
 
         Remember the book publishes **YES bids and NO bids only**. Asks are
         derived (`store.db.derive_yes_ask`), and depth on the "ask" side is
         really the opposing bid's quantity.
+
+        **The envelope key is `orderbook_fp`, and this method used to read
+        `orderbook`.** It therefore returned `{}` for every market on the
+        exchange — including one carrying 21,000 contracts of open interest and
+        a two-sided quote — with no error, because `or {}` turned the miss into
+        an empty book. Nothing called it, which is the only reason it cost
+        nothing; the day something had, it would have reported the whole venue
+        as unquotable.
+
+        That is this repo's most-repeated defect, now three times over: the
+        predecessor's `data["yes"]` against `yes_dollars_fp`, `combos.py`
+        reading the path-shaped `multivariate_event_collections` against the
+        wire's `multivariate_contracts`, and this. A plausible-but-wrong key
+        returning empty is indistinguishable from "there is none".
+
+        So a missing envelope **raises**. An empty book is a legitimate state
+        and a renamed field is not, and the two must not share a return value.
+        The sides themselves are `yes_dollars` / `no_dollars`, each a list of
+        `[price_string, size_string]` — note they are *not* the socket's names,
+        which is the assumption that started all of this.
         """
         payload = await self.get(f"/markets/{ticker}/orderbook", depth=depth)
-        return payload.get("orderbook") or {}
+        book = payload.get(ORDERBOOK_KEY)
+        if book is None:
+            raise MalformedOrderbookResponse(
+                f"{ticker}: /markets/{{ticker}}/orderbook has no "
+                f"{ORDERBOOK_KEY!r} key (got {sorted(payload)}). Kalshi renamed "
+                f"the envelope; refusing to return an empty book that would "
+                f"read as 'nobody is quoting this market'."
+            )
+        return book
 
     async def candlesticks(
         self,
