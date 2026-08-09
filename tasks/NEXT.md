@@ -2,8 +2,11 @@
 
 ## 2026-08-09, ~19:30Z — the bankroll trap is fixed; the backfill cannot open the gate
 
-`main` at `5ee1c22`, **pushed and CI green on all three jobs**. 1,535 tests,
-ruff clean, `next build` clean, 11 dbt nodes green. Nothing deployed.
+`main` at `1d81d3c`, **pushed, CI green, and DEPLOYED TO LIVE** (~19:48Z).
+1,538 tests, ruff clean, `next build` clean, 11 dbt nodes green. The v5 -> v6
+migration ran on the real volume; gate locked; six pages 307; `/api/orders` 401.
+First gate progress on the new code: actionable=0 of 300, no_edge=287,
+suppressed=287, with stale_odds=239 dominating.
 
 ### Done
 

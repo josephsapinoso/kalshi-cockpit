@@ -17,13 +17,31 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is at `5ee1c22`, **pushed, and CI is green on all three jobs** (Frontend,
-Tests + warehouse, Secret scan). 1,535 tests, ruff clean, `next build` clean,
-11 dbt nodes green.
+`main` is at `1d81d3c`, **pushed, CI green on all three jobs**. 1,538 tests,
+ruff clean, `next build` clean, 11 dbt nodes green.
 
-**Nothing is deployed.** Live is still on `e950c49` and carries none of the last
-two sessions' work. `fly.live.toml` has changed substantially, so a deploy is a
-real change. **Deploying live is Joe's call.**
+**LIVE IS DEPLOYED and running this commit** (2026-08-09 ~19:48Z). Demo went
+first as the canary, then live. Verified independently, not just by the
+workflow's own assertions:
+
+    [migrate] /data/cockpit.db migrated v5 -> v6   <- on the real volume
+    API starting: instance_mode=live live_trading_enabled=False
+    six pages (incl. the new /rejections) -> 307 -> /login
+    POST /api/orders -> 401 with and without a forged bearer
+    health: retired_settings_set: [], live_quotes_available: true,
+            agent_fleet_configured: true
+
+First `gate progress` on the new code:
+
+    actionable=0 of 300 needed, no_edge=287, suppressed=287
+    suppressed by: stale_odds=239, too_few_books=93, no_market_width=93,
+                   suspicious_edge=9, edge_within_method_noise=8,
+                   insufficient_depth=4
+
+`actionable=0` is now read off `reference_contracts` and **did not jump**, which
+is what ADR 0015 predicted: the backfill preserves recorded values, so nothing
+about the existing record changed. The counter is now immune to the deposit
+rather than gated by it.
 
 Five agents in `.claude/agents/`, loading automatically: **`partner`** (directs
 the fleet — *delegation is its call, not yours*), **`measurement-skeptic`**,
@@ -135,7 +153,6 @@ in `a92ac42`.
 
 - **The four fee-calibration trades.** ~$5, pre-authorised, a hard gate
   condition no amount of CLV can satisfy, and the highest-value use of week one.
-- **Deploying live.** Nothing from the last two sessions is on the live machine.
 
 ## Traps from this session specifically
 
@@ -156,5 +173,13 @@ in `a92ac42`.
 - **Schema evolution breaks a partitioned lake silently until it does not.**
   `read_parquet` needed `union_by_name`; without it the first added column is a
   hard failure of the whole warehouse, from a change in another subsystem.
+- **A guard whose failure mode the operator cannot clear is not a guard.**
+  Caught in the deploy pre-flight: `RiskConfig.load()` raising on a retired
+  setting runs inside `create_app`, which uvicorn runs at boot, which
+  `entrypoint.sh` supervises with `wait -n` — a crash loop, landing *after* the
+  volume had migrated, so an image rollback would not recover it either. Only
+  `flyctl secrets unset` would, and flyctl is a laptop job while this tool is
+  operated from a phone. It announces now (ERROR on every load, plus
+  `retired_settings_set` on `/api/health`) and enforces nothing.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** The budget
   is shared with live.
