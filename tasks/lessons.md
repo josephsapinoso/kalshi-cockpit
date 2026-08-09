@@ -2614,3 +2614,107 @@ after full success, where it recreates the temp table and drops the real one.
 The guard is a column whose presence means the step has landed — and the test
 that matters runs the migration twice over a database holding a row, because
 every other arrangement passes either way.
+
+---
+
+## 2026-08-09 — A comment before the last column breaks `DROP COLUMN`
+
+Adding `clv_horizon_hours` to `recommendations` turned **72 tests red** with
+
+    sqlite3.OperationalError: error in table recommendations after drop column:
+    incomplete input
+
+The column was fine. The `--` comment above it was not. `ALTER TABLE ... DROP
+COLUMN` does not edit a catalogue — it **rewrites the stored `CREATE TABLE`
+text**, removing the column's definition and leaving everything else, comments
+included. Drop the *last* column and what remains is
+
+    clv_scored_ms  INTEGER,
+    -- Which anchor produced `clv_tenths` ...
+    );
+
+a trailing comma followed by prose, which will not reparse.
+
+It only bites on the final column, because anywhere else the next definition
+absorbs the dangling comment. And it only surfaces in a repo whose migration
+tests build an "old" database by *dropping* what the migrations add — which this
+one does deliberately, so the fixture cannot drift from what the old version
+actually was. A codebase that kept an archived schema file would never see it.
+
+**How to apply:** keep explanatory comments *above the group*, not immediately
+above the last column, in any table a migration may drop from. The general form
+is worth more than the SQLite detail: **`DROP COLUMN` is a text transformation
+on your schema file, so anything in that file that is not a column definition is
+a hazard.** Same family as [[the-schema-file-runs-against-databases-that-already-exist]]
+— `CREATE TABLE IF NOT EXISTS` and `DROP COLUMN` both look declarative and both
+manipulate stored text.
+
+---
+
+## 2026-08-09 — Three guards, three green disable-checks, three missing tests
+
+Moving the CLV horizon added four guards. One went red on the disable-check.
+**Three stayed green, and none of them was the usual cause.**
+
+`tasks/lessons.md` already lists three reasons a disabled guard leaves the suite
+green: the test does not exercise it, *nothing* exercises it, or the behaviour
+comes from somewhere else. All three here were the first — and each was invisible
+for a different, specific reason:
+
+| Guard disabled | Why nothing caught it |
+|---|---|
+| `score_recommendations` stops writing `clv_horizon_hours` | every fixture set the column *itself*, so the production writer was never exercised |
+| the gate stops filtering on the horizon | no fixture had **two** horizons in one database, so the filter could not change any outcome |
+| the v5 migration stops clearing the old scores | nothing ran that `UPDATE` at all |
+
+The pattern under all three: **a new column arrives with fixtures that set it by
+hand, and hand-set fixtures make the code that sets it in production
+unobservable.** The fixture and the writer produce the same rows, so every
+assertion downstream passes either way — and the fixture is the one people write
+first, because it is what makes the other tests go green again.
+
+The gate one is the sharpest and generalises furthest. A filter is only testable
+against data it would *exclude*. Every fixture in the repo scored every row at
+one horizon, so `WHERE clv_horizon_hours = :horizon` was a no-op on every input
+it had ever seen — indistinguishable from a working filter, exactly as
+[[the-zero-that-means-no-measurement]] describes for thresholds.
+
+**How to apply:** when a change adds a column, write the tests in this order —
+(1) the production writer sets it, (2) a reader that filters on it is given a row
+that must be *excluded*, (3) the migration that backfills or clears it is run.
+Then update the fixtures. Doing it the other way round, which is the natural
+order because the fixtures are what unbreak the suite, produces three guards that
+cannot fail.
+
+And note what the disable-check was worth here: the suite went from 1,296 green
+tests to 1,301, and the five that appeared are the only ones testing the change
+that was actually made.
+
+---
+
+## 2026-08-09 — A fixture that omits a new column reports the code refusing
+
+Three separate gate-arming fixtures needed `clv_horizon_hours` after ADR 0011.
+None of them failed in a way that said so:
+
+- `test_quote_refresh` and `test_execution`: **60 tests returned HTTP 423**, gate
+  locked. That is the code correctly refusing to arm real money on no evidence.
+- `test_alerts`: the digest reported **zero scored games**, which is the honest
+  answer when nothing is scored.
+
+Both symptoms are *the system working*. Nothing anywhere said "this row was
+written without the column the reader requires"; the row simply stopped counting,
+and every consumer reported the resulting absence faithfully.
+
+This is the third time this file has recorded a version of it — the `armed_db`
+that armed the gate from `suggested_contracts = 0` rows, the `INSERT OR IGNORE`
+that wrote no `kalshi_markets` row at all, and now this. The constant is that
+**an incomplete fixture degrades into a valid negative result**, and a valid
+negative result is the one state nobody investigates.
+
+**How to apply:** a fixture that exists to put a system into a *positive* state
+should assert it reached that state, in the fixture, not leave it to the tests
+downstream. `armed_db` should check the gate is actually open before yielding;
+a digest fixture should check the digest counts what it seeded. Then a missing
+column fails at the fixture with the reason attached, instead of thirty tests
+away as a refusal that looks deliberate.
