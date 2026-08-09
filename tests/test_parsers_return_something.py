@@ -225,6 +225,22 @@ class TestTheParsersFindRows:
             "'settled' would settle nothing, forever."
         )
 
+    def test_the_settled_markets_yield_results_for_the_markets_table(self):
+        """`read_market_result` is the reader `kalshi_markets.result` is written
+        from, and it is a *different* function from `read_outcome` above. Both
+        are asserted here because a fixture read by only one of two parsers of
+        the same bytes is exactly the gap this file exists to close."""
+        from backend.kalshi.discovery import read_market_result
+
+        markets = load("markets_settled.json")["markets"]
+        assert markets
+        results = [read_market_result(m) for m in markets]
+        assert [r for r in results if r is not None], (
+            "no captured market yielded a result, so `kalshi_markets.result` "
+            "would stay NULL for every row -- the state it was in for the "
+            "project's entire life"
+        )
+
     def test_the_price_grids_parse(self):
         grids = load("price_grids.json")["grids"]
         assert grids

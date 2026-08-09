@@ -3365,3 +3365,140 @@ producing symbol (`discovery._SUFFIX_TO_MARKET_TYPE`) over restating its values,
 because a pointer cannot drift. And close a bundled audit item part by part, or
 the parts that were skipped inherit the tick. Related:
 [[test-the-filters-exclusions]], [[code-with-no-caller-is-not-a-feature]].
+
+---
+
+## 2026-08-09 — A guard standing behind a stricter guard is decoration
+
+`read_market_result` refuses a settled outcome in three steps: the status must
+be `finalized`, the `result` must be one of `yes`/`no`, and it must agree with
+`settlement_value_dollars`. The disable-check found the middle one **passing on
+its own break** — replacing `if result not in RESULTS: return None` with
+`result = market.get("result") or "no"`, which fabricates a loss for every
+market whose outcome is unpublished, left the whole file green.
+
+Nothing was wrong with the code. The test deformed a captured market by setting
+`result = ""` while leaving `settlement_value_dollars` in place, so the
+*cross-check* caught the break and the membership test never had to. Every test
+that could have failed was standing behind a stricter one.
+
+**Why it happens:** a break is written by editing one line, but a test is
+written by deforming one field. Defence in depth means several lines can catch
+one deformation, and the outermost one gets the credit. The suite then reports
+health for a guard that has never once been exercised — and it will keep doing
+so until the day a payload arrives that only that guard would have refused,
+which is exactly the day it matters.
+
+**How to apply:**
+
+- **Verify each guard against a payload only that guard refuses.** Here that
+  meant *removing* `settlement_value_dollars` rather than contradicting it —
+  which is also the more realistic shape, since the key is absent, not empty,
+  on all 289 unsettled markets in the two captures.
+- **Run the disable-check per guard, not per function.** A function-level break
+  is caught by whichever check fires first and tells you nothing about the rest.
+- **A layered refusal needs one test per layer.** If two layers cannot be told
+  apart by any input, one of them is genuinely redundant — delete it or say in
+  the comment that it is belt-and-braces, rather than leaving a reader to
+  believe it is load-bearing.
+
+---
+
+## 2026-08-09 — A once-only WRITE behind an unbounded READ is not once-only
+
+`record_result` was guarded `WHERE result IS NULL`, which is a correct
+once-only write and was described as one. The **read** that produced the work
+had no matching bound. A market Kalshi called `finalized` and this code refused
+to parse — a 50/50 tie, most likely — stayed NULL, so it stayed in the result
+set of `markets_awaiting_result`, so it was re-queried and re-refused on every
+pass. Two markets on a 900s cadence is 192 identical ERROR lines a day, forever,
+plus an `errors` list embedded in the merged pass line that grows with the
+number of stuck markets.
+
+The same shape appeared twice more in one file. A market that never finalizes
+was re-queried forever because the query had a lower age bound and no upper one.
+And the mitigation in the docstring — `ORDER BY started_ms DESC`, so a stuck
+market "drifts to the back of the queue" — only *reorders*: with no cap, nothing
+is ever dropped, so on live (where the cap was unset) the ordering bought
+literally nothing.
+
+**How to apply:**
+
+- **Idempotence is a property of the read and the write together.** For any
+  "this only happens once", name the query that stops producing the row. If
+  nothing stops producing it, the write is once-only and the *work* is not.
+- **If it recurs on every pass it is a state, not an exception.** Report it as a
+  level (a `_total` gauge on the pass line) and log the exception once, at the
+  transition. A logging rate is a property of the caller: the same line was
+  correct at 900s and a flood at 22s without one character changing.
+- **A queue needs an exit as well as an entrance.** Ordering, prioritising and
+  de-duplicating do not bound anything. Only dropping does.
+- **Fix the consequence, not the refusal.** Refusing to guess a tie is right and
+  must not change; a fabricated outcome in a calibration column is a permanent
+  wrong answer. What was wrong was what the refusal *cost*.
+- **When you bound coverage, the dropped population gets its own counter.**
+  Never the one that also holds the routine state — "still unresolved" covering
+  both a game in the 7th inning and an event stuck for six months cannot show a
+  leak by construction. Name the oldest dropped row on every line, so the
+  population is identifiable from a phone.
+
+---
+
+## 2026-08-09 — A break that is equivalent to the original proves nothing
+
+Disabling twenty guards in turn, one stayed green: the new `AND
+COALESCE(m.status, '') != ?` that keeps a refused market out of the queue. The
+guard was fine. The *break* was `!= COALESCE(?, '__never__')` — written to look
+like a deformation while binding the same parameter to the same comparison. It
+was the original expression with more characters.
+
+This is the previous lesson's failure one level up. There, a guard was masked by
+a stricter guard downstream; here, a guard was masked by a break that never
+touched it. Both produce the same reading — "green, therefore healthy" — from a
+test that was never run against the thing it claims to test.
+
+**How to apply:**
+
+- **A disable-check has its own failure mode: the no-op break.** Before
+  believing "stayed green, therefore decoration", read the deformation back and
+  ask what input now behaves differently. If the answer is "none", the check did
+  not run.
+- **Prefer breaks that are obviously not the original**: delete the clause and
+  replace it with a tautology (`AND (? IS NOT NULL)` still consumes the bound
+  parameter), or return a constant. Subtle edits to a condition are exactly
+  where an accidental identity hides.
+- **Script the disable-check.** Twenty guards by hand invites the shortcut of
+  editing whichever line is easiest to type, which is how the no-op gets
+  written. Related: [[a-guard-standing-behind-a-stricter-guard-is-decoration]].
+
+---
+
+## 2026-08-09 — "It probably fits in one page" is a fact you can just measure
+
+`markets_for_event` sent no `limit` and read exactly one page, so it silently
+took whatever default the server applies. The reasoning that this was safe —
+sports game events carry two to thirty markets, well under any plausible page —
+was correct, and untested against the wire. Three free unauthenticated GETs
+settled it in under a minute: `/markets` with no `limit` returns **100** rows,
+not the 200 the repo's own `DEFAULT_PAGE_LIMIT` would have suggested; `limit` is
+capped at 1000 (`limit=1001` is HTTP 400); and `?event_ticker=` **ignores
+`limit` entirely**, returning all 82 markets of `KXWC-30` even for `limit=1`,
+with an empty cursor.
+
+So the code was safe, by a mechanism nobody had guessed, with the largest event
+on the exchange at 82 against an assumed ceiling of 200 that is really 100.
+
+**How to apply:**
+
+- **A page-size assumption is one free GET away from being a measurement.** The
+  cost of checking is far below the cost of the failure, and the failure here
+  was invisible: a truncated tail would have been counted "still unresolved" and
+  re-queried forever, which is a silent leak, not an error.
+- **The repo's own default constant is not the server's default.** Ours was 200;
+  the server's is 100. A constant named `DEFAULT_PAGE_LIMIT` invites the reader
+  to believe it describes the remote end.
+- **Paginate even when one page is enough.** With an empty cursor the loop
+  returns after a single request, so correctness under a future change costs
+  nothing today — and going through `paginate` also picked up the
+  renamed-envelope refusal the hand-rolled `payload.get("markets") or []` did
+  not have.

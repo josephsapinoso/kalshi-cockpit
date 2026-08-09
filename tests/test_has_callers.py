@@ -116,6 +116,13 @@ MUST_HAVE_CALLERS = [
         "nothing to score even once it is called",
     ),
     (
+        "run_market_result_pass",
+        "`kalshi_markets.result` goes back to being NULL for every row, as it "
+        "was for the project's life, and calibration can only ever be measured "
+        "against `settlements` -- which reads `orders`, where the only writers "
+        "are the auth-gated endpoint and the demo seeder",
+    ),
+    (
         "run_quote_pass",
         "the loop runs on the odds cadence alone, so every row is bettable for "
         "thirty seconds after the pass that wrote it and the tool is actionable "
@@ -552,6 +559,7 @@ class TestTheQuoteCadenceStaysQuiet:
         "log_gate_progress",
         "run_scoring_pass",
         "run_settlement_pass",
+        "run_market_result_pass",
         "daily_digest",
     )
 
