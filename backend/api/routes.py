@@ -40,6 +40,7 @@ from ..config import (
     OddsConfig,
     RiskConfig,
     StalenessConfig,
+    retired_settings_present,
 )
 from ..core.correlation import CorrelationRefused, Leg
 from ..core.parlay import (
@@ -405,6 +406,22 @@ def create_app(
             # take effect", and a value captured at construction would answer a
             # question about the previous process.
             "agent_fleet_configured": AgentConfig.from_env() is not None,
+            # Retired settings still present in this process's environment.
+            # Empty is healthy.
+            #
+            # Here rather than only in the log because this is the one
+            # diagnostic reachable from a phone, and because a stale setting is
+            # exactly the thing whose *absence* of effect is invisible: the
+            # value is not read, so nothing downstream misbehaves in a way
+            # anyone would notice, and the operator goes on believing it still
+            # does something. `config.RETIRED_SETTINGS` says why this must not
+            # raise at boot instead.
+            #
+            # Read from the environment per request, like `agent_fleet_
+            # configured` above and for the same reason: the question is "did
+            # the secret I just unset take effect", which a value captured at
+            # construction cannot answer.
+            "retired_settings_set": sorted(retired_settings_present()),
         }
 
     @app.get("/api/stream/quotes")

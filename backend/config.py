@@ -17,6 +17,7 @@ Two rules this module enforces rather than documents:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -25,6 +26,8 @@ from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(RuntimeError):
@@ -205,6 +208,59 @@ class OddsConfig:
 # counter against them changes nothing about the rows already written and stops
 # a future deposit change from silently rewriting what the record means. See
 # `docs/adr/0015`.
+# Settings that were removed, and what a reader needs to know instead.
+#
+# **Announced, never enforced, and the reason is the recovery path.** The first
+# version of this raised `ConfigError` on a retired setting — which is this
+# repo's own preference ("a tool that starts cleanly and then fails on the first
+# order is worse than one that refuses to start"), and it was wrong *here*.
+#
+# `RiskConfig.load()` is called by `create_app`, which uvicorn runs at boot,
+# which `docker/entrypoint.sh` supervises with `wait -n`. So a raise is a
+# container crash loop — and it lands **after** `scripts/migrate_db.py` has
+# already moved the volume forward, so rolling the image back does not recover
+# it either: the old code refuses a newer schema. The only fix would be
+# `flyctl secrets unset`, and flyctl is a laptop job while this tool is operated
+# from a phone.
+#
+# That composition is the failure this repo keeps recording: two locally
+# reasonable rules — "refuse to start on stale config" and "recovery needs
+# flyctl" — multiplying into "the operator cannot recover from their only
+# device". A guard whose failure mode is unrecoverable by the person it protects
+# is not a safety property.
+#
+# So it is loud instead: an ERROR on every config load, and a field on
+# `/api/health`, which is the one diagnostic reachable from a phone. Nothing is
+# substituted and nothing is guessed — the value is simply not read, and that is
+# stated wherever anyone would look.
+RETIRED_SETTINGS: dict[str, str] = {
+    "MIN_ORDER_CONTRACTS": (
+        "It existed to stop small orders paying the per-order fee rounding "
+        "penalty, but core.sizing already prices every candidate at the fee a "
+        "SINGLE contract would pay -- the most expensive per-contract fee any "
+        "size pays -- so a positive Kelly fraction already implies the order is "
+        "+EV at whatever size it produces. The minimum refused positive-EV "
+        "orders rather than preventing negative-EV ones, and below roughly a "
+        "$250 bankroll it closed the 50c band this strategy trades, leaving "
+        "only the far wings where an edge is least believable. See ADR 0015. "
+        "Remove the variable."
+    ),
+}
+
+
+def retired_settings_present() -> dict[str, str]:
+    """Retired settings currently set in the environment, with their reasons.
+
+    Empty is the healthy state. Read by `RiskConfig.load` for the log line and
+    by `/api/health` so the state is visible without shell access.
+    """
+    return {
+        name: detail
+        for name, detail in RETIRED_SETTINGS.items()
+        if os.getenv(name, "").strip()
+    }
+
+
 REFERENCE_BANKROLL_DOLLARS = 1000.0
 REFERENCE_MAX_POSITION_DOLLARS = 100.0
 REFERENCE_MAX_EXPOSURE_DOLLARS = 400.0
@@ -230,25 +286,11 @@ class RiskConfig:
 
     @classmethod
     def load(cls) -> "RiskConfig":
-        # `MIN_ORDER_CONTRACTS` was removed, not renamed, and a removed setting
-        # still sitting in someone's environment must not be silently ignored --
-        # this one closed the 50c band -- where the strategy trades -- at any
-        # bankroll under ~$250, and it did
-        # it by returning a plausible zero.
-        if os.getenv("MIN_ORDER_CONTRACTS", "").strip():
-            raise ConfigError(
-                "MIN_ORDER_CONTRACTS is set and is no longer read. It existed to "
-                "stop small orders paying the per-order fee rounding penalty -- "
-                "but `core.sizing` already prices every candidate at the fee a "
-                "SINGLE contract would pay, which is the most expensive "
-                "per-contract fee any size pays, so a positive Kelly fraction "
-                "already implies the order is +EV at whatever size it produces. "
-                "The minimum was refusing positive-EV orders, not preventing "
-                "negative-EV ones. Below roughly a $250 bankroll it closed the 50c "
-                "band entirely -- the band this strategy trades -- leaving only "
-                "the far wings, where an edge is least believable. Remove the "
-                "variable."
-            )
+        # A removed setting still sitting in an environment must not be silently
+        # ignored -- but see `retired_settings_present` for why this **logs**
+        # rather than raising. It is announced, not enforced.
+        for name, detail in retired_settings_present().items():
+            logger.error("retired setting %s is set and is not read. %s", name, detail)
         return cls(
             bankroll_dollars=_float("BANKROLL_DOLLARS", 1000.0),
             kelly_fraction=_float("KELLY_FRACTION", 0.25),

@@ -47,11 +47,16 @@ the deposit cannot silently switch off the measurement.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import pytest
 
-from backend.config import REFERENCE_BANKROLL_DOLLARS, ConfigError, RiskConfig
+from backend.config import (
+    REFERENCE_BANKROLL_DOLLARS,
+    RiskConfig,
+    retired_settings_present,
+)
 from backend.core.ev import edge_after_fees_tenths, effective_price
 from backend.core.sizing import size_position
 from backend.core.suppression import SuppressionConfig
@@ -282,19 +287,59 @@ class TestTheGateCountsTheReferenceColumn:
         assert not ids("actionable") & ids("no_edge")
 
 
-class TestTheRemovedSettingRefusesRatherThanBeingIgnored:
-    def test_setting_min_order_contracts_now_raises(self, monkeypatch):
-        """A removed setting still in an environment must not be silent.
+class TestTheRemovedSettingIsAnnouncedAndNeverFatal:
+    """Loud, and specifically **not** a refusal to start.
 
-        It was load-bearing and wrong: below roughly a $250 bankroll it closed
-        the 50c band, where this strategy trades. Someone re-adding it to a `.env` or a
-        fly config after reading an old handoff must be told, not ignored.
+    A removed setting still in an environment must not be silent: this one was
+    load-bearing and wrong, and below roughly a $250 bankroll it closed the 50c
+    band this strategy trades. Someone re-adding it after reading an old handoff
+    must be told.
+
+    The first version raised `ConfigError`, which is this repo's usual
+    preference and was wrong *here*. `RiskConfig.load()` runs inside
+    `create_app`; uvicorn runs that at boot; `docker/entrypoint.sh` supervises
+    uvicorn with `wait -n`. So a raise is a container crash loop -- and it lands
+    **after** `scripts/migrate_db.py` has already moved the volume forward, so
+    an image rollback does not recover it either, because the old code refuses a
+    newer schema. Only `flyctl secrets unset` would, and flyctl is a laptop job
+    while this tool is operated from a phone.
+
+    A guard whose failure mode is unrecoverable from the operator's only device
+    is not a safety property. So this is announced in two places a phone can
+    reach -- the log and `/api/health` -- and enforced in neither.
+    """
+
+    def test_a_retired_setting_does_not_stop_the_process_starting(self, monkeypatch):
+        monkeypatch.setenv("MIN_ORDER_CONTRACTS", "10")
+        risk = RiskConfig.load()
+        # And it is genuinely not read -- no field silently absorbed it.
+        assert not hasattr(risk, "min_order_contracts")
+
+    def test_it_is_named_with_its_reason(self, monkeypatch):
+        monkeypatch.setenv("MIN_ORDER_CONTRACTS", "10")
+        present = retired_settings_present()
+        assert "MIN_ORDER_CONTRACTS" in present
+        assert "ADR 0015" in present["MIN_ORDER_CONTRACTS"]
+
+    def test_it_is_logged_at_error_on_every_load(self, monkeypatch, caplog):
+        """Every load, not once per process.
+
+        A once-per-process line is invisible to anyone who did not catch the
+        boot, and the live log stream is a lossy 100-line buffer -- this repo
+        has already lost two boot lines to a burst that way.
         """
         monkeypatch.setenv("MIN_ORDER_CONTRACTS", "10")
-        with pytest.raises(ConfigError, match="MIN_ORDER_CONTRACTS"):
+        with caplog.at_level(logging.ERROR, logger="backend.config"):
             RiskConfig.load()
+            RiskConfig.load()
+        said = [r for r in caplog.records if "MIN_ORDER_CONTRACTS" in r.getMessage()]
+        assert len(said) == 2
 
     def test_an_empty_value_is_not_a_setting(self, monkeypatch):
-        """An unset variable that fly renders as `""` must not block startup."""
+        """An unset variable that fly renders as `""` is not a stale setting."""
         monkeypatch.setenv("MIN_ORDER_CONTRACTS", "")
-        RiskConfig.load()
+        assert retired_settings_present() == {}
+
+    def test_nothing_retired_is_the_healthy_state(self, monkeypatch):
+        monkeypatch.delenv("MIN_ORDER_CONTRACTS", raising=False)
+        assert retired_settings_present() == {}

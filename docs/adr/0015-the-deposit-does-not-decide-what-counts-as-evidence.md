@@ -130,9 +130,22 @@ negative-EV order going quietly out. This repo has learned to recognise a guard
 that cannot fire; writing a new one would have been the same mistake with a
 better name.
 
-`MIN_ORDER_CONTRACTS` still present in an environment now **raises at config
-load**. A removed setting that is silently ignored is how a stale `.env` keeps
-producing the old behaviour in someone's head.
+`MIN_ORDER_CONTRACTS` still present in an environment is **announced, not
+enforced** -- an ERROR on every config load and a `retired_settings_set` field
+on `/api/health`. A removed setting that is silently ignored is how a stale
+`.env` keeps producing the old behaviour in someone's head.
+
+It raised at first, which is this repo's usual preference, and that was wrong
+here. `RiskConfig.load()` runs inside `create_app`, uvicorn runs that at boot,
+and `docker/entrypoint.sh` supervises uvicorn with `wait -n` -- so a raise is a
+container crash loop. It lands **after** `scripts/migrate_db.py` has moved the
+volume to v6, so an image rollback does not recover it either, because the old
+code refuses a newer schema. Only `flyctl secrets unset` would, and flyctl is a
+laptop job while this tool is operated from a phone. Two locally reasonable
+rules -- "refuse to start on stale config" and "recovery needs flyctl" --
+multiplying into "the operator cannot recover from their only device". A guard
+whose failure mode is unrecoverable by the person it protects is not a safety
+property. Caught during the pre-flight for the deploy that carries this ADR.
 
 The order endpoint keeps its own `verify_positive_after_fees` call: the size it
 sends is `min(requested, authorised, resized)` and is genuinely a size the sizer
