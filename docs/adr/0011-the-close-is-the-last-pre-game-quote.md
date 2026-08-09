@@ -136,17 +136,37 @@ The gate reads only rows scored at the **current** primary horizon. A future
 change to the horizon therefore invalidates evidence loudly — the counter drops
 — instead of quietly blending two measurements.
 
-### 4. The rows already scored at 1.0h are returned to the queue
+### 4. The rows already scored at 1.0h are kept, and tagged
 
-`clv_tenths` and `clv_scored_ms` are cleared for those ~34 rows in the same
-migration, so they re-enter scoring at the new primary horizon.
+**Amended 2026-08-09, by Joe, before any of it reached the live volume.** The
+original decision cleared `clv_tenths` and `clv_scored_ms` on those ~34 rows so
+they would re-score at the new primary horizon. They are tagged `1.0` and left
+alone instead.
 
-This mutates the evidence record, so it needs justifying rather than doing
-quietly. Nothing is destroyed: their `closing_lines` rows at 1.0h are untouched,
-that horizon is now the control, and the operation is reversible from them. The
-alternative — leaving them — puts control-horizon values in the primary column
-for 34 rows, which is precisely the silent mixture decision 3 exists to prevent.
-Correctness beats salvaging 34 observations against a floor of 300.
+The amendment is right and the first version was over-engineering. Decision 3
+already has the gate filtering on `clv_horizon_hours`, so a row tagged 1.0 is
+excluded from the primary-horizon count **without touching it**. Clearing bought
+nothing the filter was not already providing, and paid for it by mutating the
+one record in this project that cannot be recreated. "Reversible in principle"
+is a weaker property than "not altered", and the argument for clearing —
+avoiding a silent mixture — was already satisfied one decision earlier.
+
+The general form is worth keeping, because the first version is the tempting
+one: **when a new guard already excludes the bad case, deleting the bad case is
+not defence in depth, it is a second mechanism doing the first one's job with
+side effects.**
+
+What it costs, stated rather than implied: those rows keep their values and are
+permanently 1.0h observations. `score_recommendations` only fills rows where
+`clv_scored_ms IS NULL`, so they will never be re-scored at 0.0 and will never
+count toward the gate. They are kept as **record, not as evidence** — which is
+the honest status of a measurement taken against an anchor the project no longer
+uses.
+
+Because the safety of this now rests entirely on the gate's filter, and the two
+halves live in different modules with nothing linking them, a test asserts the
+exclusion directly: a row tagged 1.0 must not reach `clustered_clv`. Verified by
+removing the filter and watching it fail.
 
 **The 249 currently-unscored rows become scoreable retroactively**, which is the
 one piece of good news here. How many actually recover depends on Kalshi's
@@ -170,7 +190,9 @@ widened the due window and reintroduced the same collision from the other side.
 - The gate's counter starts moving for the first time. It will still read a
   small number against 300 for a long while, and that is the honest state.
 - CLV numbers from before this change and after it are not comparable, and the
-  new column is what says so.
+  new column is what says so. The ~34 rows measured at 1.0h stay in the record
+  and stop contributing to the gate, which is a small real loss of evidence
+  against a floor of 300 and the correct price for not editing the record.
 - Scoring now depends on candlesticks close to kickoff, which is the busiest
   part of a market's life. If `candles_missing` climbs, that is the thing to
   look at.

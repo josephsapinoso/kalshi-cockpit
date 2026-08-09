@@ -55,8 +55,10 @@ disable-check rather than by writing them:
 2. Schema v5: `recommendations.clv_horizon_hours`, backfilled `1.0` where
    `clv_scored_ms IS NOT NULL`. Without it `clv_tenths` becomes a silent
    mixture of two regimes.
-3. Clear `clv_tenths` / `clv_scored_ms` on the rows scored at 1.0h so they
-   re-score. Their `closing_lines` rows survive, so it is reversible.
+3. Tag the rows scored at 1.0h with `clv_horizon_hours = 1.0` and **leave
+   them alone** (amended by Joe before it ran anywhere). The gate's filter
+   already excludes them, so clearing them bought nothing and would have
+   edited the one record that cannot be recreated.
 4. The composition test: fail if `primary_horizon + WINDOW_MINUTES` reaches back
    past `max_odds_age_ms + due_window_ms` before kickoff. Express it as a
    relationship between the four constants, not as `assert horizon == 0.0` —

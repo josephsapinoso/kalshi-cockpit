@@ -303,14 +303,20 @@ class TestMigration:
             "'{}', 1)"
         )
 
-    def test_v5_returns_the_old_horizons_scores_to_the_queue(self, tmp_path):
+    def test_v5_tags_the_old_scores_and_leaves_them_intact(self, tmp_path):
         """The migration's UPDATE, which nothing exercised.
 
         Found by disabling: replacing v5's statements with `()` left the whole
-        store suite green. ADR 0011 moves the primary horizon, so a row scored
-        against the old 1.0h line holds a **control**-horizon value in the
-        primary column. Leaving it there is the silent mixture
-        `clv_horizon_hours` exists to prevent.
+        store suite green.
+
+        **This asserts the opposite of its first version.** That one cleared the
+        old scores so they would re-score at the new primary horizon, which ADR
+        0011 originally specified. Keeping them is the better answer and the one
+        Joe chose: the gate already filters on `clv_horizon_hours`, so a row
+        tagged 1.0 is excluded from the primary count without touching it.
+        Clearing bought nothing the filter was not already providing, at the
+        cost of mutating the one record in this project that cannot be
+        recreated.
         """
         path = tmp_path / "v4scored.db"
         conn = db.init_db(path)
@@ -327,18 +333,32 @@ class TestMigration:
             "SELECT clv_tenths, clv_scored_ms, closing_line_id, "
             "clv_horizon_hours FROM recommendations"
         ).fetchone()
-        assert row["clv_scored_ms"] is None, "the stale score survived"
-        assert row["clv_tenths"] is None
-        assert row["closing_line_id"] is None, (
-            "a pointer to a line the row is no longer scored against"
+        assert row["clv_tenths"] == 40.0, "the migration destroyed a score"
+        assert row["clv_scored_ms"] == 999
+        assert row["closing_line_id"] is not None
+        assert row["clv_horizon_hours"] == 1.0, (
+            "an untagged score is indistinguishable from one taken at the "
+            "current horizon, which is the mixture the column exists to stop"
         )
-        assert row["clv_horizon_hours"] is None
+        conn.close()
 
-        # Reversible: the line it was scored against is untouched, so the old
-        # value can be recomputed. Nothing was destroyed.
-        assert conn.execute(
-            "SELECT COUNT(*) AS n FROM closing_lines WHERE horizon_hours = 1.0"
-        ).fetchone()["n"] == 1
+    def test_a_kept_score_does_not_count_toward_the_gate(self, tmp_path):
+        """Keeping the row is only safe because the gate excludes it.
+
+        The two halves are in different modules -- the migration writes the tag,
+        `gate.clustered_clv` filters on it -- and nothing links them, so the
+        safety of decision 4 rests entirely on this. If the gate ever stops
+        filtering, these rows silently rejoin the primary-horizon average at a
+        different anchor.
+        """
+        from backend.gate import clustered_clv
+
+        conn = db.init_db(tmp_path / "kept.db")
+        self._seed_scored_recommendation(conn)
+
+        assert clustered_clv(conn).n_rows == 0, (
+            "a 1.0h score counted toward a gate measuring the 0.0h horizon"
+        )
         conn.close()
 
     def test_columns_run_before_statements(self, tmp_path):

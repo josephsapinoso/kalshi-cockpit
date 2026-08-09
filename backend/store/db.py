@@ -202,29 +202,32 @@ _SETTLEMENTS_REBUILD_UNDO = (
 )
 
 
-# v5 returns every row scored at the old 1.0h horizon to the scoring queue.
+# v5 tags every row scored at the old 1.0h horizon, and **keeps its score**.
 #
-# **This mutates the evidence record, which is why it is spelled out here.** ADR
-# 0011 moves the primary horizon to 0.0, and those rows hold a value measured
-# against 1.0h -- which is now the *control* horizon. Leaving them would put
-# control-horizon numbers in the primary column for ~34 rows, the exact silent
-# mixture the new `clv_horizon_hours` column exists to prevent.
+# ADR 0011 originally cleared them so they would re-score at the new primary
+# horizon. Joe's call was to keep them, and it is the better answer: the gate
+# filters on `clv_horizon_hours`, so a row tagged 1.0 is already excluded from
+# the primary-horizon count. Clearing them bought nothing the filter was not
+# already providing, and it mutated the one record in this project that cannot
+# be recreated.
 #
-# Nothing is destroyed and the operation is reversible: their `closing_lines`
-# rows at 1.0h are untouched, so the old scores can be recomputed from the
-# database at any time. `closing_line_id` is cleared with the rest because a
-# pointer to a line the row is no longer scored against is worse than none.
+# What it costs, stated rather than implied: those rows keep their CLV values
+# and are permanently 1.0h observations. `score_recommendations` only fills rows
+# where `clv_scored_ms IS NULL`, so they will never be re-scored at 0.0 and will
+# never count toward the gate. Kept as record, not as evidence.
 #
-# Naturally idempotent -- after it runs, no row matches the predicate -- so this
-# step needs no `skip_statements_if_column` guard. It is safe under the version
-# gate for the reason that gate exists: v5 runs only on a database at v4, and a
-# v4 database cannot contain a score taken at any horizon but 1.0, because 1.0
-# is the only value `DEFAULT_HORIZON_HOURS` has ever had.
-_UNSCORE_THE_OLD_HORIZON = (
+# Exact rather than assumed: the scoring pass has only ever scored at
+# `DEFAULT_HORIZON_HOURS`, and that constant was 1.0 for every release before
+# this one -- so every already-scored row on a v4 database was measured at 1.0h.
+# The version gate is what makes that safe to rely on: v5 runs only on a v4
+# database, which cannot contain a score taken at any other anchor.
+#
+# Idempotent: re-running writes the same value.
+_TAG_THE_OLD_HORIZON = (
     """
     UPDATE recommendations
-       SET clv_tenths = NULL, closing_line_id = NULL, clv_scored_ms = NULL
-     WHERE clv_scored_ms IS NOT NULL
+       SET clv_horizon_hours = 1.0
+     WHERE clv_scored_ms IS NOT NULL AND clv_horizon_hours IS NULL
     """,
 )
 
@@ -250,12 +253,11 @@ _MIGRATIONS: dict[int, _Migration] = {
     ),
     5: _Migration(
         columns=(("recommendations", "clv_horizon_hours", "REAL"),),
-        statements=_UNSCORE_THE_OLD_HORIZON,
+        statements=_TAG_THE_OLD_HORIZON,
         undo_statements=(
-            # Nothing to undo. The clearing is not reversible from this table --
-            # and does not need to be, because `closing_lines` keeps every line
-            # it was scored against. Stated rather than left blank, so a future
-            # reader does not think it was forgotten.
+            # Dropping the column takes the tag with it, which is the whole of
+            # what this step writes. Nothing else to undo -- stated rather than
+            # left blank so a future reader does not think it was forgotten.
         ),
     ),
     4: _Migration(
