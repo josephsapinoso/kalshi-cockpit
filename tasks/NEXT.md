@@ -1,5 +1,163 @@
 # Next — your checklist
 
+## 2026-08-09, ~22:40Z — DEPLOYED, and `actionable` has been 0 for the whole record
+
+`main` at `1002028`, pushed, **CI green on all three jobs**. 1,753 tests, ruff
+clean, `next build` clean, tree clean, no worktrees.
+
+**LIVE IS DEPLOYED on `1002028`** and verified independently, not by the
+workflow's own assertions. Demo went first as the canary:
+
+    demo   seven pages 200, instance_mode=demo, execution_available=false,
+           /api/orders 403 with and without a forged bearer
+    live   instance_mode=live, live_trading_enabled=false,
+           retired_settings_set=[], six pages 307 -> /login (with ?next=),
+           /api/orders 401 with and without a forged bearer,
+           /api/ledger and /api/gate 401 unauthenticated
+
+No migration ran and that was checked before triggering, not hoped:
+`SCHEMA_VERSION` is 6 on both the previous live commit and this one, and every
+`schema.sql` change since is comment text with the column definitions
+byte-identical.
+
+### THE FINDING — read this before planning anything
+
+`/api/gate` now exposes `populations`, which nothing could reach before (it
+existed only as a log line, i.e. `flyctl`, i.e. a laptop). Over the **whole
+table, at every horizon, since the record began**:
+
+    actionable      0
+    no_edge       594
+    suppressed    868
+    total rows   1462
+
+    predicate: actionable = suppressed_reason IS NULL AND reference_contracts > 0
+
+**Zero rows, ever, in 1,462 written.** Not "zero in a recent window", not "zero
+among scored rows" — the strategy has never once produced a row it would have
+bet at the fixed $1,000 reference bankroll. **G = 0 against a floor of 300, and
+the numerator has never been anything else.**
+
+Set beside ADR 0016 — a 1,200-game backfill has a 95% ceiling of 35 actionable
+games — the honest reading is that **the gate is not reachable by accumulating
+more of the same.** That is not a plumbing failure. It is CLAUDE.md's premise
+returning the answer it warned was likely:
+
+> Kalshi's advantage is cost, not information. This tool exists to find out
+> whether an edge is there — not to assume one.
+
+**Do not engineer around this.** Relaxing a threshold to make `actionable`
+non-zero would manufacture the evidence the gate exists to demand.
+
+### The record is 39% legacy, and that was invisible until now
+
+    horizons:  "0": 476   "1": 569   unscored: 417     total: 1462
+
+**569 rows carry the 1.0h anchor** that v5 tags and never re-scores. Any number
+computed over "rows with a CLV" without filtering the horizon is a mixture of
+two regimes at a factor of 2.2 — and it biases **upward**, because a 1h line is
+the weaker benchmark (`analysis/clv.py:69-71`).
+
+`total: 1462` against `limit: 1000` also means the ledger's default window is a
+**slice**. Every rate taken off it describes the newest rows, which are
+size-biased toward games that generated many rows.
+
+### The three URLs — sign in once at `/login`, then from a phone
+
+| Question | URL | Read |
+|---|---|---|
+| Is the record horizon-mixed? | `/api/ledger?limit=1` | `horizons`; `"0"` is evidence, `"1"` can never count |
+| Has `actionable` **ever** fired? | `/api/gate` | `populations.counts` |
+| Slice or table? | `/api/ledger?limit=1000` | `total` vs `returned` |
+
+### Next, in order
+
+1. **The four fee-calibration trades (~$5, Joe's).** Promoted: this is no longer
+   only a gate condition, it is a **live hypothesis about why `actionable` is
+   zero.** `calculate_fee` returns the max across two candidate models, which
+   sets the break-even bar at 52.00% rather than 51.75% and costs up to 0.8c per
+   contract at the wings (measured; see ADR 0017 Addendum A). Only real fills
+   resolve it. If the cheaper model is the true one, the bar moves *toward* the
+   strategy — and that is testable for five dollars.
+2. **The fresh-odds edge distribution, pre-registered first.** `stale_odds` is
+   on 575 of 1,000 recent rows, so most of the record cannot speak; among those
+   that could, `no_edge` is 594. If fresh-odds edges sit just under the bar, item
+   1 decides everything. If they are centred negative, **the premise is refuted
+   and that gets written down.** Route through `pre-registrar` — the record has
+   now been seen, so an unregistered cut is a fishing expedition.
+3. **The calibration consumer.** `kalshi_markets.result` is now being written on
+   live, and has **zero readers**. It answers a different question — *is
+   `fair_probability` right?* — that needs no actionable row at all, so it is the
+   one live line of evidence the 0-actionable wall does not block. Outcomes only
+   accrue forward from this deploy.
+
+### Corrections — do NOT quote these numbers from the earlier reconnaissance
+
+`measurement-skeptic` audited the first live read and most of the arithmetic was
+invalid, every defect tracing to a field the API did not expose (now fixed).
+
+- **"38 scored games" — withdrawn.** The ticker regex used to key games never
+  matched a market ticker at all, only event tickers, and where it matched it
+  chopped a fixed three characters. Splitting one event into several *inflates*
+  G, which shrinks the multiplier and the cluster-robust error — the flattering
+  direction. The registered key is
+  `COALESCE(kalshi_markets.event_ticker, recommendations.ticker)`.
+- **"Mean CLV −5.16 sits essentially on the null" — withdrawn.** The
+  commensurability holds (`clv_tenths` is measured against the closing YES mid
+  and reduces to minus the half-spread on *both* sides, checked away from 50c
+  where the old NO-side bug vanishes). But at G=28 the always-valid interval is
+  **[−37, +27] tenths**: it contains the null, contains zero, and contains a
+  +2.7c edge. It confirms nothing.
+- **The ungrouped slope — deliberately not recorded here.** At G=28 the minimum
+  detectable slope is ~3.2 against a ceiling of 1.0, so it is noise, and it was
+  not the registered estimand (game-clustered partial slope controlling
+  `half_spread_tenths`). A "not the test" label falls off in three weeks and the
+  digits stay.
+- **"87 rows is the D1 bug's cost" — overstated.** Computed over a horizon-mixed
+  slice that is not the registered population.
+- **`commence_ms` null on every row was a serialiser gap, not a data gap.**
+
+**What survives, and it is the cleanest number in the set:** 160 of 575 rows
+carrying `stale_odds` have it as part of a **composite** reason (27.8%). That
+needs no population definition and directly corroborates Amendment 1's D1 — the
+superseded `NOT IN` predicate would have retained every one.
+
+### The reference/suggested question, settled
+
+The audit said `actionable=0` was not evidence about reference sizing, because
+the v6 backfill set `reference_contracts = suggested_contracts` on every
+pre-existing row. **Right about the mechanism, too strong about the claim.**
+
+`git show 78b5790^:fly.live.toml` — the deployment in force when the backfill ran
+— sets `BANKROLL_DOLLARS=1000`, `KELLY_FRACTION=0.25`, and leaves the three caps
+unset so they fall to code defaults 100/400/50. **Identical to `REFERENCE_*` on
+all six numbers.** The backfill is an identity, not an estimate. So those rows
+*were* genuinely sized at $1,000: what is untested is the new
+`RiskConfig.reference()` code path, not the proposition.
+
+**A falsifiable prediction to check later:** `BANKROLL_DOLLARS` dropped 1000 ->
+100 in the same commit as the backfill, so every row written since genuinely
+diverges. Rows with `reference_contracts > suggested_contracts` must start
+appearing in the counted set once they reach the 0.0h anchor. If they never do,
+something is wrong.
+
+### Also landed this session
+
+- **`kalshi_markets.result` is written** — declared in the schema and written by
+  nothing for the project's life. Its residue is bounded: one tied game went from
+  192 ERROR lines/day *forever* to 2 total, and a permanently stuck event from
+  ~96 requests/day forever to zero after 7 days.
+- **An unrecognised league is now a decision.** NFL preseason is spelled
+  `"Pro Football Preseason"`; 726 markets across 48 events were dropped with no
+  warning and no failing test. Scope is deliberately unchanged — **including it
+  is not a config change**, see the note in the previous section.
+- **`test_has_callers` no longer counts a worktree copy as a caller** (it was
+  walking 132 `.py` files from other branches).
+- **`edge_tenths` is net of fees** and `schema.sql` said the opposite, plus four
+  more drifted comments.
+
+---
+
 ## 2026-08-09, late — six lanes landed, and three audits refuted the prose over them
 
 `main` at `a60f4bb`. **1,732 tests**, ruff clean, tree clean. Nothing was
