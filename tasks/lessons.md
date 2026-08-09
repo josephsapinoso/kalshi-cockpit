@@ -2718,3 +2718,83 @@ downstream. `armed_db` should check the gate is actually open before yielding;
 a digest fixture should check the digest counts what it seeded. Then a missing
 column fails at the fixture with the reason attached, instead of thirty tests
 away as a refusal that looks deliberate.
+
+---
+
+## 2026-08-09 — The population was 962; the logs showed 94, and nobody compared the two
+
+Three sessions characterised the unknown-`competition_scope` population from
+`flyctl logs`: *"94 distinct series, none of them a sport — `KXFED`, `KXWMT`, AP
+polls, draft picks."* Reassuring, load-bearing, and drawn from a sample nobody
+knew was a sample.
+
+Measured against the live exchange instead (`scripts/measure_unknown_scopes.py`)
+the population is **962 (series, scope) pairs across 317 scopes**, and **227 of
+them sit in leagues this project prices**. The exclusion is still correct —
+every one is a future, an award, or a period/prop market, so no game-level
+market is being dropped — but that is a different fact from the one on record,
+and it was true by luck rather than by the reasoning given.
+
+**The tell was on the screen the whole time.** The same log line carried
+`unknown_scopes=962`, computed in the process, four lines under 94 warnings. Two
+counts of one quantity, disagreeing by an order of magnitude, printed together
+and never read against each other. This is
+[[computing-the-right-statistic-and-then-ignoring-it]] with the roles reversed:
+there the correct statistic sat beside a contradicting verdict; here it sat
+beside a contradicting *sample*, and the sample is what got quoted.
+
+**Why the 94 was not a tail.** The 962 warnings were emitted inside ~90ms, into
+a stream whose visible buffer is 100 lines. Fly's log pipeline dropped ~90% of
+the burst — and took the neighbouring `discovery:` summary with it, a line
+emitted immediately afterwards by working code that simply never arrived. So:
+
+- **`flyctl logs` is not a tail, and absence is not evidence of non-emission.**
+  The summary line was verified to emit locally, verified unconditional in the
+  source, and proven to have run by its own return value being reported one line
+  later. It still was not in the stream. Anything concluded from a line *not*
+  appearing is unfounded.
+- **A burst damages lines that have nothing to do with it.** The cost of a noisy
+  warning is not only its own noise; it is every neighbour it evicts or drops.
+  The two boot lines this project has been trying to read for three sessions were
+  never merely "pushed out" — they were competing with a 962-line burst.
+
+**And the dedupe that was blamed was working perfectly.** The check the handoff
+asked for was "count the warnings; expect zero". The count came back 94, which
+reads as the failure branch. It was not: every one carried a single timestamp
+from the first pass, and the next pass added none. A count taken from a lossy
+buffer cannot distinguish "re-emitted" from "still sitting there" — the
+discriminating evidence was the *timestamp*, not the count.
+
+**How to apply:** three rules, in order of how much they would have saved.
+
+1. When a log line reports a count of the same thing the log lines themselves
+   enumerate, **assert they agree**, or at least read them together once. A
+   process-computed count is evidence; a line count from a log stream is a lower
+   bound and nothing more.
+2. **Size a "warn once" before shipping it.** "Once per process" is a rate, not
+   a volume. `_WARNED_SCOPES` was correct and its cardinality was never
+   measured; one line per pair, once, is 962 lines. The fix is aggregation —
+   one line per process naming the scopes, with the ones in priceable leagues
+   named and the rest counted, because the action item is per *scope* and only
+   live for a league we can devig.
+3. **Characterise a population from the source, not from the report.** One
+   unauthenticated walk of `/events` — free, no odds credits — answers in two
+   minutes what three sessions inferred wrongly from a log buffer. Related:
+   [[a-true-measurement-licensed-a-false-conclusion]], which is the same shape:
+   a real observation promoted to a claim broader than what was observed.
+
+**Corollary, found while fixing it.** The `no occurrence_datetime` warning four
+lines away was per *event* and undeduplicated — the identical flood, one branch
+over, latent because Kalshi happens to populate the field today. A comment
+explaining one instance of a hazard is evidence the hazard is understood, not
+evidence it has been handled everywhere; see
+[[an-idle-threadpool-hides-every-thread-safety-bug]] for the same sentence
+about connections. Deduplicated per series, with the per-pass count kept on the
+summary line so silence still cannot mean "it went away".
+
+**And the harness had the same disease on its first run.** `measure_unknown_
+scopes.py` walked `/events` without `with_nested_markets`, so it reported
+`no_commence_time=167` and zero priceable events against a production pass that
+finds 167 and warns about neither. A measurement harness must issue the *same
+request* production issues, or it is measuring a different system and will
+manufacture findings about it. Related: [[a-window-resize-is-not-a-viewport-change]].

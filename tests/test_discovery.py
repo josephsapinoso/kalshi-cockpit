@@ -245,11 +245,10 @@ class TestUnknownScopeWarningsAreDeduplicated:
 
     Both halves were individually defended in prose, and together they rebuilt
     the thing the dedupe existed to prevent. Measured on live 2026-08-08: **98 of
-    the 100 lines in the log buffer** were this warning — 94 distinct series,
-    none of them sports (`KXFED`, `KXWMT`, `KXTGT`, AP polls, draft picks) — and
-    a quote pass re-emits the set every 15s while the window is open. It buried
+    the 100 lines in the log buffer** were this warning, and a quote pass
+    re-emits the set every 15s while the window is open. It buried
     `[migrate] ...` and `API starting: ...` so completely that neither boot line
-    could be read from production at all, which is what sent this session
+    could be read from production at all, which is what sent that session
     looking.
 
     The split that resolves it, and the reason the two concerns are tested
@@ -259,9 +258,26 @@ class TestUnknownScopeWarningsAreDeduplicated:
     including at zero. Silence never means "the problem went away" — a number
     says so. See `tasks/lessons.md` on rejection logs dominated by their majority
     case.
+
+    **Corrected 2026-08-09, and the correction is why the class now has a burst
+    test.** The docstring above used to add "94 distinct series, none of them
+    sports (`KXFED`, `KXWMT`, AP polls, draft picks)". That population was read
+    off `flyctl logs`. Measured against the live exchange instead
+    (`scripts/measure_unknown_scopes.py`) it is **962 (series, scope) pairs over
+    317 scopes**, and **227 of them are in leagues this project prices** — all
+    futures, awards and period/prop markets, so nothing priceable is being
+    dropped, but the reassuring sentence was drawn from a ~10% sample selected by
+    which lines Fly's pipeline did not drop.
+
+    So "one warning per pair, once per process" was still 962 lines inside 90ms:
+    nine times the log buffer, and enough to lose neighbouring unrelated lines as
+    collateral. One aggregated line per process now. The tests below therefore
+    assert a **line count that does not grow with the population**, which is the
+    property that was missing — every previous test used one or two series, the
+    one regime in which the old code looked fine.
     """
 
-    def _events(self, ticker, scope, n):
+    def _events(self, ticker, scope, n, league="Pro Baseball"):
         """`n` separate EVENTS in one series.
 
         Deliberately events and not markets: `classify_series` runs once per
@@ -270,13 +286,18 @@ class TestUnknownScopeWarningsAreDeduplicated:
         that and passed with the deduplication removed. The live repeats were
         twelve fixtures sharing a series, which is the shape that actually
         produces the spam.
+
+        `league` defaults to an in-scope one so the scope gets *named*. The
+        warning only names scopes in leagues this project can devig against; a
+        test that used "House" would assert against the counted-not-named branch
+        without meaning to.
         """
         return [
             {
                 "event_ticker": f"{ticker}-26AUG07-{i}",
                 "series_ticker": ticker,
                 "product_metadata": {
-                    "competition": "Pro Baseball",
+                    "competition": league,
                     "competition_scope": scope,
                 },
                 "markets": [
@@ -295,8 +316,14 @@ class TestUnknownScopeWarningsAreDeduplicated:
         assert len(warnings) == 1, f"{len(warnings)} warnings for one series"
         assert "KXMLBHIT" in warnings[0].getMessage()
 
-    def test_distinct_scopes_each_get_their_own_warning(self, caplog):
-        """Deduplication must not swallow a genuinely new scope."""
+    def test_distinct_scopes_are_all_named_in_one_line(self, caplog):
+        """Deduplication must not swallow a genuinely new scope.
+
+        It used to be one line per scope. Now it is one line naming every scope,
+        which is the same guarantee against silence with a bounded line count —
+        so this asserts on the *content*, and the test below asserts the count
+        does not grow.
+        """
         events = [
             *self._events("KXMLBHIT", "Hits", 5),
             *self._events("KXMLBHR", "Home Runs", 5),
@@ -307,9 +334,82 @@ class TestUnknownScopeWarningsAreDeduplicated:
         messages = [
             r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
         ]
-        assert len(messages) == 2
-        assert any("KXMLBHIT" in m for m in messages)
-        assert any("KXMLBHR" in m for m in messages)
+        assert len(messages) == 1, messages
+        assert "KXMLBHIT" in messages[0]
+        assert "KXMLBHR" in messages[0]
+        assert "'Hits'" in messages[0]
+        assert "'Home Runs'" in messages[0]
+
+    def test_the_line_count_does_not_grow_with_the_population(self, caplog):
+        """The property the old tests could not see, because they used n=2.
+
+        Live carries 962 unknown (series, scope) pairs. Per-pair warning emitted
+        962 lines into a 100-line buffer in ~90ms; ~90% were dropped by Fly and
+        they took the neighbouring `discovery:` summary with them. One line is
+        the fix, and "one" has to hold at 300 as firmly as it holds at 2 —
+        asserting a small number here would pass against the code that caused
+        the outage.
+        """
+        events = []
+        for i in range(300):
+            events.extend(self._events(f"KXPROP{i}", f"Scope {i}", 2))
+
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        warnings = [r for r in caplog.records if "unrecognised" in r.getMessage()]
+        assert len(warnings) == 1, (
+            f"{len(warnings)} lines for 300 unknown scopes; the burst is back"
+        )
+        assert "300 unrecognised" in warnings[0].getMessage()
+
+    def test_out_of_scope_leagues_are_counted_and_not_named(self, caplog):
+        """A scope in a league we cannot devig is not an action item.
+
+        `FIXTURE_SCOPES` only decides whether a *priceable* market gets priced.
+        On live, 261 of the 317 unknown scopes are elections, esports and
+        entertainment; naming them is what made the line unreadable and would
+        make it unreadable again at one line instead of 962.
+        """
+        events = [
+            *self._events("KXMLBHIT", "Hits", 2, league="Pro Baseball"),
+            *self._events("KXHOUSE", "Election", 2, league="House"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        message = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ][0]
+        assert "'Hits'" in message
+        assert "KXMLBHIT" in message
+        assert "Election" not in message, "an out-of-scope scope was named"
+        assert "KXHOUSE" not in message
+        assert "1 further scopes" in message, message
+
+    def test_a_scope_first_seen_on_a_later_pass_is_still_named(self, caplog):
+        """Aggregation must not become "warn at boot and then go quiet".
+
+        That is the failure the per-pass clear was originally added for. The
+        guarantee is per *pair*, not per process-start: a pair nobody has named
+        gets named on whichever pass first sees it.
+        """
+        first = self._events("KXMLBHIT", "Hits", 3)
+        later = [*first, *self._events("KXMLBSB", "Stolen Bases", 3)]
+
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(first)
+            discover_from_events(later)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ]
+        assert len(messages) == 2, messages
+        assert "KXMLBHIT" in messages[0] and "KXMLBSB" not in messages[0]
+        # The second line carries only what is new. Re-naming the first pair
+        # would rebuild the per-pass repeat one aggregation level up.
+        assert "KXMLBSB" in messages[1]
+        assert "KXMLBHIT" not in messages[1], messages[1]
 
     def test_a_repeated_scope_is_named_once_for_the_life_of_the_process(
         self, caplog
@@ -370,3 +470,118 @@ class TestUnknownScopeWarningsAreDeduplicated:
         ]
         assert len(summaries) == 1
         assert "unknown_scopes=0" in summaries[0], summaries[0]
+
+    def test_the_summary_survives_the_burst_that_precedes_it(self, caplog):
+        """The line that got lost as collateral, asserted where it can be seen.
+
+        On live 2026-08-09 the `discovery:` summary was emitted immediately after
+        962 warning lines and never arrived — Fly dropped it along with ~90% of
+        the burst. Nothing in the process was wrong, which is exactly why no test
+        could have caught it: the defect was the *volume* of the neighbouring
+        lines, and every fixture used two.
+
+        A log pipeline cannot be asserted on from pytest. What can is the thing
+        that made it survivable: the number of records emitted before the summary
+        does not scale with the size of the population.
+        """
+        events = []
+        for i in range(300):
+            events.extend(self._events(f"KXPROP{i}", f"Scope {i}", 2))
+
+        with caplog.at_level(logging.DEBUG, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        emitted = [r for r in caplog.records if r.name == "backend.kalshi.discovery"]
+        summaries = [r for r in emitted if "discovery:" in r.getMessage()]
+        assert len(summaries) == 1
+        assert "unknown_scopes=300" in summaries[0].getMessage()
+        # One warning plus one summary. The old code emitted 301 here.
+        assert len(emitted) <= 5, (
+            f"{len(emitted)} records for one pass over 300 unknown scopes"
+        )
+
+
+class TestTheNoCommenceWarningIsAlsoDeduplicated:
+    """The same hazard, one branch away, that had never fired.
+
+    `no occurrence_datetime` warns per *event* and was never deduplicated. It has
+    emitted nothing on live, so it looks harmless — but it is one Kalshi
+    data-entry day away from being the 962-line burst that made the log stream
+    unreadable, and it sits four lines from the code that was fixed for exactly
+    that. `tasks/lessons.md`: a comment explaining one instance of a hazard is
+    evidence the hazard is understood, not evidence it has been handled
+    everywhere.
+    """
+
+    def _events(self, ticker, n):
+        """Game-level, in-scope league, and no `occurrence_datetime`."""
+        return [
+            {
+                "event_ticker": f"{ticker}-26AUG07-{i}",
+                "series_ticker": ticker,
+                "product_metadata": {
+                    "competition": "Pro Baseball",
+                    "competition_scope": "Game",
+                },
+                "markets": [
+                    {"ticker": f"{ticker}-26AUG07-{i}-A", "yes_sub_title": "A"}
+                ],
+            }
+            for i in range(n)
+        ]
+
+    def test_one_series_warns_once_not_once_per_event(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(self._events("KXMLBGAME", 40))
+
+        warnings = [
+            r for r in caplog.records if "occurrence_datetime" in r.getMessage()
+        ]
+        assert len(warnings) == 1, f"{len(warnings)} lines for 40 events"
+        assert "KXMLBGAME" in warnings[0].getMessage()
+
+    def test_a_second_series_is_still_named(self, caplog):
+        """Dedupe must not swallow a series nobody has reported."""
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(
+                [*self._events("KXMLBGAME", 3), *self._events("KXNFLGAME", 3)]
+            )
+
+        messages = [
+            r.getMessage()
+            for r in caplog.records
+            if "occurrence_datetime" in r.getMessage()
+        ]
+        assert len(messages) == 2
+        assert any("KXMLBGAME" in m for m in messages)
+        assert any("KXNFLGAME" in m for m in messages)
+
+    def test_a_later_pass_does_not_re_warn(self, caplog):
+        events = self._events("KXMLBGAME", 3)
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            discover_from_events(events)
+            discover_from_events(events)
+
+        warnings = [
+            r for r in caplog.records if "occurrence_datetime" in r.getMessage()
+        ]
+        assert len(warnings) == 1, f"{len(warnings)} across three passes"
+
+    def test_the_count_still_reports_on_every_pass(self, caplog):
+        """Deduplicating the line must not make the condition invisible.
+
+        `no_commence_time` on the `discovery:` line is what carries it, and it is
+        the reason silencing the repeats is safe. If this stopped being printed,
+        the dedupe above would be hiding the problem rather than quietening it.
+        """
+        events = self._events("KXMLBGAME", 3)
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+            discover_from_events(events)
+
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        assert len(summaries) == 2
+        assert all("no_commence_time=3" in m for m in summaries), summaries

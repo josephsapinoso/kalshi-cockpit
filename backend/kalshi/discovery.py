@@ -55,11 +55,41 @@ logger = logging.getLogger(__name__)
 # reported on every pass by the `discovery:` summary line, always, even at zero.
 # Silence therefore never means "the problem went away" -- the count says so.
 # See tasks/lessons.md on rejection logs dominated by their majority case.
+#
+# **That fix was right and its cardinality was wrong.** "Say it once" was written
+# believing "once" meant ~94 lines, which is what `flyctl logs` showed. Measured
+# against the live exchange 2026-08-09 (`scripts/measure_unknown_scopes.py`) the
+# real population is **962 (series, scope) pairs over 317 scopes**, emitted in
+# ~90ms. The 94 was not the population; it was the ~10% of a burst that Fly's
+# log pipeline did not drop. So the first pass of every fresh process still
+# overran the 100-line buffer nine times over, still buried the boot lines, and
+# additionally destroyed unrelated neighbouring lines as collateral -- the
+# `discovery:` summary emitted immediately afterwards never arrived either.
+#
+# One warning per process now, aggregated, emitted from `discover_from_events`
+# rather than per event from `classify_series`. The action item is per *scope*,
+# not per (series, scope) -- `FIXTURE_SCOPES` is keyed by scope string -- and a
+# scope in a league this project cannot devig against is not an action item at
+# all, so those are counted rather than named. 962 lines becomes one.
 _WARNED_SCOPES: set[tuple[str, str]] = set()
 
-# Distinct unknown (series, scope) pairs seen in the pass currently running.
-# Cleared per pass, unlike `_WARNED_SCOPES`, because it feeds the count.
-_UNKNOWN_SCOPES_THIS_PASS: set[tuple[str, str]] = set()
+# Unknown (series, scope) pairs seen in the pass currently running, mapped to the
+# league each was seen under. Cleared per pass, unlike `_WARNED_SCOPES`, because
+# it feeds the count. The league is carried so the warning can separate "a market
+# type we might want" from "a scope in a league we do not price".
+_UNKNOWN_SCOPES_THIS_PASS: dict[tuple[str, str], str] = {}
+
+# Cap on how many scopes one warning names. A developer action item that runs to
+# hundreds of entries is not actionable, and the point of this line is that it
+# must not itself become the flood it replaced.
+_MAX_SCOPES_NAMED = 40
+
+# Series already reported as game-level with no `occurrence_datetime`. Same
+# hazard as the scope warning one branch away: it was per event and undeduped,
+# so a day on which Kalshi omits the field across a league floods the stream
+# exactly as the scope warning did. It has never fired on live, which is
+# precisely why it was easy to miss.
+_WARNED_NO_COMMENCE: set[str] = set()
 
 JUNK_PREFIX = "KXMVE"
 
@@ -170,19 +200,10 @@ def classify_series(event: dict) -> SeriesInfo:
         # not understand) but say so loudly, because it may be a market type
         # we want. The drift test in tests/test_discovery.py fails on this too.
         is_game_level = False
-        # Counted every pass, named once per process. The count is what a reader
-        # watches; the name is what a developer acts on, and it cannot change
-        # between passes because the set of Kalshi series does not.
-        key = (series_ticker, scope)
-        _UNKNOWN_SCOPES_THIS_PASS.add(key)
-        if key not in _WARNED_SCOPES:
-            _WARNED_SCOPES.add(key)
-            logger.warning(
-                "%s has unrecognised competition_scope %r -- excluded from "
-                "pricing. If this is a per-fixture market, add it to "
-                "FIXTURE_SCOPES.",
-                series_ticker, scope,
-            )
+        # Counted every pass, named once per process -- but the naming happens in
+        # `discover_from_events`, as a single aggregated line. Warning here, per
+        # event, is what produced a 962-line burst; see `_WARNED_SCOPES`.
+        _UNKNOWN_SCOPES_THIS_PASS[(series_ticker, scope)] = league or ""
     else:
         is_game_level = market_type is not None
         if series_ticker:
@@ -367,8 +388,74 @@ def reset_scope_warnings() -> None:
     It exists for tests, which share one process and would otherwise depend on
     the order they run in: whichever test warns about a series first would be the
     only one that sees the warning. An autouse fixture calls it between tests.
+
+    It clears **every** per-process warning set, not only the scope one. A second
+    set was added later for `no occurrence_datetime`, and a reset that knows
+    about one of two is worse than no reset: the covered case stays deterministic
+    while the uncovered one silently acquires an order dependency, so the failure
+    appears in whichever test happens to be collected second.
     """
     _WARNED_SCOPES.clear()
+    _WARNED_NO_COMMENCE.clear()
+
+
+def _warn_about_new_unknown_scopes() -> None:
+    """Name every newly-seen unrecognised scope, once, in a single line.
+
+    Called at the end of a pass rather than per event. Emits nothing when the
+    pass introduced no scope the process has not already named, which is every
+    pass after the first -- the set of Kalshi series does not change between
+    passes. The per-pass *count* is on the `discovery:` line regardless, so
+    silence here still cannot be read as "the problem went away".
+
+    In-scope leagues are named and out-of-scope ones are counted, because the
+    action item is "should this be in FIXTURE_SCOPES?" and that question is only
+    live for a league this project can devig against. Measured on the live
+    exchange, 56 of 317 unknown scopes sit in a priceable league and every one
+    of them is a future, an award or a period/prop market -- so the count that
+    matters is the one that would go from 0 to 1 if Kalshi renamed `Game`.
+    """
+    new_pairs = {
+        pair: league
+        for pair, league in _UNKNOWN_SCOPES_THIS_PASS.items()
+        if pair not in _WARNED_SCOPES
+    }
+    if not new_pairs:
+        return
+    _WARNED_SCOPES.update(new_pairs)
+
+    # scope -> (series seen under it, whether any is in a league we can price)
+    by_scope: dict[str, list[str]] = {}
+    priceable: set[str] = set()
+    for (series, scope), league in sorted(new_pairs.items()):
+        by_scope.setdefault(scope, []).append(series)
+        if league in IN_SCOPE_LEAGUES:
+            priceable.add(scope)
+
+    def render(scope: str) -> str:
+        series = by_scope[scope]
+        extra = f" +{len(series) - 1}" if len(series) > 1 else ""
+        return f"{scope!r} ({series[0]}{extra})"
+
+    named = sorted(priceable)
+    truncated = max(0, len(named) - _MAX_SCOPES_NAMED)
+    shown = ", ".join(render(s) for s in named[:_MAX_SCOPES_NAMED]) or "none"
+    if truncated:
+        shown += f", and {truncated} more"
+
+    logger.warning(
+        "%d unrecognised competition_scope value(s) across %d series -- excluded "
+        "from pricing. Named once per process; the per-pass count is "
+        "`unknown_scopes` on the discovery summary line. In leagues this project "
+        "can price (%d scopes, the only ones that could need adding to "
+        "FIXTURE_SCOPES): %s. In leagues out of scope: %d further scopes, not an "
+        "action item.",
+        len(by_scope),
+        len(new_pairs),
+        len(priceable),
+        shown,
+        len(by_scope) - len(priceable),
+    )
 
 
 def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
@@ -403,11 +490,20 @@ def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
         commence_ms = event_commence_ms(event)
         if commence_ms is None:
             rejected["no_commence_time"] += 1
-            logger.warning(
-                "%s is game-level but carries no occurrence_datetime; cannot be "
-                "matched against a sportsbook fixture",
-                event.get("event_ticker"),
-            )
+            # Once per series per process, not once per event. Every event in a
+            # series shares whatever data-entry gap caused this, so the undeduped
+            # form is a flood waiting for the day Kalshi omits the field across a
+            # league -- the same shape as the scope warning, one branch away.
+            # `no_commence_time` on the `discovery:` line carries the count.
+            if info.series_ticker not in _WARNED_NO_COMMENCE:
+                _WARNED_NO_COMMENCE.add(info.series_ticker)
+                logger.warning(
+                    "%s is game-level but carries no occurrence_datetime; cannot "
+                    "be matched against a sportsbook fixture. Named once per "
+                    "series; see no_commence_time on the discovery summary line "
+                    "for the per-pass count. First seen on %s.",
+                    info.series_ticker, event.get("event_ticker"),
+                )
             continue
 
         markets = build_markets(event, info.market_type)
@@ -428,11 +524,18 @@ def discover_from_events(events: Iterable[dict]) -> list[DiscoveredEvent]:
             )
         )
 
+    _warn_about_new_unknown_scopes()
+
     # `unknown_scopes` is printed unconditionally, including at zero, and that is
     # the point of it: it is what replaces a per-pass warning stream, so a pass
     # that says nothing about unknown scopes must be distinguishable from a pass
     # that found none. A dropped zero would put the reader back where the
     # warnings left them -- unable to tell silence from absence.
+    #
+    # This line is emitted *after* the warning above for the same reason the
+    # warning is now one line: on 2026-08-09 this summary was itself lost from
+    # the live log stream, sitting immediately behind a 962-line burst. A line
+    # whose job is to be readable must not be queued behind a flood.
     logger.info(
         "discovery: %d priceable events; unknown_scopes=%d; rejected %s",
         len(discovered),
