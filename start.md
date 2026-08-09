@@ -102,18 +102,26 @@ newest page instead.
     .venv\Scripts\python.exe scripts\measure_combo_correlation.py --rounds 26
 
 **The control decides which estimator is admissible.** Cross-game legs are
-near-independent, so their true rho is 0:
+near-independent, so their true rho is 0. Over 55 minutes, 46,916 markets:
 
-    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
-    cross-game, ask only,  n=168   rho at ask +0.243   sd 0.235
+    cross-game, TWO-SIDED, n=23    rho at mid  +0.003   sd 0.089
+    cross-game, ask only,  n=308   rho at ask  +0.234   sd 0.254
 
 At the mid the method returns the right answer. **The ask-only population is
-refused** — its bias has sd 0.235, so it cannot be subtracted off, and a
-same-game number drawn from it would be indistinguishable from the margin.
+refused** — sd 0.254 spanning −0.757 to +0.898, and a bias you cannot subtract
+is a refusal rather than an offset. A 26-minute run replicates it.
 
-**No same-game correlation has been measured.** Two-sided combinations are 42
-of 23,847 markets and none of the same-game ones were two-sided. That is the
-honest state. `docs/adr/0012`, raw run in `docs/measurements/`.
+**No same-game correlation has been measured.** 18 same-game combinations
+appeared, none two-sided, and 17 of 18 had an ask outside the Frechet bounds.
+
+**That refusal rate is the second finding**: 23% cross-game, 47% mixed, 94%
+same-game. An ask above `min(marginal)` is one no dependence structure
+produces, and the clean gradient through `mixed` is what same-game pairs
+driving it looks like. Suggestive, not claimed — a stale leg quote is
+identical. The sharper test needs no correlation: compare the combination's ask
+against the cheapest leg's own **ask**. Leg quotes are now in the `--json`.
+
+`docs/adr/0012`; both runs in `docs/measurements/`.
 
 The lookup remains available for the one thing reading cannot do: pricing a
 combination nobody has built.

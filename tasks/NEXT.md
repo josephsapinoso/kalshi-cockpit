@@ -56,19 +56,35 @@ nothing, and three separate walks did exactly that. The sample has to be
 accumulated over *time*, polling the newest page.
 
 **The control ran, and it is the finding.** Cross-game legs are near-independent,
-so their true rho is 0:
+so their true rho is 0. Over 55 minutes and 46,916 distinct markets:
 
-    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
-    cross-game, ask only,  n=168   rho at ask +0.243   sd 0.235   max +0.853
+    cross-game, TWO-SIDED, n=23    rho at mid  +0.003   sd 0.089
+    cross-game, ask only,  n=308   rho at ask  +0.234   sd 0.254
 
-At the mid the method **returns the right answer**, bracketed almost symmetrically
-by bid and ask at ±0.14. The ask-only population is refused — not because its
-bias is large but because it has sd 0.235 and so cannot be subtracted off.
+At the mid the method **returns the right answer** — +0.003 where the truth is
+zero. The ask-only population is refused, and not because its bias is large: it
+has sd 0.254 spanning −0.757 to +0.898, and a bias you cannot subtract is a
+refusal rather than an offset. A 26-minute run replicates it (mid −0.033, n=12).
 
-**No same-game correlation has been measured yet**, and that is the honest state:
-4 same-game combinations appeared in 26 minutes, 1 inverted, and it was ask-only.
-What exists now is a validated method, a known harvest rate, and no reason to
-spend a write. `docs/adr/0012`, and the raw run in `docs/measurements/`.
+**No same-game correlation has been measured**, and that is the honest state: 18
+same-game combinations appeared, **none two-sided**, and 17 of 18 had an ask
+outside the Frechet bounds for their own legs.
+
+**That refusal rate is itself the second finding.** An ask above `min(marginal)`
+is one no dependence structure produces:
+
+    cross-game   23%      mixed   47%      same-game   94%
+
+The gradient runs cleanly through `mixed`, which is what same-game *pairs*
+driving it would look like — strong positive dependence pushes the joint toward
+`min(marginal)`, and near that ceiling any margin puts the ask above it. Kept
+suggestive rather than claimed: a stale leg quote looks identical. The sharper
+test needs no correlation at all — compare the combination's ask against the
+cheapest leg's own **ask**, since a combination costing more than a leg that
+pays out in a superset of cases is dominated outright. Leg bids and asks are now
+recorded in the `--json` output for exactly that.
+
+`docs/adr/0012`; both runs in `docs/measurements/`.
 
 Also corrected: `active_quoters` is `[]` on **all 14,240** published legs while
 those same leg markets are two-sided with 21,247 contracts of open interest. It

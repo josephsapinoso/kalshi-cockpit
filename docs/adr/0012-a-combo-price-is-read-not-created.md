@@ -37,8 +37,8 @@ authorised lookup stays unspent.
 |---|---|
 | Provisional combination markets minted | ~700 per minute |
 | `created_time` span of 5,000 consecutive open markets | 6 min 48 s |
-| Of 23,847 distinct markets polled, carrying an ask | 2,092 (8.8%) |
-| ...carrying a **bid** as well | 42 (0.18%) |
+| Of 46,916 distinct markets polled, carrying an ask | 4,125 (8.8%) |
+| ...carrying a **bid** as well | 60 (0.13%) |
 
 The quote decays within a couple of minutes of creation. Page one of `/markets`
 is newest-first, so **paging depth-first finds nothing and says so with
@@ -63,26 +63,53 @@ independent as this venue offers, so their true rho is 0 and whatever the
 method returns there is its own bias. **The control was run, and it decides
 which estimator is admissible.**
 
-    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
-    cross-game, ask only,  n=168   rho at ask +0.243   sd 0.235   max +0.853
+    cross-game, TWO-SIDED, n=23    rho at mid  +0.003   sd 0.089
+    cross-game, ask only,  n=308   rho at ask  +0.234   sd 0.254
 
-At the mid the method **returns the right answer** — median −0.010 on a
-population whose truth is zero — and the bid and ask bracket it almost
-symmetrically at about ±0.14, which is the combination's own spread read as
-dependence.
+(55 minutes of polling, 46,916 distinct markets. A shorter 26-minute run gave
+mid −0.033 on n=12; the two agree.)
+
+At the mid the method **returns the right answer** — mean +0.003 on a
+population whose truth is zero.
 
 **The ask-only population is refused for correlation.** Not because its bias is
-large, but because it is not constant: sd 0.235 across the control means it
-cannot be subtracted off, and a same-game number drawn from it would be
-indistinguishable from the margin. It is still reported, in its own block and
-labelled, because an upper bound is a fact — but no same-game claim may rest on
-it.
+large, but because it is not constant: sd 0.254 spanning −0.757 to +0.898. A
+bias you cannot subtract is a refusal, not an offset, and a same-game number
+drawn from it would be indistinguishable from the margin. It is still reported,
+in its own block and labelled, because an upper bound is a fact — but no
+same-game claim may rest on it.
 
 A **leg** must be two-sided regardless. The leg supplies a marginal, and the
 only unbiased single number for that is the mid; an ask alone overstates it and
 pushes the inverted rho down by an amount nothing in the output would show.
 
-## Decision 3 — equicorrelation is refused above three legs
+## Decision 3 — the refusal rate is reported, because it is a finding
+
+An ask above `min(marginal)` is outside the Frechet bounds: no dependence
+structure of any kind produces it, so `implied_correlation` raises. Discarding
+those quietly would throw away the clearest signal in the sample.
+
+    cross-game   102/437   23%
+    mixed          9/19    47%
+    same-game     17/18    94%
+
+The gradient runs cleanly through `mixed`, which is what you would expect if
+same-game *pairs* drive it. The mechanism is direct: strong positive dependence
+pushes the true joint toward `min(marginal)`, and near that ceiling any margin
+puts the ask above it.
+
+So same-game dependence is showing up in the **refusals** rather than in the
+surviving numbers. Two things keep it suggestive rather than measured: a stale
+leg quote produces the identical symptom, and same-game combinations are
+somewhat more prop-heavy — though less than expected, their legs being mostly
+TOTAL, SPREAD, GAME and F5, the same series the cross-game ones use.
+
+The sharper version needs no correlation estimate at all: compare the
+combination's ask against **the cheapest leg's own ask**. A combination costing
+more than a leg that pays out in a superset of cases is dominated outright.
+Leg bids and asks are now recorded in the `--json` output for exactly that.
+
+## Decision 4 — equicorrelation is refused above three legs
 
 `implied_correlation` fits **one** rho to every pair. On two legs that is the
 pairwise correlation exactly. On the 42-leg combinations that appear in this
@@ -91,15 +118,16 @@ printing it in the same column as a two-leg number would put two different
 quantities under one heading. Refused and counted, so the exclusion is visible
 rather than silent.
 
-## Decision 4 — this does not touch the money path
+## Decision 5 — this does not touch the money path
 
 Nothing here feeds sizing, suppression or the gate. `DEFAULT_CORRELATION` still
 has no `SAME_GAME` entry and `correlation_matrix` still refuses. Three things
 would have to land before a measured rho could price anything:
 
-1. **A same-game sample.** Four same-game combinations appeared in 26 minutes
-   of polling and exactly one inverted — from the ask-only population, so it is
-   not a measurement. Zero were two-sided.
+1. **A same-game sample.** Eighteen same-game combinations appeared in 55
+   minutes of polling. **Zero were two-sided** and seventeen of the eighteen
+   were outside the Frechet bounds, so exactly one produced a number at all —
+   from the ask-only population, which is refused. There is no measurement.
 2. **A combo fee model.** Unverified for this venue, and the per-leg-versus-
    per-order question is exactly the one `core/fees.py` already hedges on.
 3. **Liquidity that means something.** These markets are `is_provisional` with
@@ -110,10 +138,12 @@ would have to land before a measured rho could price anything:
 
 - `scripts/measure_combo_correlation.py` accumulates the measurement, free and
   read-only, and states in its module docstring what it does not establish.
-- `docs/measurements/2026-08-09-combo-correlation.json` is the run every number
-  above comes from — 26 rounds, 23,847 distinct markets, 229 measurements with
-  their legs, marginals and all three inverted rhos. Kept because these markets
-  are gone within minutes and the run cannot be reproduced, only repeated.
+- `docs/measurements/2026-08-09-combo-correlation-55min.json` is the run the
+  numbers above come from — 55 rounds, 46,916 distinct markets, 484
+  measurements with their legs, marginals and all three inverted rhos. The
+  26-minute run beside it is kept as the independent replication. Both are kept
+  because these markets are gone within minutes: the run can be repeated, never
+  reproduced.
 - `tests/fixtures/combo_priced_markets.json` holds twelve quoted combinations
   and all 29 leg markets they reference, read at the same moment so joint and
   marginals are contemporaneous. It contains one genuine same-game combination

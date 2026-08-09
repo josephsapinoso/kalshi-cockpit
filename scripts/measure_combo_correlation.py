@@ -58,26 +58,51 @@ is an estimate of this method's *own bias*, not of dependence. A same-game rho
 is only interesting to the extent it exceeds that.
 
 **The control ran, and it settled which estimator works.** Measured
-2026-08-09 over 23,847 combination markets polled across 26 minutes:
+2026-08-09 over 46,916 distinct combination markets polled across 55 minutes:
 
-    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
-    cross-game, ask only,  n=168   rho at ask +0.243, sd 0.235, max +0.853
+    cross-game, TWO-SIDED, n=23    rho at mid  +0.003   sd 0.089
+    cross-game, ask only,  n=308   rho at ask  +0.234   sd 0.254
 
-Independent games are rho = 0. **At the mid, the method returns it** -- median
--0.010 -- and the bid and ask bracket it almost symmetrically at about ±0.14,
-which is the combination's own spread read as dependence.
+Independent games are rho = 0. **At the mid, the method returns it** -- mean
++0.003 on a population whose truth is zero.
 
-**The ask-only population is not usable for correlation, and most of the sample
-is ask-only.** Its bias is not merely large, it is not even constant: sd 0.235
-across the control, so it cannot be subtracted off. It is reported, separately
-and labelled, because an upper bound is still a fact -- but no same-game claim
-may be built on it.
+**The ask-only population is not usable for correlation, and it is 93% of the
+sample.** Its bias is not merely large, it is not constant: sd 0.254, spanning
+-0.757 to +0.898. A bias you cannot subtract is a refusal, not an offset. It is
+still reported, separately and labelled, because an upper bound is a fact --
+but no same-game claim may be built on it.
 
 So the measurement worth accumulating is **two-sided combinations, read at the
-mid**, and they are rare: 42 of 23,847 markets carried a bid. At that rate a
-same-game two-sided combination arrives slowly enough that none appeared in
-that run. That is the honest state -- a validated method waiting on a sample,
-not a number.
+mid**, and they are rare: 60 of 46,916 markets carried a bid, and **none of the
+same-game ones did**. That is the honest state -- a validated method waiting on
+a sample, not a number.
+
+The Frechet rate is a finding, not a nuisance
+----------------------------------------------
+An ask above `min(marginal)` is one **no dependence structure can produce**, so
+the inversion refuses it. The refusal rate is not uniform:
+
+    cross-game   102/437   23%
+    mixed          9/19    47%
+    same-game     17/18    94%
+
+The gradient runs cleanly through `mixed`, which is what you would expect if
+same-game *pairs* drive it. The mechanism is straightforward: strong positive
+dependence pushes the true joint up toward `min(marginal)`, and once it is near
+that ceiling any margin at all puts the ask above it.
+
+Read carefully, that is evidence of strong positive same-game dependence
+obtained *from the refusals* rather than from the surviving numbers. Two things
+stop it being more than suggestive: a stale leg quote produces the same symptom,
+and same-game combinations are somewhat more prop-heavy than cross-game ones,
+though less so than expected -- their legs are mostly TOTAL, SPREAD, GAME and
+F5, the same series the cross-game ones use.
+
+To sharpen it, compare the combination's ask against **the cheapest leg's own
+ask** rather than its mid: a combination that costs more than a leg which pays
+out in a superset of cases is dominated outright, with no correlation estimate
+needed. Leg bids and asks are recorded in the `--json` output for exactly that,
+as of this run.
 
 What this does not establish
 ----------------------------
@@ -232,6 +257,11 @@ class Combo:
 @dataclass
 class Measurement:
     combo: Combo
+    # Each leg's own quote, kept beside the marginal it produced. The marginal
+    # is a mid; deciding whether a combination is worse than simply buying its
+    # cheapest leg needs that leg's ASK, and reconstructing it afterwards is
+    # impossible because these markets are gone within minutes.
+    leg_quotes: tuple[Quote, ...]
     marginals: tuple[float, ...]
     rho_at_bid: Optional[float]
     rho_at_mid: Optional[float]
@@ -329,7 +359,11 @@ def marginal_for_leg(leg: dict, quote: Quote) -> Optional[float]:
     return None
 
 
-def measure(combo: Combo, marginals: Sequence[float]) -> Measurement:
+def measure(
+    combo: Combo,
+    marginals: Sequence[float],
+    leg_quotes: Sequence[Quote] = (),
+) -> Measurement:
     """Invert the joint at each price there is. A failure is recorded, never
     guessed."""
     # `event_key`/`league`/`commence_ms` drive `classify`, which
@@ -369,6 +403,7 @@ def measure(combo: Combo, marginals: Sequence[float]) -> Measurement:
         )
     return Measurement(
         combo=combo,
+        leg_quotes=tuple(leg_quotes),
         marginals=tuple(marginals),
         rho_at_bid=invert(combo.joint.bid),
         rho_at_mid=invert(combo.joint.mid),
@@ -452,16 +487,20 @@ async def survey(
                 )
 
                 marginals: list[float] = []
+                quotes: list[Quote] = []
                 for leg in legs:
                     quote = await leg_quote(api, leg["market_ticker"], cache)
                     marginal = (
                         None if quote is None else marginal_for_leg(leg, quote)
                     )
-                    if marginal is None:
+                    if marginal is None or quote is None:
                         break
                     marginals.append(marginal)
+                    quotes.append(quote)
                 else:
-                    result.measurements.append(measure(combo, marginals))
+                    result.measurements.append(
+                        measure(combo, marginals, quotes)
+                    )
                     continue
                 result.refused["leg_unusable"] += 1
 
@@ -559,6 +598,15 @@ def report(result: Survey) -> None:
             "cannot be subtracted off",
             [m.rho_at_ask for m in one],
         )
+        # Its own line, because the *rate* carries information the surviving
+        # rows cannot. An ask outside the Frechet bounds is one no dependence
+        # structure produces, and same-game combinations fail it far more often
+        # than cross-game ones -- a statement about same-game dependence, not a
+        # nuisance to be filtered away.
+        unreachable = [m for m in entries if m.rho_at_ask is None]
+        print(f"      outside the Frechet bounds: {len(unreachable)}/"
+              f"{len(entries)} "
+              f"({100 * len(unreachable) / max(1, len(entries)):.0f}%)")
         for m in entries[:8]:
             print(f"\n    {m.combo.ticker}")
             print(f"      {m.combo.subtitle[:70]}")
@@ -651,6 +699,10 @@ async def main() -> int:
                             "subtitle": m.combo.subtitle,
                             "legs": list(m.combo.legs),
                             "marginals": list(m.marginals),
+                            "leg_quotes": [
+                                {"bid": q.bid, "ask": q.ask}
+                                for q in m.leg_quotes
+                            ],
                             "independent_joint": m.independent_joint,
                             "joint_bid": m.combo.joint.bid,
                             "joint_mid": m.combo.joint.mid,
