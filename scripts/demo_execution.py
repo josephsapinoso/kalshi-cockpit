@@ -67,10 +67,11 @@ def add(conn, *, clv_tenths, quote_age=1_000, odds_age=60_000, created_ms=None):
         INSERT INTO recommendations (
             created_ms, ticker, strategy_config_version, side, entry_ask_tenths,
             fair_probability, edge_tenths, fee_predicted, ev_net_dollars,
-            suggested_contracts, kelly_fraction, kalshi_quote_age_ms,
+            suggested_contracts, reference_contracts, kelly_fraction,
+            kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths, clv_scored_ms
         ) VALUES (?, 'KXNFLGAME-26AUG27KCBAL-KC', 1, 'yes', 503, 0.55, 20.0, 0.1,
-                  0.5, 20, 0.02, ?, ?, NULL, 'demo', ?, ?)
+                  0.5, 20, 20, 0.02, ?, ?, NULL, 'demo', ?, ?)
         """,
         (
             created_ms or int(time.time() * 1000), quote_age, odds_age,

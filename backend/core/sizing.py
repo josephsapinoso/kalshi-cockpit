@@ -12,10 +12,37 @@ cap is clamped down to the cap — that is a value we trust. A size computed fro
 *unreadable exposure* is refused outright. "Cannot determine the budget" must
 never resolve to "unlimited".
 
-**Minimum order size is a real risk control, not a nicety.** Under one
-candidate fee model the fee rounds up on the whole order, so a scatter of tiny
-orders pays the rounding penalty on every one. Below the minimum, the fee eats
-the edge.
+**There is no minimum order size, because there is nothing for one to prevent.**
+There was, until 2026-08-09: a flat `min_order_contracts = 10`, defended on the
+grounds that Model A rounds the fee up on the whole order, so a scatter of tiny
+orders pays the rounding penalty on every one. The penalty is real — measured,
+per contract against the large-order limit:
+
+    ask     1 contract   5 contracts
+    10c        0.00c        0.00c
+    20c        0.88c        0.08c
+    30c        0.53c        0.13c
+    50c        0.00c        0.00c
+    80c        0.88c        0.08c
+    90c        0.00c        0.00c
+
+Zero at 50c at *every* size, because both candidate models charge exactly 2c a
+contract there; real only at a single contract in the 20c/80c band; gone by five.
+
+**But the sizer was already paying it.** `effective_price` below charges the fee
+a *single* contract would pay, and that is the most expensive per-contract fee
+any order size pays — verified exhaustively over all 999 prices, sizes 1–200,
+maker and taker, with no exception. So `full_kelly_fraction > 0` at that price
+already implies the whole order is +EV at any size it produces. The minimum was
+not preventing negative-EV orders; **it was refusing positive-EV ones**, and
+below about a $300 bankroll it refused every order this tool can produce, by
+returning a plausible zero that nothing on any screen explained.
+
+The property that makes its removal safe is asserted directly, in
+`TestSmallOrdersNeedNoMinimum` — if a future fee model ever makes a large order
+cheaper per contract than the sizer assumed, that test goes red rather than a
+negative-EV order going quietly out. A replacement *guard* here would be one
+that cannot fire, which this repo has learned to recognise as decoration.
 
 **Money is integer tenths of a cent in the risk path.** Float dollars produce
 `7.350000000000001 > 7.35` rejections at exactly the wrong moment.
@@ -147,24 +174,13 @@ def size_position(
     if contracts > risk.max_order_contracts:
         contracts, constraint = risk.max_order_contracts, "max_order_contracts"
 
-    # --- minimum order size ------------------------------------------------
-    # Deliberately last, and it zeroes rather than rounds up. Rounding a
-    # too-small order up to the minimum would spend more than the caps allow,
-    # which is the one direction a risk control must never move.
-    if 0 < contracts < risk.min_order_contracts:
-        return SizingResult(
-            contracts=0,
-            kelly_fraction_full=full,
-            kelly_fraction_used=used,
-            stake_dollars=0.0,
-            binding_constraint="below_min_order_contracts",
-            refused=True,
-            refusal_reason=(
-                f"sized {contracts} contracts, below the {risk.min_order_contracts} "
-                f"minimum. Fees round up on the whole order, so orders this "
-                f"small pay a rounding penalty that exceeds the edge."
-            ),
-        )
+    # **No minimum order size, and no whole-order fee check here either.** Both
+    # would be guards that cannot fire. See `TestSmallOrdersNeedNoMinimum` and
+    # the module docstring: `price` above already charges the fee a *single*
+    # contract would pay, which is the most expensive per-contract fee any size
+    # pays, so `full > 0` already implies this order is +EV at whatever size
+    # comes out below. The first draft of this replacement re-checked it anyway
+    # and was decoration.
 
     return SizingResult(
         contracts=contracts,

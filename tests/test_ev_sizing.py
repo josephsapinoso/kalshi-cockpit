@@ -16,7 +16,8 @@ from backend.core.ev import (
     effective_price,
     evaluate,
 )
-from backend.core.prices import cents_to_tenths
+from backend.core.fees import calculate_fee
+from backend.core.prices import PRICE_MAX, cents_to_tenths
 from backend.core.sizing import (
     full_kelly_fraction,
     size_position,
@@ -30,7 +31,6 @@ RISK = RiskConfig(
     max_position_dollars=100.0,
     max_exposure_dollars=400.0,
     max_daily_loss_dollars=100.0,
-    min_order_contracts=10,
 )
 
 
@@ -191,22 +191,107 @@ class TestSizingRefusals:
         )
         assert result.refused
 
-    def test_an_order_below_the_minimum_is_zeroed_not_rounded_up(self):
+    def test_a_cap_leaving_room_for_under_one_contract_zeroes_rather_than_rounding(
+        self,
+    ):
         """Rounding up would spend more than the caps allow -- the one
         direction a risk control must never move."""
         tiny = RiskConfig(
             bankroll_dollars=1000.0, kelly_fraction=0.25, max_order_contracts=50,
-            max_position_dollars=2.0,  # room for ~4 contracts at 50c
+            max_position_dollars=0.30,  # under the cost of one 50c contract
             max_exposure_dollars=400.0, max_daily_loss_dollars=100.0,
-            min_order_contracts=10,
         )
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.70, risk=tiny,
             current_exposure_dollars=0.0,
         )
         assert result.contracts == 0
-        assert result.refused
-        assert result.binding_constraint == "below_min_order_contracts"
+        assert result.binding_constraint == "max_position_dollars"
+
+
+class TestSmallOrdersNeedNoMinimum:
+    """Why `min_order_contracts` was deleted rather than lowered.
+
+    It existed because Model A rounds the fee up on the whole order, so a small
+    order pays a rounding penalty a large one amortises away. The penalty is
+    real. **The sizer was already paying it**: `effective_price` charges the fee
+    a single contract would pay, and that is the most expensive per-contract fee
+    any size pays. So the minimum was refusing +EV orders rather than preventing
+    -EV ones -- and below roughly a $300 bankroll it refused every order this
+    tool can produce, silently, by returning a plausible zero.
+
+    These assert the property that makes the deletion safe rather than the
+    deletion itself. If a future fee model ever charges a large order MORE per
+    contract than a single one, the first test goes red and the sizer needs a
+    real whole-order check. A guard would be the wrong shape here: under both
+    current fee models it could never fire, and this repo has learned that a
+    guard which cannot fire reads as protection while providing none.
+    """
+
+    def test_per_contract_cost_never_rises_with_order_size(self):
+        """The whole basis for sizing at the one-contract fee.
+
+        Exhaustive, not sampled: every tradeable price, sizes 1-200, maker and
+        taker. A sampled version would miss exactly the rounding boundary that
+        would break it.
+        """
+        for maker in (False, True):
+            for price_tenths in range(1, PRICE_MAX):
+                one = calculate_fee(price_tenths, 1, maker)
+                for contracts in range(1, 201):
+                    per = calculate_fee(price_tenths, contracts, maker) / contracts
+                    assert per <= one + 1e-12, (
+                        f"{contracts} contracts at {price_tenths} tenths costs "
+                        f"{per:.6f}/contract against {one:.6f} for one. Sizing "
+                        f"prices at the one-contract fee, so this order can be "
+                        f"sized positive and settle negative."
+                    )
+
+    @pytest.mark.parametrize("ask_tenths", [100, 200, 300, 500, 800, 900])
+    def test_any_order_kelly_sizes_above_zero_is_positive_after_the_whole_fee(
+        self, ask_tenths
+    ):
+        """The property the deleted minimum was reaching for, stated directly.
+
+        Sized at all -> +EV at that size. Checked at the *marginal* fair value
+        where Kelly first turns positive, because that is where a wrong
+        implementation and a right one differ. A comfortable edge passes under
+        either, which is what makes the obvious version of this test useless.
+        """
+        marginal = effective_price(ask_tenths, contracts=1)
+        fair = marginal + 0.001
+        result = size_position(
+            side="yes", ask_tenths=ask_tenths, fair_probability=fair, risk=RISK,
+            current_exposure_dollars=0.0,
+        )
+        assert result.contracts > 0, "a positive edge must size to something"
+        assert verify_positive_after_fees(
+            side="yes", ask_tenths=ask_tenths, contracts=result.contracts,
+            fair_probability=fair,
+        )
+
+    def test_a_single_contract_is_allowed_and_is_positive(self):
+        """The case the old minimum refused outright.
+
+        One contract at 20c pays the largest per-contract fee on the board --
+        0.88c above the large-order limit -- and is still +EV, because the sizer
+        priced it at exactly that fee.
+        """
+        broke = RiskConfig(
+            bankroll_dollars=100.0, kelly_fraction=0.25, max_order_contracts=50,
+            max_position_dollars=10.0, max_exposure_dollars=40.0,
+            max_daily_loss_dollars=10.0,
+        )
+        result = size_position(
+            side="yes", ask_tenths=200, fair_probability=0.30, risk=broke,
+            current_exposure_dollars=0.0,
+        )
+        assert result.contracts >= 1
+        assert not result.refused
+        assert verify_positive_after_fees(
+            side="yes", ask_tenths=200, contracts=result.contracts,
+            fair_probability=0.30,
+        )
 
 
 class TestSizingCaps:

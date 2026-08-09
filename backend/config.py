@@ -18,7 +18,7 @@ Two rules this module enforces rather than documents:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -189,9 +189,35 @@ class OddsConfig:
         return len(self.markets) * len(self.regions)
 
 
+# The risk profile the **evidence record** is scored against, fixed in code.
+#
+# Not configurable, and that is the point. `suggested_contracts` is a statement
+# about what the operator may buy, so it moves with the deposit; the gate's
+# `actionable` counter was defined on it, so the deposit decided what counted as
+# evidence. At a $100 bankroll against the deployed caps that counter is
+# structurally zero — quarter-Kelly on the edges this tool finds sizes below one
+# contract — so the 300-game floor could never increment and the Gate screen
+# would go on saying "0 of 300, keep recording" without naming the cause.
+#
+# These are the values the live record was accumulated under, so scoring the
+# counter against them changes nothing about the rows already written and stops
+# a future deposit change from silently rewriting what the record means. See
+# `docs/adr/0015`.
+REFERENCE_BANKROLL_DOLLARS = 1000.0
+REFERENCE_MAX_POSITION_DOLLARS = 100.0
+REFERENCE_MAX_EXPOSURE_DOLLARS = 400.0
+REFERENCE_MAX_DAILY_LOSS_DOLLARS = 100.0
+
+
 @dataclass(frozen=True)
 class RiskConfig:
-    """Caps. All dollars here are converted to integer tenths at the boundary."""
+    """Caps. All dollars here are converted to integer tenths at the boundary.
+
+    **`bankroll_dollars` is the running balance, not a weekly top-up.** "$100 a
+    week" is a flow and every cap here is a stock; entering the flow makes each
+    cap four or five times looser than it reads by the end of the month. Update
+    it as the balance moves.
+    """
 
     bankroll_dollars: float = 1000.0
     kelly_fraction: float = 0.25
@@ -199,10 +225,25 @@ class RiskConfig:
     max_position_dollars: float = 100.0
     max_exposure_dollars: float = 400.0
     max_daily_loss_dollars: float = 100.0
-    min_order_contracts: int = 10
 
     @classmethod
     def load(cls) -> "RiskConfig":
+        # `MIN_ORDER_CONTRACTS` was removed, not renamed, and a removed setting
+        # still sitting in someone's environment must not be silently ignored --
+        # this one refused every order at any bankroll under ~$300, and it did
+        # it by returning a plausible zero.
+        if os.getenv("MIN_ORDER_CONTRACTS", "").strip():
+            raise ConfigError(
+                "MIN_ORDER_CONTRACTS is set and is no longer read. It existed to "
+                "stop small orders paying the per-order fee rounding penalty -- "
+                "but `core.sizing` already prices every candidate at the fee a "
+                "SINGLE contract would pay, which is the most expensive "
+                "per-contract fee any size pays, so a positive Kelly fraction "
+                "already implies the order is +EV at whatever size it produces. "
+                "The minimum was refusing positive-EV orders, not preventing "
+                "negative-EV ones, and below roughly a $300 bankroll it refused "
+                "every order this tool can produce. Remove the variable."
+            )
         return cls(
             bankroll_dollars=_float("BANKROLL_DOLLARS", 1000.0),
             kelly_fraction=_float("KELLY_FRACTION", 0.25),
@@ -210,7 +251,30 @@ class RiskConfig:
             max_position_dollars=_float("MAX_POSITION_DOLLARS", 100.0),
             max_exposure_dollars=_float("MAX_EXPOSURE_DOLLARS", 400.0),
             max_daily_loss_dollars=_float("MAX_DAILY_LOSS_DOLLARS", 100.0),
-            min_order_contracts=_int("MIN_ORDER_CONTRACTS", 10),
+        )
+
+    def reference(self) -> "RiskConfig":
+        """This strategy's risk profile with the **deposit** taken out of it.
+
+        Used for one thing: deciding whether a candidate counts toward the
+        gate's 300-game floor. The question that floor asks is "has this system
+        demonstrated it can pick?", and how much money is in the account is not
+        part of the answer — it decides how much you may buy, not whether the
+        pick was good.
+
+        The four dollar quantities are replaced; `kelly_fraction` and
+        `max_order_contracts` are **kept**, deliberately. Those are strategy
+        parameters rather than facts about the account, so changing one *should*
+        move the counter — and `strategy_config_version` records which version
+        each row was written under, so the two regimes can be told apart
+        afterwards. A deposit is not recorded anywhere and would not be.
+        """
+        return replace(
+            self,
+            bankroll_dollars=REFERENCE_BANKROLL_DOLLARS,
+            max_position_dollars=REFERENCE_MAX_POSITION_DOLLARS,
+            max_exposure_dollars=REFERENCE_MAX_EXPOSURE_DOLLARS,
+            max_daily_loss_dollars=REFERENCE_MAX_DAILY_LOSS_DOLLARS,
         )
 
 

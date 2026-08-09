@@ -478,11 +478,12 @@ def _recommendation(**overrides) -> Recommendation:
         ev_net_dollars=1.47,
         kelly_fraction=0.25,
         suggested_contracts=12,
+        reference_contracts=12,
         kalshi_quote_age_ms=0,
         odds_age_ms=424_317,
         suppressed_reason=None,
         reason_text=(
-            "St. Louis Cardinals: consensus fair 55.7c, Kalshi asks 51c "
+            "St. Louis Cardinals: consensus fair 55.7%, Kalshi asks 51c "
             "(+2.9c after fees). Buy 12."
         ),
     )
@@ -505,6 +506,11 @@ class TestTheRowIsRestatedConsistently:
         assert row.suggested_contracts == 0
         assert row.surfaced is False
         assert row.ev_net_dollars == 0.0
+        # And the fourth: the gate counts `reference_contracts`, so a row the
+        # fleet vetoed must not go on accumulating evidence for a bet the
+        # strategy declined to make. ADR 0005, arriving through a column that
+        # did not exist when it was written.
+        assert row.reference_contracts == 0
 
     def test_the_decision_clause_is_replaced_not_appended(self):
         row = with_added_suppression(
@@ -526,7 +532,7 @@ class TestTheRowIsRestatedConsistently:
         )
 
         assert row.reason_text.startswith(
-            "St. Louis Cardinals: consensus fair 55.7c, Kalshi asks 51c "
+            "St. Louis Cardinals: consensus fair 55.7%, Kalshi asks 51c "
             "(+2.9c after fees)."
         )
 

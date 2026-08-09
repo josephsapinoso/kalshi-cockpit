@@ -26,7 +26,7 @@ from .config import RiskConfig
 from .core.devig import DevigResult
 from .core.ev import edge_after_fees_tenths, evaluate
 from .core.prices import PRICE_MAX, format_price
-from .core.sizing import size_position, verify_positive_after_fees
+from .core.sizing import size_position
 from .core.suppression import SuppressionConfig, evaluate_suppression
 from .store.db import now_ms
 
@@ -77,6 +77,15 @@ class Recommendation:
     ev_net_dollars: float
     kelly_fraction: float
     suggested_contracts: int
+    # The same decision sized against a **fixed reference bankroll** instead of
+    # the operator's. This is the column the gate's `actionable` counter reads,
+    # and the two are different questions: `suggested_contracts` says what may be
+    # bought today, `reference_contracts` says whether the strategy had a bet
+    # here at all. Defining the evidence floor on the first made the deposit
+    # decide what counted as evidence — at a $100 bankroll it is structurally
+    # zero, so the 300-game counter could never move and nothing on the screen
+    # would say why. See `config.RiskConfig.reference` and `docs/adr/0015`.
+    reference_contracts: int
     kalshi_quote_age_ms: int
     odds_age_ms: int
     suppressed_reason: Optional[str]
@@ -122,8 +131,32 @@ def build_recommendation(
         maker=maker,
     )
 
+    # And again at the reference profile, which is what the *record* counts.
+    #
+    # Against a clean book -- zero exposure, zero position, zero P&L -- on
+    # purpose. Whether this game is evidence that the strategy can pick must not
+    # depend on what else happened to be open at the time, any more than it
+    # depends on the size of the deposit. `current_exposure_dollars` is still
+    # passed to the sizing above, where it belongs: it governs what may be
+    # bought, which is the question the caps exist to answer.
+    reference = size_position(
+        side=candidate.side,
+        ask_tenths=candidate.ask_tenths,
+        fair_probability=fair,
+        risk=risk.reference(),
+        current_exposure_dollars=0.0,
+        maker=maker,
+    )
+
     # Edge is quoted at the size we would actually send. A per-contract edge
     # computed independently of size is wrong for every size but one.
+    #
+    # **At the offer's size, not the reference's**, and the difference is a
+    # stated approximation rather than a second column: it is only the fee's
+    # per-order rounding, measured at most 0.13c per contract between 5 and 25
+    # contracts and exactly 0.00c at 50c. So the record's actionability is
+    # judged on an edge computed for a possibly smaller order, which can only
+    # make a marginal row *less* likely to count -- the safe direction.
     sizing_contracts = max(1, sizing.contracts)
     edge_tenths = edge_after_fees_tenths(
         ask_tenths=candidate.ask_tenths,
@@ -146,7 +179,17 @@ def build_recommendation(
         odds_age_ms=candidate.odds_age_ms,
         commence_skew_ms=candidate.commence_skew_ms,
         depth_at_ask=candidate.depth_at_ask,
-        contracts=sizing_contracts,
+        # The **larger** of the two sizes, so one depth check governs both
+        # claims. `insufficient_depth` asks whether the order can be filled, and
+        # the reference order is usually the bigger one -- at a $100 bankroll
+        # against the $1,000 reference it is roughly five times bigger. Checking
+        # only the offer's size would let a row count toward the evidence floor
+        # at a size the book could not have filled, which is the flattering
+        # direction and the one this project refuses. Checking only the
+        # reference's would be exactly what the $1,000 deployment has always
+        # done, so the counter's meaning does not change; it just also applies
+        # to the smaller offer, which is conservative and cheap.
+        contracts=max(sizing_contracts, reference.contracts),
         market_width=candidate.market_width,
         book_count=candidate.book_count,
         edge_tenths=edge_tenths,
@@ -160,21 +203,16 @@ def build_recommendation(
         reasons.append(sizing.refusal_reason or "sizing refused")
 
     contracts = 0 if (result.suppressed or sizing.refused) else sizing.contracts
+    reference_contracts = (
+        0 if (result.suppressed or reference.refused) else reference.contracts
+    )
 
-    # Final guard: sizing amortises the fee per contract, so re-check the whole
-    # order. A bet that was marginal per-contract and negative in aggregate
-    # must not slip through on a rounding difference.
-    if contracts > 0 and not verify_positive_after_fees(
-        side=candidate.side,
-        ask_tenths=candidate.ask_tenths,
-        contracts=contracts,
-        fair_probability=fair,
-        maker=maker,
-    ):
-        reasons.append(
-            f"{contracts} contracts is not +EV once the whole-order fee is applied"
-        )
-        contracts = 0
+    # The whole-order fee check used to live here, duplicating the one inside
+    # `size_position` exactly -- same function, same arguments, same size. Two
+    # paths encoding one rule is the failure this repo records under "delete one
+    # of the paths"; the sizer owns it now. The order endpoint keeps its own
+    # call because the size it sends is `min(requested, authorised, resized)`
+    # and can be genuinely smaller than the one evaluated here.
 
     suppressed_reason = result.reason
     if sizing.refused and not suppressed_reason:
@@ -196,6 +234,7 @@ def build_recommendation(
         ev_net_dollars=ev.ev_dollars if contracts else 0.0,
         kelly_fraction=sizing.kelly_fraction_used,
         suggested_contracts=contracts,
+        reference_contracts=reference_contracts,
         kalshi_quote_age_ms=candidate.kalshi_quote_age_ms,
         odds_age_ms=candidate.odds_age_ms,
         suppressed_reason=suppressed_reason,
@@ -208,7 +247,7 @@ def with_added_suppression(
 ) -> Recommendation:
     """A judged row, re-stated as refused for one more reason.
 
-    **Three fields move together or the screens disagree.** `suppressed_reason`
+    **Four fields move together or the screens disagree.** `suppressed_reason`
     alone is enough to stop `POST /api/orders` -- it refuses on a reason before
     it looks at anything else -- but the Board splits on `suggested_contracts`
     first, so a row carrying a reason *and* a positive size renders as an
@@ -219,6 +258,14 @@ def with_added_suppression(
 
     `ev_net_dollars` goes to zero for consistency with `build_recommendation`,
     which records `0.0` on any row it sizes at zero contracts.
+
+    **`reference_contracts` goes to zero too**, and that is the fourth field.
+    The gate's floor counts games this strategy would have bet; a row its own
+    reviewer refused is not one, whatever a reference bankroll would have sized
+    it to. Leaving it positive here would let rejected rows accumulate evidence
+    for a strategy that declined to make those bets — the same defect ADR 0005
+    exists to prevent, arriving through a column that did not exist when it was
+    written.
 
     The decision clause is replaced rather than appended. This is only ever
     called on a surfaced row, whose `reason_text` ends in `". Buy {n}."`, so
@@ -231,6 +278,7 @@ def with_added_suppression(
         rec,
         suppressed_reason=reason,
         suggested_contracts=0,
+        reference_contracts=0,
         ev_net_dollars=0.0,
         reason_text=f"{head}. Not actionable -- {problem}.",
     )
@@ -249,10 +297,16 @@ def _explain(
     the comparison that matters -- fair versus what you pay -- rather than with
     the machinery that produced it.
     """
-    fair_price = format_price(int(round(fair * PRICE_MAX)))
+    # **A percentage, not a cent suffix.** This sentence renders verbatim on
+    # every card, immediately under the fair value and beside the real ask, and
+    # `consensus fair 53.8c` put a probability in a price's clothes at the one
+    # spot where a left-to-right scan reads the wrong number as the thing you
+    # pay. Derived from the same integer tenths the price is, so the two
+    # renderings cannot disagree by a rounding step.
+    fair_tenths = int(round(fair * PRICE_MAX))
     ask = format_price(candidate.ask_tenths)
     head = (
-        f"{candidate.outcome_name}: consensus fair {fair_price}, "
+        f"{candidate.outcome_name}: consensus fair {fair_tenths / 10:.1f}%, "
         f"Kalshi asks {ask} ({edge_tenths / 10:+.1f}c after fees)"
     )
     if problems:
@@ -311,15 +365,16 @@ def persist_recommendation(conn, rec: Recommendation) -> int:
         "created_ms, strategy_config_version, ticker, link_id, fair_price_id, "
         "side, entry_ask_tenths, depth_at_ask, fair_probability, "
         "model_probability, edge_tenths, fee_predicted, ev_net_dollars, "
-        "kelly_fraction, suggested_contracts, kalshi_quote_age_ms, odds_age_ms, "
-        "suppressed_reason, reason_text) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "kelly_fraction, suggested_contracts, reference_contracts, "
+        "kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             rec.created_ms, rec.strategy_config_version, rec.ticker, rec.link_id,
             rec.fair_price_id, rec.side, rec.entry_ask_tenths, rec.depth_at_ask,
             rec.fair_probability, rec.model_probability, rec.edge_tenths,
             rec.fee_predicted, rec.ev_net_dollars, rec.kelly_fraction,
-            rec.suggested_contracts, rec.kalshi_quote_age_ms, rec.odds_age_ms,
+            rec.suggested_contracts, rec.reference_contracts,
+            rec.kalshi_quote_age_ms, rec.odds_age_ms,
             rec.suppressed_reason, rec.reason_text,
         ),
     )

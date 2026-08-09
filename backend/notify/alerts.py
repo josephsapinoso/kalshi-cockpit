@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
 from .. import gate
+from ..gate import POPULATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -251,17 +252,35 @@ class Alerter:
             detail=(
                 f"{stats['surfaced']} surfaced, {stats['scored']} scored "
                 f"({stats['scored_actionable']} actionable)"
+                + (
+                    f"; only {stats['buyable']} fundable at the configured "
+                    f"bankroll"
+                    if stats["buyable"] != stats["surfaced"]
+                    else ""
+                )
             ),
         )
 
     def _digest_stats(self, since_ms: int, now_ms: int) -> dict:
+        # **Built from `gate.POPULATIONS`, not restated.** This query used to
+        # spell the three predicates out again, and they agreed with the gate's
+        # right up until the gate started counting `reference_contracts` instead
+        # of `suggested_contracts` (ADR 0015). At that moment the digest would
+        # have gone on filing "the strategy had a bet but the balance could not
+        # fund it" under **no_edge** -- a phone notification quietly relabelling
+        # a funding limit as an absence of opportunity. Two SQL fragments
+        # encoding one definition is the failure this repo records under
+        # "delete one of the paths".
+        populations = ", ".join(
+            f"SUM(CASE WHEN {predicate} THEN 1 ELSE 0 END) AS {name}"
+            for name, predicate in POPULATIONS.items()
+        )
         row = self.conn.execute(
-            "SELECT "
-            "  SUM(CASE WHEN suggested_contracts > 0 THEN 1 ELSE 0 END) AS surfaced, "
-            "  SUM(CASE WHEN suppressed_reason IS NOT NULL THEN 1 ELSE 0 END) AS suppressed, "
-            "  SUM(CASE WHEN suppressed_reason IS NULL AND suggested_contracts = 0 "
-            "           THEN 1 ELSE 0 END) AS no_edge "
-            "FROM recommendations WHERE created_ms >= ? AND created_ms < ?",
+            f"SELECT {populations}, "  # noqa: S608
+            "  SUM(CASE WHEN r.suppressed_reason IS NULL "
+            "           AND r.suggested_contracts > 0 THEN 1 ELSE 0 END) AS buyable "
+            "FROM recommendations r "
+            "WHERE r.created_ms >= ? AND r.created_ms < ?",
             (since_ms, now_ms),
         ).fetchone()
 
@@ -290,7 +309,15 @@ class Alerter:
         groups = gate.clv_by_population(self.conn)
 
         return {
-            "surfaced": int(row["surfaced"] or 0),
+            # `surfaced` is the gate's `actionable`: rows where the strategy
+            # had a bet, judged at the reference bankroll. `buyable` is how many
+            # of those the balance could actually fund, and it is a smaller
+            # number at a small bankroll. Reporting only the second would say
+            # "nothing surfaced" on a night the strategy found things and the
+            # account could not pay for them, which is a different message and
+            # calls for a different response.
+            "surfaced": int(row["actionable"] or 0),
+            "buyable": int(row["buyable"] or 0),
             "suppressed": int(row["suppressed"] or 0),
             "no_edge": int(row["no_edge"] or 0),
             "scored": groups["pooled"].n_clusters,

@@ -94,10 +94,35 @@ primary_region = "ord"
   MAX_ODDS_AGE_S = "900"
   MAX_KALSHI_QUOTE_AGE_S = "30"
 
-  BANKROLL_DOLLARS = "1000"
+  # **The running balance, not the weekly top-up.** "$100 a week" is a flow and
+  # every cap below is a stock; entering the flow makes each one four or five
+  # times looser than it reads by the end of a month. Update this as the balance
+  # moves.
+  #
+  # This does NOT change what the evidence record counts. The gate's
+  # `actionable` counter is scored against a reference bankroll fixed in code
+  # (`config.REFERENCE_*`), for the reason in `docs/adr/0015`: defining it here
+  # let the size of the deposit decide what counted as evidence, and at $100 it
+  # decided "none of it", silently and forever.
+  BANKROLL_DOLLARS = "100"
   KELLY_FRACTION = "0.25"
-  MIN_ORDER_CONTRACTS = "10"
-  MAX_DAILY_LOSS_DOLLARS = "100"
+
+  # `MIN_ORDER_CONTRACTS` is deliberately absent and `RiskConfig.load` now
+  # **raises** if it is set. It was a price-independent constant standing in for
+  # a price-dependent quantity, and at this bankroll it refused every order the
+  # tool could produce. The whole-order EV check in `core.sizing` replaced it.
+
+  # Re-scaled with the bankroll, at the same fractions the $1,000 profile used:
+  # 10% in one market, 40% at risk at once, 10% lost in a day before the kill
+  # switch. At $1,000 these were 100 / 400 / 100 and were never stated here, so
+  # they were inherited from the code defaults -- which meant that lowering the
+  # bankroll alone would have left a position cap equal to 100% of it, an
+  # exposure cap of 400%, and a daily loss limit that could only fire after the
+  # whole week was gone. A safety system that cannot bind is worse than none,
+  # because it reassures.
+  MAX_POSITION_DOLLARS = "10"
+  MAX_EXPOSURE_DOLLARS = "40"
+  MAX_DAILY_LOSS_DOLLARS = "10"
 
 # SQLite and the Parquet lake live here. This is why the app cannot be
 # serverless: it needs a disk and a process that stays up to hold the

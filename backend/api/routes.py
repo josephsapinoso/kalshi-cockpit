@@ -1098,15 +1098,14 @@ def create_app(
         contracts = min(
             request.contracts, authorised, resized.contracts, risk.max_order_contracts
         )
-        if contracts < risk.min_order_contracts:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"{contracts} contracts is below the {risk.min_order_contracts} "
-                    f"minimum. Fees round up on the whole order, so several tiny "
-                    f"orders cost proportionally far more than one."
-                ),
-            )
+        # No flat minimum here any more, and its removal is not a relaxation:
+        # step 13 below re-evaluates *this* order at *this* size against the
+        # real fee curve, which is the thing the minimum was a proxy for. The
+        # proxy was price-independent and the quantity is not — measured, the
+        # per-order rounding penalty it existed to prevent is 0.00c at 50c at
+        # every size and at most 0.88c on a single contract in the 20c/80c band.
+        # At a $100 bankroll the constant refused every order the tool could
+        # produce, silently, by returning a plausible zero. See `core.sizing`.
 
         # 11. Fillability, at the live book. The engine checked depth when the
         #     row was written; that book is gone. `None` refuses -- "no size

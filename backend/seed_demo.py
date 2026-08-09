@@ -379,11 +379,19 @@ def seed_history(
         suppressed = rng.choice(
             [None, None, None, "stale_odds", "wide_market", "insufficient_depth"]
         )
+        contracts = 0 if suppressed else rng.randint(10, 30)
 
         cursor = conn.execute(
             "INSERT INTO recommendations (created_ms, strategy_config_version, "
             "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
             "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+            # Seeded at the same value as `suggested_contracts`, because the
+            # seeded history is meant to represent a record produced at the
+            # reference profile. Omitting it would leave every seeded row
+            # invisible to the gate -- silently, as "0 of 300" on a screen the
+            # seeded history exists to populate. Same trap as
+            # `clv_horizon_hours` below.
+            "reference_contracts, "
             "kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text, "
             # `clv_horizon_hours` is not optional here even though the column
             # is nullable. The gate counts only rows scored at the current
@@ -392,11 +400,11 @@ def seed_history(
             # and it would be invisible *silently*, as an empty Ledger rather
             # than an error.
             "clv_tenths, clv_scored_ms, clv_horizon_hours) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 created, version, ticker, side, ask, ask / 1000.0,
                 rng.gauss(5, 8), 0.15, 0.1, 0.01,
-                0 if suppressed else rng.randint(10, 30),
+                contracts, contracts,
                 rng.randint(1000, 20000), rng.randint(30_000, 400_000),
                 suppressed, "seeded history",
                 close_mid - ask, created + 7_200_000, DEFAULT_HORIZON_HOURS,

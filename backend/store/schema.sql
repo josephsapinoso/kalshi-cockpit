@@ -332,7 +332,26 @@ CREATE TABLE IF NOT EXISTS recommendations (
     ev_net_dollars          REAL NOT NULL,      -- after fees, at suggested size
 
     kelly_fraction          REAL NOT NULL,
+    -- What the operator may buy, at the operator's bankroll and caps.
     suggested_contracts     INTEGER NOT NULL,
+
+    -- What the *record* counts: the same decision sized against a bankroll and
+    -- caps fixed in code (`config.REFERENCE_*`), never against the deposit.
+    --
+    -- These are two different questions and one column was answering both. The
+    -- gate's `actionable` population was defined on `suggested_contracts`, so
+    -- the size of the deposit decided what counted as evidence: at a $100
+    -- bankroll quarter-Kelly sizes below one contract on every edge this tool
+    -- finds, `actionable` is structurally zero, and the 300-game floor could
+    -- never increment however long the system ran. The Gate screen would go on
+    -- saying "0 of 300, keep recording" without naming the cause.
+    --
+    -- NULL only on rows written before this column existed. Those were all
+    -- produced by the $1,000 deployment, which *is* the reference profile, so
+    -- the v6 migration backfills them from `suggested_contracts` -- an equality
+    -- that holds by construction for the live record and is stated in
+    -- `docs/adr/0015` rather than assumed here.
+    reference_contracts     INTEGER,
 
     -- Freshness at the moment of the recommendation. An opportunity outside
     -- the configured bounds is not bettable, enforced server-side.

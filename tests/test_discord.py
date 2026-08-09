@@ -45,7 +45,7 @@ def notifier(config, http_client):
 class FakeRec:
     ticker = "KXMLBGAME-26AUG09HOUSD-HOU"
     team = "Houston"
-    reason_text = "Houston: consensus fair 53.8c, Kalshi asks 50.3c. Buy 15."
+    reason_text = "Houston: consensus fair 53.8%, Kalshi asks 50.3c. Buy 15."
     fair_probability = 0.538
     entry_ask_tenths = 503
     edge_tenths = 17.0

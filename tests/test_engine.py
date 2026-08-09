@@ -28,7 +28,7 @@ from backend.store import db
 RISK = RiskConfig(
     bankroll_dollars=1000.0, kelly_fraction=0.25, max_order_contracts=50,
     max_position_dollars=100.0, max_exposure_dollars=400.0,
-    max_daily_loss_dollars=100.0, min_order_contracts=10,
+    max_daily_loss_dollars=100.0,
 )
 SUPPRESSION = SuppressionConfig()
 NOW = 1_754_800_000_000
@@ -160,7 +160,7 @@ class TestSizingInteraction:
         small_bankroll = RiskConfig(
             bankroll_dollars=100.0, kelly_fraction=0.25, max_order_contracts=50,
             max_position_dollars=100.0, max_exposure_dollars=400.0,
-            max_daily_loss_dollars=100.0, min_order_contracts=10,
+            max_daily_loss_dollars=100.0,
         )
         big = build(candidate())
         small = build(candidate(), risk=small_bankroll)

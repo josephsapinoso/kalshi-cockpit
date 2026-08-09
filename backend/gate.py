@@ -16,6 +16,15 @@ Five conditions, and all must hold:
    count is of *games*, not rows. The engine writes a fresh row on every pass,
    so one market polled thirty times is one observation recorded thirty times,
    and counting rows made the floor reachable from ~10 markets.
+
+   **"Would have bet" is judged at a reference bankroll fixed in code, not at
+   the operator's.** Defining it on the operator's size let the deposit decide
+   what counted as evidence: below about $300, quarter-Kelly on the edges this
+   tool finds sizes under one contract, so `actionable` is structurally zero and
+   the floor can never increment however long the system runs. The balance in
+   the account is not evidence about whether this system can pick. That is
+   `two-limits-on-one-quantity` landing on the single number the gate is built
+   from. See `docs/adr/0015`.
 2. **CLV positive and surviving the noise guard.** A positive mean CLV inside
    the noise band is not evidence, and a gate that opened on it would be opening
    on noise. Two corrections apply, and they compound:
@@ -52,7 +61,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .config import GateConfig, StalenessConfig
+from .config import REFERENCE_BANKROLL_DOLLARS, GateConfig, StalenessConfig
 from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .core.fees import FEE_MATCH_TOLERANCE_DOLLARS
 
@@ -270,20 +279,41 @@ def _cluster_robust_stderr(
 # differently.
 #
 #   actionable  the strategy would have bet this. Not suppressed, and sized to
-#               at least one contract.
+#               at least one contract **at the reference bankroll**.
 #   no_edge     nothing to bet. Not suppressed, sized to zero. This is the
 #               normal answer on most of a slate and is *not* a rejection:
 #               `tasks/lessons.md`, "no result and rejected are different
 #               outcomes".
 #   suppressed  considered and refused, with a reason.
 #
+# **`reference_contracts`, not `suggested_contracts`, and that is the whole
+# point of the column.** These predicates decide what counts as evidence, and
+# `suggested_contracts` is a statement about the operator's deposit: at a $100
+# bankroll quarter-Kelly sizes below one contract on every edge this tool
+# actually finds, so `actionable` would be structurally 0 forever, the 300-game
+# floor could never increment, and the Gate screen would go on reporting "0 of
+# 300, keep recording" without ever naming the cause. A deposit is not evidence
+# about whether this system can pick. See `docs/adr/0015`.
+#
+# This relaxes nothing. `reference_contracts` is zeroed by every suppression
+# rule exactly as `suggested_contracts` is, the 300 floor is unmoved, the
+# always-valid noise guard is unmoved, and on the $1,000 deployment that wrote
+# the existing record the two columns are equal by construction -- which is what
+# makes the v6 backfill an identity rather than an estimate.
+#
 # `POPULATIONS` is exhaustive and mutually exclusive by construction --
-# `suppressed_reason IS NULL` splits on `suggested_contracts > 0`, and its
-# complement is the third. A test asserts the parts sum to the pooled row count,
-# because a population split that quietly drops rows is worse than no split.
+# `suppressed_reason IS NULL` splits on `reference_contracts > 0`, and its
+# complement is the third. NULL cannot survive the v6 backfill, but the
+# predicates are written so that a NULL would fall into `no_edge` rather than
+# `actionable`: an unreadable size must not count as a bet. A test asserts the
+# parts sum to the pooled row count, because a population split that quietly
+# drops rows is worse than no split.
 POPULATIONS: dict[str, str] = {
-    "actionable": "r.suppressed_reason IS NULL AND r.suggested_contracts > 0",
-    "no_edge": "r.suppressed_reason IS NULL AND r.suggested_contracts <= 0",
+    "actionable": "r.suppressed_reason IS NULL AND r.reference_contracts > 0",
+    "no_edge": (
+        "r.suppressed_reason IS NULL "
+        "AND (r.reference_contracts IS NULL OR r.reference_contracts <= 0)"
+    ),
     "suppressed": "r.suppressed_reason IS NOT NULL",
 }
 
@@ -533,6 +563,17 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
                      "or not it was bet, but only games this strategy would have "
                      "taken count toward the floor, and repeated passes over one "
                      "game score against one closing line and count once"
+            )
+            # Said on the screen, not only in a comment. "Actionable" otherwise
+            # reads as "you can buy this", and at a small bankroll it does not
+            # mean that: it means the strategy had a bet here at the reference
+            # profile. What may actually be bought is `suggested_contracts`, on
+            # the Board, and it can be zero on a row counted here.
+            + (
+                f" — counted at the fixed ${REFERENCE_BANKROLL_DOLLARS:,.0f} "
+                f"reference bankroll, not at yours, so the record does not move "
+                f"when the deposit does; what you may actually buy is on the Board "
+                f"and can be zero on a game counted here"
             )
             + composition
             + approximation

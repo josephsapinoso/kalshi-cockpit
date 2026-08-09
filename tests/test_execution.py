@@ -429,14 +429,16 @@ def _add_recommendation(
         INSERT INTO recommendations (
             created_ms, ticker, strategy_config_version, side, entry_ask_tenths,
             fair_probability, edge_tenths, fee_predicted, ev_net_dollars,
-            suggested_contracts, kelly_fraction, kalshi_quote_age_ms,
+            suggested_contracts, reference_contracts, kelly_fraction,
+            kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
             clv_scored_ms, clv_horizon_hours
-        ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, ?, 0.02, ?, ?, ?,
+        ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, ?, ?, 0.02, ?, ?, ?,
                   'test', ?, ?, ?)
         """,
         (
             created_ms or int(time.time() * 1000), ticker, ask, contracts,
+            contracts,
             quote_age, odds_age, suppressed, clv_tenths,
             int(time.time() * 1000) if scored else None,
             # See the note in test_quote_refresh's builder: without this the

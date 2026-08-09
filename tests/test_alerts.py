@@ -127,11 +127,11 @@ def add_recommendation(
         "INSERT INTO recommendations (created_ms, strategy_config_version, "
         "ticker, side, entry_ask_tenths, depth_at_ask, fair_probability, "
         "edge_tenths, fee_predicted, ev_net_dollars, kelly_fraction, "
-        "suggested_contracts, kalshi_quote_age_ms, odds_age_ms, "
-        "suppressed_reason, reason_text) "
-        "VALUES (?, 1, ?, 'yes', 503, 800.0, 0.538, ?, 0.27, 0.26, 0.25, ?, "
-        "3000, 120000, ?, 'Houston: consensus fair 53.8c')",
-        (created_ms, ticker, edge, contracts, suppressed),
+        "suggested_contracts, reference_contracts, kalshi_quote_age_ms, "
+        "odds_age_ms, suppressed_reason, reason_text) "
+        "VALUES (?, 1, ?, 'yes', 503, 800.0, 0.538, ?, 0.27, 0.26, 0.25, ?, ?, "
+        "3000, 120000, ?, 'Houston: consensus fair 53.8%')",
+        (created_ms, ticker, edge, contracts, contracts, suppressed),
     )
     conn.commit()
     return int(cursor.lastrowid)

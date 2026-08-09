@@ -536,14 +536,18 @@ def _recommendation(
             created_ms, strategy_config_version, ticker, link_id, side,
             entry_ask_tenths, depth_at_ask, fair_probability, edge_tenths,
             fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts,
+            -- Mirrors `suggested_contracts`: these fixtures represent a record
+            -- written at the reference profile, and the gate counts this column.
+            reference_contracts,
             kalshi_quote_age_ms, odds_age_ms, suppressed_reason, reason_text,
             clv_tenths, clv_scored_ms, clv_horizon_hours
         ) VALUES (?, 1, ?, ?, 'yes', ?, 500.0, ?, 20.0, 0.1, 0.5, 0.02, ?, ?, ?,
-                  ?, 'test', ?, ?, ?)
+                  ?, ?, 'test', ?, ?, ?)
         """,
         (
             created_ms, ticker, link_id, ask_tenths, fair_probability,
-            suggested_contracts, quote_age, odds_age, suppressed, clv_tenths,
+            suggested_contracts, suggested_contracts,
+            quote_age, odds_age, suppressed, clv_tenths,
             created_ms if scored else None,
             # The gate counts only rows scored at the current primary horizon,
             # so a scored row without this is invisible to it -- and the symptom

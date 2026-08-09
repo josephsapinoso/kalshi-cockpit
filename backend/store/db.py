@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -62,6 +62,12 @@ BUSY_TIMEOUT_MS = 5_000
 # Also nullable: every row written before this carries NULL, and SQLite treats
 # NULLs as distinct in a UNIQUE index, so the historical rows neither collide
 # with each other nor block the constraint.
+#
+# v6 (2026-08-09): `recommendations.reference_contracts`, which splits "what the
+# operator may buy" from "what the evidence record counts". Backfilled rather
+# than left NULL, and the backfill is an identity for every row that exists when
+# it runs -- see `_BACKFILL_REFERENCE_CONTRACTS` for why that stops being true
+# immediately afterwards, which is the point of the column.
 
 
 @dataclass(frozen=True)
@@ -232,6 +238,31 @@ _TAG_THE_OLD_HORIZON = (
 )
 
 
+# v6 splits "what may be bought" from "what the record counts".
+#
+# **Why `suggested_contracts` is the right value to backfill, and it is a claim
+# rather than a convenience.** `reference_contracts` is the size at a bankroll
+# and caps fixed in code -- $1,000 / $100 / $400 / $100. Every row already in a
+# live database was written by a deployment configured with exactly those
+# numbers and zero open exposure, so for those rows the two sizings are the same
+# computation on the same inputs and the copy is an identity, not an estimate.
+#
+# It stops being an identity the moment the deployed bankroll changes, which is
+# the very next thing that happens. So this backfill is correct for the rows
+# that exist when it runs and would be wrong for rows written after it -- which
+# is fine, because those rows carry a real `reference_contracts` written by the
+# engine. `IS NULL` is what keeps the two apart.
+#
+# Idempotent: re-running matches no rows the second time.
+_BACKFILL_REFERENCE_CONTRACTS = (
+    """
+    UPDATE recommendations
+       SET reference_contracts = suggested_contracts
+     WHERE reference_contracts IS NULL
+    """,
+)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
     2: _Migration(
         columns=(
@@ -258,6 +289,15 @@ _MIGRATIONS: dict[int, _Migration] = {
             # Dropping the column takes the tag with it, which is the whole of
             # what this step writes. Nothing else to undo -- stated rather than
             # left blank so a future reader does not think it was forgotten.
+        ),
+    ),
+    6: _Migration(
+        columns=(("recommendations", "reference_contracts", "INTEGER"),),
+        statements=_BACKFILL_REFERENCE_CONTRACTS,
+        undo_statements=(
+            # Dropping the column takes the backfill with it, which is the whole
+            # of what this step writes. Stated rather than left blank so a future
+            # reader does not think it was forgotten.
         ),
     ),
     4: _Migration(

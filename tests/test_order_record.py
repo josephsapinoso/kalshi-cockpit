@@ -221,8 +221,9 @@ class TestWhatARowHolds:
             "INSERT INTO recommendations (created_ms, strategy_config_version, "
             "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
             "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
-            "kalshi_quote_age_ms, odds_age_ms, reason_text) "
-            "VALUES (0, 1, 'T', 'yes', 500, 0.54, 20.0, 0.1, 0.5, 0.02, 10, 0, 0, 'x')"
+            "reference_contracts, kalshi_quote_age_ms, odds_age_ms, reason_text) "
+            "VALUES (0, 1, 'T', 'yes', 500, 0.54, 20.0, 0.1, 0.5, 0.02, 10, 10, "
+            "0, 0, 'x')"
         )
         conn.commit()
         rec_id = conn.execute(
