@@ -1,7 +1,7 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09, end of the session that built the paper settlement path,
-fixed the CLV horizon, and deployed both instances.
+Written 2026-08-09 ~06:10Z, end of the session that made the log stream
+readable, found the gate's real blocker, and installed the 20K odds tier.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
@@ -11,27 +11,85 @@ follow it"*.
 Read CLAUDE.md, tasks/NEXT.md, and tasks/lessons.md first. NEXT.md is the
 actionable checklist; todo.md is just the build log.
 
-## State — and the thing that finally happened
+## State
 
-`main` is `7eae154`. 1,302 tests, ruff green, `dbt build` 11 nodes green, CI
-green on every push. **Both instances are deployed on the current image**, live
-included: `restarts=0`, one machine, volume attached, gate locked,
+`main` is `e950c49`, live is on it (machine **v25**), tree clean, pushed, CI
+green on every push. **1,328 tests**, ruff green. Gate locked,
 `execution_available: false`, five pages 307 → `/login`, `/api/orders` 401 with
-and without a forged bearer.
+and without a forged bearer. Demo also current.
 
-The first live pass on the new image:
+The 20K Odds API tier is installed and sweeping: `ODDS_DAILY_CREDIT_BUDGET` is
+**400** (was 16) with a monthly ceiling of 13,000. The first pass on it fired a
+sweep, stored 626 quotes, and took linked games 10 → 16 and recommendations
+4 → 24.
 
-    CLV scoring at 0.0h horizon: {'scored': 59, 'skipped_entry_after_close': 190,
-                                  'rows_joined': 249}
+## The one number that matters
 
-**`scored` has been 0 for the entire life of this project.** The evidence layer
-is recording for the first time. The 190 skipped are the honest residue ADR 0011
-predicted — rows created after their market's closing line was observed.
+    gh workflow run Ops -f instance=live -f action=logs
 
-Also confirmed running: `settlement pass: {'positions_open': 0, 'settled': 0,
-'still_unresolved': 0, 'refused': 0}`, and `skeptic_reviewed` /
-`skeptic_blocked` now print in the pricing-pass line instead of being inferred
-from `surfaced: 0`.
+Find `gate progress (24h)`. Last read: `actionable=0 of 300 needed,
+no_edge=177, suppressed=265`.
+
+**`stale_odds` was ~97% of suppressions and that was the whole blocker** — the
+free tier gave two 15-minute windows a day against a pass every 900s. It is
+fixed. So over a day, one of two things is now true:
+
+- **`actionable` starts growing.** The gate is accumulating for the first time.
+  Next question becomes `clv_rows_joined`, still pinned at 190.
+- **`actionable` stays 0 while `no_edge` climbs.** That is the project's answer,
+  honestly obtained, and worth as much as a yes. Say so plainly rather than
+  reaching for another knob. **Do not relax `MAX_ODDS_AGE_S` or a suppression
+  threshold** — that is how a fabricated edge enters the record.
+
+## One verification left open, and it needs the window
+
+The `discovery:` line was quietened on the quote cadence (`5907787`): full
+passes always print, quote passes only when the numbers change. **Proven by
+test, not yet observed on live** — the window closed minutes after the deploy
+and quote passes only run while it is open.
+
+Next window was scheduled ~15:45Z. When one opens, check `discovery:` appears
+once per *full* pass and not once per quote pass. Until then it is pending, not
+confirmed.
+
+## Work that does not need the window
+
+If you are starting hours before 15:45Z, these are self-contained:
+
+1. **`pricing pass:` duplicates `pass N ok`.** Strict subset, emitted ~4ms
+   earlier from `runner.py` while the other comes from the scheduler in
+   `run_loop.py`. Not simply removable: `run_chain.py` emits no `pass ok` line
+   and would go silent. Worth ~a third of the remaining log volume.
+2. **Exposure is fee-exclusive against a fee-inclusive cap** (~2%). Open and
+   deliberately deferred; adding a column is cheap, changing what
+   `limit_price_tenths` means is not.
+3. **The Research and Playbook screens.** Never built. Scout findings with
+   sources and timestamps; lessons, config versions, proposals awaiting
+   approval.
+4. **One combo price lookup** — `POST /multivariate_event_collections/{t}/
+   lookup`, no money, yields a measured same-game correlation.
+   `combos.lookup_combo` refuses without `allow_market_creation=True`. Joe
+   authorised exactly one; it creates a market if the combination is new.
+
+## Still blocked on Joe, and it is now the *second* constraint
+
+The **four fee-calibration trades** — minimum-size orders at ~10c/30c/50c/80c in
+the Kalshi app, a few dollars, read the true fee off `average_fee_paid`. He has
+pre-authorised them; they have not happened. `fee_predicted == fee_actual` is a
+gate condition and no amount of CLV moves it. Say so plainly rather than
+building around it.
+
+## Historical odds — assessed, bounded, not built
+
+The tier includes historical odds. `scripts/measure_candlestick_retention.py`
+measured the thing that gates it: **Kalshi keeps ~80 days**, then the market is
+gone entirely, verified by constructing tickers directly. Addendum on ADR 0011.
+
+So a backtest's horizon is ~80 days regardless of what the odds side offers —
+~1,200 MLB games, above the gate's 300. Historical costs **10 × markets ×
+regions**, so h2h-only is 20 credits a snapshot and the reserve affords ~380.
+**Backtest rows must never count toward the gate's 300** — see the plan in
+NEXT.md before building any of it.
 
 ## DEPLOYED (2026-08-09, 04:07Z) — and the boot lines were read, at last
 
