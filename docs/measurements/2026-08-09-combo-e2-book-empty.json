@@ -1,0 +1,1573 @@
+{
+  "api_calls": 24,
+  "echo_tolerance": 0.02,
+  "grid_tol": 0.0005,
+  "rows": [
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20269E879FDB0C2-92BDDDE5192",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "same_game",
+      "created_ms": 1786306221881,
+      "legs": [
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09GSLA",
+          "market_ticker": "KXWNBA3PT-26AUG09GSLA-GSKTHORNTON5-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09GSLA",
+          "market_ticker": "KXWNBAGAME-26AUG09GSLA-GS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09GSLA",
+          "market_ticker": "KXWNBAPTS-26AUG09GSLA-GSGWILLIAMS1-15",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAREB-26AUG09GSLA",
+          "market_ticker": "KXWNBAREB-26AUG09GSLA-LANOGWUMIKE3-6",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.6,
+        0.7,
+        0.48,
+        0.82
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.188,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.8120",
+            "369.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237195,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.18799999999999994,
+      "ask_diff": -5.551115123125783e-17,
+      "reproduces": true,
+      "gap_to_leg": 0.29200000000000004,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.188
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026D21940A2F42-22351A8F19F",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306221361,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-ATH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATLNYY",
+          "market_ticker": "KXMLBGAME-26AUG091335ATLNYY-NYY",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335NYMPIT",
+          "market_ticker": "KXMLBGAME-26AUG091335NYMPIT-NYM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091340LAAMIA",
+          "market_ticker": "KXMLBGAME-26AUG091340LAAMIA-MIA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-CHC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CWS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-STL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-TEX",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091605DETSF",
+          "market_ticker": "KXMLBGAME-26AUG091605DETSF-DET",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG092020HOUSD",
+          "market_ticker": "KXMLBGAME-26AUG092020HOUSD-SD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+          "market_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09GSLA",
+          "market_ticker": "KXWNBAGAME-26AUG09GSLA-GS",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.72,
+        0.01,
+        0.67,
+        0.35,
+        0.6,
+        0.91,
+        0.1,
+        0.52,
+        0.57,
+        0.54,
+        0.6,
+        0.7
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237348,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026F1BF93DE18B-71283109B7F",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306220867,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATLNYY",
+          "market_ticker": "KXMLBGAME-26AUG091335ATLNYY-NYY",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335NYMPIT",
+          "market_ticker": "KXMLBGAME-26AUG091335NYMPIT-NYM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091340LAAMIA",
+          "market_ticker": "KXMLBGAME-26AUG091340LAAMIA-MIA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-CHC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CWS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-STL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-TEX",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091605DETSF",
+          "market_ticker": "KXMLBGAME-26AUG091605DETSF-DET",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG092020HOUSD",
+          "market_ticker": "KXMLBGAME-26AUG092020HOUSD-SD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+          "market_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09GSLA",
+          "market_ticker": "KXWNBAGAME-26AUG09GSLA-GS",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.01,
+        0.67,
+        0.35,
+        0.6,
+        0.91,
+        0.1,
+        0.52,
+        0.57,
+        0.54,
+        0.6,
+        0.7
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237519,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026D63B4718EA6-7C5B267D08B",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306219643,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09AMEPOR",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09AMEPOR-AME",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA-CHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC-CRA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09SDTIJ",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09SDTIJ-SD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09SEAQUE",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09SEAQUE-SEA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+          "market_ticker": "KXWNBAGAME-26AUG09DALMIN-DAL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWTAMATCH-26AUG09KORGAU",
+          "market_ticker": "KXWTAMATCH-26AUG09KORGAU-GAU",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.47,
+        0.63,
+        0.43,
+        0.53,
+        0.77,
+        0.39,
+        0.92
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.366,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.5980",
+            "58.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237693,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.402,
+      "ask_diff": 0.03600000000000003,
+      "reproduces": false,
+      "gap_to_leg": 0.01200000000000001,
+      "echoes_a_leg": true,
+      "still_quoted_after": true,
+      "confirm_ask": 0.367
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026C9DF856B53E-FA285E34A57",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "mixed",
+      "created_ms": 1786306217920,
+      "legs": [
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-AZGMORENO14-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-AZKMARTE4-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-LADFFREEMAN5-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-LADSOHTANI17-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610TBSEA",
+          "market_ticker": "KXMLBHRR-26AUG091610TBSEA-TBJCAMINERO13-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610TBSEA",
+          "market_ticker": "KXMLBHRR-26AUG091610TBSEA-TBYDIAZ2-1",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.75,
+        0.74,
+        0.77,
+        0.81,
+        0.73,
+        0.77
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.461,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237832,
+      "book_error": "",
+      "empty": true,
+      "no_side_empty": true,
+      "derived_ask": null,
+      "ask_diff": null,
+      "reproduces": null,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026AAFBF07613E-B4AABB9BE96",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306216587,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-BOS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091340LAAMIA",
+          "market_ticker": "KXMLBGAME-26AUG091340LAAMIA-MIA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-CHC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CWS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-STL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-TEX",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091605DETSF",
+          "market_ticker": "KXMLBGAME-26AUG091605DETSF-DET",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBSPREAD-26AUG091335NYMPIT",
+          "market_ticker": "KXMLBSPREAD-26AUG091335NYMPIT-NYM4",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXMLBSPREAD-26AUG092020HOUSD",
+          "market_ticker": "KXMLBSPREAD-26AUG092020HOUSD-HOU4",
+          "side": "no"
+        }
+      ],
+      "leg_costs": [
+        0.3,
+        0.67,
+        0.35,
+        0.6,
+        0.91,
+        0.1,
+        0.52,
+        0.57,
+        0.8200000000000001
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306237997,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202678E4D5A3DE2-18DA5CA3A47",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "mixed",
+      "created_ms": 1786306214624,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09AMEPOR",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09AMEPOR-AME",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09ATXPUE",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09ATXPUE-ATX",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA-CHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC-CRA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09NSHASL",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09NSHASL-NSH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09CHISLA",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09CHISLA-2",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.47,
+        0.56,
+        0.63,
+        0.43,
+        0.57,
+        0.6,
+        0.86
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.03,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9700",
+            "309.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238158,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.030000000000000027,
+      "ask_diff": 2.7755575615628914e-17,
+      "reproduces": true,
+      "gap_to_leg": 0.39999999999999997,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.025
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20265E3F2286F07-B4B102D8DC8",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "mixed",
+      "created_ms": 1786306214113,
+      "legs": [
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-AZCCARROLL7-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-AZGPERDOMO2-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-LADAPAGES44-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHRR-26AUG091610LADAZ-LADFFREEMAN5-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610TBSEA",
+          "market_ticker": "KXMLBHRR-26AUG091610TBSEA-SEAJNAYLOR12-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610TBSEA",
+          "market_ticker": "KXMLBHRR-26AUG091610TBSEA-TBCSIMPSON14-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHRR-26AUG091610TBSEA",
+          "market_ticker": "KXMLBHRR-26AUG091610TBSEA-TBYDIAZ2-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBA3PT-26AUG09GSLA",
+          "market_ticker": "KXWNBA3PT-26AUG09GSLA-GSJSALAN13-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09GSLA",
+          "market_ticker": "KXWNBAPTS-26AUG09GSLA-GSGWILLIAMS1-10",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBASPREAD-26AUG09GSLA",
+          "market_ticker": "KXWNBASPREAD-26AUG09GSLA-LA4",
+          "side": "no"
+        },
+        {
+          "event_ticker": "KXWNBATOTAL-26AUG09GSLA",
+          "market_ticker": "KXWNBATOTAL-26AUG09GSLA-181",
+          "side": "no"
+        }
+      ],
+      "leg_costs": [
+        0.72,
+        0.77,
+        0.98,
+        0.77,
+        0.68,
+        0.81,
+        0.77,
+        0.66,
+        0.81,
+        0.77,
+        0.76
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.173,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.8030",
+            "76.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238317,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.19699999999999995,
+      "ask_diff": 0.023999999999999966,
+      "reproduces": false,
+      "gap_to_leg": 0.4630000000000001,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.197
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202627D7808D993-C7595CFE5F2",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "same_game",
+      "created_ms": 1786306213791,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHIT-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHIT-26AUG091610LADAZ-LADFFREEMAN5-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBTOTAL-26AUG091610LADAZ",
+          "market_ticker": "KXMLBTOTAL-26AUG091610LADAZ-8",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.57,
+        0.34,
+        0.6
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.163,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.8370",
+            "122.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238503,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.16300000000000003,
+      "ask_diff": 2.7755575615628914e-17,
+      "reproduces": true,
+      "gap_to_leg": 0.177,
+      "echoes_a_leg": false,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026B15C4DE5292-DFF4CFCC26B",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306213489,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-ATH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATLNYY",
+          "market_ticker": "KXMLBGAME-26AUG091335ATLNYY-ATL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335NYMPIT",
+          "market_ticker": "KXMLBGAME-26AUG091335NYMPIT-NYM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091340LAAMIA",
+          "market_ticker": "KXMLBGAME-26AUG091340LAAMIA-MIA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-KC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CWS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-COL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-BAL",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.72,
+        0.67,
+        0.01,
+        0.35,
+        0.6,
+        0.1,
+        0.91
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238635,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202605DB7069200-D030A4B3418",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306211719,
+      "legs": [
+        {
+          "event_ticker": "KXMLBKS-26AUG091605DETSF",
+          "market_ticker": "KXMLBKS-26AUG091605DETSF-DETTMELTON52-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBKS-26AUG091610LADAZ",
+          "market_ticker": "KXMLBKS-26AUG091610LADAZ-LADJWROBLESKI70-4",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBKS-26AUG091610TBSEA",
+          "market_ticker": "KXMLBKS-26AUG091610TBSEA-TBISEYMOUR61-4",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.92,
+        0.61,
+        0.82
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.483,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 213.28,
+      "open_interest": 213.28,
+      "book": {
+        "no_dollars": [
+          [
+            "0.5180",
+            "211.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238797,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.482,
+      "ask_diff": -0.0010000000000000009,
+      "reproduces": false,
+      "gap_to_leg": 0.128,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.482
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20269396B51B486-FB96C970502",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306210924,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CRANYC-TIE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.27,
+        0.57
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.154,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306238967,
+      "book_error": "",
+      "empty": true,
+      "no_side_empty": true,
+      "derived_ask": null,
+      "ask_diff": null,
+      "reproduces": null,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20260F631D16093-018EC3A2898",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "mixed",
+      "created_ms": 1786306210540,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09ATXPUE",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09ATXPUE-ATX",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09CHISLA-CHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09AMEPOR",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09AMEPOR-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09ATXPUE",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09ATXPUE-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09CRANYC",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09CRANYC-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXLEAGUESCUPTOTAL-26AUG09SDTIJ",
+          "market_ticker": "KXLEAGUESCUPTOTAL-26AUG09SDTIJ-3",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.56,
+        0.63,
+        0.6,
+        0.64,
+        0.6,
+        0.54,
+        0.62
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.037,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9630",
+            "311.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239130,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.03700000000000003,
+      "ask_diff": 3.469446951953614e-17,
+      "reproduces": true,
+      "gap_to_leg": 0.503,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.037
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026B15C4DE5292-01B7D8A3973",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306209016,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-BOS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATLNYY",
+          "market_ticker": "KXMLBGAME-26AUG091335ATLNYY-ATL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335NYMPIT",
+          "market_ticker": "KXMLBGAME-26AUG091335NYMPIT-NYM",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091340LAAMIA",
+          "market_ticker": "KXMLBGAME-26AUG091340LAAMIA-MIA",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-KC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CWS",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-COL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-BAL",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.3,
+        0.67,
+        0.01,
+        0.35,
+        0.6,
+        0.1,
+        0.91
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239327,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026DD76CB26E9B-86F7FF80CD0",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306208143,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-ATH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBSPREAD-26AUG091610LADAZ",
+          "market_ticker": "KXMLBSPREAD-26AUG091610LADAZ-LAD3",
+          "side": "no"
+        }
+      ],
+      "leg_costs": [
+        0.72,
+        0.67,
+        0.6,
+        0.6699999999999999
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.217,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239436,
+      "book_error": "",
+      "empty": true,
+      "no_side_empty": true,
+      "derived_ask": null,
+      "ask_diff": null,
+      "reproduces": null,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S202607F216C99F8-B69FB10A5D4",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "same_game",
+      "created_ms": 1786306205610,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610LADAZ",
+          "market_ticker": "KXMLBGAME-26AUG091610LADAZ-LAD",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBHIT-26AUG091610LADAZ",
+          "market_ticker": "KXMLBHIT-26AUG091610LADAZ-LADMBETTS50-1",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBKS-26AUG091610LADAZ",
+          "market_ticker": "KXMLBKS-26AUG091610LADAZ-AZERODRIGUEZ57-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBKS-26AUG091610LADAZ",
+          "market_ticker": "KXMLBKS-26AUG091610LADAZ-LADJWROBLESKI70-2",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.57,
+        0.68,
+        0.93,
+        0.92
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.424,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.5640",
+            "34.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239597,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.43600000000000005,
+      "ask_diff": 0.012000000000000066,
+      "reproduces": false,
+      "gap_to_leg": 0.1339999999999999,
+      "echoes_a_leg": false,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026119FFB3188B-8E690820781",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "same_game",
+      "created_ms": 1786306202942,
+      "legs": [
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09GSLA",
+          "market_ticker": "KXWNBAPTS-26AUG09GSLA-LADHAMBY5-10",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAPTS-26AUG09GSLA",
+          "market_ticker": "KXWNBAPTS-26AUG09GSLA-LANOGWUMIKE3-10",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAREB-26AUG09GSLA",
+          "market_ticker": "KXWNBAREB-26AUG09GSLA-GSGWILLIAMS1-2",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAREB-26AUG09GSLA",
+          "market_ticker": "KXWNBAREB-26AUG09GSLA-LADHAMBY5-6",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAREB-26AUG09GSLA",
+          "market_ticker": "KXWNBAREB-26AUG09GSLA-LANOGWUMIKE3-6",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.73,
+        0.78,
+        0.76,
+        0.7,
+        0.82
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.275,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.7250",
+            "413.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239817,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.275,
+      "ask_diff": 0.0,
+      "reproduces": true,
+      "gap_to_leg": 0.42499999999999993,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.275
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20268962F94AC5F-8D0886C0121",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306201935,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09PHINCX-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATHBOS",
+          "market_ticker": "KXMLBGAME-26AUG091335ATHBOS-ATH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335ATLNYY",
+          "market_ticker": "KXMLBGAME-26AUG091335ATLNYY-NYY",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091335TORPHI",
+          "market_ticker": "KXMLBGAME-26AUG091335TORPHI-PHI",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CHCKC",
+          "market_ticker": "KXMLBGAME-26AUG091410CHCKC-CHC",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410CLECWS",
+          "market_ticker": "KXMLBGAME-26AUG091410CLECWS-CLE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091410MINMIL",
+          "market_ticker": "KXMLBGAME-26AUG091410MINMIL-MIL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091415COLSTL",
+          "market_ticker": "KXMLBGAME-26AUG091415COLSTL-STL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091435BALTEX",
+          "market_ticker": "KXMLBGAME-26AUG091435BALTEX-BAL",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091605DETSF",
+          "market_ticker": "KXMLBGAME-26AUG091605DETSF-SF",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610TBSEA",
+          "market_ticker": "KXMLBGAME-26AUG091610TBSEA-TB",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.6,
+        0.72,
+        0.01,
+        0.67,
+        0.66,
+        0.6,
+        0.91,
+        0.91,
+        0.5,
+        0.51
+      ],
+      "legs_all_priceable": false,
+      "list_ask": 0.002,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 509.09,
+      "open_interest": 509.09,
+      "book": {
+        "no_dollars": [
+          [
+            "0.9980",
+            "300.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306239953,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.0020000000000000018,
+      "ask_diff": 1.734723475976807e-18,
+      "reproduces": true,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": true,
+      "confirm_ask": 0.002
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S2026C11426E763C-25E14C894DA",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "mixed",
+      "created_ms": 1786306201400,
+      "legs": [
+        {
+          "event_ticker": "KXMLBGAME-26AUG091605DETSF",
+          "market_ticker": "KXMLBGAME-26AUG091605DETSF-DET",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBGAME-26AUG091610TBSEA",
+          "market_ticker": "KXMLBGAME-26AUG091610TBSEA-TB",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBKS-26AUG091605DETSF",
+          "market_ticker": "KXMLBKS-26AUG091605DETSF-DETTMELTON52-3",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXMLBTOTAL-26AUG091610TBSEA",
+          "market_ticker": "KXMLBTOTAL-26AUG091610TBSEA-9",
+          "side": "no"
+        }
+      ],
+      "leg_costs": [
+        0.52,
+        0.51,
+        0.92,
+        0.61
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.147,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 202.02,
+      "open_interest": 202.02,
+      "book": {
+        "no_dollars": [],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306240098,
+      "book_error": "",
+      "empty": true,
+      "no_side_empty": true,
+      "derived_ask": null,
+      "ask_diff": null,
+      "reproduces": null,
+      "gap_to_leg": null,
+      "echoes_a_leg": null,
+      "still_quoted_after": false,
+      "confirm_ask": null
+    },
+    {
+      "ticker": "KXMVESPORTSMULTIGAMEEXTENDED-S20262E66FB88E41-0646AEECAFB",
+      "series": "KXMVESPORTSMULTIGAMEEXTENDED",
+      "collection": "KXMVESPORTSMULTIGAMEEXTENDED-R",
+      "scope": "cross_game",
+      "created_ms": 1786306200019,
+      "legs": [
+        {
+          "event_ticker": "KXLEAGUESCUPGAME-26AUG09SEAQUE",
+          "market_ticker": "KXLEAGUESCUPGAME-26AUG09SEAQUE-QUE",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09DALMIN",
+          "market_ticker": "KXWNBAGAME-26AUG09DALMIN-MIN",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG09PHXWSH",
+          "market_ticker": "KXWNBAGAME-26AUG09PHXWSH-WSH",
+          "side": "yes"
+        },
+        {
+          "event_ticker": "KXWNBAGAME-26AUG10TORATL",
+          "market_ticker": "KXWNBAGAME-26AUG10TORATL-ATL",
+          "side": "yes"
+        }
+      ],
+      "leg_costs": [
+        0.09,
+        0.6,
+        0.98,
+        0.86
+      ],
+      "legs_all_priceable": true,
+      "list_ask": 0.549,
+      "list_bid": null,
+      "list_observed_ms": 1786306236952,
+      "volume": 0.0,
+      "open_interest": 0.0,
+      "book": {
+        "no_dollars": [
+          [
+            "0.4530",
+            "93.00"
+          ],
+          [
+            "0.5000",
+            "102.00"
+          ]
+        ],
+        "yes_dollars": []
+      },
+      "book_observed_ms": 1786306240312,
+      "book_error": "",
+      "empty": false,
+      "no_side_empty": false,
+      "derived_ask": 0.5,
+      "ask_diff": -0.049000000000000044,
+      "reproduces": false,
+      "gap_to_leg": 0.05300000000000005,
+      "echoes_a_leg": false,
+      "still_quoted_after": true,
+      "confirm_ask": 0.547
+    }
+  ]
+}
