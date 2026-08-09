@@ -3632,3 +3632,57 @@ undefended" — absence has no line number.
   widening a population, find the column that will mark which one a row came
   from — if there isn't one, widening is not a config change. Related:
   [[a-comment-explaining-one-instance-of-a-hazard-is-not-evidence-it-was-handled-everywhere]].
+
+---
+
+## 2026-08-09 — Arithmetic that reproduces to the digit says nothing about its inputs
+
+Three documents were audited in one session. In all three the arithmetic
+checked out **exactly** — every cell of a power table, every Wilson interval,
+every fee row reproduced to the last digit against the code. And in all three
+the conclusion was wrong, because the numbers that came from *outside* the code
+were assumed and never labelled as such.
+
+| Document | Internal arithmetic | The input that was invented |
+|---|---|---|
+| CLV signal-test pre-registration | exact | `sd(half_spread) = 4` tenths — measured later at **0.27**, and provably ≤2.5 |
+| Combo E2 | exact | the sampled population, which shares almost no structure with the one it described |
+| ADR 0017 Addendum A | wrong, and only found by re-running `size_position` | — |
+
+The half-spread case is the clearest. A correct covariance identity, a correct
+multiplication, and a spurious-slope estimate of 0.16 that was **off by ~230×**
+— because one factor was a plausible guess. It was labelled "the largest finding
+in this document" and made a *blocking* prerequisite. A measurement of the
+adjacent quantity was sitting in `docs/adr/0006` the whole time and was neither
+cited nor used.
+
+**Why internal consistency is not a check:** every one of these documents was
+self-consistent. Recomputing them from their own stated inputs reproduces them
+perfectly. The error is upstream of every operation performed, so no amount of
+checking the working can reach it, and a document that survives that check reads
+as *more* rigorous rather than less.
+
+**How to apply.** Label every number at the point of use as **computed from
+code**, **measured from data**, or **assumed** — and count the third kind. If a
+load-bearing conclusion rests on one, that is the thing to measure next,
+regardless of how reasonable it looks. Before assuming a constant, grep
+`docs/adr` and `docs/measurements` for the quantity; this project had already
+measured it twice.
+
+Two corollaries earned the same session:
+
+- **A grid is not a sample.** "n=1 on 1,206 of 1,206 points" reads as 1,206
+  observations of a 100% rate. It is the domain of a deterministic function on
+  an author-chosen grid: there is no denominator of events, and a finer grid
+  inflates the numerator without adding information. Say "every point of a grid
+  of N" at first use, not three sections later.
+- **Prefer a bound to a point estimate when the support is small.** The strongest
+  result of the session was not the measured `sd = 0.27`. It was that on a
+  two-point support `{5, 10}`, `sd = sqrt(p(1-p))·5 ≤ 2.5` — so the assumed 4 is
+  *arithmetically impossible* and no selection of that population, however
+  adversarial, can revive the confound. A bound closed the question permanently;
+  a point estimate would only have moved it.
+
+Related: [[computing-the-right-statistic-and-then-ignoring-it]],
+[[a-true-measurement-licensed-a-false-conclusion]],
+[[every-per-cell-guard-can-pass]].

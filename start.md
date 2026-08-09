@@ -1,11 +1,9 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09 ~19:30Z. The session that fixed the bankroll trap, ran four
-lanes in parallel, and then had five of its own claims corrected by
-`measurement-skeptic` — including two that were refuted outright. The
-measurements were right every time; the *prose about them* was wrong five times,
-always toward the tidier story. Read the corrections section before quoting any
-number from this file.
+Written 2026-08-09, late. The session that ran six lanes in parallel, had three
+of its own documents audited, and watched the arithmetic reproduce to the digit
+in all three while the conclusions were wrong anyway. Read the corrections
+section before quoting any number from this file.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
@@ -17,172 +15,135 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is at `1d81d3c`, **pushed, CI green on all three jobs**. 1,538 tests,
-ruff clean, `next build` clean, 11 dbt nodes green.
+`main` is at `a60f4bb`. **1,732 tests**, ruff clean, tree clean, pushed.
 
-**LIVE IS DEPLOYED and running this commit** (2026-08-09 ~19:48Z). Demo went
-first as the canary, then live. Verified independently, not just by the
-workflow's own assertions:
+**LIVE IS UNCHANGED and still runs `1d81d3c`.** Nothing was deployed this
+session, no order was placed, no odds credit was spent, no gate was touched.
+Health was read from the browser rather than inferred:
 
-    [migrate] /data/cockpit.db migrated v5 -> v6   <- on the real volume
-    API starting: instance_mode=live live_trading_enabled=False
-    six pages (incl. the new /rejections) -> 307 -> /login
-    POST /api/orders -> 401 with and without a forged bearer
-    health: retired_settings_set: [], live_quotes_available: true,
-            agent_fleet_configured: true
+    instance_mode=live  live_trading_enabled=false  execution_available=false
+    live_quotes_available=true  agent_fleet_configured=true
+    retired_settings_set=[]
 
-First `gate progress` on the new code:
+**So `main` carries code live has never run** — the market-result pass, the
+league warning, the bounded residue. None of it writes a row until a deploy, and
+a deploy is Joe's.
 
-    actionable=0 of 300 needed, no_edge=287, suppressed=287
-    suppressed by: stale_odds=239, too_few_books=93, no_market_width=93,
-                   suspicious_edge=9, edge_within_method_noise=8,
-                   insufficient_depth=4
+Six agents in `.claude/agents/`, loading automatically: **`partner`** (directs
+the fleet — *delegation is its call, not the executing agent's*),
+**`measurement-skeptic`**, **`pre-registrar`** (new — it owns the *before*),
+**`sharp-bettor`**, **`kalshi-platform`**, **`runtime-realist`**.
 
-`actionable=0` is now read off `reference_contracts` and **did not jump**, which
-is what ADR 0015 predicted: the backfill preserves recorded values, so nothing
-about the existing record changed. The counter is now immune to the deposit
-rather than gated by it.
+**Standing instructions from Joe, which override defaults:**
 
-Five agents in `.claude/agents/`, loading automatically: **`partner`** (directs
-the fleet — *delegation is its call, not yours*), **`measurement-skeptic`**,
-**`sharp-bettor`** (now written to treat Joe as its apprentice and teach the
-craft, not only review the screen), **`kalshi-platform`**, **`runtime-realist`**.
+1. **Call `partner` first** and let it set the queue.
+2. **Parallelise by default** — independent items as concurrent worktree lanes.
+   Six ran this session and all six landed.
+3. **`measurement-skeptic` audits anything before it enters the record**, and
+   especially when it is good news.
+4. **Before shipping anything that runs at boot on live, ask what clears it if it
+   fails.** Recovery needing `flyctl` is a laptop job; Joe works from a phone.
+5. **Don't ask permission to continue.** Do ask before money or a re-deploy.
 
-**Two standing instructions from Joe this session:**
+## THE BLOCKER — one tap, and everything is downstream of it
 
-1. **`partner` decides what gets worked on and by whom.** Call it first. It may
-   create new agent *roles* if the fleet is missing a standing perspective.
-2. **Parallelise by default.** Four lanes ran concurrently this session and all
-   four landed; the worktrees are cleaned up and merged.
+An agent cannot read the evidence record. `frontend/src/middleware.ts` gates
+everything except `/api/health`, `/login`, `/session` and three static files, and
+an agent must not enter a password. **Joe signs in at
+`kalshi-cockpit.fly.dev/login`, then opens `/api/ledger?limit=1000`.**
 
-## The bankroll trap is fixed. ADR 0015.
+There is no local substitute. **`data/demo.db` is 100% synthetic** on four
+independent tells, so every number in `data/lake/` and `data/warehouse.duckdb`
+— including the "36 of 300" and "51 of 300" CLV buckets — is a number about
+generated data.
 
-The previous handoff was right that `BANKROLL_DOLLARS=100` was a trap and wrong
-about why in one respect. Both are now settled and measured.
+The five questions it answers are enumerated in NEXT.md. The one that decides
+the session: **has `run_scoring_pass` ever returned `scored > 0` on live?** Two
+prior runs recorded 0. Both bugs are fixed in source and nobody has confirmed a
+non-zero count. If it is still zero, the top item is fixing scoring.
 
-**What shipped:**
+## READ THIS — the pattern that produced every correction
 
-- **Schema v6**: `recommendations.reference_contracts`, the same decision sized
-  against a risk profile fixed in code ($1,000 / $100 / $400 / $100). The gate
-  counts *that*, so the deposit cannot decide what counts as evidence.
-  `gate.POPULATIONS`, the Discord digest, the Playbook screen and the warehouse
-  all read it. Migration verified v5 → v6 on a real database, twice.
-- **`min_order_contracts` deleted, and nothing replaced it.** The sizer already
-  prices at the fee a *single* contract would pay, which is the most expensive
-  per-contract fee any size pays — by proof, `ceil_cent(a·N) ≤ ceil_cent(a)·N`
-  and Model B is N-invariant. So Kelly > 0 already implies +EV at any size. My
-  first draft replaced it with a whole-order EV re-check; that check **can never
-  fire** and was deleted as decoration. The property is asserted as a test
-  instead. `MIN_ORDER_CONTRACTS` still set in an environment is **announced,
-  never fatal** — an ERROR on every load plus `retired_settings_set` on
-  `/api/health`. (This file said "raises" until 2026-08-09; that was corrected
-  in `1d81d3c` for the crash-loop reason below, and the prose lagged the code.)
-- **Caps re-scaled**: $10 / $40 / $10 at a $100 bankroll — the same 10/40/10
-  fractions the $1,000 profile used. The handoff's "$15 / $40 / $25 reproduces
-  the ratios" was arithmetically wrong.
-- **`BANKROLL_DOLLARS = 100`** in `fly.live.toml`, documented as the *running
-  balance*, not the weekly top-up.
+Three documents were audited. **In all three the arithmetic reproduced exactly** —
+every cell of a power table, every Wilson interval, every fee row — and in all
+three the conclusion was wrong, because the numbers from *outside* the code were
+assumed and never labelled.
 
-## READ THIS — five of my claims were corrected, two refuted
+The clearest specimen: a correct covariance identity, a correct multiplication,
+and a spurious-slope estimate of **0.16 that was off by ~230x**, because one
+factor was a plausible guess. It was called "the largest finding in this
+document" and made a *blocking* prerequisite. A measurement of the adjacent
+quantity was sitting in `docs/adr/0006` and was neither cited nor used.
 
-`measurement-skeptic` audited ADR 0015 before it entered the record, as CLAUDE.md
-requires. It was right on every point.
+Internal consistency cannot catch this: the error is upstream of every operation
+performed, and a document that survives the check reads as *more* rigorous.
 
-**The one that inverts an argument:** I wrote that at $100 the old minimum
-"refused every order the tool can produce" and that `actionable` was
-"structurally 0 forever". **False.** 204 of the 999 asks survived — all at
-0.1–10.1c or 88.1–98.8c, with up to 3.0c of room at 98c.
+**So: label every number computed from code / measured from data / assumed, and
+count the third kind.** Before assuming a constant, grep `docs/adr` and
+`docs/measurements` — this project had already measured it twice.
 
-That is worse than my version, not better. The wings are where the fee is
-largest as a share of stake (1c on a 10c contract is 10%) and where the devig
-methods disagree most (2.03 points against 0.18 on an even line). So the guard
-did not switch the counter off — **it restricted the evidence to the least
-believable prices on the board.** Producing a record from those is worse than
-producing silence.
+Two corollaries: **a grid is not a sample** ("1,206 of 1,206" is a deterministic
+function's domain, not 1,206 observations), and **prefer a bound to a point
+estimate on a small support** — the strongest result of the session was not
+`sd = 0.27` but that `sd <= 2.5` is forced by the support, which closed the
+question permanently.
 
-Also corrected: break-even is **$250**, not $300 (closed form,
-`10·0.52·0.48/0.04`); "monotonic" is false, the property is *maximised at N=1*;
-an enumeration over sizes 1–200 was cited for a claim about all N;
-`MAX_DAILY_LOSS_DOLLARS` *was* set in `fly.live.toml`; and the backfill is an
-identity to the **recorded column**, not to the two sizings — rows that sized
-1–9 contracts were stored as 0 under the old minimum.
+## What the lanes landed
 
-**One real defect fell out of the audit**, not just wording:
-`strategy_config_version` did not include `max_order_contracts` or the reference
-constants, so my claim that the two regimes stay separable was false. Fixed.
+**The half-spread confound is dead.** 219 games / 438 markets / 78,047
+market-minutes: the pre-game half-spread takes **exactly two values, 5 and 10
+tenths, 99.71% at 5**; sd 0.27 per market-minute, **0.00 per game**. On a
+two-point support `{5, 10}`, `sd = sqrt(p(1-p))·5 <= 2.5`, so the assumed 4 is
+*arithmetically impossible* and no selection can push the spurious slope above
+0.0625. **It returns the moment the recorder writes rows about spreads or
+totals** — those live-quote at sd 47.2 and 22.8, and stay wide inside 60 minutes.
 
-**The lesson is in `tasks/lessons.md`:** distrust *every, always, never,
-structurally, by construction*. Each is a universal claim, and every one of these
-started as something measured and became a sentence with a stronger quantifier.
+**The signal test is pre-registered and says WAIT.** Smallest resolvable slope is
+2.28 at G=40 and 1.00 at G=100, where 1.0 is full lossless pass-through — the
+ceiling of what can exist. **G=300 is the first point it resolves anything**, and
+that lands on the gate's own floor independently. Amendment 1 fixes four defects
+including a registered SQL predicate that did not exclude what it claimed
+(`suppressed_reason` is comma-joined, so `NOT IN` retained every multi-reason
+stale row) and a `beta > 1 -> BUG` rule that would have classified a true signal
+as a defect half the time at G=300.
 
-## What the four lanes landed
+**Candles and derived asks agree 51/51**, integer-exact in tenths, including 8
+sub-cent prices. ADR 0016 Phase 0 can proceed under three conditions — the
+sharpest being that **the identity fails at the boundary**: where a side of the
+book is empty a bar publishes `yes_ask = 1000` where `derive_yes_ask` correctly
+returns `None`, which unhandled fabricates a 1c ask and reads as an enormous edge.
 
-**`docs/adr/0016` — the backfill, designed but not built.** The headline is
-arithmetic and it is decisive: 0 actionable in ~202 fresh-odds decisions gives a
-95% upper bound of 1.47% per decision, so a 1,200-game backfill has a point
-estimate of **0 actionable and a 95% ceiling of 35** against a floor of 300.
-Reaching 300 would need a 25% per-game rate, and P(0 in 202 | that rate) is
-2×10⁻¹². **The gate cannot be opened this way, and that is knowable now.** Build
-it for the measurement, not for the counter — or do not build it. 28 inputs
-enumerated for look-ahead: 12 clean, 9 partial, **7 contaminated**, and
-`depth_at_ask` cannot be reconstructed at all. 9,600 credits, fits two months.
-Phase 0 is free and urgent because the Kalshi half expires at 80 days.
+**`kalshi_markets.result` is written**, and its residue bounded: one tied game
+went from 192 ERROR lines/day forever to 2 total. **Calibration now has inputs;
+it is not yet possible** — the column has zero readers.
 
-**`docs/measurements/2026-08-09-combo-leg-echo.md` — TOO THIN TO ANSWER**, and
-the agent correctly refused to activate its pre-registered exclusion rule. n=2
-move events. **The test is not answerable at any cadence**: 45 of 50 matched
-legs showed one distinct cost all window, and polling 5× faster produced *fewer*
-move events. The useful find is exploratory: **3 of 8 quoted combinations had an
-empty order book**, one reading `0.0000/1.0000` for 18 straight polls while the
-list endpoint quoted it at 0.463. Every combo price this project holds — all
-2,116 harvest rows — came from the list endpoint and was never checked against a
-book. Experiment E2 is pre-registered in the doc and needs no leg to move.
+**Combo E2** is corrected to what its audit supports, and its follow-up settles
+the mechanism: the engine term is **zero on 9 of 9 rows**, so the disagreement is
+replica skew, not a pricing engine. What survives is direction-free: a
+combination's `/markets` row is not a price you can transact at.
 
-**`docs/adr/0017` — the maker path.** Held behind a one-query precondition set by
-`partner`: plot the edge distribution on the live record between the taker bar
-and 1.00–1.50 points below it, restricted to 18c–82c. No mass there, kill the
-maker line for free. Note the baseline correction — maker-vs-taker is **1.00 to
-1.50 points**, not the 1.88 that comes from comparing against the sportsbook bar.
-
-**The UI consensus items — 7 of 8 landed.** `53.8%` not `53.8c` everywhere
-(including `engine.py`'s `reason_text`); the whole slate visible with rejected
-rows labelled and untappable; `clv_tenths` on the Ledger; fee-inclusive total on
-the card; variance rendered (SD reproduced exactly at $7.4778 before anything
-was drawn); four permanent sentences instead of tooltips; and a `/rejections`
-screen for `/api/suppression`, which had no caller. The eighth was already fixed
-in `a92ac42`.
-
-## Still blocked on Joe
-
-- **The four fee-calibration trades.** ~$5, pre-authorised, a hard gate
-  condition no amount of CLV can satisfy, and the highest-value use of week one.
+**`edge_tenths` is net of fees** and `schema.sql` said the opposite, plus four
+more drifted comments. `audit-2026-08-07.md` had already found it as item 41 and
+marked it **closed** — 41 bundled nine findings and this one was skipped.
 
 ## Traps from this session specifically
 
-- **A replacement guard can be decoration.** When removing a guard, first check
-  whether the code downstream already handles what it was protecting against. If
-  it does, assert the *property* that makes the guard unnecessary — do not write
-  a new guard that cannot fire.
-- **A comment naming a real hazard is not evidence the hazard is covered.** It is
-  evidence someone knew about it. `min_order_contracts` was defended for the
-  project's life on a true premise nobody traced downstream.
-- **Ask of every counter: what could change this number that is not about the
-  thing it measures?** A deposit, a deploy, an uptime, a config edit. If the
-  answer is anything, the counter measures that too.
-- **A test can assert the tautology it was written to prevent.** The combo
-  contemporaneity test required every leg to carry its joint's stamp — which is
-  exactly the bug that produced "kept 2116 of 2116, dropped 0". It passed only
-  because a fake API answers inside a millisecond, so it was vacuous *and* flaky.
-- **Schema evolution breaks a partitioned lake silently until it does not.**
-  `read_parquet` needed `union_by_name`; without it the first added column is a
-  hard failure of the whole warehouse, from a change in another subsystem.
-- **A guard whose failure mode the operator cannot clear is not a guard.**
-  Caught in the deploy pre-flight: `RiskConfig.load()` raising on a retired
-  setting runs inside `create_app`, which uvicorn runs at boot, which
-  `entrypoint.sh` supervises with `wait -n` — a crash loop, landing *after* the
-  volume had migrated, so an image rollback would not recover it either. Only
-  `flyctl secrets unset` would, and flyctl is a laptop job while this tool is
-  operated from a phone. It announces now (ERROR on every load, plus
-  `retired_settings_set` on `/api/health`) and enforces nothing.
-- **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** The budget
-  is shared with live.
+- **A worktree copy satisfied the has-no-caller detector.** `test_has_callers`
+  was walking **132 backend `.py` files from other branches**, so a symbol whose
+  only caller lived on an unmerged branch passed on `main` — in the one file that
+  exists to catch exactly that. Parallel lanes made a previously-fine test unsafe.
+- **A guard can stay green because a *stricter* guard downstream catches your
+  deformation.** Break per guard, not per function. And a break that is the
+  original expression rewritten is a faulty break, not a passing guard — that
+  happened twice and was caught both times.
+- **Closing a bundled audit item ticks the parts that were skipped.**
+- **An exclusion with no warning is an accident, not a decision.** NFL preseason
+  is spelled `"Pro Football Preseason"`; 726 markets across 48 events vanished,
+  and the drift test covered `competition_scope` but not `league`.
+- **Before widening a population, find the column that marks which one a row came
+  from.** If there isn't one, widening is not a config change.
+- **`?event_ticker=` ignores `limit` entirely** on Kalshi — it returned all 82
+  markets of the largest event for `limit=1`. The old code was safe by a
+  mechanism nobody had guessed.
+- **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** The budget is
+  shared with live.

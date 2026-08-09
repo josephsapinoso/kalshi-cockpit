@@ -1,5 +1,151 @@
 # Next — your checklist
 
+## 2026-08-09, late — six lanes landed, and three audits refuted the prose over them
+
+`main` at `a60f4bb`. **1,732 tests**, ruff clean, tree clean. Nothing was
+deployed, no order was placed, no odds credit was spent, no gate was touched.
+
+**LIVE IS UNCHANGED and still runs `1d81d3c`.** Read independently from the
+browser this session, not inferred:
+
+    {"status":"ok","instance_mode":"live","live_trading_enabled":false,
+     "execution_available":false,"notifications_configured":true,
+     "live_quotes_available":true,"agent_fleet_configured":true,
+     "retired_settings_set":[]}
+
+**So `main` now carries code live has never run** — the market-result pass, the
+league warning, the bounded residue. None of it produces a row until a deploy,
+and a deploy is Joe's.
+
+### THE BLOCKER, and it is one tap
+
+Everything downstream of the signal test needs the live evidence record. There
+is **no local proxy**: `data/demo.db` is 100% synthetic on four independent
+tells (`event_links`, `fair_prices` and `kalshi_quotes` all zero rows against
+409 recommendations; all 400 scored rows carry `closing_line_id = NULL`, which
+the live path cannot produce; `strategy_configs` holds one row reading "seeded
+demo configuration"). **Every number in `data/lake/` and `data/warehouse.duckdb`
+is a number about generated data, including the "36 of 300" and "51 of 300" CLV
+buckets.**
+
+`middleware.ts` gates everything except `/api/health`, `/login`, `/session` and
+three static files, so an agent cannot read the record. Sign in at
+`kalshi-cockpit.fly.dev/login`, then `GET /api/ledger?limit=1000`.
+
+Five things only that answers:
+
+1. `clv_scored` **in games**, not rows. That is `n`, read before any effect size.
+2. `SELECT clv_horizon_hours, COUNT(*) ... WHERE clv_scored_ms IS NOT NULL
+   GROUP BY 1`. Both horizons present makes any pooled mean a mixture of two
+   regimes (ADR 0011).
+3. `SELECT reference_contracts > 0, COUNT(*) FROM recommendations GROUP BY 1`.
+   One distinct value is the tell that the actionable branch has never been taken.
+4. Whether `run_scoring_pass` has **ever** returned `scored > 0` on live. Two
+   prior runs recorded "249 joined, 249 skipped, 0 scored" and "unreadable_quotes:
+   20, scored: 0". Both bugs are fixed in source and **nobody has confirmed a
+   non-zero count.** If it is still zero, the top item becomes fixing scoring.
+5. `kalshi_quotes` bid coverage, for the pre-registration's P1.
+
+### Next, in order
+
+1. **The CLV signal test — registered, and the registration says WAIT.**
+   `docs/measurements/2026-08-09-preregistration-clv-signal-test.md` plus
+   Amendment 1. Against the Robbins boundary already in `gate.py`, the smallest
+   resolvable slope is 2.28 at G=40 and 1.00 at G=100 — where 1.0 is full
+   lossless pass-through, the ceiling of what can exist. **G=300 is the first
+   point it resolves anything decision-relevant**, arrived at independently and
+   landing on the gate's own floor. Run it when `n` is there, not before.
+2. **The maker histogram**, with the two pre-steps now written into ADR 0017
+   Addendum A: count the rows in the band first (nobody has), and say whether you
+   plotted the n=1 stored column or recomputed at n=10.
+3. **ADR 0016 Phase 0.** Candles and derived asks agree 51/51, so the price axis
+   is sound. Three conditions in
+   `docs/measurements/2026-08-09-candle-ask-reconciliation.md`, and it is still
+   time-critical: the Kalshi candlestick half expires at ~80 days.
+
+### The half-spread confound is dead, and by a bound rather than an estimate
+
+Measured on **219 games / 438 markets / 78,047 market-minutes**: the pre-game
+half-spread takes **exactly two values, 5 and 10 tenths, 99.71% at 5**. SD is
+0.27 per market-minute and **0.00 per game**. The spurious slope is 0.0007
+against the 0.16 the pre-registration assumed — off by ~230x.
+
+**The permanent part:** on a two-point support `{5, 10}`, `sd = sqrt(p(1-p))·5`,
+maximised at **2.5**. The assumed 4 is arithmetically impossible, so **no
+selection of this population can push the spurious slope above 0.0625.** P1 is
+demoted from blocking to reporting.
+
+**The one condition that brings it back:** if the recorder ever writes rows about
+**spreads or totals**. Those live-quote at sd 47.2 and sd 22.8 — over a hundred
+times the moneyline's — and stay wide inside 60 minutes of kickoff.
+
+Also: ADR 0006's "max 1.00c" was a small-`n` artefact. At 219 games, 0.29% of
+minutes quote 2c.
+
+### Decisions waiting on Joe
+
+- **The four fee-calibration trades.** ~$5, pre-authorised, unchanged. Still a
+  hard gate condition no amount of CLV can satisfy.
+- **NFL preseason.** 726 markets across 48 events are excluded, now explicitly
+  and with a warning rather than silently. **Including it is not a config
+  change.** `KXNFLGAME`/`KXNFLSPREAD`/`KXNFLTOTAL` each carry *both* league
+  strings with `competition_scope = "Game"` on both, so neither the ticker nor
+  the scope separates the populations — only `product_metadata.competition` does,
+  and nothing persists it per row. The only league cut in the analysis path joins
+  through `kalshi_series.league`, one row per series, **written on first insert
+  only** — so switching would freeze that row on whichever population was seen
+  first and relabel *both* sides, retroactively, at read time. Widening needs a
+  league column written at recommendation time plus a backfill decision.
+- **`backend/agents/skeptic.py`** hands the LLM Skeptic a net edge labelled
+  `claimed_edge_cents` beside `ask_cents` and `fair_cents`, whose difference is
+  the *gross* edge. Renaming that key changes a prompt, i.e. behaviour.
+- **`backend/settlement.py:171-180`** raises `SettlementRefused` on `determined`
+  markets carrying a result. It **cannot fire today** (`positions_awaiting_
+  settlement` reads `FROM orders`, live has zero) and activates the day the first
+  order exists. Note the premise that `determined` normally carries a populated
+  `result` is an **inference, not a measurement** — the capture holds zero
+  `determined` markets.
+
+### What landed
+
+- **`kalshi_markets.result` is written.** Declared in the schema, written by
+  nothing for the project's life. ~1,400 game markets a day get an outcome, bet
+  or not. **Calibration now has inputs; calibration is not yet possible** —
+  the column has zero readers, and `clv.py` and `mart_calibration` both read
+  `settlements`.
+- **Its residue is bounded.** One tied game went from 192 ERROR lines/day forever
+  to 2 total; a permanently stuck event from ~96 requests/day forever to zero
+  after 7 days. There is a real stuck one in our own capture, unresolved since
+  January.
+- **`edge_tenths` is net of fees**, and `schema.sql` said the opposite. Four more
+  column comments disagreed with their writers. `audit-2026-08-07.md` had already
+  found this as item 41 and recorded it **closed** — 41 bundled nine findings and
+  this one was skipped.
+- **ADR 0017 Addendum A**, with three of its own four numbers corrected by audit,
+  every error in the flattering direction.
+- **Combo E2**, corrected to what its audit supports, plus the follow-up that
+  separates the explanations: the engine term is **zero on 9 of 9 rows**, so the
+  disagreement is replica skew, not a pricing engine. One row's list quoted a
+  best NO bid of 0.7070 against the book's 0.4020 — a **30.5-cent** cross-
+  endpoint disagreement 0.71s apart.
+- **`pre-registrar`** joins the fleet. It owns the *before*; `measurement-skeptic`
+  owns the *after*.
+- **`test_has_callers` no longer counts a worktree copy as a caller.** It was
+  walking **132 backend `.py` files from other branches**, so a symbol whose only
+  caller lived on an unmerged branch passed on `main` — in the one file that
+  exists to catch code with no caller.
+
+### Read this before quoting any number above
+
+`measurement-skeptic` audited three documents and the arithmetic reproduced **to
+the digit** in every one. The conclusions were still wrong, because the inputs
+that came from outside the code were assumed and unlabelled. The lesson is in
+`tasks/lessons.md` — *arithmetic that reproduces to the digit says nothing about
+its inputs* — and the practical form is: label every number **computed from
+code**, **measured from data**, or **assumed**, and count the third kind.
+
+---
+
 ## 2026-08-09, ~19:30Z — the bankroll trap is fixed; the backfill cannot open the gate
 
 `main` at `1d81d3c`, **pushed, CI green, and DEPLOYED TO LIVE** (~19:48Z).
