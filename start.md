@@ -1,6 +1,6 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09 ~08:15Z, end of the session that removed the duplicate pass
+Written 2026-08-09 ~15:25Z, end of the session that removed the duplicate pass
 line, made exposure count the fee, found a fourth wrong wire key, built the
 Playbook screen, and discovered that the combo lookup Joe authorised never
 needed to be spent.
@@ -15,51 +15,82 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is `9ecd45c`, pushed, CI green on every push. **1,405 tests**, ruff
+`main` is `b3656a5`, pushed, CI green on every push. **1,405 tests**, ruff
 green, `next build` clean, six pages measured at 320/390/430 and looked at.
 
 **Demo is deployed and verified** on the current image: six pages 200,
 `instance_mode=demo`, `execution_available: false`, `/playbook` serving.
 
-**Live is NOT deployed** and is still on `f1fb326` (machine v25) — it does not
-carry any of this session's five changes. Nothing about them is urgent: the
-gate is locked, the order path is dry-run only, and the two money-path changes
-make it stricter rather than looser. **Deploying live is Joe's call.**
+**Live is on `e950c49`** (machine `7812601a239428`, pass 38 at 15:18Z, healthy).
+It does **not** carry this session's five changes. None is urgent: the gate is
+locked, the order path is dry-run only, and the two money-path changes make it
+stricter rather than looser. **Deploying live is Joe's call.**
 
     gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
 
-## The one number that matters, and it needs a full day
+## READ THIS FIRST — the gate did not accumulate, and the reason is new
 
-    gh workflow run Ops -f instance=live -f action=logs
+Read at 15:19Z on 2026-08-09, ~10 hours after the 20K odds key landed:
 
-Find `gate progress (24h)`. Last read (2026-08-09 05:36Z, two passes after the
-20K odds key landed): `actionable=0, no_edge=177, suppressed=270`.
+    15:18Z  gate progress (24h): actionable=0 of 300 needed, no_edge=177,
+            suppressed=271; suppressed by: stale_odds=254, too_few_books=63,
+            no_market_width=63, edge_within_method_noise=8, suspicious_edge=3
 
-The 20K tier fixed the real blocker — `stale_odds` was ~97% of suppressions and
-that was the 16-credit budget showing up as a row count. Over a full day, one of
-two things is now true:
+**`no_edge` is frozen at exactly 177**, the same figure recorded at 05:36Z. Not
+growing slowly — not moving at all, across ten hours and twenty-odd passes.
+`suppressed` creeps upward, `stale_odds` still dominates, `clv_rows_joined` is
+still 190 and `clv_scored` is 0 on every pass.
 
-- **`actionable` starts growing.** The gate is accumulating for the first time,
-  and the next question is `clv_rows_joined`, still pinned at 190.
-- **`actionable` stays 0 while `no_edge` climbs.** That is the project's answer,
-  honestly obtained, and worth as much as a yes. Say so plainly rather than
-  reaching for another knob. **Do not relax `MAX_ODDS_AGE_S` or a suppression
-  threshold** — that is how a fabricated edge enters the record.
+**The budget stopped binding and the scheduler took over the same day.** Every
+full pass from 13:47Z to 15:18Z reports a sweep decision of the form:
 
-Also check `stale_odds` has stopped dominating the breakdown. If it has not,
-sweeps are firing but not landing where the fixtures are, and `odds/timing.py`
-is the place to look.
+    no sweep: next slot is basketball_wnba at 15:45Z-16:15Z for 3 game(s)
+    from 16:30Z, sweeping 45-15 min before first kickoff
 
-## One verification still open, and it needs the odds window
+So the 400/day budget is barely touched. `odds/timing.py` only fires 45–15
+minutes before a fixture's kickoff, which is correct for freshness and means
+odds are stale for most of the day — and a full pass writes rows all day
+regardless. `events_linked` sat at 16 and `fair_prices_written` at 32 for the
+entire ten hours.
 
-The `discovery:` line was quietened on the quote cadence (`5907787`): full
-passes always print, quote passes only when the numbers change. **Proven by
-test, not yet observed on live** — quote passes only run while the window is
-open, and it closed minutes after that deploy.
+**That is the finding to carry, and it is a shape this repo already has a
+lesson about:** two limits on one quantity, and the tighter one wins in
+silence. The odds budget was relaxed 16 → 400 and the *next* constraint bound
+immediately, so the visible symptom (`stale_odds` dominating) never changed.
+Nobody multiplied out how many passes a slot-based scheduler leaves with fresh
+odds.
 
-When a window opens, check `discovery:` appears once per *full* pass and not
-once per quote pass. Until then it is pending, not confirmed. Note this needs
-**live** to be carrying the change; it does not yet.
+**What to do about it is a real decision, not a bug fix.** The honest options:
+
+1. **Accept it.** The tool is actionable in the pre-kickoff windows and nowhere
+   else, by design. Then `actionable=0` after a full day of *those windows* is
+   the answer, and 300 games is reached over weeks, not days.
+2. **Sweep more slots per sport.** Cheap — the budget has room. It trades
+   freshness at kickoff for coverage across the day, which is exactly the
+   trade `odds/timing.py` was written to refuse.
+3. **Change what the gate counts.** Only rows with fresh odds can be
+   `actionable`, and those exist for ~30 minutes per fixture.
+
+**Do NOT relax `MAX_ODDS_AGE_S` or any suppression threshold.** That is how a
+fabricated edge enters the record, and the record is the product.
+
+## The `discovery:` verification — answered, and the answer is "yes, but"
+
+Two quote passes are on the record (pass 34 at 14:18Z, pass 36 at 14:48Z) and
+**both printed a `discovery:` line**. That is not a defect: the line prints on a
+quote pass when its numbers change, and they did —
+
+    rejected not_game_level=7208 -> 7206 -> 7201 -> 7195 -> 7171 -> 7185
+
+`not_game_level` drifts every pass as markets close, so the change-detector
+almost never suppresses anything. **The mechanism works exactly as written and
+buys close to nothing**, because the dedupe key includes a counter that is never
+stable. If the volume matters, key it on the fields describing discovery's
+*answer* — `priceable events` and `unknown_scopes` — not on the reject counts.
+
+The volume worry is moot anyway: quote passes are rare now (2 of 7 recent
+passes), because the window is open so seldom. Same root cause as the section
+above.
 
 ## Still blocked on Joe, and it is the binding constraint
 
