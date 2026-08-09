@@ -1,6 +1,53 @@
 # Next — your checklist
 
-## READ FIRST (2026-08-09, latest) — the 20K tier is bought; the key is not installed
+## DEPLOYED (2026-08-09, 05:36Z) — the budget stopped being the constraint
+
+Key installed (machine v22, 05:33Z) and `f1fb326` deployed (v23). Gate locked,
+five pages 307, `/api/orders` 401. The first full pass on the new budget, beside
+the last one on the old:
+
+    old (05:34)  sweep_decision: no sweep: 12 of 16 credits spent
+                 events_linked 10   fair_prices_written 20   recommendations  4
+    new (05:36)  odds_sweeps 1      odds_quotes_stored 626
+                 events_linked 16   fair_prices_written 32   recommendations 24
+
+**A sweep fired on the first pass and 626 quotes landed.** Linked games up 60%,
+priced games up 60%, six times the recommendations. `alerts_sent: window_open`.
+
+And the window now *stays* open, which it almost never did: quote passes are
+running every ~22s continuously rather than for 15 minutes twice a day. That is
+the whole point of the change.
+
+`gate progress` moved in the right direction within two passes:
+
+    05:34  actionable=0  no_edge=161  suppressed=262
+    05:36  actionable=0  no_edge=177  suppressed=270  (+suspicious_edge=2)
+
+`no_edge` +16 is fresh odds producing honest "no bet here" answers on games that
+previously had nothing to price against. **`actionable` is still 0** — that is
+the real question and it now has a growing sample instead of a starved one.
+
+`suspicious_edge=2` is new and is *not* an opportunity: it is CLAUDE.md's first
+rule firing, two edges large enough to be a bug until proven otherwise.
+
+### Watch this, and it is a real cost of the change
+
+**Log volume.** A quote pass emits three lines (`discovery:`, `pricing pass:`,
+`pass N ok`) and now runs every ~22s — roughly **12,000 lines a day**, so the
+100-line `flyctl logs` buffer covers about twelve minutes. That directly erodes
+the readability won earlier today by collapsing the 962-line scope burst.
+
+It is correct operation rather than a bug, so it was not "fixed" reflexively.
+But the `discovery:` line is now pure repetition — identical numbers every 22s
+(`166 priceable events; unknown_scopes=965`) — and it was designed for a 900s
+cadence where printing every pass made silence distinguishable from absence.
+The cheapest honest fix: emit it on full passes, and on a quote pass only when
+its numbers *change*. Same argument, one cadence down. Not done; flagged here
+so the next session does not rediscover an unreadable log stream.
+
+---
+
+## Superseded (2026-08-09) — the 20K tier is bought; the key is not installed
 
 Two steps, in order, and step 1 is Joe's:
 

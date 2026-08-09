@@ -63,32 +63,31 @@ First pass: `recommendations: 4, suppressed: 4, surfaced: 0, unchanged_confirmed
 36`, `clv_scored: 0`, `rows_joined: 190`. See the CLV watch item below — 190 is
 the residue, and nothing new has scored yet.
 
-## Start here — two steps, in order. The first one is Joe's
+## Start here — one reading, after a full day
 
-**1. Install the new Odds API key.** The 20K tier is bought; the key is not
-installed anywhere. Live is still running the old free-tier key.
+The 20K key is installed and `f1fb326` is deployed (2026-08-09 05:36Z). The
+budget is no longer the constraint: the first pass fired a sweep, stored 626
+quotes, and took linked games 10 → 16 and recommendations 4 → 24. Detail at the
+top of `tasks/NEXT.md`.
 
-    bash scripts/setup_odds_key.sh
+    gh workflow run Ops -f instance=live -f action=logs
 
-Hidden entry, verifies against the live API before writing anything, reports
-`x-requests-remaining` so the tier is confirmed rather than assumed, writes
-`.env` and the Fly secret. The key never passes through an agent — a live Odds
-API key reached a transcript once and had to be rotated, and this provider takes
-its credential in a query string.
+**Read `gate progress (24h)`.** It moved `no_edge` 161 → 177 within two passes
+and `actionable` is still 0. Over a full day, one of two things is true:
 
-**2. Then deploy.** `main` carries `ODDS_DAILY_CREDIT_BUDGET = 400` (from 16)
-and a monthly ceiling of 13,000.
+- **`actionable` starts growing.** The gate is finally accumulating and the next
+  question is `clv_rows_joined`, still pinned at 190.
+- **`actionable` stays 0 while `no_edge` climbs into the thousands.** That is the
+  project's answer, honestly obtained, and it is worth as much as a yes. Say so
+  plainly rather than reaching for another knob.
 
-    gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
+**Also check `stale_odds`.** It should stop dominating the suppression
+breakdown. If it does not, the sweeps are firing but not landing where the
+fixtures are, and `odds/timing.py` is the place to look.
 
-**Deliberately not deployed yet**, though it was approved: the machine has not
-restarted since 04:37Z, so the wizard has not run, and 400/day against a
-500/month key would burn what is left of the free tier for nothing. Deploy after
-step 1.
-
-Then watch `gate progress (24h)` over a day. **`stale_odds` should fall sharply
-and `no_edge` rise.** That is the whole point of the change and it is measurable,
-not assumed.
+**And watch the log volume** — quote passes now run every ~22s, ~12,000 lines a
+day, so the 100-line buffer covers ~12 minutes. See the note in `NEXT.md`; the
+`discovery:` line is the redundant one.
 
 ### Also answered this session: candlestick retention is ~80 days
 
