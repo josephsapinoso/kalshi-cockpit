@@ -38,14 +38,30 @@ the last path by which anything could be scored.**
 
 This is [[two-limits-on-one-quantity]] on the one number the gate is built from.
 
-**Do not just change the horizon.** It decides what "the close" means, and it is
-the statistic the whole go-live decision rests on. It wants an ADR. The shape of
-the question: the closing line should be the last *pre-game* quote, and reading
-it at kickoff − 60 min while bets are placed at kickoff − 45 min has the
-ordering backwards. Options are a shorter primary horizon, an earlier sweep
-(costs actionability, since odds age out in 900s), or anchoring the close
-relative to the entry rather than to kickoff — each changes what CLV measures,
-which is exactly why it is not a one-line fix.
+**`docs/adr/0011` decides it. Not yet implemented** — the ADR is written and
+the code is unchanged.
+
+The close becomes the **last pre-game quote** (primary horizon 0, control 1.0h,
+which is where the ~34 already-scored rows sit). Shortening it is also the
+*conservative* direction, which was the surprise: a market sharpens toward
+kickoff, so scoring against a price an hour out was measuring against a weaker
+benchmark and would have flattered any result it ever produced.
+
+Four things to build, in order:
+
+1. `DEFAULT_HORIZON_HOURS = 0.0`, `CONTROL_HORIZON_HOURS = 1.0`. **Watch for
+   truthiness** — `0.0` is falsy and this repo has a lesson about zeros that
+   mean something. Grep every `if horizon` before trusting it.
+2. Schema v5: `recommendations.clv_horizon_hours`, backfilled `1.0` where
+   `clv_scored_ms IS NOT NULL`. Without it `clv_tenths` becomes a silent
+   mixture of two regimes.
+3. Clear `clv_tenths` / `clv_scored_ms` on the rows scored at 1.0h so they
+   re-score. Their `closing_lines` rows survive, so it is reversible.
+4. The composition test: fail if `primary_horizon + WINDOW_MINUTES` reaches back
+   past `max_odds_age_ms + due_window_ms` before kickoff. Express it as a
+   relationship between the four constants, not as `assert horizon == 0.0` —
+   pinning the value passes while someone widens the due window and rebuilds
+   the same collision from the other side.
 
 ---
 
