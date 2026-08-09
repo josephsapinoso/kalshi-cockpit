@@ -1,5 +1,54 @@
 # Next — your checklist
 
+## READ FIRST (2026-08-09) — the gate's counter cannot grow, and it is arithmetic
+
+Found while reading the live logs. **`clv_scored` has been 0 on every recent
+pass, and it is not a transient.** Two passes on record:
+
+    rows_joined: 228   scored: 0   skipped_entry_after_close: 228   (08-08)
+    rows_joined: 249   scored: 0   skipped_entry_after_close: 249   (08-09)
+
+The previous handoff flagged 228/228 as "worth a second look if it does not
+move". It moved to 249/249.
+
+**The composition, and neither number is wrong on its own:**
+
+| Quantity | Where | Value |
+|---|---|---|
+| Sweep fires at | `odds/timing.py`, `fire_until = anchor - max_odds_age_ms` | kickoff − 15 min |
+| ...through | `fire_from = fire_until - due_window_ms` | kickoff − 45 min |
+| Closing line read at | `scoring.py`, `target_ms = commence - horizon` | kickoff − 60 min |
+| Scoring requires | `clv.py`, `r.created_ms <= c.observed_ms` | entry before the close |
+
+A recommendation cannot exist before its odds sweep, so the **earliest** any row
+is created is kickoff − 45 min. The closing line is observed at kickoff − 60 min
+(earlier still, by up to `WINDOW_MINUTES`). So `created_ms <= observed_ms` is
+false for **every** row the scheduled sweep path produces, permanently.
+
+The gate needs **300 scored games**. On this path it will never reach one.
+
+**Why it was invisible, and why it is new.** Every counter reads healthy;
+`rows_joined` is nonzero and `skipped_entry_after_close` is faithfully reported
+— that counter was *added on purpose* so this case would be visible. It was
+visible. Nobody multiplied it out. And an earlier run really did score 34 rows,
+because before `odds/timing.py` landed the sweeps fired at arbitrary times, so
+some rows happened to land more than an hour before kickoff. **The scheduler fix
+— correct on its own terms, and the thing that made the tool actionable — closed
+the last path by which anything could be scored.**
+
+This is [[two-limits-on-one-quantity]] on the one number the gate is built from.
+
+**Do not just change the horizon.** It decides what "the close" means, and it is
+the statistic the whole go-live decision rests on. It wants an ADR. The shape of
+the question: the closing line should be the last *pre-game* quote, and reading
+it at kickoff − 60 min while bets are placed at kickoff − 45 min has the
+ordering backwards. Options are a shorter primary horizon, an earlier sweep
+(costs actionability, since odds age out in 900s), or anchoring the close
+relative to the entry rather than to kickoff — each changes what CLV measures,
+which is exactly why it is not a one-line fix.
+
+---
+
 ## HANDOFF (2026-08-09, ~00:10Z — the settlement path is built, nothing is deployed)
 
 **State:** 1,288 tests, ruff green, `dbt build` 11 nodes green, pushed. `main`
