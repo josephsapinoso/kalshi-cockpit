@@ -2480,3 +2480,137 @@ list. And test the *pair*, per [[the-zero-that-means-no-measurement]] — one
 assertion that the zero survives, one that an ordinary empty stage is still
 filtered, or the first passes against a serialiser that has abandoned filtering
 altogether.
+
+---
+
+## 2026-08-08 — A filter's vocabulary is not the field's vocabulary
+
+Before writing the settlement parser, 44 markets were captured off the live
+exchange. The first thing the capture said:
+
+    GET /markets?status=settled    ->  42 markets, every one status: "finalized"
+    GET /markets?status=finalized  ->  HTTP 400, "invalid status filter"
+
+The word you must send and the word you get back are **different words**, and
+each is rejected where the other is required.
+
+The obvious parser — `if market["status"] == "settled"` — matches zero markets.
+Not "sometimes fails": never matches, on any market, forever. And the symptom is
+`settled: 0`, which is exactly what a correct pass reports on a day when nothing
+has finished. A dead code path whose output is indistinguishable from a quiet
+one, which is [[the-websocket-path-was-dead]] rebuilt in a new place.
+
+Three more from the same 44 rows, each of which a reasonable person would have
+guessed wrong:
+
+- **`closed` is a durable third state**, not a step towards settlement. Two
+  markets closed 2026-02-03 and still carry no result six months on. "The game
+  is over" is not "the outcome is known", and a pass that conflates them either
+  hangs or invents a loser.
+- **`result` is `""` when unknown, never null** — so `if not result` reads a
+  live market as a settled one. [[kalshi-sends-0-0000-not-a-missing-field]]
+  again, on a different field.
+- **`expiration_time` is not a settlement instant.** It sits three days after
+  `close_time` on the sample game. `settlement_ts` is the real one, present on
+  42/42 finalized markets and absent on the closed ones.
+
+And one that confirmed a rule this repo already had, by measurement:
+`last_price_dollars` is `0.9900` or `0.0100` on **42 of 42** settled markets.
+`CLAUDE.md` warns that a settled market's last price has converged on the
+outcome; that is now a number rather than an assertion.
+
+**How to apply:** the standing rule is *capture the payload before writing the
+parser*. What this adds is where to point the capture: **at the states the code
+will branch on**, not at the state that happens to be available. Every other
+fixture in this repo holds only `active` markets, 247 of them, and not one of
+them could have said anything about settlement — a fixture directory can be
+large, real, and completely silent about the branch you are about to write. Ask
+which distinctions the new code turns on, and check the capture contains both
+sides of each.
+
+Corollary: when an API takes an enum as a filter *and* returns one in a field,
+they are two vocabularies until proven otherwise. One request settles it.
+
+---
+
+## 2026-08-08 — Adding a NOT NULL column silently disarms every `INSERT OR IGNORE`
+
+Schema v4 made `settlements.order_id` `NOT NULL`. `seed_demo.seed_history`
+inserted into that table with `INSERT OR IGNORE` and no `order_id`. So from that
+commit the seeder wrote **zero settlements** while returning
+`{"settlements": 400}`, and `mart_calibration` — which joins settlements — went
+quietly empty.
+
+The full test suite stayed green. `dbt build` stayed green, because an empty
+mart is a legal mart. The count in the output said 400.
+
+This file already carries the lesson (`INSERT OR IGNORE will happily ignore your
+fixture`) and it was read at the start of the same session. Reading it did not
+help, because the defect was not written here — it was **created at a distance**,
+by a schema change in another file that turned a working insert into a no-op
+without touching it.
+
+**How to apply:** the rule is not "avoid `OR IGNORE`", which was already known
+and already written down. It is a mechanical check with a trigger:
+
+> When adding a `NOT NULL` column to an existing table, grep for
+> `INSERT OR IGNORE INTO <that table>` and `INSERT OR REPLACE INTO <that table>`
+> across the whole repo, including seeders and tests. Every one of them is now
+> a silent no-op.
+
+`OR IGNORE` converts a schema mismatch into a plausible success, so the blast
+radius of a `NOT NULL` is every writer that uses it — and those writers are
+usually the ones nobody re-reads, because they "just seed fixtures".
+
+And the test that catches it has to assert the **rows**, never the returned
+count. The count was produced by the same loop that failed to insert, so it
+agrees with the bug perfectly. Same shape as
+[[computing-the-right-statistic-and-then-ignoring-it]]: two numbers from one
+path, and the flattering one is the one on screen.
+
+---
+
+## 2026-08-08 — Recovering structure by parsing free text, in a boot path
+
+`_MIGRATIONS` steps carry a tuple of SQL statements. Five separate readers
+recovered the index name each statement creates with
+
+    statement.split("EXISTS", 1)[1].split("ON", 1)[0].strip()
+
+which is correct for `CREATE UNIQUE INDEX IF NOT EXISTS <name> ON <table>(...)`
+and for nothing else. It held while every statement anyone had written was an
+index creation.
+
+The first step that is not — v4 rebuilds a table, so it carries `DROP TABLE IF
+EXISTS settlements` and `ALTER TABLE settlements_v4 RENAME TO settlements` —
+breaks all five. One of the five is `scripts/migrate_db.py`, which
+`entrypoint.sh` runs **before uvicorn, under `set -e`**. Verified by restoring
+the old parser and running it: `IndexError`, exit 1. That is a crash loop on the
+volume holding the evidence record, caused by adding a line to a table in a
+different file.
+
+This is the third instance of one shape in this repo, and naming the shape is
+the point:
+
+| Derivation | Broke when |
+|---|---|
+| `.dockerignore` allowlist, maintained by hand | the entrypoint ran a second script |
+| index name, parsed out of SQL | a migration did something other than an index |
+| exposure's list of *safe* statuses | a seventh status was added |
+
+Each was a **derivation of structured facts from an unstructured source**, right
+for every member of the class that existed when it was written.
+
+**How to apply:** declare, do not derive. The migration now carries `indexes`
+(names it must leave behind) and `undo_statements` (how to restore the previous
+shape); nothing parses SQL. The general test is: *if the class this code
+enumerates gains a member, does the code fail loudly or quietly do the wrong
+thing?* When the answer is "quietly", and the code runs at boot, the answer is
+also "crash loop".
+
+Corollary specific to migrations: a step that is not additive is not idempotent
+for free. Create-drop-rename replays safely at every interruption **except**
+after full success, where it recreates the temp table and drops the real one.
+The guard is a column whose presence means the step has landed — and the test
+that matters runs the migration twice over a database holding a row, because
+every other arrangement passes either way.
