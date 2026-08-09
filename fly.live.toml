@@ -107,8 +107,15 @@ primary_region = "ord"
   BANKROLL_DOLLARS = "100"
   KELLY_FRACTION = "0.25"
 
-  # `MIN_ORDER_CONTRACTS` is deliberately absent and `RiskConfig.load` now
-  # **raises** if it is set. Nothing replaced it, and nothing needed to: the
+  # `MIN_ORDER_CONTRACTS` is deliberately absent. If it is ever set,
+  # `RiskConfig.load` logs an ERROR on every load and the name appears in
+  # `retired_settings_set` on `/api/health` -- it **announces, and enforces
+  # nothing**. It must stay that way: raising here runs inside `create_app`,
+  # which uvicorn runs at boot, which `entrypoint.sh` supervises with `wait -n`.
+  # That is a crash loop landing *after* the volume has migrated, so an image
+  # rollback would not recover it either -- only `flyctl secrets unset` would,
+  # and flyctl is a laptop job while this tool is operated from a phone.
+  # Nothing replaced the setting, and nothing needed to: the
   # sizer already prices every candidate at the fee a SINGLE contract would pay,
   # which is the most expensive per-contract fee any size pays, so a positive
   # Kelly fraction already implies the order is +EV at whatever size it

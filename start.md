@@ -73,7 +73,10 @@ about why in one respect. Both are now settled and measured.
   and Model B is N-invariant. So Kelly > 0 already implies +EV at any size. My
   first draft replaced it with a whole-order EV re-check; that check **can never
   fire** and was deleted as decoration. The property is asserted as a test
-  instead. `MIN_ORDER_CONTRACTS` still set in an environment now **raises**.
+  instead. `MIN_ORDER_CONTRACTS` still set in an environment is **announced,
+  never fatal** — an ERROR on every load plus `retired_settings_set` on
+  `/api/health`. (This file said "raises" until 2026-08-09; that was corrected
+  in `1d81d3c` for the crash-loop reason below, and the prose lagged the code.)
 - **Caps re-scaled**: $10 / $40 / $10 at a $100 bankroll — the same 10/40/10
   fractions the $1,000 profile used. The handoff's "$15 / $40 / $25 reproduces
   the ratios" was arithmetically wrong.
