@@ -136,7 +136,7 @@ combination nobody has built.
   asks are recorded in the `--json` as of the last run, so one more harvest
   answers it:
 
-      .venv\Scripts\python.exe scripts\measure_combo_correlation.py           --pages 4 --rounds 55 --interval 60 --json out.json
+      .venv\Scripts\python.exe scripts\measure_combo_correlation.py --pages 4 --rounds 55 --interval 60 --json out.json
 
   Watch for the confound: a stale leg quote produces the same symptom.
 - **Research screen — do not build it yet.** It reads Scout findings; there is
