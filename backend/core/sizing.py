@@ -26,17 +26,29 @@ per contract against the large-order limit:
     80c        0.88c        0.08c
     90c        0.00c        0.00c
 
-Zero at 50c at *every* size, because both candidate models charge exactly 2c a
-contract there; real only at a single contract in the 20c/80c band; gone by five.
+Zero at 50c at *every* size, because the most expensive candidate model charges
+2c a contract there whatever the size; real only at a single contract in the
+20c/80c band; gone by five.
 
 **But the sizer was already paying it.** `effective_price` below charges the fee
 a *single* contract would pay, and that is the most expensive per-contract fee
-any order size pays — verified exhaustively over all 999 prices, sizes 1–200,
-maker and taker, with no exception. So `full_kelly_fraction > 0` at that price
+any order size pays. By proof rather than by enumeration, because the claim is
+about *every* size: Model A is `ceil_cent(a·N)`, and `ceil_cent(a·N) ≤
+ceil_cent(a)·N` since the right-hand side is a whole number of cents no smaller
+than `a·N`; Model B's per-contract fee does not depend on `N` at all. So
+`max(A, B)(N) / N ≤ fee(1)` for all `N`.
+
+Note the shape: the per-contract fee is **maximised at N=1**, not monotonically
+decreasing. At 30c taker it runs 2.00c, 1.50c, 1.67c for N = 1, 2, 3. Only the
+maximum matters here, and calling it monotonic would be a stronger claim than is
+true. So `full_kelly_fraction > 0` at that price
 already implies the whole order is +EV at any size it produces. The minimum was
 not preventing negative-EV orders; **it was refusing positive-EV ones**, and
-below about a $300 bankroll it refused every order this tool can produce, by
-returning a plausible zero that nothing on any screen explained.
+below about a $250 bankroll it closed the 50c band entirely -- the band this
+strategy trades -- by returning a plausible zero that nothing on any screen
+explained. The far wings stayed open, which is worse rather than better: they
+are where the fee is largest as a share of stake and where the devig methods
+disagree most, so the only prices left were the least believable ones.
 
 The property that makes its removal safe is asserted directly, in
 `TestSmallOrdersNeedNoMinimum` — if a future fee model ever makes a large order

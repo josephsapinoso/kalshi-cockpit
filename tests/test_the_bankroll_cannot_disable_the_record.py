@@ -5,13 +5,19 @@ it exists to catch shipped as a one-line edit that looked obviously right:
 `BANKROLL_DOLLARS` from 1000 to 100, matching the operator's real bankroll. What
 that would have done, silently:
 
-- Quarter-Kelly at $100 sizes below one contract on every edge this tool finds,
-  so `suggested_contracts` is 0 on every row.
+- Quarter-Kelly at $100 sizes below one contract across the 50c band -- the
+  band this strategy trades -- so `suggested_contracts` is 0 on those rows.
 - `gate.POPULATIONS["actionable"]` was defined on `suggested_contracts > 0`, so
-  the `actionable` count would be **structurally 0 forever**.
-- The 300-game floor could therefore never increment, however long the system
-  ran, and the Gate screen would go on reading "0 of 300, keep recording" --
-  a message that is true, unfalsifiable, and points at the wrong thing.
+  the `actionable` count would be confined to the far wings. Measured after the
+  fact by `measurement-skeptic`: 204 of 999 asks survive, all of them at
+  0.1-10.1c or 88.1-98.8c.
+- The 300-game floor could therefore not realistically increment, and what did
+  accumulate would be drawn entirely from the prices this project has the most
+  reason to distrust -- the wings are where the fee is largest as a share of
+  stake and where the devig methods disagree most. That is worse than an honest
+  zero, because it produces evidence rather than silence.
+- The Gate screen would go on reading "0 of 300, keep recording" -- a message
+  that is true, unfalsifiable, and points at the wrong thing.
 
 Nothing would have errored. No test was red. The counter would simply have
 stopped being able to move, and the one screen that reports progress would have
@@ -280,8 +286,8 @@ class TestTheRemovedSettingRefusesRatherThanBeingIgnored:
     def test_setting_min_order_contracts_now_raises(self, monkeypatch):
         """A removed setting still in an environment must not be silent.
 
-        It was load-bearing and wrong: below roughly a $300 bankroll it refused
-        every order this tool can produce. Someone re-adding it to a `.env` or a
+        It was load-bearing and wrong: below roughly a $250 bankroll it closed
+        the 50c band, where this strategy trades. Someone re-adding it to a `.env` or a
         fly config after reading an old handoff must be told, not ignored.
         """
         monkeypatch.setenv("MIN_ORDER_CONTRACTS", "10")

@@ -18,7 +18,7 @@
 with fills as (
 
     select *
-    from read_parquet('../data/lake/fills/**/*.parquet', hive_partitioning = true)
+    from read_parquet('../data/lake/fills/**/*.parquet', hive_partitioning = true, union_by_name = true)
     where fee_actual is not null
 
 ),

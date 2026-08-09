@@ -3181,15 +3181,24 @@ real — 0.88c per contract on a single contract at 20c.
 
 **And the sizer was already paying it.** `effective_price` charges the fee a
 *single* contract would pay, which is the most expensive per-contract fee any
-size pays — verified exhaustively across all 999 tradeable prices, sizes 1–200,
-maker and taker, with no exception. `full_kelly_fraction > 0` holds exactly when
+size pays -- by proof, not enumeration: Model A is `ceil_cent(a*N)` and
+`ceil_cent(a*N) <= ceil_cent(a)*N`, while Model B's per-contract fee does not
+depend on `N`. (The first write-up of this cited an enumeration over sizes
+1-200. An enumeration cannot establish a claim about all sizes, and
+`measurement-skeptic` said so.) `full_kelly_fraction > 0` holds exactly when
 `fair > price + fee(1)`, and `EV(N) > 0` holds exactly when
 `fair > price + fee(N)/N`, so monotonicity makes the first imply the second at
 every size. The minimum was **refusing positive-EV orders**, not preventing
 negative-EV ones.
 
-Below about a $300 bankroll it refused *every* order the tool can produce, and
-it did so by returning a plausible zero that no screen explained.
+Below about a $250 bankroll it closed the 50c band -- where this strategy trades
+-- and it did so by returning a plausible zero that no screen explained. **Not
+every order**: 204 of the 999 asks survived, all at 0.1-10.1c or 88.1-98.8c.
+That is worse rather than better. The wings are where the fee is largest as a
+share of stake and where the devig methods disagree most, so the guard did not
+switch the counter off -- it restricted the evidence to the least believable
+prices on the board, which produces a record instead of a silence. The first
+two write-ups of this said "every order" and had to be corrected.
 
 **Why it survived:** the justification was sound and was checked. Nobody asked
 the next question — whether the code downstream of the justification had already
@@ -3224,10 +3233,10 @@ silently ignoring it would leave everyone's mental model intact.
 The gate counted `suppressed_reason IS NULL AND suggested_contracts > 0`.
 `suggested_contracts` is sized against the operator's bankroll. So the size of
 the deposit decided what counted as **evidence**, and at the real bankroll of
-$100 quarter-Kelly sizes under one contract on every edge this tool finds —
-making the counter structurally zero, the 300-game floor unreachable however
-long the system ran, and the Gate screen's "0 of 300, keep recording" true,
-unfalsifiable, and pointing at the wrong thing.
+$100 quarter-Kelly sizes under one contract across the 50c band -- confining the
+counter to the far wings, making the 300-game floor unreachable in practice, and
+leaving the Gate screen's "0 of 300, keep recording" true, unfalsifiable, and
+pointing at the wrong thing.
 
 Nothing would have errored. No test was red. The one screen reporting progress
 would have described a dead counter as progress.
@@ -3254,4 +3263,58 @@ Two supporting rules that fell out of it, both worth carrying:
 - **A screen must say which question its number answers.** "Actionable" reads as
   "you can buy this". At a small bankroll it does not mean that, and the Gate
   screen now says so in words. Related:
+  [[computing-the-right-statistic-and-then-ignoring-it]].
+
+---
+
+## 2026-08-09 — An enumeration is not a proof, and "every" is the word to distrust
+
+`measurement-skeptic` audited a finding that was good news and returned five
+factual corrections. Every one is the same shape: **a true observation restated
+one notch stronger than the evidence carried.**
+
+    written                                        true
+    ------------------------------------------     ---------------------------
+    "verified exhaustively, sizes 1-200"           an enumeration over a range,
+                                                   attached to a claim about
+                                                   all sizes
+    "monotonic"                                    maximised at N=1; at 30c the
+                                                   per-contract fee runs
+                                                   2.00, 1.50, 1.67
+    "refused every order the tool can produce"     204 of 999 asks survived
+    "the ranges intersect by a tenth of a point"   up to 3.0c of room at 98c
+    "break-even is roughly $300"                   $250, closed form
+    "the two regimes stay separable"               the fingerprint did not
+                                                   include the parameter
+    "all three caps were inherited"                two were; one was set
+
+None of these changed the decision. Three of them changed what the decision
+*rests on*, and one — the intersection — inverted the argument: the guard was
+not switching the counter off, it was restricting the evidence to the wings,
+where the fee is largest as a share of stake and the devig methods disagree
+most. Producing evidence from the least believable prices is worse than
+producing none, and the tidier "refuses everything" story hid that.
+
+**Why it happens:** a summary is written after the work, from memory of the
+result rather than from the output. Every one of these started as something
+measured and became a sentence with a stronger quantifier. The direction is
+never random — it is always toward the cleaner story, because a clean story is
+easier to write and reads as more confident.
+
+**How to apply:**
+
+- **Distrust "every", "always", "never", "structurally", "by construction".**
+  Each is a universal claim. Before writing one, ask what would have to be true
+  across the *whole* domain and whether that was checked or assumed. If the
+  evidence is an enumeration, say the range and say it is an enumeration.
+- **An enumeration over a range cannot support a claim about the range's
+  complement.** Either state the bound that was checked, or find the proof. Here
+  the proof was two lines (`ceil_cent(a*N) <= ceil_cent(a)*N`) and strictly
+  better than the 200-point sweep it replaced.
+- **When a guard "refuses everything", ask what it does *not* refuse.** That set
+  is the finding. It was 204 asks, all at the wings, and it is the part that
+  matters.
+- **Audit the good news, and audit the write-up, not just the number.** The
+  measurements here were right. The prose about them was wrong five times.
+  Related: [[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
   [[computing-the-right-statistic-and-then-ignoring-it]].

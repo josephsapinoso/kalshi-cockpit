@@ -30,10 +30,15 @@ Running that function directly across bankrolls, at the deployed
        250    50c   0.54        0      True    below_min_order_contracts
        100    50c   0.54        0      True    below_min_order_contracts
 
-So at $100 every row is refused, `actionable` is **structurally 0 forever**, the
-300-game floor can never increment however long the system runs, and the Gate
-screen goes on reporting *"0 of 300, keep recording"* — a statement that is
-true, unfalsifiable, and points at the wrong thing.
+So at $100 the 50c band -- the band this strategy trades -- is closed
+completely, and what survives is only the far wings (quantified below). The
+300-game floor cannot realistically increment, and the Gate screen goes on
+reporting *"0 of 300, keep recording"* -- a statement that is true,
+unfalsifiable, and points at the wrong thing.
+
+An earlier draft of this paragraph said "every row is refused" and "structurally
+0 forever". That is wrong and the correction is below; it survived into a commit
+message before the audit caught it.
 
 ### Two limits on one quantity, again
 
@@ -49,14 +54,28 @@ bankroll the minimum **net edge** needed to reach ten contracts, solved from
 
 against `edge_ceiling_tenths = 40` (4c), above which an edge is suppressed as a
 suspected defect. **At the 50c band the two ranges do not intersect**: no price
-on the board carries an edge simultaneously large enough to size and small
-enough to be believed. Only the extreme wings intersect at all, and there by a
-tenth of a point — a 3.9-point edge on a 10c contract is a 39% relative edge,
-which the ceiling exists to reject. Break-even for the 50c band is a bankroll of
-roughly $300.
+there carries an edge simultaneously large enough to size and small enough to be
+believed. Break-even for the 50c band is a bankroll of **$250** —
+`B >= 10 * 0.52 * 0.48 / 0.04 = 249.6`.
 
-*(The handoff put the wings at "no intersection". The refinement is above: the
-intersection is not empty, it is one tenth of a point wide at the far wing.)*
+**Corrected after audit, and the correction matters.** An earlier draft of this
+ADR said the wings intersect "by a tenth of a point" and that at $100 *every*
+row is refused. `measurement-skeptic` scanned the whole board and refuted both:
+**204 of the 999 asks** admit ten contracts at $100 with a post-fee edge inside
+the ceiling -- asks 0.1-8.6c, 9.2-10.1c, and 88.1-98.8c -- with up to **3.0c**
+of room at 98c. So `actionable` was not structurally zero; it was confined to
+the far wings.
+
+That is not a reprieve. The wings are where the fee is largest as a share of
+stake (1c on a 10c contract is 10%) and where the devig methods disagree most
+(2.03 points on a longshot against 0.18 on an even line, measured). The old
+minimum did not switch the counter off -- it **restricted the counter to the
+prices this project has the most reason to distrust**, which is worse than
+switching it off, because it produces evidence rather than silence.
+
+*(The handoff said the ranges do not intersect anywhere. They do, at the wings.
+The handoff and this ADR's first draft were wrong in the same direction: too
+tidy.)*
 
 ## Decision
 
@@ -75,24 +94,36 @@ against the large-order limit:
     50c        0.00c        0.00c
     80c        0.88c        0.08c
 
-Zero at 50c at *every* size, because both candidate models charge exactly 2c a
-contract there.
+Zero at 50c at *every* size, because the most expensive candidate charges 2c a
+contract there whatever the size. (Model A alone tends to 1.75c in the limit;
+`calculate_fee` returns the maximum across models, and it is the maximum that is
+charged.)
 
 **But the sizer was already paying it.** `effective_price` charges the fee a
 *single* contract would pay, and that is the most expensive per-contract fee any
-order size pays — verified exhaustively over all 999 tradeable prices, sizes
-1–200, maker and taker, with no exception. Since `full_kelly_fraction > 0` holds
-exactly when `fair > effective_price(ask, 1)`, and `EV(N) > 0` holds exactly
-when `fair > price + fee(N)/N`, monotonicity makes the first imply the second at
-every size.
+order size pays. **By proof, not by enumeration** -- the claim is about every
+size, and enumerating sizes 1-200 does not establish it. Model A is
+`ceil_cent(a*N)`, and `ceil_cent(a*N) <= ceil_cent(a)*N` because the right-hand
+side is a whole number of cents no smaller than `a*N`; Model B's per-contract
+fee does not depend on `N`. Hence `max(A, B)(N) / N <= fee(1)` for all `N`. The
+enumeration was run anyway, out to N = 10^6, and found no violation.
+
+Both halves are exact identities rather than approximations, which is what lets
+them compose: `full_kelly_fraction > 0` iff `fair > effective_price(ask, 1)`,
+and `EV(N) > 0` iff `fair > effective_price(ask, N)`. The maximum above then
+makes the first imply the second at every size.
+
+Note the property is **maximised at N=1**, not monotonic -- at 30c taker the
+per-contract fee runs 2.00c, 1.50c, 1.67c for N = 1, 2, 3. Only the maximum is
+load-bearing, and "monotonic" would be a stronger claim than is true.
 
 So the minimum was **not preventing negative-EV orders. It was refusing
-positive-EV ones**, and below roughly $300 it refused every order this tool can
-produce.
+positive-EV ones**, and below roughly $250 it closed the 50c band this strategy
+trades, leaving only the wings.
 
 The first draft of this change replaced it with a whole-order EV re-check inside
-`size_position`. That was **decoration**: given the monotonicity above it can
-never fire. It was deleted and replaced with a test asserting the property —
+`size_position`. That was **decoration**: given the maximum above it can never
+fire. It was deleted and replaced with a test asserting the property —
 `TestSmallOrdersNeedNoMinimum` — so that if a future fee model ever charges a
 large order more per contract than a single one, a test goes red rather than a
 negative-EV order going quietly out. This repo has learned to recognise a guard
@@ -110,9 +141,11 @@ is recorded rather than hidden.
 
 ### 2. The caps are re-scaled with the bankroll, at constant fractions
 
-`max_position_dollars`, `max_exposure_dollars` and `max_daily_loss_dollars` were
-never set in `fly.live.toml` at all — they were inherited from the code defaults
-of 100 / 400 / 100, which at $1,000 are **10% / 40% / 10%**. Lowering the
+`max_position_dollars` and `max_exposure_dollars` were never set in
+`fly.live.toml` at all -- they were inherited from the code defaults of 100 and
+400. (`MAX_DAILY_LOSS_DOLLARS` *was* set, to 100; an earlier draft of this ADR
+said all three were inherited and was wrong.) At $1,000 the three are
+**10% / 40% / 10%**. Lowering the
 bankroll alone would have left a position cap equal to 100% of the account, an
 exposure cap of 400%, and a daily loss limit that could only fire after the
 whole week was gone. A safety system that cannot bind is worse than none,
@@ -152,9 +185,18 @@ Four details that are decisions rather than mechanics:
   Whether a game is evidence must not depend on what else happened to be open.
 - **`kelly_fraction` and `max_order_contracts` are carried through, not
   replaced.** Those are strategy parameters, not facts about the account, so
-  changing one *should* move the counter — and `strategy_config_version` records
-  which version wrote each row, so the two regimes stay separable. A deposit is
-  recorded nowhere and never could be.
+  changing one *should* move the counter -- and `strategy_config_version` must
+  then segment the record.
+
+  **It did not, and this ADR originally claimed it did.** The fingerprint in
+  `runner.py` covered `suppression` and `kelly_fraction` and nothing else, so
+  `max_order_contracts` and the reference constants could change without minting
+  a version. Fixed alongside this correction: the fingerprint now carries every
+  input the counted column depends on, and deliberately excludes
+  `bankroll_dollars` and the three dollar caps -- they cannot reach that column,
+  and including them would mint a new version every time the running balance
+  moved, shredding the record for a reason that has nothing to do with
+  strategy.
 - **The depth check runs at the larger of the two sizes.** The reference order
   is usually the bigger one, and letting a row count toward the floor at a size
   the book could not have filled is the flattering direction.
@@ -172,12 +214,24 @@ changing what it counts, and this changes what it counts.
   `suggested_contracts`, including the agent fleet's veto in
   `with_added_suppression`.
 - `fee_model_verified` and `LIVE_TRADING_ENABLED` are untouched.
-- **On the $1,000 deployment that wrote the existing record, the two columns are
-  equal by construction.** The v6 migration backfills `reference_contracts` from
-  `suggested_contracts`, which is an identity for every row that exists when it
-  runs, not an estimate. It stops being an identity the moment the deployed
-  bankroll changes — which is the next thing that happens, and is the point of
-  the column. `IS NULL` is what keeps the two populations apart.
+- **The v6 backfill copies `suggested_contracts` into `reference_contracts`,
+  and the defence is that no population can move -- not that the two sizings
+  agree.** An earlier draft claimed the latter and it is false: the existing
+  rows were written by a sizer carrying `min_order_contracts = 10`, which stored
+  0 (and `suppressed_reason = "sizing:below_min_order_contracts"`) wherever it
+  sized 1-9 contracts, while the reference sizer has no minimum and would now
+  yield 1-9 there. The backfill preserves the **recorded** value, so no row
+  changes population and no counted zero becomes a counted one. That is the safe
+  direction and it is the reason to accept it.
+
+  One divergence is **unverified**: the reference sizing pins
+  `current_exposure_dollars` at 0 while the live sizer passed real dry-run
+  exposure. It can only bite above ~$300 of open exposure against the $400 cap,
+  and there is no live database in the repo to check against. `data/demo.db`
+  carries 409 rows with `reference_contracts == suggested_contracts` throughout.
+
+  Rows written *after* the migration carry a real `reference_contracts` from the
+  engine, and `IS NULL` is what keeps the two populations apart.
 
 So this changes **nothing** about the evidence already on the record, and stops
 a future deposit change from rewriting what that record means.

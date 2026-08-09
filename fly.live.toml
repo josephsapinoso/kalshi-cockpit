@@ -103,14 +103,17 @@ primary_region = "ord"
   # `actionable` counter is scored against a reference bankroll fixed in code
   # (`config.REFERENCE_*`), for the reason in `docs/adr/0015`: defining it here
   # let the size of the deposit decide what counted as evidence, and at $100 it
-  # decided "none of it", silently and forever.
+  # closed the 50c band this strategy trades, leaving only the far wings.
   BANKROLL_DOLLARS = "100"
   KELLY_FRACTION = "0.25"
 
   # `MIN_ORDER_CONTRACTS` is deliberately absent and `RiskConfig.load` now
-  # **raises** if it is set. It was a price-independent constant standing in for
-  # a price-dependent quantity, and at this bankroll it refused every order the
-  # tool could produce. The whole-order EV check in `core.sizing` replaced it.
+  # **raises** if it is set. Nothing replaced it, and nothing needed to: the
+  # sizer already prices every candidate at the fee a SINGLE contract would pay,
+  # which is the most expensive per-contract fee any size pays, so a positive
+  # Kelly fraction already implies the order is +EV at whatever size it
+  # produces. At this bankroll the constant closed the 50c band entirely and
+  # left only the far wings, where an edge is least believable. See ADR 0015.
 
   # Re-scaled with the bankroll, at the same fractions the $1,000 profile used:
   # 10% in one market, 40% at risk at once, 10% lost in a day before the kill

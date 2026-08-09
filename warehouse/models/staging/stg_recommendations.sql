@@ -10,10 +10,22 @@
 -- here, once, at the edge of the warehouse. Doing it in each mart would mean
 -- the conversion existing in five places, which is five places for it to drift.
 
+-- `union_by_name = true` is load-bearing, not tidiness. Each publish writes a
+-- full snapshot into a dated partition, so the lake holds partitions written
+-- before and after any schema change. Positional union makes the *first* added
+-- column a hard failure of the whole warehouse -- `Binder Error: Referenced
+-- column not found`, from adding a column in a different subsystem. By name,
+-- an older partition simply carries NULL there, and the dedupe below keeps only
+-- the newest view of each row, which has the column. Found by adding
+-- `reference_contracts`; it would have broken on whatever came next regardless.
 with source as (
 
     select *
-    from read_parquet('../data/lake/recommendations/**/*.parquet', hive_partitioning = true)
+    from read_parquet(
+        '../data/lake/recommendations/**/*.parquet',
+        hive_partitioning = true,
+        union_by_name = true
+    )
 
 ),
 
@@ -52,13 +64,24 @@ select
     ev_net_dollars,
     kelly_fraction,
     suggested_contracts,
+    -- The size at the fixed reference profile, which is what the gate counts.
+    -- Carried into the warehouse so a mart can reproduce the gate's population
+    -- rather than approximating it from the operator's size -- those two agree
+    -- only while the deployed bankroll equals the reference one. ADR 0015.
+    reference_contracts,
 
     kalshi_quote_age_ms,
     odds_age_ms,
 
     suppressed_reason,
     reason_text,
+    -- **Two flags, because there are two questions.** `was_surfaced` is what
+    -- the operator could have bought at the bankroll of the day; `was_actionable`
+    -- is whether the strategy had a bet at all, and is the gate's population.
+    -- They agree only while the deployed bankroll equals the reference one, and
+    -- a mart that pooled them would read a deposit change as a strategy change.
     suppressed_reason is null and suggested_contracts > 0 as was_surfaced,
+    suppressed_reason is null and reference_contracts > 0 as was_actionable,
     suppressed_reason is not null as was_suppressed,
 
     clv_tenths,

@@ -195,9 +195,11 @@ class OddsConfig:
 # about what the operator may buy, so it moves with the deposit; the gate's
 # `actionable` counter was defined on it, so the deposit decided what counted as
 # evidence. At a $100 bankroll against the deployed caps that counter is
-# structurally zero — quarter-Kelly on the edges this tool finds sizes below one
-# contract — so the 300-game floor could never increment and the Gate screen
-# would go on saying "0 of 300, keep recording" without naming the cause.
+# confined to the far wings -- quarter-Kelly on the edges this tool finds sizes
+# below one contract across the 50c band -- so the 300-game floor could not
+# realistically increment, and what evidence did accumulate would come only from
+# the prices this project has the most reason to distrust. The Gate screen would
+# go on saying "0 of 300, keep recording" without naming the cause.
 #
 # These are the values the live record was accumulated under, so scoring the
 # counter against them changes nothing about the rows already written and stops
@@ -230,7 +232,8 @@ class RiskConfig:
     def load(cls) -> "RiskConfig":
         # `MIN_ORDER_CONTRACTS` was removed, not renamed, and a removed setting
         # still sitting in someone's environment must not be silently ignored --
-        # this one refused every order at any bankroll under ~$300, and it did
+        # this one closed the 50c band -- where the strategy trades -- at any
+        # bankroll under ~$250, and it did
         # it by returning a plausible zero.
         if os.getenv("MIN_ORDER_CONTRACTS", "").strip():
             raise ConfigError(
@@ -241,8 +244,10 @@ class RiskConfig:
                 "per-contract fee any size pays, so a positive Kelly fraction "
                 "already implies the order is +EV at whatever size it produces. "
                 "The minimum was refusing positive-EV orders, not preventing "
-                "negative-EV ones, and below roughly a $300 bankroll it refused "
-                "every order this tool can produce. Remove the variable."
+                "negative-EV ones. Below roughly a $250 bankroll it closed the 50c "
+                "band entirely -- the band this strategy trades -- leaving only "
+                "the far wings, where an edge is least believable. Remove the "
+                "variable."
             )
         return cls(
             bankroll_dollars=_float("BANKROLL_DOLLARS", 1000.0),

@@ -76,10 +76,16 @@ def add_rec(
         "INSERT INTO recommendations ("
         "created_ms, strategy_config_version, ticker, side, entry_ask_tenths, "
         "fair_probability, edge_tenths, fee_predicted, ev_net_dollars, "
-        "kelly_fraction, suggested_contracts, kalshi_quote_age_ms, "
+        # `reference_contracts` mirrors `suggested_contracts`: these fixtures
+        # stand for a record written at the reference profile, and the Playbook
+        # screen counts `actionable` off the reference column so that comparing
+        # two strategy versions cannot pick up a deposit change. ADR 0015.
+        "kelly_fraction, suggested_contracts, reference_contracts, "
+        "kalshi_quote_age_ms, "
         "odds_age_ms, suppressed_reason, reason_text, clv_scored_ms"
-        ") VALUES (?, ?, ?, 'yes', 500, 0.5, 0, 0.01, 0.0, 0.0, ?, 0, 0, ?, '', ?)",
-        (NOW, version, ticker, contracts, suppressed, NOW if scored else None),
+        ") VALUES (?, ?, ?, 'yes', 500, 0.5, 0, 0.01, 0.0, 0.0, ?, ?, 0, 0, ?, '', ?)",
+        (NOW, version, ticker, contracts, contracts, suppressed,
+         NOW if scored else None),
     )
     conn.commit()
 

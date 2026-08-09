@@ -217,8 +217,8 @@ class TestSmallOrdersNeedNoMinimum:
     real. **The sizer was already paying it**: `effective_price` charges the fee
     a single contract would pay, and that is the most expensive per-contract fee
     any size pays. So the minimum was refusing +EV orders rather than preventing
-    -EV ones -- and below roughly a $300 bankroll it refused every order this
-    tool can produce, silently, by returning a plausible zero.
+    -EV ones -- and below roughly a $250 bankroll it closed the 50c band, where
+    this strategy trades, silently, by returning a plausible zero.
 
     These assert the property that makes the deletion safe rather than the
     deletion itself. If a future fee model ever charges a large order MORE per

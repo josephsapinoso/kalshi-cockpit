@@ -20,7 +20,7 @@ with settled as (
         s.pnl_cents,
         case when s.result = r.side then 1 else 0 end as won
     from {{ ref('stg_recommendations') }} r
-    join read_parquet('../data/lake/settlements/**/*.parquet', hive_partitioning = true) s
+    join read_parquet('../data/lake/settlements/**/*.parquet', hive_partitioning = true, union_by_name = true) s
       on s.ticker = r.ticker
 
 ),

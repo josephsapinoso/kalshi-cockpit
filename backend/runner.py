@@ -59,7 +59,14 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
 from .agents.review import ReviewCandidate, review_surfaced
-from .config import OddsConfig, RiskConfig
+from .config import (
+    REFERENCE_BANKROLL_DOLLARS,
+    REFERENCE_MAX_DAILY_LOSS_DOLLARS,
+    REFERENCE_MAX_EXPOSURE_DOLLARS,
+    REFERENCE_MAX_POSITION_DOLLARS,
+    OddsConfig,
+    RiskConfig,
+)
 from .core.devig import DevigError, consensus_devig
 from .core.suppression import SuppressionConfig
 from .engine import (
@@ -518,6 +525,29 @@ def run_pricing_pass(
         {
             "suppression": suppression.__dict__,
             "kelly_fraction": risk.kelly_fraction,
+            # Everything the **counted** column depends on, and nothing else.
+            #
+            # `reference_contracts` is what `gate.POPULATIONS` counts, and it is
+            # sized from the reference profile plus these two strategy
+            # parameters. A change to either moves the counter, so it has to
+            # mint a new version or the record silently mixes two regimes --
+            # ADR 0015 claimed it already did, and it did not: `kelly_fraction`
+            # was here and `max_order_contracts` and the reference constants
+            # were not. Found by `measurement-skeptic` auditing that claim.
+            #
+            # `bankroll_dollars` and the three dollar caps are deliberately
+            # **excluded**. They cannot reach the counted column -- that is the
+            # whole point of the reference profile -- and including them would
+            # mint a new strategy version every time the running balance moved,
+            # shredding the record into unpoolable fragments for a reason that
+            # has nothing to do with strategy.
+            "max_order_contracts": risk.max_order_contracts,
+            "reference_profile": [
+                REFERENCE_BANKROLL_DOLLARS,
+                REFERENCE_MAX_POSITION_DOLLARS,
+                REFERENCE_MAX_EXPOSURE_DOLLARS,
+                REFERENCE_MAX_DAILY_LOSS_DOLLARS,
+            ],
             "prices": "moneyline only",
             # Part of the config so a change to the recording rule mints a new
             # strategy version and the record segments on it, rather than

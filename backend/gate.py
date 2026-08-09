@@ -19,9 +19,9 @@ Five conditions, and all must hold:
 
    **"Would have bet" is judged at a reference bankroll fixed in code, not at
    the operator's.** Defining it on the operator's size let the deposit decide
-   what counted as evidence: below about $300, quarter-Kelly on the edges this
-   tool finds sizes under one contract, so `actionable` is structurally zero and
-   the floor can never increment however long the system runs. The balance in
+   what counted as evidence: below about $250, quarter-Kelly on the edges this
+   tool finds sizes under one contract across the 50c band, so `actionable` is
+   confined to the far wings and the floor cannot realistically increment. The balance in
    the account is not evidence about whether this system can pick. That is
    `two-limits-on-one-quantity` landing on the single number the gate is built
    from. See `docs/adr/0015`.
@@ -290,9 +290,12 @@ def _cluster_robust_stderr(
 # point of the column.** These predicates decide what counts as evidence, and
 # `suggested_contracts` is a statement about the operator's deposit: at a $100
 # bankroll quarter-Kelly sizes below one contract on every edge this tool
-# actually finds, so `actionable` would be structurally 0 forever, the 300-game
-# floor could never increment, and the Gate screen would go on reporting "0 of
-# 300, keep recording" without ever naming the cause. A deposit is not evidence
+# actually finds across the 50c band, so `actionable` would be confined to the
+# far wings, the 300-game floor could not realistically increment, and the Gate
+# screen would go on reporting "0 of 300, keep recording" without ever naming
+# the cause. Worse than silence: the wings are where the fee is largest as a
+# share of stake and where the devig methods disagree most, so the surviving
+# evidence would be drawn from the least believable prices on the board. A deposit is not evidence
 # about whether this system can pick. See `docs/adr/0015`.
 #
 # This relaxes nothing. `reference_contracts` is zeroed by every suppression

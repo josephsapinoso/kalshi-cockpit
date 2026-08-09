@@ -87,8 +87,19 @@ def config_versions(conn) -> list[dict[str, Any]]:
             COUNT(DISTINCT r.ticker)                         AS markets,
             SUM(CASE WHEN r.suppressed_reason IS NULL OR r.suppressed_reason = ''
                      THEN 1 ELSE 0 END)                      AS unsuppressed,
-            SUM(CASE WHEN r.suggested_contracts > 0
+            -- **`reference_contracts`, matching `gate.POPULATIONS`.** This
+            -- screen exists to answer "did changing a threshold help?", and the
+            -- number it compares versions on has to be the same number the gate
+            -- counts. On `suggested_contracts` a version written after a deposit
+            -- change would show a step in `actionable` that came from the
+            -- bankroll rather than from the threshold edit -- the one confound
+            -- this screen exists to remove. ADR 0015.
+            SUM(CASE WHEN r.reference_contracts > 0
                      THEN 1 ELSE 0 END)                      AS actionable,
+            -- Beside it, what the operator could actually fund. Different
+            -- question, kept visible rather than collapsed.
+            SUM(CASE WHEN r.suggested_contracts > 0
+                     THEN 1 ELSE 0 END)                      AS fundable,
             SUM(CASE WHEN r.clv_scored_ms IS NOT NULL
                      THEN 1 ELSE 0 END)                      AS clv_scored
         FROM strategy_configs c
