@@ -1,8 +1,11 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-09 ~17:00Z, end of the session that refuted the scheduler
-diagnosis, found the combo harness manufacturing its own confound, created three
-agents, and learned that Joe's real bankroll is a tenth of what the tool assumes.
+Written 2026-08-09 ~18:00Z. The session that refuted the scheduler diagnosis,
+created three agents, learned Joe's real bankroll is a tenth of what the tool
+assumes — and then had its own headline combo finding refused by one of those
+agents, correctly. Three of the four things this session "established" about
+combos turned out to be artefacts, two of them mine. Read the withdrawal section
+before touching that work.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
@@ -217,20 +220,41 @@ catch confounds.
   `lessons.md` already suspects Kalshi is the sharp side, which makes that set
   close to empty by construction.
 
-## In flight when this session ended
+## The UI direction, decided by two independent reviews
 
-- **The combo harvest was still running** (~70 min against a nominal 55; the
-  per-round leg re-reads cost what they should). It writes
-  `docs/measurements/2026-08-09-combo-domination.json` **only at the end**, so
-  if the session was cleared the run is lost and must be re-run:
+`docs/reviews/2026-08-09-consensus-100-a-week.md`. Joe asked that the `partner`
+and `sharp-bettor` agents review under $100/week + beginner, and that their
+**consensus** guide the UI. Ten items they agreed on independently; the ones
+that outrank the rest:
 
-      .venv\Scripts\python.exe scripts\measure_combo_correlation.py ^
-          --pages 4 --rounds 55 --interval 60 --json docs\measurements\<date>.json
-      .venv\Scripts\python.exe scripts\analyse_combo_domination.py <capture>
+- **The bankroll finding above outranks every layout item.** Both found it.
+- **Do not lower `MIN_ORDER_CONTRACTS` — replace it.** The fee-rounding penalty
+  it exists to prevent is **0.00c at 50c**, the band the strategy trades.
+- **`CONSENSUS FAIR 53.8c` must render as `53.8%`.** A probability wearing a
+  price's suffix, immediately left of the real price, same size.
+- **Show the whole slate, one line per row, rejected visible by default.** Joe's
+  own instruction. Relaxes nothing: suppression still governs what is
+  *bettable*, just not what is *visible*.
+- **Render `clv_tenths` on the Ledger** — the scoreboard does not show the score.
+- **Tooltips are the wrong primitive** (no hover on a phone; the tap target
+  competes with the one that opens an order). Four permanent sentences instead,
+  led by *"you need to be right 52 times in 100 here, not 50."*
+- **`/api/suppression` has no screen**, and "which check is killing everything"
+  is the most valuable diagnostic in a tool showing 0 of ~200.
+- **Alerting is already built and working** — verified. Do not rebuild it.
 
-- **Two UI reviews were running** — `partner` and `sharp-bettor`, both given the
-  $100/week and beginner constraints, with Joe asking that their **consensus**
-  guide the UI direction. If their output did not land, re-run them.
+Two defects only one review caught, both verified: `OpportunityCard.tsx:128`
+shows `COST` excluding the fee with **no total anywhere on the card**, and
+nothing on the card expresses variance — the best demo row is EV **+$0.26** with
+SD **$7.48**, so ten such bets is a 46% chance of a losing week *even if the
+edge is real*.
+
+## Nothing is in flight
+
+The combo harvest completed, was analysed, was audited, and both its claims were
+withdrawn. Both UI reviews landed; their consensus is in
+`docs/reviews/2026-08-09-consensus-100-a-week.md`. Everything is committed and
+pushed, CI green on `034706d`, 1,448 tests, tree clean.
 
 ## Traps from this session specifically
 
@@ -248,6 +272,22 @@ catch confounds.
   odds budget as 16 by reading `config.py`'s default; the deployed value is 400
   in `fly.live.toml`, six lines under a comment saying so. Verify before
   repeating.
+- **A guard can be written to prove a property the code cannot violate.** The
+  contemporaneity filter printed "kept 2116 of 2116; dropped 0" because one
+  stamp went on the joint and every leg, so the gap was identically zero. Its
+  test built a 60,000ms gap by hand — a value the harness could not emit. Ask
+  what *real* input would trip a guard, and whether the system has ever produced
+  one. A distribution with one distinct value is the tell.
+- **A control can sit entirely outside the range where the effect would show.**
+  The age control's buckets past two minutes were structurally empty, because
+  only quoted markets are visible and a combo quote lives 1–2 minutes — while
+  the confound lived at 39 minutes. Empty cells were printed under a heading
+  inviting the reader to read them as flat.
+- **Have `measurement-skeptic` audit anything before it enters the record**, and
+  especially when it is good news. It refused this session's headline finding
+  and was right on every point re-verified. The checks that mattered most were
+  ones nobody asked it for: cluster by game rather than by row, and notice that
+  two "agreeing" findings were one statistic thresholded twice.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.** The budget
   is shared with live.
 
