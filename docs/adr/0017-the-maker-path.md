@@ -382,3 +382,129 @@ recorded as a confirmation rather than written up as a surprise.
   under consideration.
 - **The `A >= 1.50c` bar is a threshold for continuing to look, not a decision
   to trade.** Per §5, no free simulation can license a live resting order.
+
+---
+
+## Addendum A — 2026-08-09: `min_order_contracts` was deleted, and the stored `edge_tenths` is an n=1 number
+
+**Nothing above this line has been edited.** The numbers in §1 and §7 are left
+exactly as they were written, including the ones this addendum contradicts. The
+record is the product: an ADR whose figures are quietly corrected cannot be
+audited, and a future session needs to see what was believed as much as what is
+true.
+
+### A.1 What was believed
+
+§1, Correction 1, rests on a premise stated as a fact about the deployed system:
+
+> `config.RiskConfig.min_order_contracts` defaults to 10 and `MIN_ORDER_CONTRACTS=10`
+> is deployed, so `core.sizing.size_position` returns
+> `binding_constraint="below_min_order_contracts"` for anything smaller. The
+> smallest order this software can send is 10 contracts, so **1.88 points is the
+> figure, not 1.38**.
+
+That was true when it was written. §7 depends on the same premise ("quarter-Kelly
+never reaches `min_order_contracts=10`").
+
+### A.2 What changed
+
+The setting was removed the same day, in the lane `start.md` called item 2. There
+is no minimum order size anywhere in the sizer now, and **nothing replaced it**.
+
+The argument for removing it is in `core/sizing.py`'s module docstring and is not
+re-litigated here: `effective_price` already charges the fee a *single* contract
+would pay, which is provably the most expensive per-contract fee any order size
+pays (`ceil_cent(a·N) <= ceil_cent(a)·N`, and Model B does not depend on `N`), so
+a positive Kelly fraction already implies the order is +EV at whatever size comes
+out. The minimum was not preventing negative-EV orders; it was refusing
+positive-EV ones, and below roughly a $250 bankroll it closed the 50c band this
+strategy trades while leaving the wings open.
+
+`MIN_ORDER_CONTRACTS` is now in `config.RETIRED_SETTINGS`. **It logs an ERROR on
+every config load and surfaces on `/api/health`; it does not raise.** Note that
+`fly.live.toml` (the `BANKROLL_DOLLARS` block) still says it "**raises** if it is
+set" — that comment is stale as of the commit *"a retired setting is announced,
+never fatal at boot"*, and this addendum does not edit deploy files. The reason
+it is announced rather than fatal is a composition, not a preference: a raise in
+`RiskConfig.load` is a boot crash loop behind `wait -n`, landing after the
+migration has already moved the volume forward, recoverable only by
+`flyctl secrets unset` — and flyctl is a laptop job on a tool operated from a
+phone.
+
+### A.3 The consequence for the histogram this ADR gates
+
+§1's whole table is indexed on order size, and the size the deployed system
+produces is no longer 10. So:
+
+**`edge_tenths` in `recommendations` is computed at
+`sizing_contracts = max(1, sizing.contracts)` (`engine.py:160`).** At the live
+profile — `BANKROLL_DOLLARS=100`, `KELLY_FRACTION=0.25`, caps 10/40/10
+(`fly.live.toml`) — that is **1** for every candidate at the edge scale this
+venue plausibly offers. Swept across 18c–82c in half-cent steps, restricting to
+candidates whose post-fee edge is at most 1.0c: **1,206 of 1,206 grid points size
+to n=1**, with `binding_constraint="kelly"` throughout — the re-scaled caps never
+bind. Separately, every row the sizer zeroes is floored to n=1 by the `max(1, …)`
+above, and the live record is ~0 actionable rows in ~200 fresh-odds decisions, so
+the zeroed rows are most of the record.
+
+**At n=1 the maker/taker gap is a step function, not a coefficient.** Computed
+directly from `calculate_fee` over the whole tradeable grid, the n=1 maker saving
+takes exactly two values: **1.00c per contract on the contiguous band 17.3c–82.7c,
+and 0.00c everywhere outside it.** (§1 rounded that band to "18c-82c"; the exact
+edges are 17.3c and 82.7c.) Both ends are pinned by Model A's per-order round-up,
+not by the coefficient. At n=10 the saving is a smooth 0.80c–1.50c curve.
+
+**Therefore: a histogram plotted off the stored `edge_tenths` column answers a
+question about n=1 contract, not about this ADR's n=10.** It cannot show the
+0.80c–1.50c maker curve, because the underlying rows do not contain it. It will
+show a two-valued step, and a two-valued step plotted as a distribution reads as
+a finding about the market when it is an artifact of per-order rounding at a size
+nobody chose.
+
+### A.4 Instruction to whoever runs the histogram
+
+You have exactly two honest options. Take one of them explicitly.
+
+1. **Recompute at n=10 offline.** The stored `(entry_ask_tenths,
+   fair_probability)` pair is sufficient: call
+   `core.ev.edge_after_fees_tenths(ask_tenths=…, contracts=10,
+   fair_probability=…, maker=…)` per row. Do not derive it by adding
+   `fee_predicted` back to `edge_tenths` — `fee_predicted` is a whole-order
+   figure at the *stored* size, so that reconstructs the n=1 number.
+2. **Plot the stored column and label the axis n=1.** Say so in the chart title
+   and in whatever text accompanies it, and state that it does not test §1's
+   1.88-point figure, which is an n=10 number.
+
+What is not available is plotting the stored column and discussing it as though
+it bore on §1. That is the failure `tasks/lessons.md` records as *"a true
+measurement licensed a false conclusion"*: the column is a correct measurement of
+something, and the something is not what the ADR is about.
+
+### A.5 What this addendum does not establish
+
+- **It does not revise §1's fee table.** Those figures were computed from
+  `calculate_fee` and reproduce; what changed is which row of the table describes
+  the deployed system. §1 says the answer at n=10; the system now produces n=1.
+- **It does not claim n=1 universally.** The claim is bounded three ways: at the
+  *live* profile, inside *18c–82c*, at a post-fee edge of *at most 1.0c*. It
+  fails outside all three. Within 18c–82c, `sizing.contracts` first reaches 2 at
+  a post-fee edge of 1.6c–2.3c depending on price — four to six times the venue's
+  entire 0.38-point taker headroom, and inside the 4c band
+  `suppression.edge_ceiling_tenths` treats as a suspected data defect. On the
+  wings the bound is weaker: at a post-fee edge of at most 1.0c, n=1 holds on 88%
+  of the 1c–17c grid and 79% of the 83c–99c grid, reaching 5 contracts at the top
+  end. An earlier draft of this addendum asserted n=1 for "essentially every row"
+  without the price bound; that is false on the wings and is corrected here.
+- **The sweep is a grid, not the record.** No live database was available in this
+  worktree, so the distribution above weights every `(ask, edge)` pair equally
+  rather than by how often it occurs. It bounds what the sizer *can* return; it
+  is not a measurement of what it *did* return.
+- **It says nothing about whether the maker path is worth pursuing.** §4, §5 and
+  §6 stand unchanged, including the pre-registered kill criterion and the stated
+  prior that the idea dies.
+- **§7's last bullet is now half-stale in the other direction.** It says "at a
+  $100 bankroll `size_position` refuses *every* order" and that the maker
+  question is moot until that is fixed. The refusal is gone — the sizer returns 1
+  or more contracts across the band — so the blocker that bullet names has been
+  removed. Whether the *rest* of that bullet's argument survives is not settled
+  here.

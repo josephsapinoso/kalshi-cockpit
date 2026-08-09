@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS meta (
     value       TEXT NOT NULL,
     updated_ms  INTEGER NOT NULL
 );
+-- **The `'1'` below is not this file's version.** The authority is
+-- `db.SCHEMA_VERSION`, which is 6. `init_db` migrates, runs this script, and
+-- then stamps `SCHEMA_VERSION` over whatever this line seeded, so the literal
+-- is only ever a transient placeholder for a database being created fresh --
+-- `INSERT OR IGNORE` makes it a no-op on every existing one. It is left as it
+-- is because changing it changes stored data for no gain; read `db.py` for the
+-- number, never this line.
 INSERT OR IGNORE INTO meta (key, value, updated_ms) VALUES ('schema_version', '1', 0);
 
 -- ============================================================================
@@ -95,9 +102,29 @@ CREATE TABLE IF NOT EXISTS kalshi_markets (
     -- the alias table can resolve it. Matching is deterministic and refuses to
     -- guess, so an unresolved side blocks the link rather than fuzzy-matching.
     yes_side_team       TEXT,
-    market_type         TEXT,       -- moneyline | spread | total | future | prop
+    -- moneyline | spread | total | team_total. Nothing writes `future` or
+    -- `prop`, which this comment used to list: the only producer is
+    -- `discovery._SUFFIX_TO_MARKET_TYPE`, whose whole domain is those four, and
+    -- non-fixture series are excluded upstream rather than labelled here.
+    -- `team_total` was missing from the list and is written.
+    market_type         TEXT,
     strike              REAL,       -- spread/total line where applicable
-    price_structure     TEXT,       -- cent | deci_cent | tapered_deci_cent
+    -- Kalshi's own `price_level_structure`, stored verbatim. Three values have
+    -- been observed, all of them on game markets:
+    --
+    --   linear_cent                  2,085 markets (ADR 0001); 321 in fixtures
+    --   center_half_edge_half_cent      60 markets (ADR 0001)
+    --   deci_cent                                    12 in fixtures
+    --
+    -- This comment previously read `cent | deci_cent | tapered_deci_cent`.
+    -- `cent` and `tapered_deci_cent` appear in no captured payload, and
+    -- `linear_cent` -- which is nearly every row -- was not listed at all.
+    --
+    -- It is a **label, never a branch**: the tradeable grid is parsed from
+    -- `price_ranges` (`kalshi/grid.py`), so a structure name Kalshi introduces
+    -- later costs nothing here. A reader that switched on this string would
+    -- break on the next one.
+    price_structure     TEXT,
     close_ms            INTEGER,
     status              TEXT,       -- settled markets report 'finalized', not 'settled'
     result              TEXT,       -- yes | no | NULL while open
@@ -231,7 +258,17 @@ CREATE TABLE IF NOT EXISTS unmatched_events (
     identifier          TEXT NOT NULL,
     league              TEXT,
     detail              TEXT,               -- team names as seen, for alias entry
-    reason              TEXT NOT NULL,      -- no_alias | no_counterpart | commence_skew
+    -- **Free text, not an enum.** `match/linker.py` writes a sentence naming
+    -- the specific fixtures it would not choose between ("ambiguous: 2 fixtures
+    -- match the same team pair within +/-240min"), because this queue is read
+    -- by a person filling in an alias file, and the token would not tell them
+    -- which alias to add. `runner.py` supplies the literal `no_counterpart`
+    -- only as a fallback when the linker returned no reason at all.
+    --
+    -- This comment used to read `no_alias | no_counterpart | commence_skew`;
+    -- `no_alias` and `commence_skew` are written by nothing. `GROUP BY reason`
+    -- here yields one group per distinct sentence, not three buckets.
+    reason              TEXT NOT NULL,
     resolved            INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_unmatched_open ON unmatched_events(resolved, observed_ms DESC);
@@ -327,7 +364,24 @@ CREATE TABLE IF NOT EXISTS recommendations (
 
     fair_probability        REAL NOT NULL,      -- conservative devig
     model_probability       REAL,               -- the Quant, NULL until it exists
-    edge_tenths             REAL NOT NULL,      -- gross, before fees
+    -- **Net of fees, per contract.** Until 2026-08-09 this comment read
+    -- "gross, before fees" and it was inverted: `engine.py` assigns
+    -- `edge_after_fees_tenths(...)`, and the Board renders the same number as
+    -- "+1.7c after fees". This file is the contract every downstream query
+    -- reads, so the wrong reading does not produce a wrong-looking answer --
+    -- it produces a fee-relative band with the fee subtracted twice, which
+    -- looks decided.
+    --
+    -- **And it is a per-contract edge at ONE specific size**, which the column
+    -- does not carry: `engine.py` computes it at `max(1, sizing.contracts)`.
+    -- The fee's per-order rounding is size-dependent, so two rows with
+    -- different `suggested_contracts` are not on the same scale, and every row
+    -- the sizer zeroed -- most of the record -- is priced at a single contract
+    -- by that floor. A histogram of this column is a histogram at the size
+    -- that was sized, not at any size a reader chooses. Recompute from
+    -- `(entry_ask_tenths, fair_probability)` for any other size. See the
+    -- addendum to `docs/adr/0017`.
+    edge_tenths             REAL NOT NULL,
     fee_predicted           REAL NOT NULL,
     ev_net_dollars          REAL NOT NULL,      -- after fees, at suggested size
 

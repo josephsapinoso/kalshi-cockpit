@@ -58,6 +58,17 @@ select
 
     fair_probability,
     model_probability,
+    -- **Net of fees already.** Do not subtract `fee_predicted` from this, and
+    -- do not compare it to a fee to build a "does it clear the fee" band --
+    -- that charges the fee twice. `schema.sql` described this column as gross
+    -- until 2026-08-09; the code has always stored net.
+    --
+    -- It is also priced at ONE size, `max(1, sizing.contracts)` in `engine.py`,
+    -- and the fee's per-order rounding is size-dependent. So an `avg(edge_cents)`
+    -- across rows with different `suggested_contracts` averages numbers on
+    -- different scales, and every row the sizer zeroed is priced at a single
+    -- contract. For any other size, recompute from `entry_ask_tenths` and
+    -- `fair_probability`. See the addendum to `docs/adr/0017`.
     edge_tenths,
     edge_tenths / 10.0 as edge_cents,
     fee_predicted,
