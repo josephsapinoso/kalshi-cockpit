@@ -2,10 +2,21 @@
 
 Run:  python -m scripts.capture_combo_fixtures
 
-Read-only. Every request is a GET. The one endpoint that returns a *price* for a
-specific combination is `POST .../lookup`, which creates a market on the
-exchange, and this script deliberately does not call it -- see
-`backend/kalshi/combos.py` for why that needs a human.
+Read-only. Every request is a GET, and no market is created.
+
+**Corrected 2026-08-09.** This file used to say that the only way to see a combo
+*price* was `POST .../lookup`, which creates a market. That is one way, and it
+is not the only one: Kalshi's own users mint provisional combination markets
+continuously by tapping legs in the app -- roughly 700 a minute -- and those
+markets are returned by `GET /markets` carrying `mve_selected_legs`,
+`mve_collection_ticker` and a live quote. So a joint price is readable for
+nothing, and the second capture below takes some.
+
+The wrong belief was cheap to hold because it is *nearly* true: about one in
+twelve of those markets is quoted at all and one in a thousand on both sides,
+and the quote decays within a couple of minutes of creation. Sampling the wrong
+pages says "no combo is ever priced" with complete conviction. See
+`scripts/measure_combo_correlation.py`.
 
 Why this exists
 ---------------
@@ -131,7 +142,85 @@ async def main() -> int:
                 f"    {series:<34} {info['n_collections']:>5} collections, "
                 f"{info['n_legs']:>6} legs"
             )
+
+        priced = await capture_priced_combinations(api)
+        (FIXTURES / "combo_priced_markets.json").write_text(
+            json.dumps(priced, indent=2), encoding="utf-8"
+        )
+        print(
+            f"  wrote {len(priced['combos'])} priced combinations and "
+            f"{len(priced['legs'])} leg markets"
+        )
     return 0
+
+
+async def capture_priced_combinations(
+    api: KalshiRestClient, *, pages: int = 6, want: int = 12
+) -> dict:
+    """Real combination markets that carry a price, plus their leg markets.
+
+    Both halves are needed and neither is enough. A joint price without its
+    legs is a number with nothing to invert against, and the legs without the
+    joint are what this project already had.
+
+    Newest first and bounded. `/markets` is ~99.8% these tickers, so it is
+    never walked blind -- and here depth is pointless anyway: page six is
+    already two minutes old and nothing that old is quoted.
+    """
+    combos: list[dict] = []
+    leg_markets: dict[str, dict] = {}
+
+    for series in ("KXMVESPORTSMULTIGAMEEXTENDED", "KXMVECROSSCATEGORY"):
+        cursor = None
+        for _ in range(pages):
+            params: dict = {
+                "series_ticker": series, "limit": 200, "status": "open",
+            }
+            if cursor:
+                params["cursor"] = cursor
+            page = await api.request("GET", "/markets", params=params)
+            batch = page.get("markets") or []
+            for market in batch:
+                legs_selected = market.get("mve_selected_legs") or []
+                # Small ones only. A 42-leg combination would drag 42 leg
+                # markets into the fixture and no correlation can be fitted to
+                # it anyway.
+                if not 2 <= len(legs_selected) <= 3:
+                    continue
+                ask = market.get("yes_ask_dollars")
+                try:
+                    if not 0.0 < float(ask) < 1.0:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                combos.append(market)
+                if len(combos) >= want:
+                    break
+            cursor = page.get("cursor")
+            if not cursor or not batch or len(combos) >= want:
+                break
+        if len(combos) >= want:
+            break
+
+    for combo in combos:
+        for leg in combo.get("mve_selected_legs") or []:
+            ticker = leg["market_ticker"]
+            if ticker in leg_markets:
+                continue
+            payload = await api.request("GET", f"/markets/{ticker}")
+            leg_markets[ticker] = payload.get("market") or {}
+
+    return {
+        "captured_note": (
+            "GET capture, no market created. These combination markets were "
+            "minted by Kalshi's own users and were still quoted when read. "
+            "`legs` holds each referenced leg market as read at the same time, "
+            "so the joint and its marginals are contemporaneous -- reading a "
+            "leg minutes later prices the two halves at different moments."
+        ),
+        "combos": combos,
+        "legs": leg_markets,
+    }
 
 
 if __name__ == "__main__":

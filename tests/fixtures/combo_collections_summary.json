@@ -1,7 +1,7 @@
 {
   "captured_note": "Read-only GET capture. No lookup was performed, so no combo PRICE appears here -- pricing a specific combination requires POST .../lookup, which creates a market.",
   "n_collections": 1389,
-  "n_legs": 13806,
+  "n_legs": 13986,
   "n_legs_with_active_quoters": 0,
   "series": {
     "KXCITIESWEATHER": {
@@ -33,7 +33,7 @@
     },
     "KXMVECROSSCATEGORY": {
       "n_collections": 1,
-      "n_legs": 653,
+      "n_legs": 713,
       "size_min": 2,
       "size_max": 0,
       "is_all_yes": false,
@@ -42,7 +42,7 @@
     },
     "KXMVECROSSCATEGORY-SHARD1": {
       "n_collections": 1,
-      "n_legs": 653,
+      "n_legs": 713,
       "size_min": 2,
       "size_max": 0,
       "is_all_yes": false,
@@ -123,7 +123,7 @@
     },
     "KXMVESPORTSMULTIGAMEEXTENDED": {
       "n_collections": 3,
-      "n_legs": 804,
+      "n_legs": 864,
       "size_min": 2,
       "size_max": 0,
       "is_all_yes": false,
