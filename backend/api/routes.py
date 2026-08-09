@@ -1322,6 +1322,8 @@ def create_app(
                 order_row_id, order.ticker, outcome.status, order.client_order_id,
             )
 
+        order_contribution = order_exposure_dollars(order)
+
         body = {
             "status": outcome.status,
             "dry_run": outcome.dry_run,
@@ -1372,7 +1374,13 @@ def create_app(
             # actually used, not a re-read -- a second read would be a second
             # path to disagree with the first.
             "exposure_before_dollars": exposure,
-            "resulting_exposure_dollars": exposure + order_exposure_dollars(order),
+            # `null` rather than the bare `exposure` if the contribution cannot
+            # be read. Falling back to the before-figure would render a ticket
+            # saying this order costs nothing, which is the one reading a
+            # person would act on without hesitating.
+            "resulting_exposure_dollars": (
+                None if order_contribution is None else exposure + order_contribution
+            ),
             "resulting_exposure_is_hypothetical": outcome.dry_run,
             "max_exposure_dollars": risk.max_exposure_dollars,
             # The exact bytes. A dry run is comparable to a live order field by

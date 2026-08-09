@@ -1,5 +1,89 @@
 # Next — your checklist
 
+## 2026-08-09, 06:00–07:30Z — three items closed, and one of them was Joe's
+
+`main` is pushed and CI-green. **1,361 tests**, ruff clean. Nothing was
+deployed, no order was placed, no gate was touched, no odds credit was spent.
+
+### 1. One log line per pass, not two
+
+`pricing pass:` was a strict subset of `pass N ok`, emitted ~4ms earlier from a
+different module, at whatever rate the caller happened to run — 900s when it was
+written, ~22s once the odds budget went 16 → 400. Deleted.
+
+The recorded reason it was "not simply removable" — that `run_chain.py` would go
+silent — **was wrong**: `run_chain.py` has always printed `counts.as_dict()` as
+indented JSON. What the inline line did carry, and nothing else did, is a pass
+that recorded fine and then died in scoring, where `run_forever` logs a traceback
+saying where it broke and nothing about what had already been written. That job
+moved to `counts_survive_a_late_failure` in `run_loop.py`, on the failure path
+where it earns its place.
+
+The claim that made the deletion safe is now an assertion instead of prose in a
+handoff file: every field of `PassCounts.as_dict()` must survive into
+`CombinedPass.as_dict()` unrenamed.
+
+### 2. Exposure counts the fee — ADR 0008's gap 3, closed with no migration
+
+Three ADRs deferred this on the grounds that it "needs a fee column on
+`orders`". **It needed no column.** `count` and `limit_price_tenths` were
+already stored and are exactly what `calculate_fee` takes. The real obstacle was
+that exposure was a SQL `SUM` and the fee is a maximum across candidate models
+with a per-order rounding step — not expressible in SQL. So the obstacle was the
+duplicate implementation, restated as a schema problem.
+
+`store.orders.exposure_contribution` is now the only expression of what an open
+order commits, called by both the ticket's projection and the cap. Those were
+previously two paths pinned together by a test. They agreed, and both left the
+fee out — which is the one defect a two-paths-agree test is blind to. Lesson
+written.
+
+Ten contracts at 50c now read $5.20, not $5.00.
+
+### 3. The combo lookup no longer needs Joe — the price was always readable
+
+**This was item 4 on his list and it is off it.** The authorised
+`POST .../lookup` is *unspent* and no longer on the critical path.
+
+Kalshi's users mint provisional combination markets by tapping legs in the app —
+about **700 a minute** — and `GET /markets` returns them carrying
+`mve_selected_legs`, `mve_collection_ticker` and a live quote. Nothing has to be
+created. The reason nobody had noticed: 5,000 consecutive open markets span
+**6 minutes 48 seconds** of `created_time`, `/markets` is newest-first, and a
+quote decays within ~2 minutes — so paging depth-first is guaranteed to find
+nothing, and three separate walks did exactly that. The sample has to be
+accumulated over *time*, polling the newest page.
+
+**The control ran, and it is the finding.** Cross-game legs are near-independent,
+so their true rho is 0:
+
+    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
+    cross-game, ask only,  n=168   rho at ask +0.243   sd 0.235   max +0.853
+
+At the mid the method **returns the right answer**, bracketed almost symmetrically
+by bid and ask at ±0.14. The ask-only population is refused — not because its
+bias is large but because it has sd 0.235 and so cannot be subtracted off.
+
+**No same-game correlation has been measured yet**, and that is the honest state:
+4 same-game combinations appeared in 26 minutes, 1 inverted, and it was ask-only.
+What exists now is a validated method, a known harvest rate, and no reason to
+spend a write. `docs/adr/0012`, and the raw run in `docs/measurements/`.
+
+Also corrected: `active_quoters` is `[]` on **all 14,240** published legs while
+those same leg markets are two-sided with 21,247 contracts of open interest. It
+is not a liquidity signal, and "0 of 13,806 legs quoted" said nothing about
+whether a combination could be priced.
+
+### Still open, unchanged
+
+- **The four fee-calibration trades.** Joe's, pre-authorised, not done. Still a
+  gate condition and still the binding constraint on it.
+- **`gate progress (24h)`** needs a full day on the new budget. Untouched here.
+- **`discovery:` on a quote pass** — proven by test, not yet observed on live.
+  Needs an open odds window (next ~15:45Z).
+
+---
+
 ## DEPLOYED (2026-08-09, 05:36Z) — the budget stopped being the constraint
 
 Key installed (machine v22, 05:33Z) and `f1fb326` deployed (v23). Gate locked,

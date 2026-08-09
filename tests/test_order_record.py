@@ -71,6 +71,15 @@ WHOLE_CENT = parse_price_grid(
 )
 
 
+# What the default `_order` below commits: $5.00 of stake on ten 50c contracts
+# plus the 20c taker fee. Named rather than repeated, because the population and
+# release tests below are about *which* orders count, not about the fee -- and a
+# fee recalibration (a live-gate condition) should not turn six of them red for
+# a reason none of them is testing. `TestExposureIsSpentAndAccumulatedAtThe
+# SamePrice` pins the number itself.
+ONE_ORDER = 5.20
+
+
 def _order(ticker="T", *, side="yes", price_tenths=500, count=10, rec_id=None):
     return OrderRequest(
         ticker=ticker,
@@ -296,7 +305,7 @@ class TestExposureCountsTheRightPopulation:
     )
     def test_a_live_order_counts(self, conn, status):
         _live_order(conn, status=status)
-        assert current_exposure_dollars(conn) == pytest.approx(5.0)
+        assert current_exposure_dollars(conn) == pytest.approx(ONE_ORDER)
 
     @pytest.mark.parametrize("status", ["unfilled", "rejected", "canceled"])
     def test_a_finished_order_costs_nothing(self, conn, status):
@@ -324,7 +333,7 @@ class TestExposureCountsTheRightPopulation:
 
     def test_a_settled_position_releases_its_capital(self, conn):
         _live_order(conn, status="filled")
-        assert current_exposure_dollars(conn) == pytest.approx(5.0)
+        assert current_exposure_dollars(conn) == pytest.approx(ONE_ORDER)
         order_id = conn.execute("SELECT id FROM orders").fetchone()["id"]
         conn.execute(
             "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
@@ -348,7 +357,7 @@ class TestExposureCountsTheRightPopulation:
         """
         _live_order(conn, status="filled")
         _live_order(conn, status="filled")
-        assert current_exposure_dollars(conn) == pytest.approx(10.0)
+        assert current_exposure_dollars(conn) == pytest.approx(2 * ONE_ORDER)
 
         first = conn.execute("SELECT id FROM orders ORDER BY id").fetchone()["id"]
         conn.execute(
@@ -358,7 +367,7 @@ class TestExposureCountsTheRightPopulation:
         )
         conn.commit()
 
-        assert current_exposure_dollars(conn) == pytest.approx(5.0), (
+        assert current_exposure_dollars(conn) == pytest.approx(ONE_ORDER), (
             "settling one position released the other one on the same ticker"
         )
 
@@ -371,18 +380,21 @@ class TestExposureCountsTheRightPopulation:
         """
         record_intent(conn, _order(), dry_run=True, submitted_ms=1)
 
-        assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(5.0)
+        assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(ONE_ORDER)
         assert current_exposure_dollars(conn, dry_run=False) == 0.0
 
     def test_a_no_position_is_measured_at_what_it_cost(self, conn):
         """Not at its YES complement. Ten contracts of NO at 40.5c snap to 40c
-        and cost $4.00; measured on the wire leg they would read $6.00. The
-        wrong answer over-states here and under-states for any NO bet above
-        50c, and under-stating exposure is how a cap passes a position it
-        should refuse."""
+        and cost $4.00 in stake; measured on the wire leg they would read
+        $6.00. The wrong answer over-states here and under-states for any NO
+        bet above 50c, and under-stating exposure is how a cap passes a
+        position it should refuse."""
         order = _order(side="no", price_tenths=405, count=10)
         record_intent(conn, order, dry_run=False, submitted_ms=1)
-        assert current_exposure_dollars(conn) == pytest.approx(4.00)
+        assert current_exposure_dollars(conn) == pytest.approx(4.00 + 0.17), (
+            "the stake is right; the 17c taker fee on ten 40c contracts is the "
+            "part exposure used to leave out"
+        )
 
     def test_an_unreadable_table_is_none_not_zero(self, conn):
         conn.execute("DROP TABLE orders")
@@ -391,10 +403,16 @@ class TestExposureCountsTheRightPopulation:
 
 
 class TestOneOrderSumsToWhatItContributes:
-    """`order_exposure_dollars` and the SQL sum cannot share an implementation,
-    so they are pinned against each other on a row that went through
-    `record_intent`. A ticket saying "this takes you to $X" and the cap that
-    later refuses it must not be computing X two ways."""
+    """A ticket saying "this takes you to $X" and the cap that later refuses it
+    must not compute X two ways.
+
+    They used to be two implementations pinned by this test -- a Python
+    expression and a SQL `SUM`. They agreed, and they were both wrong in the
+    same way: both left the fee out while `size_position` spent the cap
+    fee-inclusive. That is precisely what a test comparing two paths cannot
+    catch, so the SQL sum is gone and both callers reach
+    `exposure_contribution`.
+    """
 
     @pytest.mark.parametrize(
         "side,price,count", [("yes", 500, 10), ("no", 405, 7), ("yes", 990, 3)]
@@ -405,6 +423,77 @@ class TestOneOrderSumsToWhatItContributes:
         assert current_exposure_dollars(conn) == pytest.approx(
             order_exposure_dollars(order)
         )
+
+
+class TestExposureIsSpentAndAccumulatedAtTheSamePrice:
+    """`size_position` spends the cap at `effective_price`, which includes the
+    fee. Exposure summed the bare stake.
+
+    So every order consumed more of the cap than it added back, and the next
+    order sized against a portfolio reported cheaper than it was. About 2% of
+    stake -- small, systematic, and in the unsafe direction. It never bit
+    because no live order has ever been placed, which is the only reason this
+    could be deferred rather than fixed.
+    """
+
+    def test_the_fee_is_counted(self, conn):
+        """Ten contracts at 50c: $5.00 of stake and a 20c taker fee."""
+        record_intent(conn, _order(), dry_run=False, submitted_ms=1)
+        assert current_exposure_dollars(conn) == pytest.approx(5.20)
+
+    def test_it_matches_what_sizing_spent(self, conn):
+        """The two prices, side by side.
+
+        `effective_price` is what a contract costs the cap; exposure per
+        contract must be the same number, or the two disagree by exactly the
+        fee -- which is what they did.
+        """
+        from backend.core.ev import effective_price
+
+        record_intent(conn, _order(), dry_run=False, submitted_ms=1)
+        exposure = current_exposure_dollars(conn)
+        spent = 10 * effective_price(500, contracts=1, maker=False)
+
+        assert exposure == pytest.approx(spent, abs=0.005)
+
+    def test_an_untradeable_price_refuses_rather_than_costing_nothing(self, conn):
+        """`calculate_fee` returns None off the tradeable range.
+
+        A row like this cannot be created through `OrderRequest`, which
+        validates in its constructor -- but exposure reads the database, and a
+        database can hold what the constructor would have refused. Substituting
+        a zero fee here would report a settled-price order as almost free.
+        """
+        record_intent(conn, _order(), dry_run=False, submitted_ms=1)
+        conn.execute("UPDATE orders SET limit_price_tenths = 1000")
+        conn.commit()
+
+        assert current_exposure_dollars(conn) is None
+
+    def test_one_unreadable_order_refuses_the_whole_sum(self, conn):
+        """Not "skip it and total the rest".
+
+        Skipping reports a smaller exposure than the truth and hands the next
+        order room it does not have -- the unreadable-resolves-to-zero failure
+        one level up, at the level of a row rather than a field.
+        """
+        record_intent(conn, _order(), dry_run=False, submitted_ms=1)
+        second = record_intent(conn, _order(), dry_run=False, submitted_ms=2)
+        conn.execute(
+            "UPDATE orders SET limit_price_tenths = NULL WHERE id = ?", (second,)
+        )
+        conn.commit()
+
+        assert current_exposure_dollars(conn) is None
+
+    def test_the_ticket_reports_no_number_rather_than_a_wrong_one(self):
+        """`order_exposure_dollars` is Optional for the same reason.
+
+        The endpoint adds it to the exposure before the order. A `None`
+        silently treated as zero would render a ticket saying this order costs
+        nothing, which is the one reading a person acts on without pausing.
+        """
+        assert order_exposure_dollars(_order()) == pytest.approx(5.20)
 
 
 class TestThereIsOneDefinitionOfExposure:
@@ -712,12 +801,12 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
             with pytest.raises(ExposureCapExceeded) as caught:
                 reserve_order(
                     writer,
-                    self._live(count=100, price_tenths=500),   # $50
+                    self._live(count=100, price_tenths=500),   # $50 + $2 fee
                     dry_run=False,
                     submitted_ms=1,
                     max_exposure_dollars=10.0,
                 )
-            assert caught.value.exposure_after == pytest.approx(50.0)
+            assert caught.value.exposure_after == pytest.approx(52.0)
             assert caught.value.cap == 10.0
             assert _rows(writer) == [], "the refused order stayed on disk"
         finally:
@@ -735,13 +824,13 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
         try:
             row_id = reserve_order(
                 writer,
-                self._live(count=10, price_tenths=500),        # $5
+                self._live(count=10, price_tenths=500),        # $5 + 20c fee
                 dry_run=False,
                 submitted_ms=1,
                 max_exposure_dollars=100.0,
             )
             assert row_id > 0
-            assert current_exposure_dollars(reader) == pytest.approx(5.0)
+            assert current_exposure_dollars(reader) == pytest.approx(ONE_ORDER)
         finally:
             writer.close()
             reader.close()
@@ -794,7 +883,7 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
 
         reader = db.open_db(path, read_only=True)
         try:
-            assert current_exposure_dollars(reader) == pytest.approx(40.0)
+            assert current_exposure_dollars(reader) == pytest.approx(8 * ONE_ORDER)
             assert len(_rows(reader)) == 1, "the refused order was left on disk"
         finally:
             reader.close()

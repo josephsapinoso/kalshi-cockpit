@@ -36,6 +36,14 @@ Nothing is lost by not storing the wire price. `request_body_json` holds the
 exact bytes, including `price`, so the sent value is recoverable byte for byte
 and there is one column per meaning rather than two that can drift.
 
+**Exposure is fee-inclusive**, because the cap is spent that way. `size_position`
+bounds `contracts * effective_price` and `effective_price` includes the fee, so a
+sum of bare stake accumulated about 2% less than it consumed. `count` and
+`limit_price_tenths` are between them everything `calculate_fee` takes, so the
+fee needed no column of its own -- what it needed was for the sum to stop being
+SQL, since the fee is a maximum across candidate models with a per-order
+rounding step. See `exposure_contribution`.
+
 What this module does not do
 ----------------------------
 - **It does not write `fills`.** No order has ever been placed, so there is no
@@ -72,6 +80,7 @@ import logging
 import sqlite3
 from typing import Optional
 
+from ..core.fees import calculate_fee
 from ..core.prices import PRICE_MAX
 from ..kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
 
@@ -472,22 +481,53 @@ def record_outcome(
         ) from exc
 
 
-def order_exposure_dollars(order: OrderRequest) -> float:
-    """What one order contributes to exposure.
+def exposure_contribution(
+    count: int, price_tenths: Optional[int]
+) -> Optional[float]:
+    """What one open order commits, fee included. `None` if it cannot be read.
 
-    Exists so a ticket can say "this would take you to $X" using the **same
-    arithmetic** the sum below applies, rather than a second expression written
-    beside it. The two cannot literally share an implementation -- one is
-    Python and one is SQL -- so `TestOneOrderSumsToWhatItContributes` asserts
-    they agree on a row that has actually been through `record_intent`.
+    **This is the only arithmetic for exposure in the project.** It used to be
+    two: a Python expression for the ticket's "this would take you to $X" and a
+    SQL `SUM` for the cap that later refuses it, pinned against each other by a
+    test. They agreed. They also both left the fee out, and the test agreed with
+    that too -- which is what a test comparing two paths can never catch.
 
-    Fee-exclusive, matching the column. `size_position` spends the cap at the
-    fee-*inclusive* price, so exposure accumulates slightly less than it
-    consumed -- roughly 2% of stake at a 1c fee on a 50c contract. Correcting
-    it needs a fee column on `orders`; it is recorded rather than migrated,
-    because the cap it distorts is one no live order has ever reached.
+    **Fee-inclusive, and that is the fix.** `core.sizing.size_position` spends
+    the cap at `effective_price`, which includes the fee, while exposure summed
+    the bare stake. So the cap was consumed at one price and accumulated at
+    another, and the gap ran about 2% of stake -- a 1c fee on a 50c contract.
+    Small, one-directional, and in the unsafe direction: every order left the
+    portfolio slightly more exposed than the number the next order sized
+    against.
+
+    No migration was needed for it, contrary to what this module used to say.
+    `limit_price_tenths` already holds the post-snap price of our own side and
+    `count` sits beside it, which is everything `calculate_fee` takes.
+
+    **Taker rates, always.** Every order this project sends is marketable, and
+    where that were ever untrue the taker fee is the larger of the two, which is
+    the direction a cap should err in.
+
+    `None`, never `0.0`, when the price is unreadable or untradeable --
+    `calculate_fee` returns `None` there for exactly this reason, and a caller
+    that substituted zero would report an open order as a free position.
     """
-    return order.count * order.fill_price_tenths / float(PRICE_MAX)
+    if price_tenths is None:
+        return None
+    fee = calculate_fee(int(price_tenths), int(count))
+    if fee is None:
+        return None
+    return count * int(price_tenths) / float(PRICE_MAX) + fee
+
+
+def order_exposure_dollars(order: OrderRequest) -> Optional[float]:
+    """What one order contributes to exposure, before it is written.
+
+    Calls `exposure_contribution` on the same two values `_insert_intent`
+    stores, so the ticket's projection and the cap that later refuses it are
+    the same number by construction rather than by agreement.
+    """
+    return exposure_contribution(order.count, order.fill_price_tenths)
 
 
 def current_exposure_dollars(
@@ -539,16 +579,14 @@ def current_exposure_dollars(
     """
     placeholders = ", ".join("?" for _ in TERMINAL_STATUSES)
     try:
-        row = conn.execute(
+        # Rows, not a `SUM`. The fee is the maximum across candidate models with
+        # a per-order rounding step, which SQL cannot express -- and a second
+        # expression of it in SQL is exactly the duplicate this function was
+        # created to delete. The row count is bounded by the cap itself, so
+        # summing in Python costs nothing worth measuring.
+        rows = conn.execute(
             f"""
-            SELECT
-                COALESCE(SUM(o.count * o.limit_price_tenths / 1000.0), 0.0)
-                    AS at_risk,
-                -- `SUM` skips NULLs, so a row with no price would contribute
-                -- nothing and read as an order costing zero dollars. Counted
-                -- separately so it refuses instead.
-                COALESCE(SUM(CASE WHEN o.limit_price_tenths IS NULL
-                                  THEN 1 ELSE 0 END), 0) AS unpriced
+            SELECT o.id, o.count, o.limit_price_tenths
             FROM orders o
             WHERE o.dry_run = ?
               AND o.status NOT IN ({placeholders})
@@ -568,19 +606,25 @@ def current_exposure_dollars(
             # column and silently returns 0.0 -- a readable, plausible, unlimited
             # budget.
             (1 if dry_run else 0, *TERMINAL_STATUSES),
-        ).fetchone()
+        ).fetchall()
     except Exception:                                   # noqa: BLE001
         logger.exception("could not read current exposure")
         return None
 
-    if row is None or row["at_risk"] is None or row["unpriced"] is None:
-        return None
-    if row["unpriced"]:
-        logger.error(
-            "%d live order(s) carry no limit price, so exposure cannot be "
-            "summed. Refusing rather than treating an unreadable price as a "
-            "free position.",
-            row["unpriced"],
-        )
-        return None
-    return float(row["at_risk"])
+    total = 0.0
+    for row in rows:
+        contribution = exposure_contribution(row["count"], row["limit_price_tenths"])
+        if contribution is None:
+            # One unreadable row refuses the whole sum. Skipping it would
+            # report a smaller exposure than the truth and hand the next order
+            # room it does not have -- the same shape as an unreadable price
+            # resolving to zero, one level up.
+            logger.error(
+                "order %s has no usable price (count=%r, limit_price_tenths=%r), "
+                "so exposure cannot be summed. Refusing rather than treating an "
+                "unreadable order as a free position.",
+                row["id"], row["count"], row["limit_price_tenths"],
+            )
+            return None
+        total += contribution
+    return total

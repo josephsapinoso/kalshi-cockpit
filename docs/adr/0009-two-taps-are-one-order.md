@@ -109,5 +109,5 @@ behaviour under a re-send is not, and stays untested until a real order exists.
 
 **Gap 2 of ADR 0008 is also closed**, by the earlier change that put the row and
 the cap check in one transaction. Gap 3 — exposure fee-exclusive against a
-fee-inclusive cap, ~2% — stands, and is still not worth a migration on a cap no
-live order has reached.
+fee-inclusive cap, ~2% — was left open here on the grounds that it needed a
+migration. **It did not, and it is closed as of 2026-08-09**; see ADR 0008.

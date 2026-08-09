@@ -1118,6 +1118,10 @@ class TestTheCapsStillBindThroughTheSizer:
             # row here would leave the paper budget untouched and the request
             # would succeed -- which is the correct behaviour and not the one
             # under test.
+            # 790 contracts at 50c is $395 of stake -- and $410.80 committed,
+            # because exposure counts the fee since 2026-08-09. Left at 790
+            # deliberately: this is the arithmetic that changed, and the number
+            # under a $400 cap is the one place a suite notices.
             "VALUES ('o1', ?, ?, ?, 'yes', 'buy', 'limit', 790, 500, 'resting', "
             "'{}', 1)",
             (rec, now, TICKER),
@@ -1130,5 +1134,11 @@ class TestTheCapsStillBindThroughTheSizer:
         )
 
         assert response.status_code == 422
-        assert "minimum" in response.json()["detail"] or \
-               "below" in response.json()["detail"]
+        detail = response.json()["detail"]
+        # Names the cap that bound, not merely that something did. Before the
+        # fee was counted this order sized to a handful of contracts and was
+        # refused for being below the minimum; now the position is already over
+        # the cap on its own, which is a *stricter* refusal for the same input
+        # and is the whole point of the change.
+        assert "0 contracts" in detail, detail
+        assert "max_exposure_dollars" in detail, detail

@@ -2841,3 +2841,127 @@ Two corollaries worth keeping, both about reading such a line:
 - **A reason breakdown does not partition its rows.** Reasons are comma-joined
   per row and counted individually, so they sum above the row count. It answers
   "how often did each rule fire", never "what share of rows did this explain".
+
+---
+
+## 2026-08-09 — Sampling the wrong pages proves absence with total conviction
+
+For two days this repo recorded that no combo *price* could be obtained without
+`POST .../lookup`, which creates a market on the exchange and therefore needed
+the user's permission. The permission was given and never used. The premise was
+wrong: Kalshi's own users mint provisional combination markets by tapping legs
+in the app, `GET /markets` returns them with `mve_selected_legs` and a live
+quote, and the joint price was readable for free the whole time.
+
+What made the wrong belief robust was that it is *nearly* true, and that the
+evidence for it was collected in the one way that could not find the exception:
+
+    5,000 consecutive open markets in one series -> 6 min 48 s of created_time
+    ~700 provisional markets minted per minute, /markets returns newest first
+    8.8% carry an ask; 0.18% carry a bid; the quote decays within ~2 minutes
+
+So **paging depth-first is guaranteed to find nothing.** Page six is already two
+minutes stale, and everything past it is dead by construction. Three separate
+walks — 1,200 markets, then 5,000, then 6,000 — each returned zero two-sided
+quotes and each felt like more evidence for the same conclusion. They were the
+same non-observation repeated at increasing cost.
+
+The population had to be accumulated over *time*: re-read the newest page every
+minute and collect what is fresh. 26 rounds of that produced 2,092 quoted
+combinations from the same endpoint that had just produced none.
+
+**Why it is not simply "I sampled badly":** the sampling axis and the decay axis
+were the same axis, and nothing said so. Depth in a cursor walk *is* age here.
+A search whose ordering is correlated with the property being searched for
+cannot report absence, however much of it you do.
+
+**How to apply:** before concluding a venue does not offer something, ask what
+determines the order of the thing being walked, and whether the target's
+lifetime is shorter than the walk. If it is, the walk measures your own latency.
+And when a walk returns zero, widening it is the *least* informative next move —
+change the axis instead. Related:
+[[a-true-measurement-licensed-a-false-conclusion]], which is the same
+combination product and the same shape one level up: a true measurement about
+`/markets` promoted into a claim about what exists.
+
+Corollary, and it is the same rule this file already has about zeros:
+`active_quoters` is `[]` on all 14,240 published collection legs, while those
+same leg markets are two-sided with 21,247 contracts of open interest. The field
+is not a liquidity signal. An empty list from an endpoint means "this field said
+nothing", never "there is none" — and the reading "0 of 13,806 legs quoted" had
+been carried for two days as though it were a fact about liquidity.
+
+---
+
+## 2026-08-09 — Run the control before believing the estimator
+
+Inverting a combination's quoted joint probability into an implied correlation
+is the measurement `core/correlation.py` refuses to guess. The first sample was
+one-sided — nearly every combination quotes an ask and no bid — so the obvious
+move was to invert at the ask and call it an upper bound, which is true and
+sounds careful.
+
+The control says it is useless. Cross-game legs are near-independent, so their
+true rho is 0 and whatever the method returns there is its own bias:
+
+    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
+    cross-game, ask only,  n=168   rho at ask +0.243   sd 0.235   max +0.853
+
+**At the mid the method recovers the answer** — median −0.010 where the truth is
+zero — and the bid and ask bracket it almost symmetrically. So the estimator is
+sound and the ask-only variant of it is not.
+
+The part worth carrying is *why* the ask-only version is unusable, because the
+tempting fix is wrong. Its bias is large, and a large known bias can be
+subtracted off. Its bias has **sd 0.235**, which cannot. A same-game rho drawn
+from that population would be indistinguishable from the combination's margin,
+and it would have arrived labelled "upper bound" — a caveat that reads as rigour
+while the number underneath it means nothing.
+
+Note also what the control cost: nothing. Cross-game combinations were 214 of
+the 229 measurements — the overwhelming majority of the sample was the part with
+no signal in it, and that is what made it a control rather than a waste.
+
+**How to apply:** when a method is going to produce a number nobody can check,
+find the population where the answer is already known and run it there first.
+Report that population *first* in the output, so every later figure is read
+against it. And when the control shows bias, look at its **spread** before
+reaching for a correction — a bias you cannot subtract is a refusal, not an
+offset. Related: [[computing-the-right-statistic-and-then-ignoring-it]], and
+[[synthetic-data-that-is-right-on-the-mean-and-wrong-on-the-variance]], which is
+this same error with the roles of mean and variance reversed.
+
+---
+
+## 2026-08-09 — Two paths pinned by a test agreed, and were both wrong
+
+`order_exposure_dollars` (Python, for the ticket's "this takes you to $X") and a
+SQL `SUM` (for the cap that later refuses it) were two implementations of one
+quantity, held together by `TestOneOrderSumsToWhatItContributes`. They agreed on
+every input.
+
+They also both omitted the fee, while `size_position` spent the cap at
+`effective_price`, which includes it. So the cap was consumed at one price and
+accumulated at another, and every order left the portfolio ~2% more exposed than
+the number the next order sized against. Systematic, one-directional, and in the
+unsafe direction.
+
+**A test that two paths agree cannot see a defect they share.** This file
+already says "don't test that two paths agree, delete one of them", and the
+reason given there was drift. This is the stronger reason: agreement is
+evidence about consistency and no evidence at all about correctness, so the
+pinning test converts a duplicated bug into a *reassuring* duplicated bug.
+
+**And the deferral reasoning was wrong on its own terms.** Three ADRs recorded
+that fixing it "needs a fee column on `orders`" and was not worth a migration.
+No column was needed: `count` and `limit_price_tenths` were already stored and
+are exactly what `calculate_fee` takes. What actually blocked it was that the
+fee is a maximum across candidate models with a per-order rounding step and
+therefore **not expressible in SQL** — so the obstacle was the duplicate itself,
+restated as a schema problem. Deleting the SQL path removed both at once.
+
+**How to apply:** when a cost is deferred across several documents, re-derive
+the cost rather than quoting the previous deferral. And when two paths compute
+one quantity, ask what they would *both* have to get wrong for the pinning test
+to stay green — then check that specific thing, because it is the only failure
+the test is blind to.

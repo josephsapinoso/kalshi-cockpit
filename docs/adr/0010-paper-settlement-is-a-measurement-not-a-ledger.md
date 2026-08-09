@@ -143,10 +143,14 @@ moment two orders on one ticker settle from one market: they share a ticker
 becomes `UNIQUE (order_id)` — one position settles once.
 
 Since a migration is happening anyway, ADR 0008's gap 3 is re-costed: **exposure
-is fee-exclusive while the cap is spent fee-inclusive (~2%).** It stays open.
-Adding a column is cheap; changing what `limit_price_tenths` means is not, and a
-2% understatement on a cap that is not yet reachable by real money is not worth
-coupling to this change.
+is fee-exclusive while the cap is spent fee-inclusive (~2%).** It stays open
+here — correctly, since it did not belong in this change.
+
+**Closed 2026-08-09, with no migration at all.** The re-costing above assumed
+the fix meant adding a column or redefining `limit_price_tenths`. Neither was
+needed: the fee is a function of the two values already stored. What actually
+blocked it was that exposure was a SQL `SUM` and the fee model is not
+expressible in SQL. See ADR 0008.
 
 ### 4. Paper exposure counts — against paper, never pooled with live
 

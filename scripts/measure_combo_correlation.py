@@ -54,14 +54,30 @@ Reading the output
 ------------------
 **Read the cross-game rows before the same-game ones.** Legs from different
 games are as close to independent as this venue offers, so their measured rho
-is an estimate of this method's *own bias*, not of dependence. Whatever it
-reads is the combo's margin plus the leg spreads showing up as correlation. A
-same-game rho is only interesting to the extent it exceeds that.
+is an estimate of this method's *own bias*, not of dependence. A same-game rho
+is only interesting to the extent it exceeds that.
 
-The three prices are reported together and never collapsed to one. Positive
-dependence raises a joint above the product of its marginals, so reading rho
-at the ask overstates it and at the bid understates it -- the pair brackets the
-answer, and a single number would hide which side of it you would transact on.
+**The control ran, and it settled which estimator works.** Measured
+2026-08-09 over 23,847 combination markets polled across 26 minutes:
+
+    cross-game, TWO-SIDED, n=12    rho at bid -0.135   mid -0.033   ask +0.137
+    cross-game, ask only,  n=168   rho at ask +0.243, sd 0.235, max +0.853
+
+Independent games are rho = 0. **At the mid, the method returns it** -- median
+-0.010 -- and the bid and ask bracket it almost symmetrically at about ±0.14,
+which is the combination's own spread read as dependence.
+
+**The ask-only population is not usable for correlation, and most of the sample
+is ask-only.** Its bias is not merely large, it is not even constant: sd 0.235
+across the control, so it cannot be subtracted off. It is reported, separately
+and labelled, because an upper bound is still a fact -- but no same-game claim
+may be built on it.
+
+So the measurement worth accumulating is **two-sided combinations, read at the
+mid**, and they are rare: 42 of 23,847 markets carried a bid. At that rate a
+same-game two-sided combination arrives slowly enough that none appeared in
+that run. That is the honest state -- a validated method waiting on a sample,
+not a number.
 
 What this does not establish
 ----------------------------
@@ -457,6 +473,28 @@ async def survey(
     return result
 
 
+def _describe(label: str, values: Sequence[Optional[float]]) -> None:
+    """One line of distribution, or an explicit `none`.
+
+    Prints the `n` first and always, including zero. A summary that appears
+    only when there is something to say makes an empty population look like a
+    population nobody measured.
+    """
+    usable = sorted(v for v in values if v is not None)
+    if not usable:
+        print(f"      {label}\n        n=0")
+        return
+    mean = sum(usable) / len(usable)
+    spread = ""
+    if len(usable) > 1:
+        variance = sum((v - mean) ** 2 for v in usable) / (len(usable) - 1)
+        spread = f"  sd {variance ** 0.5:.3f}"
+    print(f"      {label}")
+    print(f"        n={len(usable)}  min {usable[0]:+.3f}  "
+          f"median {usable[len(usable) // 2]:+.3f}  max {usable[-1]:+.3f}  "
+          f"mean {mean:+.3f}{spread}")
+
+
 def report(result: Survey) -> None:
     print(f"\n{'=' * 78}")
     print("Kalshi combo prices as correlation measurements")
@@ -500,13 +538,27 @@ def report(result: Survey) -> None:
             print("    NOT a same-game measurement. One rho is fitted across")
             print("    pairs that are same-game and pairs that are not, so it")
             print("    is an average of two different quantities.")
-        if usable:
-            asks = sorted(m.rho_at_ask for m in usable)
-            median = asks[len(asks) // 2]
-            print(f"    rho at ask (an UPPER bound -- the ask carries the "
-                  f"combo's margin):")
-            print(f"      n={len(asks)}  min {asks[0]:+.3f}  "
-                  f"median {median:+.3f}  max {asks[-1]:+.3f}")
+
+        # Two-sided first and separately, because the control says these are
+        # the only ones that measure anything. Pooling them with the ask-only
+        # rows would drag a validated estimator toward a biased one and report
+        # the mixture as though it were one quantity.
+        two = [m for m in entries if m.combo.joint.bid is not None]
+        one = [m for m in entries if m.combo.joint.bid is None]
+        _describe(
+            "TWO-SIDED, at the mid -- the estimator the control validates",
+            [m.rho_at_mid for m in two],
+        )
+        _describe(
+            "     ...the same rows at bid / ask, which bracket it",
+            [m.rho_at_bid for m in two] + [m.rho_at_ask for m in two],
+        )
+        _describe(
+            "ASK ONLY -- an upper bound, and NOT usable for correlation: the "
+            "control's\n        bias here is large and not constant, so it "
+            "cannot be subtracted off",
+            [m.rho_at_ask for m in one],
+        )
         for m in entries[:8]:
             print(f"\n    {m.combo.ticker}")
             print(f"      {m.combo.subtitle[:70]}")
@@ -532,9 +584,11 @@ def report(result: Survey) -> None:
                 print(f"      NOTE      {m.note}")
 
     print(f"\n{'=' * 78}")
-    print("Read the cross-game block first. A same-game rho means something")
-    print("only to the extent it exceeds the control. None of this is an edge:")
-    print("no fair value is computed here and no combo fee model is verified.")
+    print("Read the cross-game block first: it is the control, its true rho is")
+    print("zero, and only the TWO-SIDED rows there have ever returned it. A")
+    print("same-game number from the ask-only population is not a measurement.")
+    print("None of this is an edge -- no fair value is computed here and no")
+    print("combo fee model has been verified for this venue.")
     print(f"{'=' * 78}\n")
 
 

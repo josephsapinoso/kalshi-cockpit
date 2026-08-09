@@ -515,7 +515,12 @@ class TestExposure:
             (NOW, ticker),
         )
         conn.commit()
-        assert current_exposure_dollars(conn) == pytest.approx(10.0)
+        assert current_exposure_dollars(conn) == pytest.approx(
+            # 20 contracts at 50c: $10.00 of stake plus the 40c taker fee.
+            # Exposure is fee-inclusive since 2026-08-09, because the cap is
+            # spent that way -- see `store.orders.exposure_contribution`.
+            10.40
+        )
 
     def test_an_unreadable_exposure_stops_the_pass_rather_than_refusing_the_slate(
         self, conn, joined, monkeypatch

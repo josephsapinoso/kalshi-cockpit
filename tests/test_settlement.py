@@ -426,7 +426,9 @@ class TestExposureIsReleased:
         market = finalized[0]
         _order(conn, ticker=market["ticker"], side=market["result"],
                count=10, price=500)
-        assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(5.0)
+        assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(
+            5.20  # $5.00 of stake plus the 20c taker fee
+        )
 
         await run_settlement_pass(conn, FakeKalshi({market["ticker"]: market}))
 

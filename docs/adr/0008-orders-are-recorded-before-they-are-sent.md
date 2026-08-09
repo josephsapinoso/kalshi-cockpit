@@ -152,11 +152,26 @@ because the reasoning that deferred them is worth reading beside what it cost:
 2. ~~**Two concurrent requests can size against one exposure reading.**~~
    **Closed 2026-08-08.** `reserve_order` now writes the row and checks the cap
    in one `BEGIN IMMEDIATE` transaction, with the check *after* the insert.
-3. **Exposure is fee-exclusive while the cap is spent fee-inclusive.**
-   `size_position` bounds `contracts * effective_price`; the column holds the
-   raw stake. Exposure therefore accumulates about 2% less than it consumed, at
-   a 1c fee on a 50c contract. Correcting it needs a fee column on `orders`;
-   it is not worth a migration for a 2% error on a cap no live order has reached.
+3. ~~**Exposure is fee-exclusive while the cap is spent fee-inclusive.**~~
+   **Closed 2026-08-09.** `size_position` bounds `contracts * effective_price`;
+   the column held the raw stake, so exposure accumulated about 2% less than it
+   consumed — a 1c fee on a 50c contract, systematic, and in the direction that
+   leaves each order slightly more exposed than the number the next one sizes
+   against.
+
+   **The migration this deferral assumed was never needed.** The reasoning was
+   "correcting it needs a fee column on `orders`". It does not:
+   `limit_price_tenths` already holds the post-snap price of our own side and
+   `count` sits beside it, which is exactly what `calculate_fee` takes. What
+   made the deferral look sound was that the fee is a max across candidate
+   models with a per-order rounding step, so it cannot be written in SQL — and
+   exposure was a SQL `SUM`. The fix was to stop it being one.
+
+   `store.orders.exposure_contribution` is now the single expression of what an
+   open order commits, called both by the ticket's projection and by the cap.
+   Those were previously two implementations pinned together by a test; they
+   agreed, and both omitted the fee, which is precisely the defect a
+   two-paths-agree test cannot see.
 
 **The API is now a writer.** It was read-only by construction, which is a real
 safety property — the API cannot corrupt the evidence record while deciding — so
