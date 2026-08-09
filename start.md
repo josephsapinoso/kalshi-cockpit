@@ -15,7 +15,7 @@ actionable checklist; todo.md is just the build log.
 
 ## State
 
-`main` is `e26ab21`, pushed, CI green on every push. **1,405 tests**, ruff
+`main` is `9ecd45c`, pushed, CI green on every push. **1,405 tests**, ruff
 green, `next build` clean, six pages measured at 320/390/430 and looked at.
 
 **Demo is deployed and verified** on the current image: six pages 200,
@@ -128,10 +128,17 @@ combination nobody has built.
 
 ## Work that is self-contained, if you want more
 
-- **The `not invertible` rate.** 51 of 229 combinations had an ask outside the
-  Frechet bounds for their own legs — ~22%. Most is probably legs moving after
-  the combination was minted, but it has not been checked, and a systematic
-  cause would mean a marginal is being read wrong for some market type.
+- **Is a same-game combination dominated by its own cheapest leg?** The
+  sharpest open question and it needs no correlation estimate. 17 of 18
+  same-game asks sat above `min(leg mid)`; if they also sit above the cheapest
+  leg's *ask*, the combination costs more than a leg that pays out in a
+  superset of cases — dominated outright, and directly checkable. Leg bids and
+  asks are recorded in the `--json` as of the last run, so one more harvest
+  answers it:
+
+      .venv\Scripts\python.exe scripts\measure_combo_correlation.py           --pages 4 --rounds 55 --interval 60 --json out.json
+
+  Watch for the confound: a stale leg quote produces the same symptom.
 - **Research screen — do not build it yet.** It reads Scout findings; there is
   no table, the agent is called by nothing, and wiring it means billed
   Anthropic calls on a schedule. A screen over a structurally empty source
