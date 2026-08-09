@@ -1,7 +1,7 @@
 """What is the classifier actually throwing away, and is any of it a sport?
 
 `discover_from_events` excludes every event whose `competition_scope` is not in
-`FIXTURE_SCOPES` or `NON_FIXTURE_SCOPES`, warns once per process per
+`FIXTURE_SCOPES` or `EXCLUDED_SCOPES`, warns once per process per
 `(series_ticker, scope)` pair, and reports the pair count on every pass as
 `unknown_scopes=N`. On the live instance that count is **962**.
 
@@ -61,9 +61,10 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.kalshi.discovery import (  # noqa: E402
+    EXCLUDED_SCOPES,
     FIXTURE_SCOPES,
     IN_SCOPE_LEAGUES,
-    NON_FIXTURE_SCOPES,
+    PERIOD_SCOPES,
 )
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
@@ -149,7 +150,7 @@ def main() -> int:
         if not scope:
             continue
         normalised = scope.lower()
-        if normalised in FIXTURE_SCOPES or normalised in NON_FIXTURE_SCOPES:
+        if normalised in FIXTURE_SCOPES or normalised in EXCLUDED_SCOPES:
             known_scopes[scope] += 1
             continue
         unknown[(series, scope)][league] += 1
@@ -168,7 +169,16 @@ def main() -> int:
     print(f"recognised scopes      {sum(known_scopes.values())} events "
           f"across {len(known_scopes)} scopes")
     for scope, n in known_scopes.most_common():
-        bucket = "fixture" if scope.lower() in FIXTURE_SCOPES else "non-fixture"
+        # Three buckets, not two. A period scope is per-fixture *and* excluded,
+        # so folding it into "non-fixture" would print something untrue about
+        # the product in the one report whose job is to describe the product.
+        normalised = scope.lower()
+        if normalised in FIXTURE_SCOPES:
+            bucket = "fixture"
+        elif normalised in PERIOD_SCOPES:
+            bucket = "period, excluded"
+        else:
+            bucket = "non-fixture"
         print(f"    {scope:<28} {n:>6}  ({bucket})")
 
     print(f"\nunrecognised scopes    {len(unknown)} distinct "

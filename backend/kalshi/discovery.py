@@ -150,6 +150,42 @@ NON_FIXTURE_SCOPES: frozenset[str] = frozenset(
     {"future", "awards", "season", "series", "tournament"}
 )
 
+# Period markets: they DO resolve on a single fixture, and they are still not
+# priceable here. A 1st-quarter spread is one game, one line -- but the
+# consensus this project devigs against is game-level, so there is no reference
+# price to compare a quarter against and no way to tell a real edge from a
+# missing one. See docs/adr/0013.
+#
+# They are listed separately from `NON_FIXTURE_SCOPES` rather than dropped into
+# it because the two are excluded for different reasons, and a future reader
+# deciding whether to price one needs to know which reason applies: a future is
+# excluded because it is not a fixture, and no data source changes that; a
+# quarter is excluded because of what *we* subscribe to, which a period-level
+# odds feed would change.
+#
+# Kalshi's exact spelling, lowercased -- read from the live warning on
+# 2026-08-09, not guessed. Guessing scope spellings is what silently discarded
+# every spread and total in the universe; see tasks/lessons.md, "Test that the
+# filter's *exclusions* are decisions".
+PERIOD_SCOPES: frozenset[str] = frozenset(
+    f"{ordinal} quarter {market}"
+    for ordinal in ("1st", "2nd", "3rd", "4th")
+    for market in ("spread", "total", "winner")
+)
+
+# Every scope this project has classified as "excluded, deliberately".
+#
+# This is what makes the unrecognised-scope warning mean *"nobody has looked at
+# this value"* rather than *"we looked and said no"*. The warning names a
+# developer action item, and an action item that reprints every boot for a
+# decision already taken trains the reader to stop reading it -- which is the
+# state the whole aggregation work on `_WARNED_SCOPES` exists to avoid.
+#
+# Adding to this set must never be the reflex for silencing the warning. The
+# warning firing for an unclassified value is the safety property; only a scope
+# somebody has actually looked at belongs here.
+EXCLUDED_SCOPES: frozenset[str] = NON_FIXTURE_SCOPES | PERIOD_SCOPES
+
 # Leagues we can price, mapped to their The Odds API sport key. A league absent
 # here is out of scope -- not because Kalshi lacks markets, but because we have
 # no consensus to devig against. Adding one is a config change.
@@ -220,7 +256,10 @@ def classify_series(event: dict) -> SeriesInfo:
     normalised_scope = scope.lower()
     if normalised_scope in FIXTURE_SCOPES:
         is_game_level = True
-    elif normalised_scope in NON_FIXTURE_SCOPES:
+    elif normalised_scope in EXCLUDED_SCOPES:
+        # Known, and decided against -- a future, an award, or a period market.
+        # Silent on purpose: the decision is recorded in `EXCLUDED_SCOPES` and
+        # docs/adr/0013, so repeating it in the log every boot says nothing.
         is_game_level = False
     elif normalised_scope:
         # A scope we have never seen. Treat it as not-per-fixture (the safe
@@ -444,6 +483,11 @@ def _warn_about_new_unknown_scopes() -> None:
     exchange, 56 of 317 unknown scopes sit in a priceable league and every one
     of them is a future, an award or a period/prop market -- so the count that
     matters is the one that would go from 0 to 1 if Kalshi renamed `Game`.
+
+    The ones already looked at are in `EXCLUDED_SCOPES` and never reach here.
+    This line is for a value **nobody has classified**, which is why it stays
+    loud: adding a scope to `EXCLUDED_SCOPES` to quieten it is a decision, and
+    a decision leaves a record (docs/adr/0013) rather than a silence.
     """
     new_pairs = {
         pair: league

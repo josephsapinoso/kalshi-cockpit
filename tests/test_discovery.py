@@ -15,9 +15,11 @@ import pytest
 
 from conftest import load_fixture
 from backend.kalshi.discovery import (
+    EXCLUDED_SCOPES,
     FIXTURE_SCOPES,
     IN_SCOPE_LEAGUES,
     NON_FIXTURE_SCOPES,
+    PERIOD_SCOPES,
     classify_series,
     coverage_by_league,
     discover_from_events,
@@ -116,13 +118,14 @@ class TestMetadataDrift:
             ((e.get("product_metadata") or {}).get("competition_scope") or "").lower()
             for e in events
         }
-        known = FIXTURE_SCOPES | NON_FIXTURE_SCOPES | {""}
+        known = FIXTURE_SCOPES | EXCLUDED_SCOPES | {""}
         unknown = scopes - known
         assert not unknown, (
             f"unclassified competition_scope value(s): {sorted(unknown)}. "
-            f"Add each to FIXTURE_SCOPES (per-fixture, priceable) or "
-            f"NON_FIXTURE_SCOPES (futures/awards). Leaving one unclassified "
-            f"silently drops those markets."
+            f"Add each to FIXTURE_SCOPES (per-fixture, priceable), "
+            f"NON_FIXTURE_SCOPES (futures/awards) or PERIOD_SCOPES "
+            f"(per-fixture but sub-game). Leaving one unclassified silently "
+            f"drops those markets."
         )
 
     def test_spread_and_total_scopes_count_as_per_fixture(self):
@@ -156,6 +159,180 @@ class TestMetadataDrift:
         for league in ("Pro Basketball (W)", "NCAA Football"):
             if league in seen:
                 assert league in IN_SCOPE_LEAGUES, f"{league} present but unmapped"
+
+
+class TestPeriodMarketsAreExcludedByDecisionNotByOmission:
+    """Quarter markets stay out, and the log stops saying so every boot.
+
+    On 2026-08-09 the live instance warned, on every fresh process, about 12
+    unrecognised `competition_scope` values -- all of them WNBA quarter markets
+    in a league this project prices, which is precisely the shape the warning
+    exists to surface. It was surfacing correctly and nobody had answered it.
+
+    The answer is no, and it is a decision about the *reference price*, not
+    about Kalshi: a 1st-quarter spread resolves on one fixture, but the
+    consensus this project devigs against is game-level, so there is nothing to
+    compare a quarter against. See docs/adr/0013.
+
+    A warning that names an action item already decided is a warning readers
+    learn to skip, and this one shares a log stream with two boot lines that
+    three sessions could not read. So the decision is recorded in
+    `PERIOD_SCOPES` and these markets stop being *unrecognised* -- while an
+    unrecognised value must still be as loud as it ever was, which is what the
+    last two tests here are for.
+    """
+
+    # Kalshi's exact spelling, from the live warning. Paired with the series
+    # each was seen on, so a rename breaks the classification and the record of
+    # what it was classified from at the same time.
+    QUARTER_SCOPES = [
+        ("1st Quarter Spread", "KXWNBA1QSPREAD"),
+        ("1st Quarter Total", "KXWNBA1QTOTAL"),
+        ("1st Quarter Winner", "KXWNBA1QWINNER"),
+        ("2nd Quarter Spread", "KXWNBA2QSPREAD"),
+        ("2nd Quarter Total", "KXWNBA2QTOTAL"),
+        ("2nd Quarter Winner", "KXWNBA2QWINNER"),
+        ("3rd Quarter Spread", "KXWNBA3QSPREAD"),
+        ("3rd Quarter Total", "KXWNBA3QTOTAL"),
+        ("3rd Quarter Winner", "KXWNBA3QWINNER"),
+        ("4th Quarter Spread", "KXWNBA4QSPREAD"),
+        ("4th Quarter Total", "KXWNBA4QTOTAL"),
+        ("4th Quarter Winner", "KXWNBA4QWINNER"),
+    ]
+
+    def _event(self, series, scope, i=0):
+        """One WNBA quarter event, in a league this project prices.
+
+        The league matters: the warning only *names* scopes in a priceable
+        league, so an out-of-scope one would assert against the counted-not-
+        named branch and pass whatever the classification did.
+        """
+        return {
+            "event_ticker": f"{series}-26AUG09LVNY-{i}",
+            "series_ticker": series,
+            "product_metadata": {
+                "competition": "Pro Basketball (W)",
+                "competition_scope": scope,
+            },
+            "markets": [
+                {
+                    "ticker": f"{series}-26AUG09LVNY-{i}-A",
+                    "yes_sub_title": "Las Vegas",
+                    "occurrence_datetime": "2026-08-09T23:00:00Z",
+                }
+            ],
+        }
+
+    def test_all_twelve_live_quarter_scopes_are_classified(self):
+        unclassified = [
+            scope
+            for scope, _ in self.QUARTER_SCOPES
+            if scope.lower() not in EXCLUDED_SCOPES
+        ]
+        assert not unclassified, unclassified
+
+    def test_quarter_markets_are_not_game_level(self):
+        """The exclusion itself, asserted on the classifier rather than the log.
+
+        Note the ticker suffix says `SPREAD` and `TOTAL`, so `market_type`
+        resolves and the suffix fallback would call these game-level. Only the
+        scope keeps them out.
+        """
+        for scope, series in self.QUARTER_SCOPES:
+            info = classify_series(self._event(series, scope))
+            assert not info.is_game_level, f"{scope} classified as game-level"
+            assert not info.in_scope, f"{scope} reached the priceable set"
+
+    def test_quarter_scopes_are_not_priceable(self):
+        """Classified as excluded, never as a fixture scope.
+
+        `FIXTURE_SCOPES` is the priceable set. A quarter landing there would be
+        devigged against a game-level consensus, which is not an error anything
+        downstream can detect -- the numbers would simply be wrong.
+        """
+        for scope, _ in self.QUARTER_SCOPES:
+            assert scope.lower() not in FIXTURE_SCOPES, scope
+
+    def test_a_full_slate_of_quarter_markets_warns_about_nothing(self, caplog):
+        """The line that reprinted every boot, now absent for a decided case."""
+        events = [
+            self._event(series, scope, i)
+            for scope, series in self.QUARTER_SCOPES
+            for i in range(3)
+        ]
+        with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        warnings = [r for r in caplog.records if "unrecognised" in r.getMessage()]
+        assert not warnings, [r.getMessage() for r in warnings]
+        summaries = [
+            r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
+        ]
+        # The count has to agree with the silence, or the two halves of the
+        # reporting contradict each other and neither can be trusted.
+        assert len(summaries) == 1
+        assert "unknown_scopes=0" in summaries[0], summaries[0]
+        assert "not_game_level=36" in summaries[0], summaries[0]
+
+    def test_a_scope_nobody_has_classified_still_warns(self, caplog):
+        """The safety property, and the reason this change is allowed at all.
+
+        Classifying the twelve must narrow the warning to "nobody has looked at
+        this", never silence it. If this test goes green with the warning
+        removed, the whole mechanism from `tasks/lessons.md` -- an exclusion is
+        a decision, never an accident -- is gone.
+        """
+        events = [
+            *(self._event("KXWNBA1QSPREAD", "1st Quarter Spread", i) for i in range(3)),
+            *(self._event("KXWNBAREB", "Rebounds", i) for i in range(3)),
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ]
+        assert len(messages) == 1, messages
+        assert "'Rebounds'" in messages[0]
+        assert "KXWNBAREB" in messages[0]
+        assert "1st Quarter Spread" not in messages[0], messages[0]
+
+    def test_a_period_scope_kalshi_has_not_emitted_yet_still_warns(self, caplog):
+        """Classified by exact value, not by pattern-matching "quarter".
+
+        A substring rule would be the tempting shortcut and would swallow every
+        period product Kalshi ever ships -- halves, innings, overtime, a 5th
+        quarter -- turning one answered question into a standing blanket
+        exemption. These four are the ones a `"quarter" in scope` test would
+        wrongly accept or that sit closest to the ones accepted.
+        """
+        novel = ["1st Half Winner", "5th Quarter Winner", "Overtime Winner",
+                 "1st Quarter Margin"]
+        events = [
+            self._event(f"KXWNBANEW{i}", scope, j)
+            for i, scope in enumerate(novel)
+            for j in range(2)
+        ]
+        with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
+            discover_from_events(events)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
+        ]
+        assert len(messages) == 1, messages
+        for scope in novel:
+            assert f"'{scope}'" in messages[0], f"{scope} was silently swallowed"
+
+    def test_the_two_reasons_for_exclusion_are_kept_apart(self):
+        """A future is not a fixture; a quarter is one and is still declined.
+
+        Merging them would lose the only thing that tells a future reader which
+        exclusions a period-level odds feed would reopen and which no data
+        source can.
+        """
+        assert PERIOD_SCOPES
+        assert not (PERIOD_SCOPES & NON_FIXTURE_SCOPES)
+        assert EXCLUDED_SCOPES == PERIOD_SCOPES | NON_FIXTURE_SCOPES
 
 
 class TestCommenceTime:
