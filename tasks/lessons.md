@@ -3318,3 +3318,50 @@ easier to write and reads as more confident.
   measurements here were right. The prose about them was wrong five times.
   Related: [[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
   [[computing-the-right-statistic-and-then-ignoring-it]].
+
+---
+
+## 2026-08-09 — A schema comment is code that nothing executes
+
+`schema.sql` said `edge_tenths REAL NOT NULL, -- gross, before fees`.
+`engine.py:161` assigns it `edge_after_fees_tenths(...)` and the Board renders
+it as `"+1.7c after fees"`. **The column had been net of fees since it was
+written, and the file that is the contract for every downstream query said the
+opposite.**
+
+The 2026-08-07 audit found it (item 41) and that session's status line recorded
+41 as *closed*. It was not. Item 41 was a bundle of nine small findings; some
+were fixed and this one was not, and a bundle marked closed is
+indistinguishable from a bundle that was.
+
+**Why it is worse than a wrong comment elsewhere.** A wrong docstring on a
+function is checked against the function every time someone reads the code under
+it. A column comment has no code under it. Nothing imports it, no test loads it,
+and the writer lives in a different file — so the only thing that would catch it
+is somebody reading both at once, which is exactly what nobody does while
+writing a query. The failure it produces is not a crash: it is a fee-relative
+band with the fee subtracted twice, which returns a number, and the number looks
+decided.
+
+**Then check the neighbours, because one wrong comment is a sample.** Reading
+the rest of the file against its writers found four more, all the same shape — a
+comment enumerating a column's domain, drifting from the code that fills it:
+
+| column | comment said | writers actually produce |
+|---|---|---|
+| `kalshi_markets.price_structure` | `cent \| deci_cent \| tapered_deci_cent` | `linear_cent`, `center_half_edge_half_cent`, `deci_cent` — two of the three listed appear in **no** captured payload, and the value on the large majority of rows was not listed at all |
+| `unmatched_events.reason` | `no_alias \| no_counterpart \| commence_skew` | free-text sentences; `no_alias` and `commence_skew` are written by nothing, so `GROUP BY reason` yields one group per sentence |
+| `kalshi_markets.market_type` | `... \| future \| prop` | `moneyline \| spread \| total \| team_total`; `future`/`prop` unwritten, `team_total` unlisted |
+| `meta.schema_version` seed | `'1'` | `db.SCHEMA_VERSION = 6` overwrites it; the file declares a version it is not |
+
+Four of the five are *enumerations*. That is the tell: an inline `-- a | b | c`
+is a claim about a whole domain, written once from intent, and every value added
+to the parser afterwards lands somewhere else.
+
+**How to apply:** treat an enum comment in a schema as an assertion with no
+test, and check it the way this file already says to check a filter — enumerate
+the values the writer can emit and diff the two sets. Prefer naming the
+producing symbol (`discovery._SUFFIX_TO_MARKET_TYPE`) over restating its values,
+because a pointer cannot drift. And close a bundled audit item part by part, or
+the parts that were skipped inherit the tick. Related:
+[[test-the-filters-exclusions]], [[code-with-no-caller-is-not-a-feature]].
