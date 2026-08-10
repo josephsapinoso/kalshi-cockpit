@@ -542,6 +542,81 @@ class TestExposure:
             "SELECT COUNT(*) AS n FROM recommendations"
         ).fetchone()["n"] == 0
 
+    def test_an_unreadable_daily_pnl_stops_the_pass_the_same_way(
+        self, conn, joined, monkeypatch
+    ):
+        """The second budget, which nothing read until 2026-08-10.
+
+        `size_position`'s daily-loss kill switch had no producer anywhere in
+        production: the parameter defaulted to `0.0`, so the runner sized every
+        card on the slate as though nothing had been lost today. The exposure
+        argument above applies unchanged -- `None` here would refuse the whole
+        slate for a reason unrelated to any candidate -- so it dies the same way.
+        """
+        events, _ = joined
+        monkeypatch.setattr(
+            "backend.runner.daily_realised_pnl_dollars",
+            lambda _conn, **_kw: None,
+        )
+        with pytest.raises(RuntimeError, match="realised P&L could not be read"):
+            run_pricing_pass(conn, events, risk=RiskConfig())
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM recommendations"
+        ).fetchone()["n"] == 0
+
+    def test_a_realised_loss_past_the_limit_sizes_the_whole_slate_to_zero(
+        self, conn, joined
+    ):
+        """The kill switch reaching the Board, from the database.
+
+        Written as a settlement rather than a monkeypatched number on purpose:
+        the finding this replaces was not that the comparison was wrong, it was
+        that no caller supplied the input. A test that injects the input cannot
+        tell the two apart -- see `tests/test_ev_sizing.py::
+        test_the_daily_loss_kill_switch_refuses`, which is green and always was.
+
+        Every row is still *recorded*, carrying the refusal. Dropping them would
+        lose the observation, and a suppressed row is still scored on the
+        closing line.
+        """
+        events, _ = joined
+        ticker = next(
+            m.ticker for e in events for m in e.markets
+            if m.market_type == "moneyline"
+        )
+        conn.execute(
+            "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+            "action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('k1', ?, ?, 'yes', 'buy', 'limit', 10, 500, 'dry_run', "
+            "'{}', 1)",
+            (NOW, ticker),
+        )
+        conn.execute(
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run, fill_assumption) "
+            "SELECT id, ticker, ?, 'no', 10, -500000, 1, 'test' FROM orders "
+            "WHERE client_order_id = 'k1'",
+            (NOW,),
+        )
+        conn.commit()
+
+        run_pricing_pass(conn, events, risk=RiskConfig(), now=NOW)
+
+        rows = conn.execute(
+            "SELECT suggested_contracts, suppressed_reason, reason_text "
+            "FROM recommendations"
+        ).fetchall()
+        assert rows, "the pass recorded nothing, so this asserts nothing"
+        assert all(r["suggested_contracts"] == 0 for r in rows)
+        # `reason_text` rather than `suppressed_reason`, because a row can fail
+        # several checks and `suppressed_reason` keeps the suppression layer's
+        # verdict when there is one. The refusal is on every row's prose, which
+        # is what the Board actually renders.
+        assert all(
+            "kill switch" in r["reason_text"].lower() for r in rows
+        ), [dict(r) for r in rows]
+
 
 class TestSuppressionConfigIsHonoured:
     def test_a_tight_freshness_limit_suppresses_the_whole_slate(self, conn, joined):

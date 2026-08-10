@@ -103,8 +103,8 @@ def build_recommendation(
     suppression: SuppressionConfig,
     strategy_config_version: int,
     current_exposure_dollars: Optional[float],
-    current_position_dollars: float = 0.0,
-    daily_pnl_dollars: float = 0.0,
+    current_position_dollars: Optional[float],
+    daily_pnl_dollars: Optional[float],
     maker: bool = False,
     created_ms: Optional[int] = None,
 ) -> Recommendation:
@@ -113,6 +113,11 @@ def build_recommendation(
     Never raises on a bad candidate -- it returns a suppressed row saying what
     was wrong. An exception here would drop the observation entirely, and a
     dropped observation is indistinguishable from one that was never generated.
+
+    **The three risk-state inputs have no defaults**, and pass straight through
+    to `size_position`, which refuses on `None`. They used to default to `0.0`
+    and no caller supplied them, so the position cap and the daily loss limit
+    were computed against a number this function invented. See `core.sizing`.
     """
     created = created_ms if created_ms is not None else now_ms()
 
@@ -139,12 +144,24 @@ def build_recommendation(
     # depends on the size of the deposit. `current_exposure_dollars` is still
     # passed to the sizing above, where it belongs: it governs what may be
     # bought, which is the question the caps exist to answer.
+    #
+    # **All three zeros are written out, and that is the point of writing them.**
+    # They used to be *omissions* that the sizer's defaults turned into zeros --
+    # indistinguishable, at this call site, from the bug on the line above,
+    # where the same omission meant "nobody ever measured this". Stated
+    # explicitly, a zero here is a claim this function is making on purpose:
+    # the reference profile is a clean book by definition. `tests/test_has_
+    # callers.py` relies on the distinction, and requires at least one
+    # production call site to supply a value it *computed* rather than a
+    # literal, so these zeros cannot stand in for the wiring.
     reference = size_position(
         side=candidate.side,
         ask_tenths=candidate.ask_tenths,
         fair_probability=fair,
         risk=risk.reference(),
         current_exposure_dollars=0.0,
+        current_position_dollars=0.0,
+        daily_pnl_dollars=0.0,
         maker=maker,
     )
 

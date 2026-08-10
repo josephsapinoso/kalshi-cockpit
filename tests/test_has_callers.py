@@ -358,6 +358,216 @@ def test_the_caller_does_more_than_import_the_symbol(symbol, consequence):
 
 
 # ---------------------------------------------------------------------------
+# The same question, one level down: does anything supply the ARGUMENT?
+# ---------------------------------------------------------------------------
+# `MUST_HAVE_CALLERS` asks whether a function is reached. That is not the only
+# way a control can be wired to nothing, and on 2026-08-10 this project found
+# the other way.
+#
+# `size_position` has been called from four production sites since it was
+# written. Its daily-loss kill switch is correct, is tested, and fires exactly
+# at the boundary when it is handed a number. It was never handed one:
+# `daily_pnl_dollars` was keyword-only with a default of `0.0`, and instrumenting
+# the sizer across the whole suite found 1,358 calls of which exactly **one**
+# carried a non-zero value -- from `tests/test_engine.py`. Driven end to end at
+# the `fly.live.toml` profile against 40 settled positions totalling -$20,000
+# realised, `POST /api/orders` returned HTTP 200.
+#
+# The reason no test caught it is worth stating precisely, because it is the
+# fifth guard-that-cannot-fail this project has found in two sessions:
+# `tests/test_ev_sizing.py::test_the_daily_loss_kill_switch_refuses` passes
+# `daily_pnl_dollars=-100.0` **itself**. It could never go red, because the
+# production question -- *does anything supply this?* -- is not the question it
+# asks. **A test that constructs the parameter it is checking cannot detect
+# that no caller constructs it.**
+#
+# So: the same grep, one level down. Not "is the function called" but "is the
+# argument passed, at every call site, and by at least one caller that computed
+# it rather than writing a literal".
+
+# (function, parameter, why it matters if nothing supplies it)
+MUST_BE_SUPPLIED = [
+    (
+        "size_position",
+        "daily_pnl_dollars",
+        "the daily loss kill switch is applied to a number the sizer invented, "
+        "and an account $20,000 down places orders at full size",
+    ),
+    (
+        "size_position",
+        "current_position_dollars",
+        "`max_position_dollars` is applied to a number the sizer invented -- "
+        "measured, 76 contracts and ~$38.00 accumulated on ONE ticker against a "
+        "$10 cap, stopped only by the $40 portfolio cap",
+    ),
+    (
+        "build_recommendation",
+        "daily_pnl_dollars",
+        "every card on the Board is sized as though nothing had been lost "
+        "today, so the screen offers bets the order endpoint will refuse",
+    ),
+    (
+        "build_recommendation",
+        "current_position_dollars",
+        "the Board sizes every market as though nothing were held on it",
+    ),
+    (
+        "price_against",
+        "daily_pnl_dollars",
+        "the live ticker keeps quoting a bettable size after the kill switch "
+        "has engaged -- the screen and the server disagreeing about money",
+    ),
+    (
+        "price_against",
+        "position_dollars",
+        "the live ticker sizes every market as though nothing were held on it",
+    ),
+]
+
+
+def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
+    """Every production call of `function`, with the keywords it passes.
+
+    Returns `(file, line, keyword_names, keywords_given_a_literal)`.
+
+    Calls, not references: `ast.Call` only, so the `def` itself and any docstring
+    naming the function are invisible. That distinction is why this can scan the
+    defining module too -- `price_against` is called from `_on_book` inside the
+    module that defines it, and excluding definers the way `callers_of` does
+    would skip its only production call site entirely.
+    """
+    found: list[tuple[str, int, set[str], set[str]]] = []
+    for path in production_sources():
+        try:
+            tree = ast.parse(path.read_text("utf-8", errors="replace"))
+        except SyntaxError:                                   # noqa: PERF203
+            continue
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.id if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute)
+                else None
+            )
+            if name != function:
+                continue
+            keywords = {kw.arg for kw in node.keywords if kw.arg}
+            literals = {
+                kw.arg for kw in node.keywords
+                if kw.arg and isinstance(kw.value, ast.Constant)
+            }
+            found.append((rel, node.lineno, keywords, literals))
+    return found
+
+
+@pytest.mark.parametrize(
+    "function,parameter,consequence", MUST_BE_SUPPLIED,
+    ids=[f"{f}:{p}" for f, p, _ in MUST_BE_SUPPLIED],
+)
+def test_every_production_call_site_supplies_the_parameter(
+    function, parameter, consequence
+):
+    """One omission is enough. Three wired call sites and one defaulted one is
+    not defence in depth, it is a hole with three signposts around it."""
+    sites = _call_sites(function)
+    missing = [
+        f"{rel}:{line}" for rel, line, keywords, _ in sites
+        if parameter not in keywords
+    ]
+    assert not missing, (
+        f"`{function}` is called at {missing} without passing `{parameter}`. "
+        f"If that stands, {consequence}. See tasks/lessons.md: an optional "
+        f"safety parameter is a guard that cannot fail."
+    )
+
+
+@pytest.mark.parametrize(
+    "function,parameter,consequence", MUST_BE_SUPPLIED,
+    ids=[f"{f}:{p}" for f, p, _ in MUST_BE_SUPPLIED],
+)
+def test_at_least_one_caller_supplies_a_value_it_actually_measured(
+    function, parameter, consequence
+):
+    """The test above, closed against its cheapest false pass.
+
+    `daily_pnl_dollars=0.0` at every call site satisfies "the parameter is
+    supplied" while reproducing the bug exactly -- it is the old default written
+    out by hand. A literal is a *claim*, and there are places one is correct:
+    `engine.build_recommendation` sizes the reference profile against a clean
+    book on purpose, and the demo seeder's database genuinely holds nothing. So
+    this does not ban literals; it requires that somewhere, at least one caller
+    passes an expression it had to compute.
+    """
+    sites = _call_sites(function)
+    computed = [
+        f"{rel}:{line}" for rel, line, keywords, literals in sites
+        if parameter in keywords and parameter not in literals
+    ]
+    assert computed, (
+        f"every production call of `{function}` passes a hardcoded constant for "
+        f"`{parameter}`. That is the pre-2026-08-10 default written out by "
+        f"hand, and it fails in exactly the same way: {consequence}"
+    )
+
+
+class TestTheParameterScannerIsNotVacuous:
+    """The guard on the guard.
+
+    A scanner that found no call sites would pass every assertion above by
+    checking nothing -- which is the shape of the defect this whole file exists
+    to detect, reproduced in the detector. So the call sites it must find are
+    named, and both directions of the literal test are shown to move.
+    """
+
+    def test_the_scanner_finds_the_call_sites_the_audit_found(self):
+        files = {rel for rel, _, _, _ in _call_sites("size_position")}
+        for expected in (
+            "backend/engine.py", "backend/api/routes.py", "backend/live.py",
+        ):
+            assert expected in files, (
+                f"`size_position` call sites were located in {sorted(files)}, "
+                f"which does not include {expected}. The scanner has stopped "
+                f"seeing a production caller, so every assertion above it is "
+                f"passing by finding nothing to check."
+            )
+
+    def test_the_scanner_sees_more_than_one_site_per_file(self):
+        """`build_recommendation` sizes twice inside one function -- the offer
+        and the reference profile -- and only one of them may carry a literal.
+        A scanner that collapsed a file to a single site could not tell."""
+        engine = [
+            line for rel, line, _, _ in _call_sites("size_position")
+            if rel == "backend/engine.py"
+        ]
+        assert len(engine) >= 2, engine
+
+    def test_a_literal_and_a_computed_value_are_told_apart(self):
+        """Directly, on the real tree, because the distinction is the whole
+        content of the second test and it is invisible if it never moves."""
+        sites = _call_sites("size_position")
+        literal_zero = [
+            (rel, line) for rel, line, keywords, literals in sites
+            if "daily_pnl_dollars" in literals
+        ]
+        computed = [
+            (rel, line) for rel, line, keywords, literals in sites
+            if "daily_pnl_dollars" in keywords
+            and "daily_pnl_dollars" not in literals
+        ]
+        assert literal_zero, (
+            "no call site passes a literal for `daily_pnl_dollars`, so the "
+            "literal detector is not being exercised at all"
+        )
+        assert computed, (
+            "no call site passes a computed `daily_pnl_dollars`, so the "
+            "detector cannot distinguish the two"
+        )
+
+
+# ---------------------------------------------------------------------------
 # The inversion: enumerate every module, classify every orphan.
 # ---------------------------------------------------------------------------
 

@@ -27,7 +27,13 @@ import pytest
 from backend.config import RiskConfig, StalenessConfig
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.ws import FeedDied
-from backend.live import QuoteHub, open_decisions, price_against, sse
+from backend.live import (
+    QuoteHub,
+    _RiskState,
+    open_decisions,
+    price_against,
+    sse,
+)
 from backend.store import db
 
 
@@ -157,7 +163,8 @@ class TestThePriceOnTheWire:
 
         priced = price_against(
             _book(no_bid=530), sub, risk=RiskConfig(),
-            exposure_dollars=0.0, now_ms=now,
+            exposure_dollars=0.0, position_dollars=0.0,
+            daily_pnl_dollars=0.0, now_ms=now,
         )
 
         assert priced is not None
@@ -171,7 +178,8 @@ class TestThePriceOnTheWire:
 
         priced = price_against(
             _book(no_qty=123.0, yes_qty=456.0), sub, risk=RiskConfig(),
-            exposure_dollars=0.0, now_ms=now,
+            exposure_dollars=0.0, position_dollars=0.0,
+            daily_pnl_dollars=0.0, now_ms=now,
         )
 
         assert priced.depth_at_ask == 123.0, (
@@ -186,10 +194,14 @@ class TestThePriceOnTheWire:
         _add(conn, now=now, ask=500, fair=0.60)
         sub = open_decisions(conn, staleness=StalenessConfig(), now_ms=now)[0]
 
-        cheap = price_against(_book(no_bid=550), sub, risk=RiskConfig(),
-                              exposure_dollars=0.0, now_ms=now)
-        dear = price_against(_book(no_bid=450), sub, risk=RiskConfig(),
-                             exposure_dollars=0.0, now_ms=now)
+        cheap = price_against(
+            _book(no_bid=550), sub, risk=RiskConfig(), exposure_dollars=0.0,
+            position_dollars=0.0, daily_pnl_dollars=0.0, now_ms=now,
+        )
+        dear = price_against(
+            _book(no_bid=450), sub, risk=RiskConfig(), exposure_dollars=0.0,
+            position_dollars=0.0, daily_pnl_dollars=0.0, now_ms=now,
+        )
 
         assert cheap.ask_tenths == 450 and dear.ask_tenths == 550
         assert cheap.edge_tenths > dear.edge_tenths
@@ -204,8 +216,10 @@ class TestThePriceOnTheWire:
         _add(conn, now=now, ask=500, fair=0.60, contracts=12)
         sub = open_decisions(conn, staleness=StalenessConfig(), now_ms=now)[0]
 
-        priced = price_against(_book(no_bid=650), sub, risk=RiskConfig(),
-                               exposure_dollars=0.0, now_ms=now)
+        priced = price_against(
+            _book(no_bid=650), sub, risk=RiskConfig(), exposure_dollars=0.0,
+            position_dollars=0.0, daily_pnl_dollars=0.0, now_ms=now,
+        )
 
         assert priced.ask_tenths == 350
         assert priced.contracts == 12
@@ -219,7 +233,8 @@ class TestThePriceOnTheWire:
 
         assert price_against(
             _book(invalid=True), sub, risk=RiskConfig(),
-            exposure_dollars=0.0, now_ms=now,
+            exposure_dollars=0.0, position_dollars=0.0,
+            daily_pnl_dollars=0.0, now_ms=now,
         ) is None
 
     def test_a_one_sided_book_says_nothing(self, stream_db):
@@ -230,8 +245,166 @@ class TestThePriceOnTheWire:
         book.no_bids = {}
 
         assert price_against(
-            book, sub, risk=RiskConfig(), exposure_dollars=0.0, now_ms=now
+            book, sub, risk=RiskConfig(), exposure_dollars=0.0,
+            position_dollars=0.0, daily_pnl_dollars=0.0, now_ms=now,
         ) is None
+
+
+class TestTheTickerSpendsTheSameBudgetsTheServerDoes:
+    """The screen must not offer a size the order endpoint will refuse.
+
+    Until 2026-08-10 this path handed `size_position` a literal `0.0` for
+    exposure and let it default the position and the day's P&L to `0.0` as well.
+    So the ticker sized every row as though the account held nothing and had
+    lost nothing -- on a day the kill switch was engaged it would have kept
+    quoting a bettable number while every tap came back 422.
+    """
+
+    def test_the_kill_switch_zeroes_the_size_on_the_wire(self, stream_db):
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        sub = open_decisions(conn, staleness=StalenessConfig(), now_ms=now)[0]
+
+        priced = price_against(
+            _book(no_bid=650), sub, risk=RiskConfig(max_daily_loss_dollars=10.0),
+            exposure_dollars=0.0, position_dollars=0.0,
+            daily_pnl_dollars=-500.0, now_ms=now,
+        )
+
+        assert priced is not None, (
+            "the row still has a price and an edge -- what it does not have is "
+            "a size. Silence here would take the card off the screen, which "
+            "hides the reason rather than showing it."
+        )
+        assert priced.contracts == 0
+
+    @pytest.mark.parametrize(
+        "unknown", ["exposure_dollars", "position_dollars", "daily_pnl_dollars"]
+    )
+    def test_an_unreadable_budget_zeroes_the_size(self, stream_db, unknown):
+        """`None` from any of the three readers must not size a bet. The hub
+        starts with all three unknown, before its first database read."""
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        sub = open_decisions(conn, staleness=StalenessConfig(), now_ms=now)[0]
+        args = dict(
+            exposure_dollars=0.0, position_dollars=0.0, daily_pnl_dollars=0.0,
+        )
+        args[unknown] = None
+
+        priced = price_against(
+            _book(no_bid=650), sub, risk=RiskConfig(), now_ms=now, **args
+        )
+
+        assert priced.contracts == 0
+
+    def test_the_control_sizes_a_bet_when_every_budget_is_readable(
+        self, stream_db
+    ):
+        """Or the class above passes against a ticker that sizes nothing at
+        all, which is the failure it is meant to detect wearing the disguise of
+        the fix."""
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        sub = open_decisions(conn, staleness=StalenessConfig(), now_ms=now)[0]
+
+        priced = price_against(
+            _book(no_bid=650), sub, risk=RiskConfig(),
+            exposure_dollars=0.0, position_dollars=0.0,
+            daily_pnl_dollars=0.0, now_ms=now,
+        )
+
+        assert priced.contracts > 0
+
+    def test_the_hub_reads_the_budgets_rather_than_assuming_them(self, stream_db):
+        """The wiring, not the arithmetic.
+
+        `_load_subscriptions` is what the feed loop calls each cycle. If it
+        stopped reading the risk state, `_risk_state` would keep its opening
+        value -- every field unknown -- and this goes red. The state is read
+        against the same connection as the subscription list, so the two cannot
+        describe different instants.
+        """
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        conn.execute(
+            "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+            "action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('x1', ?, ?, 'yes', 'buy', 'limit', 10, 500, 'resting', "
+            "'{}', 1)",
+            (now, TICKER),
+        )
+        conn.execute(
+            "INSERT INTO orders (client_order_id, submitted_ms, ticker, side, "
+            "action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('x2', ?, ?, 'yes', 'buy', 'limit', 4, 500, 'filled', "
+            "'{}', 1)",
+            (now, TICKER),
+        )
+        conn.execute(
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run, fill_assumption) "
+            "SELECT id, ticker, ?, 'no', 4, -777, 1, 'test' FROM orders "
+            "WHERE client_order_id = 'x2'",
+            (now,),
+        )
+        conn.commit()
+
+        hub = QuoteHub(path, socket_factory=FakeSocket)
+        hub._load_subscriptions()
+
+        state = hub._risk_state
+        assert state.exposure_dollars == pytest.approx(5.20)
+        assert state.positions[TICKER] == pytest.approx(5.20)
+        assert state.daily_pnl_dollars == pytest.approx(-7.77)
+
+    async def test_the_frame_on_the_wire_spends_the_state_the_hub_read(
+        self, stream_db
+    ):
+        """The last link: `_on_book` -> `price_against`.
+
+        `_load_subscriptions` reading the budgets and `price_against` refusing
+        on them are both tested above, and neither says the two are connected.
+        `_on_book` passing literal zeros would satisfy every other assertion in
+        this class while putting a bettable size on a phone after the kill
+        switch engaged -- which is the shape of the whole 2026-08-10 finding,
+        one function further along.
+        """
+        path, conn, now = stream_db
+        _add(conn, now=now)
+        hub = QuoteHub(
+            path, risk=RiskConfig(max_daily_loss_dollars=10.0),
+            socket_factory=FakeSocket,
+        )
+        hub._load_subscriptions()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        hub._clients.add(queue)
+
+        await hub._on_book(_book(no_bid=650))
+        healthy = queue.get_nowait()["quotes"][0]["contracts"]
+        assert healthy > 0, "the control never sized anything"
+
+        hub._risk_state = _RiskState(
+            exposure_dollars=0.0, daily_pnl_dollars=-500.0,
+            positions={TICKER: 0.0},
+        )
+        hub._latest.clear()
+        await hub._on_book(_book(no_bid=650))
+
+        assert queue.get_nowait()["quotes"][0]["contracts"] == 0
+
+    def test_a_hub_that_has_not_read_yet_knows_nothing(self, stream_db):
+        """Anchors the test above: a `_RiskState` of zeros would satisfy it by
+        accident on an empty database. Before any read, every budget is `None`
+        -- which refuses -- and not `0.0`, which permits."""
+        path, _conn, _now = stream_db
+        hub = QuoteHub(path, socket_factory=FakeSocket)
+
+        assert hub._risk_state.exposure_dollars is None
+        assert hub._risk_state.daily_pnl_dollars is None
+        assert hub._risk_state.positions == {}
 
 
 class FakeSocket:

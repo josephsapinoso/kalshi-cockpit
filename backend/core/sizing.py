@@ -121,15 +121,37 @@ def size_position(
     fair_probability: float,
     risk: RiskConfig,
     current_exposure_dollars: Optional[float],
-    current_position_dollars: float = 0.0,
-    daily_pnl_dollars: float = 0.0,
+    current_position_dollars: Optional[float],
+    daily_pnl_dollars: Optional[float],
     maker: bool = False,
 ) -> SizingResult:
     """How many contracts to buy, or a refusal with a stated reason.
 
-    `current_exposure_dollars` of `None` means exposure could not be read. That
-    is a **refusal**, never an assumption of zero — treating unknown exposure as
-    no exposure is how a risk cap silently becomes unlimited.
+    **The three risk-state inputs have no defaults, and that is the fix.** Each
+    of them may be `None`, meaning "could not be read", which is a **refusal**.
+    Omitting one is a `TypeError` at the call site rather than a silent zero.
+
+    Until 2026-08-10, `current_position_dollars` and `daily_pnl_dollars` were
+    keyword-only with a default of `0.0`, and *no production caller supplied
+    either*. Measured by instrumenting this function across the whole suite:
+    1,358 calls, of which exactly one carried a non-zero `daily_pnl_dollars` and
+    it originated in `tests/test_engine.py`. The consequence was not subtle --
+    the real `POST /api/orders` route, driven end to end at the verbatim
+    `fly.live.toml` risk profile against 40 settled positions totalling
+    -$20,000 of realised loss, returned **HTTP 200**.
+
+    The guard below was never wrong. `-9.99` sized 8 contracts and `-10.00`
+    refused, exactly at the boundary, the whole time. What was missing was the
+    producer, and a default of `0.0` is what let the producer stay missing:
+    `CLAUDE.md` says *unreadable resolves to `None`, never `0`*, and on a loss
+    limit `0.0` is precisely the maximally permissive value -- "no information"
+    silently reading as "no losses".
+
+    Note the asymmetry with the caps below, which is the repo's rule rather than
+    an inconsistency: **clamp what you trust; refuse what you're validating.** A
+    stake that exceeds a cap is clamped to the cap, because the cap is a value
+    we trust. A stake computed from an *unreadable* budget is refused, because
+    the budget is the thing being validated.
     """
     if not is_valid_price(ask_tenths):
         return _refuse(
@@ -141,13 +163,31 @@ def size_position(
         return _refuse(
             "current exposure is unreadable. Refusing to size a position "
             "against an unknown budget -- 'cannot determine' must not resolve "
-            "to 'unlimited'."
+            "to 'unlimited'.",
+            constraint="exposure_unreadable",
+        )
+
+    if current_position_dollars is None:
+        return _refuse(
+            "the position already held on this market is unreadable, so "
+            "max_position_dollars cannot be applied. Refusing -- a per-market "
+            "cap that cannot be measured is not a cap.",
+            constraint="position_unreadable",
+        )
+
+    if daily_pnl_dollars is None:
+        return _refuse(
+            "the day's realised P&L is unreadable, so the daily loss limit "
+            "cannot be applied. Refusing -- 'cannot determine what I have lost "
+            "today' must not resolve to 'nothing'.",
+            constraint="daily_pnl_unreadable",
         )
 
     if daily_pnl_dollars <= -abs(risk.max_daily_loss_dollars):
         return _refuse(
             f"daily loss limit reached ({daily_pnl_dollars:.2f} vs "
-            f"-{risk.max_daily_loss_dollars:.2f}). Kill switch engaged."
+            f"-{risk.max_daily_loss_dollars:.2f}). Kill switch engaged.",
+            constraint="max_daily_loss_dollars",
         )
 
     # Size against the fee-inclusive price. Sizing on the raw ask and taking
@@ -213,14 +253,27 @@ def size_position(
     )
 
 
-def _refuse(reason: str) -> SizingResult:
-    logger.warning("sizing refused: %s", reason)
+def _refuse(reason: str, *, constraint: str = "refused") -> SizingResult:
+    """Zero contracts, with the refusal **named** as well as explained.
+
+    `binding_constraint` used to read `"refused"` on every refusal, which threw
+    away the one thing that field exists to say -- and the screens read it:
+    `TicketSheet.tsx` renders it as "Bound by". A person told "bound by:
+    refused" learns nothing; "bound by: max_daily_loss_dollars" tells them the
+    kill switch is engaged and no price will fix it, while
+    "daily_pnl_unreadable" tells them the database is the problem. Those call
+    for opposite responses.
+
+    The default stays `"refused"` so the older refusals keep the string the
+    frontend and the API contract already carry.
+    """
+    logger.warning("sizing refused (%s): %s", constraint, reason)
     return SizingResult(
         contracts=0,
         kelly_fraction_full=0.0,
         kelly_fraction_used=0.0,
         stake_dollars=0.0,
-        binding_constraint="refused",
+        binding_constraint=constraint,
         refused=True,
         refusal_reason=reason,
     )

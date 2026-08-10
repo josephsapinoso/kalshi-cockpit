@@ -170,24 +170,92 @@ class TestSizingRefusals:
         """'Cannot determine the budget' must never resolve to 'unlimited'."""
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
-            current_exposure_dollars=None,
+            current_exposure_dollars=None, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.refused
         assert result.contracts == 0
         assert "unreadable" in result.refusal_reason
 
     def test_the_daily_loss_kill_switch_refuses(self):
+        """**Kept, and deliberately not enough.**
+
+        This test supplies `daily_pnl_dollars=-100.0` itself, so it can only
+        ever establish that the comparison is right -- which it is, and was
+        throughout. It could never go red for the reason that mattered, because
+        *does anything supply this?* is not the question it asks, and for the
+        project's life nothing did. The pair that covers both halves is this
+        test plus `tests/test_has_callers.py::
+        test_every_production_call_site_supplies_the_parameter`, with
+        `tests/test_quote_refresh.py::TestTheDailyLossLimitReachesTheOrderPath`
+        driving the real route against P&L written to the database.
+        """
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
-            current_exposure_dollars=0.0, daily_pnl_dollars=-100.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0,
+            daily_pnl_dollars=-100.0,
         )
         assert result.refused
         assert "kill switch" in result.refusal_reason.lower()
+        assert result.binding_constraint == "max_daily_loss_dollars", (
+            "a refusal that reports `refused` says nothing about what refused. "
+            "The Ticket renders this field as 'Bound by', and 'the kill switch "
+            "is engaged' and 'the database is unreadable' need opposite "
+            "responses from whoever is holding the phone."
+        )
+
+    def test_unreadable_daily_pnl_refuses_rather_than_assuming_no_losses(self):
+        """The class of bug, not the instance.
+
+        `daily_pnl_dollars` defaulted to `0.0` until 2026-08-10, which is the
+        maximally permissive value a loss limit can be handed: "no information"
+        read as "no losses". It has no default now, and `None` -- which is what
+        every reader in this project returns when it cannot read -- refuses.
+        """
+        result = size_position(
+            side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
+            current_exposure_dollars=0.0, current_position_dollars=0.0,
+            daily_pnl_dollars=None,
+        )
+        assert result.refused
+        assert result.contracts == 0
+        assert result.binding_constraint == "daily_pnl_unreadable"
+        assert "unreadable" in result.refusal_reason
+
+    def test_unreadable_position_refuses_rather_than_assuming_none_is_held(self):
+        result = size_position(
+            side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
+            current_exposure_dollars=0.0, current_position_dollars=None,
+            daily_pnl_dollars=0.0,
+        )
+        assert result.refused
+        assert result.contracts == 0
+        assert result.binding_constraint == "position_unreadable"
+
+    @pytest.mark.parametrize(
+        "omitted", ["current_position_dollars", "daily_pnl_dollars"]
+    )
+    def test_omitting_a_risk_input_is_an_error_rather_than_a_zero(self, omitted):
+        """The strongest form of the fix, and the reason it is worth the churn.
+
+        `None` refusing is a runtime control. A parameter with no default is a
+        *call-site* one: the omission that shipped this bug -- four production
+        call sites, none of which mentioned these arguments at all -- is now
+        impossible to write. A refusal at runtime would still have to be
+        observed by somebody; a `TypeError` cannot be deployed.
+        """
+        args = dict(
+            side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
+            current_exposure_dollars=0.0, current_position_dollars=0.0,
+            daily_pnl_dollars=0.0,
+        )
+        del args[omitted]
+        with pytest.raises(TypeError, match=omitted):
+            size_position(**args)
 
     def test_a_settled_price_refuses(self):
         result = size_position(
             side="yes", ask_tenths=1000, fair_probability=0.60, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.refused
 
@@ -203,7 +271,7 @@ class TestSizingRefusals:
         )
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.70, risk=tiny,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.contracts == 0
         assert result.binding_constraint == "max_position_dollars"
@@ -262,7 +330,7 @@ class TestSmallOrdersNeedNoMinimum:
         fair = marginal + 0.001
         result = size_position(
             side="yes", ask_tenths=ask_tenths, fair_probability=fair, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.contracts > 0, "a positive edge must size to something"
         assert verify_positive_after_fees(
@@ -284,7 +352,7 @@ class TestSmallOrdersNeedNoMinimum:
         )
         result = size_position(
             side="yes", ask_tenths=200, fair_probability=0.30, risk=broke,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.contracts >= 1
         assert not result.refused
@@ -299,7 +367,7 @@ class TestSizingCaps:
         """Not a refusal -- 'no bet here' is a normal answer."""
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.50, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.contracts == 0
         assert not result.refused
@@ -308,7 +376,7 @@ class TestSizingCaps:
     def test_the_order_cap_binds_and_says_so(self):
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.95, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.contracts == RISK.max_order_contracts
         assert result.binding_constraint == "max_order_contracts"
@@ -316,18 +384,18 @@ class TestSizingCaps:
     def test_existing_exposure_reduces_the_size(self):
         fresh = size_position(
             side="yes", ask_tenths=500, fair_probability=0.70, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         loaded = size_position(
             side="yes", ask_tenths=500, fair_probability=0.70, risk=RISK,
-            current_exposure_dollars=395.0,
+            current_exposure_dollars=395.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert loaded.contracts < fresh.contracts
 
     def test_quarter_kelly_is_a_quarter_of_full_kelly(self):
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.kelly_fraction_used == pytest.approx(
             result.kelly_fraction_full * 0.25
@@ -338,7 +406,7 @@ class TestSizingCaps:
         'the cap said so', and those need different responses."""
         result = size_position(
             side="yes", ask_tenths=500, fair_probability=0.60, risk=RISK,
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
         assert result.binding_constraint
 

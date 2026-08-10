@@ -537,7 +537,13 @@ def main() -> int:
             mine = reference_contracts(probe, "deployed", risk)
             theirs = size_position(
                 side="yes", ask_tenths=ask, fair_probability=fair,
-                risk=ref_risk, current_exposure_dollars=0.0, maker=False,
+                risk=ref_risk, current_exposure_dollars=0.0,
+                # The reference profile is a clean book by definition. Written
+                # out because `size_position` no longer defaults them: an
+                # omitted risk input used to read as zero, which is how the
+                # daily loss limit went unsupplied by every production caller.
+                current_position_dollars=0.0, daily_pnl_dollars=0.0,
+                maker=False,
             )
             checked += 1
             nonzero += 1 if mine > 0 else 0

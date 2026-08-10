@@ -1118,6 +1118,188 @@ class TestAGameInProgressIsNotACandidate:
         assert (await _order(_app(path, FakeQuotes()), rec)).status_code == 200
 
 
+# The verbatim `fly.live.toml` risk profile, so the test that matters most is
+# run against the numbers the instance actually holds rather than against
+# `RiskConfig`'s defaults, which are ten times looser on every cap.
+LIVE_PROFILE = RiskConfig(
+    bankroll_dollars=100.0,
+    kelly_fraction=0.25,
+    max_order_contracts=50,
+    max_position_dollars=10.0,
+    max_exposure_dollars=40.0,
+    max_daily_loss_dollars=10.0,
+)
+
+
+def _settled_losses(conn, *, ticker, settled_ms, positions, cents_each):
+    """Closed positions with realised P&L, exactly as `settle_position` writes them.
+
+    Orders **and** settlements, because a settled order is one whose capital has
+    been released: `positions_awaiting_settlement` and `current_exposure_dollars`
+    both exclude rows with a settlement, so seeding these adds realised P&L
+    without adding exposure. That separation is the point -- the refusal under
+    test has to come from the loss limit and from nothing else.
+    """
+    for i in range(positions):
+        conn.execute(
+            "INSERT INTO orders (client_order_id, recommendation_id, "
+            "submitted_ms, ticker, side, action, order_type, count, "
+            "limit_price_tenths, status, request_body_json, dry_run) "
+            "VALUES (?, NULL, ?, ?, 'yes', 'buy', 'limit', 10, 500, 'filled', "
+            "'{}', 1)",
+            (f"settled-{i}", settled_ms, ticker),
+        )
+        conn.execute(
+            "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+            "contracts, pnl_cents, dry_run, fill_assumption) "
+            "VALUES (last_insert_rowid(), ?, ?, 'no', 10, ?, 1, 'test')",
+            (ticker, settled_ms, cents_each),
+        )
+    conn.commit()
+
+
+class TestTheDailyLossLimitReachesTheOrderPath:
+    """The kill switch, driven through the real route.
+
+    `core/sizing.py` has tested the *comparison* since the module was written,
+    and `tests/test_ev_sizing.py::test_the_daily_loss_kill_switch_refuses` is
+    green -- because it supplies `daily_pnl_dollars=-100.0` itself. **A test
+    that constructs the parameter it is checking cannot detect that no caller
+    constructs it**, and no caller did: instrumenting `size_position` across the
+    whole suite on 2026-08-10 found 1,358 calls, exactly one of which carried a
+    non-zero `daily_pnl_dollars`, and it came from a test.
+
+    So the audit drove this route end to end at the verbatim `fly.live.toml`
+    profile with 40 settled positions totalling -$20,000 realised, and got
+    **HTTP 200**. These are the tests that would have caught it. They assert on
+    the response of the real endpoint, and the P&L is written to the database
+    rather than passed in -- which is the only version of this claim that can go
+    red for the reason it is about.
+    """
+
+    async def test_twenty_thousand_dollars_of_realised_loss_refuses_the_order(
+        self, armed_db
+    ):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        _settled_losses(
+            conn, ticker=TICKER, settled_ms=now, positions=40, cents_each=-50_000,
+        )
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 422, response.json()
+        detail = response.json()["detail"]
+        assert "max_daily_loss_dollars" in detail, detail
+        assert "kill switch" in detail.lower(), detail
+        # The headline must not be "the price moved". A person told the market
+        # moved against them tries another price; a person told the kill switch
+        # is engaged stops for the day, and only one of those is right here.
+        assert "the price moved" not in detail, detail
+
+    async def test_the_control_is_the_same_account_without_the_losses(
+        self, armed_db
+    ):
+        """Anchors the test above against every other reason a 422 happens.
+
+        Same profile, same recommendation, same size -- the settled rows are the
+        only difference. Without this, a refusal for an unrelated reason reads
+        exactly like the kill switch working.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 200, response.json()
+
+    async def test_a_loss_one_cent_inside_the_limit_still_trades(self, armed_db):
+        """The boundary, through the route rather than through the function.
+
+        `size_position` refuses at `<= -abs(max_daily_loss_dollars)`, and that
+        comparison is not being changed. What this pins is that the **number
+        reaching it** is the account's real realised P&L in dollars and not, say,
+        cents read as dollars -- an error that would refuse everything and look
+        like a working kill switch.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        # -$9.99 against a $10.00 limit.
+        _settled_losses(
+            conn, ticker=TICKER, settled_ms=now, positions=1, cents_each=-999,
+        )
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 200, response.json()
+
+    async def test_a_loss_exactly_on_the_limit_refuses(self, armed_db):
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        _settled_losses(
+            conn, ticker=TICKER, settled_ms=now, positions=1, cents_each=-1_000,
+        )
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 422, response.json()
+        assert "kill switch" in response.json()["detail"].lower()
+
+    async def test_a_loss_from_before_the_risk_day_does_not_bind(self, armed_db):
+        """The daily limit is daily, and the roll is the budget day's 10:00Z.
+
+        Discriminating in the direction that matters: an implementation summing
+        *all* settlements ever would pass every test above and turn the kill
+        switch into a permanent off switch after one bad night.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        _settled_losses(
+            conn, ticker=TICKER,
+            # Two days back, which is before this risk day's start at any roll
+            # hour, so the test does not depend on what time it runs.
+            settled_ms=now - 2 * 86_400_000,
+            positions=40, cents_each=-50_000,
+        )
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 200, response.json()
+
+    async def test_a_live_loss_does_not_stop_a_paper_order(self, armed_db):
+        """Paper and live P&L are never pooled, for the reason exposure is not.
+
+        Every order this project places is paper. A live settlement stopping a
+        paper order would be a fictional constraint; a paper *profit* offsetting
+        a live loss would be far worse, and it is the same mistake with the sign
+        flipped.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        _settled_losses(
+            conn, ticker=TICKER, settled_ms=now, positions=40, cents_each=-50_000,
+        )
+        conn.execute("UPDATE settlements SET dry_run = 0")
+        conn.execute("UPDATE orders SET dry_run = 0 WHERE client_order_id LIKE 'settled-%'")
+        conn.commit()
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 200, response.json()
+
+
 class TestTheCapsStillBindThroughTheSizer:
     """The route used to re-check the portfolio caps after sizing.
 
@@ -1137,20 +1319,72 @@ class TestTheCapsStillBindThroughTheSizer:
     async def test_the_position_cap_shrinks_the_order_at_order_time(
         self, armed_db
     ):
+        """**The tight order runs first, and the ordering is load-bearing.**
+
+        Until 2026-08-10 these two requests were independent, because
+        `current_position_dollars` was never supplied and every order sized as
+        though the account held nothing. It is supplied now, so the first order
+        placed here is part of the state the second one sizes against -- run the
+        roomy one first and the tight one is refused outright by the position
+        the roomy one just opened, which is correct behaviour and a different
+        claim from this one. Tight first leaves the roomy request looking at
+        ~$5.70 against a $100 cap, which does not bind.
+        """
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
 
-        roomy = (await _order(
-            _app(path, FakeQuotes(), risk=RiskConfig(max_position_dollars=100.0)),
-            rec, contracts=50,
-        )).json()
         tight = (await _order(
             _app(path, FakeQuotes(), risk=RiskConfig(max_position_dollars=6.0)),
             rec, contracts=50,
         )).json()
+        roomy = (await _order(
+            _app(path, FakeQuotes(), risk=RiskConfig(max_position_dollars=100.0)),
+            rec, contracts=50,
+        )).json()
 
-        assert tight["contracts"] < roomy["contracts"]
+        assert tight["contracts"] < roomy["contracts"], (tight, roomy)
         assert tight["quote"]["binding_constraint"] == "max_position_dollars"
+
+    async def test_a_position_the_engine_never_saw_shrinks_the_order_to_nothing(
+        self, armed_db
+    ):
+        """The per-market cap, against orders written after the recommendation.
+
+        This is the second half of the 2026-08-10 finding and it had no test at
+        all, because it had no *input*: `size_position`'s
+        `current_position_dollars` was keyword-only with a default of `0.0` and
+        no production caller supplied it, so `max_position_dollars` was applied
+        to a number the sizer invented. Measured consequence before the fix:
+        **76 contracts and ~$38.00 accumulated on a single ticker against a $10
+        cap**, stopped only when the $40 portfolio-wide cap finally bound.
+
+        Sized so that only the per-market cap can explain the refusal: $20.54 is
+        committed on this one ticker, against a $10 position cap and a $400
+        exposure cap that is nowhere near binding.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        conn.execute(
+            "INSERT INTO orders (client_order_id, recommendation_id, submitted_ms, "
+            "ticker, side, action, order_type, count, limit_price_tenths, status, "
+            "request_body_json, dry_run) "
+            "VALUES ('p1', ?, ?, ?, 'yes', 'buy', 'limit', 40, 500, 'resting', "
+            "'{}', 1)",
+            (rec, now, TICKER),
+        )
+        conn.commit()
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=RiskConfig(
+                max_position_dollars=10.0, max_exposure_dollars=400.0,
+            )),
+            rec, contracts=50,
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "0 contracts" in detail, detail
+        assert "max_position_dollars" in detail, detail
 
     async def test_exposure_the_engine_never_saw_shrinks_the_order_to_nothing(
         self, armed_db
@@ -1160,6 +1394,11 @@ class TestTheCapsStillBindThroughTheSizer:
         A resting order placed after the recommendation was written is invisible
         to `suggested_contracts`, and it is exactly what a per-order cap does
         not bound: twenty compliant orders are not a compliant position.
+
+        `max_position_dollars` is lifted clear of the seeded row on purpose. The
+        per-market cap now sees the same $410.80 and would bind first -- that is
+        the test above. This one has to be able to fail for **exposure**, and a
+        refusal that could be explained by either cap establishes neither.
         """
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
@@ -1183,7 +1422,9 @@ class TestTheCapsStillBindThroughTheSizer:
         conn.commit()
 
         response = await _order(
-            _app(path, FakeQuotes(), risk=RiskConfig(max_exposure_dollars=400.0)),
+            _app(path, FakeQuotes(), risk=RiskConfig(
+                max_exposure_dollars=400.0, max_position_dollars=1000.0,
+            )),
             rec, contracts=50,
         )
 

@@ -143,7 +143,7 @@ class TestTheConfiguredBankrollCanStillProduceABet:
             ask_tenths=ask_tenths,
             fair_probability=fair,
             risk=risk_at(bankroll),
-            current_exposure_dollars=0.0,
+            current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
         )
 
         edge = edge_after_fees_tenths(
@@ -185,7 +185,7 @@ class TestTheRecordIsInvariantToTheDeposit:
                 ask_tenths=ask_tenths,
                 fair_probability=fair,
                 risk=risk_at(bankroll).reference(),
-                current_exposure_dollars=0.0,
+                current_exposure_dollars=0.0, current_position_dollars=0.0, daily_pnl_dollars=0.0,
             ).contracts
             for bankroll in BANKROLLS
         }

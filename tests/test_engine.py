@@ -89,7 +89,13 @@ def build(cand: Candidate, **overrides):
         risk=RISK,
         suppression=SUPPRESSION,
         strategy_config_version=1,
+        # A clean book, stated. `build_recommendation` has no defaults for the
+        # three risk-state inputs any more: an omission there used to become a
+        # zero, which is how the daily loss limit came to be applied to a number
+        # nothing in production supplied. Individual tests override these.
         current_exposure_dollars=0.0,
+        current_position_dollars=0.0,
+        daily_pnl_dollars=0.0,
         created_ms=NOW,
     )
     args.update(overrides)

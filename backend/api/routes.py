@@ -82,6 +82,7 @@ from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
 from ..odds.timing import window_status
 from ..playbook import read_playbook
+from ..settlement import daily_realised_pnl_dollars, open_position_dollars
 from ..store import db
 from ..store.orders import (
     DuplicateOrder,
@@ -294,7 +295,11 @@ def create_app(
     hub: Optional[QuoteHub] = quote_hub
     if hub is None and not app_config.is_demo:
         hub = QuoteHub(
-            app_config.db_path, risk=risk, staleness=staleness
+            app_config.db_path, risk=risk, staleness=staleness,
+            # One roll hour for the risk day, shared with the order endpoint and
+            # the odds budget. Two definitions of "today" in one process is how
+            # the looser one wins in silence.
+            day_start_hour=odds.budget_day_start_utc_hour,
         )
 
     @asynccontextmanager
@@ -1399,16 +1404,65 @@ def create_app(
         #    "how far may a price move" threshold means there is one definition
         #    of how big a bet is, and a price that has moved far enough to erase
         #    the edge returns zero contracts without anyone choosing a tolerance.
+        #
+        #    **And against the other two halves of the risk state, which this
+        #    endpoint did not read until 2026-08-10.** `exposure` above was the
+        #    only one of the three the sizer ever received; `current_position_
+        #    dollars` and `daily_pnl_dollars` fell through to defaults of `0.0`,
+        #    so the per-market cap and the daily loss limit were applied to a
+        #    number nobody had measured. Driven end to end against 40 settled
+        #    positions totalling -$20,000 realised, this route returned HTTP 200.
+        #
+        #    Read here, in the request, for the same reason `exposure` is: a
+        #    control must read the state at the moment it decides. Both return
+        #    `None` when unreadable and the sizer refuses on `None`, so a
+        #    database this endpoint cannot interrogate stops the order instead of
+        #    silently widening every cap.
+        #
+        #    `dry_run=ORDERS_ARE_DRY_RUNS` on both, matching `exposure`: an order
+        #    is admitted against history of its own kind, and pooling paper with
+        #    live would let fictional losses stop a real bet or -- worse -- a
+        #    fictional profit hold the kill switch open.
         fair = freshness["fair_probability"]
+        daily_pnl = daily_realised_pnl_dollars(
+            conn,
+            now_ms=db.now_ms(),
+            dry_run=ORDERS_ARE_DRY_RUNS,
+            # The configured hour, not the constant, so the risk day and the
+            # odds budget day cannot diverge through `.env`.
+            day_start_hour=odds.budget_day_start_utc_hour,
+        )
+        position = open_position_dollars(
+            conn, quote.ticker, dry_run=ORDERS_ARE_DRY_RUNS
+        )
         resized = size_position(
             side=side,
             ask_tenths=live_ask,
             fair_probability=fair,
             risk=risk,
             current_exposure_dollars=exposure,
+            current_position_dollars=position,
+            daily_pnl_dollars=daily_pnl,
         )
         moved = live_ask - recorded_ask
-        if resized.refused or resized.contracts <= 0:
+        # **A refusal and a zero are different answers and now say so.** They
+        # shared one message, whose headline was "the price moved" -- true for
+        # the zero, and a lie for every refusal the risk state produces. An
+        # operator whose kill switch has engaged would have been told the market
+        # moved against them and invited to try another price, which is the one
+        # response that must not follow a loss limit. The reason string was
+        # appended, so the information was present; it was behind a sentence
+        # contradicting it, and this repo has recorded what happens when a
+        # legible wrong number sits beside a correct one.
+        if resized.refused:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"refusing to size this order ({resized.binding_constraint}): "
+                    f"{resized.refusal_reason}"
+                ),
+            )
+        if resized.contracts <= 0:
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -1416,7 +1470,6 @@ def create_app(
                     f"live {format_price(live_ask)} ({moved / 10:+.1f}c). At the "
                     f"live price this is {resized.contracts} contracts "
                     f"({resized.binding_constraint})"
-                    + (f": {resized.refusal_reason}" if resized.refusal_reason else "")
                     + ". The bet that was evaluated is not the bet on offer."
                 ),
             )

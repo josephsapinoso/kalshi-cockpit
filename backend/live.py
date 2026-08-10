@@ -68,7 +68,10 @@ from .core.prices import format_price, is_valid_price
 from .core.sizing import size_position
 from .kalshi.orderbook import OrderBook
 from .kalshi.ws import FeedDied, KalshiWebSocket
+from .odds.timing import DEFAULT_DAY_START_UTC_HOUR
+from .settlement import daily_realised_pnl_dollars, open_position_dollars
 from .store import db
+from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +134,36 @@ class _Subscription:
     side: str
     fair_probability: float
     authorised_contracts: int
+
+
+@dataclass(frozen=True)
+class _RiskState:
+    """The three budgets the sizer spends, read once per subscription cycle.
+
+    **Per cycle rather than per frame, and per cycle rather than never.** The
+    hub used to hand the sizer a literal `0.0` for exposure and let it default
+    the position and the day's P&L to `0.0` as well, on the reasoning that the
+    order endpoint applies the real numbers and a read per book update would be
+    a database round trip per frame. The first half of that is still true and
+    the second half is still a real cost -- but the conclusion does not follow,
+    because there is a third option, which is what this is. The subscription
+    list is already rebuilt from the database every `RESUBSCRIBE_S`; these ride
+    along on that read, at no extra cadence.
+
+    It matters because the display is what a person acts on. A ticker sizing
+    every row as though the kill switch could not be engaged shows a bettable
+    number on a day the server will refuse every order -- the screen offering a
+    row the server will not sell, which this repo has already recorded once.
+
+    Every field is `Optional` and `None` means "could not be read", which the
+    sizer refuses on. `positions` is keyed by ticker; a **missing** key is also
+    unknown, and that is why it is read for the subscribed set as a whole rather
+    than looked up lazily per frame.
+    """
+
+    exposure_dollars: Optional[float] = None
+    daily_pnl_dollars: Optional[float] = None
+    positions: dict[str, Optional[float]] = field(default_factory=dict)
 
 
 def open_decisions(conn, *, staleness: StalenessConfig, now_ms: int) -> list[_Subscription]:
@@ -197,6 +230,8 @@ def price_against(
     *,
     risk: RiskConfig,
     exposure_dollars: Optional[float],
+    position_dollars: Optional[float],
+    daily_pnl_dollars: Optional[float],
     now_ms: int,
 ) -> Optional[Priced]:
     """Re-price one recorded decision against the book that just arrived.
@@ -211,6 +246,13 @@ def price_against(
     engine authorised, exactly as the order endpoint does it. A ticker that
     showed a bigger size than the server would accept would be inviting a
     refusal.
+
+    **The whole risk state is a parameter, and none of it has a default.** This
+    function used to pass only `exposure_dollars` and let the sizer default the
+    other two to `0.0`, which meant the ticker sized every row as though nothing
+    were held on the market and nothing had been lost today. A refusal here
+    yields `contracts = 0`, which is the safe direction for a display: the card
+    stops offering a size the server would refuse.
     """
     if book.invalid:
         return None
@@ -224,6 +266,8 @@ def price_against(
         fair_probability=subscription.fair_probability,
         risk=risk,
         current_exposure_dollars=exposure_dollars,
+        current_position_dollars=position_dollars,
+        daily_pnl_dollars=daily_pnl_dollars,
     )
     contracts = min(sizing.contracts, subscription.authorised_contracts)
     if contracts < 0:
@@ -268,6 +312,7 @@ class QuoteHub:
         heartbeat_s: float = HEARTBEAT_S,
         resubscribe_s: float = RESUBSCRIBE_S,
         socket_factory=None,
+        day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
     ) -> None:
         self._db_path = db_path
         self._config = config
@@ -275,6 +320,14 @@ class QuoteHub:
         self._staleness = staleness or StalenessConfig()
         self._heartbeat_s = heartbeat_s
         self._resubscribe_s = resubscribe_s
+        # Which UTC hour the risk day rolls at. Taken from the caller so the
+        # ticker, the order endpoint and the odds budget cannot end up on three
+        # different days; `routes.create_app` passes the configured value.
+        self._day_start_hour = day_start_hour
+        # Nothing has been read yet, so every budget is unknown -- not zero.
+        # A hub whose first cycle has not run must not price a row as though it
+        # had confirmed there were no losses today.
+        self._risk_state = _RiskState()
         # Injected in tests. A hub that could only be exercised against a live
         # exchange would be a hub nothing tests.
         self._socket_factory = socket_factory or self._build_socket
@@ -389,12 +442,18 @@ class QuoteHub:
             raise
 
     def _load_subscriptions(self) -> list[_Subscription]:
-        """Read the bettable rows. Runs on a thread -- sqlite3 is blocking."""
+        """Read the bettable rows **and the risk state**. Runs on a thread.
+
+        One connection for both, because they are one snapshot: a subscription
+        list read against a portfolio it was not priced against would be two
+        different instants presented as one.
+        """
         conn = db.open_db(self._db_path, read_only=True)
         try:
             found = open_decisions(
                 conn, staleness=self._staleness, now_ms=db.now_ms()
             )
+            state = self._read_risk_state(conn, {s.ticker for s in found})
         finally:
             conn.close()
 
@@ -402,7 +461,34 @@ class QuoteHub:
         for sub in found:
             by_ticker.setdefault(sub.ticker, []).append(sub)
         self._subscriptions = by_ticker
+        self._risk_state = state
         return found
+
+    def _read_risk_state(self, conn, tickers: set[str]) -> _RiskState:
+        """The three budgets, for exactly the markets being subscribed.
+
+        Failures are not caught here: both readers already return `None` rather
+        than raising on an unreadable database, and `None` is what the sizer
+        refuses on. Swallowing an exception into a zero is the defect this whole
+        change exists to remove.
+        """
+        return _RiskState(
+            exposure_dollars=current_exposure_dollars(
+                conn, dry_run=ORDERS_ARE_DRY_RUNS
+            ),
+            daily_pnl_dollars=daily_realised_pnl_dollars(
+                conn,
+                now_ms=db.now_ms(),
+                dry_run=ORDERS_ARE_DRY_RUNS,
+                day_start_hour=self._day_start_hour,
+            ),
+            positions={
+                ticker: open_position_dollars(
+                    conn, ticker, dry_run=ORDERS_ARE_DRY_RUNS
+                )
+                for ticker in sorted(tickers)
+            },
+        )
 
     # -- the feed ----------------------------------------------------------
 
@@ -413,15 +499,18 @@ class QuoteHub:
             return
         now = db.now_ms()
         frames = []
+        state = self._risk_state
         for sub in subs:
             priced = price_against(
                 book, sub,
                 risk=self._risk,
-                # Zero rather than a read per frame. The order endpoint applies
-                # the real exposure; here it would mean a database round trip
-                # per book update, and the number it changes is a display size
-                # that the server re-derives before accepting anything.
-                exposure_dollars=0.0,
+                # The snapshot taken with this subscription window, not a
+                # literal zero and not a read per book update. See `_RiskState`.
+                # `.get` with no default: a ticker the risk read did not cover
+                # is unknown, and unknown refuses.
+                exposure_dollars=state.exposure_dollars,
+                position_dollars=state.positions.get(sub.ticker),
+                daily_pnl_dollars=state.daily_pnl_dollars,
                 now_ms=now,
             )
             if priced is None:

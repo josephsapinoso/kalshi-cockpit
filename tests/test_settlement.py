@@ -20,6 +20,8 @@ from backend.settlement import (
     SETTLED_STATUS,
     SettlementCounts,
     SettlementRefused,
+    daily_realised_pnl_dollars,
+    open_position_dollars,
     position_pnl_cents,
     positions_awaiting_settlement,
     read_outcome,
@@ -433,6 +435,189 @@ class TestExposureIsReleased:
         await run_settlement_pass(conn, FakeKalshi({market["ticker"]: market}))
 
         assert current_exposure_dollars(conn, dry_run=True) == 0.0
+
+
+def _settlement(conn, order_id, *, ticker="T", settled_ms, pnl_cents, dry_run=True):
+    conn.execute(
+        "INSERT INTO settlements (order_id, ticker, settled_ms, result, "
+        "contracts, pnl_cents, dry_run, fill_assumption) "
+        "VALUES (?, ?, ?, 'no', 10, ?, ?, 'test')",
+        (order_id, ticker, settled_ms, pnl_cents, 1 if dry_run else 0),
+    )
+    conn.commit()
+
+
+NOON_UTC = 1_786_363_200_000        # 2026-08-10 12:00Z, two hours past the roll
+
+
+class TestTheDaysRealisedPnLCanBeRead:
+    """`settlements.pnl_cents` has been written since ADR 0010 and nothing
+    summed it. There was no `SUM` of that column anywhere in the repo -- only
+    `analysis/clv.py` and `analysis/validate.py`, both reporting after the fact.
+    That absence is the whole of the 2026-08-10 finding: the kill switch was
+    correct code with no producer.
+    """
+
+    def test_an_empty_table_is_zero_rather_than_unreadable(self, conn):
+        """A measurement, not an absence. Nothing has settled, so nothing has
+        been lost -- and returning `None` here would refuse every order on a
+        fresh database, which is a kill switch that fires before the first
+        bet."""
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == 0.0
+
+    def test_losses_inside_the_risk_day_sum_in_dollars(self, conn):
+        for i in range(40):
+            order = _order(conn, ticker=f"T{i}")
+            _settlement(conn, order, ticker=f"T{i}",
+                        settled_ms=NOON_UTC, pnl_cents=-50_000)
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == pytest.approx(-20_000.0)
+
+    def test_a_profit_is_positive_and_offsets_a_loss(self, conn):
+        """The sign convention, stated by a test rather than by a comment. This
+        repo has already had a sign convention agree with its own test and both
+        be wrong; here the direction is fixed by the *caller* -- `size_position`
+        refuses at `<= -abs(limit)` -- so an inverted sign would turn a
+        profitable day into a kill switch."""
+        a, b = _order(conn, ticker="A"), _order(conn, ticker="B")
+        _settlement(conn, a, ticker="A", settled_ms=NOON_UTC, pnl_cents=-1_500)
+        _settlement(conn, b, ticker="B", settled_ms=NOON_UTC, pnl_cents=900)
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == pytest.approx(-6.0)
+
+    def test_yesterdays_loss_is_not_todays(self, conn):
+        """Otherwise the daily limit is a permanent off switch after one bad
+        night -- and it would pass every test that only seeds today."""
+        order = _order(conn)
+        _settlement(conn, order, settled_ms=NOON_UTC - 86_400_000,
+                    pnl_cents=-50_000)
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == 0.0
+
+    def test_the_risk_day_rolls_at_the_budget_days_hour_not_midnight(self, conn):
+        """The design decision, asserted rather than described.
+
+        22:00Z on 2026-08-09 is 6pm ET -- the middle of the US evening slate,
+        and two hours *after* UTC midnight would have rolled the day. It belongs
+        to the same risk day as 08:00Z the next morning, and to a different one
+        from noon on the 10th. A UTC-midnight implementation gets the first of
+        these wrong, which is the failure that matters: the kill switch would
+        disengage mid-slate.
+        """
+        evening = 1_786_312_800_000            # 2026-08-09 22:00Z
+        order = _order(conn)
+        _settlement(conn, order, settled_ms=evening, pnl_cents=-50_000)
+
+        early_next_morning = 1_786_348_800_000  # 2026-08-10 08:00Z
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=early_next_morning, dry_run=True
+        ) == pytest.approx(-500.0), (
+            "an evening loss stopped counting before the night was over"
+        )
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == 0.0, "the risk day never rolled at all"
+
+    def test_the_roll_hour_is_configurable_and_actually_used(self, conn):
+        """Anchors the test above against an implementation that hardcoded 10.
+
+        The order endpoint passes `OddsConfig.budget_day_start_utc_hour`, so a
+        parameter that were ignored would silently put the risk day and the odds
+        budget day on different clocks whenever `.env` sets that variable.
+        """
+        evening = 1_786_312_800_000            # 2026-08-09 22:00Z
+        order = _order(conn)
+        _settlement(conn, order, settled_ms=evening, pnl_cents=-50_000)
+        morning = 1_786_348_800_000            # 2026-08-10 08:00Z
+
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=morning, dry_run=True, day_start_hour=10
+        ) == pytest.approx(-500.0)
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=morning, dry_run=True, day_start_hour=0
+        ) == 0.0, "day_start_hour is not reaching the query"
+
+    def test_paper_and_live_are_never_pooled(self, conn):
+        """A live loss must not stop a paper order, and -- the dangerous
+        direction -- a paper profit must never offset a live loss."""
+        paper, live = _order(conn, ticker="A"), _order(conn, ticker="B")
+        _settlement(conn, paper, ticker="A", settled_ms=NOON_UTC,
+                    pnl_cents=-1_000, dry_run=True)
+        _settlement(conn, live, ticker="B", settled_ms=NOON_UTC,
+                    pnl_cents=-9_000, dry_run=False)
+
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) == pytest.approx(-10.0)
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=False
+        ) == pytest.approx(-90.0)
+
+    def test_an_unreadable_database_is_none_and_never_zero(self, conn):
+        """`CLAUDE.md`: unreadable resolves to `None`, never `0`. On a loss
+        limit, `0.0` is the maximally permissive substitution available."""
+        conn.execute("DROP TABLE settlements")
+        conn.commit()
+        assert daily_realised_pnl_dollars(
+            conn, now_ms=NOON_UTC, dry_run=True
+        ) is None
+
+
+class TestThePositionOnOneTickerCanBeRead:
+    """The other missing producer. `max_position_dollars` is a per-market cap
+    and nothing measured the per-market position -- 76 contracts and ~$38.00
+    accumulated on one ticker against a $10 cap before the portfolio cap bound.
+    """
+
+    def test_it_counts_only_the_ticker_asked_about(self, conn):
+        _order(conn, ticker="A", count=10, price=500)
+        _order(conn, ticker="B", count=20, price=500)
+        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.20)
+        assert open_position_dollars(conn, "B", dry_run=True) == pytest.approx(10.40)
+
+    def test_a_ticker_with_nothing_open_is_zero(self, conn):
+        _order(conn, ticker="A")
+        assert open_position_dollars(conn, "B", dry_run=True) == 0.0
+
+    def test_it_agrees_with_the_portfolio_sum_on_a_one_ticker_book(self, conn):
+        """The two are the same predicate scoped differently, and this is what
+        keeps them that way. Not proof -- this repo has recorded two paths that
+        agreed and were both wrong -- but the arithmetic here comes from
+        `exposure_contribution`, the project's only definition of what an open
+        order commits, so what is pinned is the *filter* rather than the sum."""
+        _order(conn, ticker="A", count=7, price=430)
+        _order(conn, ticker="A", count=3, price=610)
+        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(
+            current_exposure_dollars(conn, dry_run=True)
+        )
+
+    def test_a_settled_position_no_longer_counts(self, conn):
+        """Settling releases the capital, exactly as it does for exposure. A
+        per-market cap that counted closed positions would ratchet shut."""
+        order = _order(conn, ticker="A", count=10, price=500)
+        assert open_position_dollars(conn, "A", dry_run=True) > 0
+        _settlement(conn, order, ticker="A", settled_ms=NOON_UTC, pnl_cents=100)
+        assert open_position_dollars(conn, "A", dry_run=True) == 0.0
+
+    def test_paper_and_live_are_never_pooled(self, conn):
+        _order(conn, ticker="A", count=10, price=500, dry_run=True)
+        _order(conn, ticker="A", count=40, price=500, dry_run=False,
+               status="resting")
+        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.20)
+        assert open_position_dollars(conn, "A", dry_run=False) == pytest.approx(20.80)
+
+    def test_an_unreadable_price_refuses_the_whole_sum(self, conn):
+        """Skipping it would report a smaller position than the truth and hand
+        the next order room it does not have."""
+        _order(conn, ticker="A", count=10, price=500)
+        conn.execute("UPDATE orders SET limit_price_tenths = NULL")
+        conn.commit()
+        assert open_position_dollars(conn, "A", dry_run=True) is None
 
 
 class TestTheGateNeverReadsSettlements:

@@ -66,7 +66,8 @@ from typing import Any, Optional
 
 from .core.fees import calculate_fee_cents
 
-from .store.orders import TERMINAL_STATUSES
+from .odds.timing import DEFAULT_DAY_START_UTC_HOUR, day_start_ms
+from .store.orders import TERMINAL_STATUSES, exposure_contribution
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,153 @@ def positions_awaiting_settlement(conn) -> list[dict[str, Any]]:
         TERMINAL_STATUSES,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Reading the risk state back out
+# ---------------------------------------------------------------------------
+# `settle_position` above has written `settlements.pnl_cents` since ADR 0010 and
+# **nothing summed it**. The two readers were `analysis/clv.py` and
+# `analysis/validate.py`, both reporting after the fact; there was no `SUM` of
+# that column anywhere in the repo. So `size_position`'s daily-loss kill switch
+# -- correct code, tested at the boundary -- ran against a keyword argument
+# whose default was `0.0` and which no production caller ever supplied. Measured
+# 2026-08-10 by instrumenting the sizer across the whole suite: 1,358 calls, of
+# which exactly one carried a non-zero `daily_pnl_dollars` and it came from a
+# test. Driven end to end, `POST /api/orders` returned HTTP 200 on an account
+# carrying 40 settled positions and -$20,000 of realised loss.
+#
+# The fix is a query, not new instrumentation. These are it.
+
+
+def risk_day_start_ms(
+    now_ms: int, *, hour: int = DEFAULT_DAY_START_UTC_HOUR
+) -> int:
+    """Start of the **risk** day containing `now_ms`.
+
+    Deliberately `odds.timing.day_start_ms`, at the same 10:00Z roll as the odds
+    budget, rather than UTC midnight. Two reasons, and the first is the one that
+    decides it:
+
+    **UTC midnight is 8pm ET, which is the middle of the US evening slate.** A
+    loss limit that rolls there hands back a fresh allowance halfway through the
+    session it exists to stop -- the kill switch disengages at the exact moment
+    a bad night is still running. That is the maximally permissive failure, and
+    it is the same argument `timing.DEFAULT_DAY_START_UTC_HOUR` already makes
+    for the odds budget: 10:00Z is 6am ET / 3am PT, after even a West Coast
+    extra-innings game has settled, so one night's losses stay in one bucket.
+
+    **One definition of "day" in the repo.** `tasks/lessons.md`, 2026-08-07:
+    two limits on one quantity, in modules that do not import each other, drift
+    apart and the looser one wins in silence. A risk day and a budget day that
+    disagreed by ten hours would put "how much have I lost today" and "how much
+    have I spent today" on different clocks, and the screens that show them side
+    by side would be quietly comparing different days.
+
+    The hour is a parameter rather than a constant read here so a caller holding
+    `OddsConfig.budget_day_start_utc_hour` can pass the *configured* value and
+    the two cannot diverge through `.env`.
+
+    **What this does not establish:** that 10:00Z is the right roll for a bettor
+    in another timezone. It is right for the US sports calendar this tool trades
+    and nothing else; it is one `ODDS_BUDGET_DAY_START_UTC_HOUR` away from being
+    wrong for anyone else.
+    """
+    return day_start_ms(now_ms, hour=hour)
+
+
+def daily_realised_pnl_dollars(
+    conn,
+    *,
+    now_ms: int,
+    dry_run: bool,
+    day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+) -> Optional[float]:
+    """Realised P&L for the risk day, in dollars. Negative is a loss.
+
+    `None`, never `0.0`, when it cannot be read. `CLAUDE.md`: *unreadable
+    resolves to `None`, never `0`* -- and on a loss limit, `0.0` is the
+    maximally permissive substitution available, because "no information" would
+    read as "no losses" and the kill switch would never engage.
+
+    An **empty** `settlements` table is not unreadable. Nothing has settled, so
+    the realised P&L for the day genuinely is $0.00, and that is a measurement
+    rather than an absence. The two are told apart here the way
+    `current_exposure_dollars` tells them apart: a query that returns no rows is
+    zero, a query that raises is `None`.
+
+    **`dry_run` selects the population and the two are never pooled**, for the
+    reason `store.orders.current_exposure_dollars` gives: a paper order sizes
+    against paper history, a live order against live history. Pooling them would
+    let fictional losses stop a real bet, or -- far worse -- let a fictional
+    profit offset a real loss and hold the kill switch open.
+
+    Sums the column rather than recomputing the arithmetic.
+    `position_pnl_cents` already refused any position whose P&L is not a whole
+    number of cents, so every row present here is exact and integer; dividing by
+    100 at the end is the only float in the path.
+    """
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(pnl_cents), 0) AS cents, COUNT(*) AS n "
+            "FROM settlements WHERE dry_run = ? AND settled_ms >= ?",
+            (1 if dry_run else 0, risk_day_start_ms(now_ms, hour=day_start_hour)),
+        ).fetchone()
+    except Exception:                                       # noqa: BLE001
+        logger.exception("could not read the day's realised P&L")
+        return None
+    if row is None:
+        # A `SELECT SUM(...)` always returns one row, so this is unreachable
+        # through sqlite3 -- but a stub connection in a test is not sqlite3, and
+        # "the reader returned nothing" must not become "$0.00 lost today".
+        logger.error("the realised-P&L query returned no row at all")
+        return None
+    return int(row["cents"]) / 100.0
+
+
+def open_position_dollars(conn, ticker: str, *, dry_run: bool) -> Optional[float]:
+    """Money currently committed to **one** ticker, fee included, or `None`.
+
+    The per-market twin of `store.orders.current_exposure_dollars`, and the
+    input `size_position`'s `max_position_dollars` cap was missing. Measured
+    consequence of its absence: 76 contracts and ~$38.00 accumulated on a single
+    ticker against a $10 `max_position_dollars`, stopped only when the $40
+    portfolio-wide `max_exposure_dollars` finally bound.
+
+    **Built on `positions_awaiting_settlement` rather than on a second query**,
+    which is the point. That function already returns exactly the orders that
+    still hold capital, and its status filter is the exposure query's *by
+    construction* -- so "which orders count towards the position cap" and "which
+    orders count towards the exposure cap" cannot come to disagree, which is the
+    failure `current_exposure_dollars` was written to end. The dollar value of
+    each row comes from `exposure_contribution`, the project's only arithmetic
+    for what an open order commits.
+
+    `None` if any contributing row is unreadable, for the reason the portfolio
+    sum gives: skipping it would report a smaller position than the truth and
+    hand the next order room it does not have.
+    """
+    try:
+        rows = positions_awaiting_settlement(conn)
+    except Exception:                                       # noqa: BLE001
+        logger.exception("could not read the open positions for %s", ticker)
+        return None
+
+    total = 0.0
+    for row in rows:
+        if row["ticker"] != ticker or bool(row["dry_run"]) != dry_run:
+            continue
+        contribution = exposure_contribution(row["count"], row["limit_price_tenths"])
+        if contribution is None:
+            logger.error(
+                "order %s on %s has no usable price, so the position on that "
+                "ticker cannot be summed. Refusing rather than treating an "
+                "unreadable order as a free position.",
+                row["id"], ticker,
+            )
+            return None
+        total += contribution
+    return total
 
 
 def _depth_at_order(row: dict) -> Optional[float]:

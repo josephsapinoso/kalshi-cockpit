@@ -91,6 +91,7 @@ from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import SweepDecision, decide_sweeps
 from .store import db
 from .store.db import ask_for_side, now_ms
+from .settlement import daily_realised_pnl_dollars, open_position_dollars
 from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
 
 logger = logging.getLogger(__name__)
@@ -604,6 +605,27 @@ def run_pricing_pass(
             "slate with no edge."
         )
 
+    # The second budget the sizer spends, and until 2026-08-10 nothing supplied
+    # it: `size_position`'s `daily_pnl_dollars` was keyword-only with a default
+    # of `0.0`, so the daily loss limit was applied to a number this process
+    # invented. Read once per pass, beside the exposure, for the same reason --
+    # it is a property of the portfolio, not of any candidate.
+    #
+    # Raised rather than passed down as `None`, on the argument the exposure
+    # read makes two lines up: `None` would refuse every candidate on the slate
+    # and persist a hundred rows saying "not sized" for a reason that has
+    # nothing to do with any of them.
+    daily_pnl = daily_realised_pnl_dollars(
+        conn, now_ms=stamp, dry_run=ORDERS_ARE_DRY_RUNS
+    )
+    if daily_pnl is None:
+        raise RuntimeError(
+            "the day's realised P&L could not be read, so the daily loss limit "
+            "cannot be applied to anything on this slate. Refusing to record a "
+            "pass -- 'cannot determine what I have lost today' must not resolve "
+            "to 'nothing'."
+        )
+
     # Judged but not yet written. Surfaced rows carry the Skeptic's prompt
     # inputs; everything else carries an empty mapping, because nothing will
     # ask it anything.
@@ -729,6 +751,16 @@ def run_pricing_pass(
                     suppression=suppression,
                     strategy_config_version=version,
                     current_exposure_dollars=exposure,
+                    # Per market, because `max_position_dollars` is a per-market
+                    # cap. Read inside the loop rather than hoisted: a slate is
+                    # a hundred candidates over a few dozen tickers, the query
+                    # is bounded by the exposure cap itself, and hoisting it
+                    # would mean maintaining a second definition of "which
+                    # orders still hold capital on this ticker".
+                    current_position_dollars=open_position_dollars(
+                        conn, market.ticker, dry_run=ORDERS_ARE_DRY_RUNS
+                    ),
+                    daily_pnl_dollars=daily_pnl,
                     created_ms=stamp,
                 )
                 pending.append(
