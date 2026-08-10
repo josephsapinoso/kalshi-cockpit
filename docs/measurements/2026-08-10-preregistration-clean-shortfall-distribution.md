@@ -1618,3 +1618,69 @@ That row reads `none`. It is committed text and §8 forbids editing it in place,
 so it is superseded here rather than corrected there. **The registration carries
 one amendment: Amendment A, appended 2026-08-09, ruling that §R3's saturation
 clause is a labelling rule and releasing the five verdicts of §A5.**
+
+---
+
+# Annotation B — §0.6's book-count figure reached a document that had no right to it
+
+**Appended 2026-08-10.** Appended, never edited in place, as §8 requires, and
+following Amendment A's precedent of leaving the body untouched — there is no
+inline marker anywhere above.
+
+**This is not an amendment.** It changes no threshold, population, exclusion,
+cut, estimator, decision rule, guard or stopping rule, and releases and
+withdraws nothing. The registration's own labelling was **correct**; this
+records where a downstream document dropped that label, so that a reader who
+arrives at the registration by following the wrong quotation lands on the
+correction.
+
+- **Raised by:** the ADR 0021 §7.2 annotation (`300330a`).
+- **Audited by:** `measurement-skeptic` — **SOUND**.
+
+## §B1. What the registration got right
+
+§0.6 carries the figure under
+`[MEASURED FROM DATA — tests/fixtures/odds_mlb_h2h_spreads_totals.json]`. That
+label is accurate and is the reason this is an annotation rather than a
+correction. **The registration is not at fault and no text in it is superseded.**
+
+## §B2. What the label means, stated plainly because the phrasing invites a misread
+
+The narrative at the foot of §R3's power check says the spread figures are
+*"measured on the live anchoring, not derived from example lines"*. That
+sentence is **true as written and narrower than it sounds**. What is *live* is
+the **anchoring** — `runner.SHARP_BOOKS`, the production set, applied through
+the production path. What is **not** live is the **odds**: they are the fixture's.
+
+So the correct reading is *"the production anchoring, applied to fixture odds"*,
+never *"measured on the record"*. The distinction is invisible in the sentence,
+which is precisely how the figure travelled.
+
+## §B3. The overlap, measured
+
+| Quantity | Value |
+|---|---|
+| Fixture capture | `2026-08-07T13:49:22Z` |
+| Record's earliest odds observation (`created_ms − odds_age_ms`) | `2026-08-07T19:28:12Z` |
+| Record's latest odds observation | `2026-08-09T23:35:18Z` |
+| Rows at or before the fixture capture | **0 of 1,564** |
+| Minimum gap | **5.647 hours** |
+
+Both directional checks err *toward* finding overlap and neither found any. The
+populations differ in **time**, not in kind — which is why nothing about the
+downstream sentence looked wrong.
+
+## §B4. What this annotation does not establish
+
+- **It does not withdraw §0.6's figure.** `26 of 29` reproduces to the digit
+  through the production path on the fixture. The number is right; only its
+  address was wrong downstream.
+- **It does not establish the magnitude on the record.** *How much* the
+  anchoring discarded on the 1,564 rows is **unobserved**, and remains so until
+  the `anchored_on_sharp` / `books_used` fields reach a reader — which needs a
+  deploy. It is not "small", not "large", and not "similar".
+- **It does not touch any verdict.** H1–H4 read no book-count cut. Nothing in
+  §A5 depends on this figure.
+- **It does not license re-quoting the figure after a future measurement.** A
+  new number would be a different measurement on a different population and must
+  be labelled as one.

@@ -4325,6 +4325,15 @@ assertion at all.
 - **When a docstring says "nothing calls this yet", that is a finding, not a
   note.** Delete it or wire it. Leaving it is how the count reaches six.
 
+> **ANNOTATION 2026-08-10 — the count is NINE, and it was six only because the
+> detector was counting wrong.** A census that enumerated the population instead
+> of consulting a list found **nine module-level dead**, four partially dead, and
+> a symbol-level tail. The lesson's argument gets stronger, not weaker: the
+> number was low *because* the counting method was the thing being criticised.
+> Two mechanisms, both recorded in **ADR 0022**:
+> [[an-allowlist-cannot-report-what-is-missing-from-it]] and
+> [[a-detectors-production-must-be-the-deployments-production]].
+
 Related: [[code-with-no-caller-is-not-a-feature]],
 [[a-captured-fixture-that-no-test-loads-is-decoration]],
 [[a-test-that-passes-on-the-bug-is-not-a-test]].
@@ -4625,3 +4634,106 @@ denominator, so the ratio still looks right; only a count tied to an
 independently-computed total catches it. Related:
 [[before-quoting-n-of-n]], [[one-observation-recorded-thirty-times]] — the same
 question about what a row count actually counts, asked of a JOIN.
+
+---
+
+## 2026-08-10 — An allowlist cannot report what is missing from it
+
+`tests/test_has_callers.py` existed to catch built-never-called code. It ran
+green for the whole life of the project while the count of orphaned modules
+reached **nine**, and it was never broken. Its `MUST_HAVE_CALLERS` list held
+fifteen entries, and **every one named a symbol that already had a caller.** Not
+one entry was ever added for something orphaned at the time it was added.
+
+That is not neglect. It is the shape of the guard. A list of things-that-must-
+have-callers is a **ratchet against re-orphaning** — it protects symbols someone
+already suspected — and it is structurally incapable of naming the ones nobody
+thought about. Absence from the list and presence of a caller are the same
+observation to it. The guard answers *"did anything I already worried about
+break?"* and gets read as *"is anything orphaned?"*
+
+The inverted form answers the second question: **enumerate the population,
+require every member outside the healthy set to carry an explicit disposition,
+and fail on anything unclassified.** Cost to maintain is the same. Under the new
+form, adding a module with no caller turns CI red until a human writes down which
+it is — a tool a person runs, or quarantined code with a stated revival
+condition.
+
+**Why:** this repo has now been wrong about the orphan count three times, always
+downward, and each time the detector was green. The count was cited as four, then
+six, and is nine. A guard that cannot produce the number it is trusted for is
+worse than no guard, because the green is read as the answer.
+
+**How to apply:** any guard shaped *"here are the cases we check"* is suspect —
+suppression codes, redaction patterns, required-env lists, allowed-series lists.
+Ask what it would take for the guard to report a case nobody enumerated. If the
+answer is "someone remembers to add it", invert it: enumerate the population,
+classify exhaustively, fail on unclassified. Then **verify by adding a deliberate
+instance of the thing it is supposed to catch and watching it go red** — an
+enumeration that enumerates nothing passes everything, so green is not evidence
+here. Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[code-with-no-caller-is-not-a-feature]],
+[[count-guard-families-not-guards]].
+
+---
+
+## 2026-08-10 — A detector's "production" must be the deployment's "production"
+
+The same detector had a second hole, and it hid five of the nine orphans on its
+own. It counted a reference from `scripts/` as a caller. But `.dockerignore`
+admits exactly **two of the thirty-four** scripts into the image. So a module
+whose only caller was a script was, to the test, *called*, and on the deployed
+machine, *absent along with its caller*.
+
+Neither half is wrong in isolation. The test's definition of "called" is
+reasonable; the image's definition of "shipped" is reasonable. They were written
+at different times by different reasoning and **nothing ever compared them**, so
+the disagreement had no symptom.
+
+**Why:** this is the repo's recurring *two limits on one quantity* shape, the
+same one behind `SuppressionConfig.max_odds_age_ms` vs `MAX_ODDS_AGE_S` and the
+duplicated `SHARP_BOOKS`. The tell is always the same: one guard covering half a
+property reads exactly like a guard covering all of it, and the covered half is
+usually the half that cannot hurt you. Here the visible artefact was a green test
+sitting beside a red one **on the same symbol** — which is the clearest evidence
+the two definitions had drifted.
+
+**How to apply:** when a test asserts something about "production", derive the
+boundary from the artefact that actually defines it — `.dockerignore`, the
+entrypoint script, the deploy config — rather than restating it. Do not list the
+entry points; **extract** them. Two independent statements of one boundary is a
+duplicate, and [[a-shared-object-cannot-disagree-with-itself]] is the fix, not a
+test that they agree. Related:
+[[an-allowlist-cannot-report-what-is-missing-from-it]],
+[[the-false-reassurance-in-a-comment-outlives-the-code]].
+
+---
+
+## 2026-08-10 — The safety was an accident of the boot script, not a design
+
+`data/lake/` holds `recommendations` partitions named `dt=2026-08-0*` containing
+**847 rows stamped 2025-07-23 → 2025-08-10** — demo seed data wearing the
+record's directory names. The reassuring version of this is "nothing reads it".
+That is false: the dbt warehouse reads those partitions directly
+(`stg_recommendations.sql`), and `/api/dashboards` reads the marts built from
+them. **The reader is fully built.**
+
+The only thing standing between 2025 demo data and a 2026-labelled screen is
+that `docker/entrypoint.sh` happens never to invoke `publish` or `dbt build`. No
+check enforces that. No test asserts it. Nobody decided it.
+
+**Why:** "nothing reads it" and "nothing currently runs the reader" are different
+claims with very different lifetimes. The first is a property of the system; the
+second expires the moment someone adds a line to a boot script for an unrelated
+reason — and they will not know they armed anything, because the directory names
+say 2026. A safety that no artefact states is not a safety; it is a coincidence
+that has not ended yet.
+
+**How to apply:** when concluding that dangerous data is unreachable, name the
+artefact that makes it unreachable and ask what would have to change for that
+artefact to stop being true. If the answer is "someone edits an unrelated file",
+write the guard or write the landmine down where the person editing that file
+will see it. And **never let a partition's name assert its provenance** — stamp
+the data, not the directory. Related:
+[[a-borrowed-number-must-overlap-the-population]],
+[[the-false-reassurance-in-a-comment-outlives-the-code]].

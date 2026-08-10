@@ -525,10 +525,32 @@ usable books — had no assertion at all. The guard moves to
 wiring, because a correct set that nothing passes to `consensus_devig` is
 precisely what the deleted copy was.
 
+> **ANNOTATION 2026-08-10 — `median of 26 of 29` above is a FIXTURE figure.**
+> The sentence is left as written and its *argument* is untouched: the guard was
+> on the dead copy, and that is a fact about the code. Only the parenthetical
+> magnitude is mislocated. `26 of 29` is measured on
+> `tests/fixtures/odds_mlb_h2h_spreads_totals.json`, captured
+> **2026-08-07T13:49:22Z**, against a record whose earliest odds observation is
+> **5.65 hours later** — overlap is **0 of 1,564 rows**. Quote it only as
+> *"measured on one MLB fixture captured before the record begins"*, never bare
+> and never as a property of the record. See ADR 0021 §7.2's annotation, which
+> rules this and states what survives.
+
 This is the **sixth** built-never-called item in a repo whose CLAUDE.md cites
 four. Six is a process gap, not a run of coincidences, and
 `tests/test_has_callers.py` cannot catch it because `MUST_HAVE_CALLERS` is
 opt-in — absence from the list is indistinguishable from having a caller.
+
+> **ANNOTATION 2026-08-10 — the count was six; it is NINE, and the detector has
+> now been inverted.** The paragraph's diagnosis was right and its number was
+> low. An enumerate-and-classify census found **nine module-level dead**, plus
+> four partially dead and a symbol-level tail. Worse than "opt-in": all fifteen
+> `MUST_HAVE_CALLERS` entries named symbols that *already had callers*, so the
+> list had never once been pointed at anything orphaned at the time. Five of the
+> nine were invisible for a second reason this ADR did not know — the detector
+> counted `scripts/` as a caller, while `.dockerignore` admits only two of the
+> thirty-four scripts into the image. **ADR 0022** owns the inversion, the
+> classification and the disposition (quarantine, not wire, not delete).
 
 **The vector-collapse remedy is considered and deferred, pending one number.**
 `kalshi-platform` proposed collapsing identical price vectors to one contributor
