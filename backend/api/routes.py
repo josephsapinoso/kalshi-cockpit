@@ -750,9 +750,29 @@ def create_app(
             # repo's rule it resolves to `None`, never `0`. A `0.0` here would
             # be a fair probability of zero, which is a legitimate value, so the
             # two states would be indistinguishable.
+            #
+            # **`market_width`, `book_count` and `books_used` are named here
+            # for the same reason, and they had to be named.** `SELECT r.*`
+            # does not reach them: all three live on `fair_prices`, not on
+            # `recommendations`, so the join alone put nothing in the result
+            # set and `_serialise` could not have emitted them however it was
+            # written. ADR 0021's closing section records that these three were
+            # never observed over the whole 1,564-row record, which left two of
+            # the brief's registered predicates unanswerable; this is the half
+            # of the fix that lives in SQL.
+            #
+            # They answer a question the five `p_*` columns cannot.
+            # `market_width` is the books' disagreement and `book_count` is how
+            # many opinions survived `runner.SHARP_BOOKS` anchoring -- so
+            # ADR 0021 §7.2's tautology reading ("we tested Kalshi against the
+            # only references plausibly as sharp as Kalshi") is checkable from
+            # the record rather than only from a fixture captured on a
+            # different day. `books_used` names *which* books, which is the
+            # part no count can recover.
             "SELECT r.*, "
             "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
-            "       f.p_conservative "
+            "       f.p_conservative, "
+            "       f.market_width, f.book_count, f.books_used "
             "FROM recommendations r "
             "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
             "WHERE (? IS NULL OR r.id <= ?) "
@@ -1939,6 +1959,30 @@ def _losing_run_probability(ev_dollars: float, sd_dollars: float) -> Optional[fl
     return NormalDist().cdf(-math.sqrt(LOSING_RUN_BETS) * ev_dollars / sd_dollars)
 
 
+def _decode_books_used(raw) -> Optional[list[str]]:
+    """`fair_prices.books_used` (a JSON array in TEXT) -> a list, or `None`.
+
+    **Never `[]` on failure.** An empty list is a real answer -- it says the
+    consensus was built from no book at all, which would be a serious defect
+    worth seeing -- so it cannot double as "this could not be read". Unreadable
+    resolves to `None` and the caller refuses, per `tasks/lessons.md`.
+
+    `None` in means the `LEFT JOIN` on `fair_prices` missed. Anything that is
+    not a JSON array of strings means the column is corrupt, which has never
+    been observed and would be a real finding rather than something to paper
+    over with a default.
+    """
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(decoded, list) or not all(isinstance(b, str) for b in decoded):
+        return None
+    return decoded
+
+
 def _serialise(
     row,
     *,
@@ -1997,9 +2041,61 @@ def _serialise(
         if "p_conservative" in row.keys()
         else {}
     )
+    # **How much consensus there was, and whose.** Same join, same route, same
+    # presence rule as `methods` above -- these three live on `fair_prices` and
+    # only the Ledger reaches them.
+    #
+    # ADR 0021's closing section records that these were *never observed* over
+    # the whole 1,564-row record, so two of the predicates the measurement brief
+    # registered went unanswered. The reason was never that the join was
+    # missing: it has been there since the four devig readings were added. The
+    # SELECT list simply named five `f.` columns and not eight, and this dict is
+    # hand-built and named none of them. Both halves had to change.
+    #
+    # What they make answerable, which the five `p_*` columns cannot:
+    #
+    # - `book_count` is how many books survived `runner.SHARP_BOOKS` anchoring.
+    #   ADR 0021 §7.2 argues the whole refutation may be a tautology -- Kalshi
+    #   compared only against references as sharp as Kalshi -- and quotes a
+    #   magnitude ("a median of 26 of 29 usable books discarded") measured on a
+    #   *fixture captured 5.65 hours before the record's earliest odds
+    #   observation*, overlapping it on zero of 1,564 rows. This column is what
+    #   replaces that borrowed number with one measured on the record itself.
+    # - `market_width` is the surviving books' disagreement, and it is the
+    #   suppression input behind `too_few_books` / `no_market_width`.
+    # - `books_used` names *which* books. No count recovers that, and "three
+    #   books agreed" means something different when the three are two
+    #   exchanges and Pinnacle.
+    #
+    # **`market_width = None` on a joined row is a real state, not a gap.** One
+    # book cannot disagree with itself, so there is no width to report, and
+    # `0.0` is simultaneously a legitimate reading (two books quoting
+    # identically). `core/devig.py` splits them for exactly that reason and this
+    # payload must not collapse them back -- see `tasks/lessons.md`, *the zero
+    # that means "no measurement" passes every threshold*.
+    #
+    # **`book_count` is the join's own tell.** It is `NOT NULL` in
+    # `fair_prices`, so `book_count is None` on a row where the key is present
+    # means the `LEFT JOIN` missed and nothing else. That is what lets a
+    # consumer read `market_width is None` as "unmeasurable" rather than as
+    # "unjoined" without guessing.
+    consensus = (
+        {
+            "market_width": row["market_width"],
+            "book_count": row["book_count"],
+            # Stored as a JSON array in a TEXT column; decoded here so a
+            # consumer is not handed JSON inside JSON. `None` rather than `[]`
+            # on anything unreadable -- an empty list is a claim that no book
+            # was used, which is a different fact from "we could not tell".
+            "books_used": _decode_books_used(row["books_used"]),
+        }
+        if "book_count" in row.keys()
+        else {}
+    )
     return {
         **live,
         **methods,
+        **consensus,
         "id": row["id"],
         "ticker": row["ticker"],
         "created_ms": row["created_ms"],

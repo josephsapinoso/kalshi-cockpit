@@ -34,7 +34,42 @@ export type DevigMethods = {
   p_conservative: number | null;
 };
 
-export type Recommendation = Partial<DevigMethods> & {
+/**
+ * How much consensus produced the fair value, and whose.
+ *
+ * **Present only on `/api/ledger`**, on the same join and the same
+ * present-or-absent rule as `DevigMethods`. The Board and the market detail
+ * omit these keys entirely.
+ *
+ * These answer what the four devig readings cannot. `book_count` is how many
+ * books survived sharp-book anchoring, so the standing worry that this tool
+ * compares Kalshi only against references as sharp as Kalshi (ADR 0021 §7.2) is
+ * checkable from the record instead of from a fixture captured on a different
+ * day. `books_used` names *which* books — "three books agreed" means something
+ * different when the three are two exchanges and Pinnacle.
+ */
+export type ConsensusProvenance = {
+  /**
+   * Disagreement between the best and worst surviving book, in probability
+   * points.
+   *
+   * **`null` is a real state, not a gap.** One book cannot disagree with
+   * itself, so there is no width to report — and `0` is simultaneously a
+   * legitimate reading, two books quoting identically. Never coalesce the two.
+   */
+  market_width: number | null;
+  /**
+   * Books kept after sharp anchoring. `NOT NULL` in the database, so a `null`
+   * here means the join missed — which is what disambiguates a `null`
+   * `market_width` above.
+   */
+  book_count: number | null;
+  /** Which books. `null` if the join missed or the column is unreadable, never `[]`. */
+  books_used: string[] | null;
+};
+
+export type Recommendation = Partial<DevigMethods> &
+  Partial<ConsensusProvenance> & {
   id: number;
   ticker: string;
   created_ms: number;
