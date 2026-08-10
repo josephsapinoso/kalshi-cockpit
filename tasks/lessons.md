@@ -3833,3 +3833,129 @@ whoever is quoting it.
 Related: [[arithmetic-that-reproduces-to-the-digit-says-nothing-about-its-inputs]],
 [[an-enumeration-is-not-a-proof]],
 [[a-true-measurement-licensed-a-false-conclusion]].
+
+---
+
+## 2026-08-10 — Tracing a number to code is only half the check
+
+The rule directly above — *a number quoted from your own prose is assumed until
+you have found the code behind it* — was followed this session, on the
+devig-method spread, and it was **not sufficient**. Two numbers survived the
+trace and still failed.
+
+**`2.03 points`.** It traces. `devig(["fav","dog"], [1.11, 7.50]).method_spread("dog")`
+returns **2.0304**, and `[2.10, 1.80]` returns **0.1817** — reproducing
+`core/suppression.py:217-220` to four figures, on two lines named in
+`tests/test_devig.py`. So the citation is real and the arithmetic is right, and
+it was about to be used as *the maximum reach of the devig knob* inside a bound.
+Two things broke that:
+
+- **The test asserts inequalities, not the value.**
+  `TestMethodSpreadDependsOnLineShape` asserts `> 0.6`, `< 0.6`, and
+  `lopsided > even`. **Nothing pins 2.03.** This file's own earlier entry says
+  "both halves are asserted in `TestMethodSpreadDependsOnLineShape` so the
+  framing cannot quietly drift back" — that claim is **wrong**, and it is wrong
+  here, which is where a future session goes to check.
+- **It is an example, not a maximum.** Swept over two-outcome lines — fair
+  favourite 50–99%, overround 1–20% — the spread reaches **3.47 points** on
+  realistic slates (favourite ≤ 85%, hold ≤ 6%) and **15.9** at a 20% hold. The
+  1.11/7.50 line carries only ~3.4% overround, so 2.03 is not even the worst
+  case at its own hold. And the spread is **non-monotone** in lopsidedness:
+  1.02/40.0 gives **0.425**, because the additive method clamps.
+
+**`1.94 points, 5.1x` for the maker basis.** Also traces, also real — and it is
+the `N = 100` limit. ADR 0017 Correction 1 had already fixed **10 contracts** as
+this software's minimum order, so the operative figures are **1.88 and 4.9x**.
+The number was correct for a size the system cannot send.
+
+**Why the existing rule missed both.** It asks *does this number exist in the
+code?* Both did. What it does not ask is *what does the number quantify, over
+what domain, and is a test holding it there?* A traced number arrives wearing
+the authority of the trace, and the trace certifies existence, not scope.
+
+Note the shape once more: using 2.03 as a bound would have made the bound **too
+tight**, producing a zero that was an artefact of an understated knob — the
+flattering direction, again, inside a measurement built specifically to resist
+it.
+
+**How to apply:**
+
+- **After tracing a number, open the test that supposedly pins it and read the
+  assertion.** An inequality is not a pin. `assert x > 0.6` lets `x` be 2.03 or
+  15.9 and stays green through the difference that matters.
+- **Ask whether the value is an example or an extremum.** If a bound is being
+  built on it, a single evaluated point is never enough: sweep the input space
+  and take the maximum, or restructure so no fixed constant is needed.
+- **Restructuring beats sweeping.** The fix registered here removes the knob
+  entirely: instead of choosing a δ and counting rows that clear it, compute the
+  per-row **shortfall** and read the count at every δ off one distribution. A
+  constant you never have to choose is a constant that cannot be chosen wrong.
+- **Check the number's regime against the deployed one.** `N = 100` is a real
+  number about a system that cannot place an order below `N = 10`.
+
+Related: [[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]],
+[[measure-the-style-rule-before-believing-it]],
+[[a-true-measurement-licensed-a-false-conclusion]].
+
+---
+
+## 2026-08-10 — A pull can be incomplete while every check on it adds up
+
+`/api/ledger` returned the newest 1,000 of 1,535 rows, so paging was needed
+before any whole-table measurement. Adding `offset` alone would have been worse
+than leaving it capped.
+
+The route sorts newest-first. A row written *during* a multi-page pull therefore
+lands on page 0 and pushes every later page along by one. That is not a rare
+race here: **[MEASURED] one `created_ms` on this table carries 84 rows**,
+because a sweep writes its whole slate at one instant, and the recorder writes
+~500–600 rows a day. Reproduced directly — 120 rows in four pages of 30, with
+one 84-row sweep landing between page 0 and page 1:
+
+```
+unpinned            returned 120, distinct  90, 30 duplicated,
+                    and 84 original rows never returned
+pinned to max_id    returned 120, distinct 120,  0 duplicated
+```
+
+**The dangerous part is not the corruption, it is that nothing contradicts it.**
+Every page reports `returned: 30`. The four pages sum to 120. `total` agrees.
+`limit` agrees. Every consistency check the payload is capable of supporting
+passes — and the payload was *deliberately* designed to expose slices, carrying
+`total` beside `returned` for exactly that purpose. That machinery is blind to
+this, because the pull is the right *size* and the wrong *multiset*.
+
+The fix is a snapshot pin: read `newest_id` from page 0 and pass it back as
+`max_id`, so `id <= max_id` names a fixed prefix that later writes cannot enter.
+`total` must be counted under the same pin, or paging until
+`offset + returned == total` walks a target that keeps moving. Immutable by
+construction, rather than by hoping the recorder is idle.
+
+A second, smaller thing rode along: `ORDER BY created_ms DESC` is **not a total
+order** on this table — 960 of the newest 1,000 rows tie with at least one
+other. Measured, it pages consistently today because the planner scans
+`idx_recs_created`; the point is that it *happens to*, and adding a join changed
+the plan in the same commit. `(created_ms DESC, id DESC)` is total, so the
+question stops being about the planner. That half is hardening and is labelled
+as such — no corruption was observed, and claiming one would have been the same
+overstatement in the other direction.
+
+**How to apply:**
+
+- **Pagination over a table that is being written to needs a snapshot key, not
+  just an offset.** `OFFSET` assumes the rows below it do not move. On any
+  newest-first ordering, every insert moves all of them.
+- **Before trusting a multi-page pull, assert `len(set(ids)) == total`.** It is
+  one line, it is the only check that catches this, and it is not implied by any
+  of `total`, `returned`, `limit` or their sums.
+- **When adding a field so a defect becomes visible, ask what the field cannot
+  see.** `total` was added to make a slice detectable and it worked — and it
+  reports 1,535 just as happily for a pull holding 90 distinct rows as for one
+  holding 120. A detector that answers a nearby question is exactly the kind
+  that gets trusted for this one.
+- **Order by a total order whenever a query is paged.** A tiebreak costs a sort
+  and removes the query planner from a correctness argument.
+
+Related: [[one-observation-recorded-thirty-times]],
+[[the-zero-that-means-no-measurement-passes-every-threshold]],
+[[a-captured-fixture-that-no-test-loads-is-decoration]].
