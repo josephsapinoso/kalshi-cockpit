@@ -222,4 +222,22 @@ def settlement_fee(
 # Absolute rather than relative on purpose: the failure mode is a wrong formula,
 # which shows up at every size, and a relative tolerance would forgive exactly
 # the small fills where the fee is largest as a share of stake.
+#
+# **"Kalshi charges whole cents" is half wrong, and the half that is wrong does
+# not apply here.** Measured 2026-08-10 against 55 real settled positions:
+#
+#   - **11 of 11 single-game** fees are whole cents. That is the path this tool
+#     trades, so the premise above holds where the constant is used.
+#   - **32 of 43 KXMVE combo** fees are not. All 55 are multiples of $0.001, so
+#     combos are charged to the **tenth of a cent**.
+#
+# The value therefore stays at 1e-9. **The known limit, recorded rather than
+# fixed:** if this module is ever asked to price a combo, a correct model that
+# lands a tenth of a cent away will trip `fee_model_verified` as a MISMATCH --
+# a false stop-the-line. The fix at that point is a *combo-aware fee model*,
+# not a looser tolerance. Loosening it to absorb $0.001 would re-create the
+# defect this comment exists to describe, one order of magnitude down: on a
+# one-contract fill at a 1c fee, $0.001 is a 10% error waved through by the
+# check the gate treats as its most serious. See
+# `TestTheFeeMatchToleranceIsFloatNoiseOnly`.
 FEE_MATCH_TOLERANCE_DOLLARS = 1e-9

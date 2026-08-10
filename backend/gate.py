@@ -634,6 +634,29 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
 
 
 def _fee_model_verified(conn) -> Condition:
+    """Compare predicted fees against what Kalshi charged, on real fills.
+
+    **This condition has no live producer, and is pinned at `met=False`.**
+    Verified 2026-08-10: `grep "INTO fills"` returns only `tests/`, and
+    `backend/store/orders.py` says so in its own docstring -- *"It does not
+    write `fills`."* ADR 0022 §6 records the same table as 0 rows in all three
+    data-lake partitions. So `total` is always 0, the `total == 0` branch below
+    is the only one that runs in production, and **the MISMATCH branch is
+    unreachable** -- which means the check that would catch a wrong fee formula
+    has never once been able to fire.
+
+    The zero case is handled honestly and is deliberately left alone: it refuses
+    to read "no evidence" as a pass, which is correct and is the opposite of the
+    failure this repo keeps finding. What is *not* true is that a green gate
+    here would mean anything.
+
+    **The fee model is currently resolved by hand instead** -- against real
+    settled positions read out of the portfolio, not through this table. Wiring
+    a producer changes what the gate counts, which is a `partner` decision and
+    an ADR, not a patch: this repo has a standing rule against altering the
+    gate's inputs to make something easier. See ADR 0022 for the
+    built-never-called classification this belongs to.
+    """
     row = conn.execute(
         """
         SELECT COUNT(*) AS total,
