@@ -3864,12 +3864,26 @@ Two things broke that:
   1.02/40.0 gives **0.425**, because the additive method clamps.
 
 **`1.94 points, 5.1x` for the maker basis.** Also traces, also real — and it is
-the `N = 100` limit. ADR 0017 Correction 1 had already fixed **10 contracts** as
-this software's minimum order, so the operative figures are **1.88 and 4.9x**.
-The number was correct for a size the system cannot send.
+the `N = 100` limit, for a system that never sends 100 contracts. The operative
+figures are **1.38 and 3.6x**, at `N = 1`.
 
-**Why the existing rule missed both.** It asks *does this number exist in the
-code?* Both did. What it does not ask is *what does the number quantify, over
+**And the first correction to it was wrong too, which is the sharper half of
+this lesson.** The initial fix said *"ADR 0017 Correction 1 had already fixed 10
+contracts as this software's minimum order, so the figures are 1.88 and 4.9x"* —
+and `MIN_ORDER_CONTRACTS` had been **retired on 2026-08-09**. `sizing.py:15`
+now opens *"There is no minimum order size, because there is nothing for one to
+prevent"*, the setting sits in `config.RETIRED_SETTINGS`, and **ADR 0017's own
+Addendum A.2 records the removal.**
+
+So the correction cited ADR 0017 §1 Correction 1 while, eleven lines away,
+citing ADR 0017 **Addendum A** for a different fact — the very addendum that
+retires Correction 1's premise. **A document can supersede itself without
+renumbering the passage it supersedes.** Tracing a citation to a document is
+therefore not the same as checking whether the document has retired it, and a
+correction is not exempt from the rule it is correcting.
+
+**Why the existing rule missed all three.** It asks *does this number exist in
+the code?* All did. What it does not ask is *what does the number quantify, over
 what domain, and is a test holding it there?* A traced number arrives wearing
 the authority of the trace, and the trace certifies existence, not scope.
 
@@ -3890,8 +3904,16 @@ it.
   entirely: instead of choosing a δ and counting rows that clear it, compute the
   per-row **shortfall** and read the count at every δ off one distribution. A
   constant you never have to choose is a constant that cannot be chosen wrong.
-- **Check the number's regime against the deployed one.** `N = 100` is a real
-  number about a system that cannot place an order below `N = 10`.
+- **Check the number's regime against the deployed one**, and check it in the
+  code rather than in a document about the code. `N = 100` and `N = 10` are both
+  real numbers about a system that sizes at `N = 1`.
+- **Read the whole document, not the cited passage.** A corrections section, an
+  addendum or a "superseded" note can retire a numbered claim *without
+  renumbering it*, so the passage stays quotable and reads as current. Before
+  quoting `§1 Correction 1`, search the same file for anything that supersedes
+  it. This repo has the pattern in both directions: ADR 0017's Addendum A
+  deliberately edits nothing above it, which is right for auditability and
+  precisely what makes the stale passage still quotable.
 
 Related: [[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]],
 [[measure-the-style-rule-before-believing-it]],
