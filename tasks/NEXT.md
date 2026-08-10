@@ -1,5 +1,60 @@
 # Next — your checklist
 
+## 2026-08-10, later — LIVE READ ACCESS IS UNBLOCKED
+
+Joe put the live `APP_AUTH_TOKEN` on **line 68 of `.env`** (repo root,
+gitignored). Verified working: form-POST `token` to `/session` returns 303 with
+a `Set-Cookie`, and the cookie opens `/api/gate` and `/api/ledger` at 200. **An
+agent can now read the live evidence record programmatically.** Every
+measurement below is a raw read of a live counter, taken 2026-08-10 ~01:37Z.
+
+    populations.counts   actionable 0    no_edge 614    suppressed 906
+    ledger               total 1520      horizons: "0" 532, "1" 569, unscored 419
+    gate, per population actionable 0g/0r   no_edge 20g/279r   suppressed 25g/253r
+                         "none of the 29 scored game(s) is actionable"
+    window               closed; spent_today 54 of 400; next sweep 23:07Z MLB, 8 games
+    fee_model_verified   "no fills yet" — matches the local probe
+
+**An internal consistency check that holds:** 279 + 253 = 532, exactly the
+horizon-`"0"` row count. So the gate counts only the current primary horizon and
+the 569 legacy 1.0h rows are correctly excluded, as ADR 0011 specifies. And
+20g + 25g = 45 against 29 distinct games, so 16 games carry both no_edge and
+suppressed rows — the populations overlap at the game level and must not be
+added.
+
+**The one number worth reading twice: 29 scored games, against a floor of 300,
+and 0 actionable.**
+
+### Unaudited delta — do not quote this until it is checked
+
+Against the previous session's read (1,462 rows; horizon `"0"` 476):
+**+58 rows, and horizon `"0"` went 476 → 532 (+56)** while `"1"` stayed frozen
+at 569 exactly as predicted. That reads as *scoring at the current horizon is
+accumulating*, which would be the mechanism working.
+
+It has **not** been through `measurement-skeptic` and the 476 baseline is taken
+from the prior handoff rather than independently re-derived. Two obvious ways it
+could mislead: the two reads are hours apart with no control for slate size, and
+a row count is a measure of uptime rather than of evidence
+([[one-observation-recorded-thirty-times]]). **`actionable` is still 0 after 58
+more rows**, and that part needs no audit.
+
+### Two things this read settles
+
+1. **The `gate.py` wording fix is committed but NOT deployed.** Live still
+   serves the old `config_enabled` text — "arming is a deliberate human act,
+   kept separate from the evidence conditions" — without the ADR 0018
+   correction. It ships on the next deploy, which is Joe's.
+2. **D1 is still not readable over HTTP, and now provably so.** No route exposes
+   `kalshi_markets.result`; the eleven `/api/*` GETs are health, stream/quotes,
+   board, window, market/{ticker}, ledger, suppression, gate, playbook,
+   dashboards, builder/wong-screen. **Verifying the result backfill needs a new
+   route and therefore a deploy** — it is not reachable with the token alone.
+   Given the rolling 7-day loss described below, that route is now the cheapest
+   high-value change available.
+
+---
+
 ## 2026-08-10 — half the documented strategy has never run, and the $5 buys a field name
 
 Session ended early: **four parallel lanes were killed mid-flight by an API
