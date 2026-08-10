@@ -1,0 +1,296 @@
+
+==============================================================================
+CLEAN-POPULATION SHORTFALL DISTRIBUTION — §S OUTPUT, IN THE REGISTERED ORDER
+==============================================================================
+
+==============================================================================
+§S1 — THE FRAME. Read this before `n`, and `n` before any effect size.
+==============================================================================
+pulled_at_utc          2026-08-10T05:07:23.073061+00:00
+base_url               https://kalshi-cockpit.fly.dev
+session                session cookie issued (HTTP 303)
+registration           docs/measurements/2026-08-10-preregistration-clean-shortfall-distribution.md
+
+P1  deployed route serves the pin ......... MET
+P2  pull complete and duplicate-free ...... MET
+      pin 1564   total 1564   pages 2   len(ids) 1564   len(set(ids)) 1564
+      newest_id at end of pull 1564  (table did not move)
+      max(id) in pull 1564  (must be <= pin)
+P4  `suppressed_reason` never empty ....... MET   (count 0)
+P3  every clean `ask_tenths` in [1, 999] .. MET   (dropped, never clamped: 0)
+     `fair_probability` non-NULL .......... MET   (dropped: 0)
+P5  four `p_*` non-NULL on the clean set .. MET   (0 rows excluded from H3a/H3b only, counted, never imputed)
+P6  p_conservative == fair_probability .... MET   (614/614 checkable rows agree)
+     p_conservative == min(four methods) .. MET   (0 violations)
+P7  `inconsistent_consensus_metadata` ..... MET   (occurrences in the whole record: 0)
+
+==============================================================================
+§S2 — THE GUARDS. Evaluated and printed BEFORE any claim.
+==============================================================================
+R1  n_window = 323 of 323 clean deduplicated observations have own spread < 40.0 tenths
+      (0 have a NULL p_* and no computable spread)
+      PASS — the falsifier of H1 is reachable
+R2  n_new = 0 clean rows with id > 1549
+      H1 is a CHECKSUM, not a measurement — label REPRODUCTION — NOT A NEW OBSERVATION
+      (labelling rule, never a stop. H2/H3a/H3b/H4 are live at any n_new.)
+R3  Grid D derived from the deployed fee curve: [1,172] [173,827] [828,999]
+      Grid D                 largest cell (173, 827)               320/323 = 99.1%  DEGENERATE — DOES NOT DISCRIMINATE
+      Grid B                 largest cell (500, 600)               107/323 = 33.1%  discriminates
+      series prefix          largest cell KXMLBGAME                265/323 = 82.0%  discriminates
+    G = 59 distinct clusters   PASS
+R4  H4 twin: degenerate predicate returns 0 on the clean population and 21 on the suppressed one
+      PASS — the predicate demonstrably fires somewhere
+
+*** STOP THE LINE ***
+    tripped: R3 (saturated: Grid D)
+    NO CLAIM IS DECLARED. §9's refutation ADR is not written from this
+    run. Everything below is printed as §S requires and is DESCRIPTIVE
+    ONLY — no cell below may be reported as a finding.
+
+==============================================================================
+§S3 — THE FIVE COUNTS. No count here is a count of independent observations.
+==============================================================================
+  n_rows                         614   clean rows — this is UPTIME
+  n_ticker_side_instants         614   integrity: MUST equal n_rows   OK
+  n_obs                          323   distinct (cluster, created_ms, claim) — THE REGISTERED UNIT
+  n_claims                       118   distinct (cluster, claim) — the hardest floor
+  G                               59   distinct clusters — THE INDEPENDENCE UNIT
+
+  dedup ratio n_rows / n_obs  1.901
+  non-normalisable clusters   0   (A1's detector: a cluster whose suffix set is not exactly two members)
+  near-duplicate instants     0   claim-pairs with |Δ created_ms| <= 1000 ms — NOT collapsed
+
+==============================================================================
+§S4 — CLUSTER-KEY INTEGRITY
+==============================================================================
+  distinct series prefixes, whole pull: KXMLBGAME=1142, KXWNBAGAME=422
+  <DATE+TEAMS> suffixes under more than one prefix: 0
+    G is NOT inflated by the known defect
+  collapsed groups (size >= 2): 291
+  within-group fair_probability range: max 0   OK — C2 structural identity holds
+  within-group ask_tenths range (expected non-zero sometimes; reported, not asserted):
+      min 0  p25 0  median 0  p75 0  max 20   zero-range groups 220/291
+
+==============================================================================
+§S5 — COMPOSITION, BEFORE ANY RATE
+==============================================================================
+  prefix       strategy_config_version     clv_h    obs   share  clusters
+  KXMLBGAME    1                             1.0    118  36.5%        26
+  KXMLBGAME    1                             0.0    117  36.2%        16
+  KXWNBAGAME   1                             0.0     30   9.3%         4
+  KXMLBGAME    1                            None     20   6.2%         8
+  KXWNBAGAME   1                             1.0     14   4.3%         6
+  KXMLBGAME    2                            None      8   2.5%         4
+  KXWNBAGAME   2                            None      6   1.9%         3
+  KXWNBAGAME   1                            None      6   1.9%         1
+  KXMLBGAME    2                             0.0      2   0.6%         1
+  KXWNBAGAME   2                             0.0      2   0.6%         1
+  distinct strategy_config_version on the clean set: 2
+    *** THE RECORD IS ALREADY A MULTI-CONFIGURATION MIXTURE — §V detector 1 ***
+
+  observations per cluster: min 2  p25 2  median 4  p75 8  max 17
+  LARGEST CLUSTER: KXMLBGAME-26AUG091605DETSF  17/323 = 5.3%
+
+==============================================================================
+§S6 — H4. FABRICATED FAIRS IN THE CLEAN POPULATION. Reported FIRST.
+==============================================================================
+  predicate: abs(p_multiplicative - 0.5) < 1e-12
+  n_degen, CLEAN population (pre-dedup, so nothing hides in a collapsed group):  0
+  n_degen, SUPPRESSED population (the paired non-zero control):     21
+  narrower `tasks/NEXT.md` ULP signature: clean 0, suppressed 21
+    the undercount, as a number: 0 suppressed rows are degenerate and the ULP signature misses them
+  clean degenerate rows in ask ∈ [440, 479] (where a fabricated 0.5 clears): 0
+
+  H4 VERDICT: WITHHELD — STOP THE LINE. `n_degen == 0` was not evaluated for a verdict.
+
+==============================================================================
+§S7 — H2. CONCENTRATION.
+==============================================================================
+  max_game_share = 0.0526   threshold <= 0.5
+  H2 VERDICT: WITHHELD — STOP THE LINE. `max_game_share <= 0.50` was not evaluated for a verdict.
+
+  PER-GAME TABLE (every cluster, beside every aggregate, per CLAUDE.md)
+  cluster                            obs   share     min S     max S    max E1
+  KXMLBGAME-26AUG091605DETSF          17   5.3%     16.34     34.32    -16.34
+  KXMLBGAME-26AUG091610LADAZ          16   5.0%     14.59     38.95    -14.59
+  KXMLBGAME-26AUG091435BALTEX         13   4.0%     12.05     33.93    -12.05
+  KXWNBAGAME-26AUG09DALMIN            12   3.7%      9.96     45.45     -9.96
+  KXMLBGAME-26AUG092020HOUSD          10   3.1%     15.35     27.72    -15.35
+  KXWNBAGAME-26AUG09GSLA              10   3.1%     15.94     37.23    -15.94
+  KXMLBGAME-26AUG081840NYMPIT         10   3.1%     12.01     38.52    -12.01
+  KXWNBAGAME-26AUG11NYIND              8   2.5%     20.57     38.48    -20.57
+  KXMLBGAME-26AUG091610TBSEA           8   2.5%     20.04     29.99    -20.04
+  KXMLBGAME-26AUG091410CHCKC           8   2.5%     14.48     32.74    -14.48
+  KXMLBGAME-26AUG091410MINMIL          8   2.5%     12.69     48.22    -12.69
+  KXMLBGAME-26AUG091335NYMPIT          8   2.5%      2.05     40.27     -2.05
+  KXMLBGAME-26AUG081805TORPHI          8   2.5%     19.52     33.40    -19.52
+  KXMLBGAME-26AUG081845CINWSH          8   2.5%      5.42     39.73     -5.42
+  KXMLBGAME-26AUG081910MINMIL          8   2.5%     18.35     37.38    -18.35
+  KXMLBGAME-26AUG081915COLSTL          8   2.5%     14.18     33.22    -14.18
+  KXMLBGAME-26AUG081915DETSF           8   2.5%     14.00     29.36    -14.00
+  KXMLBGAME-26AUG081915HOUSD           8   2.5%     17.75     34.26    -17.75
+  KXMLBGAME-26AUG091335ATLNYY          7   2.2%     18.46     32.37    -18.46
+  KXMLBGAME-26AUG101907BOSTOR          6   1.9%      9.48     46.57     -9.48
+  KXWNBAGAME-26AUG09PHXWSH             6   1.9%     18.22     32.23    -18.22
+  KXMLBGAME-26AUG091415COLSTL          6   1.9%     22.30     31.43    -22.30
+  KXMLBGAME-26AUG091340LAAMIA          6   1.9%      5.95     39.90     -5.95
+  KXMLBGAME-26AUG081910CHCKC           6   1.9%     18.19     39.77    -18.19
+  KXMLBGAME-26AUG082010LADAZ           6   1.9%     13.64     45.04    -13.64
+  KXMLBGAME-26AUG081610LAAMIA          6   1.9%     19.60     33.97    -19.60
+  KXMLBGAME-26AUG081915BALTEX          6   1.9%     16.34     38.75    -16.34
+  KXMLBGAME-26AUG101915NYMATL          4   1.2%     23.53     31.34    -23.53
+  KXMLBGAME-26AUG101945PHISTL          4   1.2%     12.09     38.07    -12.09
+  KXMLBGAME-26AUG091335TORPHI          4   1.2%     12.31     39.48    -12.31
+  KXWNBAGAME-26AUG09LVNY               4   1.2%     21.49     29.90    -21.49
+  KXMLBGAME-26AUG071910LAAMIA          4   1.2%      2.17     52.79     -2.17
+  KXMLBGAME-26AUG071940MINMIL          4   1.2%     16.26     42.09    -16.26
+  KXMLBGAME-26AUG072010CHCKC           4   1.2%     18.15     33.27    -18.15
+  KXMLBGAME-26AUG072015BALTEX          4   1.2%     14.43     26.92    -14.43
+  KXMLBGAME-26AUG072015COLSTL          4   1.2%     19.28     32.62    -19.28
+  KXWNBAGAME-26AUG07GSDAL              4   1.2%     15.02     35.69    -15.02
+  KXMLBGAME-26AUG072140HOUSD           4   1.2%     12.36     37.81    -12.36
+  KXMLBGAME-26AUG072140LADAZ           4   1.2%     14.19     27.40    -14.19
+  KXMLBGAME-26AUG072145TBSEA           4   1.2%     17.64     32.84    -17.64
+  KXMLBGAME-26AUG072215DETSF           4   1.2%     18.63     26.07    -18.63
+  KXMLBGAME-26AUG102140MILSD           2   0.6%     13.92     26.62    -13.92
+  KXMLBGAME-26AUG102145HOUSF           2   0.6%     24.61     32.47    -24.61
+  KXWNBAGAME-26AUG10TORATL             2   0.6%     20.60     25.56    -20.60
+  KXWNBAGAME-26AUG11WSHLV              2   0.6%     19.81     50.28    -19.81
+  KXMLBGAME-26AUG101940BALMIN          2   0.6%     17.03     23.20    -17.03
+  KXMLBGAME-26AUG102138TEXLAA          2   0.6%     17.00     34.84    -17.00
+  KXMLBGAME-26AUG102210KCLAD           2   0.6%     29.49     36.89    -29.49
+  KXWNBAGAME-26AUG08LVMIN              2   0.6%     21.09     25.75    -21.09
+  KXWNBAGAME-26AUG08INDCHI             2   0.6%     14.24     33.47    -14.24
+  KXMLBGAME-26AUG071840NYMPIT          2   0.6%     20.30     30.54    -20.30
+  KXMLBGAME-26AUG071840TORPHI          2   0.6%     22.55     29.69    -22.55
+  KXMLBGAME-26AUG071845CINWSH          2   0.6%     17.60     32.72    -17.60
+  KXMLBGAME-26AUG071905ATLNYY          2   0.6%     11.87     38.67    -11.87
+  KXWNBAGAME-26AUG07ATLWSH             2   0.6%     18.35     36.23    -18.35
+  KXWNBAGAME-26AUG07PHXCONN            2   0.6%     22.69     32.91    -22.69
+  KXMLBGAME-26AUG081505ATLNYY          2   0.6%     21.40     22.23    -21.40
+  KXWNBAGAME-26AUG08SEAPDX             2   0.6%     24.84     27.76    -24.84
+  KXMLBGAME-26AUG082150TBSEA           2   0.6%     16.51     35.35    -16.51
+
+==============================================================================
+§S8 — H3a (TYPICAL ROW), THEN H3b (THE NEAREST ROW).
+==============================================================================
+  n_spread = 323   (clean deduplicated observations with all four p_* non-NULL)
+  MIN_EXPECTED_PER_SIDE = 5   sufficient
+
+  paired median (S - spread_tenths), nearest rank: +22.70
+  paired median (S - spread_tenths), interpolated: +22.70   — agrees in sign
+  share of observations with S > spread_tenths: 319/323 = 98.8%
+
+                         min       p25    median       p75       max
+  S (shortfall)         2.05     19.81     25.58     31.53     52.79
+  spread_tenths         0.02      0.77      1.88      5.41     32.98
+
+  H3a VERDICT: WITHHELD — STOP THE LINE. `median(S - spread_tenths) > 0` was not evaluated for a verdict.
+
+  H3b — THE ONE THAT GOVERNS THE CITABLE SENTENCE.
+  S_min          = 2.0534 tenths = 0.2053c
+  spread_at_min  = 2.3191 tenths   (largest among 1 tied observation(s) — the reading least likely to declare)
+  the attaining observation(s), in full:
+    id=726 KXMLBGAME-26AUG091335NYMPIT-NYM side=yes ask=450 fair=0.4679465562067771
+      p_mult=0.47026560719938837 p_add=0.46875187753965314 p_pow=0.4679465562067771 p_shin=0.4687518775396557 spread=2.3191 E1=-2.0534
+
+  H3b VERDICT: WITHHELD — STOP THE LINE. `S_min > spread_at_min` was not evaluated for a verdict.
+
+==============================================================================
+§S9 — H1. REPRODUCTION, NOT DISCOVERY. Reported LAST, deliberately.
+==============================================================================
+  R2 label: REPRODUCTION — NOT A NEW OBSERVATION
+  max E1 over clean deduplicated observations: -2.05 tenths  (-0.205c)
+  H1 VERDICT: WITHHELD — STOP THE LINE. `max E1 <= 0` was not evaluated for a verdict.
+
+==============================================================================
+§S10 — DIAGNOSTICS
+==============================================================================
+  per-row identity E1 == 1000·fair - ask - fee_tenths(ask): max |residual| = 1.226e-13   HOLDS
+  E1 - stored edge_tenths (the size-basis artefact of §5, as a printed number rather than an argument):
+      min +0.00  p25 +0.00  median +0.00  p75 +0.00  max +0.00   nonzero on 0/614 rows
+
+  per-code counts over the SUPPRESSED population (950 rows), exact token match on the split — no wildcard surface (§C1):
+      commence_skew                               0   (declared in ALL_CHECK_NAMES, never observed)
+      edge_within_method_noise                   18
+      inconsistent_consensus_metadata             0   (declared in ALL_CHECK_NAMES, never observed)
+      insufficient_depth                         17
+      no_commence_time                            0   (declared in ALL_CHECK_NAMES, never observed)
+      no_depth                                    0   (declared in ALL_CHECK_NAMES, never observed)
+      no_market_width                           230
+      stale_kalshi_quote                          0   (declared in ALL_CHECK_NAMES, never observed)
+      stale_odds                                859
+      suspicious_edge                            86
+      too_few_books                             245
+      wide_market                                 0   (declared in ALL_CHECK_NAMES, never observed)
+      too_few_books vs no_market_width: symmetric difference 15   they have diverged
+
+==============================================================================
+§S11 — GRID D, THEN GRID B.  DESCRIPTIVE — CANNOT PRODUCE A FINDING
+==============================================================================
+
+  Grid D (the deployed fee's own step function)   *** DEGENERATE — DOES NOT DISCRIMINATE ***
+  cell                obs   share     min S  median S    max E1
+  (1, 172)              1   0.3%     20.60     20.60    -20.60
+  (173, 827)          320  99.1%      2.05     25.65     -2.05
+  (828, 999)            2   0.6%     21.49     21.49    -21.49
+
+  Grid B (analysis.validate.BUCKETS, verbatim)
+  cell                obs   share     min S  median S    max E1
+  (10, 100)             0   0.0%         —         —         —
+  (100, 200)            2   0.6%     20.60     20.60    -20.60
+  (200, 300)           11   3.4%      9.96     27.08     -9.96
+  (300, 400)           31   9.6%     12.69     20.32    -12.69
+  (400, 500)          106  32.8%      2.05     23.06     -2.05
+  (500, 600)          107  33.1%      2.17     26.20     -2.17
+  (600, 700)           46  14.2%     12.31     29.21    -12.31
+  (700, 800)           18   5.6%     18.96     32.25    -18.96
+  (800, 900)            2   0.6%     21.49     21.49    -21.49
+  (900, 990)            0   0.0%         —         —         —
+  outside               0   0.0%         —         —         —
+
+==============================================================================
+§S12 — THE ONE-WAY DOWNGRADES. Strictly one-way: never raises a verdict.
+==============================================================================
+  H4: survives leave-one-game-out over all 59 clusters and the n_claims key
+  H2: survives leave-one-game-out over all 59 clusters and the n_claims key
+  H3a: survives leave-one-game-out over all 59 clusters and the n_claims key
+  H3b: survives leave-one-game-out over all 59 clusters and the n_claims key
+  H1: survives leave-one-game-out over all 59 clusters and the n_claims key
+
+==============================================================================
+§S13 — WHAT THIS MEASUREMENT CANNOT ESTABLISH (registration §10)
+==============================================================================
+Reproduced from registration §10, because a harness carries its own limits.
+
+- **The clean population is defined partly by the dependent variable.**
+  `suspicious_edge` removes stored edges above 40.0 tenths and
+  `edge_within_method_noise` removes stored edges in `(0, spread_tenths]`. So
+  `max E1 <= 0` over the clean set is **not** evidence that no positive edge
+  exists in the record. 45 rows carry one; all are suppressed. Anyone quoting
+  this as "there is no edge" has read the wrong population.
+- **The whole agreement family is uniformly blind to correlated garbage.** Two
+  books at `1.85/1.85` produce `fair ~ 0.5`, `width = 0.0`, `book_count = 2`
+  and `suppressed_reason = None` -- inside this measurement's population. H4 is
+  the registered detector.
+- **It is a census, not a sample.** No interval, no standard error, no p-value
+  and no significance mark appears anywhere in this file, by design. Nothing
+  here generalises to future rows, other months or other leagues, and any
+  reader treating `n_obs` as a sample size has misread it.
+- **The fee it measures against is `calculate_fee`'s bar, not Kalshi's.** The
+  fee model is secondary-sourced and unverified and this project has zero
+  fills, ever. If both candidate models are wrong, every number moves.
+- **`fair_probability` is the worst of four devig methods**, so every `E1` is a
+  deliberately shrunk number, shifted toward "falls short" by an unmeasured,
+  price-dependent amount that is largest at the wings. H3a/H3b measure the
+  *spread* of that input, not its *bias*.
+- **The magnitude is not resolvable; only the sign is.** No statement of the
+  form "the strategy nearly clears" or "clearly misses" is licensed at any `n`.
+- **`n_obs` is not a count of independent observations** and neither is
+  `n_claims`. Independence lives at the cluster, and §3's three named leaks all
+  inflate the count.
+- **It says nothing** about whether an edge exists at Kalshi, about
+  calibration, about CLV, about the maker path, about combos, or about in-play.
+- **The record is a census of rows already written**, downstream of discovery
+  and of `persist_if_changed`'s movement-only write rule. A market never polled
+  contributes no row and cannot appear.
