@@ -215,6 +215,22 @@ rule that can never report.
 
 ### 6. Deferred, with reasons, so they are not rediscovered
 
+- **`§S13` does not reproduce registration §10, and the result document claimed
+  it did.** `run_clean_shortfall.py:1106` splits its **own `__doc__`** on
+  `"What this harness does NOT establish"` and echoes that — 8 bullets, against
+  §10's 16. `§S` item 12 says *"§10, reproduced verbatim"*; it never was.
+  Corrected in place in the result document (`§ What this measurement does not
+  establish`). **The magnitude ban survives regardless** — it is in the printed
+  text *and* registered pre-run in the power check, so Amendment A does not
+  depend on this.
+
+  **The fix is to delete one of the two texts, not to test that they agree** —
+  `tasks/lessons.md`, *a shared object cannot disagree with itself*. The harness
+  should read §10 out of the registration file at run time. Deferred because
+  changing an instrument whose run is already complete, without re-running it,
+  is its own hazard; and reconciling 16 bullets against 8 is real work, not a
+  one-line patch.
+
 - **The vector-collapse remedy** — probably a no-op, because the duplicate groups
   are recreational books discarded *before* the consensus exists. Lane B carries
   the predicate. Zero survivors → recorded as rejected-with-a-number, never

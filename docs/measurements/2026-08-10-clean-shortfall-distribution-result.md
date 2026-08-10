@@ -550,6 +550,39 @@ resolved to `None` and was counted, never to `0`.
 Registration §10 is reproduced verbatim by the harness (`§S13` of the run log)
 and governs. Beyond it, this run adds four of its own:
 
+> **[CORRECTED 2026-08-09 — the sentence immediately above is FALSE, and it is
+> the exact failure shape this repo keeps catching.]** Marked in place, not
+> deleted.
+>
+> **The harness does not reproduce registration §10 at all.** `§S13` prints
+> **its own module docstring** — `run_clean_shortfall.py:1106` splits
+> `__doc__` on the string `"What this harness does NOT establish"` and echoes
+> whatever follows. Registration §10 carries **16** bullets; the run log's
+> `§S13` carries **8**. Two texts, one label asserting they are the same, and
+> nothing anywhere enforcing it.
+>
+> So `§S` item 12's instruction *"§10, reproduced verbatim"* is **not
+> satisfied**, and has never been. This is
+> [[computing-the-right-statistic-and-then-ignoring-it]] applied to prose: a
+> claim of fidelity sitting beside the thing it describes, where the claim is
+> what gets read and the divergence is invisible.
+>
+> **What this does NOT undermine.** The magnitude ban is **present in the
+> printed text** — *"The magnitude is not resolvable; only the sign is. No
+> statement of the form 'the strategy nearly clears' or 'clearly misses' is
+> licensed at any `n`."* — and it is independently registered pre-run in the
+> power check. So Amendment A's reliance on that ban binding is **unaffected**;
+> the ban was in force by two routes and the run log shows one of them.
+>
+> **The structural fix is deferred and named, not silently skipped.** The right
+> repair is not a test asserting the two texts agree — `tasks/lessons.md` is
+> explicit that the fix for two paths that can disagree is to **delete one of
+> them**. The harness should read §10 out of the registration file at run time
+> so there is exactly one text. That is a change to an instrument whose run is
+> already complete, and changing an instrument without re-running it is its own
+> hazard, so it is recorded in `tasks/NEXT.md` rather than done here. The
+> reconciliation is real work: 16 bullets against 8.
+
 - **It declared nothing.** R3 tripped and no claim was evaluated for a verdict.
   Nothing here licenses the refutation ADR, licenses the sentence *"the nearest
   is 0.21c short"*, forbids that sentence, closes ADR 0019, or authorises any
