@@ -96,3 +96,15 @@ Thumbs.db
 
 # Agent worktrees (ADR 0003). Separate checkouts, never content of this one.
 .claude/worktrees/
+
+# ---------------------------------------------------------------------------
+# Scratch output from screenshot and probe runs. `.tmp_shots390/` -- six PNGs,
+# 1.5MB -- was committed by accident in a92ac42 and found by the pre-public
+# history audit on 2026-08-10. The images were demo data, so nothing had to be
+# rewritten, but a screenshot of this UI is one live run away from showing a
+# real position or bankroll. The glob, not the one directory name, is the
+# guard: the suffix is generated per run, so `.tmp_shots391/` would otherwise
+# be addable tomorrow. One pattern, not two -- `.tmp_*` already matches
+# directories, so a separate `.tmp_*/` line never fires and would be decoration.
+# ---------------------------------------------------------------------------
+.tmp_*
