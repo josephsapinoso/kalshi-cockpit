@@ -156,11 +156,15 @@ not occurred.**
 ## The queue
 
 1. **ADR 0020 — `stale_odds` reads a scrape clock.** `odds_age_ms` comes from The
-   Odds API `last_update`, a **scrape** timestamp: 440 of 440 book+event triples
-   share one stamp across h2h/spreads/totals, and **27 of 30** books carry
-   exactly one stamp across fifteen games. It measures our polling cadence, not
-   line freshness. The false message is already fixed; the remedy has three live
-   options. **Open it with the capture in hand, not before.**
+   Odds API `last_update`, a **scrape** timestamp: **335 of 335** book+event
+   pairs quoting more than one market share one stamp across every market they
+   quote, and **27 of 30** books carry exactly one stamp across fifteen games.
+   The payload holds 19 distinct stamps spanning 115s, the latest 9s before our
+   fetch. It measures our polling cadence, not line freshness. The false message
+   is already fixed; the remedy has three live options.
+
+   **Quote 335, not the 440 this file used to say.** 105 of the 440 pairs quote
+   one market, where unanimity is vacuous. Corrected 2026-08-09 in four places.
 2. **Re-register the shortfall measurement**, deciding what to do about R3. Grid
    D saturating at 99.1% is a fact about the record, not a defect, and a rule
    that can never clear it is a rule that can never report. **H3b is the live

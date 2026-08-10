@@ -209,11 +209,25 @@ def evaluate_suppression(
     #
     # `odds_age_ms` is measured from The Odds API's `last_update`, which is a
     # **scrape** timestamp, not a **reprice** timestamp. Measured on the captured
-    # fixture (15 MLB events, 30 books): 440 of 440 book+event triples carry one
-    # identical stamp across h2h, spreads and totals, and 27 of 30 books have
-    # exactly one distinct stamp across all fifteen games -- FanDuel reports
+    # fixture (15 MLB events, 30 books, 440 book+event pairs):
+    #
+    #   335 of 335 pairs quoting MORE THAN ONE market carry one identical stamp
+    #   across every market they quote (243 of 243 of the three-market subset).
+    #
+    # **Counted over the 335, not over all 440**, because 105 pairs quote a
+    # single market and agreement with oneself is vacuous -- including them
+    # inflates the denominator with rows that could not have disagreed. The
+    # unanimity is total either way; the honest number is the smaller one.
+    #
+    # And 27 of 30 books carry exactly one distinct stamp across all fifteen
+    # games, counting book- and market-level stamps together (29 of 30 on the
+    # book-level stamp alone -- state which, the two differ). FanDuel reports
     # `13:49:00Z` for three markets on fifteen different games. No book reprices
     # fifteen moneylines, run lines and totals in the same second.
+    #
+    # The payload-level signature is the same fact seen whole: 19 distinct
+    # stamps spanning 115s across 30 books, the latest landing 9s before our
+    # fetch. That is a crawler working through a queue, not a market moving.
     #
     # So this measures **how long since the aggregator last polled the book**,
     # not how long since the line moved. A book that has not repriced in six

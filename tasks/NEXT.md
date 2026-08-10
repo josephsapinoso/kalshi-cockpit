@@ -155,12 +155,18 @@ rule that can never report.
 ### 5. The queue
 
 1. **ADR 0020 — `stale_odds` reads a scrape clock.** `odds_age_ms` comes from
-   The Odds API `last_update`, which is a **scrape** timestamp: 440 of 440
-   book+event triples share one stamp across h2h/spreads/totals, and **27 of 30**
-   books carry exactly one stamp across fifteen games. It measures our polling
-   cadence, not line freshness. **The false message is already corrected;** the
-   remedy is undecided and has three live options. Open it *with the capture in
-   hand*, not before.
+   The Odds API `last_update`, which is a **scrape** timestamp: **335 of 335**
+   book+event pairs quoting more than one market share one stamp across every
+   market they quote, and **27 of 30** books carry exactly one stamp across
+   fifteen games. It measures our polling cadence, not line freshness. **The
+   false message is already corrected;** the remedy is undecided and has three
+   live options.
+
+   **This read "440 of 440" until 2026-08-09 and that denominator was padded** —
+   105 of the 440 pairs quote a single market, so unanimity was vacuous for
+   them. Corrected in the same four places it was written (here, `start.md`,
+   `docs/adr/0019`, `backend/core/suppression.py`). Still 100%, over rows that
+   could have disagreed. Quote 335, not 440.
 2. **The refutation ADR** — still waits on item 4. Its argument is provisional in
    exactly the way an n=29 null is provisional; say so in its own named section.
    The honest claim is *"Kalshi is not mispriced relative to a consensus it may

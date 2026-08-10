@@ -454,11 +454,34 @@ to one regime or reports both separately.
 **The `stale_odds` message was false and is corrected here; the remedy is ADR
 0020.** `suppression.py` emitted *"book last moved {x}min ago"*. `odds_age_ms`
 is measured from The Odds API's `last_update`, which is a **scrape** timestamp:
-measured on the captured fixture, **440 of 440** book+event triples carry one
-identical stamp across h2h, spreads and totals, and **27 of 30** books have
-exactly one distinct stamp across all fifteen games — FanDuel reports
-`13:49:00Z` for three markets on fifteen different games. No book reprices
-fifteen moneylines, run lines and totals in the same second.
+measured on the captured fixture (15 MLB events, 30 books, 440 book+event
+pairs), **335 of 335** pairs quoting more than one market carry one identical
+stamp across every market they quote — **243 of 243** of the three-market
+subset — and **27 of 30** books have exactly one distinct stamp across all
+fifteen games. FanDuel reports `13:49:00Z` for three markets on fifteen
+different games. No book reprices fifteen moneylines, run lines and totals in
+the same second.
+
+**Corrected 2026-08-09 — this section first read "440 of 440", and that
+denominator was padded.** 105 of the 440 pairs quote a **single** market, where
+"one stamp across its markets" is vacuously true and no disagreement was
+possible. The non-vacuous population is the 335 pairs quoting two or more, and
+it is unanimous. The correction does not weaken the finding — it is the same
+100%, over the rows that could have refuted it — but publishing a denominator
+inflated by rows incapable of dissent invites exactly the audit this repo runs
+on everything else. Same shape as
+`tasks/lessons.md`'s *a true measurement licensed a false conclusion*: the
+number was true and its scope was wider than what was measured.
+
+**And "27 of 30" needs its definition stated, because two defensible counts
+differ.** Counting book- and market-level stamps together gives 27 of 30;
+counting the book-level `last_update` alone gives **29 of 30**. Both were
+computed; the quoted figure is the first.
+
+The payload-level signature is the same fact seen whole, and it is the single
+most direct reading: **19 distinct stamps spanning 115 seconds across 30 books,
+the latest landing 9 seconds before our fetch.** That is a crawler working
+through a queue, not a market moving.
 
 So the guard measures **how long since the aggregator last polled**, not how
 long since the line moved, and a book that has not repriced in six hours reads
