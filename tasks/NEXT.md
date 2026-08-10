@@ -1,6 +1,84 @@
 # Next — your checklist
 
-## 2026-08-10, later — LIVE READ ACCESS IS UNBLOCKED
+## 2026-08-10 — DEPLOYED, D1 is answered, and deploys are now BATCHED
+
+`ec53ba9` deployed to live ~01:55Z and verified independently, not by the
+workflow's own assertions. No migration: `SCHEMA_VERSION` 6 on both commits and
+`schema.sql`/`db.py` **byte-identical** to the previously deployed commit.
+
+    unauthenticated   /api/results /api/gate /api/ledger /api/orders all 401
+                      forged bearer 401; /gate /ledger /board all 307 -> /login
+    health            instance_mode=live, live_trading_enabled=false,
+                      execution_available=false, retired_settings_set=[]
+    gate wording      the ADR 0018 correction shipped (detail cites docs/adr/0018)
+
+### D1 IS ANSWERED: the outcome pass works, and nothing has been lost
+
+    verdict            "recording"
+    recorded_total     1601   (no 1039, yes 562)
+    pending_total      0
+    abandoned_total    0      <- nothing has aged out
+    too_new_total      1300   <- today's slate, not yet 2h past commence
+    unreadable_total   219
+
+**`abandoned_total: 0` is the number that retires the deadline.** The rolling
+7-day loss was real as a mechanism and has never bitten: no outcome has been
+dropped. The calibration consumer (NEXT item 3) now has 1,601 real inputs.
+
+### The 219, and the hypothesis that died
+
+12% of everything resolved is `finalized` with no readable outcome. Diagnosed as
+far as it can go without a deploy — **record this so the next session does not
+repeat the same guesses:**
+
+- **Measured:** 802 settled game markets pulled from Kalshi across five series
+  parse **100% READABLE**. The parser is not broken and the wire format has not
+  moved.
+- **Measured:** 800 settled markets bucketed by age — `<1h`, `1-3h`, `3-12h`,
+  `12-48h`, `>48h` — carry **zero** unreadable results. The freshest was 0.48h
+  past close with `settlement_timer_seconds=60` and a populated `result`.
+- **Measured:** `determined` and `finalized` are both rejected as status filters
+  (HTTP 400). Only `settled` is queryable. This confirms the note already in
+  `market_results.py`.
+- **REFUTED — do not re-propose it:** that Kalshi reaches `finalized` *before*
+  publishing `result`, letting the pass refuse a market that is merely
+  mid-settlement and stamp it permanently unreadable. The age buckets say no.
+  It is a good hypothesis and it is wrong.
+
+Read the above as a **bound, not a refutation**: a snapshot of markets Kalshi
+already calls settled cannot observe the transition itself.
+
+So the 219 are unexplained. `unreadable_examples` (five named tickers) is built
+and committed to close that — a count cannot be investigated, a ticker can — but
+it **needs a deploy** to be readable.
+
+**It is not urgent, and `abandoned_total: 0` is why.** Nothing is leaking. This
+is 12% missing from a future calibration sample, to be fixed once, not a loss in
+progress. An earlier version of this file implied otherwise; that was
+"unexplained" being read as "urgent".
+
+### DECISION: deploys are batched from here
+
+Joe's call, 2026-08-10, and it is the right one — deploy-per-change was costing
+him a wait-and-verify cycle for each small additive route.
+
+What changed the economics is the live read access: **most remaining work needs
+no deploy at all.** The split, so it does not have to be re-derived:
+
+| Needs no deploy | Needs a deploy (queued) |
+|---|---|
+| `runtime-realist` audit, then the CLAUDE.md correction | `unreadable_examples` (built, `4473641`) |
+| The fresh-odds pre-registration | Ledger `offset` (not started) |
+| Analysis over the newest 1,000 ledger rows | The calibration consumer (not started) |
+
+**One live caveat while `offset` waits:** `/api/ledger` returns the newest 1,000
+of 1,529 rows, which over-represents games that generated many rows. Every rate
+computed off it describes a **biased slice**, and any number produced before
+that deploy must say so rather than imply it covers the table.
+
+---
+
+## 2026-08-10, earlier — LIVE READ ACCESS IS UNBLOCKED
 
 Joe put the live `APP_AUTH_TOKEN` on **line 68 of `.env`** (repo root,
 gitignored). Verified working: form-POST `token` to `/session` returns 303 with
