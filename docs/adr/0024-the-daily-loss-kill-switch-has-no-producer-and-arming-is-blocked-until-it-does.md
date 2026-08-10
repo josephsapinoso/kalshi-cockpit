@@ -248,3 +248,110 @@ existing logic tests stay — the pair then covers both *"the logic is right"* a
   schema and risk config faithfully enough for the call-shape question. The
   keyword-only signature makes the specific claim — no caller supplies the
   argument — robust to that assumption, since it is decided at the call site.
+
+---
+
+## ANNOTATION 2026-08-11 — the precondition in §1 is SATISFIED. Landed at `e0efe06`.
+
+**§1's arming precondition is met.** This annotation records how, and what was
+*not* fixed, so a future session does not read a closed item as open or an open
+one as closed.
+
+### A1. The kill switch now fires through the real route
+
+The §2 probe, re-run against the fix, is the acceptance test — and the *pre-fix*
+state was re-created as a mutation to prove the test is not vacuous:
+
+```
+mutation M1 (routes.py back to hardcoded zeros -- the pre-fix state)
+  E  assert 200 == 422
+  FAILED TestTheDailyLossLimitReachesTheOrderPath::test_twenty_thousand_dollars_of_realised_loss_refuses_the_order
+  FAILED ::test_a_loss_exactly_on_the_limit_refuses
+
+after the fix
+  422 -- refusing to size this order (max_daily_loss_dollars):
+         daily loss limit reached (-20000.00 vs -10.00). Kill switch engaged.
+```
+
+The §4 per-market cap was dead on the same mutation
+(`test_a_position_the_engine_never_saw_shrinks_the_order_to_nothing`, `assert
+200 == 422`) and is now live.
+
+### A2. Four production call sites, found by instrumentation rather than grep
+
+`size_position` was patched to log its caller frame and the whole suite run:
+**1,358 calls**, four distinct production sites, **zero** with a non-zero
+`current_position_dollars` before the fix.
+
+| site | wired with |
+|---|---|
+| `backend/engine.py:123` (offer) | pass-through from `build_recommendation` |
+| `backend/engine.py:142` (reference) | explicit `0.0` — a clean book **by definition**, now stated rather than defaulted |
+| `backend/api/routes.py` step 9 | `daily_realised_pnl_dollars` + `open_position_dollars`, read in the request |
+| `backend/live.py` `price_against` | `_RiskState`, read once per subscription cycle |
+
+Producers are `backend/runner.py` (once per pass, per-ticker inside the loop)
+and `backend/api/routes.py`.
+
+### A3. §3's class is closed, not just the instance
+
+`size_position` **no longer defaults** `daily_pnl_dollars` or
+`current_position_dollars`. `None` means *unknown* and the sizer **refuses**
+with a named binding constraint. Mutation `M3c`, restoring the `= 0.0` defaults,
+goes red with `DID NOT RAISE TypeError`. That is CLAUDE.md's *"unreadable
+resolves to `None`, never `0`"* enforced by the signature rather than by
+discipline.
+
+### A4. The guard against the fake fix, and the guard on that guard
+
+**The obvious wrong fix here is to pass `0.0` at all four call sites.** It would
+satisfy a naive caller test and change nothing. Two mutations pin it:
+
+- **M9** — all four callers hardcode `0.0` →
+  `test_at_least_one_caller_supplies_a_value_it_actually_measured` **red**.
+- **M8** — the call-site scanner is made to match nothing →
+  `TestTheParameterScannerIsNotVacuous` **red**.
+
+M8 exists because ADR 0022 records a caller detector that **enumerated nothing**
+and passed. A caller test that cannot tell "nobody calls this" from "my scanner
+is broken" is the fifth guard-that-cannot-fail wearing a new hat. **16 mutations
+in total, every one confirmed red.**
+
+### A5. The risk day rolls at 10:00Z, not UTC midnight — a decision, recorded
+
+`settlement.risk_day_start_ms` delegates to `odds.timing.day_start_ms`.
+
+UTC midnight is 8pm ET — **the middle of the US evening slate**. A loss limit
+rolling there hands back a fresh allowance halfway through the session it exists
+to stop, which is the maximally permissive failure. 10:00Z is 6am ET, after even
+a West Coast extra-innings game has settled. It is also **one** definition of
+"today" in the process rather than two, and `create_app` threads
+`OddsConfig.budget_day_start_utc_hour` into both the order route and `QuoteHub`
+so `.env` cannot split them.
+
+### A6. What is still NOT fixed
+
+- **§5.1 (order-path depth floor) and §5.2 (quantity plausibility) are
+  untouched.** Both remain REACHABLE ONLY, and §5.2's warning against the
+  one-line fix still stands.
+- **Nothing is armed and nothing is deployed.** `LIVE_TRADING_ENABLED` is false,
+  `ORDERS_ARE_DRY_RUNS` is `True`, the gate is at 0 of 300, and **`e0efe06` is
+  not on the live instance.** The kill switch is live *in the repo*. Until the
+  batched deploy runs, the deployed instance still carries the §2 behaviour.
+- **No threshold changed.** Every risk value in `backend/config.py`,
+  `.env.example`, `fly.live.toml` and `fly.demo.toml` is as it was.
+
+### A7. One process note that belongs in the record
+
+The lane wrote to three files outside its assigned set — `backend/runner.py`,
+`backend/seed_demo.py` and `scripts/rescore_fee_models.py` — and **was right to**:
+the brief named `backend/api/live.py`, which does not exist (the SSE path is
+`backend/live.py`), and `runner.py` is `build_recommendation`'s only production
+caller, so leaving it would have refused every candidate on every slate.
+
+`scripts/rescore_fee_models.py` is a **frozen measurement harness** and the edit
+was checked before acceptance: it adds explicit `0.0` where the default *was*
+`0.0`, so it is behaviour-preserving and
+`docs/measurements/2026-08-10-fee-model-rescore-result.md` is unaffected. **It
+was also required** — once the sizer lost its defaults, the unedited script
+would have raised. Verified by reading the diff, not by taking the report.

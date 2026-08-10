@@ -5370,3 +5370,56 @@ like a defect will get the defect investigated and the finding deferred.
 Related: [[verification-methods-that-lie]],
 [[a-true-measurement-licensed-a-false-conclusion]],
 [[the-product-is-the-record-not-the-bets]].
+
+---
+
+## 2026-08-11 — The file-ownership map between parallel lanes is a design artefact, and getting it wrong is the director's error
+
+Four lanes ran in one working tree tonight under an explicit rule — disjoint
+file sets, `git add` by explicit path, never `git add -A`. Every lane obeyed it.
+Two collisions happened anyway, and **both were errors in the map, not in the
+lanes**:
+
+- Two lanes were given `backend/seed_demo.py` — one to fix a seeding defect, one
+  because the sizer signature changed under it. The first committed while the
+  second had uncommitted edits in that file, and swept them into its own commit.
+  Both lanes noticed and both said so in their reports.
+- One lane was told it owned `backend/api/live.py`. **That file does not
+  exist** — the SSE path is `backend/live.py`. The lane found the real file,
+  wrote to it, and flagged that it had gone outside its list.
+
+The failure is not that lanes disobeyed. It is that a file-ownership map is
+**asserted from memory at assignment time**, before anyone has read the code,
+and it goes stale or was never right. The lanes then face a choice between
+obeying a wrong map and doing the job, and a good lane does the job and tells
+you — which means the *report* is where the map gets corrected, always after
+the fact.
+
+The deeper version: **ownership boundaries create seams, and a seam is owned by
+nobody by construction.** The same night, an observability change was complete
+on the backend and reached no screen, precisely because the frontend belonged to
+a different lane and the first lane correctly declined to cross.
+
+**How to apply:**
+
+- **Verify every path in an ownership list exists before assigning it.** One
+  `ls` per path. A non-existent path in a brief is worse than no brief, because
+  it reads as authority.
+- **Assign by *change*, not by directory, when a signature is moving.** If a
+  lane is altering a function signature, it owns every caller of that function
+  wherever they live — that set is discoverable by grep and a directory list is
+  not.
+- **Expect the seam and name its owner in the same breath as accepting a
+  result.** "Left undone" in a lane report is an unowned task the instant the
+  lane exits. Read that section first, not last.
+- **A lane that reports going outside its list is behaving well.** Treat that
+  paragraph as the most valuable part of the report and verify the edit rather
+  than the compliance. Here one such edit touched a frozen measurement harness
+  and had to be read before acceptance — it turned out behaviour-preserving and
+  *required*, but "the lane said it was minimal" is not the check.
+- **Two lanes, never more, is partly about this.** The number of seams grows
+  faster than the number of lanes.
+
+Related: [[an-observability-fix-that-stops-at-the-api-boundary-has-not-been-made]],
+[[built-but-never-called]],
+[[two-sessions-in-one-working-tree-will-fight-over-git]].
