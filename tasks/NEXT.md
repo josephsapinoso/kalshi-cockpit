@@ -246,17 +246,16 @@ dispatch that prints nothing.
    value. They were covered by pattern (`sk-ant-`, bot-token and webhook
    regexes) across all blobs, which found nothing.
 
-   **Two housekeeping items before flipping — neither is a security blocker:**
+   **Housekeeping: done in `81a9657`.** `.tmp_shots390/` (six PNGs, 1.5 MB,
+   committed by accident in `a92ac42`, never gitignored) is removed from the
+   tip, and `.gitignore` now carries `.tmp_*` — the pattern, not the directory
+   name, because the suffix is generated per run and pinning the name would
+   leave `.tmp_shots391/` addable tomorrow. No history rewrite: the images were
+   demo data. One of them showed the configured bankroll, which is a reason to
+   stop shipping screenshots rather than to rewrite the past.
 
-   - `.tmp_shots390/` — six PNGs, 1.5 MB, committed accidentally in `a92ac42`
-     from a `.tmp_` directory and **not gitignored**. Content is demo data
-     (gate Locked, 0/300 scored, `LIVE_TRADING_ENABLED` off). Delete from the
-     tip and add to `.gitignore`; no history rewrite needed.
-   - `gate.png` shows `Bankroll $1000`, which is your real configured
-     `BANKROLL_DOLLARS`. Not a credential — your call whether a portfolio repo
-     should show it. Deleting the screenshots handles it either way.
-
-   Flipping is still irreversible. Settings → General → Danger Zone.
+   **Nothing now blocks the flip.** Settings → General → Danger Zone. It is
+   still irreversible, so do it at a keyboard.
 
 ---
 
