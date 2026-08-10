@@ -1,5 +1,51 @@
 # Next — your checklist
 
+## 2026-08-10 22:34:21Z — THE SWEEP SERVED. The latch is refuted, F4's prediction held.
+
+Read at **2026-08-10T22:40:19Z**, inside the registered 22:22–22:52Z slot:
+
+```
+last_look       2026-08-10T22:34:21Z   outcome: served
+last_sweep      2026-08-10T22:34:21Z   (was 2026-08-09T23:37:15Z)
+spent_today     6                      (was 0)
+fixtures_upcoming  29                  (was 13)
+mlb slots       22:55Z, 08-11T01:25Z, 08-11T21:56Z, 08-12T00:54Z
+```
+
+**Every field moved the way the pre-registered `served` branch said it would.**
+`spent_today` went 0 → 6, which is exactly one sweep at
+`credits_per_sweep_per_sport = 6`.
+
+**The latched `x-requests-remaining` hypothesis is REFUTED.** It was the last
+candidate standing, and it predicted a refusal *before the request went out*.
+The request went out and was served.
+
+**F4's prediction is CONFIRMED, and this is the part that was falsifiable.**
+Before the sweep, live held **0 of ESPN's 15 MLB fixtures for 08-11** and its
+plan had no 08-11 MLB slot. After one served sweep the slot is there at
+**2026-08-11T21:56:00Z** — against ESPN's independently derived **21:55Z**, one
+minute apart, which is what two sources agreeing on a cluster's earliest kickoff
+looks like. `fixtures_upcoming` more than doubled, 13 → 29. **"The fixture store
+is stale by construction between sweeps and self-corrects" was registered as
+refutable and was not refuted.**
+
+> **What this still does not establish, and it is written down because the
+> temptation runs the other way.** A served sweep tonight shows the sweeper
+> works **on the current build**. It does **not** retro-establish that the
+> 21.5-hour gap was benign: today's deploy sits between the gap and this test,
+> so any explanation involving wedged process state — a hung `httpx` client, a
+> stalled event loop — was silently repaired by the deploy and would report as
+> health here. **F1 is what makes the gap benign** (an empty denominator, from
+> the calendar), not this. Confirming the sweeper tonight and concluding the gap
+> was fine is ADR 0014's misdiagnosis run in reverse.
+
+**Consequence for the queue:** start.md's queue item 1 and the "everything else
+this project builds is worth nothing if the recorder is dead" framing are
+**closed**. The recorder is not dead and was never shown to be. Item 6
+(`decide_sweeps` reads only the daily ceiling while `refusal_reason` checks
+three) stays **REACHABLE ONLY** — it was promoted-on-condition if tonight
+returned `refused`, and it did not.
+
 ## 2026-08-10 — RESOLVED: the 21.5-hour odds gap had an empty denominator
 
 **The framing that led the last two handoffs — "odds fetching stopped
