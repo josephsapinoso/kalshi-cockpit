@@ -5,6 +5,28 @@ laptop needed for any of it.
 
 ---
 
+## 0. Raise the Actions spending limit to $10 — 1 minute (2026-08-10)
+
+**Do this before the other items.** GitHub says the account is at 90% of its
+2,000 included Actions minutes. The default spending limit is **$0**, which
+means Actions does not slow down at the cap — it **stops**. That takes
+`Deploy` and `Ops` with it, and those are the only phone-accessible paths to
+Fly, because flyctl has no mobile client. You would lose deploy and log access
+to a live-money instance while holding only a phone.
+
+- [ ] github.com → Settings → Billing and licensing → Spending limit → **$10**
+
+Overage is $0.008/min on Linux, so $10 is ~1,250 extra minutes and it charges
+nothing unless actually crossed. This is a bridge, not the fix.
+
+**The real fix is making the repo public** — public repos get unlimited free
+Actions minutes, and `CLAUDE.md` already says this is intended to become a
+public portfolio repo. That is gated on a full-history secret audit, which is
+queued at the top of `NEXT.md`. Do the audit at a keyboard, not from the phone:
+going public is irreversible for anything already committed.
+
+---
+
 ## 1. Get an Odds API key — 2 minutes
 
 The odds path has never run live, so every fair price so far comes from seeded

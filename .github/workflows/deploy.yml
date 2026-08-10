@@ -44,6 +44,10 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.instance }}
     runs-on: ubuntu-latest
+    # Backstop against the 6-hour default, not a target. The verify step polls
+    # /api/health 20 times with `sleep 6` (~2 min) on top of the deploy itself;
+    # the longest run ever observed was 6.3 minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 

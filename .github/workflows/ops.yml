@@ -54,6 +54,11 @@ jobs:
   inspect:
     name: ${{ inputs.action }} ${{ inputs.instance }}
     runs-on: ubuntu-latest
+    # This job needs the timeout most. The Logs step below relies on `--no-tail`
+    # to terminate at all (see its comment), and until now "the job times out"
+    # meant six hours -- 360 billable minutes from one dispatch that printed
+    # nothing. Actual work here is ~8 seconds; 10 minutes is pure headroom.
+    timeout-minutes: 10
     steps:
       - name: Refuse an unchosen instance
         if: inputs.instance != 'demo' && inputs.instance != 'live'

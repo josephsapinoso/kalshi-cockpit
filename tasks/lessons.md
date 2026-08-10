@@ -4287,3 +4287,76 @@ assertion at all.
 Related: [[code-with-no-caller-is-not-a-feature]],
 [[a-captured-fixture-that-no-test-loads-is-decoration]],
 [[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-10 — CI cost is job count and trigger breadth, not job duration
+
+The account hit 90% of its 2,000 included Actions minutes. The instinct is to
+look for a slow job. There wasn't one: CI's real compute was 303 minutes and it
+billed **562**.
+
+GitHub rounds **every job** up to a whole minute, independently. So three jobs
+averaging 40 seconds bill 3 minutes, while one job taking two minutes bills 2.
+The Secret scan ran for **8 seconds** and billed 60. Splitting work into
+parallel jobs buys wall-clock at a price denominated in whole minutes per job,
+and that price is invisible in every dashboard that reports duration.
+
+The second multiplier is trigger breadth. `ci.yml` fired on `branches: ["**"]`
+with no `paths` filter and no `concurrency` block. This repo's output is
+overwhelmingly prose — ADRs, `docs/measurements/`, `lessons.md`, `NEXT.md` — so
+a commit touching nothing but markdown paid for a full pytest run and a cold
+`next build`. And with agents pushing 1.0–1.4 minutes apart against a ~2 minute
+CI, runs were routinely obsolete before they finished, each billing in full.
+
+**Why:** duration is the number that gets watched, and it was the one number
+that was fine. A cost model that rounds per job means the cheapest jobs are the
+most wasteful ones, which inverts the usual intuition that small = cheap. Nobody
+looks for waste in an 8-second job.
+
+**How to apply:** when a CI bill is the question, count **billable jobs ×
+triggers**, never total runtime. Compute it from job `started_at`/`completed_at`
+rounded up per job — the `/timing` endpoint's `total_ms` reports `0` here and
+will quietly tell you everything is free. Before adding a job for parallelism,
+price it: a job that finishes in 10 seconds costs the same as one that takes 59.
+And set `concurrency` with `cancel-in-progress: true` on any workflow an agent
+triggers, because agents push in bursts and humans don't.
+
+The corollary that outranks all of it: **a private repo bills these minutes and
+a public one does not.** Before optimising a CI bill, check whether the repo
+needs to be private at all — the cheapest run is the one that is free.
+
+Related: [[a-scanner-that-only-reads-the-current-push-leaves-history-unverified]].
+
+---
+
+## 2026-08-10 — A scanner that only reads the current push leaves history unverified
+
+The secret scan has run on every push since the repo was created, and it is
+genuinely good — gitleaks, plus project-specific greps, plus a canary self-test
+that proves the patterns still match. It is easy to read that record as "this
+repo has been continuously verified clean."
+
+It hasn't. `gitleaks-action` scans **the commits in the push that triggered
+it**, and the project-specific greps run over **the current tree**. Neither has
+ever swept full history. A key committed and deleted in the same session is
+invisible to both, and remains fully retrievable by anyone who clones.
+
+That distinction is worth nothing while the repo is private and worth
+everything the moment it goes public — and going public is irreversible for
+anything already committed, because forks and caches survive re-privatizing.
+
+**Why:** the green checkmark answers "is the tip clean?" while the question
+being asked at flip time is "has anything *ever* been committed?" Those look
+like the same question and are not, and the difference is only detectable by
+reading what the scanner actually scans.
+
+**How to apply:** before any visibility change, run gitleaks with
+`--log-opts="--all"` as a distinct, deliberate step — not as a re-run of CI.
+Then hunt by hand for the credentials that have no greppable prefix: per
+[[credentials-in-query-strings]] the Odds API key leaks through httpx URL
+logging into query strings, so it hides in committed logs and fixtures where no
+`BEGIN`-style header will find it. Header-pattern greps prove very little;
+absence of a match is not evidence of absence. If something surfaces, **rotate
+it first** — rewriting history is not a substitute for rotation, because you
+cannot know who already cloned.

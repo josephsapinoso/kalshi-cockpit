@@ -21,10 +21,33 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Agents push in bursts -- the gaps between the last 25 pushes ran 1.0-1.4
+# minutes against a CI that takes ~2, so runs were routinely obsolete before
+# they finished and every one of them billed in full. GitHub rounds each job up
+# to a whole minute, so a superseded run costs 3 minutes no matter how early it
+# is cancelled.
+#
+# `github.head_ref || github.ref` collapses the push run and the pull_request
+# run for one branch into a single group. Every run to date is a push and none
+# is a pull_request, so line 21 never fires today -- but left unscoped, CI
+# silently doubles the moment anyone opens a PR.
+#
+# Deploy and secrets deliberately set `cancel-in-progress: false` instead. Do
+# not copy this block there: a half-finished `flyctl deploy` must queue, never
+# be killed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Tests + warehouse
     runs-on: ubuntu-latest
+    # No job in any workflow had a timeout, so all inherited GitHub's 6-hour
+    # default. One hung job is 360 billable minutes -- a fifth of the monthly
+    # allowance. Ceilings are set well above the longest run ever observed
+    # (6.3 min, Deploy demo); they are a runaway backstop, not a target.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -69,6 +92,7 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -84,6 +108,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:

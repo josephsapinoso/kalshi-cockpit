@@ -1,5 +1,78 @@
 # Next — your checklist
 
+## 2026-08-10 — INFRASTRUCTURE INTERRUPT: Actions minutes, and the public flip
+
+**This is a separate lane. It does *not* supersede the section below — the bug
+found by the failed bound is still job one.** This is here because it was
+found in a parallel session that has now closed, and because it has a deadline
+the technical work does not.
+
+### What happened
+
+GitHub emailed that the account is at **90% of its 2,000 included Actions
+minutes**. This repo is private, so every minute is billed, and it is ~95% of
+measurable paid usage: **692 billed minutes** in three days.
+
+The cause is not slow CI. It is **job count and trigger breadth**:
+
+| Workflow | Actual compute | Billed |
+|---|---|---|
+| CI (141 runs × 3 jobs) | 303 min | **562** |
+| Deploy (41) | 66 min | 91 |
+| Ops (39) | **5 min** | 39 |
+
+GitHub rounds **every job** up to a whole minute, so the Secret scan runs 8
+seconds and bills 60. `ci.yml` had no `concurrency` block while push gaps ran
+1.0–1.4 min against a ~2 min CI, so superseded runs billed in full.
+
+Caveat on the number: ~725 min measured across all private repos vs ~1,800
+implied by the email. Unreconciled — `gh api user/settings/billing/actions`
+404s because the `gh` token lacks `user` scope. github.com/settings/billing is
+authoritative. It does not change the fix.
+
+### Done in that session
+
+`.github/workflows/**` only — one commit, no code touched:
+
+- `ci.yml` — added `concurrency` with `cancel-in-progress: true`
+- all six jobs across all four workflows — added `timeout-minutes`
+
+The timeout matters beyond cost: **no job anywhere had one**, so all inherited
+GitHub's 6-hour default. `ops.yml` relies on `--no-tail` to terminate at all,
+and its own comment says that without it the step "hangs until the job times
+out" — that was 360 billable minutes, a fifth of the monthly allowance, from one
+dispatch that prints nothing.
+
+`deploy.yml` and `secrets.yml` keep `cancel-in-progress: false`. **Do not
+"fix" that** — a half-finished `flyctl deploy` must queue, never be killed.
+
+### Open — needs a keyboard
+
+1. **Joe: set the Actions spending limit to $10.** At the default $0, Actions
+   *stops* at the cap rather than slowing, taking `Deploy` and `Ops` with it —
+   the only phone paths to Fly. See `tasks/PHONE.md` item 0.
+2. **Full-history secret audit, then make the repo public.** Public repos get
+   unlimited free Actions minutes and `CLAUDE.md` already states this is meant
+   to become a public portfolio repo. That ends the cost problem permanently,
+   which is why the heavier CI restructuring was deliberately *not* done.
+
+   A preliminary check is encouraging but is **not** an audit: 236 commits, the
+   only secret-shaped file ever committed is `.env.example`, and every
+   `BEGIN … PRIVATE KEY` hit across full history is a bare header with no key
+   body — in `tests/`, the secret-scan canary, and `lessons.md` prose, i.e.
+   exactly the files `ci.yml` already whitelists.
+
+   It was a pattern grep with no entropy detection. Before flipping, run
+   gitleaks over `--log-opts="--all"`, and specifically hunt the **Odds API
+   key**, which per `lessons.md` leaks through httpx URL logging into query
+   strings and has no distinctive prefix to grep for. If anything real
+   surfaces, **rotate first** — history rewriting is not a substitute.
+
+   Flipping is irreversible for anything already committed. Do it at a
+   keyboard.
+
+---
+
 ## 2026-08-10, end of session — THE BOUND FAILED, AND IT FOUND A REAL BUG
 
 **Read this first. It supersedes everything below, including the section
