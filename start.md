@@ -65,39 +65,46 @@ Predictions are committed — **point, do not copy**: §S9 of
 Amendment A §A5/§A8 of
 `docs/measurements/2026-08-10-preregistration-fee-model-fill-calibration.md`.
 
-## THE FIRST THING TO DO — and it is not a task
+## RESOLVED 2026-08-11 — ADR 0023's deferral was re-examined and **STANDS**. Do not re-open it.
 
-**Re-examine ADR 0023's deferral.** Read
-`docs/adr/0023-the-a-versus-f-call-is-deferred-until-the-fee-attribution-resolves.md`,
-§5.4 and §6 in particular, and decide whether the deferral is still the right
-call.
+**This was the previous edition's "first thing to do". It is done.** The verdict
+and its reasoning are the **ANNOTATION 2026-08-11** appended to
+`docs/adr/0023-the-a-versus-f-call-is-deferred-until-the-fee-attribution-resolves.md`
+(commit `6b5cdf8`). Read that annotation, not this summary, before touching
+A-versus-F.
 
-**Why it is worth re-opening on day one.** ADR 0023 defers the ADR 0021 §8
-A-versus-F choice until the fee attribution resolves, defaulting to **A** if
-round three expires unrun. It was commissioned on the belief that F is dead
-under the deployed and step-1 fee models but live under step 2. **A number that
-landed while the ADR was being drafted weakens that rationale**, and it is
-written into §5.4:
+**Verdict in one line:** the trigger, the 2026-08-31 (UTC) expiry and the default
+to **A** are all **unchanged**. What changed is *why round three is worth buying*.
 
-```
-surfacing rate, step 2 (the BEST branch)      3 games of 60 = 5.0%
-actionable games per slate                    0.70 to 0.90
-slates to reach the 300-game floor            333 to 429   ~11 to 14 months
-```
+**Three things that came out of it and that you need:**
 
-So F is about a year on its *most favourable* branch, **model-independently** —
-against a recorder that has produced **zero new game clusters since
-2026-08-09** (odds fetching stopped; see Settled). Under `H-NOTIONAL` the rate
-falls to 0–1 of 60 and the floor recedes past any planning horizon.
+1. **§5.4 is not grounds to re-open.** §7.2 already cites §5.4 by section number
+   as one of its three reasons the default is A. The number weakened the
+   *commissioning brief*; the ADR had already absorbed it. **A third re-opening
+   on §5.4 is re-litigation — annotation §A1 exists to stop it.**
+2. **THE $5 ASK TO JOE HAS CHANGED ITS JUSTIFICATION.** On the taker path,
+   step 2 is the **ceiling** of favourability: the registered alphabet is
+   `{LOW = k_MLB, HIGH = 2x LOW}`, so no round-three branch can declare a
+   coefficient below 0.035, and `H-NOTIONAL` moves 3 of the 4 candidate rows to
+   the *dearer* rate. Every branch points at A. **So round three is bought for
+   cells `R` and `W`, which earn on every branch including `H-NONE` — not for
+   being the A-versus-F trigger.** Put it to Joe that way. Do not tell him it
+   settles A-versus-F; annotation §A2 shows it barely does.
+3. **A counterexample worth knowing, and it is NOT good news.**
+   `MAKER_COEFFICIENT = Decimal("0.0175")` (`backend/core/fees.py:74`) is live in
+   `calculate_fee` and gives a **50.44%** break-even — cheaper than step 2's
+   50.88% and the cheapest bar in the project. It is **untested everywhere**,
+   round three does not touch it (P3 voids a maker fill), and it is ADR 0021 §8
+   **option D**, owned by **ADR 0017 — proposed, not accepted**, whose own
+   adverse-selection counterargument is **1.50c** and which no named row has ever
+   cleared. **A cheaper bar against an unmeasured adverse-selection cost is an
+   untested trade, not headroom.** Quote it only with that offset attached.
 
-**`partner` deliberately did not act on this**, at the end of a long session,
-and the reason is the point: it points exactly where he had been pointing all
-evening, and *"the new number confirms what I already thought"* is the precise
-shape of a misdiagnosis already on file in this repo (ADR 0014). **Do not
-resolve it in a handoff and do not resolve it alone.** Put it to `partner`
-fresh, with the §5.4 caveat that the rate is measured on 60 games in one week of
-one August in two leagues and ADR 0021 §7.1 forbids treating it as
-generalisable.
+**Why resolving A-versus-F now was declined:** it buys a *label on a claim* for
+three weeks — A changes no code, keeps the recorder, and leaves
+`ORDERS_ARE_DRY_RUNS` at `True` either way — while risking the $5 instrument and
+committing §7's `NOT ATTEMPTED` reachability error in advance. Zero upside
+against a live downside.
 
 ## Waiting on Joe — four things, and two of them block work
 
@@ -168,10 +175,20 @@ crash loop. Repo values are consistent today: `fly.live.toml:128-129` =
 
 ## State
 
-`main` at **`52f8048`**, tree clean, **six commits ahead of `origin/main` and
-UNPUSHED**:
+**Do not trust a commit count written in this file — run `git log --oneline -20`.**
+A previous edition of this section said `52f8048`, *six* commits ahead. It was
+already **nine** when that was written, because the three `docs:` commits that
+wrote the handoff were not counted by the handoff. **The count in a handoff is
+always at least one stale by construction: it cannot include its own commit.**
+
+As of this edition `main` is at **`6b5cdf8`**, tree clean, **ten commits ahead of
+`origin/main` and UNPUSHED**:
 
 ```
+6b5cdf8  ADR 0023: the deferral is re-examined and stands -- the ask changes, the decision does not
+72911a4  docs: tighten the time-sensitive block in start.md
+52e9145  docs: the settlement re-capture has a window, and PREMATURE is not zero
+a175932  docs: the handoff carries the census, round three, and ADR 0023's open question
 52f8048  measurement: correct round three's p1 figure by appending -- cell R survives on a better statistic
 87f0ba4  ADR 0023: A-versus-F is deferred, on a trigger, with an expiry that defaults to A
 cb6333e  measurement: the band census on the record -- KXMLBGAME walls at 26c, KXMLBSPREAD reaches both bands
@@ -224,8 +241,9 @@ is its call*), **`measurement-skeptic`**, **`pre-registrar`**, **`sharp-bettor`*
 
 ## The queue
 
-1. **ADR 0023's deferral, re-examined.** Top of this file. Not a task — a
-   decision to put to `partner`.
+1. **~~ADR 0023's deferral, re-examined.~~ DONE — it STANDS.** See the RESOLVED
+   block at the top of this file and the annotation in the ADR itself. **Do not
+   re-open it on §5.4.**
 2. **Round three, if and when Joe authorises $5.00.** Registered, unrun,
    uncontaminated. Do **not** amend the body — Correction A is appended, and
    that precedent holds.
