@@ -1,5 +1,175 @@
 # Next — your checklist
 
+## 2026-08-10 — RESOLVED: the 21.5-hour odds gap had an empty denominator
+
+**The framing that led the last two handoffs — "odds fetching stopped
+2026-08-09T23:37:15Z" read as a possible dead recorder — is refuted as a
+*cause*. There was no in-scope fixture to sweep for.** The strongest form of
+this needs no scheduler at all and is a calendar fact:
+
+```
+2026-08-10T00:20:00Z   HOU @ SD     (baseball_mlb)   <- last in-scope kickoff
+        ...  22h 47m, zero in-scope fixtures  ...
+2026-08-10T23:07:00Z   BOS @ TOR    (baseball_mlb)   <- next in-scope kickoff
+```
+
+Straight from ESPN across the 20260809 and 20260810 buckets, six in-scope
+leagues, **zero Odds API credits**. The last served sweep, 23:37:15Z, falls
+inside the 08-09 slate's final slot window (fire 23:35–00:05Z, anchor
+00:20Z = HOU @ SD).
+
+**F1 (scoped).** Every in-scope fixture on the 2026-08-10 slate kicks off at or
+after 22:52Z: `measure_slot_coverage.py --date 20260810` reports 12 of 12 games
+covered by four slots beginning 22:22Z, nothing MISSED. **The deployed schedule
+offered no sweep slot between 2026-08-10T00:20Z and 22:22Z.** The measurement
+comes from ESPN through the repo's own `plan_sweep_slots`, so it does not depend
+on `odds_snapshots` and is not circular.
+
+> **F1 was OVERSTATED before this closing step, and the reason is worth
+> keeping.** `plan_sweep_slots` applies `MIN_SLOT_SEPARATION_MS` only against
+> slots chosen in the *same* plan, and `measure_slot_coverage.py` plans once
+> from 10:00Z while the deployed loop re-plans every 900 s. ADR 0014's
+> 2026-08-10 annotation already records the resulting **~2x undercount** (6
+> planned vs 13 simulated). A one-shot plan therefore undercounts slots **in
+> the direction that makes "zero slots" easier to believe.** The open sub-range
+> was 2026-08-10T00:22Z–03:20Z: a fixture there is covered by the 00:20Z slot's
+> 3-hour `COVERAGE_MS` so it never prints as MISSED, and dropped by the 2-hour
+> separation so it never prints as a slot. **Closed by printing the raw
+> `fetch_slate("20260809")` kickoff list: zero in-scope kickoffs inside it.**
+
+**F1 licenses:** that the gap has an empty denominator, and that no cause may be
+inferred from the gap's *length*.
+**F1 does not license:** that the sweeper can still serve; that the
+2026-08-09T23:37:15Z stop has an established cause. **Fact 3's "No cause is
+established, and none is written here on purpose" is unchanged.**
+
+**F2 — the loop is alive.** Two consecutive full passes committed
+`odds_sweep_log` rows **919.2 s apart** (20:53:01.058Z → 21:08:20.274Z), inside
+the [765 s, 1035 s] sleep range implied by `--interval 900` and `JITTER = 0.15`
+(`backend/scheduler.py:93-96`). Only the runner writes that table, so an
+advancing `last_look_ms` **is** proof the loop reached the sweep decision twice.
+**One interval is not a cadence** — n = 2 looks is n = 1 interval. Says nothing
+about any pass after 21:08:20Z.
+
+**F3 — the two sources agree in structure and disagree in membership.** Live's
+`slots_planned` and the ESPN-derived plan agree **to the minute on all four
+08-10 slot times** (22:22/23:15/00:53/01:15Z), so both agree on the earliest
+kickoff of every cluster. But ESPN counts 9 and 6 games in the two MLB slots
+against live's 8 and 5, and the totals reconcile exactly against
+`fixtures_upcoming: 13`. Measured state of `odds_snapshots`: **9 of ESPN's 10
+MLB fixtures for 08-10, 2 of 2 WNBA for 08-10, 2 of 3 WNBA for 08-11, 0 of 15
+MLB for 08-11.** The MLB deficit localises to one fixture commencing in
+**[2026-08-11T01:38Z, 01:45Z]**. Whether that is a book that does not quote it
+or a store that missed it **is not established**. Say *"agrees in cluster
+structure, short by one MLB fixture"* — **never "not depleted"**.
+
+**F4 — live cannot price tomorrow's MLB slate.** For 2026-08-11 live holds
+**zero of ESPN's 15 MLB fixtures**. Reading: the fixture store is stale by
+construction between sweeps, so `slots_planned` beyond the next sweep **is not a
+forecast**. **Testable prediction, and it is what gives F4 teeth:** if the
+22:22Z sweep serves, 08-11 MLB slots must appear on the next `/api/window` read.
+If a sweep serves and they do not, "stale by construction, self-corrects" is
+refuted and something else is dropping fixtures.
+
+> A withdrawn clause, kept so it is not re-derived: an earlier draft claimed
+> live scheduled the 08-11 WNBA slot at 23:25Z against ESPN's 22:45Z. **That was
+> a transcription error.** `fire_from_ms: 1786488300000` decodes to
+> 2026-08-11T22:45:00Z. The two sources agree to the minute.
+
+### Still open, and it is now the only candidate standing
+
+**A latched `x-requests-remaining`.** `CreditBudget.state`
+(`backend/odds/budget.py:158-161`) caches the last-seen header from the most
+recent `api_credits` row and `refusal_reason` (`:202-223`) checks it **first**.
+If the 23:37:15Z response carried a remaining below the sweep cost, every later
+call is refused *before the request goes out*, so no row ever updates the cache.
+**Self-locking, permanent, loop stays alive, no trace before `1c13b8f`, starts
+at exactly a sweep boundary, and survives a deploy** because the value lives in
+`/data/cockpit.db`. Nothing observed so far separates it from F1.
+
+**`/api/window` cannot see it.** `refusal_reason` checks **three** ceilings and
+the daily one is checked **last**; `ActionableWindow.to_dict`
+(`timing.py:438-485`) exposes only `sweeps_remaining_today`, `spent_today`,
+`daily_budget`. So *"budget is not binding"* is supported for the **daily**
+ceiling only — the cached `x-requests-remaining` and the monthly cap
+(`fly.live.toml:122`) are **not established**.
+
+### How to read the 22:22–22:52Z observation
+
+`last_sweep_by_sport(since_ms=10:00Z)` returns nothing for MLB (its last sweep
+predates the budget-day start), so the slot **will** be offered.
+
+| Result | Meaning |
+|---|---|
+| `served`, `last_sweep_ms` advances, `spent_today: 0 → 6` | The sweeper works **on the current build**. Refutes the latch. **Does NOT retro-establish that the 21.5-hour gap was benign** — a restart sits between the gap and the test. |
+| `refused` + a named ceiling | Strongest possible outcome, and the branch the deploy cannot confound. |
+| `skipped` inside its own slot | The plan and the decision disagree. New defect, and the most interesting of the three. |
+| `last_look_ms` frozen at 21:08:20Z | The loop died between reads. Decisive the other way. |
+
+**Capture four fields, not one:** `last_look_outcome`, `last_look_detail`,
+`spent_today`, and `slots_planned` for 08-11 (F4's prediction, free).
+
+### The read that would settle it without waiting — blocked on a deploy
+
+One query answers the latch, the monthly cap, **and** whether 08-09 served the
+six slots its slate offered:
+
+```sql
+SELECT called_ms, endpoint, sport_key, cost, remaining_reported, used_reported
+FROM api_credits ORDER BY called_ms DESC LIMIT 5;
+```
+
+**Joe's ruling permits a committed script by path only, and `Dockerfile:66`
+copies `scripts/` into the image — so a script committed today reaches the live
+machine only at the next deploy.** `scripts/inspect_live_db.py` is being written
+for exactly this. **Do not reach for `python -c` to get around it; that is the
+drift already recorded in `lessons.md`.**
+
+### A verb to keep honest
+
+*"The last served sweep at 23:37:15Z falls inside the 00:20Z slot's window"* is
+a **time-containment observation, not a causal link.** `decide_sweeps` has two
+triggers (`timing.py:640-679`); a `bootstrap` sweep fires outside any slot and
+writes an identical `api_credits` row, and that table stores endpoint, cost and
+sport — **not** the trigger. Say *"falls inside its window"*, never *"was that
+slot's sweep."*
+
+## 2026-08-10 — The documented phone health check cannot pass, and never could
+
+`start.md:199` billed this as *"the single highest-value minute available to the
+next session"*:
+
+```
+curl -H 'Authorization: Bearer …' https://kalshi-cockpit.fly.dev/api/window
+```
+
+**It returns HTTP 401 `{"detail":"Not authenticated. Sign in at /login."}`.**
+The gate is `frontend/src/middleware.ts`, a Next Edge middleware matching
+`/((?!_next/static|_next/image).*)` that runs **before** the `/api/*` rewrite and
+reads only the `cockpit_session` cookie (`<expiry>.<hmac>`, HMAC-keyed on
+`APP_AUTH_TOKEN`). **The `Authorization` header is never read by it.**
+`require_auth` (`backend/api/routes.py:339`) has exactly one call site —
+`POST /api/orders` at `:1103`. `GET /api/window` at `:606` has no auth
+dependency at all; uvicorn binds loopback, so the middleware is the whole gate.
+
+**The working recipe** — `POST /session` with form field `token`, keep the
+cookie, then GET:
+
+```
+TOKEN=$(grep -m1 '^APP_AUTH_TOKEN=' .env | cut -d= -f2-)
+curl -sS -c jar.txt -X POST -F "token=$TOKEN" -F "next=/" \
+  https://kalshi-cockpit.fly.dev/session
+curl -sS -b jar.txt https://kalshi-cockpit.fly.dev/api/window
+```
+
+**Why this is its own species of defect.** The existing record covers
+*verification methods that lie* — green over broken code. This is the inverse: a
+documented verification step that **cannot execute at all**. Its danger is
+misattribution — a 401 from a documented health check reads as *"the instance is
+down"* or *"auth is broken"*, not as *"the doc is wrong"*. **A next session
+running it as written would most likely have concluded the live instance was
+unreachable.**
+
 ## ⏱ Time-sensitive, and it is free
 
 `.venv\Scripts\python.exe scripts\capture_fills_fixture.py` must be re-run

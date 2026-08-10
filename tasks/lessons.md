@@ -5477,3 +5477,147 @@ volume — `/data` survives deploys, and the record on it is the one thing in th
 project that cannot be recreated.
 
 Related: [[a-permission-grant-is-not-the-guarantee-it-is-described-as]].
+
+---
+
+## 2026-08-10 — A control that swaps the data source still shares the estimator
+
+The live instance had not swept odds for 21.5 hours. The first explanation
+written down was *"the schedule is quiet by design"*, and the evidence offered
+was the live instance's own `slots_planned`.
+
+**That was circular, and fatally so.** `upcoming_fixtures_by_sport`
+(`timing.py:304-310`) reads `odds_snapshots`, and the **only production writer of
+`odds_snapshots` is a served sweep** (`odds/client.py:271` → `store_quotes`). So
+the plan is downstream of the sweeper. A sweeper that stopped 21.5 hours ago
+produces a depleted fixture set, which produces a sparse plan, which **looks
+exactly like a designed cadence**. Using the plan to exonerate the sweeper is
+using the output to certify the input.
+
+The fix was to re-run the same claim against **ESPN** via
+`scripts/measure_slot_coverage.py`, which swaps the fixture source and keeps the
+repo's own `plan_sweep_slots`. That removed the circularity — **and nothing
+else.** What stayed shared: `cluster_kickoffs`, `slots_for_sport`, `CLUSTER_MS`,
+`DUE_WINDOW_MS`, `COVERAGE_MS`, `MIN_SLOT_SEPARATION_MS`, and the
+`fire_until < now_ms` clamp.
+
+**And one of those shared properties was already on record as biased in the
+flattering direction.** `plan_sweep_slots` applies `MIN_SLOT_SEPARATION_MS` only
+against slots chosen *in the same plan*, and the harness plans **once**; the
+deployed loop re-plans every 900 s, so a cluster the one-shot plan suppresses
+becomes firable once the anchor that suppressed it is in the past. ADR 0014's
+2026-08-10 annotation records the size of this: **6 slots planned versus 13
+simulated, about 2x** — with an explicit quoting rule that the figure *"may be
+cited only as 'the one-shot plan's sweep count', never bare."* The claim quoted
+exactly that figure, bare, to argue the slot count was **zero**. A known
+undercount was used as evidence of absence.
+
+**How to apply:** when you build a control by swapping one input, write down
+what the control does **not** control, and check whether any of it is biased
+toward the conclusion you are hoping for. A shared estimator can be wrong in
+both arms at once, and then agreement between them means nothing. The question
+is never "did the two methods agree" but "what could make them agree while both
+being wrong".
+
+**The closing move, and it is the shape to copy:** drop the estimator entirely.
+The claim finally closed on a **calendar fact with no planner in it** — the raw
+ESPN kickoff list showed the last in-scope fixture at 2026-08-10T00:20:00Z and
+the next at 23:07:00Z, **22h 47m with zero in-scope games**. That statement
+shares no code with the thing under test. Prefer the observation that needs the
+least of your own machinery.
+
+Related: [[a-frozen-counter-is-not-evidence-of-a-stuck-mechanism]],
+[[tracing-a-number-to-code-is-only-half-the-check]].
+
+---
+
+## 2026-08-10 — Read the coverage line, not the slot list
+
+`measure_slot_coverage.py` plans from 10:00Z, so it **structurally cannot print
+a slot whose window closed before then**. Quoting its slot list as "these were
+all the slots the day offered" therefore has a hole at the start of the day that
+the list itself can never reveal.
+
+What closes the hole is a **different line of the same output**:
+`Distinct games covered: 12 of 12` with an empty `MISSED` block. A fixture the
+10:00Z clamp dropped from the slot list is not covered by anything, so it
+surfaces in `MISSED`. **The safety net was in the output all along, two lines
+below the one being quoted.**
+
+Not everything was closed that way. A fixture inside the previous day's final
+slot window — covered by its 3-hour `COVERAGE_MS`, so not MISSED — and dropped
+from the plan by the 2-hour separation, so not a slot, is **invisible in both
+lines**. That residue needed the raw kickoff list.
+
+**How to apply:** before quoting one line of a harness's output, ask which other
+line would have to change if the quoted line were misleading. If no other line
+would move, the harness cannot detect the failure you are worried about and you
+need a different instrument. State the residue explicitly rather than letting a
+clean-looking table imply there is none.
+
+---
+
+## 2026-08-10 — Consecutive date buckets tile, and overlap is the safe direction
+
+A claim of the form *"zero X occurred in this interval"* was assembled from two
+adjacent calendar buckets fetched from a third-party API whose date convention
+was unknown — ET midnight, UTC midnight, or a league-specific late-game rule.
+
+**The convention did not need to be established.** Any consistent partition of
+time into consecutive buckets either tiles without a hole or overlaps. Overlap
+can make an item appear **twice**; it cannot make one **disappear**. For a claim
+of *zero*, over-counting is the safe direction, so the claim is robust to the
+convention by construction.
+
+The same reasoning fails immediately for a claim about a **count**. Two slots
+printed as `00:53Z` in adjacent buckets are different absolute instants rendered
+identically by a `%H:%M` format string — comparing them across runs is not even
+well-formed until dates are attached.
+
+**How to apply:** decide whether your claim needs the *zero* or the *count*.
+Verify the bucketing convention only for the second. And never compare
+wall-clock strings across date buckets without re-attaching the date — a
+formatter that drops the day makes two different instants look like one
+observation.
+
+Related: [[one-observation-recorded-thirty-times-is-one-observation]].
+
+---
+
+## 2026-08-10 — A command in a handoff has the status of a test never seen red
+
+`start.md` billed one command as *"the single highest-value minute available to
+the next session"*:
+
+```
+curl -H 'Authorization: Bearer …' https://kalshi-cockpit.fly.dev/api/window
+```
+
+**It returns 401 and always would have.** The gate is a Next Edge middleware
+reading a `cockpit_session` cookie; it never reads the `Authorization` header,
+and it runs *before* the `/api/*` rewrite that reaches the backend at all. The
+bearer check guards exactly one route, `POST /api/orders`.
+
+Nobody had ever run it against live. It was written from a **model** of the auth
+layer — *bearer guards the API* — that stopped being true when the gate moved to
+Edge middleware, and it was published as an instruction anyway.
+
+**This is a distinct species from the failures already in this file.** The
+existing entries are about verification that **lies** — green over broken code.
+This one **cannot execute**. Its specific danger is misattribution: a 401 from a
+documented health check reads as *"the instance is down"* or *"my token is
+wrong"*, not as *"the doc is wrong"*. A session following the handoff faithfully
+would most likely have concluded the live instance was unreachable and spent the
+window investigating an outage that did not exist.
+
+**How to apply:** a command written into a handoff is executable content and
+carries the same burden as a guard — **it does not count until it has been run
+against the thing it names.** If you cannot run it (no credentials, wrong
+machine, costs money), say so beside it in the handoff rather than presenting it
+as a step. "Untested against live" is a one-line annotation and it is the
+difference between a next session checking a system and a next session debugging
+a document.
+
+Related: [[verification-methods-that-lie]],
+[[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]],
+[[a-readout-verified-on-the-demo-instance-can-be-structurally-blind-on-the-live-one]].
