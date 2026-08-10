@@ -1209,6 +1209,38 @@ independent derivations instead of one against itself. It also asserts the
 other direction — a cell that *should* speak must not be silenced, because a
 guard that hides everything is not a guard, it is a broken dashboard. Both
 guards were verified by re-introducing the leak and watching them fail.
+
+**Recurred 2026-08-10, in a pre-registration's own stop-the-line — third time
+for this shape.** The clean-shortfall run tripped `R3` and withheld all five
+verdicts: *"H4, H2, H3a, H3b and H1 are WITHHELD. None is declared, none is
+refuted."* Then §S12 printed, for each of those same five, that it *"survives
+leave-one-game-out over all 59 clusters and the `n_claims` key"* — a stability
+statement about verdicts the run had just declined to state. It presupposes a
+value it will not name, and it sits three lines below the census that
+reconstructs that value, because §S says *"printed regardless"* in four places.
+So the withholding is a string, not a property of the output.
+
+The registration was written by an agent whose whole job is this failure, and it
+still landed, which is the useful part: the guard was written against the **name
+of the thing being hidden** — the word "verdict" — rather than against what
+recomputes it. The dashboard hid `gap` and shipped `implied` and `actual`. This
+hid the five verdicts and shipped `max E1`, `max_game_share`, the paired median,
+`S_min`, `spread_at_min` and `n_degen` — every operand of every registered
+decision rule, each printed under a rule quoted verbatim in the same document.
+Subtraction was not even required; the reader applies the rule they were handed.
+
+**How to apply, sharpened by the third instance:** a withholding rule has to
+name the *inputs* it withholds, not the conclusion. If a design says a statistic
+is printed regardless and also says a guard may withhold the verdict computed
+from it, those two clauses are in conflict at write time and the conflict is
+decidable **before** the run — no data is needed to see it. Decide it then:
+either the guard suppresses the operands too, or it was never a suppression and
+should be registered as a labelling rule. The run that discovers the conflict
+discovers it with the numbers already public, which is the one moment when the
+choice cannot be made cleanly. Ruled, in the open and after the fact, in
+`docs/measurements/2026-08-10-preregistration-clean-shortfall-distribution.md`
+Amendment A.
+
 Related: [[four-audits-one-failure-shape]].
 
 ---

@@ -1365,3 +1365,256 @@ which is why (c) closes the loop rather than leaving it open.
 | Assumed inputs | **1** — A1, that MLB/WNBA moneylines have exactly two settling outcomes. Detector registered in §0.6. |
 | Verdict | **READY-CONDITIONAL** — condition in §V: void only if a change is **deployed** that can alter `suppressed_reason` on a row the producer can emit. **ADR 0019 is ruled NOT a trigger**; Lane A may commit and deploy. Outstanding ask: **P7**, the pin-test that `inconsistent_consensus_metadata` never fires. |
 | Amendments | none |
+
+---
+
+# Amendment A — R3's saturation clause is a labelling rule, not a stop-the-line
+
+**Appended 2026-08-09.** Appended, never edited in place, as §8 requires. The
+registration and the run it rules on are dated **2026-08-10 (UTC)** — the pull
+is `2026-08-10T05:07:23Z`; this amendment carries the local session date. Both
+are printed rather than silently reconciled.
+
+- **Ruled by:** `partner`. **Drafted by:** `pre-registrar`, executing that
+  ruling rather than re-deciding it.
+- **What it changes:** which of two readings of §R3 governs.
+- **What it does not change:** no threshold, population, exclusion, cluster key,
+  dedup key, cut, estimator, decision rule, guard other than R3's saturation
+  clause, or stopping rule is altered. No new pull. No new statistic.
+
+## §A0. Contamination, declared first, because it is why this is a ruling and not a re-registration
+
+**Every statistic this amendment releases was already visible when it was
+written.** The run's full census — the five counts, the per-game table, the `S`
+and `spread_tenths` quantiles, `S_min`, `spread_at_min`, `max E1`, `n_degen` —
+was committed at **`3f2fa1a`** (*"measurement: the clean-shortfall run, which
+stopped its own line"*), together with the result document and the raw run log,
+and `3f2fa1a` is on `origin/main` of a **public** GitHub repository. The numbers
+are not merely visible to the drafter; they are published.
+
+So this is an **open ruling on a drafting conflict, made with the answers in
+hand**, and it must be cited as one. It is **explicitly not a re-registration**.
+A fresh pre-registration written now would be a rule chosen with the answers
+already known — the exact failure this document exists to prevent — and calling
+such a thing "pre-registered" would be worse than ruling in the open.
+
+The result document demanded precisely this disclosure, before any ruling
+existed: *"Any amendment to R3 must be written in the knowledge that the census
+is already visible, and must say so."* This says so.
+
+## §A1. Why §8's machinery permits this. Checked against §8's text, not assumed.
+
+§8 bans one thing, in these words: *"**A second look is a new registration.** If
+the record is to be re-read, it is re-registered — this file is not amended to
+permit a second look, because a threshold re-evaluated against an accumulating
+database is not one look, it is thousands, and under a true zero it crosses
+eventually with probability 1."*
+
+**This is not that.** The pin is unchanged (`pin = 1564`). The pull is
+unchanged. No query is re-run, no statistic is recomputed, no cell is added, no
+threshold is re-evaluated against anything that has grown. The record is not
+re-read at all: every number released in §A5 was produced by the single
+registered run and is already committed at `3f2fa1a`. **One pull, one pin, one
+look** stands untouched.
+
+§8's own next paragraph supplies the machinery used here: *"**Amendments are
+appended, never edited in place**, with their date, their reason, and an
+explicit statement of what had been observed when they were written. **An
+amendment made after the run and not recorded voids the registration.**"* Date:
+above. Reason: §A2. What had been observed: §A0. Recorded: this file, committed.
+
+## §A2. The conflict, evidenced from pre-run text only
+
+Six passages, every one of them written and committed **before** the run.
+
+| Where | Text | Reading it supports |
+|---|---|---|
+| §7, *GUARDS FIRST* | *"§R1, §R3, §R4's H4 twin and `G >= 2` are evaluated and printed **before any claim**. If any of them trips, **no claim is declared**…"* | R3 as **stop-the-line** |
+| §9, consequence table, row 1 | *"Any stop-the-line guard trips (R1, R3, R4's H4 twin, or `G < 2`)"* → *"Nothing."* | R3 as **stop-the-line** |
+| §R3 itself | a saturated grid *"**discriminates nothing** and is printed with the banner `DEGENERATE — DOES NOT DISCRIMINATE` and may not be referred to in any conclusion"* | R3 as a **labelling rule**, with a local consequence attached to the grid |
+| §5, the estimator table | *"per-game `max S`, quantiles of `S`, Grid D / Grid B cells \| order statistics of a census \| **Descriptive.**"* | the cut cannot produce a finding |
+| §1, closing line | *"**Nothing else is a claim.**"* | the cut cannot produce a finding |
+| §S item 11 | *"**Grid D, then Grid B**, each labelled `DESCRIPTIVE — CANNOT PRODUCE A FINDING`"* | the cut cannot produce a finding |
+
+And the arithmetic fact that decides between them, readable from the registered
+decision rules alone and confirmed against the harness
+(`scripts/run_clean_shortfall.py:359-406`):
+
+| Claim | What its registered rule reads | Reads a cut? |
+|---|---|---|
+| H1 | `max E1` over clean deduplicated observations (`verdict_h1`, `:359-362`) | no |
+| H2 | `max_game_share` over the **cluster** partition (`verdict_h2`, `:365-369`) | the cluster partition only |
+| H3a | the median of a **per-row paired** difference `S − spread_tenths` (`verdict_h3a`, `:380-385`) | no |
+| H3b | `S_min` against the attaining row's own spread (`verdict_h3b`, `:388-397`) | no |
+| H4 | a **count** of clean rows matching a per-row predicate (`verdict_h4`, `:400-406`) | no |
+
+**No hypothesis's decision rule reads Grid D, Grid B, or the series prefix.**
+Not one of the five partitions the population by `ask_tenths` at all.
+
+So a cut that the registration itself declares incapable of producing a finding
+withheld five verdicts that never touch it. That is a **drafting conflict**
+between §R3's own local wording and §7/§9's guards-first list. **It is not a
+measurement failure.** The harness executed the stricter reading, which is the
+correct behaviour for an instrument facing an inconsistent instruction, and the
+result document refused to choose and handed the choice to the registrar. Both
+did the right thing.
+
+## §A3. The ruling, stated so that it could not have been chosen from the answer
+
+> **A stop-the-line guard may only be predicated on a cut that at least one
+> hypothesis's decision rule reads.** A guard predicated on a partition of the
+> population that no registered decision rule evaluates is a **labelling rule**:
+> it attaches its banner to that partition and forbids the partition's use in
+> any conclusion, and it **may not withhold a verdict**.
+
+That sentence names no cut, no verdict, no direction and no number. It is a
+property of the relation between a guard and the decision rules, decidable from
+the registration's own text with no statistic in front of you — and it was
+decidable the day the registration was written.
+
+Applied mechanically by that rule, not chosen guard by guard:
+
+| Guard | Predicated on | Read by a decision rule? | Standing after this amendment |
+|---|---|---|---|
+| **R1** (`n_window`) | the reachability of H1's own falsifier on the analysed population | yes — it is H1's falsifier | **stop-the-line, unchanged** |
+| **R3**, saturation clause (Grid D, Grid B, series prefix) | three `ask_tenths` / prefix partitions | **no** | **labelling only** |
+| **R3 twin** (`G < 2`) | the **cluster** partition | yes — H2's rule reads it, and §3 makes it the independence unit | **stop-the-line, unchanged** |
+| **R4's H4 twin** (predicate returns 0 on both populations) | the degenerate predicate H4's rule evaluates | yes | **stop-the-line, unchanged** |
+| **R2** (`n_new`) | ids above 1549 | — | **labelling, unchanged** (already registered as *"not a stop-the-line"*) |
+
+**Three of the four stop-the-line guards keep their teeth**, and all three
+passed on this run independently of anything ruled here. The change is narrow by
+construction.
+
+**§R3's banner is not relaxed, and is now the whole of what its saturation
+clause does.** Grid D carries `DEGENERATE — DOES NOT DISCRIMINATE`, and neither
+Grid D nor Grid B may be referred to in any conclusion, or have any cell
+described with any word implying a test.
+
+## §A4. The honesty test, stated explicitly because a ruling made with the answers visible has to be checkable
+
+**Releasing the verdicts refutes H3b, and H3b is the deliverable.**
+
+```
+S_min          =  2.0534 tenths      (id 726, KXMLBGAME-26AUG091335NYMPIT-NYM,
+spread_at_min  =  2.3191 tenths       side=yes, ask=450 — one attaining
+                                      observation, no tie)
+```
+
+The registered rule: *"**Declared** iff `S_min > spread_at_min`."* `2.0534` is
+not greater than `2.3191`. **H3b is REFUTED.** The shortfall of the nearest
+clean observation is smaller than that same observation's own devig-method
+spread, so the nearest clean observation is **not distinguishable from
+clearing**.
+
+Therefore, per §7 and §9: ***"the nearest observation is 0.21c short" is NOT
+writable*** — not in the refutation ADR, not in `tasks/NEXT.md`, not anywhere —
+and the occurrences already written must be annotated (§A6 item 2).
+
+**That is the test, and it is the point.** This ruling **deletes the most
+quotable sentence this project had**, in the same act that releases the
+verdicts. The alternative reading — keeping the stop-the-line — leaves H3b
+unadjudicated, and an unadjudicated H3b is a sentence that stays quietly
+quotable because nothing on the record forbids it. **A ruling chosen to flatter
+would not choose the one that kills its own headline.**
+
+## §A5. The five verdicts, released
+
+Each verdict below is the value the **registered** decision rule of §7 returns
+on statistics already committed at `3f2fa1a`. Nothing is recomputed, no rule is
+re-read, no rule is restated in different words. Reported in the registered
+order — H4 first because it can contaminate H1, H1 last because it is the one
+whose answer was already known.
+
+| Claim | Registered rule, verbatim | Statistic, as printed | Verdict |
+|---|---|---|---|
+| **H4** | *"**Declared** iff `n_degen == 0`."* | `n_degen` clean = **0**; suppressed (the paired control) = **21**; the narrower ULP signature returns the same 21; clean rows in `ask ∈ [440,479]` = 0 | **DECLARED** |
+| **H2** | *"**Declared** iff `max_game_share <= 0.50`."* | `17 / 323 = 0.0526`, largest cluster `KXMLBGAME-26AUG091605DETSF` | **DECLARED** |
+| **H3a** | precondition `n_spread >= 5`, then *"**Declared** iff `median over those observations of (S − spread_tenths) > 0`."* | `n_spread = 323`; paired median **+22.70** on both the nearest-rank and interpolated conventions; `S > spread_tenths` on 319 / 323 | **DECLARED** |
+| **H3b** | *"**Declared** iff `S_min > spread_at_min`."* | `S_min = 2.0534`, `spread_at_min = 2.3191`, no tie | **REFUTED** |
+| **H1** | *"**Declared** iff `max over clean deduplicated observations of E1 <= 0`."* | `max E1 = −2.0534` tenths; zero observations with `E1 > 0` | **DECLARED**, carrying **`REPRODUCTION — NOT A NEW OBSERVATION`** |
+
+**H1's label is mandatory and mechanical, not editorial.** §7: *"If `n_new == 0`,
+the H1 verdict is printed as `REPRODUCTION — NOT A NEW OBSERVATION`."*
+`n_new = 0` — all 15 rows written between `id 1549` and `pin 1564` are
+suppressed — so the clean population is byte-identical to §0.2's and H1 was
+arithmetically incapable of returning anything else. H1 is a checksum. It may
+not be cited as a new observation.
+
+**The one-way downgrade rule had nothing to downgrade.** §S12: all five survive
+leave-one-game-out over all 59 clusters and the `n_claims` key (`n = 118`). That
+is a **stability** statement, and stability is not support: it says only that no
+single game and no instant-collapse changes an answer. It is also the disclosure
+recorded as a recurrence in `tasks/lessons.md` alongside this amendment, because
+it was printed for five verdicts the run had declined to state.
+
+## §A6. What now binds
+
+1. **§7, H3a/H3b:** *"**H3a may not be described as having answered H3b**, and
+   the write-up says so in those words if it declares H3a and refutes H3b."*
+   That branch is now live and the obligation is unconditional.
+2. **§9, H3b-refuted row.** The ADR states only *"no clean observation
+   clears"*. Occurrences of the forbidden sentence, located by search and
+   **recorded here rather than discharged** — `tasks/NEXT.md` and `docs/adr/`
+   are owned by other lanes at the time of writing:
+   - `tasks/NEXT.md:345` — *"the best misses by 0.21c"* — **requires
+     annotation.**
+   - `docs/measurements/2026-08-10-joint-bound-result.md:111` — *"in the slice
+     misses the fee by 0.21c"* — **requires annotation.**
+   - `docs/measurements/2026-08-10-joint-bound-result.md:400` — *"−2.1 tenths
+     (0.21c short)"* — **requires annotation.**
+   - `tasks/NEXT.md:150` already states the sentence *"may not be writable at
+     all"*; it needs the answer, not a correction.
+3. **§9, H1-declared-with-`n_new == 0` row, verbatim:** *"The ADR may be written
+   but must cite §0.2 as its evidence and this run only for the **denominator
+   and the distribution**."* So the refutation ADR cites **§0.2** for the number
+   (`max E1 = −2.1` tenths over `id <= 1549`) and **this run** for
+   `n_obs = 323`, `n_claims = 118`, `G = 59`, the largest game's share
+   (**5.3%**) and the shortfall distribution. **`n_rows = 614` may not be quoted
+   alone** — §9 forbids it in the same sentence.
+4. **The magnitude ban, and it bound in practice.** §S13, reproduced by the
+   harness at run time: *"**The magnitude is not resolvable; only the sign
+   is.** No statement of the form 'the strategy nearly clears' or 'clearly
+   misses' is licensed at any `n`."* This is recorded as having *worked* rather
+   than decorated: a **"13.6x its own noise"** headline — median `S` 25.58
+   against median `spread_tenths` 1.88 — was nearly proposed while this ruling
+   was being made, and text written **before the run** already forbade it. Sign
+   only. H3a's declaration licenses §9's wording — *"the typical clean shortfall
+   is larger than devig-method choice explains, with the paired median"* — and
+   nothing about **how much** larger.
+5. **§R3's banner stands** (§A3). Grid D and Grid B may not be referred to in
+   any conclusion.
+6. **The result document's Finding 1 and Finding 2 are not ruled on here.** The
+   "45 rows" bullet of §10 being a slice number (137 on the whole table), and
+   §S item 10's "symmetric difference 0" being a slice number (15 on the whole
+   table), remain reported-and-unamended. **This amendment rules on R3 and on
+   nothing else.**
+
+## §A7. What this amendment does not establish
+
+- **It does not make any released verdict a new observation.** H1 remains a
+  checksum. H2, H3a, H3b and H4 are census statements about one pinned snapshot
+  of one recording window in two leagues in August, with no interval anywhere
+  and no inference to any other row.
+- **It does not add a statistic, a cut, an interval, or a look.** §7's
+  multiplicity count is still zero and §8 is still one pull, one pin, one look.
+- **It does not cleanse the order of events.** The census was public before the
+  ruling was written. What protects the five verdicts is that the *rule*
+  producing each was fixed before the run and is quoted verbatim above; what was
+  decided in the open is only which guards may withhold, and §A3 states that in
+  a form mentioning no cut and no verdict.
+- **It does not license anything §R3's banner still forbids**, and it does not
+  make Grid D's 99.1% concentration a finding. That concentration is a fact
+  about which prices the recorder writes, and it is descriptive.
+- **It says nothing about a different tripped guard.** R1, R4's H4 twin and
+  `G < 2` are untouched and remain capable of withholding all five verdicts.
+- **It does not revive the joint bound, relax a threshold, or reopen the
+  population.** Every prohibition in §2's *"A rule that must not be activated
+  after the fact"* stands, as does the whole of §10.
+
+## §A8. The registration record's `Amendments` row
+
+That row reads `none`. It is committed text and §8 forbids editing it in place,
+so it is superseded here rather than corrected there. **The registration carries
+one amendment: Amendment A, appended 2026-08-09, ruling that §R3's saturation
+clause is a labelling rule and releasing the five verdicts of §A5.**
