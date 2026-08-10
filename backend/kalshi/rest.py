@@ -99,6 +99,32 @@ class KalshiAPIError(RuntimeError):
         super().__init__(f"HTTP {status_code} from {url}{hint}\n{self.body}")
 
 
+def _require_list(payload: dict, key: str, path: str) -> list[dict]:
+    """Read a list off an envelope, refusing to invent one that is not there.
+
+    A **missing** key means Kalshi renamed the envelope. An **empty** list means
+    there genuinely are none. `payload.get(key) or []` returns the same value
+    for both, and every caller downstream then reads "there are none" -- which
+    is this repo's single most-repeated defect (`data["yes"]`,
+    `multivariate_event_collections`, `competition_scope == "game"`,
+    `payload["orderbook"]`).
+
+    It matters most on the portfolio endpoints, where the well-formed empty
+    answer is also the *expected* one. "The calibration trades have not filled
+    yet" and "the fee field moved and we can no longer see fills at all" would
+    otherwise be the same observation, and they demand opposite responses.
+    """
+    if key not in payload:
+        raise KalshiAPIError(
+            200,
+            path,
+            f"response has no {key!r} key (got {sorted(payload)}). The envelope "
+            f"was renamed; refusing to return an empty list that would read as "
+            f"'there are none'.",
+        )
+    return payload[key] or []
+
+
 class _RateLimiter:
     """Minimum-interval limiter, shared across all requests on one client.
 
@@ -493,27 +519,87 @@ class KalshiRestClient:
     async def fills(
         self, *, ticker: Optional[str] = None, limit: int = 100
     ) -> list[dict]:
-        """Recent fills.
+        """Recent fills. Raises rather than returning an empty list on a rename.
 
-        A real fill is the only ground truth for the fee model, and the only
-        way to close the open question in `core/fees.py`.
+        A real fill is ground truth for the fee model, and the only way to close
+        the open question in `core/fees.py`.
 
-        **The per-fill wire shape has never been observed on this account.**
-        Probed against production on 2026-08-09: the envelope is measured and
-        correct (`{"cursor": str, "fills": list}`, so the `payload.get("fills")`
-        below reads the right key), and the account holds **zero fills**, so
-        every field *inside* a record is unobserved -- including whether the fee
-        is called `fee`, what units it carries, and whether it is per-contract
-        or per-order.
+        **The per-fill wire shape has still never been observed on this
+        account.** Separate what is measured from what is documented, because
+        only the first kind survives contact with the venue:
 
-        This docstring previously named `fee` as ground truth as though the
-        field had been seen. It had not; the name was inherited from the
-        predecessor project. That is the shape behind the four wrong wire keys
-        in this repo's history, each of which returned a well-formed empty
-        result that satisfied every test written about its contents.
+        - **Measured 2026-08-09 and again 2026-08-10:** the envelope is
+          `{"cursor": str, "fills": list}`, and the list is **empty**.
+        - **Measured 2026-08-10, and this is the new part:** the account is
+          *not* untraded. `/portfolio/settlements` returns **55 real records**
+          spanning 2025-11-27 to 2026-05-10. So `/portfolio/fills` is dropping
+          history this account demonstrably has. Eight query shapes were tried
+          -- bare, `limit=200`, `min_ts=0`, `min_ts=1`, `min_ts=1700000000`, a
+          `min_ts`/`max_ts` span, `ticker=`, and `event_ticker=` -- and every
+          one returned zero. It is therefore a **retention window, not a
+          parameter default**, with a measured upper bound of about three
+          months and no measured lower bound.
 
-        Run `scripts/capture_fills_fixture.py` the moment fills exist -- before
-        writing any parser against them.
+          Operationally: **capture within days of a fill, not "next time the
+          laptop is open".** `scripts/capture_fills_fixture.py` and
+          `tasks/NEXT.md` both called the timing non-critical on the assumption
+          that a historical endpoint keeps history. It does not keep this
+          account's.
+
+        - **Documented, NOT measured:** `docs.kalshi.com` gives the fee field as
+          `fee_cost`, a fixed-point **dollar string** with up to six decimals,
+          and gives `is_taker` as a boolean on each fill. Corroborating but
+          still not a measurement of *this* endpoint: `fee_cost` in exactly that
+          format **is** present on every one of the 55 settlement records above.
+          The predecessor project's name `fee` is almost certainly dead -- the
+          API changelog retired the legacy integer-cent fields in April 2026.
+
+        Which is why nothing here parses a fill. Run
+        `scripts/capture_fills_fixture.py` the moment fills exist, before any
+        parser is written against them.
+
+        The `or []` this used to end with is gone. A missing key is a rename and
+        an empty list is a real state; collapsing them is the defect this repo
+        has now hit five times, and here it would read as "the calibration
+        trades never filled" on the one payload the whole fee question rests on.
         """
         payload = await self.get("/portfolio/fills", ticker=ticker, limit=limit)
-        return payload.get("fills") or []
+        return _require_list(payload, "fills", "/portfolio/fills")
+
+    async def settlements(self, *, limit: int = 200) -> list[dict]:
+        """Settled positions. **A free, already-populated fee ground truth.**
+
+        Measured 2026-08-10 on Joe's production account: 55 records, one page,
+        empty cursor. Every record carries `fee_cost` as a dollar string with
+        six decimals -- the same field name the docs give for a fill -- next to
+        `yes_count_fp` / `no_count_fp` and `yes_total_cost_dollars` /
+        `no_total_cost_dollars`, from which the position's average price
+        follows. Observed field set:
+
+            event_ticker, ticker, market_result, settled_time,
+            yes_count_fp, no_count_fp,
+            yes_total_cost_dollars, no_total_cost_dollars,
+            fee_cost, revenue, value
+
+        `revenue` and `value` are the deprecated integer-cent legacy fields and
+        were `0` on every record; do not read them.
+
+        **What this does and does not license.** It is a *position*-level fee,
+        aggregated over however many fills built the position, so it cannot test
+        a per-order rounding rule. What it does test is the coefficient, and
+        there it is decisive: `fee_cost / (n * p * (1-p))` lands in
+        [0.07002, 0.08071] across all 54 evaluable records with **zero below
+        0.07000**, in both the 43 combo and the 11 single-game subsets. The
+        upper tail is the rounding-up signature on small bases. `core/fees.py`
+        Model B -- a 0.06 multiplier rounded to the nearest cent per contract --
+        predicts a fee of **$0.00** on 18 records where Kalshi charged between
+        $0.03 and $3.08.
+
+        Caveat that must travel with the number: these settlements are dated
+        2025-11 to 2026-05 and the fee schedule was revised in **July 2026**.
+        This is pre-revision evidence.
+
+        Same raise-on-rename discipline as `fills`.
+        """
+        payload = await self.get("/portfolio/settlements", limit=limit)
+        return _require_list(payload, "settlements", "/portfolio/settlements")

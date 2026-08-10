@@ -372,6 +372,83 @@ class TestARenamedKeyIsLoudNotEmpty:
             assert [e async for e in client.paginate("/events", "events")] == []
 
 
+class TestThePortfolioEndpointsCannotReturnAQuietEmptyList:
+    """`fills()` and `settlements()` ended in `payload.get(k) or []`.
+
+    This is the same defect as `TestARenamedKeyIsLoudNotEmpty` above, and it is
+    worse on these two endpoints than anywhere else, because here **the empty
+    answer is also the expected one.**
+
+    The fee model is being resolved by placing four real trades and reading the
+    fee off `/portfolio/fills`. If Kalshi renames that envelope, `or []` says
+    "the calibration trades have not filled yet" -- which is exactly what the
+    operator is expecting to see, on the one payload the whole question rests
+    on, after the money has already been spent and with fills that cannot be
+    re-run.
+
+    Measured 2026-08-10 on the production account: `/portfolio/settlements`
+    returns 55 records and `/portfolio/fills` returns zero, for eight different
+    query shapes. So "the portfolio is empty" is a live, ordinary state on this
+    account and cannot be allowed to share a return value with "we can no
+    longer read the endpoint".
+    """
+
+    @respx.mock
+    async def test_a_renamed_fills_envelope_raises(self, api):
+        respx.get(f"{BASE}/portfolio/fills").mock(
+            return_value=httpx.Response(
+                200, json={"fillz": [{"fee_cost": "0.02"}], "cursor": ""}
+            )
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError, match="renamed"):
+                await client.fills()
+
+    @respx.mock
+    async def test_the_fills_error_names_what_was_actually_returned(self, api):
+        """So the fix is one read away, not a debugging session -- and the
+        operator can tell a rename from an unfilled order without guessing."""
+        respx.get(f"{BASE}/portfolio/fills").mock(
+            return_value=httpx.Response(200, json={"fillz": [], "cursor": ""})
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError) as excinfo:
+                await client.fills()
+        assert "fillz" in str(excinfo.value)
+
+    @respx.mock
+    async def test_a_genuinely_empty_portfolio_still_returns_cleanly(self, api):
+        """The discriminating half of the pair, and the one that matters.
+
+        Zero fills is this account's real state today. If it raised, the guard
+        would fire on every run and be turned off within a day.
+        """
+        respx.get(f"{BASE}/portfolio/fills").mock(
+            return_value=httpx.Response(200, json={"fills": [], "cursor": ""})
+        )
+        async with api as client:
+            assert await client.fills() == []
+
+    @respx.mock
+    async def test_a_renamed_settlements_envelope_raises(self, api):
+        respx.get(f"{BASE}/portfolio/settlements").mock(
+            return_value=httpx.Response(
+                200, json={"settlementz": [{"fee_cost": "3.08"}], "cursor": ""}
+            )
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError, match="renamed"):
+                await client.settlements()
+
+    @respx.mock
+    async def test_an_empty_settlement_history_still_returns_cleanly(self, api):
+        respx.get(f"{BASE}/portfolio/settlements").mock(
+            return_value=httpx.Response(200, json={"settlements": [], "cursor": ""})
+        )
+        async with api as client:
+            assert await client.settlements() == []
+
+
 class TestTheOrderbookEnvelope:
     """`orderbook()` read `payload["orderbook"]`; the wire key is
     `orderbook_fp`.
