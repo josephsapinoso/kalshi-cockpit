@@ -4306,6 +4306,15 @@ set was small and excluded FanDuel, while `runner.SHARP_BOOKS` — the set actua
 passed to `consensus_devig`, which discards a median of 26 of 29 books — had no
 assertion at all.
 
+> **ANNOTATION 2026-08-10 — `26 of 29` is a fixture figure, not a live one.**
+> It is measured on `tests/fixtures/odds_mlb_h2h_spreads_totals.json`, captured
+> 2026-08-07T13:49:22Z, which overlaps the live record on **0 of 1,564 rows**
+> (minimum gap 5.65 hours). The claim it is doing work for here — that
+> `SHARP_BOOKS` filters heavily and so deserved a guard — **is unaffected**, and
+> that guard was the right call. Only the size is borrowed. See
+> [[a-borrowed-number-must-overlap-the-population]] and ADR 0021 §7.2's
+> annotation of the same date.
+
 **How to apply:**
 
 - **Grep for callers before believing a feature exists, and before writing a
@@ -4444,3 +4453,175 @@ must leave the denominator. Related:
 scope was wider than what was measured),
 [[the-zero-that-means-no-measurement]] (an unmeasurable case wearing a
 measured case's representation).
+
+---
+
+## 2026-08-10 — A borrowed number must overlap the population you spend it on, in *time*
+
+A calibration measured on a captured fixture was quoted, one document later, as
+a property of the live record. The fixture was captured **2026-08-07T13:49:22Z**;
+the record's earliest odds observation is **2026-08-07T19:28:12Z**. **Zero of
+1,564 rows overlap it. Minimum gap: 5.65 hours.**
+
+The measurement was correct. Its label was correct — the registration wrote
+`[MEASURED FROM DATA — tests/fixtures/odds_...json]` immediately above it, and
+also wrote down that the capture is mature MLB and "structurally cannot contain
+an opener". **The next document dropped the label and kept the number.**
+
+**Why this variant is nastier than the usual scope error.** The two populations
+differ in **time**, and the difference in *kind* is small enough to wave
+through. Both are Odds API h2h quotes off the same endpoint, the same regions,
+the same markets, parsed by the same code, and the record is 73% the fixture's
+league. Every type-level check passes. There is no unit mismatch, no wrong table,
+no sign to get backwards. The sentence *"the anchoring discards a median of 26
+of 29 usable books"* reads as a fact about a mechanism, and a mechanism has no
+timestamp — so nothing in the prose looks wrong, and re-reading it more
+carefully does not help. **Only pulling both timestamps and subtracting does.**
+That is a step nobody takes unless the rule says to.
+
+**It had already spread, and that is the part that makes it a lesson rather than
+a correction.** By the time it was caught, the bare figure appeared in **four**
+further places — an accepted ADR, a lesson in this file, `tasks/NEXT.md`, and
+the ADR's own options table. In every one it reads as an established fact about
+the system, and nothing in any of them points back at a fixture. **A number that
+loses its label does not stay put; it gets cited, and each citation looks like
+corroboration for the last.** Grep for the figure, not just for the document.
+
+The usual defences all miss it:
+
+- **Provenance labels do not travel.** The label was one document away and was
+  simply not copied. A label that lives only at the point of measurement
+  protects the measurement, not the citation. The stronger form of the same
+  failure: the registration also *refused* a transfer of this exact species from
+  this exact fixture — *"a zero from the fixture is close to worthless for this
+  question and must not be cited as corroboration"* — and that did not travel
+  either. **Writing the prohibition down is not the same as attaching it to the
+  number**, and only the second survives a copy-paste.
+- **Beware "measured on the live X" where X is a code path.** The registration
+  introduced the figure as *"measured on the live anchoring, not derived from
+  example lines"*. True — it means *production code applied to a fixture* — and
+  one careless reading turns it into *measured on live data*. Name the **input**,
+  never only the code path that consumed it.
+- **"Same kind of data" is the trap, not the reassurance.** The closer the two
+  populations look, the less anything flags the substitution.
+- **A single fixture has no `n` to check.** Read-`n`-before-effect-size does not
+  fire, because `29 books` is not a sample size in the sense that guard means.
+
+**How to apply — a two-line check, and it must be run rather than reasoned
+about.** Before a number measured on population A is applied to population B,
+print `min` and `max` of the observation timestamp on both and state the overlap
+as a count and a gap. Then carry it into the citation as prose:
+
+```
+fixture captured        2026-08-07T13:49:22Z
+record observations     2026-08-07T19:28:12Z -> 2026-08-09T23:35:18Z
+rows at or before       0 of 1,564      minimum gap 5.65 h
+```
+
+**Reconstruct the timestamp on the flattering side.** Here the record's
+observation time is `created_ms − odds_age_ms`, and `odds_age_ms` is the
+**oldest** contributing book — so this reconstruction puts each row as *early*
+as it can be, which is the direction that would manufacture overlap. It still
+found none, with 5.65 hours to spare. Had it been computed off the newest book,
+a real overlap could have been hidden; a check that can only err toward the
+claim it is testing is worth choosing deliberately.
+
+**And scope the correction to what actually broke, because the exciting reading
+is the wrong one.** Here the *argument* largely survived: only the **magnitude**
+was extrapolated. A correction that took the whole section down would have been
+as wrong as the citation, and in the more expensive direction — it would have
+deleted the single most plausible alternative explanation for a refutation.
+**Say which half fell.**
+
+**But the first draft of that correction over-claimed in the other direction,
+and the shape is worth its own line: `X or fallback` is not "by construction".**
+The draft said the sharp-book anchoring applies "on every row **by
+construction** — that is code, not data". The code is:
+
+```python
+sharp = {b: r for b, r in usable.items() if sharp_books and b in sharp_books}
+selected = sharp or usable          # <- silent fallback to the FULL book set
+```
+
+The intersection is *attempted* on every row; whether it **binds** is data. On a
+row where no sharp book quoted, the fair value came from the wide consensus —
+the opposite of what the section claims — and `book_count` cannot reveal it,
+because three sharp books and three soft ones both read `3`. **So a "by
+construction" defence written while correcting an over-claim was itself an
+over-claim**, made in the same paragraph, about the same mechanism. The truth
+sat in `fair_prices.anchored_on_sharp`, a column written on every row since the
+table existed and read by nothing.
+
+**How to apply:** before writing "by construction", read the expression to the
+end. A conditional, an `or`, a `try/except`, or a `.get(k, default)` all mean
+the outcome is **data**, and the honest sentence is *"the code attempts it on
+every row; whether it succeeds is unobserved."* Then check whether something
+already records the outcome — a fallback that matters is usually flagged
+somewhere, and the flag is usually unread.
+
+**And it is the sibling of a lesson already in this file, with that lesson's
+closing sentence inverted.** [[a-sample-whose-strata-do-not-overlap-the-target]]
+ends *"temporal drift is the risk people write down; structural non-overlap is
+the one that actually voids the transfer."* That advice is good and it is what
+was followed: the citation checked kind, sport, endpoint and parse path, found
+them identical, and transferred. **The clock is what voided it.** Both entries
+stay, and the pair is the point — non-overlap is checkable on **every** axis the
+two populations have, and the axis that bites is whichever one nobody printed.
+The check is cheap enough to run on all of them.
+
+Related: [[a-true-measurement-licensed-a-false-conclusion]] — same family, where
+the *scope* rather than the *window* was widened past what was measured; and
+[[before-quoting-n-of-n]], which asks the same question about the denominator
+instead of about the clock.
+
+---
+
+## 2026-08-10 — SQL written into a document is code, and unrun SQL is a guess
+
+Three queries were written into `docs/measurements/` for a human to paste into
+the live box, with pre-stated expected outputs and a table mapping each result
+to a conclusion. All three parsed. **Three of the six statements returned
+confident wrong numbers**, and every one was caught only by building a seeded
+database and running them.
+
+The worst had a conclusion attached to it. A resolvability check took a
+**global** `MAX(fetched_ms)` per event and *then* filtered `<= created_ms`,
+rather than the max at-or-before `created_ms`. On a seed where every row
+resolves, it reported **`unresolvable = 2` of 2** — total data loss — and the
+document's own reading table mapped that to *"sweeps have been pruned … the
+magnitude is unrecoverable."* **A guard that fires when nothing is broken is
+worse than no guard**, and this one was pointed at retiring a live question.
+
+The other two are the familiar shapes, in SQL:
+
+- **A join through a grouped subquery matched on `fetched_ms` alone** while the
+  subquery grouped by `(odds_event_id, fetched_ms)`. One sweep covers ~15
+  events at one instant, so it fanned out ~15x — comparing each row against
+  other events' stamps, while the aggregate it computed tracked along and the
+  output looked healthy.
+- **Two units in one comparison.** One column counted distinct *books*, the
+  neighbouring column summed *rows*, and the table holds one row per book per
+  outcome — so a three-book keep printed `29` beside `6`. The ratio a reader
+  computes off that is wrong by exactly the number of outcomes.
+
+**Why documents get away with it:** SQL in prose is reviewed as prose. It is
+read for whether it *looks* like it answers the question, and it always does —
+nobody diffs a query against a result set that does not exist yet. Worse, the
+expected outputs beside it were written from the same mental model as the
+queries, so they agreed with each other and disagreed with SQLite. That is
+[[a-sign-convention-agreed-with-its-own-test]] with the test replaced by a
+paragraph.
+
+**How to apply:** any SQL that ships to a human — a runbook, a measurement spec,
+a handoff — gets executed against `init_db` output seeded to the shape that
+*breaks* naive queries, before the document is committed. For this repo that
+seed is: **more than one sweep**, **one `fetched_ms` shared across several
+events**, and **a row created between two sweeps rather than after the last
+one**. A single-sweep fixture passes all three broken queries above.
+
+And give any per-row check a **cross-total that must agree** — here
+`checked == linked_rows`. A fan-out inflates both the numerator and the
+denominator, so the ratio still looks right; only a count tied to an
+independently-computed total catches it. Related:
+[[before-quoting-n-of-n]], [[one-observation-recorded-thirty-times]] — the same
+question about what a row count actually counts, asked of a JOIN.

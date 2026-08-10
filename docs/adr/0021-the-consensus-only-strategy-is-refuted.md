@@ -303,7 +303,9 @@ could all return something else, and none of them has been sampled. **A null ove
 
 `consensus_devig` is anchored on `runner.SHARP_BOOKS`, and the anchoring
 **discards a median of 26 of 29 usable books**, keeping `betfair_ex_eu` +
-`matchbook` (± `pinnacle`).
+`matchbook` (± `pinnacle`). *(That figure is a fixture measurement and is not
+observed on this record — **see the annotation below before quoting it**. The
+mechanism it illustrates is unaffected.)*
 
 **We have been testing Kalshi against the only references plausibly as sharp as
 Kalshi.** Two betting exchanges and a low-margin book, all three of which are
@@ -321,6 +323,166 @@ two direct consequences already measured:
   to declare — which makes H3b's refutation the harder direction, and is the one
   place this limitation runs in the result's favour.
 - The consensus this project calls "the market" is not the market.
+
+> #### ANNOTATION 2026-08-10 — the mechanism above stands; **"a median of 26 of 29" is not measured on this record**
+>
+> **The sentence above is left exactly as written, and it is not withdrawn.**
+> What follows narrows what may be quoted from it.
+>
+> **The provenance.** `26 of 29` comes from the registration's §0.6, where it is
+> correctly labelled
+> `[MEASURED FROM DATA — tests/fixtures/odds_mlb_h2h_spreads_totals.json]` and
+> stated in its complementary form, *"anchoring keeps a median of 3 of 29 usable
+> books"*. **§7.2 dropped the label** and applied the figure to the record's own
+> rows. That fixture is a single Odds API capture with
+> `captured_ms = 1786110562317` — **2026-08-07T13:49:22Z**.
+>
+> **The populations do not overlap, in time.** Every row's odds observation is
+> `created_ms − odds_age_ms`. Over the pinned pull
+> (`docs/measurements/2026-08-10-clean-shortfall-pull.json`, `pin = 1564`, all
+> 1,564 rows carry both fields):
+>
+> ```
+> fixture captured                 2026-08-07T13:49:22Z
+> record odds observations         2026-08-07T19:28:12Z  ->  2026-08-09T23:35:18Z
+> rows observed at or before the capture      0 of 1,564
+> minimum gap, capture -> earliest row        5.65 hours
+> ```
+>
+> **Zero rows overlap.** Unchanged on the `pin = 1549` pull
+> (`2026-08-10-wholetable-pull.json`) — same range, same `0`, same 5.6471 h.
+> **That is a checksum, not corroboration:** its 1,549 ids are a strict subset
+> of these 1,564 and no row differs on either field. Reporting it as an
+> independent replication would repeat the error §4 corrects when it says *"§0.2
+> and this run are one population read twice under two pins — not two
+> measurements."*
+>
+> **The reconstruction is exact, not an estimate.** `runner.py:629` passes the
+> cycle stamp as `now` and `:731` writes the same variable as `created_ms`;
+> inside, `age = now − basis` and `oldest = max(ages)`. So
+> `created_ms − odds_age_ms` algebraically recovers the oldest contributing
+> book's own `book_updated_ms`. Only two writers of `recommendations` exist
+> (`runner.py:711`, and `seed_demo.py:267` which is demo-only), so no second
+> clock enters.
+>
+> **Two directional checks, both run, because a reconstruction that can only err
+> toward the claim it tests is worth choosing deliberately.** `odds_age_ms` is
+> the **oldest** contributing book's age, so this places each row as *early* as
+> the data allow — over the books that actually fed the consensus — which is the
+> direction that would manufacture overlap. And the comparison is against
+> `captured_ms` rather than the fixture's own latest book stamp
+> (`2026-08-07T13:49:13Z`), which shortens the gap by 9.3 seconds rather than
+> lengthening it. Both err toward overlap; neither found any.
+>
+> *Two places it is not maximally early, both bounded by one sweep interval and
+> so immaterial against 5.65 hours: `oldest` ranges only over books that quoted
+> **every** outcome, and `basis` falls back to `fetched_ms` when
+> `book_updated_ms` is NULL.*
+>
+> **The number itself is not wrong — it is misapplied.** Re-derived from the
+> fixture directly: across its 15 events the median h2h book count is **29**, the
+> median surviving `SHARP_BOOKS` is **3**, and the median discarded is **26**.
+> §0.6 computed it correctly. What did not survive the journey is the label.
+>
+> **There is a second gap, and it is in league.** The fixture is MLB-only; the
+> record is 1,142 MLB and 422 WNBA rows. **The time gap voids all 1,564; the
+> league gap voids 422 of them a second time**, on *kind*, before the clock is
+> consulted at all. §0.6's own limits paragraph already says the capture is
+> mature MLB, 8.9–12.4h from first pitch, and "structurally cannot contain an
+> opener". None of that was carried across either.
+>
+> *(Three instant-counts are now in play and none may be substituted for
+> another: **33** distinct odds-observation instants over all 1,564 rows; **27**
+> over the 614 clean rows; and §2's **34 recording instants**, which counts
+> distinct `created_ms` — a different clock — on those same 614.)*
+>
+> **What survives, and it is the part that matters.** §7.2's *argument* does not
+> depend on the number. `consensus_devig` applies `runner.SHARP_BOOKS` on
+> **every** row — that is code (`backend/runner.py:103`, `:658`;
+> `backend/core/devig.py:288`), not data.
+>
+> **One qualification, and it must travel, because the first draft of this
+> annotation got it wrong.** The anchoring is `selected = sharp or usable`. It is
+> *attempted* on every row; whether it **binds** is data. On a row where **no**
+> sharp book quoted, it falls back silently to the full book set — and that row
+> was compared against a *wide* consensus, which is option B's proposition, not
+> §7.2's. `book_count` cannot reveal it: three sharp books and three soft ones
+> both read `3`. The outcome is recorded in `fair_prices.anchored_on_sharp`
+> (`schema.sql:304`, written on every row since the table existed) — **and that
+> column is not on this record either.** `4938701` adds it to `/api/ledger` for
+> future rows.
+>
+> So *"we have been testing Kalshi against the only references plausibly as
+> sharp as Kalshi"* holds **on every row where a sharp book quoted**, and what
+> fraction that is remains **unobserved**. It stays the single most plausible
+> alternative explanation for the whole result; it is not yet a measured
+> property of all 1,564 rows.
+>
+> **The fraction is not innocent in either direction.** Rows that took the
+> fallback were tested against a wide consensus *and still returned nothing* —
+> which, to that extent, would mean the tautology reading does **not** cover the
+> whole result. The record cannot settle it: `wide_market` fired **0** times
+> over the 1,334 rows with a measurable width, but that does not discriminate,
+> because the all-book width on the fixture (median 0.0213, max 0.0344) never
+> approaches the 0.06 limit either. There is no proxy.
+>
+> Both bullets above are unaffected either way: they are statements about which
+> books were admitted, not about how many were dropped.
+>
+> **What does not survive: the magnitude.** *How much* the anchoring discarded on
+> the rows this ADR is about is **unobserved**. `26 of 29` may be quoted only as
+> *"measured on one MLB fixture captured 5.65 hours before the record begins"*,
+> never bare, and never as a property of the 1,564 rows. The same applies to
+> §8's option **B**, which reuses the figure verbatim: the *reason* to widen the
+> reference class stands on the mechanism; the size of the prize does not.
+>
+> **The registration refused a transfer of exactly this species, from exactly
+> this fixture.** §10 — *"What this measurement cannot establish"*, line 1062 —
+> writes of the same capture: *"that capture is mature MLB, 8.9–12.4h from first
+> pitch, so it structurally cannot contain an opener … a zero from the fixture
+> is close to worthless for this question and **must not be cited as
+> corroboration**."* That sentence is about H4's degenerate-fair count rather
+> than about the book count, so it is not a rule this ADR broke by name — **it
+> is the same judgement, made about the same file, and it did not travel.**
+> A provenance label and a stated refusal, both one document away, stopped
+> nothing. That is the part worth keeping.
+>
+> **A likely mechanism for how the label came off**, offered as a reading rather
+> than a fact: registration §R3 (line 1169) introduces the figure with *"this is
+> measured on **the live anchoring**, not derived from example lines"* — true,
+> and meaning *the production anchoring code applied to a fixture*. That
+> sentence carries no `[MEASURED — §0.6]` tag, and one careless reading turns it
+> into *measured on live data*. If so, the phrase is worth avoiding generally:
+> **name the input, never only the code path that consumed it.**
+>
+> **Every bare reuse, from a grep — because a number that lost its label gets
+> cited, and each citation then reads as corroboration for the last.**
+>
+> | Location | Status |
+> |---|---|
+> | §7.2 body, above | left as written, with an inline pointer to this annotation |
+> | **§8 option B** (this document) | **annotated in place** — a decision table is the most quotable object here and the one a reader reaches without reading §7 |
+> | `tasks/lessons.md:4306` | annotated in place |
+> | registration line 1072 | correctly carries `[MEASURED — §0.6]` |
+> | registration line 1169 | **NOT labelled** — reads *"measured on the live anchoring"*, which is the wording that invited this substitution |
+> | `start.md:235` | bare — **out of this lane's scope, and the highest propagation risk of all**, since it is read at every session start |
+> | `tasks/NEXT.md:206` | bare — out of scope |
+> | `docs/adr/0019:522` | bare — out of scope |
+>
+> In the last three the figure supports a *mechanism* claim (that `SHARP_BOOKS`
+> filters heavily), which is the half that survives, so none is load-bearing on
+> the magnitude. They still need the label.
+>
+> **Why it was unobservable rather than merely unmeasured** — see the annotation
+> to *"`market_width`, `book_count` and `books_used` were never observed"* in
+> "What this does NOT establish" below. `81ffd9c` puts all three on
+> `/api/ledger`, so a future record can answer this directly. **It does not fix
+> the past**: rows already stored are unaffected, and re-measuring requires
+> `odds_snapshots`, which is the first of the three queries in
+> [`2026-08-10-three-queries-the-agents-could-not-run.md`](../measurements/2026-08-10-three-queries-the-agents-could-not-run.md).
+>
+> The generalised pattern is recorded in `tasks/lessons.md` — *a measurement's
+> population must overlap the one you apply it to, in time and not only in kind*.
 
 ### 7.3 `fair_probability` is the worst of four devig methods
 
@@ -431,7 +593,7 @@ version of this one. The options are laid out with what each would cost, and
 | Option | What it is | What it would cost |
 |---|---|---|
 | **A. Stop the consensus-only line** | Accept the refutation, keep the recorder and the measurement discipline as the asset they are, and stop looking for taker edge against devigged sportsbook consensus. | Nothing further to build. The sunk cost is already sunk, and the record stays useful as a baseline for anything that comes next. |
-| **B. Change the reference class** | The comparison discarded a median of 26 of 29 books (§7.2). Comparing against a *wider* consensus tests a different proposition: whether Kalshi is mispriced relative to the market rather than relative to the sharps. | A new ADR and a new registration. It also weakens rule 1 (*a large apparent edge is a bug*) — a wider consensus produces more apparent edge, most of it garbage, and the suppression layer would be doing more work with less justification. Cheap in credits, expensive in discipline. |
+| **B. Change the reference class** | The comparison discarded a median of 26 of 29 books (§7.2) — **[ANNOTATED 2026-08-10: that figure is measured on one MLB fixture captured 5.65 h before this record's earliest odds observation, overlapping it on 0 of 1,564 rows. The *reason* to widen stands on the mechanism; the *size of the prize* is unobserved. See §7.2's annotation.]** Comparing against a *wider* consensus tests a different proposition: whether Kalshi is mispriced relative to the market rather than relative to the sharps. | A new ADR and a new registration. It also weakens rule 1 (*a large apparent edge is a bug*) — a wider consensus produces more apparent edge, most of it garbage, and the suppression layer would be doing more work with less justification. Cheap in credits, expensive in discipline. |
 | **C. Invert the frame** | Use Kalshi as the *sharp reference* against a softer venue. If §7.2's tautology reading is right, that is the direction the information actually flows. | A second venue's prices and a matching layer. The previous project measured Kalshi↔Polymarket text matching at **0.56%**, with the matches themselves wrong — so "matching" is the whole problem, not a detail. A genuinely new project. |
 | **D. The maker path** | A 50.44% bar instead of 52.00%, a different fee curve, and liquidity provision rather than price-taking. | ADR 0017 owns it and it is **proposed, not accepted**. Its own adverse-selection counterargument is 1.50c and no named row has ever cleared it. It also needs the fee model resolved to mean anything. |
 | **E. Resolve the fee model first** | Four real fills through `/portfolio/fills`, placed by hand in the Kalshi app. Already authorised. | Small money, no code. It does not create an edge — but §7.4 means **every number in this ADR moves if the model is wrong**, and this is the only thing that closes it. It is the cheapest way to find out whether the refutation is measuring what it thinks it is. |
@@ -492,6 +654,62 @@ are the two honest readings of the same result.
 - **`market_width`, `book_count` and `books_used` were never observed.**
   `/api/ledger` does not select them. Two of the three extra predicates
   registered in the brief are unanswered and remain so.
+
+  > **ANNOTATION 2026-08-10 — the bullet is correct; the mechanism was checked
+  > and it is not the one a reader would assume.** Verified against the code,
+  > and against the query itself, because a lane brief asserted the opposite:
+  >
+  > *Line numbers below are at `81ffd9c^` — the state this ADR describes. They
+  > have since moved; the symbols have not.*
+  >
+  > - The `fair_prices` join **is already there** —
+  >   `backend/api/routes.py:757`, `LEFT JOIN fair_prices f ON f.id =
+  >   r.fair_price_id` — and has been since the four devig readings were added.
+  >   A reader who assumes the bullet means "the join is missing" is wrong.
+  > - **`SELECT r.*` does not reach these three.** All three are columns of
+  >   `fair_prices` (`backend/store/schema.sql:301-303`), not of
+  >   `recommendations`, and the SELECT list named exactly five `f.` columns —
+  >   the `p_*` readings. Executing the route's own query against a freshly
+  >   migrated database and reading `cursor.description` returns 33 columns and
+  >   none of the three. So the bullet's *"does not select them"* is **literally
+  >   true**. The pinned pull agrees without reading any code: not one of the
+  >   1,564 rows in `2026-08-10-clean-shortfall-pull.json` carries any of the
+  >   three keys.
+  > - **And `_serialise` is a second, independent barrier.** It hand-builds its
+  >   dict and named none of the three, so widening the SQL alone would also
+  >   have changed nothing. Two barriers, in two languages; either alone leaves
+  >   the payload byte-identical. That is why this was not caught by reading one
+  >   of them.
+  >
+  > **CORRECTION to the bullet's own wording: "never observed" is too strong,
+  > and this ADR already relies on the observation.** The *columns* were never
+  > selected — that part is exact. But `reason_text` carries `book_count` on
+  > every row that tripped the rule: `suppression.py:291` writes
+  > `f"{book_count} book(s), need {config.min_book_count}"`, and over the pinned
+  > pull that string is **`1 book(s), need 2` on all 245 `too_few_books` rows**,
+  > with no other value anywhere. Independently, **230** rows carry
+  > `no_market_width`, which pins `market_width is None` on each. Their
+  > symmetric difference is **15**, reproducing Addendum A's Finding 1 exactly.
+  >
+  > So the honest statement is: **`books_used` and `anchored_on_sharp` were
+  > never observed; `market_width` and `book_count` were observed only where
+  > they failed.** On the other 1,319 rows — including all 614 clean ones — only
+  > bounds are known: `book_count ≥ 2` and `market_width ≤ 0.06`. The two
+  > registered predicates remain unanswered, which is what the bullet is for.
+  >
+  > *(A by-product worth keeping: `wide_market` had **1,334** rows with a
+  > measurable width and fired **0** times. Unlike §7.6's `stale_kalshi_quote`,
+  > that is a real zero over a non-empty denominator — a guard that could have
+  > fired and did not.)*
+  >
+  > **Fixed forward at `81ffd9c`** — both barriers, with tests verified by
+  > disabling each, and extended at `4938701` with `anchored_on_sharp` — the
+  > column §7.2's annotation shows is load-bearing on the tautology reading.
+  > **The bullet still stands for this record**: both changes are read-only and
+  > rewrite no stored row, so the 1,564 rows this ADR is about remain unobserved
+  > on all four columns and the two registered predicates stay unanswered.
+  > Re-measuring the *past* needs `odds_snapshots`; see
+  > [`2026-08-10-three-queries-the-agents-could-not-run.md`](../measurements/2026-08-10-three-queries-the-agents-could-not-run.md).
 - **Counted assumptions: 1.** A1 — that an MLB or WNBA moneyline has exactly two
   settling outcomes, so a `NO` on one ticker and a `YES` on the other name the
   same claim. Its registered detector ran and passed on all 59 clusters, so A1
