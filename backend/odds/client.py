@@ -36,10 +36,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = 20.0
 
-# Books that take size from professionals and move first. Used to anchor the
-# fair line where present -- see core/devig.py. Not a filter: every book is
-# stored, this only marks which ones carry more weight.
-SHARP_BOOKS = frozenset({"pinnacle", "betonlineag", "lowvig", "circasports"})
+# **There was a second `SHARP_BOOKS` here and it is deleted. See ADR 0019.**
+#
+# It read `{pinnacle, betonlineag, lowvig, circasports}` under a comment nearly
+# identical to the live one, while the set that actually anchors the consensus
+# is `backend/runner.py:103` -- `{pinnacle, betfair_ex_eu, betfair_ex_uk,
+# matchbook}`. One shared member out of four. Its only reader was an `is_sharp`
+# property that **no production code ever called**, so the two could disagree
+# indefinitely without a symptom.
+#
+# Deleted rather than annotated, because a documented duplicate looks
+# deliberate, and the identifiable victim is the next person who edits this
+# file believing they changed what the money path anchors on. The guard that
+# used to sit on this copy now sits on the live one:
+# `tests/test_runner.py::TestTheSharpSetThatActuallyAnchors`.
 
 
 class OddsAPIError(RuntimeError):
@@ -154,24 +164,12 @@ class OddsQuote:
         """
         return self.book_updated_ms is None
 
-    @property
-    def is_sharp(self) -> bool:
-        """Whether this book anchors the consensus.
-
-        `@property`, and that matters more than it looks. It sat between two
-        properties as a plain method, so `if quote.is_sharp` -- the way anyone
-        would write it, and the way its neighbours are correctly used -- binds a
-        method object and is **truthy for every book**. A live capture surfaced
-        it: all 30 bookmakers in an MLB payload reported as sharp, including
-        FanDuel and DraftKings.
-
-        Nothing in the codebase called it yet, so this was a landmine rather
-        than a live bug. It would have detonated the first time consensus
-        anchoring was wired up, and silently: "prefer the sharp books" would
-        have meant "prefer all of them", which is just the unweighted average
-        wearing a rigorous name.
-        """
-        return self.bookmaker.lower() in SHARP_BOOKS
+    # `is_sharp` was here and is deleted with the duplicate `SHARP_BOOKS` it
+    # read. Nothing in production ever called it. Its docstring recorded a real
+    # landmine -- as a bare `def` between two `@property` neighbours it was
+    # truthy for all 30 books -- and that lesson is now in `tasks/lessons.md`
+    # rather than in a dead property. Consensus anchoring is done by
+    # `consensus_devig(..., sharp_books=runner.SHARP_BOOKS)`.
 
 
 class OddsClient:

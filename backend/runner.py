@@ -68,7 +68,7 @@ from .config import (
     RiskConfig,
 )
 from .core.devig import DevigError, consensus_devig
-from .core.suppression import SuppressionConfig
+from .core.suppression import ALL_CHECK_NAMES, SuppressionConfig
 from .engine import (
     Candidate,
     build_recommendation,
@@ -326,6 +326,22 @@ def write_fair_price(
     """
     ids: dict[str, int] = {}
     methods = devig_result.all_methods()
+
+    # **Never default an unreadable count to 0.** `book_count` used to be written
+    # as `metadata.get("book_count", 0)`. No live path could reach that default --
+    # `consensus_devig` always sets the key -- and `0` happened to be the safe
+    # direction, because it trips `too_few_books`. Both of those are why it
+    # survived, and neither is a reason to keep it: the column is NOT NULL and
+    # feeds a suppression threshold, so a silently substituted zero would be a
+    # measurement claim rather than an absence. See ADR 0019 and the standing
+    # rule in `tasks/lessons.md`.
+    if "book_count" not in metadata:
+        raise KeyError(
+            "consensus metadata has no 'book_count'; refusing to substitute 0 "
+            "for a count that decides the too_few_books suppression"
+        )
+    book_count = metadata["book_count"]
+
     for index, outcome in enumerate(devig_result.outcomes):
         cursor = conn.execute(
             "INSERT INTO fair_prices (computed_ms, link_id, market, outcome_name, "
@@ -339,7 +355,7 @@ def write_fair_price(
                 methods["power"][index], methods["shin"][index],
                 devig_result.conservative_probability(outcome),
                 devig_result.overround, metadata.get("market_width"),
-                metadata.get("book_count", 0),
+                book_count,
                 json.dumps(metadata.get("books_used", [])),
                 1 if metadata.get("anchored_on_sharp") else 0,
             ),
@@ -524,6 +540,17 @@ def run_pricing_pass(
         conn,
         {
             "suppression": suppression.__dict__,
+            # The check **vocabulary**, not just the thresholds. ADR 0019.
+            #
+            # `suppression.__dict__` hashes field *values*, so adding, removing
+            # or renaming a check changed no field and minted no version --
+            # and `suppressed_reason` is half the `actionable` predicate, so
+            # two check-vocabularies would pool into one dataset with nothing
+            # recording the split. Same defect as the `max_order_contracts`
+            # omission below, one level up: the rule is "everything the counted
+            # column depends on", and the counted column depends on which
+            # checks exist at least as much as on what they are set to.
+            "suppression_checks": list(ALL_CHECK_NAMES),
             "kelly_fraction": risk.kelly_fraction,
             # Everything the **counted** column depends on, and nothing else.
             #

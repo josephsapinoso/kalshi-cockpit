@@ -4152,3 +4152,138 @@ Related: [[the-zero-that-means-no-measurement-passes-every-threshold]],
 [[two-limits-on-one-quantity]],
 [[a-guard-that-routes-around-thin-data-into-a-fallback-built-from-it]],
 [[code-with-no-caller-is-not-a-feature]].
+
+---
+
+## 2026-08-10 — Count guard families, not guards
+
+`edge_within_method_noise`, `too_few_books` and `no_market_width` read as three
+independent checks. They are three readings of **one** question — *do the
+sources agree?* — and every one of them is blind to the same input, because
+**correlated garbage agrees with itself perfectly.**
+
+Two books quoting a symmetric two-way line produce `fair = 0.5`,
+`market_width = 0.0`, a method spread of ~1e-11 tenths, and `reason=None`. All
+three guards pass. Not because any is miscalibrated: because a placeholder line
+and a genuine consensus are *indistinguishable by agreement*, and agreement is
+the only thing this family measures.
+
+The trap is that the obvious fix is a fourth member of the same family. The
+first design proposed here was "refuse when dispersion is unmeasurable" — which
+fires precisely when `too_few_books` and `no_market_width` already fire (185
+rows each over 1,000, symmetric difference 0). It would have added a third name
+for one condition and closed nothing, while making the suppression summary read
+*more* like defence in depth.
+
+**Why it survived review:** the guards live in one function, are individually
+correct, and each has tests. Nothing in the module names the family, and the
+suppression log prints codes rather than kinds — so three codes over one
+condition render as three signals.
+
+**How to apply:**
+
+- **Before adding a guard, ask what question the existing ones answer.** If the
+  new one answers the same question with a different field, it is a synonym.
+  Check row-sets on real data, not names: identical sets is the test, and it is
+  one line.
+- **A blindness shared by a whole family cannot be fixed from inside it.** The
+  remedy has to come from a different family — here it turned out to be
+  `edge_ceiling_tenths`, an external-reference guard, which bounds a fabricated
+  0.5 fair to a 4.0c ask window and **was never justified for that job.** An
+  undeclared dependency of that kind is how someone raises a threshold for one
+  stated reason and silently widens an unrelated hole.
+- **Reachable is not observed, and say which you mean.** The two-book case is
+  reachable and has been demonstrated synthetically; it appears in 0 of 15
+  events in the one real capture available, and whether it occurs in the live
+  record is a separate census. Writing it up as a live bug would have been
+  [[a-true-measurement-licensed-a-false-conclusion]] in the other direction.
+
+Related: [[the-zero-that-means-no-measurement-passes-every-threshold]],
+[[two-limits-on-one-quantity]],
+[[the-guard-that-cannot-fire-on-the-input-it-was-built-for]].
+
+---
+
+## 2026-08-10 — The false reassurance in a comment outlives the code it describes
+
+Three instances in one session, in three different files, all the same shape: a
+string asserting a property the code or the data does not have.
+
+| Where | What it claimed | What is true |
+|---|---|---|
+| `suppression.py:172` | `"book last moved {x}min ago"` | it is the *aggregator's scrape* time; the book may not have repriced in hours |
+| `routes.py:594-597` | window_status is *"not a second implementation… the screen is the one that gets believed"* | same implementation, **two different inputs** — the loop passes a hardcoded 900_000, the API passes the env value |
+| `odds/client.py` | a `SHARP_BOOKS` under a comment nearly identical to the live one | a **second** set sharing one member of four, read only by a property with no production caller |
+
+The `routes.py` one is the sharpest: it names the exact hazard, avoids the
+mechanism it blames (a duplicated implementation), and gets the divergence
+anyway through the *arguments*. **Sharing an implementation does not share its
+inputs.**
+
+**Why these are worse than no comment.** An absent explanation invites checking.
+A confident one terminates the search — and it is the artefact that survives
+longest, because prose is not executed, not linted, and not covered. All three
+were literally true when written; what rotted was the relationship between the
+sentence and its subject, and nothing anywhere fails when that happens.
+
+**How to apply:**
+
+- **When a comment asserts a property, ask what would fail if it stopped being
+  true.** If the answer is "nothing", the property needs an assertion or the
+  comment needs to stop claiming it. Prefer a **runtime** assertion over a test
+  where the divergence is created by deployed configuration: a test comparing
+  one hardcoded default to another passes green forever while the live instance
+  diverges.
+- **Fix a false message even when behaviour is correct, and ship it separately
+  from the behaviour change.** The `stale_odds` wording was corrected with no
+  change to when the guard fires; the remedy for the underlying scrape-clock
+  problem is a queued ADR. Wording is not a lesser fix — it is the part a future
+  session reads.
+- **Delete a dead duplicate rather than documenting it.** Documenting makes it
+  look deliberate. The identifiable victim is whoever edits the dead copy
+  believing they changed the live path.
+
+Related: [[code-with-no-caller-is-not-a-feature]],
+[[two-limits-on-one-quantity]],
+[[tracing-a-number-to-code-is-only-half-the-check]].
+
+---
+
+## 2026-08-10 — Six built-never-called modules is a process gap, not a run of bad luck
+
+`CLAUDE.md` cites four. Add `elo.py`/`backtest.py` (shipped into the container,
+imported by nothing) and now `odds/client.py`'s `SHARP_BOOKS` + `is_sharp`, and
+the count is **six**.
+
+The count is the argument. One orphan is an oversight; six is a process that
+does not check. And the detector this repo built for it —
+`tests/test_has_callers.py` — has **opt-in coverage**: `MUST_HAVE_CALLERS` is a
+hand-maintained list, so absence from the list is indistinguishable from having
+a caller. A detector you must remember to register with does not catch the thing
+you forgot.
+
+The `is_sharp` case shows the specific cost, because it was worse than inert. It
+sat between two `@property` neighbours as a bare `def`, so `if quote.is_sharp`
+bound a method object and was **truthy for all 30 books** — "prefer the sharp
+books" would have meant "prefer all of them", which is the unweighted average
+wearing a rigorous name. Its own docstring recorded that it had no caller, and
+it was left in anyway. **A landmine documented as a landmine is still armed.**
+
+Worse, the *guard* was on the dead copy: `tests/test_odds.py` asserted the sharp
+set was small and excluded FanDuel, while `runner.SHARP_BOOKS` — the set actually
+passed to `consensus_devig`, which discards a median of 26 of 29 books — had no
+assertion at all.
+
+**How to apply:**
+
+- **Grep for callers before believing a feature exists, and before writing a
+  sentence about it.** If every hit is `tests/` or a seeder, it is a plan.
+- **Check which copy your guard is guarding.** A test on the unused definition
+  is worse than no test: it produces the feeling of coverage over the path that
+  cannot hurt you, and none over the one that can.
+- **When a docstring says "nothing calls this yet", that is a finding, not a
+  note.** Delete it or wire it. Leaving it is how the count reaches six.
+
+Related: [[code-with-no-caller-is-not-a-feature]],
+[[a-captured-fixture-that-no-test-loads-is-decoration]],
+[[a-test-that-passes-on-the-bug-is-not-a-test]].

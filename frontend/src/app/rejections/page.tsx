@@ -36,7 +36,7 @@ const EXPLAINED: Record<string, string> = {
   stale_kalshi_quote:
     "The Kalshi price behind the row was older than the quote limit when the row was judged. The order endpoint re-reads the price anyway, so this bounds what gets recorded, not what can be bought.",
   stale_odds:
-    "The sportsbook consensus behind the fair value had aged out. Nothing refreshes that but spending one of the day's odds credits, so this one is a budget symptom rather than a market one.",
+    "The sportsbook consensus behind the fair value had aged out. Nothing refreshes that but spending one of the day's odds credits, so this one is a budget symptom rather than a market one. Read the age carefully: it is measured from the odds aggregator's own timestamp, which is when it last scraped the book — not when the book last moved its line. A book that has not repriced in hours reads as fresh here.",
   insufficient_depth:
     "Fewer contracts were resting at the ask than the sizer wanted to buy. Filling would have left a remainder resting at a price nobody is taking.",
   wide_market:
@@ -51,6 +51,8 @@ const EXPLAINED: Record<string, string> = {
     "No size was quoted at the ask. That is unknown depth, not zero depth, and the two are refused for different reasons — this one means the book could not be read.",
   no_market_width:
     "Fewer than two books contributed to the consensus, so their disagreement could not be measured. Distinct from a wide market on purpose: 'the books disagree' and 'there was no second book to disagree with' call for different fixes, and a missing measurement used to arrive as a perfect 0.0 and pass this check most easily of all.",
+  inconsistent_consensus_metadata:
+    "The consensus reported a book count and a market width that cannot both be true — a measured width with fewer than two books, or no width with two or more. This should never fire. It exists because 'too few books' and 'no market width' happen to describe the same rows today only while the book-count threshold is two, and nothing in the code ties those two facts together. If you are seeing this, the consensus producer is broken, not the market.",
 };
 
 export default async function RejectionsPage() {

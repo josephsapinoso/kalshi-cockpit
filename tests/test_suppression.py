@@ -276,3 +276,344 @@ class TestAnUnmeasurableWidthRefuses:
     def test_the_detail_says_why_it_could_not_be_measured(self):
         detail = self._evaluate(market_width=None).detail
         assert "fewer than two books" in detail
+
+
+class TestTheAgreementFamilyIsBlindToCorrelatedGarbage:
+    """ADR 0019. Three guards read agreement; none can see a copied line.
+
+    `edge_within_method_noise`, `no_market_width`/`wide_market` and
+    `too_few_books` all ask some version of "do the sources concur?". Placeholder
+    lines concur perfectly, so the whole family is blind to them at once, and a
+    fourth agreement check could not fix it.
+
+    These tests document **reachability**, not occurrence. Whether such a row
+    exists in the live record is a separate census -- see ADR 0019.
+    """
+
+    @staticmethod
+    def _consensus(quotes_by_book):
+        from backend.core.devig import consensus_devig
+
+        consensus, metadata = consensus_devig(
+            ["home", "away"], quotes_by_book
+        )
+        return consensus, metadata
+
+    def test_one_book_on_a_symmetric_line_is_caught_by_book_count(self):
+        """The observed live case, and it IS suppressed -- twice."""
+        consensus, metadata = self._consensus({"A": [1.85, 1.85]})
+
+        result = check(
+            market_width=metadata["market_width"],
+            book_count=metadata["book_count"],
+            edge_tenths=20.0,
+            method_spread_probability=consensus.method_spread("home"),
+        )
+
+        assert result.suppressed
+        assert "too_few_books" in result.reason
+        assert "no_market_width" in result.reason
+
+    def test_two_books_on_a_symmetric_line_are_caught_by_NOTHING(self):
+        """`min_book_count = 2` does not bound the degenerate fair.
+
+        NEXT.md recorded the defect as "all single-book, 0 unsuppressed", which
+        is a fact about rows *observed*. It is not a fact about what the guards
+        *permit*. This is the row they permit.
+        """
+        consensus, metadata = self._consensus(
+            {"A": [1.85, 1.85], "B": [1.85, 1.85]}
+        )
+
+        assert metadata["book_count"] == 2
+        assert metadata["market_width"] == 0.0
+        assert consensus.conservative_probability("home") == pytest.approx(
+            0.5, abs=1e-12
+        )
+
+        result = check(
+            market_width=metadata["market_width"],
+            book_count=metadata["book_count"],
+            edge_tenths=20.0,
+            method_spread_probability=consensus.method_spread("home"),
+        )
+
+        assert not result.suppressed
+        assert result.reason is None
+
+    def test_the_width_check_cannot_see_a_hold_difference_on_a_symmetric_line(self):
+        """Multiplicative devig of a symmetric line is 0.5 regardless of hold.
+
+        Implied probabilities are both `1/o`, booksum `2/o`, so `(1/o)/(2/o)`
+        is exactly 0.5 for every `o`. Two books therefore agree perfectly on
+        `multiplicative[0]` -- which is what `market_width` measures -- even
+        when one charges 33% vig and the other 2.6%.
+
+        So this `0.0` is a *legitimately measured* zero, and the
+        `Optional`-not-zero fix that rescued the one-book case cannot reach it.
+        """
+        from backend.core.devig import devig
+
+        holds = {}
+        for odds in (1.50, 1.85, 1.95):
+            result = devig(["home", "away"], [odds, odds])
+            holds[odds] = result.overround
+            assert result.multiplicative[0] == 0.5
+
+        # The holds really are wildly different; the width check sees none of it.
+        assert holds[1.50] == pytest.approx(0.3333, abs=1e-4)
+        assert holds[1.85] == pytest.approx(0.0811, abs=1e-4)
+        assert holds[1.95] == pytest.approx(0.0256, abs=1e-4)
+
+        _, metadata = self._consensus({"A": [1.50, 1.50], "B": [1.95, 1.95]})
+        assert metadata["book_count"] == 2
+        assert metadata["market_width"] == 0.0
+
+    def test_the_noise_guard_demands_nothing_at_a_pickem(self):
+        """`spread_tenths` IS the minimum edge the guard demands.
+
+        It scales with genuine devig ambiguity, which is the design working --
+        but that means it demands ~zero exactly in the middle of the price band
+        this strategy trades, and only reaches fee scale (20.0 tenths) out past
+        a fair of about 0.26.
+        """
+        from backend.core.prices import PRICE_MAX
+
+        def demanded(odds_a, odds_b):
+            consensus, _ = self._consensus(
+                {"A": [odds_a, odds_b], "B": [odds_a, odds_b]}
+            )
+            return consensus.method_spread("home") * PRICE_MAX
+
+        assert demanded(1.85, 1.85) < 1e-6      # a total no-op
+        assert demanded(1.90, 1.80) < 2.0
+        assert demanded(2.60, 1.44) > 17.0
+
+        # Monotone away from pick'em, which is why no fixed floor is safe.
+        assert demanded(1.85, 1.85) < demanded(1.90, 1.80) < demanded(2.60, 1.44)
+
+
+class TestTheCeilingBoundsFabricatedFairs:
+    """ADR 0019 §4. `edge_ceiling_tenths` has a second, undeclared job.
+
+    It is the only guard standing between a fabricated 0.5 fair and the screen.
+    The older `20.0 <= ceiling <= 60.0` assertion is an inequality, not a pin.
+
+    Measured by deformation rather than asserted: raising the ceiling to **50.0**
+    -- a 25% wider hole -- is green across every test that existed before this
+    class. Raising it to 60.0 *is* caught, but only by
+    `test_a_large_edge_is_treated_as_a_defect`, which happens to use 60.0 as its
+    example edge; that is a coincidence of fixture choice and would evaporate if
+    the fixture were changed to 70.0.
+
+    This pins the *property* instead, so neither raise can pass.
+    """
+
+    FABRICATED_FAIR = 0.49999999999999994
+
+    def _surfacing_asks(self, ceiling_tenths):
+        """Every ask at which a fabricated 0.5 fair would reach the screen."""
+        from backend.core.ev import edge_after_fees_tenths
+
+        surfaced = []
+        for ask in range(1, 1000):
+            net = edge_after_fees_tenths(
+                ask_tenths=ask,
+                contracts=1,
+                fair_probability=self.FABRICATED_FAIR,
+                maker=False,
+            )
+            if 0 < net <= ceiling_tenths:
+                surfaced.append(ask)
+        return surfaced
+
+    def test_a_fabricated_fair_can_only_surface_between_44_and_48_cents(self):
+        """The window is 4.0c wide and the fabrication is nearly right inside it.
+
+        This is what makes the degenerate-fair defect bounded. It is not the
+        guard that was designed to bound it.
+        """
+        asks = self._surfacing_asks(CONFIG.edge_ceiling_tenths)
+
+        assert asks, "the ceiling must not close the window entirely"
+        assert asks[0] == 440, f"window opens at {asks[0]}"
+        assert asks[-1] == 479, f"window closes at {asks[-1]}"
+        assert len(asks) == 40, "exactly 4.0c wide"
+
+    def test_raising_the_ceiling_widens_the_window(self):
+        """Priced, so the cost of relaxing it is on the record rather than felt.
+
+        The day someone raises this to make the screen show something is the
+        same day `min_book_count` comes under pressure. 1c of extra window per
+        10 tenths of ceiling.
+        """
+        assert len(self._surfacing_asks(40.0)) == 40
+        assert len(self._surfacing_asks(50.0)) == 50
+        assert len(self._surfacing_asks(60.0)) == 60
+
+        # And 60.0 is still green under the old inequality assertion.
+        assert 20.0 <= 60.0 <= 60.0
+
+    def test_the_fee_is_flat_across_the_window(self):
+        """Why the 44-48c arithmetic is clean rather than approximate.
+
+        The conservative max-of-models fee is 20.0 tenths at every ask in the
+        window, so the bound is exact and not a linearisation. Stated because
+        deriving it with an *assumed* flat fee would be this repo's
+        "arithmetic that reproduces to the digit says nothing about its inputs".
+        """
+        from backend.core.ev import edge_after_fees_tenths
+
+        for ask in (440, 460, 479):
+            gross = 500 - ask
+            net = edge_after_fees_tenths(
+                ask_tenths=ask,
+                contracts=1,
+                fair_probability=self.FABRICATED_FAIR,
+                maker=False,
+            )
+            assert gross - net == pytest.approx(20.0, abs=0.01)
+
+
+class TestTheDeclaredVocabularyMatchesTheCode:
+    """`ALL_CHECK_NAMES` is in the strategy config hash, so drift is silent.
+
+    If a check is added and the constant is not updated, the new
+    check-vocabulary is pooled with the old one under a single
+    `strategy_config_version` and nothing in the record marks the split.
+    """
+
+    @staticmethod
+    def _names_in_source() -> set[str]:
+        import re
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "backend" / "core" / "suppression.py"
+        ).read_text(encoding="utf-8")
+        # Only the constructor calls, not the tuple that declares them.
+        return set(re.findall(r'Check\(\s*\n?\s*"([a-z_]+)"', source))
+
+    def test_the_regex_still_finds_the_checks(self):
+        """Anchor. Two empty sets agree perfectly -- the vacuous pass this
+        repo has a history of."""
+        found = self._names_in_source()
+        assert len(found) >= 9, f"regex found only {found}"
+        assert "suspicious_edge" in found
+
+    def test_declared_equals_emitted(self):
+        from backend.core.suppression import ALL_CHECK_NAMES
+
+        assert set(ALL_CHECK_NAMES) == self._names_in_source()
+
+    def test_no_duplicates(self):
+        from backend.core.suppression import ALL_CHECK_NAMES
+
+        assert len(ALL_CHECK_NAMES) == len(set(ALL_CHECK_NAMES))
+
+
+class TestTheInvariantCheckCannotFireOnRealInput:
+    """P7, asked for by `pre-registrar` before it would rule ADR 0019 a
+    non-trigger for the clean-shortfall registration.
+
+    `inconsistent_consensus_metadata` was added by ADR 0019. The registration's
+    void condition turns on whether a new check can alter `suppressed_reason`
+    on a row the producer can actually emit. This asserts it cannot -- not by
+    reading the code, but by driving the real producer.
+
+    If this ever goes red, the registration's condition (c) has been broken and
+    the clean population has moved.
+    """
+
+    @staticmethod
+    def _fires(quotes_by_book) -> bool:
+        from backend.core.devig import consensus_devig
+
+        _, metadata = consensus_devig(["home", "away"], quotes_by_book)
+        result = check(
+            market_width=metadata["market_width"],
+            book_count=metadata["book_count"],
+        )
+        return "inconsistent_consensus_metadata" in (result.reason or "")
+
+    def test_it_never_fires_across_the_real_captured_fixture(self):
+        """Every h2h market in the captured Odds API payload, through the real
+        consensus producer with the live sharp-anchoring set."""
+        import json
+        from pathlib import Path
+
+        from backend.core.devig import DevigError, consensus_devig
+        from backend.runner import MONEYLINE, SHARP_BOOKS
+
+        payload = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "tests" / "fixtures" / "odds_mlb_h2h_spreads_totals.json"
+            ).read_text(encoding="utf-8")
+        )
+        events = payload["events"]
+        assert len(events) >= 10, "fixture truncated; this test is now vacuous"
+
+        evaluated = 0
+        for event in events:
+            quotes, outcomes = {}, None
+            for book in event.get("bookmakers", []):
+                for market in book.get("markets", []):
+                    if market.get("key") != MONEYLINE:
+                        continue
+                    names = [o["name"] for o in market["outcomes"]]
+                    prices = [float(o["price"]) for o in market["outcomes"]]
+                    if len(names) != 2:
+                        continue
+                    if outcomes is None:
+                        outcomes = names
+                    if set(names) == set(outcomes):
+                        quotes[book["key"]] = [
+                            prices[names.index(n)] for n in outcomes
+                        ]
+            if not quotes or outcomes is None:
+                continue
+            try:
+                _, metadata = consensus_devig(
+                    outcomes, quotes, sharp_books=SHARP_BOOKS
+                )
+            except DevigError:
+                continue
+            evaluated += 1
+            result = check(
+                market_width=metadata["market_width"],
+                book_count=metadata["book_count"],
+            )
+            assert "inconsistent_consensus_metadata" not in (result.reason or ""), (
+                f"the invariant fired on real captured input: "
+                f"width={metadata['market_width']} "
+                f"book_count={metadata['book_count']}"
+            )
+
+        assert evaluated >= 10, f"only {evaluated} events evaluated"
+
+    def test_it_never_fires_on_one_book_or_on_many(self):
+        assert not self._fires({"A": [1.85, 1.85]})
+        assert not self._fires({"A": [1.85, 1.85], "B": [1.91, 1.91]})
+        assert not self._fires({"A": [1.55, 2.55], "B": [1.57, 2.50]})
+        assert not self._fires(
+            {"A": [1.55, 2.55], "B": [1.57, 2.50], "C": [1.60, 2.45]}
+        )
+
+    def test_but_it_DOES_fire_when_the_invariant_is_actually_violated(self):
+        """Otherwise the three tests above pass vacuously.
+
+        These two states are unreachable from `consensus_devig`, which derives
+        both fields from `len(selected)`. They are exactly what a future
+        producer could get wrong.
+        """
+        measured_width_but_one_book = check(market_width=0.01, book_count=1)
+        no_width_but_many_books = check(market_width=None, book_count=4)
+
+        assert "inconsistent_consensus_metadata" in (
+            measured_width_but_one_book.reason or ""
+        )
+        assert "inconsistent_consensus_metadata" in (
+            no_width_but_many_books.reason or ""
+        )

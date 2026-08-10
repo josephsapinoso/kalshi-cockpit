@@ -278,35 +278,30 @@ class TestFreshness:
         dk = next(q for q in quotes if q.bookmaker == "draftkings")
         assert dk.age_ms(NOW) == 20 * 60 * 1000
 
-    def test_sharp_books_are_flagged(self):
-        def quote(book):
-            return OddsQuote(
-                fetched_ms=NOW, book_updated_ms=NOW, sport_key="s",
-                odds_event_id="e", commence_ms=NOW, home_team="H", away_team="A",
-                bookmaker=book, market="h2h", outcome_name="H",
-                outcome_point=None, price_decimal=2.0,
-            )
-        assert quote("pinnacle").is_sharp
-        assert not quote("draftkings").is_sharp
+    def test_this_module_no_longer_defines_a_second_sharp_set(self):
+        """ADR 0019. There were two `SHARP_BOOKS` and only one anchored money.
 
-        # `is_sharp` must be a PROPERTY, not a method. As a bare `def` between
-        # two `@property` neighbours, `if quote.is_sharp` -- the way anyone
-        # would write it -- binds a method object and is truthy for every book.
-        # A live capture showed all 30 bookmakers reporting sharp, FanDuel and
-        # DraftKings included. This asserts the shape, not just the value.
-        assert isinstance(quote("draftkings").is_sharp, bool), (
-            "is_sharp must be a @property; as a method it is always truthy"
+        This module's copy was `{pinnacle, betonlineag, lowvig, circasports}`
+        against `runner.py`'s `{pinnacle, betfair_ex_eu, betfair_ex_uk,
+        matchbook}` -- one shared member out of four, under nearly identical
+        comments -- and its only reader was an `is_sharp` property with no
+        production caller. Two definitions of one concept, free to disagree
+        forever without a symptom.
+
+        Asserted as an absence, because the failure this prevents is somebody
+        re-adding a local 'sharp' notion here rather than using the one that
+        anchors the consensus.
+        """
+        import backend.odds.client as client
+
+        assert not hasattr(client, "SHARP_BOOKS"), (
+            "a second SHARP_BOOKS is back in odds/client.py; the consensus "
+            "anchors on runner.SHARP_BOOKS and two definitions will diverge"
         )
-
-    def test_the_sharp_set_is_the_documented_one(self):
-        """Three books, not thirty. Sharp-anchoring that includes every book is
-        the unweighted average wearing a rigorous name."""
-        from backend.odds.client import SHARP_BOOKS
-
-        assert "pinnacle" in SHARP_BOOKS
-        assert "draftkings" not in SHARP_BOOKS
-        assert "fanduel" not in SHARP_BOOKS
-        assert len(SHARP_BOOKS) <= 5, f"{len(SHARP_BOOKS)} 'sharp' books is not a filter"
+        assert not hasattr(OddsQuote, "is_sharp"), (
+            "is_sharp is back and has no production caller; anchoring goes "
+            "through consensus_devig(sharp_books=runner.SHARP_BOOKS)"
+        )
 
 
 class TestMalformedInput:

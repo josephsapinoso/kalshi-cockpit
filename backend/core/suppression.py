@@ -26,6 +26,14 @@ from typing import Optional
 
 from .prices import PRICE_MAX
 
+# The number of contributing books below which `consensus_devig` reports
+# `market_width = None`. This is **not** `SuppressionConfig.min_book_count`:
+# it is `devig.py`'s own hardcoded `len(first_values) > 1`, and the two are
+# equal today by coincidence rather than by construction. Named here so the
+# invariant check below is written against the producer's rule, not against a
+# threshold that is free to move. See ADR 0019.
+_CONSENSUS_NEEDS_TWO_BOOKS = 2
+
 
 @dataclass(frozen=True)
 class SuppressionConfig:
@@ -59,6 +67,24 @@ class SuppressionConfig:
     # Edge above this is treated as evidence of a defect, not an opportunity.
     # 40 tenths = 4c. Kalshi prices to ~2c, so 4c is already well outside what
     # the venue plausibly leaves lying around.
+    #
+    # **This threshold has a SECOND job it was never justified for, and it is
+    # now load-bearing: it is the only thing bounding a fabricated fair.** See
+    # ADR 0019. The agreement-based guards -- method spread, market width, book
+    # count -- are uniformly blind to correlated garbage, because placeholder
+    # lines agree with each other perfectly. Two books quoting a symmetric
+    # two-way line produce `fair = 0.5`, `market_width = 0.0` and a method
+    # spread of ~1e-11, and pass every one of them.
+    #
+    # What stops such a row is the arithmetic here. At the deployed taker fee
+    # (flat 20.0 tenths across this band) a fabricated 0.5 fair only clears
+    # `0 < net_edge <= 40.0` when the ask sits in **[440, 479] tenths = 44.0c
+    # to 47.9c** -- a 4.0c window in which the fabrication is nearly right
+    # anyway. Raising the ceiling widens that window by 1c per 10 tenths.
+    #
+    # `TestTheCeilingBoundsFabricatedFairs` pins the property directly, because
+    # the older `20.0 <= ceiling <= 60.0` assertion is an inequality, not a pin,
+    # and stays green while the hole grows by half.
     edge_ceiling_tenths: float = 40.0
 
     # Minimum contracts that must be available at the quoted ask. An edge you
@@ -67,6 +93,43 @@ class SuppressionConfig:
 
     # Require at least this many books before trusting a consensus.
     min_book_count: int = 2
+
+
+# Every code `evaluate_suppression` can write into `suppressed_reason`.
+#
+# **This is part of the strategy config hash, and it has to be.** ADR 0019 and
+# `runner.py`'s own rule -- *"everything the counted column depends on, and
+# nothing else"* -- require that anything able to move `actionable` mints a new
+# `strategy_config_version`. `actionable` is
+# `suppressed_reason IS NULL AND reference_contracts > 0`, so the **set of
+# checks** determines it exactly as much as the thresholds do.
+#
+# Only `SuppressionConfig.__dict__` was hashed before, which is a set of
+# *field values*. Adding, removing or renaming a check changes no field, so it
+# minted no version, so two check-vocabularies would have been pooled into one
+# dataset with nothing recording the split. That is the same defect
+# `measurement-skeptic` already found here once, when `kelly_fraction` was in
+# the hash and `max_order_contracts` was not.
+#
+# Held as a declared constant rather than derived at runtime because the codes
+# depend on which branch each input takes -- `no_depth` and
+# `insufficient_depth` are mutually exclusive on any single call, so no one
+# evaluation observes them all. `TestTheDeclaredVocabularyMatchesTheCode` reads
+# the source and fails if this list drifts from the `Check(...)` names.
+ALL_CHECK_NAMES: tuple[str, ...] = (
+    "stale_kalshi_quote",
+    "stale_odds",
+    "no_commence_time",
+    "commence_skew",
+    "no_depth",
+    "insufficient_depth",
+    "too_few_books",
+    "no_market_width",
+    "wide_market",
+    "inconsistent_consensus_metadata",
+    "edge_within_method_noise",
+    "suspicious_edge",
+)
 
 
 @dataclass(frozen=True)
@@ -139,12 +202,31 @@ def evaluate_suppression(
             f"(limit {config.max_kalshi_quote_age_ms / 1000:.0f}s)",
         )
     )
+    # **The message used to read "book last moved {x}min ago". That was false**,
+    # and the correction is wording only -- when this fires is unchanged. See
+    # ADR 0020 (queued), which owns the remedy; this is the honest description of
+    # what the number already is.
+    #
+    # `odds_age_ms` is measured from The Odds API's `last_update`, which is a
+    # **scrape** timestamp, not a **reprice** timestamp. Measured on the captured
+    # fixture (15 MLB events, 30 books): 440 of 440 book+event triples carry one
+    # identical stamp across h2h, spreads and totals, and 27 of 30 books have
+    # exactly one distinct stamp across all fifteen games -- FanDuel reports
+    # `13:49:00Z` for three markets on fifteen different games. No book reprices
+    # fifteen moneylines, run lines and totals in the same second.
+    #
+    # So this measures **how long since the aggregator last polled the book**,
+    # not how long since the line moved. A book that has not repriced in six
+    # hours reads as perfectly fresh for as long as the aggregator keeps
+    # scraping it. The guard still does real work -- it catches our own sweep
+    # having gone stale -- but it is not the check its name implies.
     checks.append(
         Check(
             "stale_odds",
             odds_age_ms <= config.max_odds_age_ms,
-            f"book last moved {odds_age_ms / 60000:.1f}min ago "
-            f"(limit {config.max_odds_age_ms / 60000:.0f}min)",
+            f"book last scraped {odds_age_ms / 60000:.1f}min ago "
+            f"(limit {config.max_odds_age_ms / 60000:.0f}min); this is the "
+            f"aggregator's poll time, not the last time the line moved",
         )
     )
 
@@ -213,6 +295,32 @@ def evaluate_suppression(
                 f"(limit {config.max_market_width * 100:.0f})",
             )
         )
+
+    # `too_few_books` and `no_market_width` fire on the identical condition
+    # today -- 185 rows each over a 1,000-row sample, symmetric difference 0 --
+    # and that reads as a case for merging them. It is not. **The equivalence
+    # holds only at `min_book_count == 2`, and is coupled by nothing:**
+    # `devig.py:312` hardcodes a literal `1` (`len(first_values) > 1`) while the
+    # check above reads `config.min_book_count`, and the config object is not
+    # even in scope inside `consensus_devig`. Set `min_book_count = 3` and a
+    # two-book row fails `too_few_books` while its width is a real measured
+    # float. Two limits on one quantity, currently equal by coincidence.
+    #
+    # So keep both codes -- they mean different things to a reader ("there was
+    # no second book" vs "the books disagree") -- and assert the producer's
+    # invariant instead, which is the thing that was previously only true by
+    # accident. See ADR 0019.
+    width_says_thin = market_width is None
+    count_says_thin = book_count < _CONSENSUS_NEEDS_TWO_BOOKS
+    checks.append(
+        Check(
+            "inconsistent_consensus_metadata",
+            width_says_thin == count_says_thin,
+            f"market_width is {'None' if width_says_thin else 'measured'} but "
+            f"book_count is {book_count} -- the consensus producer reported a "
+            f"width and a book count that cannot both be true",
+        )
+    )
 
     # --- the edge itself --------------------------------------------------
     # Measured on real lines: the four devig methods spread ~0.18 points on an

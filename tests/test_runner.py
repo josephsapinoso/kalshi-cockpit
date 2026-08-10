@@ -1049,3 +1049,41 @@ class TestThePassLineReportsWhetherTheFleetRan:
         that had abandoned the filter entirely.
         """
         assert "dropped_no_books" not in PassCounts().as_dict()
+
+
+class TestTheSharpSetThatActuallyAnchors:
+    """ADR 0019. The guard used to sit on the copy that anchored nothing.
+
+    `backend/odds/client.py` carried a second `SHARP_BOOKS` with its own
+    assertions, while `runner.SHARP_BOOKS` -- the set passed to
+    `consensus_devig` at `runner.py:647`, and therefore the only one that
+    decides what the fair price is built from -- had no guard at all. The dead
+    copy is deleted; these assertions move here, onto the live one.
+    """
+
+    def test_the_live_sharp_set_is_a_filter_not_a_synonym_for_every_book(self):
+        from backend.runner import SHARP_BOOKS
+
+        assert "pinnacle" in SHARP_BOOKS
+        assert "draftkings" not in SHARP_BOOKS
+        assert "fanduel" not in SHARP_BOOKS
+        assert len(SHARP_BOOKS) <= 5, (
+            f"{len(SHARP_BOOKS)} 'sharp' books is not a filter -- anchoring on "
+            f"everything is the unweighted average wearing a rigorous name"
+        )
+
+    def test_it_is_the_set_consensus_devig_is_actually_given(self):
+        """Pins the wiring, not just the contents.
+
+        A correct set that nothing passes to `consensus_devig` is the failure
+        the deleted copy actually was.
+        """
+        import inspect
+
+        from backend import runner
+
+        source = inspect.getsource(runner)
+        assert "sharp_books=SHARP_BOOKS" in source, (
+            "runner defines SHARP_BOOKS but no longer hands it to "
+            "consensus_devig; anchoring has silently become unweighted"
+        )
