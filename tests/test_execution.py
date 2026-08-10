@@ -9,12 +9,14 @@ a live buy at 99c in the predecessor project.
 
 from __future__ import annotations
 
+import ast
 import logging
 import math
 import random
 import sqlite3
 import statistics
 import time
+from pathlib import Path
 
 import pytest
 
@@ -47,6 +49,7 @@ from backend.kalshi.orders import (
     status_from_counts,
 )
 from backend.store import db
+from backend.store.orders import ORDERS_ARE_DRY_RUNS
 
 DAY_MS = 86_400_000
 
@@ -290,6 +293,105 @@ class TestOrderPlacer:
 
         outcome = await OrderPlacer(observers=[explode]).place(order())
         assert outcome.status == "dry_run"
+
+
+# Directories that are not the deployed system. Mirrors
+# `tests/test_has_callers.NOT_A_CALLER` and for the same reason: `.claude`
+# holds parallel lanes' worktrees, which are full second copies of the repo,
+# so walking them lets another branch's source decide whether `main` passes.
+NOT_PRODUCTION = ("tests", "warehouse", ".venv", "node_modules", "__pycache__", ".claude")
+
+
+def _production_sources():
+    root = Path(__file__).resolve().parent.parent
+    for path in root.rglob("*.py"):
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        if any(part in NOT_PRODUCTION for part in rel.split("/")):
+            continue
+        yield rel, path
+
+
+class TestArmingRealTradingIsACodeChange:
+    """No configuration turns the order path live. Only an edit does.
+
+    `ORDERS_ARE_DRY_RUNS` is a module constant with no environment read, and
+    the one production construction of `OrderPlacer` takes it. So
+    `LIVE_TRADING_ENABLED` satisfies one gate condition and moves no money --
+    see `docs/adr/0018`, which exists because `gate.py`'s wording invites the
+    opposite reading.
+
+    **Why this is source analysis rather than a behavioural test.** Driving the
+    endpoint and asserting "no POST happened" would pass for the wrong reason:
+    `routes.py` constructs the placer with no REST client, so flipping the
+    constant to `False` raises `OrderRefused` at construction instead of
+    placing an order. That second barrier is real and is recorded in the ADR,
+    but a test standing behind it proves nothing about the first one. These two
+    assertions fail on their own subject, verified by making the edits:
+
+        constant -> False                      first assertion red
+        call site -> dry_run=False             second red
+        call site -> dry_run=True (harmless!)  second red -- the drift the
+                                               constant exists to prevent
+        walker looks for the wrong name        second red on `found >= 2`
+    """
+
+    def test_the_dry_run_constant_is_true(self):
+        assert ORDERS_ARE_DRY_RUNS is True, (
+            "the order path is armed. This is not a config change and must not "
+            "be made as a side effect of one -- ADR 0018 enumerates what else "
+            "has to move with it, starting with the REST client that "
+            "`routes.py` does not pass."
+        )
+
+    def test_no_production_call_site_arms_the_placer(self):
+        """Every `OrderPlacer(...)` outside tests takes the constant or the default.
+
+        A hardcoded boolean at a call site is the specific regression, and it is
+        not benign even when the boolean is `True`: the constant exists because
+        the endpoint's advisory exposure read and `reserve_order`'s
+        authoritative check must agree about which exposure population an order
+        sizes against, and two literals in two files are free to stop agreeing.
+        See `backend/store/orders.py:121-128`.
+        """
+        offenders: list[str] = []
+        found = 0
+        for rel, path in _production_sources():
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):        # a lane rewriting its file
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (
+                    func.id if isinstance(func, ast.Name)
+                    else getattr(func, "attr", None)
+                )
+                if name != "OrderPlacer":
+                    continue
+                found += 1
+                keywords = {k.arg: k.value for k in node.keywords if k.arg}
+                if "dry_run" not in keywords:
+                    # The default, which `test_dry_run_is_the_default` pins.
+                    continue
+                given = keywords["dry_run"]
+                if isinstance(given, ast.Name) and given.id == "ORDERS_ARE_DRY_RUNS":
+                    continue
+                offenders.append(
+                    f"{rel}:{node.lineno} passes dry_run={ast.unparse(given)}"
+                )
+
+        # A walker that finds nothing passes vacuously, which is how this shape
+        # of test goes green after the call site it was written for moves.
+        assert found >= 2, (
+            f"found {found} OrderPlacer constructions in production sources; "
+            f"expected at least the API endpoint and scripts/demo_execution.py. "
+            f"The walker has stopped seeing the call sites it exists to check."
+        )
+        assert not offenders, (
+            "a production call site sets dry_run itself: " + "; ".join(offenders)
+        )
 
 
 class TestTheV2ResponseIsUnverifiedAndSaysSo:

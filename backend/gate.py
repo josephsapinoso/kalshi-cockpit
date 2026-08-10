@@ -45,6 +45,14 @@ Five conditions, and all must hold:
    evidence conditions, so satisfying the statistics does not by itself arm the
    system.
 
+   **It is necessary and not sufficient, and the wording here used to invite
+   the opposite reading.** Every sentence above is true of the flag and none of
+   them says what the flag is *enough* for. It is not enough for anything: the
+   order path is dry-run by `store.orders.ORDERS_ARE_DRY_RUNS`, a module
+   constant with no environment read, so this condition can be met and
+   `POST /api/orders` still places nothing. Arming real trading is a code
+   change. See `docs/adr/0018` for what would have to move, in order.
+
 Why this is re-checked server-side
 ----------------------------------
 The Board greys out a stale opportunity and disables the button. That is a hint
@@ -690,11 +698,20 @@ def evaluate_gate(
         Condition(
             name="config_enabled",
             met=gate.live_trading_enabled,
+            # Both branches say what the flag is *not* sufficient for, because
+            # the old wording — true about the flag, silent about its reach —
+            # read as "this is the switch that arms trading". It is not: the
+            # order path is dry-run by a code constant. ADR 0018.
             detail=(
-                "LIVE_TRADING_ENABLED is on"
+                "LIVE_TRADING_ENABLED is on — this condition only. The order "
+                "path is still dry-run by ORDERS_ARE_DRY_RUNS in code, so no "
+                "real order can be placed (docs/adr/0018)"
                 if gate.live_trading_enabled
                 else "LIVE_TRADING_ENABLED is off — arming is a deliberate human "
-                     "act, kept separate from the evidence conditions"
+                     "act, kept separate from the evidence conditions. Turning "
+                     "it on satisfies this condition and moves no money: the "
+                     "order path is dry-run by ORDERS_ARE_DRY_RUNS in code "
+                     "(docs/adr/0018)"
             ),
         ),
     ]

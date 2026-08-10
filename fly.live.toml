@@ -17,8 +17,42 @@
 #     ODDS_API_KEY=... \
 #     APP_AUTH_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
 #
-# ANTHROPIC_API_KEY and DISCORD_* are optional: the agent fleet and the notifier
-# are not wired into the runner, so nothing reads them yet.
+# ANTHROPIC_API_KEY and DISCORD_* are optional. This note used to say "the agent
+# fleet and the notifier are not wired into the runner, so nothing reads them
+# yet". **Both halves are false.** Corrected 2026-08-09 by reading the code; see
+# `docs/adr/0018`.
+#
+#   * The notifier is wired and DISCORD_* is read on **every boot**.
+#     `scripts/run_loop.py:278` calls `DiscordConfig.from_env()`, and
+#     `run_loop.py:289-291` enters `DiscordNotifier` and hands it to `Alerter`,
+#     which runs on every pass. Unset, `from_env` returns None, the loop logs a
+#     warning, and nothing reaches a phone.
+#   * The fleet is wired. `runner.run_pricing_pass` (backend/runner.py:489)
+#     defaults `review=review_surfaced`, and both production callers --
+#     `run_once` and `run_quote_pass` -- go through it. The LLM Skeptic runs on
+#     every pricing pass.
+#
+# **The trap, and it applies to THIS file specifically.** There are two
+# independent reasons the Anthropic bill is zero, and only one of them is
+# config:
+#
+#   1. `review_surfaced` (backend/agents/review.py:194) returns on an empty
+#      candidate list *before* it reads the environment.
+#   2. Failing that, `AgentConfig.from_env()` returns None without a key and
+#      every row comes back untouched (review.py:197-200).
+#
+# On a local instance reason 2 is doing the work. **On live it is not**: live
+# reports `agent_fleet_configured: true`, so the key IS set, and the only thing
+# standing between this deployment and a live Anthropic bill is reason 1 --
+# `_review_and_persist` (backend/runner.py:750) passes only rows where
+# `recommendation.surfaced` holds, and `surfaced` has been 0 for the life of
+# the record.
+#
+# So on live the spend is gated by a *measurement outcome*, not by config. The
+# first slate that surfaces a row starts billing -- one call per surfaced row
+# per pass, against a pass cadence of ~96 a day -- with nobody having budgeted
+# it. Set a spend limit on the Anthropic account; do not rely on the key being
+# absent, because here it is not.
 #
 # The Kalshi RSA private key is a file rather than a string, so it travels as
 # KALSHI_PRIVATE_KEY_B64 and `docker/entrypoint.sh` decodes it into /dev/shm --
