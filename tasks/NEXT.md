@@ -1,5 +1,206 @@
 # Next — your checklist
 
+## 2026-08-10 — `partner` re-triaged: calibration is the CONTROL for the edge test
+
+The queue changed for a reason nobody had stated. **Read this before picking up
+anything below it.**
+
+### Why D2 (calibration) is now top, and it is not close
+
+If `model_probability` is NULL and nothing reads it, then `fair_probability` —
+the worst-of-four devigged consensus — **is the entire model**. So
+`actionable = 0` reduces to a single claim: *Kalshi's ask is at or above our
+worst-of-four fair, essentially always.* Two explanations fit that equally well:
+
+- **(a)** Kalshi is sharp and correctly priced. Premise refuted; the answer is no.
+- **(b)** Our fair is systematically too low **because we chose to make it so.**
+
+CLAUDE.md rule 2 takes the **minimum** across four devig methods on the side
+being bought. That is a deliberate downward bias on fair value, and a downward
+bias mechanically produces `edge <= 0`. `schema.sql:295` is blunter than the
+rule is — *"Three layers of conservatism (worst method, derived ask, fee-net) is
+deliberate."*
+
+Now set that beside the arithmetic already in `tasks/lessons.md`: **the
+devig-method spread runs 1–2 percentage points, and the taker headroom is 0.38
+points.** If the conservatism costs anywhere near its own spread, the
+worst-of-four rule is eating **three to five times the entire edge being
+hunted** — and `actionable = 0` is partly a restatement of our own policy rather
+than a fact about the venue.
+
+**(b) is not a reprieve and it is not a bug.** It is a policy consequence that
+has never been priced.
+
+### What makes it answerable today
+
+`fair_prices` stores **all five** — `p_multiplicative`, `p_additive`, `p_power`,
+`p_shin`, `p_conservative` (`schema.sql:290-297`) — and
+`recommendations.fair_price_id` FKs straight to it. With 1,601 outcomes now
+recorded, **D2's scope expands from one calibration curve to five**: each method
+against realised outcomes.
+
+That puts a measured number on what rule 2 costs. **Lane A measures where the
+edge distribution sits; D2 measures whether the ruler is straight.** Running A
+without D2 reports a distribution in units nobody has validated.
+
+### Three guardrails, because this is the flattering direction
+
+1. **Pre-register before looking**, jointly with the Lane A registration, so the
+   five curves and the bucket edges are fixed together and this cannot become
+   five chances to find one.
+2. **Count the tests.** Five methods x price buckets is exactly the 1,190-cell
+   shape that produced "dozens of significant results" in the predecessor.
+   `mart_multiple_comparisons` logic must travel with it — and note
+   `audit-2026-08-07.md` item 7 says that counter already undercounts.
+3. **This is NOT licence to weaken rule 2.** The rule stands until a measurement
+   retires it. *"Measure what the guard costs against outcomes"* and *"relax the
+   guard because it fires too often"* are different acts, and the difference is
+   on the record here so that nobody quoting a number from this can blur them.
+
+### Lane B: `offset` is promoted to a prerequisite
+
+Not a convenience. `/api/ledger` returns the newest 1,000 of 1,529 and the
+record grows ~500-600 rows/day (measured: +67 in ~3h), so by the time the bundle
+ships it is closer to half the table.
+
+**And the bias is not benign.** `engine.persist_if_changed` writes a new row only
+when the ask or the fair *moved*, so rows-per-game tracks **price volatility** —
+and a slice weighted toward high-row-count games is weighted toward volatile,
+uncertain, wide-disagreement games. That is the direction that **inflates an
+apparent edge.** Running the decisive measurement on that slice is not
+acceptable.
+
+`partner` reversed its own preference here, and the reason generalises: it
+wanted a server-side aggregate route returning the histogram directly, but
+**batched deploys kill that** — baking bucket edges into a release means waiting
+for the next bundle every time `measurement-skeptic` wants a different cut. Raw
+rows pulled once, analysed in a tested local module, re-cut freely, is strictly
+better under slow deploys.
+
+### The bundle, final — four items, nothing else
+
+1. **`offset` on `/api/ledger`** — smallest, and Lane A's credibility depends on it.
+2. **The calibration route**, all five methods. Needs a server-side join
+   (`kalshi_markets.result` x `fair_prices.p_*`) the ledger payload cannot
+   supply, so a route is right here even though a local module is right for A.
+3. **`unreadable_examples`** — already built (`4473641`).
+4. Nothing else.
+
+**One addition considered and REJECTED, because the reason generalises.**
+Persisting `binding_constraint` would turn R2 into a `GROUP BY` instead of a
+reconstruction. The only cheap way is widening the f-string at `engine.py:219`
+to append `sizing:{...}` — but that writes into **`suppressed_reason`, which is
+half the `actionable` predicate.** That would *change what the gate counts in
+order to make a measurement easier.* Refused. It is reconstructable from
+`edge_tenths` (`NOT NULL` on every row), so refusing costs nothing.
+
+### Kills, and no resurrections
+
+- **`publish.py` as a boot-time step — killed.** With programmatic read access a
+  **pull-based archiver** is simpler, needs no deploy, is testable locally, and
+  adds nothing that runs at boot on live. A pull script that fails is a laptop
+  job that never touched production; the standing question *"what clears it if
+  it fails?"* answers itself.
+- **The maker histogram as a standalone item — killed.** It is R3 inside Lane
+  A's registration. Double-tracking it means running it twice with different
+  bucket edges, and the more interesting answer is the one that gets quoted.
+- **The 219 — explicitly deferred, not investigated.** Reason recorded so it does
+  not resurface: `abandoned_total: 0` makes it 12% missing from a *future*
+  sample, not a leak. Revisit only if calibration comes back power-limited.
+- **No resurrections.** The backfill is *further* dead: the live question moved
+  from "collect more decisions" to "is our devig biased", which is answerable on
+  data already on disk, while Phase 0 harvests Kalshi **bars, not outcomes.**
+
+### On `elo.py` — do not wire it up to make the documentation true
+
+It is written, tested, and has no caller — the fifth in that pattern. *"It is
+already built, we may as well"* is how a sunk cost becomes a strategy, and
+wiring it would be engineering around the finding in the exact way the standing
+instruction forbids: **it changes what is measured so the zero stops being a
+zero.**
+
+One conditional under which it earns a look, and it is downstream of both
+measurements: if calibration shows the consensus fair is *well* calibrated **and**
+Lane A shows the edge distribution centred just below zero, a second independent
+signal could plausibly add information rather than paper over an absence. That
+is a decision for after both, not before either.
+
+---
+
+## 2026-08-10 — the power-ratings finding is AUDITED, and `no_edge` may be misnamed
+
+`runtime-realist` confirmed the claim, corrected one overstatement of mine, and
+produced an argument stronger than the one I had. **CLAUDE.md is corrected.**
+
+### The correction to my own claim
+
+I wrote that `model_probability` is "read by nothing". Too strong.
+`/api/ledger`'s `SELECT *` fetches it and `_serialise` (`routes.py:1820`) drops
+it key by key; `warehouse/models/staging/stg_recommendations.sql:60` selects it
+and no mart references it. Accurate phrasing: **written to the database, carried
+into one staging view, and consumed by no decision anywhere.**
+
+Also found, and neither was in my version: `elo.py` **is shipped into the
+container** (`.dockerignore` excludes `tests/` and `scripts/*` but not
+`backend/`), so it is deployed and never imported. And `tests/test_has_callers.py`
+never caught the orphan because `EloModel`/`backtest` are simply **not in its
+`MUST_HAVE_CALLERS` list** (lines 77-159) — the detector's coverage is opt-in, so
+absence from the list is indistinguishable from having a caller. Adding them
+would turn CI red, correctly; **that is a kill-or-keep decision for `partner`,
+not a test fix.**
+
+`seed_demo.py:268` also omits `model_probability`, so demo and live are
+identical on this point. The specific way the claim could have been half-true is
+closed.
+
+### THE ARGUMENT THAT SETTLES IT — a conjunction cannot rescue an empty set
+
+As documented, the second signal was a **conjunction**: "surfaces opportunities
+where *both agree*." A conjunction only ever removes rows from the surfaced set.
+**Adding an AND-gate to a set that is already empty leaves it empty.** So the
+missing half cannot explain `actionable = 0` away — not as a matter of judgement
+about informational efficiency, but arithmetically.
+
+A *different* design — blending a model probability into `fair_probability` to
+move the edge — could shift rows either way. That is a new decision needing its
+own ADR, not the completion of an existing one. **Do not let it be smuggled in
+as "finishing what was started".**
+
+### THE OPEN QUESTION THIS RAISED, and it may be the real one
+
+`actionable` splits on `reference_contracts > 0`, so **sizing is at least as
+likely a cause of the zero as edge is.** Look at the two predicates together
+(`gate.py:323-324`):
+
+    actionable   suppressed_reason IS NULL AND reference_contracts > 0
+    no_edge      suppressed_reason IS NULL AND (reference_contracts IS NULL
+                                                OR reference_contracts <= 0)
+
+So the 614 `no_edge` rows are rows that **passed every suppression rule** —
+staleness, book count, market width, method noise — and were then sized to zero
+contracts at the $1,000 reference bankroll.
+
+`no_edge` is therefore a name for two different things that nobody has
+separated: *"the edge was negative or zero"* and *"the edge was positive but too
+small to round up to one contract"*. Rough arithmetic (**computed from code, not
+measured**): at $1,000, quarter-Kelly, 50c, a Kelly fraction around 0.002 sizes
+to ~1 contract, so anything below roughly that rounds to zero and is filed as
+`no_edge`.
+
+**If a meaningful share of those 614 rows carry a small positive edge, then
+`actionable = 0` is partly a sizing artifact and partly a finding, and the
+current reporting cannot tell you which.** That is precisely what the fresh-odds
+edge-distribution pre-registration is built to answer, which raises its value —
+it is no longer only "is there an edge", it is "is the counter measuring what
+its name says".
+
+**Do not act on this before the pre-registration is written.** The temptation is
+to go and look at the 614 immediately; the record has already been partly seen,
+and an unregistered cut here is exactly the fishing expedition the registration
+exists to prevent.
+
+---
+
 ## 2026-08-10 — DEPLOYED, D1 is answered, and deploys are now BATCHED
 
 `ec53ba9` deployed to live ~01:55Z and verified independently, not by the

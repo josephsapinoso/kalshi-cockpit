@@ -7,9 +7,38 @@ loaded only when working in that area. Read `tasks/todo.md` and
 ## What this is
 
 A cockpit for betting sports on Kalshi. It compares Kalshi's prices against
-devigged sportsbook consensus and an in-house power-ratings model, surfaces
-opportunities where both agree Kalshi is mispriced by more than the fee, and
-records everything so the edge can be *measured* rather than assumed.
+devigged sportsbook consensus, surfaces opportunities where that consensus says
+Kalshi is mispriced by more than the fee, and records everything so the edge can
+be *measured* rather than assumed.
+
+**There is one signal, not two.** Until 2026-08-10 this paragraph described a
+second, in-house power-ratings model and said the tool surfaces where *both
+agree*. That has never run. `backend/model/elo.py` is imported only by
+`backend/model/backtest.py`, which is imported only by `tests/test_model.py` —
+no production caller, on either instance. `model_probability` is `NULL` on every
+row (`runner.py:684` does not pass it; `engine.py:58` defaults it to `None`),
+and while `/api/ledger`'s `SELECT *` and one dbt staging view fetch the column,
+both drop it: no suppression rule, sizing calculation, EV computation, gate
+condition or API response consumes it. **Any claim that two signals must "agree"
+describes a design, not the deployed system.**
+
+The file:line citations are deliberate. This belief has now been wrong twice in
+the same direction, and a future session can re-check a line number in thirty
+seconds but cannot re-check an adjective.
+
+**Do not read this as a reprieve, and the reason is arithmetic rather than
+judgement.** As documented, the second signal was a *conjunction* — "where both
+agree". A conjunction only ever removes rows from the surfaced set; it cannot
+add one. Adding an AND-gate to a set that is already empty leaves it empty, so
+the missing half **cannot** explain `actionable = 0` away. A different design
+— blending a model probability into `fair_probability` to move the edge — could
+shift rows either way, but that is a new decision, not the completion of an
+existing one, and it would need its own ADR.
+
+What the correction changes is the *description*: the record must not be written
+up as "the documented strategy produced zero actionable rows", because that
+sentence credits a two-signal system that never existed. It is **the
+consensus-only strategy** that produced zero.
 
 It runs hosted on Fly.io (not a laptop), is used from a phone, and is intended
 to become a public portfolio repo.
