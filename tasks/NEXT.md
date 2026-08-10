@@ -11,8 +11,15 @@ deployed, nothing here spends money.
 The "census the minimum `KXMLBGAME` ask per event" item in the next section has
 been run against the stored record. **85 events, 6 slates, 0 of 51,286 pre-game
 observations below 20c.** Cheapest pre-game ask ever recorded **26.0c**; p1
-**28.5c**. Cross-checked against `closing_lines.yes_ask_tenths`, which is
-independently sourced and puts the floor at **29.0c** — two sources, same wall.
+**29.0c**, p5 **37.0c**. Cross-checked against `closing_lines.yes_ask_tenths`,
+which is independently sourced and puts the floor at **29.0c** — two sources,
+same wall.
+
+*(Corrected 2026-08-10: this line previously read "p1 **28.5c**". That figure
+reproduces from neither the census nor the audit — both return p1 29.0c. The
+audit's own cut, pinned two minutes earlier at 16:58Z, counts 51,206 pre-game
+observations rather than 51,286; neither number is wrong and both are printed
+with their cut in the result document.)*
 
 **Sub-15c prices exist in the record only 140–215 minutes after first pitch**,
 i.e. deep in-play. There is no pre-game route to the band.
@@ -31,10 +38,58 @@ where the price is coming from. See
 nothing about September, nothing about a winter slate, and nothing about any
 other series. It refutes the band on the population it covers and no wider.
 
-**Status of the write-up:** the formal result document is **pending the
-skeptic's audit** and is deliberately not written yet. These figures are
-recorded here so the question is not re-asked; treat them as unreleased until
-that document lands.
+**Status of the write-up: THE AUDIT HAS LANDED AND THE FLAG IS LIFTED.** The
+`measurement-skeptic` lane exported the raw slice, recomputed off-machine with
+its own code, and returned **SURVIVES WITH QUALIFICATION** — every headline
+number reproduced, all deltas explained by a two-minute cut difference. These
+figures are **released** and citable:
+
+> **`docs/measurements/2026-08-10-price-band-reachability-census-result.md`**
+
+The five harnesses are committed at `scripts/census_band_reachability*.py`.
+Cite the result document, not this section.
+
+**Two qualifications travel with every figure above and below. Do not quote one
+without them.**
+
+1. **`n` is 4 game-days, not 696 instants.** The 696 polling instants are
+   **uptime, not evidence**: 64% of them come from a single observation day
+   (2026-08-09) and 261 polling sessions cover all of them. The honest
+   independent units are **4 game-days, 55 events, 330 pre-game markets, 45
+   markets that ever supplied a low ask, 56 low-band episodes**. Concentration
+   is good (largest market 8.1% of low rows, largest event 9.2%, all four
+   slates contribute) but the deep tail is thin: only **3 markets and 3 events**
+   ever printed below 10c.
+2. **AVAILABILITY, NOT FILLABILITY.** Every number is a stored quote. Two
+   worlds fit all of them equally: real resting liquidity, or a maker showing
+   2,914 contracts at 13c who pulls on any incoming order. Depth, persistence,
+   two-sidedness and tight spreads **do not distinguish them**, and no quote
+   record can. **The separating observation is one small order**, and it has
+   not been placed. Nothing here licenses a claim about what would fill.
+
+### 1b. `KXMLBSPREAD` reaches both registered bands, simultaneously — released with the same two qualifications
+
+The escape from fact 1 is **not** tennis (fact 2) and **not** a wider
+`KXMLBGAME` band. It is the MLB alternate run line.
+
+**55 events, 330 pre-game markets, minimum pre-game ask 7.0c**, per-event
+minimum ask median 15.0c, per-slate minima 9c/10c/8c/7c across four slates.
+The low band (6–15c excl 10c) and high band (27–39c excl 30c) were **both on
+the board at 696 of 696 polling instants**, and the audit's stronger test found
+a **single event** supplying both halves at **695 of 695** — with **658** of
+those pairs being the **same strike, opposite teams**. Depth median 2,914 low /
+4,624 high; 98.23% of low rows show ≥20 contracts.
+
+**The narrowings that matter, and they are not small:** the band lives
+**entirely on alternate run lines** (strike 3.5 and 2.5; **zero** at 1.5,
+though the series carries 110 pre-game markets at each strike); **45.8%** of low
+rows sit on the band's own 14–15c edge; and restricted to markets still
+unsettled at pull time the low band is **10 markets / 9 events**.
+
+**`KXMLBTEAMTOTAL` looks comparable or better on raw availability** (low band at
+691/696 instants from **50** distinct events) and **has not been audited at
+all** — no within-event test, no artefact check, no persistence measurement. It
+is a lead, not a result.
 
 ### 2. `KXATPDOUBLES` is not in the record at all
 
