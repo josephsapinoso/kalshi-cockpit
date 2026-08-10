@@ -879,3 +879,354 @@ Drafted now, because caveats written afterwards are selected to be survivable.
 | Deploy required | **None** |
 | Code that places orders | **None.** `ORDERS_ARE_DRY_RUNS` stays `True`; ADR 0018 untouched |
 | Amendments | none |
+
+---
+---
+
+# Amendment A — the pre-revision baseline, registered before any fill exists
+
+**Written 2026-08-10 (UTC), appended. Still zero fills on this account.**
+
+**The body above is untouched.** No inline marker has been added to it anywhere,
+following the precedent of Amendment A in
+[`2026-08-10-preregistration-clean-shortfall-distribution.md`](2026-08-10-preregistration-clean-shortfall-distribution.md).
+Where this amendment contradicts the body, **this amendment governs**, and §A10
+lists every place that happens.
+
+## §A0. What this amendment does and does not do
+
+**It does not move a band. It does not drop a cell. It does not change the
+decision rule, the stopping rule, or the cost.** The four fills of §1 are placed
+exactly as registered.
+
+It exists because a **durable fee record already exists on this account** and was
+found after the body was committed. Registering it now converts the post-fill
+reading from *"which of two models?"* into the cleaner and more answerable
+*"same schedule, or changed schedule?"* — and it does so **before** any fill
+exists, which is the only time that conversion is honest.
+
+**The prior has moved decisively and that is disclosed rather than smoothed
+over.** §A2 below is the most contaminating section in this document and it is
+placed early for that reason. A declaration of Model A after this amendment is a
+**reproduction plus a revision check**, not a discovery, and §A10 makes that
+labelling mandatory.
+
+## §A1. The discovery, reproduced independently before it was written down
+
+`GET /portfolio/settlements` returns **55 settled positions**, settled
+**2025-11-27 → 2026-05-10**, each carrying a `fee_cost` field. Raw capture at
+`data/captures/portfolio_settlements.json` — **gitignored, and it must stay
+gitignored**: it is Joe's real position history and this repo publishes on push.
+
+**[MEASURED — re-derived for this amendment from the raw capture, with
+independent code, not taken from the brief that reported it]**
+
+```
+records                                          55
+  KXMVE combo positions                          43   NOT observations of the model under test (§A1.2)
+  single-game / single-market positions          12
+    ...with a derivable price (count > 0)        11
+    ...with count == 0                            1   KXNFLSPREAD-25DEC25DENKC-DEN13, fee $0.000000
+denominator for any priced statement             54   = 55 - 1
+```
+
+The `n = 0` record is **named rather than silently dropped**, so no arithmetic
+discrepancy between 55 and 54 is left for a reader to rediscover. It carries a
+zero fee and no price can be derived from it, so it enters nothing.
+
+Price is derived as `total_cost_dollars / count_fp` on whichever side is
+non-zero. This is an **average fill price over the fills that built the
+position**, which is a real limitation and is stated in §A9.
+
+### §A1.1 Model A matches all 11, to the cent
+
+**[MEASURED]** `fee_cost` against `ceil_to_cent(0.07 × n × p × (1−p))`:
+
+| Ticker | side | `n` | price | `fee_cost` | Model A | Model B | match |
+|---|---|---:|---:|---:|---:|---:|:--:|
+| `KXSB-26-SF` | yes | 609 | 4.00c | $1.64 | **$1.64** | $0.00 | **A** |
+| `KXNFLGAME-25NOV30MINSEA-MIN` | yes | 59 | **16.00c** | $0.56 | **$0.56** | **$0.59** | **A** |
+| `KXNFLGAME-25NOV27CINBAL-CIN` | yes | 70 | **27.00c** | $0.97 | **$0.97** | $0.70 | **A** |
+| `KXNFLSPREAD-25NOV30LVLAC-LAC17` | yes | 22 | 43.00c | $0.38 | **$0.38** | $0.22 | **A** |
+| `KXNFLSPREAD-25NOV30DENWAS-DEN6` | yes | 39 | **49.00c** | $0.69 | **$0.69** | $0.39 | **A** |
+| `KXNFLSPREAD-25DEC01NYGNE-NE6` | yes | 17 | 54.00c | $0.30 | **$0.30** | $0.17 | **A** |
+| `KXNFLGAME-25NOV30ARITB-TB` | yes | 30 | 60.00c | $0.51 | **$0.51** | $0.30 | **A** |
+| `KXNFLGAME-25NOV27GBDET-GB` | yes | 6 | 63.00c | $0.10 | **$0.10** | $0.06 | **A** |
+| `KXNBATOTAL-25DEC05DALOKC-219` | yes | 20 | 73.00c | $0.28 | **$0.28** | $0.20 | **A** |
+| `KXNFLSPREAD-25NOV30ARITB-TB3` | no | 20 | 96.80c | $0.05 | **$0.05** | $0.00 | **A** |
+| `KXNBASPREAD-25DEC03MIADAL-MIA7` | no | 20 | 98.00c | $0.03 | **$0.03** | $0.00 | **A** |
+
+**11 of 11.** **[MEASURED]** the §Power 968-member plausible-model family
+collapses on these 11 records to **exactly one survivor: `(0.0700, ceil,
+per-order)` — Model A itself.** The identified coefficient interval is
+
+```
+c in (0.069771, 0.070129]      contains 0.0700
+                               EXCLUDES 0.06   (Model B's multiplier)
+                               EXCLUDES 0.0175 (Model A's maker coefficient)
+```
+
+**The F3 direction is already observed, and Model A won it.**
+`KXNFLGAME-25NOV30MINSEA-MIN`, `n = 59` at **16.0c**, is a `B > A`
+configuration — A predicts $0.56, B predicts $0.59 — and Kalshi charged
+**$0.56**. So the sign flip registered in §1 is not, on the pre-revision record,
+an open question. **§R3 stands as written** (the flip is still what makes the
+*post*-revision reading strong), but F3's standing changes from *discovery* to
+*revision detector*, and §A10 binds the write-up to say so.
+
+**Three of the four registered bands have a pre-revision price analogue**, all
+matching Model A exactly: **27.0c** (F1 and F2's band, at `n = 70`), **16.0c**
+(F3's band, at `n = 59`), **49.0c** (F4's band, at `n = 39`). These are
+**price** analogues at very different sizes, **not** cell analogues — no
+registered `(price, size)` cell has a pre-revision twin, and §A6 explains why the
+size difference is the whole point.
+
+### §A1.2 The 43 combos are not observations of the model under test
+
+Registered as an exclusion **before** the fills, with a reason independent of any
+fill outcome:
+
+**[MEASURED]** **32 of the 55 records carry a `fee_cost` quoted finer than a
+whole cent, and all 32 are combos.** No member of the 968-family reproduces more
+than **11 of the 43**. `KXMVE` is a different product with a different fee
+treatment, and it is ADR 0012's territory, not this registration's.
+
+**The earlier claim that the combo and single-game subsets "agree" is
+UNSUPPORTED and is withdrawn here.** **[MEASURED]** the maximum implied
+coefficient is **0.0747 across all 43 combos** and **0.0807 across the 11
+single-game records** — **the entire upper tail is single-game**, so the two
+subsets do not span the same range and cannot be said to agree. The 43 combos
+enter no statistic in this registration.
+
+## §A2. The registered baseline, and the reading it converts the fills into
+
+> **REGISTERED BASELINE, fixed 2026-08-10 before any fill exists:** on the 11
+> single-game settled positions of §A1.1, settled **2025-11-27 → 2026-02-09**,
+> `fee_cost` equals `ceil_to_cent(0.07 × n × p × (1−p))` on **11 of 11**, and
+> that model is the **unique survivor** of the 968-member family.
+
+**Every one of those 11 settled between 2025-11-27 and 2026-02-09, and all of
+them predate the July 2026 revision** that `core/fees.py` names as the reason its
+two sources disagree. So the baseline answers *"what was the schedule before the
+revision"* and cannot answer *"what is it now"*.
+
+> **The post-fill reading, fixed now:**
+> **SAME SCHEDULE** — the four fills match Model A. The July 2026 revision did
+> not change the taker schedule at the tested cells.
+> **CHANGED SCHEDULE** — the four fills do not match Model A. Model A was true
+> before the revision and is not true now, and §9's Model-B and NEITHER
+> consequences apply in full.
+>
+> This is a **two-outcome reading layered on top of §7, not a replacement for
+> it.** §7's decision rule is unchanged and still governs; §A10 lists what the
+> write-up must additionally say.
+
+### §A2.1 The confound this amendment introduces, named before the fills
+
+**The baseline is NFL, NBA and one Super Bowl future. The four fills will be MLB
+or WNBA.** **[MEASURED]** the 11 single-game records are `KXNFLSPREAD` (5),
+`KXNFLGAME` (4), `KXSB` (1), `KXNBATOTAL` (1), `KXNBASPREAD` (1). In August 2026
+the in-season leagues are MLB and WNBA, so a category-matched comparison is **not
+reachable** and no attempt to reach it is registered.
+
+> **Therefore a CHANGED SCHEDULE verdict is confounded with a CATEGORY
+> DIFFERENCE, and this design cannot separate them.** The write-up must state
+> that in those words. Separating them requires NFL or NBA fills in the current
+> season, which is a different registration.
+
+**The confound runs the other way on the SAME SCHEDULE branch, and that is a
+bonus rather than a caveat.** Model A has **one coefficient for all categories**;
+Model B has a **per-category multiplier**. So Model A holding on NFL/NBA
+*and* on MLB/WNBA is evidence for the single-coefficient structure that Model A
+asserts and Model B denies. That reading is registered here so it may be used;
+it may **not** be upgraded into a claim about categories neither set touches.
+
+## §A3. Withdrawal of §Power conclusion 3
+
+**§Power conclusion 3 of the body is WITHDRAWN in full.** It argued that the
+untested price range is covered for free by the permanent
+`fee_predicted != fee_actual` gate, which "accumulates coverage across every
+price and size the tool ever trades".
+
+**It accumulates none, and the reason is that the table is never written.**
+**[COMPUTED FROM CODE, verified for this amendment]**
+`backend/gate.py:636 _fee_model_verified` reads `FROM fills` (`:642`), and a
+repo-wide search for `INTO fills` returns **only three matches, all in
+`tests/`** (`test_execution.py:1446`, `test_quote_refresh.py:464`,
+`test_runner.py:495`). **No production code writes that table.** So `total == 0`
+on every evaluation, the condition is pinned at
+`met=False, "no fills yet — the fee model is still an unresolved hedge"`, and
+**the MISMATCH branch is unreachable in production.**
+
+Two consequences, both binding:
+
+1. **The residual named in §Power conclusion 2 — up to one cent at `N=1` at
+   untested prices — is not covered by anything.** It stands unmitigated. The
+   body's sentence *"The four fills are its first four observations"* is false
+   as written: they are not observations of anything the gate can see.
+2. **Retiring the hedge may NOT be made conditional on "the permanent gate
+   staying armed"**, as §9's Model-A row and §Power conclusion 3 both say,
+   because there is no armed gate to stay armed. Wiring `INTO fills` is a
+   **separate task**, it is a precondition of that conditional, and **the four
+   fills do not depend on it.** §A10 restates §9's Model-A consequence without
+   the false conditional.
+
+## §A4. §6 becomes time-critical, and it has a laptop-only step
+
+Two operational facts that were not in the body:
+
+- **`/portfolio/fills` has a retention window.** **[MEASURED — parallel capture
+  lane, cited at inference strength because this amendment did not re-run it]**
+  the account's own historical fills are **gone** across eight query shapes, with
+  an upper bound of roughly **three months**. The 55 settlements survive; the
+  fills that built them do not. **So the fill-time fee must be captured within
+  days of placement, not weeks.**
+- **`scripts/capture_fills_fixture.py` is not in the deployed image.**
+  **[COMPUTED FROM CODE — `.dockerignore:59-61` excludes `scripts/*` except
+  `run_loop.py` and `migrate_db.py`]** so capture is a **laptop-only** step, and
+  Joe is phone-only. **The capture must be scheduled with an agent session, and
+  the four fills should not be placed until one is available within days.**
+
+This does not change the §8 window, which opens at the commit of the body. It
+adds a second clock, and the second clock is the binding one.
+
+## §A5. R5's paired guard gains a durable channel
+
+**§R5 stands as written and is strengthened, not replaced.**
+
+`/portfolio/settlements` reports `fee_cost` on positions whose fills have already
+expired, so **it is the surviving record of these four positions**. Registered
+addition to §6 and to §S:
+
+> **The four positions' settlement `fee_cost` must be captured after they
+> settle**, in addition to the fill-time fee, and both must be recorded in §S
+> item 4. If the fill-time capture is missed for any cell, the settlement
+> `fee_cost` is the registered substitute for that cell — **and the substitution
+> must be labelled**, because a settlement `fee_cost` is a position-level
+> aggregate and §A9 bounds what it can carry.
+
+## §A6. The `N = 1` regime is entirely unobserved, and it is the regime the tool runs on
+
+**[MEASURED]** across the whole 55-record sample the smallest position is
+**`n = 6`**, and the smallest raw pre-rounding fee at `c = 0.07` is
+**$0.02744**. **[COMPUTED]** the largest possible raw fee at `N = 1` at **any**
+price is `0.07 × 0.25 = $0.01750`.
+
+```
+observed raw fees          >= $0.02744
+possible raw fees at N=1   <= $0.01750
+                              ZERO OVERLAP
+```
+
+Not one settled record is anywhere near the one-contract regime, and the
+per-order ceiling is a **larger share of the total** the smaller the order —
+which is exactly where the two models diverge.
+
+`core/sizing.py:156` prices every sizing decision at `contracts=1`, and every
+statistic in ADR 0021 is computed at `E1`.
+
+> **F1 and F4 are the only `N = 1` observations anywhere in this project, before
+> or after.** They are the load-bearing pair. **If the fill set is ever reduced
+> for any reason, F1 and F4 are the two that must survive.**
+
+This is registered as a fact about the design, not as a licence to reduce it:
+§A0 stands and all four fills are placed.
+
+## §A7. The 52.00% bar rests on the rounding, not on the coefficient
+
+Stated here because the settlements support the bar through one mechanism and
+never observe the other.
+
+**[COMPUTED]** at 50c and `N = 1`, Model A's raw fee is `0.07 × 1 × 0.25 =
+$0.0175`, which gives a break-even of **51.75%** — the number `CLAUDE.md` says
+the published coefficient would give. The per-order **ceiling** lifts it to
+**$0.02**, and that gives **52.00%**.
+
+> **The entire 0.25-point gap between 51.75% and 52.00% is the per-order `ceil`
+> at `N = 1`.** The coefficient contributes none of it.
+
+The 11 settled records pin the coefficient to `(0.069771, 0.070129]` **and**
+confirm `ceil` over `floor`, `half_up` and `half_even` — but they do it at
+`n >= 6`, where the ceiling is a rounding detail. **At `N = 1` the ceiling is the
+whole bar.** So the settlements support 52.00% through the rounding rule while
+never observing the regime in which that rule is decisive, and **F1 and F4 are
+the only things that can.**
+
+## §A8. H4 gains a separation the body could not offer
+
+**[MEASURED]** on all 11 single-game records, `fee_cost` equals the **entry**-fee
+formula exactly. Two readings survive and **this sample cannot separate them**:
+
+- **(i)** `/portfolio/settlements` reports only the entry fee, and **H4 is
+  untested** by the settlements; or
+- **(ii)** it reports total fees over the position's life and **H4 is
+  confirmed** — settlement charged nothing extra.
+
+Both are consistent with 11 of 11, so neither may be asserted from the
+settlements alone. **The four fills separate them**, because for the same four
+positions this design will hold **both** the fill-time fee and the settlement
+`fee_cost`:
+
+> **Registered, before the fills:** if `settlement fee_cost == fill-time fee` on
+> a cell, then reading (i) and reading (ii) coincide only if settlement charged
+> zero — so **H4 is declared for that cell**. If
+> `settlement fee_cost > fill-time fee`, **H4 is refuted** and the difference is
+> the settlement charge. If `settlement fee_cost < fill-time fee`, that is
+> **neither**, and it is a **STOP THE LINE** naming the record rather than the
+> model, because a settlement cannot refund an entry fee.
+
+§R5's paired guard applies unchanged: the entry fees must be visible on the same
+records, or the query is measuring nothing.
+
+## §A9. What Amendment A does not establish
+
+- **It does not establish the model after the July 2026 revision.** Every one of
+  the 11 records settled between 2025-11-27 and 2026-02-09. That is the whole
+  reason the four fills are still placed.
+- **It does not establish the model at `N = 1`.** §A6. Zero overlap, in the
+  regime that decides everything.
+- **It does not establish the model for MLB or WNBA.** §A2.1. The baseline is
+  NFL, NBA and one future.
+- **It does not establish a per-fill price.** Every price in §A1.1 is
+  `total_cost / count` — an **average over the fills that built the position**.
+  Ten of the eleven land on an exact whole cent, which is consistent with a
+  single fill price but does not prove one. A position built at two prices whose
+  average is a whole cent would be indistinguishable here, and its true fee could
+  differ from the prediction. **This is why the four fills are single orders with
+  the one-fill-row precondition (P4), and why the settlements are not a
+  substitute for them.**
+- **It does not establish anything about combos.** §A1.2. The 43 `KXMVE` records
+  are excluded, the family reproduces at most 11 of 43, and the "subsets agree"
+  claim is withdrawn.
+- **It does not establish the maker model.** The interval
+  `(0.069771, 0.070129]` **excludes 0.0175**, which says these were taker fees —
+  not that the maker coefficient is wrong.
+- **`n = 11` is eleven positions on one account in one window.** It is not a
+  sample of Kalshi's schedule and carries no interval.
+
+## §A10. What now binds
+
+**Unchanged, and confirmed:** the four cells, their bands, their sizes, their
+registered predictions, §7's decision rule, §8's stopping rule, §R1–§R5, and the
+cost. **F1 23–30c × 1, F2 23–30c × 10, F3 12–16c × 20, F4 45–49c × 1. Max stake
+$6.99. Max loss $7.38.**
+
+**Amended:**
+
+| Body location | Amendment |
+|---|---|
+| §Power conclusion 3 | **WITHDRAWN in full** (§A3). The gate accumulates no coverage; nothing in production writes `fills`. |
+| §9, Model-A row, *"conditional on the permanent gate staying armed"* | **Struck.** The condition is unsatisfiable today. Replaced by: retiring the hedge is conditional on **wiring the `fills` writer first**, which is a separate task the four fills do not depend on. |
+| §1 H1/H2, standing | The prior has moved. Model A is the **unique** survivor of 968 on the pre-revision record. §7's rule is unchanged, but a Model-A declaration **must be labelled `REPRODUCTION + REVISION CHECK — NOT A DISCOVERY`** in the verdict line and in every table it appears in. |
+| §1 F3, standing | From *discovery* to **revision detector**. The `B > A` direction is already observed pre-revision (`MINSEA`, 16.0c, `n = 59`, A won). The write-up must say so beside any F3 result. |
+| §6 | Two clocks. The fill-retention window (~3 months, upper bound) is the binding one, and capture is **laptop-only** (`.dockerignore:59-61`). |
+| §S item 4 | Add a `settlement fee_cost` column beside `fee_observed`, per cell. |
+| §S, new item 12 | Print the §A2 SAME/CHANGED reading, the §A2.1 category confound in the required words, and the §A8 H4 separation per cell. |
+| §10 | Add: *this does not establish the model for NFL, NBA or `KXMVE` combos*, and *the baseline it is compared against is a different set of categories*. |
+| §11 | **A4 [ASSUMED], new:** that a `settled_time` between 2025-11-27 and 2026-02-09 places a record before the July 2026 revision. **Detector: none available.** Count of assumed inputs rises from 3 to **4**. |
+
+**Verdict at registration, after Amendment A: READY, unchanged.** The design
+answers a sharper question than the body registered, at the same cost, because
+the comparator now exists. Nothing was reached for: every number in §A1 was
+re-derived from the raw capture with independent code before it was written here,
+and every one of them predates the first fill.
