@@ -823,3 +823,191 @@ Beyond it, this release adds:
   writes it. §9 licenses it on this branch — H1 declared with `n_new == 0` —
   and requires that it **cite registration §0.2 for the number and this run only
   for the denominator and the distribution.**
+
+---
+
+# Addendum B — the independent audit, and four corrections it forced
+
+Appended 2026-08-10. `measurement-skeptic` audited Amendment A and Addendum A
+before the refutation ADR was written, and **re-derived every load-bearing
+statistic from `2026-08-10-clean-shortfall-pull.json` with its own code rather
+than the harness**: `n_obs = 323`, `G = 59`, `n_claims = 118`,
+`max E1 = −2.05344379322292`, `S_min = 2.0534`, `spread_at_min = 2.3191`
+(1 attaining row, id 726), and every leave-one-out result. All match.
+
+**Verdict: the release is SOUND. No finding is fatal.** Nothing below retracts a
+verdict. Four corrections weaken *wording*; three findings *strengthen* the
+record and are recorded here so the ADR can carry them.
+
+## B1. Four corrections to wording
+
+**1. "No hypothesis's decision rule *reads* Grid D" is literally false.** `E1`
+is `1000·fair − ask − fee_tenths(ask)`, and `fee_tenths` **is** Grid D's
+generating function — §4 derives Grid D by sweeping exactly it. So H1, H3a and
+H3b all evaluate that function pointwise on every row.
+
+What none of them does is **partition or stratify by** it, and that is the only
+property R3's saturation clause could bear on. Amendment A §A2's closing line
+already says this correctly (*"Not one of the five partitions the population by
+`ask_tenths` at all"*); §A3's headline is the loose paraphrase.
+
+> **The ruling stands. Restate it as: *no decision rule partitions or
+> stratifies by Grid D*.** Never "reads".
+
+Quantitatively the clause could not have moved a verdict anyway: only **2 of
+323** observations lie within 20 tenths of a Grid D fee boundary, so Grid D
+saturating is exactly equivalent to *"the fee term in `E1` is the constant 20.0
+tenths for 99.1% of the population."*
+
+**2. §AD5's "partly offsetting" framing is cut.** It claimed the within-row
+pairing *"absorbs whatever staleness moves the two terms together."*
+Structurally it absorbs almost nothing: staleness enters `S` through `fair`, a
+**level**, while `spread_tenths` is a **dispersion** across four methods on the
+same odds vector. A shift in the odds moves the level a lot and the dispersion
+barely. **The offset is close to nil, not "partly offsetting".**
+
+**3. The R3 ruling bought the denominator, the distribution and the H3b
+prohibition — it did NOT buy the refutation.** Registration §0.2 measured
+`max E1 = −2.1` over the pinned table independently of this run. Nobody may
+later read the ruling as having rescued the finding.
+
+And §0.2 and this run are **one population read twice under two pins** — the
+same 614 clean rows — not two measurements. §A6 item 3's instruction to cite
+§0.2 for the number and this run for the denominator is correct, and will read
+as two corroborating sources unless that clause travels with it.
+
+**4. This release adds ONE bit, and it is H3b.** Four of the five verdicts were
+forced or near-forced, and presenting five corroborating verdicts would
+overstate the evidence:
+
+| Claim | Reach of its falsifier |
+|---|---|
+| H1 | **Arithmetically impossible** to differ (`n_new = 0`) |
+| H2 | needs **>161** observations in one cluster; observed max **17** |
+| H4 | all 21 degenerate rows carry `too_few_books` — a logically prior check catches every one |
+| H3a | prior disclosed as "leans declared" at §R4 |
+| **H3b** | **the only genuine coin flip — and it refuted** |
+
+H2's `0.50` threshold sits nowhere near the plausible range; its declaration is
+evidence that the recorder sweeps all live games at once, not that the record is
+well distributed.
+
+## B2. Three findings that strengthen the record
+
+**5. The dependent-variable contamination is empirically inert on this pin.**
+The obvious attack is that the clean population is defined partly by the
+outcome. Measured on the pinned table:
+
+```
+suspicious_edge            fires  86    ALONE:  0
+edge_within_method_noise   fires  18    ALONE:  0
+suppressed rows with E1 > 0                   137
+   ...suppressed ONLY by edge-dependent codes:  0
+```
+
+**Deleting both edge-dependent checks from the deployed config would leave the
+clean population byte-identical at 614 rows.** Every positive-edge row is caught
+by at least one edge-**independent** check. Scope it honestly: a fact about
+`pin = 1564`, **not** a structural guarantee — a future row could be suppressed
+by `suspicious_edge` alone.
+
+**6. H3b's refutation does not rest on one observation.** It survives every
+re-cut attempted:
+
+| Reading | `S_min` | `spread_at_min` | Verdict |
+|---|---:|---:|---|
+| No dedup at all, 614 clean rows | 2.0534 | 2.3191 | REFUTED |
+| Registered rule (largest `E1`), 323 obs | 2.0534 | 2.3191 | REFUTED |
+| **Opposite** rule (smallest `E1`) | 2.1652 | 4.9580 | REFUTED |
+| Drop the attaining cluster | 2.1652 | 4.9580 | REFUTED, margin 2.79 |
+| `n_claims` key, n = 118 | 2.0534 | 2.3191 | REFUTED |
+| Leave-one-game-out, all 59 clusters | — | — | none declares H3b |
+
+**The second-nearest observation refutes more decisively than the first.** The
+0.27-tenth margin at id 726 is knife-edge; the *refutation* is not.
+
+Note also that §3 justified the largest-`E1` representative rule as
+*"conservative in the direction that matters"* — argued only against **H1**. For
+H3b that same rule keeps the **smallest** `S` per group, the reading most likely
+to **refute**. Consistent with §7's H3b tie-break, so the direction is
+defensible, but §3's one-sided justification must not be quoted as covering all
+five claims. Since the opposite rule also refutes, nothing changes.
+
+**7. The exact arithmetic of "not distinguishable from clearing".**
+`E1 + spread = +0.2657` tenths: **under `p_multiplicative` the nearest clean row
+clears by 0.27 tenths; under the conservative devig it misses by 2.05.** That is
+the symmetric counterpart of `edge_within_method_noise`, which the deployed
+system already applies in the positive direction.
+
+## B3. The dependence unit neither document printed
+
+The 323 observations come from **34 distinct `created_ms` sweeps**, and the
+largest single sweep contributes **60/323 = 18.6%** — more than triple the
+largest *cluster*'s 5.3%. Every row in a sweep is priced off one odds snapshot,
+so **the sweep is the dependence unit** for exactly the confound §AD5 discusses.
+
+§AD5 qualification 2 asserts the number of independent staleness draws is "far
+below 323" without supplying it. **It is 34.** CLAUDE.md's largest-contributor
+rule points at the sweep; both documents printed the cluster instead.
+
+> **When stating how much evidence exists, say `59 games across 34 recording
+> instants`** — not 323, and not 29.
+
+## B4. Notes — real, none decision-bearing
+
+- **`stale_kalshi_quote` has an empty denominator.** `kalshi_quote_age_ms` is
+  `0` on all 1,564 rows **by construction**: `runner.py:913` writes
+  `observed_ms = now` and `:718` differences it against the same cycle stamp. So
+  0 firings is **"could not fire"**, not "did not fire", and §S10 pools the two.
+  **The ask's own freshness is unmeasurable from this record.** §AD5 covers odds
+  staleness and is silent on this; the ADR's limits section must carry it.
+- **The harness has no tests.** Nothing under `tests/` references
+  `scripts/run_clean_shortfall.py`. `verdict_h1`–`verdict_h4`, `dedup`,
+  `claim_of`, `spread_of`, `is_degenerate`, `fee_tenths` and `derive_grid_d` are
+  untested; only the imported helpers are covered. CLAUDE.md's *every guard is
+  verified by disabling it and watching the test fail* was not applied.
+  Mitigated **only** by the independent re-derivation matching to the last
+  digit. `verdict_h3b`'s tie-break branch never executed and remains unexercised.
+- **Of the four stop-the-line guards, only R3 has ever fired.**
+- **`commence_ms` is `NULL` on all 1,564 payload rows** because `/api/ledger`
+  does not join `events`, while `no_commence_time` fired 0 times — the commence
+  times do exist in the database.
+- **Registration §C3 enumerates 24 payload keys; the live payload carries 38**,
+  including `event_title` and `team`. §C3's conclusion that the ticker fallback
+  was the only cluster key available over HTTP is therefore **factually wrong**.
+  Inert here — suffix collisions are 0 and `G = 59` reproduced — but it must not
+  be re-cited.
+
+## B5. Two checks that passed and were expected to fail
+
+- **Bucketing is on the price actually paid.** `ask_tenths` is the *derived*
+  ask (`runner.py:673/682`), with `depth_at_ask` the opposing bid size — the
+  resting size you would lift. No mid appears anywhere. The repo's own scar is a
+  +25.4-point edge bucketed on the mid and transacted at the ask; this is not
+  that.
+- **The dedup representative rule picks the cheaper executable leg**, which is
+  the right economic choice and not merely the H1-conservative one:
+
+```
+id=726  ...NYMPIT-NYM  side=yes  ask=450  E1= -2.0534  spread=2.3191
+id=729  ...NYMPIT-PIT  side=no   ask=460  E1=-12.0534  spread=2.3191
+```
+
+## B6. Was the ruling a stopping rule relaxed until it produced output?
+
+The audit applied extra scrutiny precisely because the ruling runs in the
+good-news direction, and answered **no**, on four grounds:
+
+1. §A3's rule is stated with no cut, no verdict, no direction and no number, and
+   is decidable from the registration text alone.
+2. Applied mechanically it leaves R1, the `G < 2` twin and R4's H4 twin **with
+   stop-the-line status**. It is not gerrymandered to release everything.
+3. The released set contains the one verdict with a genuine coin-flip prior, and
+   that verdict **deletes the project's most quotable sentence**.
+4. The mechanical question — could Grid D's saturation have changed any verdict
+   — has a computable answer, and it is **no**.
+
+**And R3's clause was decidable the day it was written.** It names Grid D, Grid
+B and the series-prefix stratum — all three §S *reporting* strata, two of them
+labelled `DESCRIPTIVE — CANNOT PRODUCE A FINDING` by the registration itself. It
+was never predicated on a decision input, and that required no statistic to see.
