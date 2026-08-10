@@ -258,6 +258,63 @@ data and a 2026-labelled screen is that `docker/entrypoint.sh` happens never to
 invoke `publish` or `dbt build` — verified directly. **The safety is an accident
 of the boot script, not a design.** ADR 0022 §6.
 
+## §7.2's magnitude is now MEASURED on the record — and the unit is the row
+
+`docs/measurements/2026-08-10-sharp-anchoring-on-the-record-result.md`, audited.
+Read-only queries against the **live** DB via `flyctl ssh console` (no `sqlite3`
+binary on the container — use `python -c` with a base64'd script).
+
+**The fixture's "26 of 29" is replaced by a median of 19 usable books discarded
+of 21, per recommendation row.** Three units give three answers and the **row**
+is the right one, because §7.2 is a claim about the record's rows:
+
+```
+per (event, fetch instant)   n=234    23 usable   3 kept   20 discarded
+per event (fixture's unit)   n=68     23          2.5      20.5
+per RECOMMENDATION ROW       n=1564   21          2        19    <- USE THIS
+```
+
+On the fixture's own unit the record gives 20.5 of 23, so the fixture
+**overstated by ~5.5 books**. Also `available` ≠ `usable`, and devig rejected
+**zero** books — proven by recomputing `fair_prices.books_used` from raw
+snapshots, matching **21,550 of 21,550** h2h rows.
+
+**27.0% of rows (423 of 1,564) carry `anchored_on_sharp = 0`** — priced against
+the wide consensus because no sharp book had quoted. **This is NOT a partial run
+of Option B, and that reading is forbidden.** Those rows took the fallback
+because the sharps were *missing at that moment*, so the subset is skewed
+**thin**, not wide: median **12** books against 23 overall and 29 on a typical
+anchored instant; 385 of 423 are MLB; 190 were already `stale_odds`. The
+supported sentence is *"a wide-consensus comparison ran on the subset of
+instants where the sharps had not yet quoted."*
+
+**And it returned nothing: 0 of 189 clean wide-consensus rows had a positive
+edge** (max −2.05 tenths), `reference_contracts = 0` on all 423. So widening the
+reference class has already failed once, on a thin subset, which is a *reason to
+doubt Option B* rather than to run it.
+
+**`betfair_ex_uk` is ABSENT** — 0 rows, all markets, whole window, 25,184 rows.
+`max sharp = 3` on all 234 instants and 4 on none. `SHARP_BOOKS` advertises four
+members and has three reachable ones. **The cause is NOT established** and the
+obvious story is contradicted: `ODDS_REGIONS=us,eu`, yet `williamhill`,
+`marathonbet` and `matchbook` — documented UK keys — do appear. **Do not "fix"
+this by adding the `uk` region:** that is +50% credits per sweep for the same
+exchange as `betfair_ex_eu` — count without information, the ADR 0019 failure
+exactly. Either drop the dead member with a comment, or add a startup check that
+every member is reachable under the configured regions.
+
+**A factual error in ADR 0021 §7.2's own annotation, found here:** it says of
+`anchored_on_sharp` *"and that column is not on this record either."* **Wrong.**
+It is on `fair_prices`, written on every row since the table existed — it was
+merely not *exposed* by `/api/ledger` until `4938701`. Claim 3 was always
+measurable. **Correct that annotation.**
+
+**Two facts that must travel with any row count:** the record read **172 of 234**
+stored instants (`runner.py:227` reads only `MAX(fetched_ms)`, one sweep), and
+`fair_prices` runs to 2026-08-10 15:42 while odds fetching stopped 2026-08-09
+23:37. The 1,564 rows rest on 172 instants and 205 cycles, so **row count here
+measures polling uptime as much as evidence.**
+
 ## The fee model is NOT what this repo thought, and that is the live thread
 
 Option E ran. `docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`

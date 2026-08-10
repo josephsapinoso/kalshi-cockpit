@@ -37,6 +37,67 @@ per event over the stored `kalshi_markets` record** — it decides whether the
 sub-15c band is *ever* reachable, i.e. whether the dead end below is real or was
 one bad evening. Zero cost, data already on disk.
 
+### §7.2's magnitude is MEASURED on the record now — the unit is the ROW
+
+`docs/measurements/2026-08-10-sharp-anchoring-on-the-record-result.md`, audited.
+**The fixture's "26 of 29" is replaced by a median of 19 usable discarded of 21,
+per recommendation row.** Three units give three answers (234 instants → 20 of
+23; 68 events → 20.5 of 23; **1,564 rows → 19 of 21**), and the row is right
+because §7.2 is a claim about rows. The fixture **overstated by ~5.5 books** on
+its own unit. Devig rejected **zero** books — `fair_prices.books_used`
+recomputed from raw snapshots matched **21,550 of 21,550** h2h rows.
+
+**27.0% of rows (423/1,564) have `anchored_on_sharp = 0`.** **This is NOT a
+partial run of Option B** — those rows fell back because the sharps were
+*missing*, so the subset is skewed **thin** (median 12 books vs 23 overall, 29
+on a typical anchored instant; 385/423 MLB; 190 already `stale_odds`). **And it
+returned nothing: 0 of 189 clean wide-consensus rows had a positive edge.** That
+is a reason to doubt Option B, not to run it.
+
+**`betfair_ex_uk` is ABSENT** — 0 rows, all markets, whole window. `SHARP_BOOKS`
+advertises four and has three reachable. **Cause NOT established**, and the
+obvious story is contradicted (`ODDS_REGIONS=us,eu` yet `williamhill`,
+`marathonbet`, `matchbook` appear). **Do not add the `uk` region** — +50%
+credits per sweep for the same exchange as `betfair_ex_eu`.
+
+**Correct ADR 0021 §7.2's annotation:** it claims `anchored_on_sharp` is *"not
+on this record either."* **False** — it is on `fair_prices`, written on every row
+since the table existed, merely unexposed by `/api/ledger` until `4938701`.
+
+**Row count measures polling uptime as much as evidence:** 1,564 rows rest on
+**172 of 234** stored instants and 205 cycles.
+
+### The record was RE-SCORED under all three fee models — and this is the decision
+
+`docs/measurements/` (Lane A), audited, **12 corrections taken**.
+
+```
+                              max E1    rows E1>0    SURFACE
+deployed  0.07 ceil-to-CENT   -2.0534     0/614         0
+step 1    0.07 ceil-$0.0001   +0.5466     3/614         0
+step 2    0.035 ceil-$0.0001  +9.2466     9/614     4 rows / 3 claims / 3 games
+```
+
+**ADR 0021's conclusion SURVIVES step 1 and FALLS under step 2.** So the rate
+attribution — round two — is now the only thing that decides it.
+
+**The finding nobody expected:** those same three rows **clear the fee under the
+UNCHANGED deployed model at 25+ contracts.** The old fee rounded up *per order*,
+so one contract paid the whole ceiling and 25 spread it. `sizing.py` prices every
+decision at `C=1` and never re-prices. **Part of "no edge" was the tool always
+choosing the most expensive way to buy** — and that is independent of which fee
+model wins.
+
+**Corrections to `partner`'s hypothesis:** `edge_within_method_noise` refuses all
+three step-1 rows, but the **reference sizing floor refuses them independently** —
+delete either and the answer is still zero. That floor is a **config value**: it
+stops firing above a reference bankroll of ~**$1,822**. "Decorative guard becomes
+decisive" lands under **step 2**, not step 1, where it fires alone 5 times and
+decides 4 bets. **Step 1 is not "well supported" as a whole** — its *rounding* is;
+its *coefficient* is refuted at three MLB cells by ~2×, and every surfacing row is
+MLB. And the **NOTIONAL** attribution breaks step 2: three of the four survivors
+have notionals above $3.00 and would take the high rate, where none surfaces.
+
 ### THE ACCOUNT HAS FILLS NOW — six of them, and both fee models are dead
 
 Joe ran **ADR 0021 Option E** on 2026-08-10. Artefact:
