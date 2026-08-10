@@ -23,11 +23,12 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .config import RiskConfig
 from .core.devig import devig
-from .core.suppression import SuppressionConfig
+from .core.suppression import SuppressionConfig, evaluate_suppression
 from .odds.budget import day_start_ms
 from .engine import (
     Candidate,
@@ -52,6 +53,14 @@ _FIXTURES = [
     ("KXWNBAGAME", "Pro Basketball (W)", "New York L", "Connecticut", 1.88, 1.98),
     ("KXNFLGAME", "Pro Football", "Kansas City", "Denver", 1.45, 2.85),
     ("KXNFLGAME", "Pro Football", "Philadelphia", "Dallas", 1.90, 1.98),
+    # The two thin-book fixtures. Added because the demo's suppression
+    # vocabulary and the live one were disjoint on precisely these codes: the
+    # real record (1,564 rows, 2026-08-10) is dominated by `stale_odds`,
+    # `too_few_books,no_market_width` and their composite, and the demo produced
+    # `too_few_books` and `no_market_width` *never* while producing
+    # `wide_market` -- which is 0 of 1,564 live -- sixty-five times.
+    ("KXMLBGAME", "Pro Baseball", "Seattle", "Texas", 1.98, 1.92),
+    ("KXWNBAGAME", "Pro Basketball (W)", "Phoenix", "Indiana", 1.70, 2.25),
 ]
 
 
@@ -69,7 +78,12 @@ class SeededScenario:
     ask_offset_tenths: int      # how far Kalshi sits from consensus fair
     quote_age_ms: int
     depth: float
-    market_width: float
+    # `None` is a real state, not a missing value: `consensus_devig` reports no
+    # width when fewer than two books contributed, and `no_market_width` exists
+    # to refuse it rather than read it as perfect agreement. Every seeded
+    # scenario carried a float until 2026-08-11, so the demo could not produce
+    # the code at all.
+    market_width: Optional[float]
     book_count: int
     # How long ago the books moved. Carried on the scenario rather than drawn
     # at the call site so the seeded `odds_snapshots` rows and the seeded
@@ -91,6 +105,11 @@ def _scenarios(rng: random.Random) -> list[SeededScenario]:
     # Odds ages sit inside the 15-minute freshness limit except for the last,
     # which demonstrates `stale_odds` -- the rule that closes the actionable
     # window, and the one a visitor is most likely to hit on the live tool.
+    #
+    # **The reason strings are never written here.** Every entry is a set of
+    # *inputs*; `evaluate_suppression` decides the code, so a rule that is
+    # renamed or re-thresholded moves the demo with it instead of leaving the
+    # seeder asserting a vocabulary the engine has stopped using.
     shapes = [
         (-35, 3_000, 800.0, 0.012, 5, 120_000),    # surfaced: genuine ~3.5c edge
         (+40, 4_000, 600.0, 0.010, 5, 180_000),    # no edge -- Kalshi above fair
@@ -101,6 +120,18 @@ def _scenarios(rng: random.Random) -> list[SeededScenario]:
         (-8, 6_000, 300.0, 0.015, 5, 260_000),     # edge_within_method_noise
         (-30, 3_000, 900.0, 0.009, 6, 90_000),     # surfaced: genuine edge
         (-31, 3_000, 500.0, 0.010, 5, 1_500_000),  # stale_odds: window closed
+        # One book, so `consensus_devig` could not measure a width. Fires
+        # `too_few_books` AND `no_market_width` together -- the second-largest
+        # composite in the live record (73 of 1,564) and a shape the demo could
+        # not previously produce at all, which left `string_split` in
+        # `mart_suppression_audit.sql` and `.split(",")` in `routes.py` exercised
+        # only against single tokens.
+        (-34, 3_200, 700.0, None, 1, 200_000),     # too_few_books + no_market_width
+        # The same thinness on a slate whose books have also aged out. Three
+        # codes in one string, which is the *largest* composite live (137 of
+        # 1,564) and the shape that a `NOT IN ('stale_odds', ...)` predicate
+        # silently fails to exclude.
+        (-32, 3_400, 650.0, None, 1, 1_800_000),   # + stale_odds
     ]
     for (series, league, team, opp, o1, o2), shape in zip(_FIXTURES, shapes):
         offset, age, depth, width, books, odds_age = shape
@@ -170,6 +201,48 @@ def _seed_books(conn, *, scenario, commence_ms: int, fetched_ms: int, rng) -> in
             )
             stored += 1
     return stored
+
+
+# How often each *input condition* holds in `seed_history`, chosen so the codes
+# `evaluate_suppression` writes resemble the live record rather than a vocabulary
+# only the demo has ever spoken.
+#
+# The target is `docs/measurements/2026-08-10-clean-shortfall-pull.json`, 1,564
+# rows off the money instance:
+#
+#     616  'stale_odds'
+#     614   None
+#     137  'stale_odds,too_few_books,no_market_width'
+#      73  'too_few_books,no_market_width'
+#      66  'stale_odds,suspicious_edge'
+#       0  'wide_market'
+#
+# and the seeder previously produced the near-inverse: `wide_market` 65 times,
+# `too_few_books` and `no_market_width` never, and **no composite at all** -- so
+# the `unnest(string_split(suppressed_reason, ','))` in
+# `warehouse/models/marts/mart_suppression_audit.sql` and the `.split(",")` at
+# `backend/api/routes.py` were exercised only against single tokens. That gap
+# has already produced one wrong answer: a preregistered `NOT IN (...)`
+# predicate matched the wrong population because a composite is not any of its
+# parts (`docs/measurements/2026-08-09-preregistration-clv-signal-test.md`).
+#
+# These are **rates on inputs, not on outputs**, deliberately. Naming the output
+# distribution would mean naming the codes, and the codes are the engine's to
+# decide -- the point of the fix is that a renamed or re-thresholded rule drags
+# the demo along with it. The consequence is that the marginals only approximate
+# the table above (three independent draws cannot reproduce an arbitrary joint),
+# which is the right trade: a demo that *resembles* live through the real rules
+# beats one that matches it by transcription.
+#
+# `wide_market` is absent from the drawn widths for the same reason it is absent
+# live: every width drawn sits under `max_market_width`. The Board slate still
+# carries exactly one, because that slate is a teaching set with each rule shown
+# once, and one row is not sixty-five.
+_LIVE_SUPPRESSION_MIX = {
+    "stale_odds": 0.53,       # 616 + 137 + 66 of 1,564 carry it
+    "thin_books": 0.15,       # 137 + 73 of 1,564 carry the thin-consensus pair
+    "suspicious_edge": 0.08,  # 66 of 1,564, plus the composites it appears in
+}
 
 
 _SPORT_KEYS = {
@@ -283,7 +356,14 @@ def seed_all(
             risk=risk,
             suppression=suppression,
             strategy_config_version=version,
+            # A clean book, stated rather than defaulted. The demo database has
+            # no orders and no settlements, so all three are genuinely zero --
+            # and after 2026-08-10 the sizer has no defaults to fall back on,
+            # deliberately: an omission here would be indistinguishable from the
+            # production omission that let a -$20,000 account place an order.
             current_exposure_dollars=0.0,
+            current_position_dollars=0.0,
+            daily_pnl_dollars=0.0,
             # One instant for the whole slate. A pass prices every candidate it
             # has and writes them together, so staggering these by a minute each
             # misrepresented how the record is actually made -- and, now that
@@ -351,6 +431,9 @@ def seed_history(
     rng = random.Random(seed + 1)
     conn = db.init_db(db_path)
     stamp = now_ms if now_ms is not None else 1_754_800_000_000
+    # The same defaults `seed_all` hashed into the seeded `strategy_configs`
+    # row, so the history and the slate are one strategy rather than two.
+    suppression = SuppressionConfig()
 
     version = conn.execute(
         "SELECT version FROM strategy_configs ORDER BY version DESC LIMIT 1"
@@ -376,9 +459,43 @@ def seed_history(
 
         # The close drifts randomly around the entry. Zero mean = no CLV.
         close_mid = max(20, min(980, ask + rng.gauss(0, 45)))
-        suppressed = rng.choice(
-            [None, None, None, "stale_odds", "wide_market", "insufficient_depth"]
+
+        # Three independent input axes, then `evaluate_suppression` names the
+        # codes. See `_LIVE_SUPPRESSION_MIX` for the rates and where they came
+        # from. The composites fall out of the conjunction rather than being
+        # spelled: `stale` and `thin` together produce
+        # `stale_odds,too_few_books,no_market_width`, which is the largest
+        # composite in the live record and a string this seeder could not
+        # previously write at all.
+        stale = rng.random() < _LIVE_SUPPRESSION_MIX["stale_odds"]
+        thin = rng.random() < _LIVE_SUPPRESSION_MIX["thin_books"]
+        outsized = rng.random() < _LIVE_SUPPRESSION_MIX["suspicious_edge"]
+
+        quote_age_ms = rng.randint(1_000, 20_000)
+        odds_age_ms = (
+            rng.randint(1_000_000, 4_000_000) if stale
+            else rng.randint(30_000, 800_000)
         )
+        edge_tenths = rng.uniform(45.0, 90.0) if outsized else rng.gauss(5.0, 8.0)
+        result = evaluate_suppression(
+            config=suppression,
+            kalshi_quote_age_ms=quote_age_ms,
+            odds_age_ms=odds_age_ms,
+            commence_skew_ms=rng.randint(-600_000, 600_000),
+            depth_at_ask=800.0,
+            contracts=20,
+            # A thin consensus reports **no** width, not a zero one. Passing the
+            # pair together is what keeps `inconsistent_consensus_metadata`
+            # quiet, and getting it wrong here would be the seeder inventing a
+            # producer state that cannot occur.
+            market_width=None if thin else round(rng.uniform(0.005, 0.05), 4),
+            book_count=1 if thin else rng.randint(4, 6),
+            edge_tenths=edge_tenths,
+            # The measured spread between the four devig methods on an even
+            # moneyline, per `core/suppression.py`: 0.18 probability points.
+            method_spread_probability=0.0018,
+        )
+        suppressed = result.reason
         contracts = 0 if suppressed else rng.randint(10, 30)
 
         cursor = conn.execute(
@@ -403,9 +520,14 @@ def seed_history(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 created, version, ticker, side, ask, ask / 1000.0,
-                rng.gauss(5, 8), 0.15, 0.1, 0.01,
+                # The same three numbers the suppression call was given, not a
+                # second independent draw. They were re-rolled here, so a row
+                # could read `stale_odds` beside a stored `odds_age_ms` of four
+                # minutes -- the demo contradicting its own reason string, which
+                # is the shape a reader would take to be a bug in the rule.
+                edge_tenths, 0.15, 0.1, 0.01,
                 contracts, contracts,
-                rng.randint(1000, 20000), rng.randint(30_000, 400_000),
+                quote_age_ms, odds_age_ms,
                 suppressed, "seeded history",
                 close_mid - ask, created + 7_200_000, DEFAULT_HORIZON_HOURS,
             ),

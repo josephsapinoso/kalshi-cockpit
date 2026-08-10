@@ -628,6 +628,28 @@ export type ActionableWindow = {
   max_odds_age_s: number;
   last_sweep_ms: number | null;
   last_sweep_sport: string | null;
+  /**
+   * The last time a pass decided *anything* about odds, and what it decided.
+   *
+   * Not the same question as `last_sweep_ms`, which is the last sweep that was
+   * **served**. Every full pass writes a row whatever it concludes, so:
+   *
+   *   fresh look, fresh sweep   the loop is running and spending
+   *   fresh look, stale sweep   the loop is running and declining, every pass
+   *   stale look, stale sweep   the loop is not running at all
+   *
+   * Those need opposite responses and were one observation until `odds_sweep_log`
+   * existed. The middle row is the state that ran 17 hours unnoticed on
+   * 2026-08-09/10, so the gap between the two is rendered rather than left for a
+   * reader to subtract.
+   *
+   * `null` means this database has never recorded a pass looking, which after a
+   * fresh deploy is the true state and is **not** the same as "it looked and
+   * found nothing". The banner says so instead of drawing a calm dash.
+   */
+  last_look_ms: number | null;
+  last_look_outcome: string | null;
+  last_look_detail: string | null;
   next_sweep_ms: number | null;
   next_sweep_sport: string | null;
   next_sweep_games: number | null;

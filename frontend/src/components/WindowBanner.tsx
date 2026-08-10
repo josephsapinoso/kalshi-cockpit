@@ -1,5 +1,21 @@
 import type { ActionableWindow } from "@/lib/api";
-import { formatAge, formatClock, formatUntil } from "@/lib/api";
+import {
+  formatAge,
+  formatClock,
+  formatDuration,
+  formatUntil,
+} from "@/lib/api";
+
+/**
+ * How long a `last_look` may be before the loop is presumed stopped.
+ *
+ * Two full passes. `scripts/run_loop.py` defaults `--interval` to 900s and
+ * `runner.sweep_odds` writes an `odds_sweep_log` row on *every* full pass —
+ * served, skipped, refused or empty — so silence past two intervals is not the
+ * loop being quiet, it is the loop being absent. One interval would flap on
+ * jitter; two is the smallest gap that cannot be a late pass.
+ */
+const LOOK_SILENT_MS = 2 * 900_000;
 
 /**
  * Whether anything on this page can be acted on, and when the next chance is.
@@ -80,7 +96,9 @@ export default function WindowBanner({
         {explain(w, surfaced, expired)}
       </p>
 
-      <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t px-5 py-3 font-mono text-xs text-muted">
+      <SweepTrace window={w} />
+
+      <dl className="mt-0 flex flex-wrap gap-x-6 gap-y-2 border-t px-5 py-3 font-mono text-xs text-muted">
         <Item
           label="fixtures fresh"
           value={`${w.fixtures_fresh}/${w.fixtures_upcoming}`}
@@ -103,6 +121,166 @@ export default function WindowBanner({
         />
       </dl>
     </section>
+  );
+}
+
+/**
+ * Did the loop look, when did it last sweep, and how far apart are those.
+ *
+ * The readout that makes silence legible reached the API on 2026-08-10 and
+ * stopped there: the three fields were on the wire and no component read them,
+ * so the failure they were built to expose was still invisible on the only
+ * device this tool is used from. That is not an observability fix, it is a
+ * column in a JSON blob.
+ *
+ * The gap is rendered as its own chip between the two ages rather than left for
+ * the reader to subtract, because subtracting two relative ages on a phone is
+ * exactly the step nobody performs. Three states, three tones:
+ *
+ *   no log at all   `null` — never looked. Amber, and it says "blind", because
+ *                   an empty trace read as a dash is the calm-looking version of
+ *                   the outage itself.
+ *   loop silent     nothing recorded in two full passes. Red: the process is
+ *                   gone, and the fresh-looking Board underneath it is a record,
+ *                   not a market.
+ *   nothing swept   the loop is alive and has declined every pass since the
+ *                   budget day opened. Amber. This is the 17-hour shape.
+ *
+ * "Since the budget day opened" is the boundary rather than an invented number
+ * of hours: `budget_day_start_ms` is already on the payload, the day's whole
+ * allowance is two sweeps, and a day with none of them spent is a fact rather
+ * than a threshold somebody chose.
+ */
+function SweepTrace({ window: w }: { window: ActionableWindow }) {
+  if (w.last_look_ms === null) {
+    return (
+      <Trace
+        tone="warn"
+        left="looked never"
+        gap="no sweep log"
+        right={
+          w.last_sweep_ms === null
+            ? "swept never"
+            : `swept ${formatAge(w.now_ms - w.last_sweep_ms)}`
+        }
+        headline={
+          "No pass has ever recorded a decision about odds here. That is " +
+          "blind, not clear: nothing below distinguishes a loop that " +
+          "declined to sweep from a loop that is not running."
+        }
+      />
+    );
+  }
+
+  const lookAge = w.now_ms - w.last_look_ms;
+  const silent = lookAge > LOOK_SILENT_MS;
+  // A sweep from before the budget day opened has not been paid for out of
+  // today's allowance, so today's two sweeps are both still unspent.
+  const sweptThisDay =
+    w.last_sweep_ms !== null && w.last_sweep_ms >= w.budget_day_start_ms;
+  const gapMs = w.last_sweep_ms === null ? null : w.last_look_ms - w.last_sweep_ms;
+
+  const tone: Tone = silent ? "alarm" : sweptThisDay ? "calm" : "warn";
+  const outcome = w.last_look_outcome ?? "unrecorded";
+
+  const headline = silent
+    ? `Nothing has looked at odds in ${formatDuration(lookAge)}. Two full ` +
+      `passes write a row whatever they decide, so this is the recording loop ` +
+      `being stopped — every price below is a record, not an offer.`
+    : sweptThisDay
+      ? `The loop looked ${formatAge(lookAge)} and the day's sweeps have run.`
+      : `The loop is alive and declining: it looked ${formatAge(lookAge)}, and ` +
+        `${
+          gapMs === null
+            ? "no sweep has ever been served"
+            : `nothing has swept in ${formatDuration(gapMs)}`
+        } — not since the budget day opened at ${formatClock(
+          w.budget_day_start_ms,
+        )}. A loop that looks and never spends is the failure that ran 17 ` +
+        `hours unnoticed, and it looks identical to a quiet market from here.`;
+
+  return (
+    <Trace
+      tone={tone}
+      left={`looked ${formatAge(lookAge)}`}
+      gap={
+        gapMs === null
+          ? "never swept"
+          : `gap ${formatDuration(Math.max(0, gapMs))}`
+      }
+      right={
+        w.last_sweep_ms === null
+          ? "swept never"
+          : `swept ${formatAge(w.now_ms - w.last_sweep_ms)}`
+      }
+      headline={headline}
+      outcome={outcome}
+      detail={w.last_look_detail}
+    />
+  );
+}
+
+type Tone = "calm" | "warn" | "alarm";
+
+const TONE_TEXT: Record<Tone, string> = {
+  calm: "text-muted",
+  warn: "text-accent-2",
+  alarm: "text-negative",
+};
+
+const TONE_CHIP: Record<Tone, string> = {
+  calm: "border-[color:var(--border)] text-muted",
+  warn: "border-[color:var(--accent-2)] text-accent-2 font-bold",
+  alarm: "border-[color:var(--negative)] bg-accent-soft text-negative font-bold",
+};
+
+/** The strip itself. Split out so all three states render the same shape. */
+function Trace({
+  tone,
+  left,
+  gap,
+  right,
+  headline,
+  outcome,
+  detail,
+}: {
+  tone: Tone;
+  left: string;
+  gap: string;
+  right: string;
+  headline: string;
+  outcome?: string;
+  detail?: string | null;
+}) {
+  return (
+    <div className="mt-4 border-t px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+        <span className="tabular text-foreground">{left}</span>
+        <span aria-hidden className="text-muted">
+          ——
+        </span>
+        <span
+          className={`tabular rounded-full border px-2 py-0.5 ${TONE_CHIP[tone]}`}
+        >
+          {gap}
+        </span>
+        <span aria-hidden className="text-muted">
+          ——
+        </span>
+        <span className="tabular text-foreground">{right}</span>
+      </div>
+
+      <p className={`mt-2 text-xs leading-relaxed ${TONE_TEXT[tone]}`}>
+        {headline}
+      </p>
+
+      {outcome !== undefined && (
+        <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted">
+          <span className="uppercase tracking-widest">{outcome}</span>
+          {detail ? ` · ${detail}` : " · no reason recorded"}
+        </p>
+      )}
+    </div>
   );
 }
 

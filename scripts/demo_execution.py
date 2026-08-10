@@ -13,6 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from backend.analysis.clv import DEFAULT_HORIZON_HOURS
 from backend.config import GateConfig, StalenessConfig
 from backend.gate import evaluate_gate, recommendation_freshness
 from backend.kalshi.grid import parse_price_grid
@@ -25,6 +26,9 @@ from backend.store import db
 
 DAY_MS = 86_400_000
 ARMED = GateConfig(live_trading_enabled=True, min_scored_recommendations=300)
+
+# The one market every scenario that is not about the CLV floor uses.
+DEMO_TICKER = "KXNFLGAME-26AUG27KCBAL-KC"
 
 # The grid every live game market carried on 2026-08-08 (1,426 of 1,426).
 WHOLE_CENT = parse_price_grid(
@@ -53,15 +57,57 @@ def fresh_db(root: Path, name: str) -> sqlite3.Connection:
     db.init_db(path).close()
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.execute(
-        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, series_ticker) "
-        "VALUES ('KXNFLGAME-26AUG27KCBAL-KC', 'E', 'S')"
-    )
+    _market(conn, DEMO_TICKER, "E")
     _OPENED.append(conn)
     return conn
 
 
-def add(conn, *, clv_tenths, quote_age=1_000, odds_age=60_000, created_ms=None):
+def _market(conn, ticker: str, event_ticker: str) -> None:
+    """Register one market, loudly.
+
+    Plain `INSERT`, and `first_seen_ms`/`last_seen_ms` supplied. This was
+    `INSERT OR IGNORE` without them, and both columns are `NOT NULL`: SQLite
+    ignored the constraint failure exactly as it ignores a duplicate key, so
+    **`kalshi_markets` was empty for the whole script** and every recommendation
+    pointed at a market that did not exist. Nothing complained -- the raw
+    `sqlite3.connect` here does not enable `PRAGMA foreign_keys` -- and the only
+    visible symptom was the gate's own footnote, "400 row(s) had no event ticker
+    and were clustered by market instead". `tasks/lessons.md` carries this under
+    `INSERT OR IGNORE will happily ignore your fixture`.
+    """
+    conn.execute(
+        "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+        "first_seen_ms, last_seen_ms) VALUES (?, ?, 'S', ?, ?)",
+        (ticker, event_ticker, int(time.time() * 1000), int(time.time() * 1000)),
+    )
+
+
+def add(
+    conn, *, clv_tenths, quote_age=1_000, odds_age=60_000, created_ms=None,
+    game=None,
+):
+    """One scored recommendation, visible to the gate.
+
+    Two columns here are not decoration and the script printed the opposite of
+    its own narration without them:
+
+    `clv_horizon_hours` — `gate.clustered_clv` filters `AND r.clv_horizon_hours
+    = :horizon` bound to `DEFAULT_HORIZON_HOURS` (ADR 0011), and `NULL = 0.0` is
+    NULL in SQL, not false. Omitting it dropped **every** row, so scenarios 2 and
+    3 rendered identically to scenario 1's empty database while the prose beneath
+    claimed "the sample size is satisfied". `backend/seed_demo.py` carries a
+    comment warning about exactly this; it had been applied to `seed_history` and
+    not here.
+
+    `game` — the floor counts **independent games**, clustered on
+    `kalshi_markets.event_ticker`. Four hundred rows on one ticker is one
+    cluster, so even with the horizon written the counter would have read
+    "1 of 300". Each game gets its own market and event so 400 rows are 400 data
+    points, which is what "400 scored bets" in the section title claims.
+    """
+    ticker = DEMO_TICKER if game is None else f"KXNFLGAME-26AUG{game:04d}-A"
+    if game is not None:
+        _market(conn, ticker, f"E{game:04d}")
     conn.execute(
         """
         INSERT INTO recommendations (
@@ -69,13 +115,14 @@ def add(conn, *, clv_tenths, quote_age=1_000, odds_age=60_000, created_ms=None):
             fair_probability, edge_tenths, fee_predicted, ev_net_dollars,
             suggested_contracts, reference_contracts, kelly_fraction,
             kalshi_quote_age_ms,
-            odds_age_ms, suppressed_reason, reason_text, clv_tenths, clv_scored_ms
-        ) VALUES (?, 'KXNFLGAME-26AUG27KCBAL-KC', 1, 'yes', 503, 0.55, 20.0, 0.1,
-                  0.5, 20, 20, 0.02, ?, ?, NULL, 'demo', ?, ?)
+            odds_age_ms, suppressed_reason, reason_text, clv_tenths,
+            clv_scored_ms, clv_horizon_hours
+        ) VALUES (?, ?, 1, 'yes', 503, 0.55, 20.0, 0.1,
+                  0.5, 20, 20, 0.02, ?, ?, NULL, 'demo', ?, ?, ?)
         """,
         (
-            created_ms or int(time.time() * 1000), quote_age, odds_age,
-            clv_tenths, int(time.time() * 1000),
+            created_ms or int(time.time() * 1000), ticker, quote_age, odds_age,
+            clv_tenths, int(time.time() * 1000), DEFAULT_HORIZON_HOURS,
         ),
     )
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -101,7 +148,7 @@ def main(root: Path) -> None:
     rule("2. 400 scored bets, positive mean CLV -- and still locked.")
     conn = fresh_db(root, "noisy")
     for i in range(400):
-        add(conn, clv_tenths=(50.0 if i % 2 else -48.0))
+        add(conn, clv_tenths=(50.0 if i % 2 else -48.0), game=i)
     conn.commit()
     show(evaluate_gate(conn, ARMED))
     print("\n  This is the case a naive gate waves through. The sample size is")
@@ -111,7 +158,7 @@ def main(root: Path) -> None:
     rule("3. The same 400 bets with a consistent edge.")
     conn = fresh_db(root, "real")
     for i in range(400):
-        add(conn, clv_tenths=20.0 + (1.0 if i % 2 else -1.0))
+        add(conn, clv_tenths=20.0 + (1.0 if i % 2 else -1.0), game=i)
     conn.commit()
     show(evaluate_gate(conn, ARMED))
     print("\n  Evidence conditions clear. Fees still block it, and they should:")
