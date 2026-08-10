@@ -13,11 +13,51 @@ Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md` first. NEXT.md is the
 actionable checklist; `todo.md` is just the build log. **The top section of
 NEXT.md supersedes everything below it.**
 
+## THE REPO IS PUBLIC NOW — this changes what you may commit
+
+Done in a parallel session on 2026-08-10, after a full-history secret audit
+(gitleaks over `--all`, plus GitHub's own scan of the full history: **0
+alerts**).
+
+- **Every push publishes to the world immediately.** Before committing a
+  measurement, fixture, log capture or screenshot, ask whether it should be
+  world-readable. **Screenshots of the live UI are the sharp edge** — one live
+  run away from showing a real position or bankroll. `.tmp_*` is now gitignored
+  so probe and screenshot scratch output is no longer committable.
+- **Push protection is ON.** A push containing anything credential-shaped is
+  **rejected by GitHub**. That is the guard working. Do **not** bypass it —
+  stop, look at what tripped, and rotate if it is real.
+- **CI cancels superseded runs.** If you push twice quickly and the earlier run
+  shows `cancelled`, that is `ci.yml`'s `concurrency` block doing its job. **Not
+  a failure, not something to debug.** Judge CI by the run on your latest SHA.
+- Public repos get unlimited Actions minutes, so the billing pressure that drove
+  the CI caps is gone. The caps stay — they are a runaway backstop, not a cost
+  measure.
+
 ## State
 
 `main` is at the tip, pushed, in sync. **1,911 tests**, ruff clean, `next build`
-clean. **Everything from last session is committed and UNDEPLOYED** — live is
-unchanged.
+clean. **Everything from the last two sessions is committed and UNDEPLOYED** —
+live is unchanged.
+
+**The undeployed set now includes a security patch, so "deploy whenever" is no
+longer the right framing.** Dependabot surfaced a Next.js *middleware / proxy
+bypass in App Router*; `frontend/package.json` is bumped 16.2.10 → 16.2.11 and
+committed. Live still runs the vulnerable version.
+
+State the blast radius accurately rather than either dismissing or inflating it:
+`frontend/src/middleware.ts` **does** guard `/api/*` (reachable through
+`next.config.ts` rewrites), so the bypass is not cosmetic — but the FastAPI
+backend returns 401 on those routes **independently**, which is the control
+CLAUDE.md actually relies on and which was verified directly on live. So this is
+defence in depth with the **outer** layer down, not an open door. Deploying
+closes it.
+
+Three Dependabot alerts were deliberately **not** taken (a `postcss` and a
+`sharp` pinned inside next's own tree, needing `next@16.3.0`). Both were shown
+unreachable here — there is no `<Image>` in `src/` and the build consumes only
+our own CSS. Do not "finish the job" by taking an untested minor bump on the
+frontend of a real-money instance.
 
 **You can read the live record programmatically.** The live `APP_AUTH_TOKEN` is
 on the `APP_AUTH_TOKEN=` line of `.env` (gitignored). Form-POST `token` to
@@ -136,20 +176,18 @@ not occurred.**
 
 ## Waiting on Joe
 
-- **Set the Actions spending limit to $10.** At the default $0, Actions *stops*
-  at the cap, taking `Deploy` and `Ops` with it — the only phone paths to Fly.
-  The account hit 90% of its 2,000 included minutes; CI is now capped and
-  superseded runs cancel, but the limit still needs setting. `tasks/PHONE.md`
-  item 0.
+- **A deploy, and it now carries the Next.js middleware-bypass patch.** Batched
+  and his alone:
+  `! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
+  **Run `flyctl secrets list` first** — see the boot-failure warning above.
 - **24 Odds API credits** against 400/day. Two polls of the same games at a short
   interval, checking whether `last_update` advances while prices are
   byte-identical. **The repeat poll is the primary purpose** — it converts the
   scrape-clock finding from inference to proof and generalises past one league.
-- **Full-history secret audit, then make the repo public** — public repos get
-  unlimited Actions minutes and CLAUDE.md already intends this. A pattern grep
-  was encouraging but is **not** an audit; run gitleaks over `--all` and
-  specifically hunt the **Odds API key**, which has no distinctive prefix. If
-  anything real surfaces, **rotate first**. Flipping is irreversible.
+
+**Both of the old items here are DONE — do not re-raise them.** The repo is
+public (audit clean, 0 alerts), and the Actions spending limit is moot because
+public repos get unlimited minutes.
 
 ## Settled — do not re-derive or re-propose
 
@@ -182,7 +220,10 @@ not occurred.**
 - **Two sessions in one working tree will fight over git.** Last session a
   parallel session switched the shared branch mid-run. Nothing was lost because
   the work was already committed and pushed — commit early, add by explicit
-  path, and never `git add -A` while another session is live.
+  path, and never `git add -A` while another session is live. **`git pull`
+  before touching `.github/workflows/**` or `.gitignore`**, which a parallel
+  session edited.
+- **A `cancelled` CI run is not a broken build.** See the public-repo section.
 - **`?event_ticker=` ignores `limit` entirely** on Kalshi.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.**
 
