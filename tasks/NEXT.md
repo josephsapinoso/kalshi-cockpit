@@ -1,5 +1,95 @@
 # Next — your checklist
 
+## 2026-08-10, later — JOE: ONE COMMAND, AND IT NOW BLOCKS THE ADR
+
+```
+! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
+```
+
+**The bundle is built, tested, pushed and waiting.** `main` is at `a23a36f`;
+live still runs `ec53ba9`. 1,790 tests, ruff clean, `next build` clean, tree
+clean, no worktrees.
+
+**What changed, and why this is no longer "queued, whenever":** the previous
+plan said the joint bound could run on the newest-1,000 slice and the deploy
+was confirmatory. **`pre-registrar` challenged that and won, and the
+registration is committed.** The whole value of this instrument is that it is
+**not provisional** — it converts *"we didn't find one"* into *"one could not
+have been found here"*. A universal claim proved on 1,000 of 1,535 rows hands
+that back. So the registration carries a **D-gate**: a slice run is reported in
+full and labelled `PROVISIONAL`, and **no ADR, no CLAUDE.md edit and no line
+closure may be written from it.**
+
+So the ordering is now: slice run today (provisional, real, and it will tell us
+the answer's shape) → your deploy → whole-table run → refutation ADR. **The ADR
+waits on the command above.** Nothing else does.
+
+### What ships in it
+
+1. **`offset`, `max_id`, `newest_id` on `/api/ledger`** (`9b8ed19`) — and the
+   pin is the load-bearing half. `offset` alone is a trap: the route sorts
+   newest-first, so a row written *during* a multi-page pull lands on page 0 and
+   shifts every later page. **[MEASURED] one `created_ms` on this table carries
+   84 rows** — a sweep writes its whole slate at one instant. Reproduced, 120
+   rows in four pages with one sweep landing mid-pull:
+
+       unpinned          returned 120, distinct  90, 30 duplicated,
+                         and 84 original rows never returned
+       pinned to max_id  returned 120, distinct 120,  0 duplicated
+
+   **The failure is silent** — every page reports `returned` 30, the pages sum
+   to 120, and `total` agrees. So `offset` without `max_id` would have produced
+   a "whole-table" measurement over a multiset that is not the table.
+
+2. **The four devig readings on the ledger row** (`9b8ed19`), joined through
+   `recommendations.fair_price_id`. `fair_probability` is `p_conservative`, the
+   *lowest* method — a deliberate downward bias that mechanically produces
+   `edge <= 0`. Without the other three, `actionable = 0` cannot be separated
+   into "Kalshi is sharp" and "we chose a low fair".
+
+3. **`unreadable_examples`** (`4473641`, already built).
+
+**`kalshi_markets.result` is still NOT exposed**, deliberately. No reader,
+calibration is dead at this `n`, and a field added for a consumer that does not
+exist is how this repo got four built-never-called modules.
+
+No migration: `SCHEMA_VERSION` unchanged and `schema.sql` untouched — the
+changes are one route and one type file.
+
+### Three inputs the registration corrected, all before any data
+
+**Every one moved in the direction that makes the bound harder to close**,
+which is the opposite of the usual failure here and worth noticing.
+
+- **The stacked generous basis is a fee of exactly ZERO.** Measured
+  exhaustively over 999 prices × 8 order sizes: Model B's maker multiplier is
+  0.015, and `0.015·P(1−P) ≤ 0.00375` rounds half-up to zero cents per contract
+  in **7,992 of 7,992** cases. So the primary bound reduces to *"is the loosest
+  fair above the raw ask?"* and is **size-invariant** — no order size can later
+  be raised as a reason the bound was too tight. Nobody believes Kalshi charges
+  nothing; that is exactly what makes a zero count strong, and exactly why the
+  stacked number may never be quoted as an estimate of anything.
+- **The 2.03-point devig spread is an example wearing the label of a bound.**
+  It traces and reproduces to four figures — but `TestMethodSpreadDependsOnLine
+  Shape` asserts three *inequalities*, never the values, so `tasks/lessons.md`'s
+  claim that "both halves are asserted" is **wrong**. And the spread is
+  **non-monotone** in lopsidedness (1.02/40.0 gives 0.425 — additive clamps), so
+  **no fixed δ is a bound at all.** The artefact is therefore the **shortfall
+  distribution**, from which `K(δ)` is readable at every δ at once. The δ knob
+  does not exist for the analyst.
+- **"1.94 points, 5.1x" for the maker basis is the `N=100` limit.** ADR 0017
+  Correction 1 already fixed 10 contracts as this software's minimum order, so
+  **1.88 points and 4.9x** is operative. The band is `[173, 827]` tenths
+  exactly; "18c–82c" rounds inward and mislabels 14 prices.
+
+### The one number to read when it lands
+
+Not the count. **The shortfall.** *"0 rows clear, and the nearest row is X.XXc
+short of a fee-free ask at the loosest devig reading available"* is the whole
+finding; a bare zero is not citable and the registration says so.
+
+---
+
 ## 2026-08-10 — THE PLAN: one joint bound, then stop and write the refutation
 
 `partner` re-triaged after `pre-registrar` refuted two of its three load-bearing
