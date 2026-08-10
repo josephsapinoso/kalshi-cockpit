@@ -136,6 +136,13 @@ MUST_HAVE_CALLERS = [
         "the Board cannot say whether anything on it can be acted on",
     ),
     (
+        "record_sweep_outcome",
+        "a refused sweep goes back to leaving no row in any table, and silence "
+        "becomes indistinguishable from a system that never looked -- which is "
+        "how odds fetching stopped on 2026-08-09 and ran 17+ hours behind a "
+        "green health check",
+    ),
+    (
         "DiscordNotifier",
         "no alert reaches a phone, and the window is open for fifteen minutes "
         "twice a day",

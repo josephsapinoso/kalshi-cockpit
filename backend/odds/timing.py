@@ -70,6 +70,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Mapping, Optional, Sequence
 
+from .sweeplog import last_sweep_outcome
+
 logger = logging.getLogger(__name__)
 
 _MS_PER_MIN = 60_000
@@ -312,11 +314,42 @@ def upcoming_fixtures_by_sport(
     return fixtures
 
 
+# What counts as a served sweep, for both readers of `api_credits` below.
+#
+# **One predicate, named once**, because the two queries used to disagree and
+# the disagreement was the whole surface of a bug. `last_sweep_by_sport` filtered
+# on neither endpoint nor cost while `_latest_sweep_row`, three lines away,
+# filtered on the endpoint. Both looked reasonable in isolation.
+#
+# Each half is load-bearing in a different direction:
+#
+# `cost > 0` -- a row that spent no credits fetched no odds. Without it, any
+# zero-cost row lands here as a sweep, and the obvious way to record a *refused*
+# sweep is exactly such a row. That fix would have made the scheduler decline the
+# sport it had just failed to sweep, permanently and silently, which is why the
+# refusal is recorded in `odds_sweep_log` instead. This clause means it could not
+# do damage even if someone wrote it here anyway.
+#
+# `LIKE '%/odds'` -- the historical endpoints charge `10 x markets x regions` for
+# a *backfill*, which is spend but is not a sweep of the current board. Cost
+# alone would let one of those suppress the day's live sweep for that sport.
+#
+# `LIKE '%/odds'` rather than `= '/odds'`, which is the bug this replaces:
+# `client.py` records `/sports/{sport_key}/odds`, so the equality never matched a
+# single production row. `seed_demo.py` writes the literal `/odds`, so the demo
+# database matched and the live one did not -- the last-sweep age on the window
+# panel read "never" on the instance and correct on the demo, for the project's
+# life. That is the readout that would have shown odds fetching had stopped.
+# `%` matches the empty string, so this predicate covers both spellings.
+_SERVED_SWEEP = "endpoint LIKE '%/odds' AND cost > 0"
+
+
 def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
-    """`sport_key -> most recent /odds call`, within the budget day."""
+    """`sport_key -> most recent served /odds call`, within the budget day."""
     rows = conn.execute(
         "SELECT sport_key, MAX(called_ms) AS last_ms FROM api_credits "
-        "WHERE called_ms >= ? AND sport_key IS NOT NULL GROUP BY sport_key",
+        f"WHERE called_ms >= ? AND sport_key IS NOT NULL AND {_SERVED_SWEEP} "
+        "GROUP BY sport_key",
         (since_ms,),
     ).fetchall()
     return {r["sport_key"]: int(r["last_ms"]) for r in rows}
@@ -325,7 +358,7 @@ def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
 def _latest_sweep_row(conn):
     return conn.execute(
         "SELECT called_ms, sport_key FROM api_credits "
-        "WHERE endpoint = '/odds' ORDER BY called_ms DESC LIMIT 1"
+        f"WHERE {_SERVED_SWEEP} ORDER BY called_ms DESC LIMIT 1"
     ).fetchone()
 
 
@@ -382,6 +415,16 @@ class ActionableWindow:
     daily_budget: int
     budget_day_start_ms: int
 
+    # The last time a pass decided anything at all about odds, and what it
+    # decided. Distinct from `last_sweep_ms`, which is the last time one was
+    # *served*: the gap between the two is exactly the state that went unnoticed
+    # for 17 hours. `None` means this database has never recorded a pass looking,
+    # which after a fresh deploy is the true state and is not the same as "it
+    # looked and found nothing".
+    last_look_ms: Optional[int] = None
+    last_look_outcome: Optional[str] = None
+    last_look_detail: Optional[str] = None
+
     @property
     def is_open(self) -> bool:
         return self.fixtures_fresh > 0
@@ -429,6 +472,9 @@ class ActionableWindow:
             "spent_today": self.spent_today,
             "daily_budget": self.daily_budget,
             "budget_day_start_ms": self.budget_day_start_ms,
+            "last_look_ms": self.last_look_ms,
+            "last_look_outcome": self.last_look_outcome,
+            "last_look_detail": self.last_look_detail,
             "note": (
                 "Open means odds are fresh enough for a pick to survive the "
                 "staleness check. It does not mean there is anything to bet -- "
@@ -470,6 +516,12 @@ def window_status(
         horizon_ms=horizon_ms,
     )
     latest = _latest_sweep_row(conn)
+    # Not the same question as `latest`, and the difference is the whole point:
+    # `latest` is the last sweep that was *served*, this is the last time a pass
+    # made any decision at all. A long gap in the first with a fresh second says
+    # "the loop is alive and declining"; a gap in both says "the loop is not
+    # running". Those need opposite responses and used to be one observation.
+    look = last_sweep_outcome(conn)
 
     return ActionableWindow(
         now_ms=now_ms,
@@ -485,6 +537,9 @@ def window_status(
         spent_today=state.spent_today,
         daily_budget=state.daily_budget,
         budget_day_start_ms=start_ms,
+        last_look_ms=int(look["pass_ms"]) if look else None,
+        last_look_outcome=look["outcome"] if look else None,
+        last_look_detail=look["detail"] if look else None,
     )
 
 

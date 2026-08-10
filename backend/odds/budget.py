@@ -175,8 +175,8 @@ class CreditBudget:
             ),
         )
 
-    def can_afford(self, cost: int, now_ms: int) -> bool:
-        """Whether a call of `cost` credits is within budget -- day and month.
+    def refusal_reason(self, cost: int, now_ms: int) -> Optional[str]:
+        """Which ceiling refuses a `cost`-credit call, or `None` if none does.
 
         Three ceilings, checked cheapest-to-recover-from last. The server's
         count wins over ours wherever they disagree, because theirs is the one
@@ -189,30 +189,51 @@ class CreditBudget:
         that is the *plan's* limit, while this is ours, and the gap between them
         is the headroom deliberately reserved for another lane (historical
         backfill) that would otherwise be starved by whoever spends first.
+
+        **The reason is returned as well as logged**, which is the change that
+        made this a separate method. It used to exist only inside a
+        `logger.warning`, so the one fact that explains a silent day -- *which*
+        of the three ceilings bound -- lived exclusively in a log stream that
+        drops lines. It is now recordable in `odds_sweep_log`. `None` for "no
+        objection", so the refusal and the empty-string reason cannot be
+        confused.
         """
         state = self.state(now_ms)
         if state.remaining_reported is not None and state.remaining_reported < cost:
-            logger.warning(
-                "refusing %d-credit call: the API reports only %d credits left "
-                "this period",
-                cost, state.remaining_reported,
+            reason = (
+                f"the API reports only {state.remaining_reported} credits left "
+                f"this period, and the call costs {cost}"
             )
-            return False
+            logger.warning("refusing %d-credit call: %s", cost, reason)
+            return reason
         remaining_month = state.remaining_this_month
         if remaining_month is not None and remaining_month < cost:
-            logger.warning(
-                "refusing %d-credit call: %d of %d monthly credits already "
-                "spent. The daily cap cannot see this.",
-                cost, state.spent_this_month, self.monthly_budget,
+            reason = (
+                f"{state.spent_this_month} of {self.monthly_budget} monthly "
+                f"credits already spent, and the call costs {cost}. The daily "
+                f"cap cannot see this."
             )
-            return False
+            logger.warning("refusing %d-credit call: %s", cost, reason)
+            return reason
         if state.remaining_today < cost:
-            logger.warning(
-                "refusing %d-credit call: %d of %d daily credits already spent",
-                cost, state.spent_today, self.daily_budget,
+            reason = (
+                f"{state.spent_today} of {self.daily_budget} daily credits "
+                f"already spent, and the call costs {cost}"
             )
-            return False
-        return True
+            logger.warning("refusing %d-credit call: %s", cost, reason)
+            return reason
+        return None
+
+    def can_afford(self, cost: int, now_ms: int) -> bool:
+        """Whether a call of `cost` credits is within budget -- day and month.
+
+        Kept as the boolean the call sites want, and defined in terms of
+        `refusal_reason` so there is exactly one implementation of the three
+        ceilings. Two of them would drift, and the drift would be invisible:
+        the guard would still refuse, and the recorded reason would name a
+        limit that was not the one that bound.
+        """
+        return self.refusal_reason(cost, now_ms) is None
 
     def record(
         self,

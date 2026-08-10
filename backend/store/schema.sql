@@ -223,6 +223,47 @@ CREATE TABLE IF NOT EXISTS api_credits (
 );
 CREATE INDEX IF NOT EXISTS idx_credits_time ON api_credits(called_ms DESC);
 
+-- Why a pass did or did not spend an odds credit. One row per pass that decided
+-- nothing, one per sport it acted on.
+--
+-- **This table exists because absence had no representation.** A refused sweep
+-- left no row anywhere in this schema: `api_credits` is written only when an
+-- HTTP call was actually made, `notifications` writes `window_open` only when a
+-- sweep succeeded, and the scheduler's reason string was only logged -- and the
+-- log stream is lossy. So "the scheduler looked and declined" and "the scheduler
+-- never ran" were the same observation, which is how odds fetching stopped on
+-- 2026-08-09 and ran 17+ hours behind a green health check.
+--
+-- **Deliberately not a zero-cost row in `api_credits`.** That table means "a
+-- call went out and it cost credits", and `last_sweep_by_sport` reads it for
+-- "has this sport been swept today". A refusal row there is read as a served
+-- sweep: the scheduler drops that sport's slot as already covered and spends its
+-- one bootstrap attempt on it, so the trace intended to reveal the silence would
+-- have caused it, for exactly the sport it was recording a refusal for. Absence
+-- does not belong in the table that means presence -- the same rule as
+-- `tasks/lessons.md`'s zero that means "no measurement".
+CREATE TABLE IF NOT EXISTS odds_sweep_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pass_ms         INTEGER NOT NULL,
+    -- NULL when the row is the pass's own decision rather than one sport's.
+    -- Absent, not empty: a pass that decided nothing swept no sport at all.
+    sport_key       TEXT,
+    -- served   -- a call went out and quotes were stored
+    -- refused  -- the budget declined it; `detail` names the ceiling that bound
+    -- no_data  -- the call went out and the slate came back empty
+    -- skipped  -- the pass chose not to sweep; `detail` is the reason
+    outcome         TEXT NOT NULL,
+    -- The reason, in the words the decision itself used. Not re-derived here:
+    -- a paraphrase of a reason is a second implementation of it.
+    detail          TEXT NOT NULL,
+    -- NULL -- never 0 -- unless the sweep was served. Nothing stored and
+    -- nothing attempted are different states and must not share a value.
+    quotes_stored   INTEGER,
+    CHECK (outcome IN ('served', 'refused', 'no_data', 'skipped')),
+    CHECK ((outcome = 'served') = (quotes_stored IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_sweep_log_time ON odds_sweep_log(pass_ms DESC);
+
 -- ============================================================================
 -- Matching
 -- ============================================================================

@@ -87,6 +87,7 @@ from .match.linker import (
 )
 from .odds.budget import sweep_cost
 from .odds.client import store_quotes
+from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import SweepDecision, decide_sweeps
 from .store import db
 from .store.db import ask_for_side, now_ms
@@ -856,6 +857,10 @@ async def fetch_and_store_odds(
     `max_odds_age_ms`. `decide_sweeps` spends them just before a cluster of
     kickoffs rather than on whichever pass happened to run first; the decision,
     including the decision *not* to sweep, comes back so the pass can report it.
+
+    **Every outcome is written to `odds_sweep_log`, including "nothing".** The
+    decision used to be logged and nothing more, so a pass that looked and
+    declined left no row anywhere and read exactly like a pass that never ran.
     """
     decision = decide_sweeps(
         conn,
@@ -867,15 +872,43 @@ async def fetch_and_store_odds(
     )
     logger.info("sweep decision: %s", decision.detail)
 
+    if not decision.fire:
+        record_sweep_outcome(
+            conn, pass_ms=now, outcome=SKIPPED, detail=decision.detail
+        )
+
     sweeps = stored = 0
     for firing in decision.fire:
+        # Asked *before* the call, not after. A call that succeeds and exhausts
+        # the budget would make an after-the-fact check report "refused" for a
+        # sweep that was served -- the flattering direction is the dangerous one
+        # here, because it would explain away a real outage.
+        affordable = budget.refusal_reason(firing.cost, now) is None
+
         quotes = await odds_client.fetch_odds(firing.sport_key, now_ms=now)
-        if not quotes:
-            # Over budget, or nothing on the slate. Both are normal operating
-            # states, which is why `fetch_odds` returns [] rather than raising.
-            continue
-        sweeps += 1
-        stored += store_quotes(conn, quotes)
+        if quotes:
+            sweeps += 1
+            n = store_quotes(conn, quotes)
+            stored += n
+            record_sweep_outcome(
+                conn, pass_ms=now, sport_key=firing.sport_key,
+                outcome=SERVED, detail=firing.detail, quotes_stored=n,
+            )
+        elif affordable:
+            # The call went out and the slate came back empty. A normal state,
+            # and a completely different one from being refused -- which is why
+            # `fetch_odds` returning `[]` is not enough on its own to say which
+            # happened.
+            record_sweep_outcome(
+                conn, pass_ms=now, sport_key=firing.sport_key,
+                outcome=NO_DATA,
+                detail=(
+                    f"the call went out and the sportsbook returned no "
+                    f"fixtures for {firing.sport_key}"
+                ),
+            )
+        # else: `fetch_odds` recorded the refusal itself, naming the ceiling
+        # that bound. Recording a second row here would contradict it.
     return sweeps, stored, decision
 
 

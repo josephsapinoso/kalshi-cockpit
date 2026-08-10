@@ -31,6 +31,7 @@ import httpx
 
 from ..config import OddsConfig
 from .budget import CreditBudget, sweep_cost
+from .sweeplog import REFUSED, record_sweep_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -225,12 +226,27 @@ class OddsClient:
         is a normal operating state, not a failure. The refusal is logged and
         the caller sees no data, which the staleness gate then treats as
         un-bettable. That chain is the intended behaviour.
+
+        **The refusal is now recorded, at the point of refusal.** It used to be
+        logged and nothing else, so a refused sweep left no row in any table and
+        a system that had stopped fetching odds was indistinguishable from a
+        quiet slate -- for 17 hours, behind a green health check. Recorded here
+        rather than in the caller because this is the only place that can know a
+        call was refused; a caller that forgot to ask would restore the silence.
         """
         markets = list(markets or self.config.markets)
         regions = list(regions or self.config.regions)
         cost = sweep_cost(markets, regions)
 
-        if not self.budget.can_afford(cost, now_ms):
+        refusal = self.budget.refusal_reason(cost, now_ms)
+        if refusal is not None:
+            record_sweep_outcome(
+                self.budget.conn,
+                pass_ms=now_ms,
+                sport_key=sport_key,
+                outcome=REFUSED,
+                detail=refusal,
+            )
             return []
 
         path = f"/sports/{sport_key}/odds"
