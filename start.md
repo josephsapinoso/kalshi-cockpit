@@ -53,11 +53,46 @@ CLAUDE.md actually relies on and which was verified directly on live. So this is
 defence in depth with the **outer** layer down, not an open door. Deploying
 closes it.
 
-Three Dependabot alerts were deliberately **not** taken (a `postcss` and a
-`sharp` pinned inside next's own tree, needing `next@16.3.0`). Both were shown
-unreachable here — there is no `<Image>` in `src/` and the build consumes only
-our own CSS. Do not "finish the job" by taking an untested minor bump on the
-frontend of a real-money instance.
+Dependabot alerts are deliberately **not** taken (a `postcss` and a `sharp`
+pinned inside next's own tree, needing `next@16.3.0`). Shown unreachable here —
+there is no `<Image>` in `src/` and the build consumes only our own CSS. Do not
+"finish the job" by taking an untested minor bump on the frontend of a
+real-money instance.
+
+**Re-checked 2026-08-09. It is now FIVE open alerts, not three, and the count
+will keep climbing — but the exposure has not changed and one word of the
+sentence above was wrong.** The five are four `postcss` advisories and one
+`sharp`, all `frontend/package-lock.json`. No new package has appeared; `postcss`
+simply accumulates CVEs faster than next re-pins it.
+
+**The correction: there are TWO `postcss` copies in the tree, and ours is
+already patched.**
+
+```
+@tailwindcss/postcss@4.3.3  ->  postcss@8.5.26   OURS -- above every alert range
+next@16.2.11                ->  postcss@8.4.31   next's pin -- below all four
+next@16.2.11                ->  sharp@0.34.5     needs >= 0.35.0
+```
+
+So "pinned inside next's own tree" is right about *which copy is vulnerable* and
+would mislead anyone who read it as "we have no direct postcss". We do — it is
+our Tailwind build dependency, and at 8.5.26 it already clears 8.5.12, 8.5.18,
+8.5.10 and 8.5.23. **Only next's pinned 8.4.31 is in range.**
+
+Two reasons this stays parked, and the second is the stronger one:
+
+- **Not reachable.** `sharp` is only invoked by `next/image`, and the single
+  `next/image` string in `src/` is `middleware.ts:68`'s matcher *excluding*
+  `_next/image` — an exclusion, not a usage. `postcss` CVEs need
+  attacker-controlled CSS; we author every line of ours.
+- **Build-time, not request-time.** Both run during `next build`, not on the
+  live instance serving a request. The live attack surface is unchanged by
+  either, which is not true of the middleware bypass that *is* patched and
+  waiting to deploy.
+
+**Do not raise these as five new problems.** Re-verify with
+`gh api repos/josephsapinoso/kalshi-cockpit/dependabot/alerts --paginate` and
+`npm ls postcss sharp` in `frontend/` — both were run to produce this note.
 
 **You can read the live record programmatically.** The live `APP_AUTH_TOKEN` is
 on the `APP_AUTH_TOKEN=` line of `.env` (gitignored). Form-POST `token` to
