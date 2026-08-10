@@ -30,3 +30,24 @@
 [lint]
 select = ["E4", "E7", "E9", "F"]
 ignore = ["F401", "F841", "F541", "E741"]
+
+# A measurement harness under `docs/measurements/` is a FROZEN RECORD of a run
+# whose output is already committed, not source that will be maintained. These
+# scripts are written as compact one-liners because they are base64'd and piped
+# through `flyctl ssh console -C "python -c ..."` -- the live container has no
+# `sqlite3` binary and no way to receive a file. The style is a consequence of
+# the transport, and reformatting one AFTER its run is the hazard `tasks/NEXT.md`
+# §6 already names: changing an instrument whose result is published, without
+# re-running it.
+#
+# Exempted deliberately and NARROWLY -- four layout codes, one directory:
+#   E701/E702  multiple statements on one line   (58 of 75 today)
+#   E402       import not at top of file          (10) -- multi-pass sections
+#   E731       lambda assignment                   (7)
+#
+# Everything that catches a real bug stays on, including undefined names (F821)
+# and syntax errors (E9), so a harness that cannot run still fails lint. If a
+# file here ever becomes something a person maintains, it belongs in `scripts/`
+# under the full rule set instead.
+[lint.per-file-ignores]
+"docs/measurements/*.py" = ["E701", "E702", "E402", "E731"]

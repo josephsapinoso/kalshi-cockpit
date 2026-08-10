@@ -53,7 +53,9 @@ WHAT THIS MEASUREMENT DOES NOT ESTABLISH
 # ==========================================================================
 # PASS 1
 # ==========================================================================
-import sqlite3, json, statistics as st
+import sqlite3
+import json
+import statistics as st
 c = sqlite3.connect("file:/data/cockpit.db?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
 q = lambda s, p=(): [dict(r) for r in c.execute(s, p).fetchall()]
@@ -206,7 +208,7 @@ c.close()
 # ==========================================================================
 # PASS 2
 # ==========================================================================
-import sqlite3, statistics as st
+import sqlite3
 from collections import Counter
 c = sqlite3.connect("file:/data/cockpit.db?mode=ro", uri=True)
 c.row_factory = sqlite3.Row
@@ -306,7 +308,9 @@ c.close()
 # ==========================================================================
 # PASS 3
 # ==========================================================================
-import sqlite3, os, json as J, statistics as st
+import sqlite3
+import os
+import json as J
 from collections import Counter
 P=print; med=lambda xs: st.median(xs) if xs else None
 P("=== N. live env regions ===")
@@ -396,7 +400,7 @@ c.close()
 # ==========================================================================
 # PASS 4
 # ==========================================================================
-import sqlite3, statistics as st
+import sqlite3
 from collections import Counter
 P=print; med=lambda xs: st.median(xs) if xs else None
 c=sqlite3.connect("file:/data/cockpit.db?mode=ro",uri=True); c.row_factory=sqlite3.Row
