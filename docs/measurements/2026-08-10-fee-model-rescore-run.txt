@@ -1,0 +1,368 @@
+
+==============================================================================
+S1 -- THE FRAME. Read this before n, and n before any effect size.
+==============================================================================
+  pull                2026-08-10-clean-shortfall-pull.json
+  pulled_at_utc       2026-08-10T05:07:23.073061+00:00
+  pin                 1564  (expected 1564)
+  rows in pull        1564
+
+  This is a CENSUS over a fixed snapshot, not a sample. No interval is
+  computed anywhere and none would mean anything. No normal
+  approximation is used, so the >=5-per-side rule has nothing to gate.
+
+  TESTS RUN: three fee models x one predicate = 3 primary counts.
+  Every other number below is a decomposition of those three, not an
+  additional test. No cell is scanned for significance.
+
+==============================================================================
+S2 -- REPRODUCTION CHECKSUMS. The reconstruction, verified first.
+==============================================================================
+  clean rows (suppressed_reason IS NULL) .......... 614
+  suppressed ONLY by edge-dependent codes ......... 0
+  fee-INVARIANT eligible pool .................... 614
+    -> a cheaper fee cannot ADD a row to the clean population on this
+       pin. It can only remove one. ADR 0021 5.1, re-derived.
+    The permissive path exists and is closed by that zero, not by a
+    monotonicity argument: `edge_within_method_noise` STOPS firing once
+    a rising edge clears its own spread. It needs a row carrying that
+    code alone, and there is none.
+    rows suppressed by `insufficient_depth` ALONE .. 3
+      id   281 KXMLBGAME-26AUG081915BALTEX-BAL    depth     0.47   step2 E1  +6.2442
+      id    26 KXMLBGAME-26AUG081915BALTEX-BAL    depth     8.51   step2 E1  +4.9582
+      id    12 KXMLBGAME-26AUG082010LADAZ-AZ      depth     4.00   step2 E1  -2.0366
+    ...all below min_depth_contracts = 10: True
+    `insufficient_depth` is the one non-edge check the fee can move, and
+    it moves only in the suppressing direction: a cheaper fee raises
+    Kelly and therefore `max(10, contracts)`. No fee can lower the
+    10-contract floor these three sit under.
+  stored edge_tenths == deployed E1 at C=1 ....... 1471 of 1564
+    ...restricted to the clean population ........ 614 of 614
+    The 1,564-row figure is expected to MISS: rows the engine sized at
+    C>1 carry an edge computed at that size. Every miss must be a
+    suppressed row -- on a clean row the edge is negative, Kelly is 0,
+    and `sizing_contracts` is `max(1, 0) = 1` by construction.
+    clean rows that miss .......................... 0  (must be 0)
+  edge_tenths AND fee_predicted jointly satisfied
+  by ONE order size, whole table ................. 1564 of 1564
+    sizes implied on the 93 misses: min 10, max 50, modal 50
+    `suggested_contracts` is 0 on all 93 misses (engine.py zeroes it on
+    suppression), so it cannot be used to check this and is not.
+  fair_probability == min(four devig readings) ... 1564 of 1564
+  edge-dependent codes re-derived from the stored edge,
+  disagreements: edge_within_method_noise 0, suspicious_edge 0   (both must be 0)
+  stored reference_contracts > 0, whole table .... 0
+  recomputed at deployed fee, clean rows ......... 0
+    VACUOUS, and labelled so rather than quoted. Every clean row has a
+    negative edge, so Kelly is 0 and BOTH figures are forced to 0 under
+    any implementation, right or wrong. It tests nothing about the caps,
+    `kelly_fraction`, the floor division or `max_order_contracts` -- which
+    is the entire regime deciding whether a row sizes. The real check is
+    the next one.
+
+  NON-VACUOUS: `reference_contracts` against the production sizer.
+  A synthetic sweep over the price grid at fair values that DO carry an
+  edge, so Kelly, both dollar caps, the `//` truncation and
+  `max_order_contracts` all have to agree. `size_position` is called
+  for real; only the fair value is synthetic.
+    probes 700, of which 467 size a positive number and
+    343 hit `max_order_contracts`; disagreements 0 (must be 0)
+
+==============================================================================
+S3 -- THE THREE FEE MODELS, evaluated rather than quoted.
+==============================================================================
+  model         fee@50c    fee@45c    fee@55c   break-even
+  deployed       0.0200     0.0200     0.0200       52.00%
+  step1          0.0175     0.0174     0.0174       51.75%
+  step2          0.0088     0.0087     0.0087       50.88%
+
+  Arithmetic note, stated because it is load-bearing: the fee grid is
+  quantised in Decimal so `ceil` is exact, and EVERY number downstream
+  is a FLOAT. $0.0001 is not representable in core/prices.py's integer
+  tenths of a cent -- one tenth is $0.001, ten times coarser -- so none
+  of this arithmetic is on the money grid and none of it is imported by
+  production code. That units question is an ADR; a measurement must
+  not wait on it.
+
+==============================================================================
+S4 -- DENOMINATORS. The same population under every model.
+==============================================================================
+  n_rows   clean rows ................. 614
+  n_obs    (cluster, instant, claim) .. 323
+  n_claims (cluster, claim) ........... 118
+  G        distinct game clusters ..... 59
+  sweeps   distinct created_ms ........ 34
+
+  Unchanged across models by construction (S2): the fee moves E1, not
+  membership. State the evidence as `59 games across 34 recording
+  instants`, never as `614 rows`.
+
+==============================================================================
+S5 -- deployed   0.07, ceil-to-CENT, max(A,B)
+==============================================================================
+  max E1 over the clean population ......... -2.0534 tenths
+  clean ROWS with E1 > 0 ................... 0 of 614
+  ...deduplicated to observations .......... 0 of 323
+  ...deduplicated to claims ................ 0 of 118
+  ...distinct game clusters ................ 0
+
+  SURVIVE THE FULL DEPLOYED PREDICATE ...... 0 rows
+    distinct claims .......................... 0
+    distinct games ........................... 0
+
+  PER-GUARD REFUSAL TABLE, over rows that cleared the fee:
+    (nothing to refuse -- no row cleared the fee)
+
+  DECISIVENESS -- is any guard actually load-bearing here?
+    delete `edge_within_method_noise`, keep everything else -> 0 rows surface
+    delete `sizing:stake_below_one_contract`, keep everything else -> 0 rows surface
+    A guard is DECISIVE only if deleting it changes that number.
+
+  Rows clearing the fee, by series: {}
+    KXWNBAGAME is 27.0% of the record and has ZERO fee observations.
+    positives from it: 0    surfacing from it: 0
+
+==============================================================================
+S5 -- step 1     0.07,  ceil-to-$0.0001   [ROUNDING SUPPORTED; COEFFICIENT REFUTED AT MLB -- CONSERVATIVE UPPER BOUND]
+==============================================================================
+  max E1 over the clean population ......... +0.5466 tenths
+  clean ROWS with E1 > 0 ................... 3 of 614
+  ...deduplicated to observations .......... 2 of 323
+  ...deduplicated to claims ................ 2 of 118
+  ...distinct game clusters ................ 2
+
+  SURVIVE THE FULL DEPLOYED PREDICATE ...... 0 rows
+    distinct claims .......................... 0
+    distinct games ........................... 0
+
+  Every row with E1 > 0, and what refused it:
+       id ticker                             sd   ask        E1   spread  refC  refusals
+      726 KXMLBGAME-26AUG091335NYMPIT-NYM    yes  450   +0.5466   2.3191     0  edge_within_method_noise,sizing:stake_below_one_contract
+      355 KXMLBGAME-26AUG071910LAAMIA-MIA    no   550   +0.4348   4.9580     0  edge_within_method_noise,sizing:stake_below_one_contract
+      352 KXMLBGAME-26AUG071910LAAMIA-LAA    yes  550   +0.4348   4.9580     0  edge_within_method_noise,sizing:stake_below_one_contract
+
+  PER-GUARD REFUSAL TABLE, over rows that cleared the fee:
+    edge_within_method_noise           fires   3   ALONE   0
+    sizing:stake_below_one_contract    fires   3   ALONE   0
+
+  DECISIVENESS -- is any guard actually load-bearing here?
+    delete `edge_within_method_noise`, keep everything else -> 0 rows surface
+    delete `sizing:stake_below_one_contract`, keep everything else -> 0 rows surface
+    A guard is DECISIVE only if deleting it changes that number.
+
+  Rows clearing the fee, by series: {'KXMLBGAME': 3}
+    KXWNBAGAME is 27.0% of the record and has ZERO fee observations.
+    positives from it: 0    surfacing from it: 0
+
+==============================================================================
+S5 -- step 2     0.035, ceil-to-$0.0001   [POST-HOC, 5 rival attributions]
+==============================================================================
+  max E1 over the clean population ......... +9.2466 tenths
+  clean ROWS with E1 > 0 ................... 9 of 614
+  ...deduplicated to observations .......... 7 of 323
+  ...deduplicated to claims ................ 6 of 118
+  ...distinct game clusters ................ 6
+
+  SURVIVE THE FULL DEPLOYED PREDICATE ...... 4 rows
+    distinct claims .......................... 3
+    distinct games ........................... 3
+
+  Every row with E1 > 0, and what refused it:
+       id ticker                             sd   ask        E1   spread  refC  refusals
+      726 KXMLBGAME-26AUG091335NYMPIT-NYM    yes  450   +9.2466   2.3191     9  NONE -- SURFACES
+      355 KXMLBGAME-26AUG071910LAAMIA-MIA    no   550   +9.1348   4.9580     9  NONE -- SURFACES
+      352 KXMLBGAME-26AUG071910LAAMIA-LAA    yes  550   +9.1348   4.9580     9  NONE -- SURFACES
+       37 KXMLBGAME-26AUG081845CINWSH-CIN    yes  550   +5.8778   5.1560     5  NONE -- SURFACES
+      724 KXMLBGAME-26AUG091340LAAMIA-MIA    yes  560   +5.3473   5.8534     5  edge_within_method_noise
+      862 KXMLBGAME-26AUG091340LAAMIA-MIA    yes  570   +4.2381   5.9313     4  edge_within_method_noise
+     1350 KXWNBAGAME-26AUG09DALMIN-MIN       no   270   +3.1375   5.4137     3  edge_within_method_noise [WNBA: ZERO FEE OBSERVATIONS]
+     1377 KXMLBGAME-26AUG101907BOSTOR-TOR    yes  400   +2.1201   6.0451     2  edge_within_method_noise
+     1376 KXMLBGAME-26AUG101907BOSTOR-BOS    no   400   +2.1201   6.0451     2  edge_within_method_noise
+
+  PER-GUARD REFUSAL TABLE, over rows that cleared the fee:
+    edge_within_method_noise           fires   5   ALONE   5
+
+  DECISIVENESS -- is any guard actually load-bearing here?
+    delete `edge_within_method_noise`, keep everything else -> 9 rows surface
+    delete `sizing:stake_below_one_contract`, keep everything else -> 4 rows surface
+    A guard is DECISIVE only if deleting it changes that number.
+
+  Largest single contributor, per CLAUDE.md's pooled-number rule:
+    KXMLBGAME-26AUG071910LAAMIA: 2 of 4 rows = 50.0%
+    claim ('KXMLBGAME-26AUG071910LAAMIA', 'LAA'): 2 of 4 rows
+    Both sides of one two-way market name ONE claim under A1, so a
+    row count overstates the number of distinct opportunities.
+
+  Rows clearing the fee, by series: {'KXMLBGAME': 8, 'KXWNBAGAME': 1}
+    KXWNBAGAME is 27.0% of the record and has ZERO fee observations.
+    positives from it: 1    surfacing from it: 0
+
+==============================================================================
+S6 -- RE-CUTS. ADR 0021 5.2's robustness, applied to this question.
+==============================================================================
+  A pooled count is not a finding until the parts agree.
+
+  step 1     0.07,  ceil-to-$0.0001   [ROUNDING SUPPORTED; COEFFICIENT REFUTED AT MLB -- CONSERVATIVE UPPER BOUND]
+    reading                                                     surface
+    no dedup, all clean rows                                          0
+    largest-E1 representative, obs key (cluster, instant, claim)        0
+    smallest-E1 representative, obs key (cluster, instant, claim)        0
+    largest-E1 representative, claim key (cluster, claim)             0
+    smallest-E1 representative, claim key (cluster, claim)            0
+    The smallest-E1 rule is printed for continuity with ADR 0021 5.2
+    and MUST NOT be read as the answer here. 5.2 used it against H3b,
+    an order statistic. This question is an EXISTENCE claim, and the
+    registration's own 3 justifies the largest-E1 rule for exactly
+    that: keeping the most favourable row per group is the reading
+    most likely to falsify a null, so it cannot manufacture one. The
+    smallest-E1 rule asks whether the WORST row of each group
+    surfaces, which nothing in this project claims.
+    leave-one-game-out over all 59 games:
+       59 of 59 exclusions leave 0 surfacing rows
+      min 0, max 0
+    leave-one-sweep-out over all 34 sweeps:
+       34 of 34 exclusions leave 0 surfacing rows
+      min 0, max 0
+    clusters contributing a surfacing row: 0
+
+  step 2     0.035, ceil-to-$0.0001   [POST-HOC, 5 rival attributions]
+    reading                                                     surface
+    no dedup, all clean rows                                          4
+    largest-E1 representative, obs key (cluster, instant, claim)        3
+    smallest-E1 representative, obs key (cluster, instant, claim)        1
+    largest-E1 representative, claim key (cluster, claim)             3
+    smallest-E1 representative, claim key (cluster, claim)            0
+    The smallest-E1 rule is printed for continuity with ADR 0021 5.2
+    and MUST NOT be read as the answer here. 5.2 used it against H3b,
+    an order statistic. This question is an EXISTENCE claim, and the
+    registration's own 3 justifies the largest-E1 rule for exactly
+    that: keeping the most favourable row per group is the reading
+    most likely to falsify a null, so it cannot manufacture one. The
+    smallest-E1 rule asks whether the WORST row of each group
+    surfaces, which nothing in this project claims.
+    leave-one-game-out over all 59 games:
+        1 of 59 exclusions leave 2 surfacing rows
+        2 of 59 exclusions leave 3 surfacing rows
+       56 of 59 exclusions leave 4 surfacing rows
+      min 2, max 4
+      largest single game: KXMLBGAME-26AUG071910LAAMIA carries 2 of 4 = 50.0%
+    leave-one-sweep-out over all 34 sweeps:
+        1 of 34 exclusions leave 2 surfacing rows
+        2 of 34 exclusions leave 3 surfacing rows
+       31 of 34 exclusions leave 4 surfacing rows
+      min 2, max 4
+      largest single sweep: 1786147495580 carries 2 of 4 = 50.0%
+    clusters contributing a surfacing row: 3
+      KXMLBGAME-26AUG071910LAAMIA: 2
+      KXMLBGAME-26AUG081845CINWSH: 1
+      KXMLBGAME-26AUG091335NYMPIT: 1
+    PERSISTENCE -- how durable is each surfacing claim?
+      KXMLBGAME-26AUG071910LAAMIA / LAA: 4 clean rows across 2 instants -> 2 surface; E1 ranges -7.31 .. +9.13
+      KXMLBGAME-26AUG081845CINWSH / CIN: 8 clean rows across 4 instants -> 1 surface; E1 ranges -19.99 .. +5.88
+      KXMLBGAME-26AUG091335NYMPIT / NYM: 7 clean rows across 4 instants -> 1 surface; E1 ranges -21.66 .. +9.25
+      Each surfaces at ONE of the several instants at which it was
+      observed. These are claim-INSTANTS, not durable opportunities.
+
+==============================================================================
+S7 -- SENSITIVITY. The two places this could be wrong by arithmetic.
+==============================================================================
+  (a) E1 is computed at ONE contract. The engine feeds suppression an
+      edge computed at `max(1, sizing.contracts)`, and that size depends
+      on the operator's exposure at the time, which the payload does not
+      carry. The C=1 fee carries up to $0.0001 of its own ceiling, so
+      the per-contract fee at ANY size is below it by at most
+      0.1 tenths -- a FLAT bound, not 0.1/C. (0.1/C is wrong: the
+      evaluated infimum below improves id 726 by 0.075 tenths, which
+      exceeds 0.1/C for every C >= 2.) C=1 is the CONSERVATIVE reading.
+      Rather than argue the bound, the worst case is EVALUATED: the
+      per-contract fee is replaced by its infimum over all order sizes,
+      `k x P x (1-P)` with no ceiling at all, and the whole predicate is
+      re-run. Nothing the order size can do is more favourable than that.
+
+    step1: clean rows within 0.15 tenths of a decision bar: 0
+      worst-case re-run (fee = k*P*(1-P), no ceiling):
+        rows with E1 > 0 ......... 3   (base 3)
+        rows that surface ........ 0   (base 0)
+
+    step2: clean rows within 0.15 tenths of a decision bar: 1
+      0.0915 from the fee bar   id   714 KXMLBGAME-26AUG091410MINMIL-MIN    E1 -0.0915 spread 14.4237
+      worst-case re-run (fee = k*P*(1-P), no ceiling):
+        rows with E1 > 0 ......... 9   (base 9)
+        rows that surface ........ 4   (base 4)
+
+  (b) The DEPLOYED model is not flat in order size, and the engine
+      cannot reach the size where that matters. `size_position` prices
+      through `effective_price(ask, contracts=1)`, so a row that is
+      -EV at one contract is sized at zero and never re-priced larger.
+      Under `max(model_a, model_b)` the per-order cent ceiling makes the
+      per-contract fee FALL with size:
+        ask       C=1      C=10      C=50   (tenths/contract)
+        450    20.000    18.000    17.400
+        500    20.000    20.000    20.000
+        550    20.000    18.000    17.400
+
+      This is NOT hypothetical, and it fires with no fee correction at
+      all. Over the clean population, at the DEPLOYED fee:
+         C  rows E1>0     max E1
+         1          0    -2.0534
+         5          0    -0.0534
+        10          0    -0.0534
+        25          3    +0.3466
+        50          3    +0.5466
+      The three rows that cross are id 726, 355 and 352 -- the SAME
+      three step 1 produces, which is not a coincidence: at ask 450 the
+      deployed fee at C=50 IS step 1's fee. So ADR 0021 2's `zero clean
+      rows clear the deployed fee` is SIZE-conditional as well as
+      fee-conditional. All three are still refused by
+      `edge_within_method_noise` and by the sizing floor, so nothing
+      surfaces -- but the crossing is real and needs no fee correction.
+      An observation about the deployed sizer, not a recommendation.
+
+  (c) The sizing floor is a property of the REFERENCE BANKROLL, not a
+      law. A row sizes iff `E1 > 4000*eff*(1-eff)/bankroll` tenths at
+      `kelly_fraction = 0.25`, which is the 1.0-tenth
+      supremum only because the reference bankroll is $1,000. Raise it and this
+      guard stops firing on the step-1 rows:
+      id   726: sizes at a reference bankroll of $1,822, or at kelly_fraction 0.455 on $1,000
+      id   355: sizes at a reference bankroll of $2,258, or at kelly_fraction 0.565 on $1,000
+      id   352: sizes at a reference bankroll of $2,258, or at kelly_fraction 0.565 on $1,000
+      So of step 1's two refusals, only `edge_within_method_noise` bears
+      on the economic claim. The over-determination is ONE guard deep
+      for `is there an edge`, two deep for `would we have bet`.
+
+  (d) The counterfactual coefficient is applied at C=1 to decisions that
+      imply multi-contract orders. Under `rate by NOTIONAL` -- the fifth
+      attribution, registered at round two C4 with a threshold anywhere
+      in ($2.70, $3.00] -- the rate a row pays depends on its own stake:
+      id   726  C= 9  notional $ 4.05   ABOVE $3.00 -> takes the HIGH rate (= step 1), does NOT surface
+      id   355  C= 9  notional $ 4.95   ABOVE $3.00 -> takes the HIGH rate (= step 1), does NOT surface
+      id   352  C= 9  notional $ 4.95   ABOVE $3.00 -> takes the HIGH rate (= step 1), does NOT surface
+      id    37  C= 5  notional $ 2.75   inside ($2.70, $3.00] -> UNDETERMINED
+      So three of the four step-2 survivors are not self-consistent
+      under one of the five live attributions: the size that makes them
+      worth betting pushes them into the regime where the coefficient
+      that made them positive does not apply. Section (a) does NOT bound
+      this -- it varies the ceiling holding `k` fixed.
+
+==============================================================================
+S8 -- THE SUPPRESSED POPULATION, and the identity of the survivors.
+==============================================================================
+  (a) Positive net edge over the WHOLE pinned table, all 1,564 rows.
+      DESCRIPTIVE ONLY. These rows are suppressed for reasons the fee
+      cannot touch -- stale odds, one book, no width -- so not one of
+      them can enter the clean population under any fee model. This is
+      NOT a claim that they would be actionable.
+      model       rows E1>0   of which KXWNBAGAME
+      deployed          137                    55
+      step1             158                    66
+      step2             206                    85
+
+  (b) What the surviving rows actually are, under step 2.
+      id   726 cluster KXMLBGAME-26AUG091335NYMPIT    claim NYM      instant 1786213465092
+      id   355 cluster KXMLBGAME-26AUG071910LAAMIA    claim LAA      instant 1786147495580
+      id   352 cluster KXMLBGAME-26AUG071910LAAMIA    claim LAA      instant 1786147495580
+      id    37 cluster KXMLBGAME-26AUG081845CINWSH    claim CIN      instant 1786131207487
+      A1's normalisation: a `NO` on one ticker and a `YES` on the
+      other name ONE claim. Read the claim column before the row
+      count -- two rows there are one opportunity, not two.
+      rows 4 -> claims 3 -> games 3
