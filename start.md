@@ -204,13 +204,32 @@ not occurred.**
    `scripts/census_odds_stamps.py`. And **do not say "it measures our polling
    cadence"** — the aggregator scrapes on its own schedule and we only sample
    it. The defensible claim is *not a per-line reprice timestamp*.
-2. **Re-register the shortfall measurement**, deciding what to do about R3. Grid
-   D saturating at 99.1% is a fact about the record, not a defect, and a rule
-   that can never clear it is a rule that can never report. **H3b is the live
-   question:** the 2.1-tenth shortfall sits *inside* the measured devig spread
-   `[0.32, 4.61]`, so *"the nearest is 0.21c short"* may not be writable at all.
-3. **The refutation ADR** — still blocked, now on item 2. Provisional in exactly
-   the way an n=29 null is provisional; say so in its own named section. The
+2. ~~**Re-register the shortfall measurement**, deciding what to do about R3.~~
+   **DONE 2026-08-09, and NOT by re-registering — do not re-open it.** Every
+   statistic was already committed at `3f2fa1a` on a **public** repo, so
+   nothing was left to blind and a fresh registration would have been a rule
+   chosen with the answers in hand. What was written instead is an **open
+   ruling with the contamination declared**: Amendment A (`3a0716d`) and
+   Addendum A (`33f1219`).
+
+   **The rule, stated answer-independently:** *a stop-the-line guard may only
+   be predicated on a cut that at least one hypothesis's decision rule reads.*
+   No hypothesis reads Grid D, so its saturation clause is a **labelling** rule
+   and cannot withhold a verdict. Grid D keeps its `DEGENERATE` banner and may
+   still not be cited in any conclusion.
+
+   **Five verdicts released. H3b is REFUTED** — `S_min = 2.0534` against
+   `spread_at_min = 2.3191`, so *"the nearest is 0.21c short"* **is not
+   writable**, and the three places that said it are annotated in place. H1 is
+   DECLARED but carries `REPRODUCTION — NOT A NEW OBSERVATION` (`n_new = 0`).
+   **Sign only** — no "nearly clears", no "clearly misses", no
+   multiple-of-noise figure, at any `n`. **Do not describe H3a as having
+   answered H3b.**
+3. **The refutation ADR** — **now unblocked**, and it is the critical path.
+   Provisional in exactly the way a null at this `n` is provisional; say so in
+   its own named section. **Its denominator is `n_obs = 323` in `G = 59`
+   clusters with a floor of `n_claims = 118` — NOT the 29 scored games**, which
+   is the gate screen's CLV count and belongs to a different question. The
    honest claim is *"Kalshi is not mispriced relative to a consensus it may
    itself lead"*, **never** *"no edge exists at Kalshi"*. And note what the
    comparison actually was: sharp anchoring discards a **median of 26 of 29**

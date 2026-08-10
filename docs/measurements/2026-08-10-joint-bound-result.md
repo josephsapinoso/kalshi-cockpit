@@ -110,6 +110,14 @@ unsuppressed rows                                        413   in 38 games
 **Zero of 413 clean rows in 38 games has a positive net edge, and the best one
 in the slice misses the fee by 0.21c.**
 
+> **[ANNOTATED 2026-08-09 — the magnitude half of that sentence is now
+> prohibited.]** Marked in place, not deleted. *"misses the fee by 0.21c"* was
+> **refuted by H3b** on the whole-record clean population: the shortfall
+> (`S_min = 2.0534` tenths) is **smaller than that observation's own devig
+> spread** (`spread_at_min = 2.3191`). The zero stands; the distance does not.
+> See Addendum A `§AD3` in
+> `docs/measurements/2026-08-10-clean-shortfall-distribution-result.md`.
+
 This could have come out the other way — a clean row above the fee was entirely
 possible and did not appear — so unlike the bound it is a real reading of a real
 question. It is also the separating observation that runs *against* the
@@ -400,6 +408,15 @@ unsuppressed rows                                    614   in 59 games
   largest clean NET edge                            −2.1 tenths  (0.21c short)
 actionable rows anywhere in the table, ever            0
 ```
+
+> **[ANNOTATED 2026-08-09 — `(0.21c short)` is not a writable reading.]** Marked
+> in place, not deleted. The **sign** of `−2.1 tenths` stands and is what the
+> zero rests on. Its **magnitude** does not: H3b was refuted because that same
+> observation's devig spread (`2.3191` tenths) exceeds the shortfall
+> (`2.0534`), so "how short" is not distinguishable from the width of the
+> instrument. Registered replacement: *"the nearest clean observation is not
+> distinguishable from clearing."* See Addendum A `§AD3` in
+> `docs/measurements/2026-08-10-clean-shortfall-distribution-result.md`.
 
 **614 matches `/api/gate`'s published `no_edge` count exactly** — an independent
 consistency check across two code paths.

@@ -152,6 +152,33 @@ re-registration must decide what to do about R3 — Grid D saturating at 99.1% i
 a fact about the record, not a defect, and a rule that can never clear it is a
 rule that can never report.
 
+> **[ANSWERED 2026-08-09 — and the re-registration was the wrong instrument.]**
+>
+> **H3b is REFUTED.** Not "may not be writable" — **is not writable.**
+> `S_min = 2.0534` tenths against `spread_at_min = 2.3191` on the whole-record
+> clean population. The shortfall is smaller than that same observation's own
+> devig spread.
+>
+> **And the re-registration was killed rather than written.** Every statistic
+> this question turns on was already committed at `3f2fa1a` and pushed to a
+> **public** repo, so there was nothing left to blind — a fresh
+> "pre-registration" would have been a rule chosen with the answers in hand,
+> wearing a pre-registration's clothes. What was written instead is an **open
+> ruling with the contamination declared**: Amendment A (`3a0716d`) and
+> Addendum A (`33f1219`).
+>
+> **The R3 decision, stated answer-independently so it generalises:** *a
+> stop-the-line guard may only be predicated on a cut that at least one
+> hypothesis's decision rule reads.* No hypothesis reads Grid D, so its
+> saturation clause is a **labelling** rule and may not withhold a verdict.
+> R1, R3's `G < 2` twin and R4's H4 twin keep stop-the-line status. Grid D
+> keeps its `DEGENERATE` banner and still may not be cited in any conclusion —
+> releasing the verdicts did **not** release the cut.
+>
+> Five verdicts released: H1 DECLARED (`REPRODUCTION`, `n_new = 0`), H2
+> DECLARED, H3a DECLARED, **H3b REFUTED**, H4 DECLARED. **Do not describe H3a
+> as having answered H3b** — §7 forbids it explicitly.
+
 ### 5. The queue
 
 1. **ADR 0020 — `stale_odds` reads a scrape clock.** `odds_age_ms` comes from
@@ -347,6 +374,24 @@ same arithmetic reason. The replacements are in the result doc's last section.
 actionable, 8 games. The guards and the edge computation agree about which rows
 are garbage. That is a coherence result, it needed no bound, and it is better
 evidence than the instrument was built to produce.
+
+> **[SUPERSEDED 2026-08-09 — the second sentence above is NOT WRITABLE.]**
+> Kept in place rather than deleted, because the deleted version of a wrong
+> claim is invisible to the next reader who reaches for it.
+>
+> *"the best misses by 0.21c"* was **refuted by H3b** on the whole-record
+> clean population: `S_min = 2.0534` tenths against `spread_at_min = 2.3191`
+> tenths, so **the shortfall is smaller than that same observation's own devig
+> spread**. A miss that cannot be distinguished from the width of the ruler is
+> not a measured miss. See Addendum A `§AD3` in
+> `docs/measurements/2026-08-10-clean-shortfall-distribution-result.md`
+> (`33f1219`), ruled by Amendment A (`3a0716d`).
+>
+> **The first sentence stands**: zero rows clear, and that is sign-only and
+> intact. What dies is every statement about *how far* — "misses by", "nearly
+> clears", "clearly misses", and any multiple-of-noise figure — at any `n`.
+> Registered replacement wording: *"the nearest clean observation is not
+> distinguishable from clearing."*
 
 ### 3. THE BUG — and it is the top of the queue
 
