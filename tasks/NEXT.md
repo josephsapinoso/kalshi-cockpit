@@ -218,6 +218,68 @@ on the sweep scheduler, when the slate was empty). The observation is the fact;
 the cause is **open**. Candidate explanations must be distinguished by evidence
 before one is written down.
 
+> #### ANNOTATION 2026-08-11 — **fact 3 is TWO facts. One of them now has a mechanism. The other is still uncaused.**
+>
+> **Nothing above is withdrawn.** *"No cause is established, and none is written
+> here on purpose"* still governs — read the split before using any of this.
+>
+> **(i) Odds fetching STOPPED. Still uncaused. Nothing below touches it.**
+> No candidate explanation for the stop is offered, supported or excluded here.
+> ADR 0020 remains the reserved owner and remains unwritten.
+>
+> **(ii) It went UNNOTICED for 17 hours. This half now has a mechanism, and it
+> is structural rather than circumstantial.** `backend/odds/timing.py`
+> `_latest_sweep_row` filtered `WHERE endpoint = '/odds'`. There are exactly
+> **two** writers of `api_credits.endpoint` in the repo:
+>
+> - **production** — `backend/odds/budget.py:257`, the only `INSERT`, fed by
+>   `backend/odds/client.py:273` as `endpoint=path`, where `path` is
+>   `/sports/{sport_key}/odds`;
+> - **demo/seed** — `backend/seed_demo.py:321-323`, the hardcoded literal
+>   `'/odds'`.
+>
+> Two writers, exhaustively enumerated, and they disagree — so the claim is
+> **structural, not a sample**: the equality matched **every demo row and zero
+> production rows**. Corroborated by a real dump,
+> `docs/measurements/2026-08-10-sharp-anchoring-on-the-record-run.txt:181`,
+> showing `'endpoint': '/sports/baseball_mlb/odds'`.
+>
+> **Consequence:** `window_status.last_sweep_ms` was permanently `None` on the
+> **live** instance and correct on the **demo** instance, so
+> `frontend/src/components/WindowBanner.tsx:91` showed no last-sweep age on the
+> machine that holds real money. **The readout that would have shown odds
+> fetching had stopped had never worked on live, and worked perfectly on the
+> instance used to check it.**
+>
+> **Fixed at `1c13b8f`** by a shared predicate
+> `_SERVED_SWEEP = "endpoint LIKE '%/odds' AND cost > 0"` used by both readers.
+> `seed_demo.py` needed no change — `%` matches the empty string, so both
+> spellings work.
+>
+> ### The boundary, and it is the whole point of splitting the fact
+>
+> **(ii) is not a diagnosis of (i), and combining them would be ADR 0014
+> exactly.** A blind readout explains why nobody *saw* the stop. It offers no
+> account of why fetching stopped, and it cannot: the readout is downstream of
+> the sweep and reads a table the loop was not writing to during the window.
+> **Do not let a future session read "the last-sweep readout was broken" as
+> "that is why the odds stopped."** They are different claims and only one of
+> them is supported.
+>
+> **A third thing is also still unexplained.** The **health check stayed
+> green**. `_latest_sweep_row`'s blindness explains the WindowBanner's silence
+> and nothing else; the Fly health check
+> (`fly.live.toml [checks.health]`) is a separate surface with a separate
+> predicate and this finding says nothing about it. So fact 3 is really three
+> observations, of which one now has a mechanism.
+>
+> **What it does establish, and it is worth stating plainly:** the project's
+> primary staleness readout was verified on an instance where it worked and
+> deployed to an instance where it could not. That is
+> [[a-detectors-production-must-be-the-deployments-production]] realised on the
+> money instance, and it is why `1c13b8f` is a bigger result than the
+> refused-sweep trace it was found while building.
+
 ### 4. A refused sweep leaves no trace in any table in the record
 
 Checked across the whole schema (`backend/store/schema.sql`). Three independent
