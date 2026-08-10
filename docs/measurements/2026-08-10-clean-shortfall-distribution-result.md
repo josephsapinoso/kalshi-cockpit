@@ -569,3 +569,224 @@ and governs. Beyond it, this run adds four of its own:
   (c) fails either way.
 - **`market_width`, `book_count` and `books_used` were not observed at all.** Two
   of the three extra predicates are unanswered and remain so.
+
+---
+
+# Addendum A — the five verdicts, released
+
+**Appended 2026-08-09.** Append-only. Everything above this line is committed
+text and stands exactly as written — including the five `WITHHELD — STOP THE
+LINE` lines in §S6, §S7, §S8 and §S9, and the `THE RUN STOPPED. No claim is
+declared.` banner. **None of it is edited.** Where those lines read `WITHHELD`,
+they are **superseded by reference** by §AD2 below, in the same way the
+registration's `| Amendments | none |` row is superseded by Amendment A rather
+than corrected in place.
+
+## §AD0. The authority, and why a withheld verdict is now stated
+
+**Amendment A**, appended to
+[`2026-08-10-preregistration-clean-shortfall-distribution.md`](2026-08-10-preregistration-clean-shortfall-distribution.md)
+and committed at **`3a0716d`** (*"measurement: Amendment A — R3's saturation
+clause is a labelling rule, and H3b is REFUTED"*). Sections **§A2** (the
+drafting conflict), **§A3** (the ruling), **§A5** (the verdicts).
+
+The ruling, verbatim from §A3:
+
+> **A stop-the-line guard may only be predicated on a cut that at least one
+> hypothesis's decision rule reads.** A guard predicated on a partition of the
+> population that no registered decision rule evaluates is a **labelling rule**:
+> it attaches its banner to that partition and forbids the partition's use in
+> any conclusion, and it **may not withhold a verdict**.
+
+Applied to this run: **no hypothesis's decision rule reads Grid D.** H1 is a
+maximum over observations, H2 a share over the cluster partition, H3a and H3b
+per-row paired quantities, H4 a count — verified against §7 and against
+`scripts/run_clean_shortfall.py:359-406`. R3's saturation clause is therefore a
+labelling rule here, and the five verdicts it withheld are released. **R1, R3's
+`G < 2` twin and R4's H4 twin keep stop-the-line status** and all three passed
+on this run independently of the ruling.
+
+**The ruling was made with these numbers already public**, and Amendment A §A0
+declares it: the census was committed at `3f2fa1a` and pushed to a public
+repository before any ruling existed. That disclosure travels with this
+addendum. **The rule producing each verdict below was fixed before the run and
+is quoted verbatim beside it; the rule about which guards may withhold a verdict
+was not.** This is an open ruling on a drafting conflict, not a
+re-registration, and no verdict below may be cited as though it were the latter.
+
+## §AD1. What did not change
+
+The pin (`1564`), the pull, the population, the cluster key, the dedup key, the
+cuts, the estimators, the five decision rules and the stopping rule are all
+untouched. **No re-pull. No recomputation. No new cell.** Every statistic in
+§AD2 is one already printed in §S2–§S12 above and already committed at
+`3f2fa1a`. §8's *one pull, one pin, one look* stands.
+
+## §AD2. The five verdicts
+
+Reported in the registered order — H4 first because it can contaminate H1, H1
+last because its answer was already known.
+
+| Claim | Registered rule (§7), verbatim | Statistic, as printed above | Verdict |
+|---|---|---|---|
+| **H4** | *"**Declared** iff `n_degen == 0`."* | §S6: `n_degen` clean = **0**; suppressed (the paired control) = **21**; narrower ULP signature returns the same 21; clean rows in `ask ∈ [440,479]` = 0 | **DECLARED** |
+| **H2** | *"**Declared** iff `max_game_share <= 0.50`."* | §S7: `17 / 323 = 0.0526`, largest cluster `KXMLBGAME-26AUG091605DETSF` | **DECLARED** |
+| **H3a** | precondition `n_spread >= 5`, then *"**Declared** iff `median over those observations of (S − spread_tenths) > 0`."* | §S8: `n_spread = 323`; paired median **+22.70** on both nearest-rank and interpolated conventions; `S > spread_tenths` on 319 / 323 | **DECLARED** |
+| **H3b** | *"**Declared** iff `S_min > spread_at_min`."* | §S8: `S_min = 2.0534`, `spread_at_min = 2.3191`, one attaining observation (id 726), no tie | **REFUTED** |
+| **H1** | *"**Declared** iff `max over clean deduplicated observations of E1 <= 0`."* | §S9: `max E1 = −2.0534` tenths; zero observations with `E1 > 0` | **DECLARED**, carrying **`REPRODUCTION — NOT A NEW OBSERVATION`** |
+
+**H1's label is mandatory and mechanical, not editorial.** `n_new = 0`: all 15
+rows written between `id 1549` and `pin 1564` are suppressed (§S2), so the clean
+population is byte-identical to registration §0.2's and H1 was arithmetically
+incapable of returning anything else. **H1 is a checksum and may not be cited as
+a new observation.**
+
+**§7's one-way downgrade rule had nothing to downgrade.** §S12: all five survive
+leave-one-game-out over all 59 clusters and the `n_claims` key. That is a
+*stability* statement and stability is not support — it says only that no single
+game and no instant-collapse changes an answer. That §S12 disclosed stability
+for verdicts the run had declined to state is recorded as a recurrence in
+`tasks/lessons.md`, under *"Suppressing a conclusion is not suppressing the
+finding"*.
+
+## §AD3. H3b is refuted. What is now forbidden, and what replaces it
+
+`S_min = 2.0534` tenths against `spread_at_min = 2.3191` tenths: **the nearest
+clean observation's shortfall is smaller than that same observation's own
+devig-method spread.** In the registration's own words, required by §7 in these
+words: **the nearest clean observation is not distinguishable from clearing.**
+
+**Therefore the sentence *"the nearest is 0.21c short"* may not be written** —
+not in the refutation ADR, not in `tasks/NEXT.md`, not anywhere. Occurrences
+already written, **requiring annotation** (recorded here and in Amendment A
+§A6 item 2; not discharged, as those files are other lanes'):
+
+- `tasks/NEXT.md:345` — *"the best misses by 0.21c"*
+- `docs/measurements/2026-08-10-joint-bound-result.md:111` — *"in the slice
+  misses the fee by 0.21c"*
+- `docs/measurements/2026-08-10-joint-bound-result.md:400` — *"−2.1 tenths
+  (0.21c short)"*
+
+`tasks/NEXT.md:150` already anticipated that the sentence *"may not be writable
+at all"*; it needs the answer, not a correction.
+
+**What replaces it, and it is sign only:**
+
+> **No clean observation clears the deployed fee.** How far the nearest one
+> falls short is **not resolvable by this measurement**, at this `n` or at any
+> `n`, because the limiting quantity is the devig-method spread rather than the
+> sample size.
+
+**No magnitude language is licensed.** §S13, reproduced by the harness at run
+time from the registration's power check: *"**The magnitude is not resolvable;
+only the sign is.** No statement of the form 'the strategy nearly clears' or
+'clearly misses' is licensed at any `n`."* That includes any
+multiple-of-its-own-noise figure. The ban is recorded as having bound in
+practice in Amendment A §A6 item 4, and the figure it forbade is named there
+rather than repeated here.
+
+**And, in these words, as §7 requires when H3a is declared and H3b refuted:
+H3a may not be described as having answered H3b.** H3a is a statement about the
+typical observation; H3b is a statement about one order statistic; declaring the
+first says nothing about the second.
+
+## §AD4. The R3 label still binds. Releasing the verdicts did not release the cut
+
+Grid D keeps its **`DEGENERATE — DOES NOT DISCRIMINATE`** banner. **Neither Grid
+D nor Grid B may be referred to in any conclusion**, and no cell in either may be
+reported as significant or described with any word implying a test. That
+prohibition is the entirety of what R3's saturation clause now does, and
+Amendment A relaxed no part of it.
+
+Grid D's 99.1% concentration remains what §S11 said it was: a fact about which
+prices the recorder writes — near-even moneylines — and **descriptive**.
+
+## §AD5. The staleness caveat, with its direction argued rather than asserted
+
+**The defect.** `odds_age_ms` derives from The Odds API `last_update`, which the
+evidence says is a **scrape** stamp rather than a per-line reprice stamp: **320
+of 320** book+event pairs quoting more than one priceable market share one stamp
+across every market they quote (`tasks/NEXT.md` item 1, ADR 0020 pending; the
+confirming measurement is registered in
+[`2026-08-10-preregistration-odds-last-update-repeat-poll.md`](2026-08-10-preregistration-odds-last-update-repeat-poll.md)
+and is **not yet a verdict**). So **true line age is bounded below, not
+measured, by `odds_age_ms`**, and a row that passed `stale_odds` is *not proven
+fresh*. **The clean 323 carries unmeasured staleness.** This is not a hedge — it
+is a named hole and it is not closed by anything in this run.
+
+**The argument that it runs against H1, and it holds — for H1, in direction
+only.** If the error a stale line induces in `fair_probability` is two-sided,
+then it adds variance to `E1` without shifting its centre; and the maximum is a
+convex function, so independent mean-zero perturbations can only **raise** the
+expected maximum. H1's falsifier is `max E1 > 0`. **The confound therefore
+pushes toward falsifying H1, and H1 was declared anyway.** That is a real
+robustness statement about H1's declaration and it survives.
+
+**Three qualifications, all of which must travel with it.**
+
+1. **Two-sidedness is [ASSUMED], not measured.** It requires the consensus fair
+   to be unpredictable in sign over the unmeasured staleness interval. Nothing
+   in this repo measures that, and a systematic drift correlated with the side
+   being priced would give the error a sign. The repeat-poll capture cannot
+   answer it either: it measures whether the **stamp** advances, not whether the
+   **price** drifts.
+2. **The perturbations are not independent across the 323.** Every row from one
+   odds sweep is priced off one scraped snapshot, and §S4 shows 291 collapsed
+   groups with a median of 4 observations per cluster. The number of independent
+   staleness draws is far below 323, which **shrinks** the upward push on the
+   maximum without reversing it. The argument therefore licenses a **sign and
+   nothing else** — consistent with §S13, which forbids magnitude claims here
+   anyway.
+3. **It does not transfer to H3b, and applied consistently it runs the other
+   way.** `S_min = −max E1`: they are one displacement with opposite sign,
+   attained by the same observation (id 726). Whatever pushes `max E1` up pushes
+   `S_min` down, and a smaller `S_min` makes `S_min > spread_at_min` **harder** —
+   so the confound makes H3b **easier to refute**. That does not invalidate the
+   refutation, because refuting H3b yields a **prohibition on a sentence**, not
+   a positive claim: a confound that makes a prohibition more likely can only
+   over-restrict, never over-claim. **But "the confound ran against the result"
+   is true of H1 and false of H3b, and the two must not be stated as one.**
+
+Partly offsetting, and worth one line rather than a paragraph: H3b's comparison
+is **paired within one row** (§5), and both `S` and `spread_tenths` are computed
+from the same stale snapshot, so the pairing absorbs whatever staleness moves
+the two terms together. It does not absorb what moves them differently, and how
+much of each there is has not been measured.
+
+## §AD6. What this release does not license
+
+Registration §10 governs in full and is reproduced by the harness at §S13.
+Beyond it, this release adds:
+
+- **It does not make any released verdict a new observation.** H1 is a checksum
+  (`n_new = 0`). H2, H3a, H3b and H4 are census statements about one pinned
+  snapshot of one recording window in two leagues in August, with **no interval
+  anywhere** and no inference to any other row.
+- **The denominator is `n_obs = 323` observations in `G = 59` clusters**, with a
+  hardest floor of `n_claims = 118` — roughly two per game. §9 requires exactly
+  these beside any citation of the result and **forbids quoting `n_rows = 614`
+  alone**. The **29** that circulates elsewhere in this repo is the count of
+  *scored* games on the gate screen; it is a different population answering the
+  CLV and settlement question, and it is **not** this measurement's denominator.
+- **Clean population only.** 614 clean rows of 1,564; 950 are suppressed. And
+  per §2 the clean set is **defined partly by the dependent variable** —
+  `suspicious_edge` removes stored edges above 40.0 tenths, and
+  `edge_within_method_noise` removes stored edges in `(0, spread_tenths]`. §S10
+  Finding 2 measures the consequence: **137 suppressed rows on the whole pinned
+  table carry a positive net edge** (45 in the newest-1,000 slice). Anyone
+  quoting this result as "there is no edge in the record" has read the wrong
+  population.
+- **The honest claim, and it is the only one licensed:** *"Kalshi is not
+  mispriced relative to a consensus it may itself lead."* The sentence *"no edge
+  exists at Kalshi"* is **forbidden** — the same prohibition the joint-bound
+  registration carries. If Kalshi is the sharp side, "Kalshi versus devigged
+  sportsbook consensus" is close to empty by construction, and finding nothing
+  in it is a fact about the instrument's geometry rather than about the venue.
+- **The clean rows are not proven fresh** (§AD5), and the deployed revision of
+  `suppression.py` is still not pinnable to a SHA.
+- **`market_width`, `book_count` and `books_used` were never observed.** Two of
+  the three extra predicates remain unanswered, as stated above.
+- **The refutation ADR is not written here**, and nothing in this addendum
+  writes it. §9 licenses it on this branch — H1 declared with `n_new == 0` —
+  and requires that it **cite registration §0.2 for the number and this run only
+  for the denominator and the distribution.**
