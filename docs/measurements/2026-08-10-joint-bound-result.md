@@ -344,3 +344,80 @@ same arithmetic reason. Two replacements, in order:
 
 The `max_id` pin and the four per-method probabilities are built and pushed; they
 need the deploy before either replacement can run against the whole table.
+
+---
+
+# Addendum — the deploy landed, and the whole table says the same thing
+
+**2026-08-10, later.** Joe deployed. Verified independently rather than by the
+workflow's own assertions: unauthenticated `/api/ledger`, `/api/gate`,
+`/api/orders`, `/api/results` all **401**, forged bearer **401**, health
+unchanged (`live`, `live_trading_enabled: false`, `execution_available: false`,
+`retired_settings_set: []`).
+
+### The paging works, end to end, on the real table
+
+```
+pinned pull   2 pages, pin = newest_id = 1549, total = 1549
+              rows collected 1549   distinct ids 1549
+              COMPLETE AND DUPLICATE-FREE
+```
+
+### The join is populated and correct on every row
+
+```
+rows with the fair_prices join populated        1549 of 1549
+p_conservative == fair_probability              1549 of 1549
+p_conservative == min(four methods)             1549 of 1549
+```
+
+The integrity check the payload was designed to make possible **passes on the
+whole record**. `fair_probability` is confirmed to be the minimum across the four
+devig methods, on every row, empirically rather than by reading `devig.py`.
+
+### The degenerate-fair bug is bounded: 21 rows, 2 games, 1.4%
+
+```
+signature rows (p_mult == p_add == 0.5, p_power one ULP below)   21   (1.4%)
+  distinct games                                                  2
+  p_power value                              0.49999999999999994 on all 21
+  all carry too_few_books                                      True
+  unsuppressed among them                                         0
+  FRESH among them                                                8
+```
+
+The whole-table census confirms the trace's diagnosis exactly and **bounds the
+blast radius**: it is not widespread, it is two WNBA games, and the eight fresh
+rows are the ones that would have surfaced had `min_book_count` been 1. The bug
+is still job one — a single unconfigurable threshold is the only thing stopping
+it — but nothing in the record needs re-deriving because of it.
+
+### THE DISCRIMINATING MEASUREMENT, NOW OVER THE WHOLE RECORD
+
+```
+unsuppressed rows                                    614   in 59 games
+  ...with a positive NET edge at the deployed fee      0
+  largest clean NET edge                            −2.1 tenths  (0.21c short)
+actionable rows anywhere in the table, ever            0
+```
+
+**614 matches `/api/gate`'s published `no_edge` count exactly** — an independent
+consistency check across two code paths.
+
+**The largest clean net edge over all 1,549 rows is the same −2.1 tenths as over
+the 1,000-row slice.** The slice was not hiding anything at the top, and the
+volatility-weighting concern does not bite on this quantity.
+
+**What this is, precisely.** It is the direct empirical confirmation, over the
+complete table, of the deduction the fresh-odds registration made at §0.3 from a
+counter alone: *every unsuppressed row already has a non-positive edge.* That
+was arithmetic on `actionable = 0`; it is now measured, on 614 rows across 59
+games, with the pull pinned, complete and duplicate-free.
+
+**What it is not.** It is not the joint bound — that instrument is dead for the
+reasons above and re-running it on the whole table returns Branch N for the same
+arithmetic. It is not a registered claim about the *distribution* or the
+*magnitude* of the shortfall; the −2.1 tenths is reported as a single observed
+maximum, and any per-game or per-bucket reading of it needs the replacement
+registration first. And the fee it measures against is still `calculate_fee`'s
+bar, on a project with **zero fills, ever**.
