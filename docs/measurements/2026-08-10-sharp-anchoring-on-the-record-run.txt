@@ -1,0 +1,232 @@
+SHARP ANCHORING ON THE RECORD -- raw run transcript
+Run 2026-08-10 against kalshi-cockpit:/data/cockpit.db via flyctl ssh console,
+sqlite3 opened file:/data/cockpit.db?mode=ro (read-only URI). Four passes.
+Recommendation population pinned to id <= 1564, matching
+docs/measurements/2026-08-10-clean-shortfall-pull.json (pin = 1564).
+
+########## PASS 1 -- census reproduction ##########
+Connecting to fdaa:ab:61bd:a7b:855:a771:6108:2...
+=== A. REPRODUCE Q5 scope (h2h) ===
+[{'rows': 10284, 'ev': 68, 'bk': 32, 't0': '2026-08-07 19:33:27', 't1': '2026-08-09 23:37:15'}]
+=== A2. scope ALL markets ===
+[{'market': 'h2h', 'rows': 10284, 'ev': 68, 'bk': 32, 't0': '2026-08-07 19:33:27', 't1': '2026-08-09 23:37:15'}, {'market': 'spreads', 'rows': 7392, 'ev': 68, 'bk': 23, 't0': '2026-08-07 19:33:27', 't1': '2026-08-09 23:37:15'}, {'market': 'totals', 'rows': 7508, 'ev': 68, 'bk': 23, 't0': '2026-08-07 19:33:27', 't1': '2026-08-09 23:37:15'}]
+=== A3. sport_key breakdown h2h ===
+[{'sport_key': 'baseball_mlb', 'rows': 8682, 'ev': 54}, {'sport_key': 'basketball_wnba', 'rows': 1602, 'ev': 14}]
+=== B. Q1 per-instant, n=234 ===
+available min/med/max 1 23.0 31
+sharp     min/med/max 0 3.0 3
+discarded min/med/max 1 20.0 28
+=== C. Q3 bind ===
+0 54 23.1
+1 26 11.1
+2 24 10.3
+3 130 55.6
+=== D. Q2 distribution FULL ===
+avail 29 sharp 3 disc 26 -> 51
+avail 31 sharp 3 disc 28 -> 36
+avail 12 sharp 0 disc 12 -> 12
+avail 25 sharp 3 disc 22 -> 11
+avail 23 sharp 3 disc 20 -> 11
+avail 22 sharp 3 disc 19 -> 6
+avail 15 sharp 0 disc 15 -> 5
+avail 26 sharp 1 disc 25 -> 5
+avail 20 sharp 2 disc 18 -> 5
+avail 16 sharp 0 disc 16 -> 5
+avail 16 sharp 2 disc 14 -> 5
+avail 9 sharp 0 disc 9 -> 5
+avail 24 sharp 3 disc 21 -> 4
+avail 1 sharp 0 disc 1 -> 4
+avail 19 sharp 0 disc 19 -> 4
+avail 11 sharp 0 disc 11 -> 4
+avail 7 sharp 0 disc 7 -> 4
+avail 19 sharp 1 disc 18 -> 4
+avail 21 sharp 3 disc 18 -> 4
+avail 10 sharp 0 disc 10 -> 4
+avail 24 sharp 2 disc 22 -> 3
+avail 13 sharp 0 disc 13 -> 3
+avail 15 sharp 1 disc 14 -> 3
+avail 17 sharp 2 disc 15 -> 3
+avail 17 sharp 1 disc 16 -> 3
+avail 18 sharp 1 disc 17 -> 3
+avail 30 sharp 3 disc 27 -> 3
+avail 18 sharp 3 disc 15 -> 2
+avail 27 sharp 2 disc 25 -> 2
+avail 13 sharp 1 disc 12 -> 2
+avail 16 sharp 1 disc 15 -> 2
+avail 22 sharp 2 disc 20 -> 2
+avail 19 sharp 2 disc 17 -> 1
+avail 9 sharp 1 disc 8 -> 1
+avail 5 sharp 1 disc 4 -> 1
+avail 28 sharp 2 disc 26 -> 1
+avail 13 sharp 2 disc 11 -> 1
+avail 21 sharp 2 disc 19 -> 1
+avail 17 sharp 0 disc 17 -> 1
+avail 11 sharp 1 disc 10 -> 1
+avail 8 sharp 1 disc 7 -> 1
+avail 16 sharp 3 disc 13 -> 1
+avail 4 sharp 0 disc 4 -> 1
+avail 8 sharp 0 disc 8 -> 1
+avail 18 sharp 0 disc 18 -> 1
+avail 20 sharp 3 disc 17 -> 1
+=== E. Q4 sharp coverage, h2h ===
+[{'bookmaker': 'pinnacle', 'ev': 63, 'quotes': 322}, {'bookmaker': 'betfair_ex_eu', 'ev': 56, 'quotes': 310}, {'bookmaker': 'matchbook', 'ev': 54, 'quotes': 296}]
+=== E2. betfair_ex_uk ANY market ANY time ===
+[{'n': 0}]
+=== E3. ALL bookmakers ever seen, any market ===
+[{'bookmaker': 'betanysports', 'market': 'h2h', 'n': 232, 'ev': 55}, {'bookmaker': 'betanysports', 'market': 'spreads', 'n': 234, 'ev': 56}, {'bookmaker': 'betanysports', 'market': 'totals', 'n': 234, 'ev': 56}, {'bookmaker': 'betclic_fr', 'market': 'h2h', 'n': 373, 'ev': 54}, {'bookmaker': 'betfair_ex_eu', 'market': 'h2h', 'n': 310, 'ev': 56}, {'bookmaker': 'betmgm', 'market': 'h2h', 'n': 376, 'ev': 64}, {'bookmaker': 'betmgm', 'market': 'spreads', 'n': 348, 'ev': 61}, {'bookmaker': 'betmgm', 'market': 'totals', 'n': 376, 'ev': 64}, {'bookmaker': 'betonlineag', 'market': 'h2h', 'n': 374, 'ev': 63}, {'bookmaker': 'betonlineag', 'market': 'spreads', 'n': 252, 'ev': 56}, {'bookmaker': 'betonlineag', 'market': 'totals', 'n': 384, 'ev': 64}, {'bookmaker': 'betrivers', 'market': 'h2h', 'n': 316, 'ev': 65}, {'bookmaker': 'betrivers', 'market': 'spreads', 'n': 324, 'ev': 65}, {'bookmaker': 'betrivers', 'market': 'totals', 'n': 330, 'ev': 65}, {'bookmaker': 'betsson', 'market': 'h2h', 'n': 368, 'ev': 68}, {'bookmaker': 'betsson', 'market': 'spreads', 'n': 360, 'ev': 68}, {'bookmaker': 'betsson', 'market': 'totals', 'n': 362, 'ev': 68}, {'bookmaker': 'betus', 'market': 'h2h', 'n': 270, 'ev': 62}, {'bookmaker': 'betus', 'market': 'spreads', 'n': 252, 'ev': 56}, {'bookmaker': 'betus', 'market': 'totals', 'n': 280, 'ev': 63}, {'bookmaker': 'bovada', 'market': 'h2h', 'n': 414, 'ev': 66}, {'bookmaker': 'bovada', 'market': 'spreads', 'n': 420, 'ev': 66}, {'bookmaker': 'bovada', 'market': 'totals', 'n': 420, 'ev': 66}, {'bookmaker': 'coolbet', 'market': 'h2h', 'n': 362, 'ev': 66}, {'bookmaker': 'coolbet', 'market': 'spreads', 'n': 362, 'ev': 66}, {'bookmaker': 'coolbet', 'market': 'totals', 'n': 360, 'ev': 66}, {'bookmaker': 'draftkings', 'market': 'h2h', 'n': 458, 'ev': 67}, {'bookmaker': 'draftkings', 'market': 'spreads', 'n': 430, 'ev': 67}, {'bookmaker': 'draftkings', 'market': 'totals', 'n': 464, 'ev': 67}, {'bookmaker': 'fanatics', 'market': 'h2h', 'n': 176, 'ev': 23}, {'bookmaker': 'fanatics', 'market': 'spreads', 'n': 178, 'ev': 23}, {'bookmaker': 'fanatics', 'market': 'totals', 'n': 178, 'ev': 23}, {'bookmaker': 'fanduel', 'market': 'h2h', 'n': 428, 'ev': 68}, {'bookmaker': 'fanduel', 'market': 'spreads', 'n': 434, 'ev': 68}, {'bookmaker': 'fanduel', 'market': 'totals', 'n': 432, 'ev': 68}, {'bookmaker': 'gtbets', 'market': 'h2h', 'n': 372, 'ev': 65}, {'bookmaker': 'gtbets', 'market': 'spreads', 'n': 308, 'ev': 57}, {'bookmaker': 'gtbets', 'market': 'totals', 'n': 390, 'ev': 65}, {'bookmaker': 'leovegas_se', 'market': 'h2h', 'n': 316, 'ev': 65}, {'bookmaker': 'leovegas_se', 'market': 'spreads', 'n': 324, 'ev': 65}, {'bookmaker': 'lowvig', 'market': 'h2h', 'n': 374, 'ev': 63}, {'bookmaker': 'lowvig', 'market': 'spreads', 'n': 252, 'ev': 56}, {'bookmaker': 'lowvig', 'market': 'totals', 'n': 384, 'ev': 64}, {'bookmaker': 'marathonbet', 'market': 'h2h', 'n': 222, 'ev': 51}, {'bookmaker': 'matchbook', 'market': 'h2h', 'n': 296, 'ev': 54}, {'bookmaker': 'matchbook', 'market': 'spreads', 'n': 316, 'ev': 54}, {'bookmaker': 'matchbook', 'market': 'totals', 'n': 306, 'ev': 54}, {'bookmaker': 'mybookieag', 'market': 'h2h', 'n': 310, 'ev': 60}, {'bookmaker': 'mybookieag', 'market': 'spreads', 'n': 310, 'ev': 60}, {'bookmaker': 'mybookieag', 'market': 'totals', 'n': 312, 'ev': 60}, {'bookmaker': 'nordicbet', 'market': 'h2h', 'n': 368, 'ev': 68}, {'bookmaker': 'nordicbet', 'market': 'spreads', 'n': 362, 'ev': 68}, {'bookmaker': 'nordicbet', 'market': 'totals', 'n': 364, 'ev': 68}, {'bookmaker': 'onexbet', 'market': 'h2h', 'n': 342, 'ev': 62}, {'bookmaker': 'onexbet', 'market': 'spreads', 'n': 342, 'ev': 62}, {'bookmaker': 'onexbet', 'market': 'totals', 'n': 342, 'ev': 62}, {'bookmaker': 'pinnacle', 'market': 'h2h', 'n': 322, 'ev': 63}, {'bookmaker': 'pinnacle', 'market': 'spreads', 'n': 328, 'ev': 63}, {'bookmaker': 'pinnacle', 'market': 'totals', 'n': 330, 'ev': 63}, {'bookmaker': 'pmu_fr', 'market': 'h2h', 'n': 70, 'ev': 12}, {'bookmaker': 'pmu_fr', 'market': 'totals', 'n': 330, 'ev': 65}, {'bookmaker': 'sport888', 'market': 'h2h', 'n': 437, 'ev': 68}, {'bookmaker': 'sport888', 'market': 'spreads', 'n': 426, 'ev': 68}, {'bookmaker': 'sport888', 'market': 'totals', 'n': 434, 'ev': 68}, {'bookmaker': 'tipico_de', 'market': 'h2h', 'n': 228, 'ev': 45}, {'bookmaker': 'tipico_de', 'market': 'totals', 'n': 234, 'ev': 45}, {'bookmaker': 'unibet_fr', 'market': 'h2h', 'n': 320, 'ev': 54}, {'bookmaker': 'unibet_nl', 'market': 'h2h', 'n': 316, 'ev': 65}, {'bookmaker': 'unibet_nl', 'market': 'spreads', 'n': 324, 'ev': 65}, {'bookmaker': 'unibet_nl', 'market': 'totals', 'n': 72, 'ev': 12}, {'bookmaker': 'unibet_se', 'market': 'h2h', 'n': 316, 'ev': 65}, {'bookmaker': 'unibet_se', 'market': 'spreads', 'n': 324, 'ev': 65}, {'bookmaker': 'williamhill', 'market': 'h2h', 'n': 282, 'ev': 53}, {'bookmaker': 'williamhill_us', 'market': 'h2h', 'n': 190, 'ev': 28}, {'bookmaker': 'williamhill_us', 'market': 'spreads', 'n': 182, 'ev': 28}, {'bookmaker': 'williamhill_us', 'market': 'totals', 'n': 190, 'ev': 28}, {'bookmaker': 'winamax_de', 'market': 'h2h', 'n': 373, 'ev': 54}, {'bookmaker': 'winamax_fr', 'market': 'h2h', 'n': 373, 'ev': 54}]
+=== E4. betfair-like names ===
+[{'bookmaker': 'matchbook'}, {'bookmaker': 'pinnacle'}, {'bookmaker': 'betfair_ex_eu'}]
+=== F. PER-EVENT re-derivation (event-weighted) ===
+events 68
+median across events of per-event median available: 23.0
+median across events of per-event median sharp    : 2.5
+median across events of per-event median discarded: 20.5
+per-event median-available distribution: [(7, 1), (8, 1), (15, 1), (16, 2), (17, 2), (17.5, 1), (18.0, 3), (19, 7), (19.5, 2), (20.0, 3), (20.5, 1), (22.0, 4), (22.5, 4), (23.0, 3), (23.5, 1), (24.0, 2), (24.5, 5), (25, 5), (25.5, 4), (26, 1), (26.5, 2), (27.0, 2), (29.0, 7), (31, 4)]
+per-event median-sharp distribution    : [(0, 10), (0.5, 1), (1, 3), (1.5, 3), (2.0, 7), (2.5, 11), (3.0, 33)]
+=== F2. instants per event, dominance ===
+top 10: [('9787ffdc39d62ec33a07c7d40b78adee', 7), ('3081c067af129c2354800a0fde3a3568', 6), ('440c77bba5359e2f5581b4cc8db80c54', 6), ('6b6ba5b15bfaaa7ec8e1e6d5c8666468', 6), ('87469e2153fb7260dafc6c43a4ebee53', 6), ('9e78ca8707c1e5012ccd30c142e37a40', 6), ('a7521ab1b3d33fa79e27498c47700cb4', 6), ('cace409c1c9708d449b8598e55ca9536', 6), ('d9bb4855e4ed5d8ae038db62356ed74f', 6), ('daa4e04859053509cd5193e35c94fd0f', 6)]
+instants-per-event min/med/max: 1 3.5 7
+largest event share of instants: 7/234 = 3.0%
+top5 share: 13.2%
+=== F3. events with ZERO sharp at every instant vs mixed ===
+events where sharp==0 at EVERY instant: 4
+events where sharp==0 at ANY instant: 37
+instants with sharp==0 that belong to all-zero events: 6
+=== F4. sharp==0 instants: their n_all and sport ===
+n_all distribution among sharp==0: [(1, 4), (4, 1), (7, 4), (8, 1), (9, 5), (10, 4), (11, 4), (12, 12), (13, 3), (15, 5), (16, 5), (17, 1), (18, 1), (19, 4)]
+sport distribution among sharp==0: [('baseball_mlb', 49), ('basketball_wnba', 5)]
+sport distribution among ALL instants: [('baseball_mlb', 193), ('basketball_wnba', 41)]
+=== F5. n_all < 2 instants ===
+instants with n_all<2: 4
+their events: [('253334441d4a57efddaf3e77f2c41ad4', 1), ('4a90a077ddd83a66ffc796851a64a7ac', 1), ('73ef1f850670696ba58e162fd6a974c5', 1), ('d84c052615fe26488fde71d793be8173', 1)]
+=== G. THE RECORD: fair_prices ===
+[{'n': 21526, 'links': 60, 't0': '2026-08-07 19:33:27', 't1': '2026-08-10 15:42:49'}]
+--- fair_prices by market ---
+[{'market': 'h2h', 'n': 21526}]
+--- anchored_on_sharp distribution ---
+[{'anchored_on_sharp': 0, 'n': 7870, 'links': 34, 'instants': 551}, {'anchored_on_sharp': 1, 'n': 13656, 'links': 54, 'instants': 691}]
+--- anchored x book_count ---
+[{'anchored_on_sharp': 0, 'book_count': 1, 'n': 912}, {'anchored_on_sharp': 0, 'book_count': 4, 'n': 228}, {'anchored_on_sharp': 0, 'book_count': 7, 'n': 524}, {'anchored_on_sharp': 0, 'book_count': 8, 'n': 284}, {'anchored_on_sharp': 0, 'book_count': 9, 'n': 470}, {'anchored_on_sharp': 0, 'book_count': 10, 'n': 702}, {'anchored_on_sharp': 0, 'book_count': 11, 'n': 308}, {'anchored_on_sharp': 0, 'book_count': 12, 'n': 1348}, {'anchored_on_sharp': 0, 'book_count': 13, 'n': 760}, {'anchored_on_sharp': 0, 'book_count': 15, 'n': 1012}, {'anchored_on_sharp': 0, 'book_count': 16, 'n': 278}, {'anchored_on_sharp': 0, 'book_count': 17, 'n': 174}, {'anchored_on_sharp': 0, 'book_count': 18, 'n': 174}, {'anchored_on_sharp': 0, 'book_count': 19, 'n': 696}, {'anchored_on_sharp': 1, 'book_count': 1, 'n': 3906}, {'anchored_on_sharp': 1, 'book_count': 2, 'n': 2848}, {'anchored_on_sharp': 1, 'book_count': 3, 'n': 6902}]
+--- market_width by anchored ---
+[{'anchored_on_sharp': 0, 'n': 7870, 'nullwidth': 912, 'mn': 0.005, 'avg': 0.0185, 'mx': 0.0535}, {'anchored_on_sharp': 1, 'n': 13656, 'nullwidth': 3890, 'mn': 0.0, 'avg': 0.004, 'mx': 0.0299}]
+--- books_used sample for anchored=0 ---
+[{'books_used': '["betclic_fr", "betonlineag", "bovada", "draftkings", "fanduel", "gtbets", "lowvig", "onexbet", "sport888", "unibet_fr", "winamax_de", "winamax_fr"]', 'n': 1140}, {'books_used': '["draftkings"]', 'n': 912}, {'books_used': '["betclic_fr", "betonlineag", "bovada", "draftkings", "fanduel", "gtbets", "lowvig", "onexbet", "sport888", "unibet_fr", "williamhill", "winamax_de", "winamax_fr"]', 'n': 760}, {'books_used': '["betclic_fr", "betonlineag", "betus", "bovada", "draftkings", "fanduel", "gtbets", "lowvig", "marathonbet", "onexbet", "sport888", "unibet_fr", "williamhill", "winamax_de", "winamax_fr"]', 'n': 760}, {'books_used': '["betclic_fr", "betmgm", "betonlineag", "betsson", "betus", "bovada", "draftkings", "fanduel", "gtbets", "lowvig", "marathonbet", "nordicbet", "onexbet", "sport888", "unibet_fr", "williamhill", "williamhill_us", "winamax_de", "winamax_fr"]', 'n': 696}, {'books_used': '["betsson", "coolbet", "draftkings", "fanatics", "fanduel", "nordicbet", "sport888"]', 'n': 524}, {'books_used': '["betclic_fr", "betonlineag", "draftkings", "lowvig", "mybookieag", "sport888", "unibet_fr", "winamax_de", "winamax_fr"]', 'n': 470}, {'books_used': '["betclic_fr", "bovada", "fanduel", "mybookieag", "onexbet", "sport888", "unibet_fr", "williamhill", "winamax_de", "winamax_fr"]', 'n': 380}]
+--- books_used sample for anchored=1 ---
+[{'books_used': '["betfair_ex_eu", "matchbook", "pinnacle"]', 'n': 6902}, {'books_used': '["matchbook", "pinnacle"]', 'n': 1732}, {'books_used': '["betfair_ex_eu"]', 'n': 1712}, {'books_used': '["pinnacle"]', 'n': 1286}, {'books_used': '["betfair_ex_eu", "pinnacle"]', 'n': 1116}, {'books_used': '["matchbook"]', 'n': 908}]
+=== H. RECOMMENDATIONS joined to fair_prices.anchored_on_sharp ===
+[{'n': 1676, 't0': '2026-08-07 19:33:27', 't1': '2026-08-10 15:42:49', 'instants': 234, 'links': 60}]
+--- recs by anchored_on_sharp ---
+[{'a': 0, 'n': 451, 'links': 34, 'instants': 117}, {'a': 1, 'n': 1225, 'links': 54, 'instants': 180}]
+--- recs by anchored x surfaced/suppression ---
+rec cols: ['id', 'created_ms', 'strategy_config_version', 'ticker', 'link_id', 'fair_price_id', 'side', 'entry_ask_tenths', 'depth_at_ask', 'fair_probability', 'model_probability', 'edge_tenths', 'fee_predicted', 'ev_net_dollars', 'kelly_fraction', 'suggested_contracts', 'kalshi_quote_age_ms', 'odds_age_ms', 'suppressed_reason', 'reason_text', 'closing_line_id', 'clv_tenths', 'clv_scored_ms', 'last_confirmed_ms', 'last_confirmed_quote_age_ms', 'last_confirmed_odds_age_ms', 'clv_horizon_hours', 'reference_contracts']
+--- recs book_count distribution by anchored ---
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "<string>", line 116, in <module>
+  File "<string>", line 4, in <lambda>
+sqlite3.OperationalError: no such column: r.book_count
+Error: ssh shell: Process exited with status 1
+
+########## PASS 2 -- record join, scope identity ##########
+Connecting to fdaa:ab:61bd:a7b:855:a771:6108:2...
+=== L. recs total vs PINNED population (id<=1564) ===
+[{'n': 1676, 'mn': 1, 'mx': 1676}]
+[{'n': 1564, 't0': '2026-08-07 19:33:27', 't1': '2026-08-10 05:06:57'}]
+=== L2. anchored_on_sharp on the PINNED 1564 ===
+[{'a': 0, 'n': 423, 'links': 34, 'cycles': 97, 'obs_instants': 13}, {'a': 1, 'n': 1141, 'links': 54, 'cycles': 159, 'obs_instants': 27}]
+=== L3. anchored NULL/unjoined check ===
+[{'n': 0}]
+=== L4. pinned: anchored x suppressed_reason ===
+[{'a': 0, 'sr': 'stale_odds', 'n': 190}, {'a': 0, 'sr': '(none)', 'n': 189}, {'a': 0, 'sr': 'too_few_books,no_market_width', 'n': 19}, {'a': 0, 'sr': 'stale_odds,too_few_books,no_market_width', 'n': 14}, {'a': 0, 'sr': 'stale_odds,insufficient_depth', 'n': 4}, {'a': 0, 'sr': 'stale_odds,edge_within_method_noise', 'n': 4}, {'a': 0, 'sr': 'insufficient_depth', 'n': 2}, {'a': 0, 'sr': 'stale_odds,insufficient_depth,too_few_books,no_market_width', 'n': 1}, {'a': 1, 'sr': 'stale_odds', 'n': 426}, {'a': 1, 'sr': '(none)', 'n': 425}, {'a': 1, 'sr': 'stale_odds,too_few_books,no_market_width', 'n': 123}, {'a': 1, 'sr': 'stale_odds,suspicious_edge', 'n': 66}, {'a': 1, 'sr': 'too_few_books,no_market_width', 'n': 54}, {'a': 1, 'sr': 'stale_odds,too_few_books', 'n': 7}, {'a': 1, 'sr': 'too_few_books,no_market_width,suspicious_edge', 'n': 6}, {'a': 1, 'sr': 'too_few_books', 'n': 6}, {'a': 1, 'sr': 'stale_odds,edge_within_method_noise', 'n': 6}, {'a': 1, 'sr': 'stale_odds,too_few_books,no_market_width,suspicious_edge', 'n': 4}, {'a': 1, 'sr': 'stale_odds,too_few_books,no_market_width,edge_within_method_noise', 'n': 4}, {'a': 1, 'sr': 'stale_odds,insufficient_depth,suspicious_edge', 'n': 4}, {'a': 1, 'sr': 'too_few_books,edge_within_method_noise,suspicious_edge', 'n': 2}, {'a': 1, 'sr': 'stale_odds,too_few_books,no_market_width,edge_within_method_noise,suspicious_edge', 'n': 2}, {'a': 1, 'sr': 'stale_odds,insufficient_depth,too_few_books,no_market_width,suspicious_edge', 'n': 2}, {'a': 1, 'sr': 'stale_odds,insufficient_depth', 'n': 2}, {'a': 1, 'sr': 'insufficient_depth,too_few_books,no_market_width', 'n': 1}, {'a': 1, 'sr': 'insufficient_depth', 'n': 1}]
+=== L5. pinned: anchored x fair book_count ===
+[{'a': 0, 'bc': 1, 'n': 34}, {'a': 0, 'bc': 4, 'n': 12}, {'a': 0, 'bc': 7, 'n': 20}, {'a': 0, 'bc': 8, 'n': 9}, {'a': 0, 'bc': 9, 'n': 47}, {'a': 0, 'bc': 10, 'n': 34}, {'a': 0, 'bc': 11, 'n': 28}, {'a': 0, 'bc': 12, 'n': 86}, {'a': 0, 'bc': 13, 'n': 18}, {'a': 0, 'bc': 15, 'n': 50}, {'a': 0, 'bc': 16, 'n': 29}, {'a': 0, 'bc': 17, 'n': 18}, {'a': 0, 'bc': 18, 'n': 8}, {'a': 0, 'bc': 19, 'n': 30}, {'a': 1, 'bc': 1, 'n': 211}, {'a': 1, 'bc': 2, 'n': 258}, {'a': 1, 'bc': 3, 'n': 672}]
+=== L6. pinned: per-link contribution of anchored=0 rows ===
+links contributing anchored=0: 34 total rows 423
+top 8: [{'li': 7141, 'n': 33}, {'li': 2689, 'n': 26}, {'li': 1613, 'n': 26}, {'li': 1615, 'n': 24}, {'li': 7882, 'n': 20}, {'li': 7148, 'n': 20}, {'li': 1617, 'n': 20}, {'li': 1611, 'n': 19}]
+largest link share: 7.8%  top3 20.1%
+=== L7. pinned: per-link contribution of ALL rows ===
+links: 60 top 8: [{'li': 2, 'n': 53}, {'li': 9, 'n': 50}, {'li': 28, 'n': 48}, {'li': 4071, 'n': 47}, {'li': 1609, 'n': 45}, {'li': 4085, 'n': 44}, {'li': 11, 'n': 43}, {'li': 7141, 'n': 41}] largest share 3.4%
+=== L8. pinned: anchored=0 by league (via event_links.league) ===
+[{'lg': 'Pro Baseball', 'a': 0, 'n': 385}, {'lg': 'Pro Baseball', 'a': 1, 'n': 757}, {'lg': 'Pro Basketball (W)', 'a': 0, 'n': 38}, {'lg': 'Pro Basketball (W)', 'a': 1, 'n': 384}]
+=== L9. pinned: anchored x clv scored ===
+[{'a': 0, 'scored': 271, 'n': 423}, {'a': 1, 'scored': 830, 'n': 1141}]
+=== L10. pinned: distinct odds observation instants overall ===
+[{'obs': 33, 'cycles': 205, 't0': '2026-08-07 19:28:12', 't1': '2026-08-09 23:35:18'}]
+=== M. SCOPE: does the census cover the record's odds observations? ===
+census h2h fetched_ms window:
+[{'f0': '2026-08-07 19:33:27', 'f1': '2026-08-09 23:37:15', 'b0': '2026-08-07 19:28:12', 'b1': '2026-08-09 23:37:21', 'nullstamps': 0}]
+=== M2. exact join: rec -> the instant it read -> oldest book stamp ===
+recs pinned: 1564 reconstruction exact: 441 mismatch: 1123 no prior instant: 0
+(census n_sharp==0, stored anchored==0) -> count: {(True, True): 423, (False, False): 1141}
+distinct instants CONSUMED by pinned recs: 172 of 234 stored
+consumed instants with n_sharp==0: 49 =28.5% of consumed
+rows attributable to those instants: 423
+rows per consumed instant: min/med/max 2 6.5 44
+=== M3. never-consumed instants ===
+never consumed: 62 of which n_sharp==0: 5
+=== M4. census restricted to CONSUMED instants only ===
+consumed instants n=172 available min/med/max 1 25.0 31
+sharp min/med/max 0 3.0 3
+discarded min/med/max 1 22.0 28
+sharp==0 share of consumed instants: 28.5%
+ROW-weighted: available med 21.0 sharp med 2.0
+Error: The handle is invalid.
+
+########## PASS 3 -- reconstruction, regions, per-group cuts ##########
+Connecting to fdaa:ab:61bd:a7b:855:a771:6108:2...
+=== N. live env regions ===
+ODDS_REGIONS = 'us,eu'
+ODDS_MARKETS = 'h2h,spreads,totals'
+=== N2. api_credits sample ===
+[{'id': 16, 'called_ms': 1786318635352, 'endpoint': '/sports/baseball_mlb/odds', 'sport_key': 'baseball_mlb', 'markets': 'h2h,spreads,totals', 'regions': 'us,eu', 'cost': 6, 'remaining_reported': 19940, 'used_reported': 60}, {'id': 15, 'called_ms': 1786314166549, 'endpoint': '/sports/basketball_wnba/odds', 'sport_key': 'basketball_wnba', 'markets': 'h2h,spreads,totals', 'regions': 'us,eu', 'cost': 6, 'remaining_reported': 19946, 'used_reported': 54}]
+=== O. odds_age reconstruction, CORRECT subset (all books quoting every outcome) ===
+pinned recs joined: 1564 exact: 1564 mismatch: 0
+=== O2. do the fetch instants agree with fair_prices.books_used exactly? ===
+fair_prices h2h: 21550 books_used reproduced exactly from the census: 21550 no prior instant: 0
+=== P. the 614 clean rows, by anchoring ===
+[{'a': 0, 'n': 189, 'links': 34, 'obs': 12, 'scored': 133}, {'a': 1, 'n': 425, 'links': 48, 'obs': 21, 'scored': 405}]
+=== P2. edge distribution among clean rows, by anchoring ===
+[{'a': 0, 'n': 189, 'pos': 0, 'mn': -51.73, 'avg': -28.433, 'mx': -2.05, 'refpos': 0}, {'a': 1, 'n': 425, 'pos': 0, 'mn': -52.79, 'avg': -26.208, 'mx': -2.17, 'refpos': 0}]
+=== P3. ALL 1564 by anchoring: edge + market_width ===
+[{'a': 0, 'n': 423, 'pos': 6, 'mx': 15.06, 'w': 0.0172, 'wnull': 34, 'wmx': 0.0535}, {'a': 1, 'n': 1141, 'pos': 131, 'mx': 394.1, 'w': 0.0055, 'wnull': 196, 'wmx': 0.0299}]
+=== P4. per-link view of the 189 clean anchored=0 rows ===
+links: 34 rows: 189 top6: [{'li': 7882, 'lg': 'Pro Basketball (W)', 'n': 12}, {'li': 1611, 'lg': 'Pro Baseball', 'n': 11}, {'li': 1609, 'lg': 'Pro Baseball', 'n': 10}, {'li': 1610, 'lg': 'Pro Baseball', 'n': 9}, {'li': 1617, 'lg': 'Pro Baseball', 'n': 9}, {'li': 1613, 'lg': 'Pro Baseball', 'n': 8}]
+largest link share 6.3%  top3 17.5%
+=== P5. clean anchored=0: distinct obs instants and cycles ===
+[{'obs': 12, 'cycles': 21, 'tickers': 68}]
+=== P6. sanity: total clean rows ===
+[{'n': 614}]
+=== Q. was any row ever surfaced/actionable, by anchoring? ===
+[{'a': 0, 'sug': 0, 'ref': 0, 'n': 423}, {'a': 1, 'sug': 0, 'ref': 0, 'n': 1141}]
+Error: The handle is invalid.
+
+########## PASS 4 -- the row-weighted unit ##########
+Connecting to fdaa:ab:61bd:a7b:855:a771:6108:2...
+=== R. per-INSTANT: all-books vs USABLE (quoted every outcome) ===
+n instants 234
+all-books   min/med/max 1 23.0 31
+USABLE      min/med/max 1 23.0 31
+sharp kept  min/med/max 0 3.0 3
+discarded(from USABLE) min/med/max 0 20.0 28
+books dropped for partial quote: total 12 instants affected 3
+=== R2. per-EVENT (event-weighted, median of per-event medians) ===
+events 68
+USABLE    23.0
+kept      2.5
+discarded 20.5
+=== R3. per-ROW (the 1564 pinned recommendation rows) ===
+rows 1564 stored book_count == recomputed selected size: 1564
+USABLE   min/med/max 1 21.0 31
+kept     min/med/max 0 2.0 3
+discarded min/med/max 1 19.0 28
+mean discarded 18.98
+row-level (usable,kept) top cells: [((29, 3), 336), ((31, 3), 132), ((25, 3), 96), ((12, 0), 86), ((20, 2), 82), ((22, 3), 72), ((19, 1), 56), ((15, 0), 50)]
+=== R4. per-row restricted to the 614 CLEAN rows ===
+rows 614 USABLE med 25.0 kept med 3.0 discarded med 22.0
+=== R5. instants where USABLE < 2 ===
+instants: 6 ; pinned rows reading such an instant: 34
+pinned rows with stored book_count<2: [{'n': 245}]
+of those, suppressed too_few_books: [{'n': 245}]
+=== R6. max sharp per instant ever = ? ===
+max kept over all instants: 3 ; instants with kept==4: 0
+Error: The handle is invalid.
