@@ -1,5 +1,166 @@
 # Next — your checklist
 
+## 2026-08-10, end of session — ADR 0019 LANDED, AND THE REPORTED BUG WAS WRONG
+
+**Read this first. It supersedes everything below.**
+
+`main` at `e350867`, pushed. **1,911 tests, ruff clean, `next build` clean.**
+**LIVE IS UNCHANGED** — everything in this session is committed and *undeployed*.
+
+### 0. BEFORE THE NEXT DEPLOY — one new way to fail to boot
+
+ADR 0019 §6 adds `assert_odds_age_limits_agree`, called at startup by **both**
+`create_app` and `run_loop`. It **raises** when
+`SuppressionConfig.max_odds_age_ms` (hardcoded `900_000`) disagrees with
+`MAX_ODDS_AGE_S`. That is deliberate — the divergence it catches is silent, and
+a warning nobody reads is not a control — but it means a mismatched value now
+**stops the container instead of quietly skewing the window.**
+
+Checked: `fly.live.toml:128` is `"900"`, `.env.example:71` is `900`, and
+`fly.demo.toml` omits it so it takes the `900` code default. All three agree, so
+this is safe to deploy **today**.
+
+**Not checked, and it cannot be from this machine: whether a Fly *secret* sets
+`MAX_ODDS_AGE_S`.** A secret overrides `[env]` invisibly. Confirm with
+`flyctl secrets list` before deploying, or the first symptom is a crash loop.
+
+### 1. The reported bug was misdiagnosed, and that correction is the ADR
+
+`start.md` led with *"`edge_within_method_noise` cannot fire on the one input it
+was built for."* **It was not built for that input.** Its own comment scopes it
+to method-choice ambiguity, and on a symmetric two-way line method choice
+contributes genuinely zero ambiguity — every method returns 0.5 because the vig
+splits evenly. The guard passing says *"method choice does not explain this
+edge"*, which is **true**. The defect in the worked example is that one book's
+dead line became a consensus: a `book_count` fact, caught twice.
+
+Do not re-open it as a bug in that guard.
+
+### 2. What is actually wrong — and no new guard was added
+
+Three guards — method spread, market width, book count — are three readings of
+**one** question, *do the sources agree?*, and correlated garbage agrees with
+itself perfectly. **Measured:** two books quoting a symmetric line give
+`fair = 0.5`, `market_width = 0.0`, `book_count = 2`, `reason=None`. They need
+not agree on the hold — multiplicative devig of a symmetric line is exactly 0.5
+for any odds, so a 33.3%-hold book and a 2.6%-hold book look like perfect
+agreement.
+
+**So `min_book_count = 2` does NOT bound the defect.** NEXT.md's old "all
+single-book" described rows *observed*, not what the guards *permit*.
+**Reachable, and NOT observed** — 0 of 15 events in the real capture.
+
+Three fixes were considered and **all three rejected, with reasons in the ADR**.
+Do not re-propose them: refusing on unmeasurable dispersion fires on exactly the
+rows two codes already fire on; an epsilon floor is an off switch wearing a
+guard's clothes (the guard's median demand on real live-path input is **1.3
+tenths** against a **20.0-tenth** fee, so it is essentially never binding); and a
+symmetry detector targets the wrong feature, since **43.8% of h2h quotes
+duplicate another book's**.
+
+**What actually bounds it, and it was never justified for the job:**
+`edge_ceiling_tenths`. A fabricated 0.5 fair only surfaces at an ask in
+**[440, 479] tenths = 44.0c–47.9c**, a 4.0c window where the fabrication is
+nearly right anyway. Now declared and pinned. Measured by deformation: raising
+the ceiling to 50.0 — a 25% wider hole — was **green across every pre-existing
+test**.
+
+### 3. Strategy versioning was broken, and the ADR draft claimed otherwise
+
+`ensure_strategy_config` hashed `suppression.__dict__` — field **values** — so
+adding, removing or renaming a check **minted no version**, and two check
+vocabularies would have pooled with nothing recording the split.
+`suppressed_reason` is half the `actionable` predicate. Fixed:
+`ALL_CHECK_NAMES` is hashed as `suppression_checks` and pinned against the
+source. **Prospective only** — it does not retroactively split anything.
+
+### 4. THE CLEAN-SHORTFALL RUN STOPPED THE LINE — and that is the guard working
+
+Registration **committed at `81d59bc` before the run**, which is what makes it a
+pre-registration. Result:
+`docs/measurements/2026-08-10-clean-shortfall-distribution-result.md`.
+
+```
+*** STOP THE LINE ***   tripped: R3 (saturated: Grid D)
+Grid D middle cell [173, 827] holds 320 of 323 clean observations = 99.1%
+```
+
+**H4, H2, H3a, H3b and H1 are all WITHHELD. Nothing is declared or refuted, and
+the refutation ADR may not be written from this run.** Do not quote a verdict
+from it; the harness deliberately withheld them rather than printing "would have
+been X", because printing the parenthesised answer hands a future registrar the
+results before any amendment relaxing R3 is written.
+
+**This is the joint bound's missing symmetric guard, installed and firing.** The
+joint bound died because nothing checked whether its decision value was
+reachable; this registration checked, in both directions, and stopped itself.
+That is the instrument behaving correctly, not a failure.
+
+**But the census statistics print regardless — §S mandates it — and they close
+ADR 0019's open input:**
+
+```
+n_degen, clean population        0        <- reachable, never occurred
+n_degen, suppressed (control)   21        <- the predicate demonstrably fires
+clean degenerate rows in [440,479]  0
+```
+
+All 21 are **one-book** fairs, in 2 WNBA games, every one suppressed — caught by
+the deployed guards. The two-book case ADR 0019 proves reachable **has not
+happened**.
+
+Two honest riders. The ULP correction **cost nothing here**: all 21 carry
+`p_power` exactly one ULP below 0.5, so broad and narrow predicates returned the
+same 21 and the measured undercount is **0**. It was still right to make. And
+**R2 fired usefully** — 15 rows arrived since the last pin and *all 15 are
+suppressed*, so the clean population is byte-identical to the previous pull and
+H1 was labelled `REPRODUCTION — NOT A NEW OBSERVATION`.
+
+**H3b remains the open question and is now the reason to re-register:** the
+2.1-tenth shortfall sits *inside* the measured live-path devig spread
+`[0.32, 4.61]`, so *"the nearest is 0.21c short"* may not be writable at all. A
+re-registration must decide what to do about R3 — Grid D saturating at 99.1% is
+a fact about the record, not a defect, and a rule that can never clear it is a
+rule that can never report.
+
+### 5. The queue
+
+1. **ADR 0020 — `stale_odds` reads a scrape clock.** `odds_age_ms` comes from
+   The Odds API `last_update`, which is a **scrape** timestamp: 440 of 440
+   book+event triples share one stamp across h2h/spreads/totals, and **27 of 30**
+   books carry exactly one stamp across fifteen games. It measures our polling
+   cadence, not line freshness. **The false message is already corrected;** the
+   remedy is undecided and has three live options. Open it *with the capture in
+   hand*, not before.
+2. **The refutation ADR** — still waits on item 4. Its argument is provisional in
+   exactly the way an n=29 null is provisional; say so in its own named section.
+   The honest claim is *"Kalshi is not mispriced relative to a consensus it may
+   itself lead"*, **never** *"no edge exists at Kalshi"*. And note what the
+   comparison actually was: sharp anchoring discards a **median of 26 of 29**
+   books, keeping `betfair_ex_eu + matchbook (± pinnacle)`. We have been testing
+   Kalshi against the only references plausibly as sharp as Kalshi.
+3. **JOE'S CALL — 24 Odds API credits** against 400/day. Two polls of the same
+   games at a short interval, checking whether `last_update` advances while
+   prices are byte-identical. **The repeat poll is the primary purpose**, not the
+   league coverage: it converts the scrape-clock finding from inference to proof
+   and generalises past one league. Secondary: WNBA + one low-liquidity league
+   at ~48h and ~2h out, to reach the posting-time stratum nothing has sampled.
+
+### 6. Deferred, with reasons, so they are not rediscovered
+
+- **The vector-collapse remedy** — probably a no-op, because the duplicate groups
+  are recreational books discarded *before* the consensus exists. Lane B carries
+  the predicate. Zero survivors → recorded as rejected-with-a-number, never
+  revisited.
+- **The 219 / `unreadable_examples` widening** — next deploy bundle.
+- **`runner.py:989`** still passes `suppression.max_odds_age_ms` into the odds
+  sweep. Safe *because of* the §6 assertion, not independently of it.
+- **`test_has_callers.py` coverage is opt-in.** `MUST_HAVE_CALLERS` is
+  hand-maintained, so absence from the list is indistinguishable from having a
+  caller. That is how the count of built-never-called items reached **six**.
+
+---
+
 ## 2026-08-10 — INFRASTRUCTURE INTERRUPT: Actions minutes, and the public flip
 
 **This is a separate lane. It does *not* supersede the section below — the bug

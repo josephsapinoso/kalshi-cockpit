@@ -510,9 +510,37 @@ radius.** Not implemented, because it changes `book_count`, which changes
 
 ## What is still open
 
-Two inputs are pending:
+**Input 1 is now ANSWERED: reachable, never occurred.**
+`docs/measurements/2026-08-10-clean-shortfall-distribution-result.md`, §S6,
+pinned pull at `pin = 1564`:
 
-1. **Does any two-book degenerate row exist in the live record?** Existence check,
+```
+n_degen, clean population (pre-dedup)          0
+n_degen, suppressed population (control)      21
+clean degenerate rows in ask [440, 479]        0
+```
+
+**[MEASURED FROM DATA]** All 21 degenerate rows carry `too_few_books`, so all 21
+are **one-book** fairs — which the deployed guards do catch — across 2 WNBA games
+(`KXWNBAGAME-26AUG10CHISEA` 11, `KXWNBAGAME-26AUG10TORATL` 10), asks 160–850
+tenths, every one suppressed. **The two-book case this ADR proves reachable has
+not occurred on this record.** That vindicates the framing choice above: writing
+it up as a live bug would have been false.
+
+Two honest notes. **The ULP correction cost nothing here** — every one of the 21
+carries `p_power` exactly one ULP below 0.5, so the broad and narrow predicates
+returned the same 21 and the measured undercount is **0**. It was still right to
+make: it is the only predicate that would catch the `1.95/1.95` case, and its
+price was zero. And **the run declared nothing** — it tripped `STOP THE LINE` on
+R3 saturation (Grid D's middle cell holds 99.1% of observations), so H4's verdict
+is formally *withheld*. The census statistics above are printed regardless, by
+that registration's own §S, and they are what closes this input; the ADR does not
+inherit a claim the measurement declined to declare.
+
+One input remains:
+
+1. ~~**Does any two-book degenerate row exist in the live record?**~~ **Answered
+   above.** The predicate is retained for re-runs. Existence check,
    predicate fixed in advance, binary outcome — registration discipline governs
    effect estimates where the analyst has degrees of freedom, and this has none:
 
