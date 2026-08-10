@@ -32,6 +32,7 @@ from backend.market_results import (
     markets_awaiting_result,
     markets_by_ticker,
     record_result,
+    result_coverage,
     run_market_result_pass,
 )
 from backend.runner import upsert_discovered
@@ -711,3 +712,159 @@ class TestTheThresholdsAreTunableAndCannotKillTheContainer:
             monkeypatch.setenv("MARKET_RESULT_MAX_AGE_S", value)
             monkeypatch.setenv("MARKET_RESULT_MAX_EVENTS_PER_PASS", value)
             assert MarketResultConfig.load() is not None
+
+
+class TestResultCoverageSeparatesStatesThatLookAlike:
+    """`recorded_total == 0` has three causes needing opposite responses.
+
+    The whole reason this report exists is that the pass announced itself only
+    through `flyctl logs`, so a pass that stopped writing was invisible from a
+    phone. A report that collapsed "broken" into "nothing to do" would
+    reproduce that invisibility with a screen in front of it.
+
+    Each assertion is anchored where a wrong implementation gives a *different*
+    answer, per `tasks/lessons.md` -- an anchor both implementations satisfy
+    proves nothing.
+    """
+
+    def test_an_unresolved_game_in_the_window_is_the_alarm(self, conn):
+        _market(conn, "T1", commence_ms=COMMENCE)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "NOT RECORDING"
+        assert cov["recorded_total"] == 0
+        assert cov["pending_total"] == 1
+
+    def test_a_game_too_recent_to_ask_about_is_not_the_alarm(self, conn):
+        """The discriminating case: also zero recorded, and healthy."""
+        _market(conn, "T1", commence_ms=NOW - 60_000)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "nothing due yet"
+        assert cov["recorded_total"] == 0
+        assert cov["too_new_total"] == 1
+        assert cov["pending_total"] == 0
+
+    def test_an_empty_table_is_not_the_alarm_either(self, conn):
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "no games in scope"
+        assert cov["recorded_total"] == 0
+
+    def test_one_recorded_outcome_flips_the_verdict(self, conn):
+        _market(conn, "T1", result="yes", commence_ms=COMMENCE)
+        _market(conn, "T2", event="EV2", commence_ms=COMMENCE)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "recording"
+        assert cov["recorded_total"] == 1
+        assert cov["recorded_by_outcome"] == {"yes": 1}
+        # ...and the outstanding one is still counted. A verdict of "recording"
+        # must not hide a backlog.
+        assert cov["pending_total"] == 1
+
+    def test_every_verdict_carries_its_own_meaning(self, conn):
+        """The verdict and its explanation cannot drift apart if they are one
+        lookup. A bare string on a screen gets misread; this repo has the scar
+        of a correct statistic printed beside a contradicting verdict."""
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict_meaning"]
+        assert isinstance(cov["verdict_meaning"], str)
+
+
+class TestResultCoverageMakesTheRollingLossVisible:
+    """Abandonment is permanent, and the number worth acting on is the one for
+    markets that have *not* aged out yet."""
+
+    def test_an_aged_out_market_is_counted_and_named(self, conn):
+        _market(conn, "OLD", commence_ms=LONG_AGO)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["abandoned_total"] == 1
+        assert cov["abandoned_oldest"] and "OLD" in cov["abandoned_oldest"]
+        # Not double-counted as routine backlog. One bucket over a game in the
+        # 7th inning and a game lost six months ago cannot show a leak.
+        assert cov["pending_total"] == 0
+
+    def test_a_market_about_to_age_out_is_flagged_before_it_is_lost(self, conn):
+        """The forward-looking number. Anchored so a wrong bound differs: this
+        game is inside the window (so `pending`) *and* within a day of the
+        cutoff (so `expiring_soon`)."""
+        about_to_go = NOW - DEFAULTS.max_age_after_commence_ms + 3_600_000
+        _market(conn, "SOON", commence_ms=about_to_go)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["pending_total"] == 1
+        assert cov["expiring_soon_total"] == 1
+        assert cov["abandoned_total"] == 0
+
+    def test_a_fresh_game_is_not_flagged_as_expiring(self, conn):
+        """The pair that stops `expiring_soon` collapsing into `pending`."""
+        _market(conn, "FRESH", commence_ms=COMMENCE)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["pending_total"] == 1
+        assert cov["expiring_soon_total"] == 0
+
+    def test_an_unreadable_market_is_a_standing_gauge_not_a_backlog(self, conn):
+        """`finalized` with a NULL result: asked once, refused once, and then
+        invisible to the per-pass counter. It must not read as routine work."""
+        _market(conn, "TIE", commence_ms=COMMENCE, status=SETTLED_STATUS)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["unreadable_total"] == 1
+        assert cov["pending_total"] == 0
+
+    def test_the_report_ignores_the_work_list_cap(self, conn):
+        """`markets_awaiting_result` caps events because it is building a work
+        list. A population count that inherited that cap would understate the
+        backlog exactly when the backlog is what has gone wrong."""
+        for i in range(5):
+            _market(conn, f"T{i}", event=f"EV{i}", commence_ms=COMMENCE)
+        capped = markets_awaiting_result(conn, now=NOW, max_events=2)
+        assert capped.market_count == 2
+        assert result_coverage(conn, now=NOW)["pending_total"] == 5
+
+
+class TestAnEmptyQueueIsNotAClaimOfHealth:
+    """Found by running it rather than by reading it.
+
+    On a database with nine aged-out markets and nothing outstanding, the first
+    version returned `verdict = "no games in scope"` with meaning text reading
+    "Also healthy" -- beside `abandoned_total: 9`. Nine permanently lost
+    outcomes reported as health, which is the exact failure `tasks/lessons.md`
+    records as a correct statistic printed next to a contradicting verdict.
+
+    The fix is two axes: `verdict` says whether the writer works, `attention`
+    says whether anything is being lost. They are independent, and both are
+    derived from the same counts so neither can contradict them.
+    """
+
+    def test_aged_out_outcomes_are_never_reported_as_health(self, conn):
+        _market(conn, "LOST", commence_ms=LONG_AGO)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "no games in scope"
+        assert cov["attention"], (
+            "nine lost outcomes read as an empty queue and nothing else; the "
+            "standing loss must appear without being looked for"
+        )
+        assert "unrecoverable" in " ".join(cov["attention"])
+        assert "healthy" not in cov["verdict_meaning"].lower()
+
+    def test_a_clean_database_raises_nothing(self, conn):
+        """The pair. If `attention` is non-empty on a clean table it is noise,
+        and noise is what gets ignored on the day it matters."""
+        _market(conn, "OK", result="yes", commence_ms=COMMENCE)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "recording"
+        assert cov["attention"] == []
+
+    def test_recording_and_losing_are_reported_together(self, conn):
+        """The state the single-axis version could not express at all: the
+        writer is working *and* a backlog is aging out behind it."""
+        _market(conn, "DONE", result="no", commence_ms=COMMENCE)
+        _market(conn, "LOST", event="EV2", commence_ms=LONG_AGO)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["verdict"] == "recording"
+        assert cov["recorded_total"] == 1
+        assert cov["abandoned_total"] == 1
+        assert cov["attention"]
+
+    def test_an_unreadable_market_names_itself_rather_than_sitting_at_a_count(
+        self, conn
+    ):
+        _market(conn, "TIE", commence_ms=COMMENCE, status=SETTLED_STATUS)
+        cov = result_coverage(conn, now=NOW)
+        assert any("not yes or no" in a for a in cov["attention"])

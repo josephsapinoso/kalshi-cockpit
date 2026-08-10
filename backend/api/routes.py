@@ -74,6 +74,7 @@ from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
+from ..market_results import result_coverage
 from ..agents.base import AgentConfig
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
@@ -776,6 +777,42 @@ def create_app(
             "when an order is placed."
         )
         return payload
+
+    @app.get("/api/results")
+    def market_results(conn=Depends(get_conn)) -> dict:
+        """Is `kalshi_markets.result` being written, and is anything being lost?
+
+        The market-result pass reported itself only through its counters on the
+        merged pass line -- i.e. `flyctl logs`, i.e. a laptop. This tool is
+        operated from a phone, so a pass that silently stopped writing was
+        undetectable from the one device that is always to hand. That is the
+        whole reason this endpoint exists; it adds no capability the pass does
+        not already have, only a way to read it.
+
+        **Why this is urgent rather than merely nice.** Outcomes are dropped
+        permanently once a game is older than `max_age_after_commence_s` (unset
+        on live, so the 7-day code default applies). The loss is *rolling*, not
+        a cliff: a broken pass costs one day of outcomes per day, forever, and
+        every one of those games is a row the calibration consumer can never
+        score. `expiring_soon_total` is the number to act on -- what is about to
+        be lost, rather than what already has been.
+
+        Placed beside `/api/gate` rather than behind `require_auth`, for the
+        reason set out at length there: on live, `middleware.ts` already answers
+        an unauthenticated `/api/*` with a 401, and a bearer token is not
+        something a phone browser can carry. A second credential on top would
+        move the number from one unreachable place to another.
+
+        It reveals less than `/api/gate` already does -- market counts and
+        `yes`/`no` tallies over settled games, with no price, no position and no
+        recommendation in it.
+
+        Read `verdict` first, and read it *with* `recorded_total`. Zero recorded
+        outcomes means "the pass has never worked" or "there has been nothing to
+        record yet", and those need opposite responses; the verdict is derived
+        from the same fields it is printed beside, so the two cannot disagree.
+        """
+        return result_coverage(conn, now=db.now_ms())
 
     @app.get("/api/playbook")
     def playbook(conn=Depends(get_conn), limit: int = 50) -> dict:

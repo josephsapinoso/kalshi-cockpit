@@ -589,6 +589,53 @@ class TestGate:
         assert "300" in condition["detail"]
 
 
+class TestMarketResults:
+    """`/api/results` exists so a broken outcome pass is visible from a phone.
+
+    The pass reported itself only through counters on the merged log line, i.e.
+    `flyctl logs`, i.e. a laptop. A pass that silently stopped writing was
+    undetectable from the one device always to hand, while outcomes aged out
+    permanently at one day per day.
+    """
+
+    async def test_it_answers_and_leads_with_a_verdict(self, demo_app):
+        body = (await get(demo_app, "/api/results")).json()
+        assert body["verdict"] in {
+            "recording", "NOT RECORDING", "nothing due yet", "no games in scope"
+        }
+        assert body["verdict_meaning"]
+
+    async def test_the_verdict_agrees_with_the_numbers_beside_it(self, demo_app):
+        """The failure this repo has already had: a correct statistic printed
+        next to a verdict computed by a parallel path, where the verdict is the
+        half that gets read. Here they must be one derivation."""
+        body = (await get(demo_app, "/api/results")).json()
+        if body["recorded_total"] > 0:
+            assert body["verdict"] == "recording"
+        elif body["pending_total"] > 0:
+            assert body["verdict"] == "NOT RECORDING"
+
+    async def test_it_reports_the_bounds_that_decide_what_is_lost(self, demo_app):
+        """Abandonment is a query-time age bound, so the window is part of the
+        answer. Without it a reader cannot tell whether `abandoned_total` means
+        a broken pass or a deliberately narrow window."""
+        body = (await get(demo_app, "/api/results")).json()
+        assert body["max_age_after_commence_s"] > body["min_age_after_commence_s"]
+        for key in ("abandoned_total", "expiring_soon_total", "unreadable_total"):
+            assert isinstance(body[key], int)
+
+    async def test_the_residue_populations_are_never_omitted_at_zero(
+        self, demo_app
+    ):
+        """Zero is the healthy value for all three and must still be printed.
+        A bound that only appears once it has dropped something reads as no
+        bound at all until the day it bites."""
+        body = (await get(demo_app, "/api/results")).json()
+        assert {"abandoned_total", "unreadable_total", "expiring_soon_total"} <= (
+            set(body)
+        )
+
+
 class TestExecutionBoundary:
     """The security boundary between the public demo and the live instance."""
 

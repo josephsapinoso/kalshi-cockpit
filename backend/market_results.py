@@ -346,6 +346,195 @@ def count_unreadable(conn) -> int:
     return row["n"] or 0
 
 
+def result_coverage(
+    conn,
+    *,
+    now: int,
+    config: Optional[MarketResultConfig] = None,
+    expiring_within_s: int = DAY_MS // 1000,
+) -> dict[str, Any]:
+    """Standing state of the outcome record, for a screen rather than a log.
+
+    Exists because the pass's counters were reachable only through
+    `flyctl logs` — a laptop job, and this tool is operated from a phone. The
+    question it answers is **"is `kalshi_markets.result` actually being written,
+    and is anything being lost while nobody looks?"**
+
+    Every population here is defined by `_PENDING_FROM`, the same fragment
+    `markets_awaiting_result` and `_abandoned` use. That sharing is the point,
+    not a tidiness preference: a screen and a pass that compute "outstanding"
+    separately will eventually disagree, and the direction that matters is the
+    screen reporting health while the pass drops rows. `tasks/lessons.md`
+    records the general form — do not test that two paths agree, delete one of
+    the paths.
+
+    Deliberately **uncapped**. `markets_awaiting_result` applies
+    `max_events_per_pass` because it is building a work list; this is reporting
+    a population, and a count that silently inherited a work-list cap would
+    understate the backlog exactly when the backlog is the thing going wrong.
+
+    What each number is for
+    -----------------------
+    - `recorded_total` — outcomes on the record. **Zero is ambiguous on its own**
+      and must never be read alone: it means "the pass has never worked" or
+      "there has been nothing to record yet", which demand opposite responses.
+      `verdict` below separates them, and it is derived from these fields rather
+      than computed alongside them.
+    - `pending_total` — inside the ask window, no outcome yet. Routine.
+    - `too_new_total` — commenced, but not yet `min_age_after_commence_s` old.
+      Not a backlog; the pass is deliberately not asking yet.
+    - `unreadable_total` — `finalized` and yet unreadable. Asked once, refused
+      once, and then invisible to the per-pass counter, which is why it is a
+      standing gauge here.
+    - `abandoned_total` — past `max_age_after_commence_s`, dropped permanently.
+      **This is a real loss and is named as one.**
+    - `expiring_soon_total` — outstanding markets whose game reaches that cutoff
+      within `expiring_within_s`. This is the only forward-looking number: the
+      loss is rolling, one day's outcomes per day, so a backlog that is about to
+      age out is the thing worth acting on rather than the one that already has.
+
+    What this does NOT establish
+    ----------------------------
+    - **It does not date the writes.** `record_result` stamps `last_seen_ms`,
+      but so does every discovery upsert, so that column cannot say when an
+      outcome was recorded. `newest_resolved_commence_ms` is used instead: the
+      most recent *game* carrying an outcome. It answers "is the pass keeping up
+      with the slate", which is the question worth asking, and it is a
+      measurement of the fixture calendar rather than of the writer.
+    - **It says nothing about whether an outcome is correct.** Only that one is
+      present. `read_market_result` refuses anything short of `finalized`, and
+      that refusal is upstream of every count here.
+    - **It is not calibration.** `kalshi_markets.result` still has no analytical
+      reader; this is a coverage report, not evidence about `fair_probability`.
+    """
+    config = config or MarketResultConfig()
+    newest = now - config.min_age_after_commence_ms
+    oldest = now - config.max_age_after_commence_ms
+    # The cutoff a market will cross next. A game commencing before this is
+    # inside `expiring_within_s` of being abandoned.
+    expiring_edge = oldest + expiring_within_s * 1000
+
+    def _count(extra: str, params: tuple) -> int:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n {_PENDING_FROM} {extra}",
+            (SETTLED_STATUS, *params),
+        ).fetchone()
+        return row["n"] or 0
+
+    started = "AND COALESCE(e.commence_ms, m.close_ms)"
+    pending_total = _count(f"{started} <= ? {started} > ?", (newest, oldest))
+    too_new_total = _count(f"{started} > ?", (newest,))
+    expiring_soon_total = _count(
+        f"{started} <= ? {started} > ?", (expiring_edge, oldest)
+    )
+
+    recorded = conn.execute(
+        """
+        SELECT COUNT(*) AS n,
+               MAX(COALESCE(e.commence_ms, m.close_ms)) AS newest_ms
+        FROM kalshi_markets m
+        LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker
+        WHERE m.result IS NOT NULL
+        """
+    ).fetchone()
+    recorded_total = recorded["n"] or 0
+
+    outcomes = {
+        str(r["result"]): r["n"]
+        for r in conn.execute(
+            "SELECT result, COUNT(*) AS n FROM kalshi_markets "
+            "WHERE result IS NOT NULL GROUP BY result"
+        ).fetchall()
+    }
+
+    abandoned = _abandoned(conn, oldest=oldest, now=now)
+
+    # Derived from the fields above and from nothing else. A verdict computed by
+    # a parallel path eventually contradicts the statistic printed beside it,
+    # and the verdict is the half that gets read.
+    if recorded_total > 0:
+        verdict = "recording"
+    elif pending_total > 0:
+        verdict = "NOT RECORDING"
+    elif too_new_total > 0:
+        verdict = "nothing due yet"
+    else:
+        verdict = "no games in scope"
+
+    # A SECOND axis, deliberately not folded into the verdict above.
+    #
+    # `verdict` answers "is the writer working". Standing loss answers "is
+    # anything being dropped". They are independent -- a pass can be recording
+    # perfectly while a widening backlog ages out behind it, and it can have
+    # nothing to do while nine outcomes are already gone. Reported separately
+    # because a single word covering both is how a correct number ends up
+    # printed beside a verdict contradicting it, and the verdict is the half
+    # that gets read (`tasks/lessons.md`).
+    #
+    # Derived from the same fields, so the two cannot disagree.
+    attention: list[str] = []
+    if abandoned["abandoned_total"]:
+        attention.append(
+            f"{abandoned['abandoned_total']} market(s) aged out past "
+            f"{config.max_age_after_commence_s // 86400}d and their outcomes "
+            f"are unrecoverable; oldest {abandoned['abandoned_oldest']}"
+        )
+    if expiring_soon_total:
+        attention.append(
+            f"{expiring_soon_total} market(s) reach that cutoff within "
+            f"{expiring_within_s // 3600}h -- these are still savable"
+        )
+    if unreadable := count_unreadable(conn):
+        attention.append(
+            f"{unreadable} market(s) are finalized with no readable outcome. "
+            f"Kalshi called them final and the answer was not yes or no -- a "
+            f"tie, or a wire format this code does not recognise"
+        )
+
+    return {
+        "verdict": verdict,
+        "verdict_meaning": {
+            "recording": "outcomes are being written; read `attention` too",
+            "NOT RECORDING": (
+                "markets are inside the ask window and no outcome has ever "
+                "been written. The pass is not working -- this is the alarm"
+            ),
+            "nothing due yet": (
+                "games have commenced but none is old enough to ask about. "
+                "The writer is not known to be broken, and is not known to "
+                "work either -- it has had nothing to do"
+            ),
+            "no games in scope": (
+                "nothing is outstanding. This is NOT a statement that all is "
+                "well: it says only that the queue is empty, and says nothing "
+                "about what already aged out. Read `attention`"
+            ),
+        }[verdict],
+        # Empty means no standing loss. Non-empty is the part to act on, and it
+        # is a list rather than a boolean so it cannot be true without saying
+        # which population made it true.
+        "attention": attention,
+        "recorded_total": recorded_total,
+        "recorded_by_outcome": outcomes,
+        "newest_resolved_commence_ms": recorded["newest_ms"],
+        "pending_total": pending_total,
+        "too_new_total": too_new_total,
+        "unreadable_total": unreadable,
+        "abandoned_total": abandoned["abandoned_total"],
+        "abandoned_oldest": abandoned["abandoned_oldest"] or None,
+        "expiring_soon_total": expiring_soon_total,
+        "expiring_within_s": expiring_within_s,
+        "min_age_after_commence_s": config.min_age_after_commence_s,
+        "max_age_after_commence_s": config.max_age_after_commence_s,
+        "note": (
+            "Abandonment is a query-time age bound, not a flag on any row, so "
+            "widening MARKET_RESULT_MAX_AGE_S brings abandoned markets straight "
+            "back into the queue. The loss is rolling rather than a cliff: one "
+            "day of outcomes becomes unrecoverable per day the pass is broken."
+        ),
+    }
+
+
 def record_result(conn, ticker: str, result: str, *, now: int) -> bool:
     """Write one outcome. `True` if this call is what wrote it.
 
