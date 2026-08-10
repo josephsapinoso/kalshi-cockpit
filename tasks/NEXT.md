@@ -1,5 +1,182 @@
 # Next — your checklist
 
+## 2026-08-10, overnight — THE REFUTATION IS WRITTEN, AND IT QUOTES A FIXTURE AS A FACT
+
+**Read this first. It supersedes everything below it.**
+
+`main` at **`d00430d`**, **pushed, in sync**. **1,964 tests**, ruff clean,
+`next build` clean, tree clean. **LIVE IS UNCHANGED** — everything is committed
+and *undeployed*, and the bundle still carries the **Next.js middleware-bypass
+security patch**.
+
+### 0. This file and `start.md` were both WRONG about what was left to do
+
+Yesterday's `start.md` led with *"the refutation ADR is now unblocked, and it is
+the critical path."* **`docs/adr/0021-the-consensus-only-strategy-is-refuted.md`
+already existed and was committed.** A session read it, believed it, and would
+have re-derived a finished document.
+
+**`start.md` is a snapshot; `git log` is the record.** Before acting on any
+"still to do" here, run `git log --oneline -20` and `ls docs/adr/`. Thirty
+seconds, and it caught a whole wasted lane.
+
+### 1. §7.2's "26 of 29" is a fixture number applied to a record it does not overlap
+
+ADR 0021 §7.2 — the section carrying the **strongest attack on our own
+refutation**, that the whole thing may be a tautology — says sharp anchoring
+*"discards a **median of 26 of 29** usable books"*.
+
+That is measured on `tests/fixtures/odds_mlb_h2h_spreads_totals.json`, captured
+**2026-08-07T13:49:22Z**. The record's odds observations run
+**19:28:12Z → 08-09T23:35:18Z**.
+
+```
+rows at or before the fixture capture      0 of 1,564
+minimum gap                                5.647 hours
+```
+
+Both directional checks err *toward* finding overlap. Neither found any.
+
+**The number is right and only its address is wrong.** `26 of 29` reproduces to
+the digit through the production path on the fixture, and the registration
+labelled it correctly as `[MEASURED FROM DATA — tests/fixtures/…]`. **ADR 0021
+dropped the label.**
+
+**Scope it honestly — the exciting reading is the wrong one.** §7.2's *argument*
+does not fall. What is extrapolated is only the **magnitude**. §7.2 survives; its
+number does not, and may be quoted only as *"measured on one MLB fixture captured
+5.65 hours before the record begins"* — never bare, never as a property of the
+1,564 rows.
+
+Annotated in all five places it had reached: `docs/adr/0021` (annotation),
+`docs/adr/0019:522`, `tasks/lessons.md`, `start.md`, item 2 of §5 below, and the
+registration (**Annotation B, appended** — the body carries no inline marker
+anywhere, following Amendment A's precedent, so none was added).
+
+**The populations differ in *time*, not in kind, so nothing about the sentence
+looked wrong.** That is the new variant of
+[[a-true-measurement-licensed-a-false-conclusion]] and it is now in
+`lessons.md`.
+
+### 2. `measurement-skeptic` caught the correction over-claiming — and it produced a field
+
+Verdicts: **A SOUND, B SOUND WITH CORRECTIONS, C SOUND.** All corrections taken,
+none defended. The load-bearing one:
+
+**The draft said sharp anchoring applies "by construction". False.** The code is
+`selected = sharp or usable` — anchoring is *attempted* on every row, but whether
+it **binds** is data. Where no sharp book quoted, the row was priced against the
+**wide** consensus. That is the over-claim appearing *inside the paragraph
+correcting an over-claim*.
+
+So `anchored_on_sharp` — **written on every row since the table existed, read by
+nothing** — is now on the `/api/ledger` payload. Without it §7.2's central claim
+is **unfalsifiable on the record**.
+
+Two other corrections: the `pin = 1549` pull is a **checksum, not
+corroboration** (strict subset, zero differing rows); and "never observed" was
+too strong — `reason_text` carries `book_count` on all 245 `too_few_books` rows.
+
+### 3. Option B is testable at ZERO credits, and this is the newest fact here
+
+`odds_snapshots` is **append-only and stores every book** (`schema.sql:189-207`).
+Sharp anchoring is a **read-time** filter (`runner.py:658` →
+`devig.py:290-291`), **not a write-time discard.** The schema comment states the
+intent verbatim: *"the moment we store only a consensus we lose the ability to
+re-run with a different method."*
+
+So the wide-consensus recompute over the **real** record needs no Odds API
+credits. It needs one of: the `_serialise` widening in the next deploy
+(committed, waiting), or one query on the volume.
+
+**A fixture proxy for this was proposed and killed by `partner`** — running it
+would have manufactured a second copy of the exact defect §7.2 was being
+annotated for. **Do not resurrect it.**
+
+### 4. The orphan count was six. It is NINE — ADR 0022
+
+`tests/test_has_callers.py` is **inverted** from an opt-in allowlist to
+**enumerate-and-classify**: an *unclassified* symbol now **fails**.
+
+**All fifteen `MUST_HAVE_CALLERS` entries named symbols that already had
+callers.** The list had never once been pointed at anything orphaned at the time
+— a ratchet against *re*-orphaning, structurally incapable of finding what nobody
+suspected. Two structural holes:
+
+- **`scripts/` counted as a caller, but `.dockerignore` admits 2 of 34 scripts
+  into the image.** Five of the nine were invisible for this reason alone. The
+  clearest evidence: adding `build_leg` to the list turned the new
+  shipping-caller check **red while the two older checks on the same symbol
+  stayed green.**
+- **Import counts as use.**
+
+| Class | Modules |
+|---|---|
+| **`Tool`** (a human runs it; absence from the image is correct) | `backend/main.py`, `store/publish.py`, `analysis/joint_bound.py`, `kalshi/combos.py`, `model/synthetic.py` |
+| **`Quarantined`** (nobody runs it; parked with a stated revival condition) | `agents/scout.py`, `agents/historian.py`, `model/elo.py`, `model/backtest.py` |
+
+**Disposition is quarantine — do not wire, do not delete.** Wiring Scout and
+Historian means live Anthropic calls, and the bill is held at zero by
+`surfaced == 0`. **`elo.py`: do NOT wire it up.**
+
+Verified red in **three directions** plus two permanent anti-vacuity guards.
+Green proves nothing here — an enumeration that enumerates nothing passes
+everything.
+
+Also corrected: **four** partially dead, not three. The unnamed one is
+`backend/core/correlation.py`, and it is the interesting one —
+`implied_correlation` is the measured data source `lessons.md` calls the payoff
+of the KXMVE correction, and it reaches nothing on the instance.
+
+### 5. A landmine, recorded not fixed — and worse than it was briefed
+
+`data/lake/` holds `recommendations` partitions named `dt=2026-08-0*` containing
+**847 rows stamped 2025-07-23 → 2025-08-10** — demo seed data wearing the
+record's directory names. `fair_prices` and `event_links` are **0 rows** (as are
+`fills`, `lessons`, `model_ratings`, `unmatched_events`).
+
+**"Nothing reads it" is FALSE.** The dbt warehouse reads those partitions
+directly (`stg_recommendations.sql:25`) and `/api/dashboards` reads the marts
+built from them. **The reader is fully built.** The only thing between 2025 demo
+data and a 2026-labelled screen is that `docker/entrypoint.sh` happens never to
+invoke `publish` or `dbt build` — verified directly against the script.
+
+**The safety is an accident of the boot script, not a design.** ADR 0022 §6.
+
+### 6. The queue
+
+1. **ADR 0020 — `stale_odds` reads a scrape clock.** Still the open ADR; the
+   numbering runs 0019 → 0021 → 0022 and **0020 stays reserved for it**.
+   **`partner` deliberately deferred deciding the remedy**: the evidence that
+   settles it is Joe's repeat poll, which lands in hours, and choosing first
+   inverts the order this repo keeps an agent to prevent. **Write it after the
+   poll.** Details at §5 item 1 below — and quote **320**, not 440, not 335.
+2. **Whatever Option Joe picks from ADR 0021 §8.** Do not start B, C, D or F
+   speculatively — each is a different project with a different question, and §8
+   says so. **`partner`'s position: Option E first** (four fee-calibration fills,
+   already authorised), because §7.4 means every number in ADR 0021 moves if the
+   fee model is wrong and this account has **zero fills, ever**.
+3. **The three queries neither agent could run** —
+   `docs/measurements/2026-08-10-three-queries-the-agents-could-not-run.md`, with
+   pre-stated expected outputs. **All six statements were executed against a
+   seeded real schema before the document was committed**, catching three defects
+   that returned confident wrong numbers rather than errors. **All three need
+   `flyctl`, which is a laptop job and Joe is phone-only.** Q2 is one
+   `_serialise` line from being phone-answerable; left undone deliberately, with
+   the reason written down.
+
+### 7. Deferred overnight, with reasons
+
+- **The symbol-level orphan tail.** ADR 0022 §3.4 deliberately did **not**
+  hand-write a table of the 39 — that would reproduce the opt-in defect one level
+  down. The symbol half got two *derived* checks instead; all 15 entries pass, so
+  it starts as a ratchet rather than a debt.
+- **The `data/lake/` landmine** — recorded, not fixed.
+- **`§S13` / §10 duplication** — unchanged; the fix is to delete one of the two
+  texts, not to test that they agree.
+
+---
+
 ## ⚠ 2026-08-10 — READ THIS IF YOU ARE A PARALLEL SESSION
 
 Infrastructure changed underneath you, from a session running in parallel. This
@@ -206,6 +383,15 @@ rule that can never report.
    comparison actually was: sharp anchoring discards a **median of 26 of 29**
    books, keeping `betfair_ex_eu + matchbook (± pinnacle)`. We have been testing
    Kalshi against the only references plausibly as sharp as Kalshi.
+
+   > **ANNOTATION 2026-08-10 — `26 of 29` is a FIXTURE figure.** Measured on
+   > `tests/fixtures/odds_mlb_h2h_spreads_totals.json`, captured
+   > 2026-08-07T13:49:22Z, overlapping the record on **0 of 1,564 rows**
+   > (minimum gap 5.65 h). The *argument* — that we tested Kalshi against
+   > references as sharp as Kalshi — **stands**; only the magnitude is
+   > unobserved on the record. And "anchoring discards" is itself too strong:
+   > the code is `selected = sharp or usable`, so anchoring is *attempted* every
+   > row and whether it **binds** is data. See §1 and §2 at the top of this file.
 3. **JOE'S CALL — 24 Odds API credits** against 400/day. Two polls of the same
    games at a short interval, checking whether `last_update` advances while
    prices are byte-identical. **The repeat poll is the primary purpose**, not the
