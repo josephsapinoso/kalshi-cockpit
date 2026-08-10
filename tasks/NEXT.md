@@ -1,5 +1,93 @@
 # Next — your checklist
 
+## 2026-08-10 — the edge test is REGISTERED, and it retracts a claim of mine
+
+`docs/measurements/2026-08-10-preregistration-fresh-odds-edge-distribution.md`.
+
+**It must be committed before Stage B runs.** That single act is what makes it a
+pre-registration rather than a note, and the agent deliberately left it
+uncommitted rather than assume.
+
+Verdict as registered: **READY** for branches A and C, **READY at `G >= 100`**
+for branch B, **BLOCKED on P1** (full-table access, i.e. the `offset` deploy) for
+all three — which independently confirms `partner`'s promotion of `offset` to a
+prerequisite — and **permanently UNDERPOWERED at the 3.8-tenth headroom scale**:
+349 games needed at sigma=20, against **29 scored games in the record's entire
+life.** No claim at that scale may be made from this measurement at any `G` it
+will plausibly reach. Write that down before quoting any number from it.
+
+### RETRACTION — `no_edge` is honestly named after all
+
+Two entries below, I speculated that `no_edge` might conflate *"the edge was
+non-positive"* with *"the edge was positive but too small to round up to one
+contract"*, and that `actionable = 0` might therefore be partly a sizing
+artifact. **That is refuted, deductively, and it was refuted before any data was
+cut — which is exactly what the pre-registration is for.**
+
+`sizing.py` prices every decision at one contract. Measured directly against
+`RiskConfig.load().reference()` (bankroll $1,000, quarter-Kelly), the smallest
+post-fee edge that still sizes to at least one contract is:
+
+    ask   20.0c   0.7 tenths        ask   60.0c   1.0 tenths
+    ask   30.0c   0.9 tenths        ask   70.0c   0.9 tenths
+    ask   40.0c   1.0 tenths        ask   80.0c   0.6 tenths
+    ask   50.0c   1.0 tenths
+
+So the sizing floor is about **one tenth of one cent** — nil. Therefore
+`actionable ⟺ (no suppression code) AND (n=1 post-fee edge > 0)`, and since
+`actionable` has been 0 across 1,529 rows, **every unsuppressed row already has
+a non-positive edge.** There is no hidden population of small positive edges
+being rounded away. The question "does any unsuppressed fresh row clear the bar"
+is already answered, and the registration does not ask it.
+
+My speculation was the flattering direction, and it was wrong. Leaving it
+standing would have sent someone to go looking for a population that provably
+does not exist.
+
+### The fee-model question is smaller than this file has been claiming
+
+**Measured exhaustively over all 999 prices** (`fee_candidates`, in dollars, at
+n=1):
+
+    the two models differ by exactly $0.01/contract, or by nothing
+    they AGREE exactly at 163 of 999 prices:
+        9.2c - 17.2c        50.0c only        82.8c - 90.8c
+
+**At exactly 50.0c the fee models agree, so resolving them cannot move that row
+at all** — and 50c is the middle of the band this strategy trades. The
+difference is quantised to a whole cent; it is not the smooth "0.38 points" this
+file has repeatedly implied.
+
+That gives a pre-computable **unreachable domain**, and it discharges the
+standing rule that *a control must be able to reach the confound it was built
+for*: a flip count of zero over an empty domain is registered as UNRESOLVED, not
+as a refutation. Branch A therefore prints `R > 0` (fresh rows in the reachable
+domain) as a precondition **before** any rate.
+
+**This does not kill Lane C** — outside those 163 prices a whole cent per
+contract is large against the headroom — but it does mean the $5 buys less than
+"resolves the bar for every row", and nobody should say that again.
+
+### Three more design points worth not re-deriving
+
+- **The freshness predicate is `instr`, not `LIKE`.**
+  `instr(',' || suppressed_reason || ',', ',stale_odds,') = 0` — because `_` is a
+  `LIKE` wildcard and **all fourteen suppression codes contain underscores.**
+  This is Amendment 1's D1 defect one step further on.
+- **The edge is recomputed, never read.** `edge_after_fees_tenths(ask,
+  contracts=1, fair)` per row; the stored column is selected only as
+  `stored_edge_tenths_DO_NOT_USE` for a divergence diagnostic. Add-back is
+  forbidden by the registration.
+- **Multiplicity is counted: 37 descriptive cells, ~82% chance one clears from
+  nothing, and exactly one interval test carries alpha.** League is substituted
+  by raw ticker series prefix, with the reason recorded — `kalshi_series.league`
+  is written on first insert only and is unreliable for NFL.
+
+Exactly **one** assumed input in the whole design (sigma), and it appears only as
+a column of the power table and gates no threshold.
+
+---
+
 ## 2026-08-10 — `partner` re-triaged: calibration is the CONTROL for the edge test
 
 The queue changed for a reason nobody had stated. **Read this before picking up
