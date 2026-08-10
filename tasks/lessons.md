@@ -5035,3 +5035,126 @@ Related: [[tracing-a-number-to-code-is-only-half-the-check]] (regime, one level
 up), [[a-detectors-production-must-be-the-deployments-production]],
 [[an-enumeration-is-not-a-proof-and-every-is-the-word-to-distrust]],
 [[a-guard-standing-behind-a-stricter-guard-is-decoration]].
+
+---
+
+## 2026-08-11 — Evidence a decision already cites is not grounds to re-open it
+
+A handoff carried a number forward as *"this landed while the ADR was being
+drafted and weakens its rationale"*. It did weaken the **brief the ADR was
+commissioned from**. It did not weaken the ADR, because the ADR had already
+absorbed it: §7.2 cites §5.4 **by section number** as one of three stated
+reasons for its default. The re-opening was proposed on evidence the decision
+relies on.
+
+That is easy to miss for a structural reason. A decision document and the brief
+that commissioned it are usually read as one thing, and a good ADR **records the
+corrections it made to its own brief** — so the strongest evidence *against* the
+version of the argument that produced it is sitting inside it, looking like
+context. A reader who scans for the conclusion and then hears "but this number
+weakens it" has no reason to suspect the number is already a footnote in §7.
+
+The cost is not small: it is a fresh session's best context, spent on a closed
+question, and this file already records the same shape happening to a refutation
+ADR that had been written and committed.
+
+**How to apply:**
+
+- **Before re-opening a decision on new evidence, grep the decision for the
+  evidence.** Search the ADR for the figure, the section number, and the phrase.
+  Thirty seconds. If the decision cites it, the re-opening is re-litigation and
+  the honest move is to say so in the record rather than to re-derive.
+- **Distinguish "weakens the rationale" from "weakens the brief".** They are
+  different documents and only one of them is the decision.
+- **When you decline to re-open, write the declining down inside the decision**,
+  naming the evidence that will be offered again. Otherwise the third session
+  re-opens it, and the fourth. The annotation is cheaper than the re-derivation
+  every single time.
+- **This does not mean decisions are unre-openable.** It means the trigger for
+  re-opening has to be something the decision does not already contain. *"We
+  should look again"* is not a thing that changed.
+
+Related: [[start-md-is-a-snapshot-git-log-is-the-record]],
+[[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]].
+
+---
+
+## 2026-08-11 — An instrument whose every branch points one way is uninformative, and that is a reason to re-price it, not to cancel it
+
+A $5 measurement was registered as the **trigger** for a deferred A-versus-F
+choice. Checking what its branches could actually declare showed the trigger was
+close to empty: the registered classification alphabet was `{LOW, HIGH = 2x LOW}`
+by construction, so **no branch could declare a rate more favourable than the
+best model already on the table**; the one attribution that moved the candidate
+rows moved most of them to the *dearer* rate; and a sub-envelope observation
+classified as hypothesis-generating only and **suspended** the decomposition
+rather than improving it. 26 of 32 outcome vectors killed the option outright.
+Every branch pointed at the same answer, differing only in confidence.
+
+The tempting inference is *"the instrument does not decide the question, so
+don't buy it."* That inference is wrong here, and the reason generalises: the
+instrument had **two other cells that earned on every branch** — a replication
+detector and the first observation of a fee in a league covering 27% of the
+record — and those served three other open options that the question being
+deferred does not touch. Cancelling the purchase because its **headline**
+justification was overstated would have destroyed value the headline never
+mentioned.
+
+The symmetric error is the more common one: keeping the purchase and continuing
+to *describe* it as the trigger, which is a flattering description of a weak
+instrument.
+
+**How to apply:**
+
+- **Enumerate what the instrument can declare before asking what it will
+  declare.** A registered measurement has a finite outcome space; walk it. If
+  the whole space maps to one decision, the measurement is confirmatory, and
+  saying so is not the same as saying it is worthless.
+- **Separate the headline justification from the full deliverable list**, cell by
+  cell, and ask which cells earn on *every* branch. Those are what you are
+  actually buying.
+- **Re-justify, then re-ask.** Change the sentence that goes to the person
+  paying, and say plainly that the headline claim was overstated. Quietly leaving
+  the old justification in place because the answer is the same is how a weak
+  instrument keeps a strong reputation.
+- **Do not let "the trigger is weak" collapse into "take the default now."**
+  Check what resolving early actually buys. If the deferral expires on its own
+  into the same default, resolving early buys a label and can cost the
+  instrument.
+
+Related: [[two-limits-on-one-quantity]],
+[[unblocked-is-a-scheduling-property-not-an-evidentiary-one]].
+
+---
+
+## 2026-08-11 — A count written into a handoff cannot include its own commit
+
+The handoff's State section said `main` was six commits ahead. It was nine, and
+had been nine at the moment of writing. The three missing commits were the
+`docs:` commits **that wrote the handoff**.
+
+This is not carelessness and it does not get fixed by being more careful. Any
+self-describing artefact is stale by construction with respect to the act of
+writing it: the count is computed, then the writing of the count changes the
+count. The same applies to a file listing its own line count, a test suite
+reporting its own total in a file inside the suite, and a changelog stating how
+many entries it has.
+
+The specific danger is that the number **looks** verified — it is precise, it has
+a SHA beside it, and it was true five minutes earlier — so a reader treats it as
+a checked fact rather than a snapshot, and acts on the delta.
+
+**How to apply:**
+
+- **Do not write a live count into the artefact the count describes.** Write the
+  *command* instead: "run `git log --oneline -20`". This repo already learned
+  this once as *`start.md` is a snapshot; `git log` is the record*; the count is
+  the same lesson in a place nobody looked.
+- **If a count must appear, state its as-of instant and state that it excludes
+  the commit carrying it.** One clause, and it converts a wrong number into a
+  correct one.
+- **A reader's first move on any self-reported count is to re-run it**, not to
+  reconcile it. Reconciling assumes both figures were measuring the same thing.
+
+Related: [[start-md-is-a-snapshot-git-log-is-the-record]],
+[[a-measurement-is-not-new-until-you-have-grepped-for-its-own-value]].
