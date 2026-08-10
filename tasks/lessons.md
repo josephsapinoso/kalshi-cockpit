@@ -5621,3 +5621,173 @@ a document.
 Related: [[verification-methods-that-lie]],
 [[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]],
 [[a-readout-verified-on-the-demo-instance-can-be-structurally-blind-on-the-live-one]].
+
+---
+
+## 2026-08-10 — A fixed-sample threshold quoted for a design that peeks inflates its own power about threefold
+
+A live database dump was proposed to finish a test whose sample size nobody had
+priced. Pricing it took one function call, and the answer depended entirely on
+**which multiplier was used**.
+
+The registered design uses an **always-valid** boundary — a confidence sequence
+that holds simultaneously at every `n`, so the gate may re-check on every
+request without the running z-score eventually wandering across a fixed line.
+At `G = 60` that multiplier is **6.09**. The fixed-sample two-sided 5%
+multiplier is **1.96**. The ratio is **3.11**, and it runs entirely in the
+flattering direction:
+
+```
+                         multiplier   smallest resolvable beta at G = 60
+fixed-sample 5%              1.96              0.51    "the test works"
+always-valid (tuning 300)    6.09              1.57    "the test cannot work"
+                                               ceiling of plausibility = 1.00
+```
+
+The two verdicts are opposite. `beta = 1` is full, lossless pass-through and is
+the **ceiling**; a design whose smallest resolvable effect is 1.57 cannot
+resolve anything real, while one at 0.51 comfortably can. **Quoting the wrong
+multiplier does not make the estimate slightly optimistic — it reverses the
+decision**, and the decision here was whether to spend a person's attention on a
+production dump.
+
+**A second confusion sits right beside it and is easy to make.** The
+registration's table prints the multiplier and the resolvable effect in adjacent
+columns. `6.09` is the **multiplier**; `1.57` is the **effect**. Both are true
+of `G = 60` and they are not interchangeable. A report that called 6.09 "the MDE
+at G = 60" was still directionally right, but only by luck — its conclusion
+survived because both numbers happen to exceed 1.0.
+
+**Why:** the cost of being allowed to look continuously is real and large, and
+it is invisible unless the boundary is named. Most quoted power arithmetic
+silently assumes one pre-registered look, which is the thing a continuously
+re-checking gate is definitionally not doing.
+
+**How to apply:** before quoting any power or MDE figure, state **which
+boundary** produced it and whether the design looks once or many times. Prefer
+computing it from the repo's own function (`gate.always_valid_multiplier`) over
+transcribing a table, and pin the table to that function in a test — arithmetic
+written into a document is code, and unrun arithmetic is a guess. When a table
+prints a multiplier and an effect side by side, quote the column header with the
+number.
+
+Related: [[sql-written-into-a-document-is-code-and-unrun-sql-is-a-guess]],
+[[count-your-tests]].
+
+---
+
+## 2026-08-10 — A measurement with no committed artifact is a rumour, and a handoff can promote it to a verdict in one line
+
+A handoff carried: *"A census ran: the record holds the consensus price, the
+Kalshi price and the close for **60 games (46 MLB — 77%)**, and is missing only
+who won. **Verdict: RUNNABLE ONLY WITH A LIVE DUMP.**"*
+
+That sentence has the shape of a finished measurement — a population, a
+breakdown, a limitation and a verdict. **It has no harness, no result document,
+no commit and no raw output.** It exists in exactly one place: the handoff that
+asked the next session to act on it. Some of it reproduces from the pinned pull
+and some of it does not, and there is no way to tell which without redoing the
+work the census supposedly did.
+
+**The word "Verdict" is doing the damage.** It is the vocabulary of this repo's
+committed result documents, which earn it by carrying their population, their
+negative controls and their "what this does not establish". Borrowing the
+vocabulary without the artifact transfers the authority without the evidence,
+and the next reader has no cue that anything is missing.
+
+**The rescue was not to adjudicate it.** The disputed counts were routed
+**around**: the refusal was written against the **largest** count anyone had
+claimed, so every smaller and less-verified figure failed a fortiori and none of
+them had to be established. That cost one paragraph and settled the question
+permanently.
+
+**Why:** an artifact is what makes a number re-checkable by someone who was not
+there. Without one, a figure's only support is that a previous session was
+confident, and confidence is exactly what does not survive a context window.
+
+**How to apply:** when a handoff states a measurement, look for the artifact
+before acting — a harness path, a result document, a commit. If there is none,
+say so in the handoff you write rather than passing the number on, and mark it
+`[UNVERIFIED — no committed artifact]` in place. Then check whether the decision
+actually needs the number: an argument built on the most generous available
+figure often does not, and routing around a disputed number beats litigating it.
+
+Related: [[a-command-in-a-handoff-has-the-status-of-a-test-never-seen-red]],
+[[a-measurement-is-not-new-until-you-have-grepped-for-its-own-value]],
+[[a-borrowed-number-must-overlap-the-population-you-spend-it-on-in-time]].
+
+---
+
+## 2026-08-10 — A subagent's confident negative is the one result you must re-run yourself
+
+A subagent reported that the phrase *"Kalshi may be the sharp side"* appears in
+no ADR and that the handoff had invented it. The claim was load-bearing: it
+would have meant a whole line of work rested on a fabrication.
+
+**It was wrong.** `docs/adr/0021:34` says *"If Kalshi is the sharp side of that
+comparison, then 'Kalshi versus devigged sportsbook consensus' is close to empty
+by construction … §7 states that at full strength."* One `grep` found it.
+
+**A negative from a search is a different kind of claim from a positive.** A
+positive carries its own evidence — here is the line. A negative asserts
+something about **everything that was not returned**, and it is true only if the
+pattern, the path and the file set were all right. Any of the three being
+slightly off produces a confident, clean, entirely wrong "not found", and the
+output looks identical either way.
+
+**And a negative is the more dangerous direction here**, because it licenses
+deleting work: "this was never written down" ends an investigation, while "here
+it is" merely continues one.
+
+**Why:** an agent reporting a negative has no way to distinguish "absent" from
+"my search did not reach it", and neither does its output. This is the same
+shape as an allowlist that cannot report what is missing from it, and as a
+truncated sweep printing "no qualifying market".
+
+**How to apply:** when a delegated result is a **negative** and something
+depends on it, re-run the search yourself before acting — it costs one command.
+Ask for the exact pattern and paths used, not just the conclusion. And when a
+subagent's checkable claim turns out wrong, downgrade its *unverifiable* claims
+in the same report rather than only correcting the one you caught; the failure
+was in method, and method does not fail once.
+
+Related: [[an-allowlist-cannot-report-what-is-missing-from-it]],
+[[verification-methods-that-lie]].
+
+---
+
+## 2026-08-10 — "Routed separately" names no owner, and the wrong sentence stays where people read it
+
+A result document closed by listing six corrections it had earned for another
+document, under the heading *"What section 7.2 may now be annotated to say"*,
+and ended: **"Not edited here. Routed separately."**
+
+**The routing never happened.** One of the six was not a refinement but a
+correction of a plain error: the ADR said a column *"is not on this record"*,
+when the column was on a different table than the query that had missed it. So
+for an unknown stretch the ADR asserted something false, the correction existed
+in full one directory away, and every reader of the ADR got the false version —
+because ADRs are what people read and result documents are what people cite.
+
+**"Routed separately" reads as a completed handoff and is actually an unassigned
+task.** It has no owner, no destination file, no ticket, and nothing that goes
+red. It is the seam-between-lanes failure aimed at prose rather than code: the
+same shape as the sweep trace shipping complete on the backend and reaching no
+screen.
+
+**Why:** the document that *discovers* a correction is almost never the document
+that *carries* it, so every correction has a seam in it by construction. A
+sentence deferring the crossing is the cheapest possible action and feels like
+diligence, which is why it wins over doing it.
+
+**How to apply:** apply a correction where it will be **read**, in the same
+change that discovers it, even when that means editing a file outside the lane —
+or, if the lane genuinely may not, leave an inline pointer **in the wrong
+sentence itself**, so the next reader cannot reach the error without reaching
+the correction. Never leave erroneous text unmarked with the fix parked
+elsewhere. And treat a document ending "routed separately" as an open defect
+until the destination file shows the edit.
+
+Related: [[the-file-ownership-map-between-parallel-lanes-is-a-design-artefact]],
+[[an-observability-fix-that-stops-at-the-api-boundary-has-not-been-made]],
+[[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]].

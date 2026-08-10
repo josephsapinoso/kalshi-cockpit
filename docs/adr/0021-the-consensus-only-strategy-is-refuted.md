@@ -484,6 +484,96 @@ two direct consequences already measured:
 > The generalised pattern is recorded in `tasks/lessons.md` — *a measurement's
 > population must overlap the one you apply it to, in time and not only in kind*.
 
+> #### ANNOTATION 2026-08-10 (later) — the routing above was never applied, and one sentence in it is now known wrong
+>
+> [`2026-08-10-sharp-anchoring-on-the-record-result.md`](../measurements/2026-08-10-sharp-anchoring-on-the-record-result.md)
+> closed the "unobserved" question against the record's own rows and ended
+> *"Not edited here. Routed separately."* **The routing never happened.** Its six
+> items are applied now:
+>
+> 1. **The magnitude is observed on the record**: a median of **19 usable books
+>    discarded of 21**, per row, over the pinned 1,564. `26 of 29` stays the
+>    **fixture** figure it is; the like-for-like per-event record figure is
+>    **20.5 of 23**. The three must never be swapped for one another.
+> 2. The mechanism paragraph is **unchanged**, and its scope is now measured:
+>    *"we have been testing Kalshi against the only references plausibly as sharp
+>    as Kalshi"* holds on **1,141 of 1,564 rows (73.0%)**.
+> 3. **The sentence above — *"and that column is not on this record either"* — is
+>    WRONG, and this is the correction.** `anchored_on_sharp` is on
+>    **`fair_prices`**, not `recommendations`, which is why a ledger pull could
+>    not see it. It has been written on every row since the table existed. The
+>    supported wording is *"not exposed by `/api/ledger` until `4938701`"*.
+>    An absence of a column **from one query** was written up as an absence
+>    **from the record**.
+> 4. **The tautology objection is NARROWED, not withdrawn.** It covers 73.0% of
+>    the record. The other **27.0% (423 rows)** was compared against a
+>    **non-sharp** consensus and **also returned nothing** — 0 positive edges
+>    among the 189 unsuppressed, 0 actionable across all 423. But that fallback
+>    set carries a median of **12** books, not the full market, so it is **NOT a
+>    partial run of option B** and must never be written up as one.
+> 5. **Option B keeps its rationale and loses its prize figure.** The expected
+>    widening is from 2–3 books to about **21**, not to 29.
+> 6. Every *"anchored on the sharps"* means **at most three books**, never four:
+>    `betfair_ex_uk` is on the record **0** times, across all three markets and
+>    the whole window.
+>
+> #### And §7's escape hatch has now been priced. It does not license a live dump.
+>
+> §1 and this section raise the possibility that *"Kalshi is the sharp side, so
+> the comparison is empty by construction"*. **Nobody had ever tested it**, and a
+> 2026-08-10 handoff proposed buying the missing outcome column with a live
+> database dump. **The arithmetic was run first, and it refuses the purchase.**
+>
+> The registered statistic is the CLV pass-through `beta`, whose ceiling of
+> plausibility is **`beta = 1`** (full pass-through). The registration's own
+> minimum-detectable-effect table
+> ([`2026-08-09-preregistration-clv-signal-test.md`](../measurements/2026-08-09-preregistration-clv-signal-test.md),
+> "Smallest resolvable `beta`") reproduces exactly from
+> `gate.always_valid_multiplier(G, tuning=300) / sqrt(G) x ratio`:
+>
+> | `G` (games) | smallest resolvable `beta` | against the ceiling of 1.0 |
+> |---:|---:|---|
+> | **60** — every game in the record | **1.57** | **cannot resolve** |
+> | **48** — games with a derivable close | **1.93** | **cannot resolve** |
+> | **29** — games at horizon 0 | **3.09** | **cannot resolve** |
+> | 300 — the registered floor | 0.42 | resolves |
+>
+> **The kill does not depend on which of those three counts is right, and that is
+> deliberate.** The coverage figures 48 and 29 come from a handoff and reproduce
+> from no committed harness or result document — they are **unverified here**.
+> They did not need to be: the test is underpowered at **60**, the largest count
+> anyone has claimed, so every smaller one fails a fortiori. A disputed number
+> was routed around rather than adjudicated.
+>
+> **Where this would be wrong, stated so it can be checked.** The table's
+> `ratio = sigma_eps / sigma_x = 2` is **ASSUMED and never measured** (Amendment 1
+> §A5.2 withdraws the word "central"). At `G = 60` the test resolves `beta = 1`
+> only if the true ratio is **≤ 1.27**; at `G = 48`, only if **≤ 1.04**, which is
+> a near-noiseless CLV process. Nothing in this project measures it. Per §A5.2
+> the error direction is safe — a worse ratio widens the interval and makes a
+> verdict **harder**, never falser — so the honest verdict is **UNRESOLVED by
+> construction**, not "the hypothesis is refuted".
+>
+> **The better falsifier already exists and has already been run.** §7's worry is
+> that a sharp-versus-sharp comparison is empty by construction. The direct test
+> is not a CLV regression at all — it is *"compare Kalshi against a **non**-sharp
+> consensus and see whether anything appears"*. The record ran that naturally on
+> **423 rows** where no sharp book had quoted, and **nothing appeared**.
+>
+> **Read the `n` before that lands.** Those 423 rows are not 423 observations:
+> **34 links**, **49** consumed `(event, fetch)` instants, **21** runner cycles,
+> **13** distinct odds-observation stamps. The conservative unit is **34
+> fixtures**. And the set is selected toward **thin** instants (median 12 books),
+> is **91% MLB**, and 190 of the 423 were already suppressed `stale_odds`. So it
+> **weakens** the tautology objection over 27% of the record; it does not settle
+> it, and it is not option B.
+>
+> **Consequence, and it is the operative sentence:** **no live dump is licensed
+> for the leadership question.** What a dump *would* still buy is listed in
+> `tasks/NEXT.md` and is a different set of questions (Q-W, the scored-game
+> accumulation rate against `gate.py`'s 300 floor, raw `closing_lines`) — none of
+> which is this one.
+
 ### 7.3 `fair_probability` is the worst of four devig methods
 
 P6 asserts it and the record confirms it on all 1,549 rows: `p_conservative ==

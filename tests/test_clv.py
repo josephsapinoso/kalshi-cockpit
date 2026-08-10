@@ -448,3 +448,87 @@ class TestTheHorizonIsRecordedWithTheScore:
         ).fetchone()
         assert row["clv_horizon_hours"] == 0.0
         assert row["clv_horizon_hours"] is not None
+
+
+class TestTheRegisteredPowerTableReproduces:
+    """ADR 0021 §7's escape hatch is ruled on with arithmetic, so pin it.
+
+    The 2026-08-10 annotation to ADR 0021 §7.2 refuses a live database dump on
+    the grounds that the CLV design cannot resolve any plausible effect at any
+    sample size the record can supply. That refusal is a table of numbers
+    written into a document, and `tasks/lessons.md` records the rule: arithmetic
+    written into a document is code, and unrun arithmetic is a guess.
+
+    These pin the table to `gate.always_valid_multiplier`, so that changing the
+    boundary makes the ADR go red instead of quietly wrong.
+
+    WHAT THIS DOES NOT ESTABLISH
+      Nothing about whether the CLV design is *correct*. It reproduces the
+      registered minimum-detectable-effect table from the repo's own boundary
+      function; it does not check that a confidence sequence is the right
+      instrument, and it cannot -- `sigma_eps / sigma_x = 2` is ASSUMED and
+      measured nowhere (registration Amendment 1 §A5.2).
+    """
+
+    # `2026-08-09-preregistration-clv-signal-test.md`, "Smallest resolvable
+    # `beta`, against the always-valid boundary". Transcribed from the
+    # registration, not from the code.
+    REGISTERED = {
+        20: (9.84, 2.20, 4.40, 6.60),
+        40: (7.21, 1.14, 2.28, 3.42),
+        60: (6.09, 0.79, 1.57, 2.36),
+        100: (5.01, 0.50, 1.00, 1.50),
+        300: (3.66, 0.21, 0.42, 0.63),
+    }
+
+    # The ceiling of plausibility: `beta = 1` is full, lossless pass-through.
+    BETA_CEILING = 1.0
+
+    @pytest.mark.parametrize("games", sorted(REGISTERED))
+    def test_the_multiplier_and_every_ratio_column_reproduce(self, games):
+        import math
+
+        from backend.gate import always_valid_multiplier
+
+        multiplier, r1, r2, r3 = self.REGISTERED[games]
+        computed = always_valid_multiplier(games, tuning=300)
+        assert computed == pytest.approx(multiplier, abs=0.005)
+
+        base = computed / math.sqrt(games)
+        assert base == pytest.approx(r1, abs=0.005)
+        assert 2 * base == pytest.approx(r2, abs=0.005)
+        assert 3 * base == pytest.approx(r3, abs=0.005)
+
+    @pytest.mark.parametrize("games,mde", [(60, 1.57), (48, 1.93), (29, 3.09)])
+    def test_no_available_sample_size_can_resolve_a_plausible_effect(self, games, mde):
+        """The three counts the escape-hatch dump was proposed to buy.
+
+        60 is every game in the record, 48 the games with a derivable close, 29
+        those at horizon 0. **The refusal is written against 60** -- the largest
+        count anyone claimed -- precisely so that the two smaller, unverified
+        figures cannot change it.
+        """
+        import math
+
+        from backend.gate import always_valid_multiplier
+
+        computed = 2 * always_valid_multiplier(games, tuning=300) / math.sqrt(games)
+        assert computed == pytest.approx(mde, abs=0.005)
+        assert computed > self.BETA_CEILING
+
+    def test_the_registered_floor_is_where_the_design_starts_working(self):
+        """300 is not arbitrary and it is not a check on anything.
+
+        Amendment 1 §A5.3 withdraws the claim that the floor and the arithmetic
+        agreeing was independent corroboration: `tuning=300` IS the floor, so
+        the agreement is the tuning parameter reappearing in its own output.
+        Pinned here as the contrast that makes the refusal legible -- 0.42 is
+        below the ceiling, and every reachable `n` is above it.
+        """
+        import math
+
+        from backend.gate import always_valid_multiplier
+
+        at_floor = 2 * always_valid_multiplier(300, tuning=300) / math.sqrt(300)
+        assert at_floor < self.BETA_CEILING
+        assert at_floor == pytest.approx(0.42, abs=0.005)

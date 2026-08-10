@@ -1,5 +1,69 @@
 # Next — your checklist
 
+## 2026-08-10 — CLOSED: ADR 0021 §7's escape hatch does NOT license a live dump
+
+**Do not re-open this by proposing a dump for the leadership question.** The
+handoff's third job — *"Kalshi may be the sharp side, so the comparison is empty
+by construction"* — was priced before it was run, and the price refuses it.
+
+**The arithmetic, reproducible in one command.** The registered statistic is the
+CLV pass-through `beta`, whose **ceiling of plausibility is `beta = 1`** (full,
+lossless pass-through). Smallest resolvable `beta` from the repo's own boundary,
+`gate.always_valid_multiplier(G, tuning=300) / sqrt(G) x 2`:
+
+```
+G =  60  (every game in the record)      1.57   cannot resolve
+G =  48  (games with a derivable close)  1.93   cannot resolve
+G =  29  (games at horizon 0)            3.09   cannot resolve
+G = 300  (the registered floor)          0.42   resolves
+```
+
+**The refusal is written against `G = 60`, and that is the point.** 48 and 29
+come from a handoff and reproduce from **no committed harness or result
+document** — they are unverified. They did not need to be: the test is
+underpowered at the **largest** count anyone claimed, so every smaller figure
+fails a fortiori. **A disputed number was routed around, not adjudicated.**
+
+**Where this would be wrong, so it can be checked.** `sigma_eps / sigma_x = 2`
+is **ASSUMED and measured nowhere** (registration Amendment 1 §A5.2). At
+`G = 60` the design resolves `beta = 1` only if the true ratio is **≤ 1.27**; at
+`G = 48`, only if **≤ 1.04** — a near-noiseless CLV process. Per §A5.2 the error
+direction is safe, so the verdict is **UNRESOLVED by construction**, never *"the
+hypothesis is refuted"*.
+
+**The better falsifier already ran, and nobody finished reading it.**
+`2026-08-10-sharp-anchoring-on-the-record-result.md` §5: on **423 of 1,564 rows
+(27.0%)** no sharp book had quoted, so those rows were priced against the
+**full** book set — and produced **0** positive edges among the 189 unsuppressed
+and **0** actionable. That is the direct test of the tautology objection and it
+needs no dump.
+
+> **Read the `n` before that lands.** 423 rows are **34 links**, 49 consumed
+> instants, 21 runner cycles, 13 odds stamps. The conservative unit is **34
+> fixtures**. The set is selected toward **thin** instants (median **12** books,
+> against 23 overall), is **91% MLB**, and 190 of the 423 were already
+> `stale_odds`. It **narrows** the tautology objection to 73% of the record. It
+> is **not** a partial run of option B and must never be written up as one.
+
+**Arithmetic pinned to code, not transcribed:** `tests/test_clv.py`,
+`TestTheRegisteredPowerTableReproduces`. Nine assertions, seen red under three
+mutations of `gate.always_valid_multiplier` — including replacing the confidence
+sequence with the fixed-sample **1.96**, which flips the verdict to *"the test
+works"*. That flip is the whole lesson and it is in `lessons.md`.
+
+**A live dump is still wanted for a DIFFERENT set of questions** — Q-W (cell
+`W`'s activation), the scored-game accumulation rate against `gate.py`'s 300
+floor, and raw `closing_lines`. None of them is this one.
+
+## 2026-08-10 — CORRECTED: ADR 0021 §7.2 asserted something its own source had already refuted
+
+`2026-08-10-sharp-anchoring-on-the-record-result.md` ended *"Not edited here.
+**Routed separately.**"* **The routing never happened**, so ADR 0021 §7.2 went on
+saying `anchored_on_sharp` is *"not on this record either"*. It is — on
+**`fair_prices`**, not `recommendations`, which is why a ledger pull missed it.
+All six of that document's routed items are now applied in place, and the
+pattern is in `lessons.md`.
+
 ## 2026-08-10 22:34:21Z — THE SWEEP SERVED. The latch is refuted, F4's prediction held.
 
 Read at **2026-08-10T22:40:19Z**, inside the registered 22:22–22:52Z slot:
