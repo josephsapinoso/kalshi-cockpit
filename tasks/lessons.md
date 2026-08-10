@@ -3981,3 +3981,87 @@ overstatement in the other direction.
 Related: [[one-observation-recorded-thirty-times]],
 [[the-zero-that-means-no-measurement-passes-every-threshold]],
 [[a-captured-fixture-that-no-test-loads-is-decoration]].
+
+---
+
+## 2026-08-10 — A reachability guard has to run in both directions
+
+The joint bound was built to close this project's central question. It was
+pre-registered, amended, implemented with 100 tests and 24 verified
+deformations, and it **could not have returned its decision value.** The run had
+one possible outcome before it started, and nobody noticed until it produced it.
+
+The instrument: set every conservative choice simultaneously to its most
+generous alternative — loosest devig, cheapest fee model, maker basis — and
+count actionable rows. Zero would mean *"one could not have been found here"*,
+which no future data can reverse. That reasoning is sound.
+
+The registration then discovered, correctly and exhaustively, that stacking the
+cheapest fee model onto the maker basis gives a fee of **exactly zero** at all
+999 prices and every order size: Model B's maker multiplier is 0.015, and
+`0.015·P(1−P) ≤ 0.00375` rounds half-up to zero cents per contract. It recorded
+this as a *simplification* — the bound "reduces to one subtraction" and becomes
+size-invariant, which is true and genuinely useful.
+
+**It is also the moment the instrument stopped being able to fail.** At a zero
+fee the count is just *"how many rows have a positive gross edge"*. Measured on
+1,000 rows: 258 clear, and **213 of those 258 have a gross edge smaller than the
+~2c fee they would actually pay.** They clear only because the bound deleted the
+venue's cost — and the venue's cost advantage *is* the premise under test.
+Setting cost to zero does not test the premise; it removes it.
+
+**The guard that existed pointed the wrong way.** The registration has an
+explicit reachability rung: *"if `K` is zero even at the loosest δ, treat the
+harness as suspected defective, because a ladder that is zero everywhere cannot
+be told from a broken harness."* That is a real guard against a false negative,
+and it was written deliberately. Nothing guarded the symmetric case. The rung
+returned **984 of 1,000** — an instrument whose sanity check clears 98% of the
+record and whose decision condition requires 0.
+
+**Why it survived every process this project has.** Three reviewers, a
+pre-registration, an amendment that found a genuinely different defect in the
+same ladder, and a test suite in which every guard was disabled and watched to
+go red. None of them ask *"can this measurement come out the other way?"*, because
+each is scoped to a piece: the tests check the code computes what the
+registration says, the registration checks the statistic is not chosen after the
+data, the amendment checks the thresholds. **Falsifiability is a property of the
+instrument as a whole and has no owner among them.**
+
+Note the shape, which is this file's [[two-limits-on-one-quantity]] rotated into
+a new dimension: relaxing the fee bound made a *different* bound — the
+falsifiability of the design — start binding, silently, with no change in any
+symptom. Every individual number stayed correct.
+
+**How to apply:**
+
+- **Before running a measurement, state what result would falsify the
+  hypothesis, and then check that result is arithmetically reachable given the
+  parameters actually chosen.** Not "is it plausible" — *reachable*. Here it was
+  not, and one line of arithmetic on a counter already in the record would have
+  shown it.
+- **Reachability guards are directional. Write both.** "If it always returns 0,
+  suspect the harness" needs its twin: "if it never returns 0, suspect the
+  bound." A ladder whose top rung clears 98% of the record is announcing that
+  its bottom rung is the only informative one.
+- **When a relaxation turns out to be extreme, treat that as a finding about the
+  instrument, not a convenience.** "The generous fee is exactly zero" was
+  recorded as making the arithmetic simpler. The same sentence, read as *"our
+  bound assumes the venue is free"*, is a stop-the-line.
+- **A bound must dominate the thing it bounds and still be able to bind.** The
+  fix is to bound against the cheapest *realisable* alternative, not the limit
+  of the relaxation. A bound nobody believes is a bound nothing can fail.
+
+**And the epilogue that matters more than the instrument.** The failed bound was
+not the session's finding. The same pull showed that all 45 rows carrying a
+positive net edge under the deployed fee are **suppressed** — zero unsuppressed,
+zero actionable, across 8 games — and that the largest apparent edges are a
+consensus fair of `0.49999999999999994` on a game the market prices 84/16, from
+a single contributing book. The guards and the edge computation agree about
+which rows are garbage. That is a coherence result, it needed no bound, and it
+is better evidence than the instrument was built to produce. **When an
+instrument fails, look at what the data said anyway.**
+
+Related: [[two-limits-on-one-quantity]],
+[[the-zero-that-means-no-measurement-passes-every-threshold]],
+[[every-per-cell-guard-can-pass]],
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
