@@ -1,5 +1,125 @@
 # Next — your checklist
 
+## ⏱ 2026-08-10, evening — RUN THIS FIRST, THEN READ THE REST
+
+**Read this first. It supersedes everything below it.**
+
+```
+.venv\Scripts\python.exe scripts\capture_fills_fixture.py
+```
+
+Laptop only, seconds, **no money, no deploy, no orders.** `/portfolio/fills` has
+a measured retention window with an upper bound near **three months**;
+`/portfolio/settlements` is the durable record. Predictions were committed
+**before** the data existed:
+
+| position | Σ fill fees | granularity changed | settlement is a different quantity | old cent model |
+|---|---:|---:|---:|---:|
+| `KXMLBGAME-…BALMIN-MIN` | $0.0088 | **$0.0088** | **$0.01** | **$0.02** |
+| `KXMLBGAME-…TEXLAA-LAA` | $0.0088 | **$0.0088** | **$0.01** | **$0.02** |
+| `KXMLBGAME-…KCLAD-KC` (3 orders, 11.27 contracts) | $0.0778 | **$0.0778** | **$0.08** | **$0.16** |
+| `KXATPDOUBLES-…CERETC` | $0.1785 | $0.1785 | $0.18 | $0.18 |
+
+**The ATP row does not discriminate. Do not read it** — reading 3 and the old
+cent model both predict $0.18.
+
+**GUARD (R5), registered:** no settlement charge **AND** no visible entry fees
+means you are measuring nothing — **STOP THE LINE, naming the harness, not the
+exchange.**
+
+**Settles:** which of the three readings of the settlement-vs-fill contradiction
+holds, and **H4** (settlement charges no second fee). **Does not settle:** the
+rate attribution — H-SERIES / H-SPORT / H-SIZE / H-PRICE / H-NOTIONAL are
+untouched.
+
+**Then, also free, before any round three:** census the **minimum `KXMLBGAME` ask
+per event over the stored `kalshi_markets` record** — it decides whether the
+sub-15c band is *ever* reachable, i.e. whether the dead end below is real or was
+one bad evening. Zero cost, data already on disk.
+
+### THE ACCOUNT HAS FILLS NOW — six of them, and both fee models are dead
+
+Joe ran **ADR 0021 Option E** on 2026-08-10. Artefact:
+`docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`, audited by
+`measurement-skeptic`. **Verdict H3−: both registered models refuted at all four
+cells, every observed fee below `min(A, B)`.**
+
+**SOLID:** Kalshi charges **sub-cent** fees as of 2026-08-10 — `core/fees.py`'s
+cent-granular contract is **wrong for the current schedule**. Reported `fee_cost`
+is **`ceil` to $0.0001**; scope is **per-order**, refuted coefficient-free.
+**Model A's *coefficient* is confirmed to seven decimals** at the ATP cell
+(`0.07 × 20 × 0.1275 = 0.1785000`, charged `0.1785`) — **only its cent ceiling is
+refuted**, never write "Model A is refuted" bare. And **`$0.0001` is not
+representable in `core/prices.py`'s integer tenths of a cent**; that units
+question is an **ADR, not a patch**.
+
+**NOT WRITABLE:** *"the rate is per-category."* **Five** attributions fit all six
+fills equally — by **series**, **order size**, **price region**, **sport**, and
+**notional stake** (a threshold in `($2.70, $3.00]`). `k = 0.035` is writable only
+as *"at `KXMLBGAME`, `C ∈ {0.27, 1, 10}`, `P ∈ {0.27, 0.48}`, on 2026-08-10."*
+**No change to `calculate_fee`, to `CLAUDE.md`'s 52.00% bar, or to ADR 0021** —
+§2 of the registration forbids deploying a model fitted to these fills. **The
+`max()` hedge stays.**
+
+**The decomposition — never quote the bottom row alone:**
+
+```
+                                          fee@50c  break-even  headroom  S_min E1   sizes?
+deployed   0.07, ceil-to-CENT             $0.0200    52.00%      0.38     -2.0534     NO
+step 1     drop the cent ceiling only     $0.0175    51.75%      0.63     +0.5466     NO
+step 2     also halve the coefficient     $0.0088    50.88%      1.50     +9.2466    YES
+```
+
+**ADR 0021's refutation is NOT overturned by the well-supported half.** Step 1 is
+solid; step 2 is 77% of the win and a post-hoc fit at two prices in one 14-minute
+window. Under step 1 alone `S_min` reaches +0.5466 tenths — **below** the
+1.0-tenth sizing supremum, so it does not size. Also **`KXWNBAGAME` is 422 of
+1,564 rows (27.0%) with zero fills**; a naive `k=0.035` moves 137 → 206 positive
+rows of which **85 are WNBA**.
+
+**Two findings that stand on their own:** `gate.py`'s `_fee_model_verified` has
+**never been able to fire** (nothing in production writes `fills`), so nothing in
+this codebase would have caught the fee model being wrong — **and it was**. And
+**Kalshi's own app displayed a `$0.02` estimate and charged `$0.0088`**, a 2.3x
+overstatement, with `$0.02` being exactly Model A — the likely origin of the
+wrong coefficient here.
+
+### Round two: REGISTERED AND NOT RUN, and the reason is a repeat defect
+
+`docs/measurements/2026-08-10-preregistration-fee-rate-attribution-round-two.md`
+would have broken the confound for ~$4. **Zero fills placed, so nothing in it is
+contaminated and it is reusable as written.**
+
+**The cheapest `KXMLBGAME` game-winner ask on the board was 28c** — full list,
+live games included — against a required band of **6c–14c**. Every price-region
+threshold consistent with round one lies in `(0.15, 0.27]`, so **the whole
+boundary interval sits below the cheapest price the series offers**, plausibly
+always: MLB moneylines cluster ~20–80c.
+
+**The defect, named because it is the second time:** §3 claimed a reachability
+precondition and checked the cells would *discriminate* if filled. It never
+checked the band was *fillable*. **That is the joint bound's failure exactly.**
+Check both halves, always.
+
+**D1/D2 were not two cells of four — they were the design.** Isolating SIZE from
+NOTIONAL forces `P ≤ 0.135`; isolating PRICE at `C = 1` forces `P ≤ 0.15`. The
+band carried **three of the four separations**.
+
+Rulings in **Amendment B** (`8e86500`) not to re-derive: **in-play is rejected on
+a confound, not a policy** (it is the only route to the band, so in-play state
+and sub-15c price are perfectly collinear and H-INPLAY's vector is identical to
+H-PRICE's); **the mirror does not rescue it** (a NO at 12c is a genuine 12c fee
+observation, but H-PRICE's prediction there is undetermined — and it is moot,
+since `KXMLBGAME` lists two markets per event, one per team, so the underdog is
+buyable as a genuine YES; the constraint is baseball's variance, not the book
+side); **`C = 10` at 31–39c isolates NOTIONAL with no low price at all**
+(registered as Cell N, consumes ~$4 alone); and **the escape if the census kills
+the band** is a within-series price pair in `KXATPDOUBLES` (~$0.54), with the
+transfer back to `KXMLBGAME` resting on H-PRICE's own global-rule claim and
+labelled as doing so.
+
+---
+
 ## 2026-08-10, overnight — THE REFUTATION IS WRITTEN, AND IT QUOTES A FIXTURE AS A FACT
 
 **Read this first. It supersedes everything below it.**
@@ -156,6 +276,12 @@ invoke `publish` or `dbt build` — verified directly against the script.
    says so. **`partner`'s position: Option E first** (four fee-calibration fills,
    already authorised), because §7.4 means every number in ADR 0021 moves if the
    fee model is wrong and this account has **zero fills, ever**.
+
+   > **[DONE 2026-08-10 — E ran, and §7.4's condition is MET: the fee model IS
+   > wrong. "Zero fills, ever" is also now false twice over.]** See the top
+   > section of this file. **A–D and F remain open and none is started**, and the
+   > A-vs-F call should wait for the settlement capture and the rate attribution,
+   > because E's answer partly reopens the question A was going to close.
 3. **The three queries neither agent could run** —
    `docs/measurements/2026-08-10-three-queries-the-agents-could-not-run.md`, with
    pre-stated expected outputs. **All six statements were executed against a
@@ -1406,6 +1532,27 @@ it holds; it has simply not been checked by a second pair of eyes.
 Probed Joe's **production** account (`api.elections.kalshi.com`, confirmed not
 demo): **zero fills, ever.** So there is no free path to the fee model, and no
 historical fills from the predecessor project to mine.
+
+> **[BOTH SENTENCES ARE FALSE — corrected 2026-08-10. Kept in place because the
+> deleted version of a wrong claim is invisible to whoever reaches for it next.]**
+>
+> **"Zero fills, ever" was true of `/portfolio/fills` and false of the account.**
+> `GET /portfolio/settlements` returns **55 settled positions** dated 2025-11-27
+> → 2026-05-10, every one carrying `fee_cost`. The account had traded; the fills
+> endpoint had simply **aged them out** — a retention window with an upper bound
+> near three months, confirmed across eight query shapes.
+>
+> **So "there is no free path to the fee model" was wrong, and it cost real
+> money to find out.** Eleven single-game settlements pin the coefficient to
+> `(0.069771, 0.070129]` and fit `ceil-to-CENT × 0.07` **11 of 11** — at zero
+> cost, on data already on the account, before any trade was placed.
+>
+> **The pattern, and it is the reusable part:** *an empty endpoint is not an
+> empty account.* One endpoint returning nothing was read as a fact about the
+> world rather than about that endpoint's retention policy, and no second
+> endpoint was tried. Ask what else would carry the same quantity before
+> concluding the quantity does not exist. See the top section of this file, and
+> `docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`.
 
 Separate what that settled from what it did not:
 

@@ -4776,3 +4776,79 @@ will see it. And **never let a partition's name assert its provenance** — stam
 the data, not the directory. Related:
 [[a-borrowed-number-must-overlap-the-population]],
 [[the-false-reassurance-in-a-comment-outlives-the-code]].
+
+---
+
+## 2026-08-10 — An empty endpoint is not an empty account
+
+`GET /portfolio/fills` returned zero rows. That was written down as *"zero fills,
+ever"*, and from it: *"there is no free path to the fee model, and no historical
+fills from the predecessor project to mine."* Both sentences went into
+`tasks/NEXT.md` and justified spending real money to create the data.
+
+The account had traded **55 times**. `GET /portfolio/settlements` carried every
+one, with `fee_cost` on each, dated 2025-11-27 → 2026-05-10. Eleven of them pin
+the fee coefficient to `(0.069771, 0.070129]` and match their model **11 of 11**
+exactly — at zero cost, on data sitting on the account the whole time.
+
+`/portfolio/fills` was not lying. It has a **retention window** — upper bound
+near three months, confirmed across eight query shapes (bare, `limit`, four
+`min_ts` variants, a `min_ts`/`max_ts` span, `ticker`, `event_ticker`). An
+endpoint that forgets is indistinguishable, from one query, from a world where
+nothing happened.
+
+**Why:** the failure is a quantifier slip that reads as a fact. *"This endpoint
+returns nothing"* is an observation about an endpoint; *"this account has no
+fills"* is a claim about the world; and the second does not follow from the
+first without a **retention** assumption nobody stated. The slip is invisible
+because the sentence gets shorter, not longer — and a shorter sentence reads as
+more confident. Compare [[a-borrowed-number-must-overlap-the-population]]: same
+move, one dimension over.
+
+**How to apply:** before concluding a quantity does not exist, **name a second
+place it would appear and look there.** For any API, ask what its retention
+policy is before reading an empty list as history; if the docs do not say,
+that uncertainty belongs in the write-up, not in the conclusion. And when an
+absence is about to authorise **spending money or building something**, that is
+the moment the second look is cheapest relative to its value — here it was one
+HTTP GET against $7 and a week. Related:
+[[code-with-no-caller-is-not-a-feature]] (an absence read as a fact),
+[[an-allowlist-cannot-report-what-is-missing-from-it]].
+
+---
+
+## 2026-08-10 — Reachability has two halves, and this project keeps checking one
+
+A pre-registration for four fee-calibration fills carried a reachability
+precondition and said so. It verified that each cell **would discriminate
+between the hypotheses if it filled** — computing, in advance, that no cell
+landed on a rounding-grid boundary where the candidate models agree. Careful
+work, and it caught a real trap.
+
+It never checked that the prices **existed**. The band was 6c–14c on
+`KXMLBGAME`; the cheapest game-winner ask on the board was **28c**, across the
+whole list including live games. Not a thin slate — MLB moneylines cluster
+roughly 20–80c, because baseball's variance keeps bad teams live. The band was
+plausibly unfillable on *any* day, and the entire hypothesis boundary
+`(0.15, 0.27]` sits **below** the cheapest price the series offers.
+
+**This is the joint bound's failure exactly.** There, Branch Z — the outcome
+that would have closed the central question — was arithmetically unreachable
+before the data existed, so `BRANCH N — NOT CLOSED` was a consequence of the
+design rather than an observation. Same shape, second occurrence, and the second
+time it was committed by a registration that *believed it had checked*.
+
+**Why:** "can this measurement reach its decision value?" splits into two
+questions that feel like one. **Can the instrument distinguish the answers?** is
+about arithmetic and is answerable at the desk. **Can the input occur?** is about
+the world and is not — it needs the board, the season, the venue's price
+distribution. Checking the first is satisfying and feels like diligence, which is
+exactly why the second gets skipped.
+
+**How to apply:** every registered cut, band or threshold gets **two** written
+preconditions, answered separately and both before any data: *(a)* if this value
+occurred, would the rule discriminate? *(b)* does this value occur, and how often
+— from a source outside the design? For a price band, that means looking at the
+actual board. The cost of getting this wrong is not a wasted measurement; it is a
+**confidently reported null** that is a property of the design. Related:
+[[the-joint-bound-could-not-have-worked]], [[count-guard-families-not-guards]].
