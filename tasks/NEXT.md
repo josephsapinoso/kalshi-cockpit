@@ -1,6 +1,114 @@
 # Next — your checklist
 
-## 2026-08-10, later — JOE: ONE COMMAND, AND IT NOW BLOCKS THE ADR
+## 2026-08-10, end of session — THE BOUND FAILED, AND IT FOUND A REAL BUG
+
+**Read this first. It supersedes everything below, including the section
+immediately following, which was written mid-session and is now partly wrong.**
+
+`docs/measurements/2026-08-10-joint-bound-result.md` is the artefact. `main` at
+the tip, pushed, **1,890 tests**, ruff clean, `next build` clean, tree clean.
+Live still runs `ec53ba9`.
+
+### 1. The joint bound could not have worked, and that is now proved
+
+**Branch Z — the outcome that would have closed the central question — was
+arithmetically unreachable before the data existed.** So `BRANCH N — NOT CLOSED`
+is a consequence of the design, not an observation, and **it authorises nothing,
+including the withdrawal of the plan to stop.** `measurement-skeptic`: verdict
+**UNSUPPORTED as a decision-bearing reading**.
+
+Two proofs, both measured:
+
+- **The complementary-leg identity.** Each game has two complementary tickers,
+  and at a zero fee `S_A + S_B = (ask_A + ask_B) − 1000(fair_A + fair_B)` = market
+  width + devig deficit. Over 312 same-instant pairs: median +13.0, max +82.0
+  tenths. So `min(S_A,S_B) ≤ 41.0 tenths = 4.10 points` at the **worst** pair,
+  against Branch Z's requirement of `> 16.7 points on every row`. It misses by 4x
+  at the best pair and 25x at the median, **on any two-sided record**.
+- **Amendment 1 made Branch Z and the reachability precondition mutually
+  exclusive.** §5 registers δ=10.00 as *"certainly non-zero if the arithmetic
+  works at all"*; A1 moved Branch Z above it. `K` is monotone, so `K(16.70)=0`
+  trips the precondition and no branch may be declared. **I authorised that
+  amendment**, on the reasoning that rounding thresholds up is conservative —
+  true against false closure, no protection against this.
+
+**Do not re-run this instrument on the whole table.** It returns Branch N for the
+same arithmetic reason. The replacements are in the result doc's last section.
+
+### 2. THE REAL FINDING — and it could have come out the other way
+
+    unsuppressed rows                              413   in 38 games
+      ...with positive NET edge at the deployed fee  0
+      largest clean GROSS edge          17.9 tenths = 1.79c
+      the deployed taker fee            20.0 tenths = 2.00c
+      largest clean NET edge                     −2.1 tenths
+
+**Zero of 413 clean rows clears the fee, and the best misses by 0.21c.** And all
+45 rows carrying a positive net edge are **suppressed** — zero unsuppressed, zero
+actionable, 8 games. The guards and the edge computation agree about which rows
+are garbage. That is a coherence result, it needed no bound, and it is better
+evidence than the instrument was built to produce.
+
+### 3. THE BUG — and it is the top of the queue
+
+**`edge_within_method_noise` cannot fire on the one input where the edge is
+purely a devig-method artefact.** One book quoting both outcomes at identical
+odds makes all four methods agree to ~1e-14, so `spread_tenths ≈ 1.4e-11` and
+`edge > spread_tenths` passes for **any** positive edge. Produces a 50/50 fair on
+a game the book prices **84/16**, and the three largest `|edge_tenths|` in the
+slice.
+
+**`min_book_count = 2` is the single threshold standing between a fabricated
+fair and a surfaced row**, and it has **no environment plumbing anywhere** —
+not `.env`, `.env.example`, `fly.live.toml` or `config.py`. `too_few_books` and
+`no_market_width` fire on the *identical* condition (185 rows each, symmetric
+difference 0), so they are one guard counted twice, not defence in depth.
+
+**Eight rows were fresh, fillable, +1.2c post-fee, and stopped only by that
+threshold.** ids 979/980 are the worked example.
+
+**Not fixed, deliberately.** `suppressed_reason` is half the `actionable`
+predicate, so changing when a suppression fires changes what the gate counts.
+Needs an ADR and `partner`, not a patch. **This is job one next session.**
+
+Signature to grep on live:
+`SELECT COUNT(*) FROM fair_prices WHERE ABS(p_multiplicative-0.5) < 1e-12 AND ABS(p_additive-0.5) < 1e-12`
+
+Also found in passing, unacted: **`SuppressionConfig.max_odds_age_ms = 900_000`
+is hardcoded and does not read `MAX_ODDS_AGE_S`.** They agree today; changing the
+env value moves the gate and the API but **not the runner's suppression.**
+
+### 4. What is NOT established, so nobody quotes it wrong
+
+- Every sentence above is about **the newest-1,000 slice**, not the record. The
+  pull was **unpinned** and the table grew under it (1,543 vs the 1,535 of §0.1),
+  so it is **not reproducible even as a slice**.
+- 1,000 rows are only **748 distinct `(cluster, instant, ask, fair)` tuples** —
+  the recorder writes both complementary legs and `TOR-yes ask == ATL-no ask`.
+  `n_rows` is uptime.
+- `D*` collapses **19x** under nested exclusion; **12 of the top 20 gross edges
+  are one WNBA game**. Nothing about magnitude survives per-group inspection.
+- The clearing set is **stale-selected**: odds age p50 2.00h vs 0.07h, 29x.
+- **Branch M's 46 named rows all sit exactly 10.0 tenths apart** — the fee
+  difference, nothing else — with max net edge 1.0c against ADR 0017's 1.50c
+  adverse-selection counterargument. **Zero of the 46 survives it.**
+
+### 5. The queue
+
+1. **The `edge_within_method_noise` / `min_book_count` defect** — ADR + fix.
+   Route through `partner`; it changes what the gate counts.
+2. **Joe's deploy** (below), then the replacement measurement — shortfall against
+   the **deployed** fee on the clean population, threshold from the 2.0-point
+   knob ceiling, deduplicated to one observation per `(game, instant, market)`.
+   Register it with §0 disclosing that this slice already returned max −2.1
+   tenths on 413 rows / 38 games.
+3. **The refutation ADR waits.** Branch N authorises nothing; the honest
+   refutation now rests on §2 above, and it is provisional in exactly the way an
+   n=29 null is provisional. Say so in its own section or it repeats the failure.
+
+---
+
+## 2026-08-10, mid-session — JOE: ONE COMMAND (still true; the ADR framing above supersedes)
 
 ```
 ! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit
