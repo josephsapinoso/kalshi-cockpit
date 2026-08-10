@@ -40,6 +40,7 @@ from ..config import (
     OddsConfig,
     RiskConfig,
     StalenessConfig,
+    assert_odds_age_limits_agree,
     retired_settings_present,
 )
 from ..core.correlation import CorrelationRefused, Leg
@@ -234,6 +235,14 @@ def create_app(
     # `def` in the same closure would rebind it -- which it silently did, so the
     # ceiling check read `edge_ceiling_tenths` off a FastAPI handler.
     thresholds = suppression_config or SuppressionConfig()
+
+    # Two limits on one quantity, checked where the environment actually is.
+    # ADR 0019 section 6. Refuses to start rather than serve a window banner
+    # that disagrees with what the runner schedules.
+    assert_odds_age_limits_agree(
+        suppression_max_odds_age_ms=thresholds.max_odds_age_ms,
+        staleness=staleness,
+    )
 
     # **The line that makes the line above provable.**
     #

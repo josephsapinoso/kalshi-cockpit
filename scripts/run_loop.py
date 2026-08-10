@@ -72,6 +72,7 @@ from backend.config import (  # noqa: E402
     OddsConfig,
     RiskConfig,
     StalenessConfig,
+    assert_odds_age_limits_agree,
 )
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
@@ -267,6 +268,15 @@ async def main() -> int:
     # just fixed for. It cannot raise; see `MarketResultConfig`.
     market_result_config = MarketResultConfig.load()
     suppression = SuppressionConfig()
+
+    # Two limits on one quantity. ADR 0019 section 6. Raises rather than warns:
+    # the loop is the process that spends odds credits against this window, and
+    # a divergence here is invisible from outside -- the phone would show one
+    # schedule while the loop ran another.
+    assert_odds_age_limits_agree(
+        suppression_max_odds_age_ms=suppression.max_odds_age_ms,
+        staleness=staleness,
+    )
     budget = CreditBudget(
         conn,
         daily_budget=odds_config.daily_credit_budget,
@@ -320,9 +330,21 @@ async def main() -> int:
                     conn, kalshi, config=market_result_config
                 )
 
+            # **One source, and it is the environment's.** ADR 0019 section 6.
+            # This used to pass `suppression.max_odds_age_ms` -- a hardcoded
+            # 900_000 -- while `routes.py` passed `staleness.max_odds_age_s *
+            # 1000` to the same function. Same planner, different inputs, so
+            # the docstring at `routes.py` promising "not a second
+            # implementation... the screen is the one that gets believed" was
+            # defending against the wrong layer. Sharing an implementation does
+            # not share its arguments.
+            #
+            # The startup assertion above guarantees these are equal today; this
+            # makes them the same expression, so they cannot drift even if that
+            # assertion is ever relaxed.
             window = window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
-                max_odds_age_ms=suppression.max_odds_age_ms,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 sweep_cost=odds_config.credits_per_sweep_per_sport,
             )
             # Alerting on a quote pass too, deliberately. A quote pass is when a

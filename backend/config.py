@@ -382,6 +382,48 @@ class StalenessConfig:
         )
 
 
+class StalenessLimitsDisagree(RuntimeError):
+    """Two limits on one quantity, and they have stopped agreeing."""
+
+
+def assert_odds_age_limits_agree(
+    *, suppression_max_odds_age_ms: int, staleness: StalenessConfig
+) -> None:
+    """Fail at startup if the two odds-age limits have diverged. ADR 0019 §6.
+
+    **There are two limits on one quantity and nothing joined them.**
+    `SuppressionConfig.max_odds_age_ms` is a hardcoded `900_000` that never
+    reads the environment; `MAX_ODDS_AGE_S` is read here and consumed by
+    `gate.py`, `live.py` and `routes.py`. They agree at the defaults, so the
+    divergence only appears once someone sets the Fly value -- at which point
+    the suppression check and the odds sweep keep 15 minutes while the order
+    gate, the Board's `actionable` flag and the phone's window banner all move.
+
+    **Why this is a runtime assertion and deliberately not a test.** A test
+    compares one hardcoded default against another hardcoded default and passes
+    green forever, because the divergence is created by a deployed environment
+    value that a test never sees. That is a verification method that lies, and
+    this repo has a file of them. The check has to run where the env does.
+
+    Raising rather than warning, per `clamping-is-for-values-you-trust`: the
+    failure this prevents is silent by construction, so a log line nobody reads
+    is not a control. A deployment whose freshness limits disagree should not
+    start.
+    """
+    expected_ms = staleness.max_odds_age_s * 1000
+    if suppression_max_odds_age_ms != expected_ms:
+        raise StalenessLimitsDisagree(
+            f"MAX_ODDS_AGE_S={staleness.max_odds_age_s}s implies "
+            f"{expected_ms}ms, but SuppressionConfig.max_odds_age_ms is "
+            f"{suppression_max_odds_age_ms}ms. These bound the same quantity: "
+            f"the suppression check and the odds sweep would keep "
+            f"{suppression_max_odds_age_ms / 60000:.1f}min while the order "
+            f"gate and the window banner move to "
+            f"{expected_ms / 60000:.1f}min. Change both or neither -- "
+            f"see ADR 0019 section 6."
+        )
+
+
 @dataclass(frozen=True)
 class MarketResultConfig:
     """How hard `backend/market_results.py` chases an outcome, and for how long.

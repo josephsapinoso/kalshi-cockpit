@@ -617,3 +617,113 @@ class TestTheInvariantCheckCannotFireOnRealInput:
         assert "inconsistent_consensus_metadata" in (
             no_width_but_many_books.reason or ""
         )
+
+
+class TestTheTwoOddsAgeLimitsAgree:
+    """ADR 0019 section 6. Two limits on one quantity, in two modules.
+
+    `SuppressionConfig.max_odds_age_ms` is hardcoded and never reads the
+    environment. `MAX_ODDS_AGE_S` is read by `StalenessConfig.load()` and
+    consumed by `gate.py`, `live.py` and `routes.py`. They agree at the
+    defaults, so a divergence only appears once the Fly value is set -- and
+    then the suppression check and the odds sweep keep 15 minutes while the
+    order gate, the Board's `actionable` flag and the phone's window banner
+    move.
+
+    **These tests cannot catch the real failure and are not meant to.** The
+    divergence is created by a deployed environment value a test never sees;
+    that is why the guard is a startup assertion. What these pin is that the
+    assertion exists, fires, and fires in the right direction.
+
+    Sibling of `TestTheTwoCommenceLimitsAgree`, same shape, same reason.
+    """
+
+    def test_the_defaults_agree_today(self):
+        from backend.config import StalenessConfig
+
+        assert (
+            SuppressionConfig().max_odds_age_ms
+            == StalenessConfig().max_odds_age_s * 1000
+        )
+
+    def test_the_assertion_passes_on_the_deployed_pair(self):
+        from backend.config import StalenessConfig, assert_odds_age_limits_agree
+
+        assert_odds_age_limits_agree(
+            suppression_max_odds_age_ms=SuppressionConfig().max_odds_age_ms,
+            staleness=StalenessConfig(),
+        )
+
+    def test_it_RAISES_when_the_environment_moves_one_of_them(self):
+        """The deformation, and the whole point.
+
+        This is what happens the day someone sets MAX_ODDS_AGE_S on Fly. Before
+        ADR 0019 it produced no symptom at all.
+        """
+        import pytest as _pytest
+
+        from backend.config import (
+            StalenessConfig,
+            StalenessLimitsDisagree,
+            assert_odds_age_limits_agree,
+        )
+
+        with _pytest.raises(StalenessLimitsDisagree) as excinfo:
+            assert_odds_age_limits_agree(
+                suppression_max_odds_age_ms=SuppressionConfig().max_odds_age_ms,
+                staleness=StalenessConfig(max_odds_age_s=300),
+            )
+
+        message = str(excinfo.value)
+        assert "300" in message
+        assert "ADR 0019" in message, "the error must say where the rule lives"
+
+    def test_it_raises_in_both_directions(self):
+        """A guard that only catches a loosening is half a guard."""
+        import pytest as _pytest
+
+        from backend.config import (
+            StalenessConfig,
+            StalenessLimitsDisagree,
+            assert_odds_age_limits_agree,
+        )
+
+        for seconds in (60, 1800):
+            with _pytest.raises(StalenessLimitsDisagree):
+                assert_odds_age_limits_agree(
+                    suppression_max_odds_age_ms=SuppressionConfig().max_odds_age_ms,
+                    staleness=StalenessConfig(max_odds_age_s=seconds),
+                )
+
+    def test_the_window_planner_is_given_one_source(self):
+        """`window_status` is called by the loop and by the API.
+
+        It used to be handed `suppression.max_odds_age_ms` in one and
+        `staleness.max_odds_age_s * 1000` in the other -- same planner, two
+        inputs. Asserted on the source, because the failure is which expression
+        is passed, and no behavioural test distinguishes them while the two
+        values are equal.
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        loop = (root / "scripts" / "run_loop.py").read_text(encoding="utf-8")
+        routes = (root / "backend" / "api" / "routes.py").read_text(
+            encoding="utf-8"
+        )
+
+        # Word-boundary guarded. A bare substring also matches this module's
+        # OWN assertion call, `suppression_max_odds_age_ms=suppression.
+        # max_odds_age_ms`, which is correct and must not trip the test -- the
+        # first version of this assertion did exactly that.
+        import re
+
+        assert not re.search(r"(?<![\w])max_odds_age_ms=suppression\.", loop), (
+            "run_loop passes the hardcoded suppression value to window_status "
+            "again; the phone's banner and the loop's schedule will diverge "
+            "the moment MAX_ODDS_AGE_S is set"
+        )
+        for source, name in ((loop, "run_loop.py"), (routes, "routes.py")):
+            assert "max_odds_age_ms=staleness.max_odds_age_s * 1000" in source, (
+                f"{name} no longer derives the window from StalenessConfig"
+            )

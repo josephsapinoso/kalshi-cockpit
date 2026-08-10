@@ -314,9 +314,9 @@ Four independent copies of 900 seconds, coupled by nothing:
    SuppressionConfig.max_odds_age_ms` — a comment asserting an agreement that
    **nothing enforces**
 
-**Decision:** single source, plus a **runtime** assertion evaluated against the
-loaded `StalenessConfig` at startup — deliberately **not** a test. A test compares
-one hardcoded default against another hardcoded default and passes green forever
+**Decision:** single source at the divergent call site, plus a **runtime**
+assertion at startup — deliberately **not** a test. A test compares one
+hardcoded default against another hardcoded default and passes green forever
 while the live instance diverges, because the divergence is created by the env
 value a test never sees. That is a verification method that lies. Fail at boot,
 loudly.
@@ -324,6 +324,30 @@ loudly.
 Precedent for the shape: `TestTheTwoCommenceLimitsAgree`
 (`suppression.py:42-53`), which exists for exactly this failure on
 `max_commence_skew_ms`.
+
+**Implemented:**
+
+- `config.assert_odds_age_limits_agree` raises `StalenessLimitsDisagree`, naming
+  both values, what diverges, and this ADR. It **raises rather than warns** —
+  the failure it prevents is silent by construction, so a log line nobody reads
+  is not a control.
+- Called at both entry points: `backend/api/routes.py` in `create_app`, and
+  `scripts/run_loop.py` at startup — the process that spends odds credits.
+- `run_loop.py`'s `window_status` call now derives from
+  `staleness.max_odds_age_s * 1000`, the same expression `routes.py` uses, so
+  the screen and the control cannot drift even if the assertion is relaxed.
+- `TestTheTwoOddsAgeLimitsAgree` pins that the assertion exists, fires **in both
+  directions** (a guard that catches only a loosening is half a guard), and that
+  neither call site regresses. Verified by deformation: restoring the old
+  argument turns it red.
+
+**One site deliberately not changed, and stated rather than left to be found.**
+`backend/runner.py:989` still passes `suppression.max_odds_age_ms` into the odds
+sweep. It is safe *because of* the startup assertion — the two values cannot
+differ at runtime — but it is not literally single-source, and closing it means
+threading `StalenessConfig` through `run_once`'s signature. That is a wider
+change than this ADR's thesis warrants, and the assertion is what makes leaving
+it defensible. If the assertion is ever removed, this becomes live again.
 
 ---
 

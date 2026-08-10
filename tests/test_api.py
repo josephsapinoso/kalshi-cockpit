@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes import create_app
 from backend.config import AppConfig, GateConfig, StalenessConfig
+from backend.core.suppression import SuppressionConfig
 from backend.seed_demo import seed_all
 
 
@@ -912,9 +913,36 @@ class TestConfigIsInjectedNotAmbient:
         app = create_app(
             AppConfig(instance_mode="demo", db_path=demo_db),
             staleness_config=injected,
+            # Injected as a **pair**, and it has to be. ADR 0019 section 6:
+            # `SuppressionConfig.max_odds_age_ms` and `MAX_ODDS_AGE_S` bound the
+            # same quantity, and `create_app` now refuses to start when they
+            # disagree. Moving one without the other is exactly the state the
+            # assertion exists to catch, so this test injects a consistent pair
+            # rather than an inconsistent one. It still proves the property it
+            # was written for -- the argument beats `MAX_ODDS_AGE_S=1`.
+            suppression_config=SuppressionConfig(max_odds_age_ms=4242 * 1000),
         )
         # Reached through the gate screen, which reports the limits it applied.
         assert TestClient(app).get("/api/gate").status_code == 200
+
+    def test_an_inconsistent_pair_refuses_to_start(self, demo_db):
+        """The positive control for the guard above. ADR 0019 section 6.
+
+        Without this, the pair-injection in the previous test looks like
+        boilerplate rather than a constraint, and someone will "simplify" it
+        back to a single argument.
+        """
+        from backend.config import StalenessLimitsDisagree
+
+        with pytest.raises(StalenessLimitsDisagree):
+            create_app(
+                AppConfig(instance_mode="demo", db_path=demo_db),
+                staleness_config=StalenessConfig(
+                    max_odds_age_s=4242, max_kalshi_quote_age_s=30
+                ),
+                # Left at the default 900_000 while staleness says 4,242,000.
+                suppression_config=SuppressionConfig(),
+            )
 
     def test_omitting_them_still_falls_back_to_the_environment(self, demo_db):
         """Injection is an option, not a new requirement on every caller."""
