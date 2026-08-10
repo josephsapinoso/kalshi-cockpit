@@ -102,6 +102,88 @@ for the other 14. Do not quote it.
 
 ---
 
+## 2026-08-11 — The demo instance renders a healthy version of the screen that is empty on live
+
+Four cases were enumerated where a value differs between the seed path and the
+production path **and a reader discriminates on it**. Three are being fixed.
+**These two are facts, not bugs, and they change how the record should be read.**
+
+### D1. The `surfaced` bucket has only ever rendered on the demo
+
+`reference_contracts` and `suggested_contracts` are **0 on 1,564 of 1,564** live
+rows (`docs/measurements/2026-08-10-clean-shortfall-pull.json`). `seed_history`
+(`backend/seed_demo.py:407`) writes `rng.randint(10, 30)` into both for
+unsuppressed rows — **215** of them on a fresh seed.
+
+`backend/api/routes.py:551`:
+
+```python
+if row["suggested_contracts"] > 0:
+    (surfaced if item["actionable"] else expired).append(item)
+```
+
+**On live that branch has never been taken.** So `surfaced`, `expired`, the size
+and cost display, the buy affordance and the entry into the order path are
+exercised **only against seeded rows**. The same is true of
+`gate.POPULATIONS["actionable"]` — the counter the Gate screen reports against
+300.
+
+> **Why this matters beyond coverage.** `actionable = 0` is a **measurement
+> outcome** and the central finding of ADR 0021. What was not recorded is that
+> the demo instance is simultaneously rendering a *populated* version of that
+> same screen. **That makes the live zero easy to read as a display problem
+> rather than as the finding it is.** Anyone comparing the two instances is
+> looking at the strongest available illusion that the tool "works on demo and
+> is broken on live". It is not broken. The row set is empty because the
+> strategy surfaced nothing.
+
+**Do not fix this by seeding fewer contracts.** The demo's job is to exercise
+the path; the finding is that the path has no live exercise, and the honest
+response is to say so wherever the two instances are compared — not to make the
+demo emptier.
+
+### D2. `publish()` has exactly one caller — its own `__main__`
+
+`backend/store/publish.py:222`. Nothing in `docker/entrypoint.sh`,
+`scripts/run_loop.py` or the scheduler invokes it. **The Parquet lake is written
+only when a human types `python -m backend.store.publish`.**
+
+Two consequences, pointing opposite ways, and both need stating:
+
+- **It is the safety** that ADR 0022 §6 identified — `data/lake/` holds 847 rows
+  of 2025 demo seed data under `dt=2026-08-0*` directory names with a fully
+  built reader, and the only thing stopping it being served is that nothing
+  calls `publish`. That safety is now confirmed to be a *missing caller*, which
+  is exactly as fragile as ADR 0022 said.
+- **It also means every dbt mart may be a claim about nothing** on the live
+  instance. If the lake was never written there, `mart_suppression_audit`,
+  `mart_clv_by_bucket` and `mart_multiple_comparisons` are computed over an
+  empty or stale input. **Not established** — it needs one `ls /data/lake/recommendations`
+  over `flyctl ssh console`, which is behind the production-read governance
+  question. Until then, **do not cite a dbt mart figure for the live instance.**
+
+### D3. Two more, being fixed now, recorded so the fix is checkable
+
+- **`/api/window`'s `last_look_*` reaches no screen.** The trace added at
+  `1c13b8f` is served by `backend/odds/timing.py:475-477` and consumed by
+  nothing: `frontend/src/lib/api.ts:620-640` omits the three fields and
+  `grep -rn "last_look" frontend/src` returns zero hits. **The readout built
+  specifically to make the 17-hour silence visible does not reach the phone.**
+  Same shape as the bug it fixed, one hop downstream — the value is correct and
+  the consumer does not exist.
+- **The demo and live suppression vocabularies are disjoint.** Live is dominated
+  by `stale_odds` (616), `too_few_books` (~239) and `no_market_width` (~230),
+  with **`wide_market` on 0 of 1,564 rows**. The demo produces `wide_market` 65
+  times and the other two **never**, and **never produces a composite at all** —
+  so `mart_suppression_audit`'s `string_split(suppressed_reason, ',')` and
+  `routes.py:506`'s `.split(",")` are exercised only against single tokens.
+  **This has already bitten once:** a preregistered
+  `NOT IN ('stale_odds','stale_kalshi_quote')` predicate silently matched the
+  wrong population for exactly this reason —
+  `docs/measurements/2026-08-09-preregistration-clv-signal-test.md:843,945-984`.
+
+---
+
 ## 2026-08-10, overnight — SIX DURABLE FACTS FROM TONIGHT'S LANES
 
 These are **facts and queued items**, not a plan. Two of them close things the

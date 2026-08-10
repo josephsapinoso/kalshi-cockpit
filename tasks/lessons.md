@@ -5283,3 +5283,90 @@ match it.
 Related: [[a-detectors-production-must-be-the-deployments-production]],
 [[verification-methods-that-lie]],
 [[a-fixture-that-omits-a-new-column-reports-the-code-refusing]].
+
+---
+
+## 2026-08-11 — An observability fix that stops at the API boundary has not been made
+
+A lane was commissioned to make a refused sweep leave a trace, because a
+17-hour outage had been invisible. It built the table, the writer, the reader,
+the `window_status` field and the `/api/window` payload, verified all of it with
+sixteen mutations that each went red, and shipped. **The partner declared it a
+result.**
+
+A different lane then found that `frontend/src/lib/api.ts` does not declare the
+three new fields, and `grep -rn "last_look" frontend/src` returns zero hits. The
+value is computed correctly, stored correctly, served correctly, **and reaches
+no screen.** This tool is operated from a phone. A number that never arrives on
+the device has not been observed by anyone.
+
+This is a **variant** of this file's built-never-called pattern, and the variant
+is what makes it hard to see. Nothing here is uncalled: every function has a
+caller, every test is real, the mutation matrix was genuine. The break is at the
+**last** hop, and it is invisible from the backend precisely because the backend
+did its job. Worse, the lane behaved correctly — it declined to edit another
+lane's files and said so in its own report, under "left undone". The gap was
+created by *ownership boundaries between lanes*, and then nobody owned the
+remainder.
+
+**How to apply:**
+
+- **Define "done" as the last consumer, not the last commit.** For an
+  observability change the terminal question is *on which screen does this
+  appear, and what does it look like when the bad state is happening?* If the
+  answer is a payload field, it is half a feature.
+- **When a lane reports something under "left undone", that is an unowned task
+  the moment the lane exits.** The director who split the work owns the seam.
+  Assign it in the same breath as accepting the result, or it becomes a plan.
+- **`grep` the consumer, not the producer.** Producing code is what tests cover;
+  consuming code at the edge usually is not. One grep of the frontend for the
+  new field name is the whole check.
+- **Beware of declaring a win on a green mutation matrix.** Sixteen red
+  mutations proved the backend chain cannot silently break. They said nothing
+  about whether the chain ends anywhere useful, because every mutation was
+  applied inside the part that existed.
+
+Related: [[built-but-never-called]],
+[[a-detectors-production-must-be-the-deployments-production]],
+[[a-readout-verified-on-the-demo-instance-can-be-structurally-blind-on-the-live-one]].
+
+---
+
+## 2026-08-11 — A demo that renders healthy beside a live instance that renders empty is an argument machine for the wrong conclusion
+
+`reference_contracts` is 0 on 1,564 of 1,564 live rows, so the Board's
+`surfaced` bucket has never been populated in production. The demo seeder writes
+10 to 30 contracts on unsuppressed rows, so the same screen on the demo deploy
+shows sized, costed, buyable opportunities.
+
+Both are behaving correctly. But the pair of screens is the most persuasive
+available evidence for a claim that is **false** — that the tool works on demo
+and is broken on live. The truth is that the strategy surfaced nothing, which is
+the project's central finding.
+
+The danger is not that someone lies about it. It is that a demo instance is
+built to look like success, a null result looks identical to a broken screen,
+and the two are usually inspected side by side by someone who is tired and
+hoping. This project's premise is on trial; anything that makes the null look
+like a defect will get the defect investigated and the finding deferred.
+
+**How to apply:**
+
+- **Wherever a null is a finding, say so on the screen that shows the null** —
+  "0 actionable, and that is a measurement, not an outage" — with the count of
+  rows examined beside it. An empty list and a broken query look the same; only
+  a denominator distinguishes them.
+- **Do not fix the illusion by making the demo emptier.** The demo's job is to
+  exercise the code path that production never reaches. Removing the exercise
+  loses the coverage and keeps the confusion.
+- **Record which code paths have live exercise and which have only seeded
+  exercise.** Here it is the entire sizing display, the buy affordance and the
+  order entry — every one of them exercised only against rows a seeder wrote.
+- **When comparing two instances, name what differs in the DATA before
+  inspecting what differs on the SCREEN.** The screen difference is downstream
+  of a row count, and starting at the screen invites a rendering diagnosis for a
+  population fact.
+
+Related: [[verification-methods-that-lie]],
+[[a-true-measurement-licensed-a-false-conclusion]],
+[[the-product-is-the-record-not-the-bets]].
