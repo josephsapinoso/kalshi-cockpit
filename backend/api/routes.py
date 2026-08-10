@@ -40,6 +40,7 @@ from ..config import (
     OddsConfig,
     RiskConfig,
     StalenessConfig,
+    assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
     retired_settings_present,
 )
@@ -241,6 +242,13 @@ def create_app(
     # that disagrees with what the runner schedules.
     assert_odds_age_limits_agree(
         suppression_max_odds_age_ms=thresholds.max_odds_age_ms,
+        staleness=staleness,
+    )
+    # Its twin, one field up in the same dataclass, and the sharper of the two:
+    # a diverged quote age puts a row on the Board as `actionable` that this
+    # same process then refuses at the order endpoint.
+    assert_kalshi_quote_age_limits_agree(
+        suppression_max_kalshi_quote_age_ms=thresholds.max_kalshi_quote_age_ms,
         staleness=staleness,
     )
 

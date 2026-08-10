@@ -424,6 +424,56 @@ def assert_odds_age_limits_agree(
         )
 
 
+def assert_kalshi_quote_age_limits_agree(
+    *, suppression_max_kalshi_quote_age_ms: int, staleness: StalenessConfig
+) -> None:
+    """Fail at startup if the two Kalshi-quote-age limits have diverged.
+
+    **The odds-age defect of ADR 0019 section 6, with the other field.** That
+    section fixed `max_odds_age_ms` against `MAX_ODDS_AGE_S` and left its twin
+    one line above it untouched: `SuppressionConfig.max_kalshi_quote_age_ms` is
+    a hardcoded `30_000` that never reads the environment, while
+    `MAX_KALSHI_QUOTE_AGE_S` is read here and consumed by `gate.py:746`,
+    `routes.py:1938` and `scripts/run_loop.py:243`. They agree at the defaults,
+    so the divergence only appears once someone sets the Fly value -- at which
+    point the suppression check keeps 30 seconds while the order gate, the
+    Board's `price_is_current` flag and the fast-cadence startup check all move.
+
+    **This one is worse than the odds-age case, and measurably so.** Verified by
+    construction before the guard was written: with `MAX_KALSHI_QUOTE_AGE_S=5`,
+    a 12-second-old quote is `suppressed_reason IS NULL` -- *actionable*, on the
+    Board, in the evidence record -- and the order endpoint refuses it. The
+    screen offers a bet the server will not take, and neither side logs a
+    disagreement. Tightening the env value is the direction an operator would
+    reach for after a bad fill, so it is also the likely direction.
+
+    **Why this is a runtime assertion and deliberately not a test**, unchanged
+    from the odds-age twin: a test compares one hardcoded default against
+    another hardcoded default and passes green forever, because the divergence
+    is created by a deployed environment value that a test never sees. That is a
+    verification method that lies, and this repo has a file of them. The check
+    has to run where the env does.
+
+    Raising rather than warning, per `clamping-is-for-values-you-trust`: the
+    failure this prevents is silent by construction, so a log line nobody reads
+    is not a control. A deployment whose freshness limits disagree should not
+    start.
+    """
+    expected_ms = staleness.max_kalshi_quote_age_s * 1000
+    if suppression_max_kalshi_quote_age_ms != expected_ms:
+        raise StalenessLimitsDisagree(
+            f"MAX_KALSHI_QUOTE_AGE_S={staleness.max_kalshi_quote_age_s}s "
+            f"implies {expected_ms}ms, but "
+            f"SuppressionConfig.max_kalshi_quote_age_ms is "
+            f"{suppression_max_kalshi_quote_age_ms}ms. These bound the same "
+            f"quantity: the suppression check would keep "
+            f"{suppression_max_kalshi_quote_age_ms / 1000:.0f}s while the "
+            f"order gate, the Board's price_is_current flag and the "
+            f"fast-cadence startup check move to {expected_ms / 1000:.0f}s. "
+            f"Change both or neither -- see ADR 0019 section 6."
+        )
+
+
 @dataclass(frozen=True)
 class MarketResultConfig:
     """How hard `backend/market_results.py` chases an outcome, and for how long.

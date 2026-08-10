@@ -72,6 +72,7 @@ from backend.config import (  # noqa: E402
     OddsConfig,
     RiskConfig,
     StalenessConfig,
+    assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
 )
 from backend.core.suppression import SuppressionConfig  # noqa: E402
@@ -275,6 +276,15 @@ async def main() -> int:
     # schedule while the loop ran another.
     assert_odds_age_limits_agree(
         suppression_max_odds_age_ms=suppression.max_odds_age_ms,
+        staleness=staleness,
+    )
+    # Its twin. This process already refused to start above when
+    # `--fast-interval` cannot beat `MAX_KALSHI_QUOTE_AGE_S` -- that check reads
+    # the env value while the suppression it then applies to every candidate
+    # reads the hardcoded one, so without this the cadence check and the
+    # gauntlet can be sized against two different limits.
+    assert_kalshi_quote_age_limits_agree(
+        suppression_max_kalshi_quote_age_ms=suppression.max_kalshi_quote_age_ms,
         staleness=staleness,
     )
     budget = CreditBudget(

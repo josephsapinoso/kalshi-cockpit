@@ -727,3 +727,158 @@ class TestTheTwoOddsAgeLimitsAgree:
             assert "max_odds_age_ms=staleness.max_odds_age_s * 1000" in source, (
                 f"{name} no longer derives the window from StalenessConfig"
             )
+
+
+class TestTheTwoKalshiQuoteAgeLimitsAgree:
+    """The same defect as ADR 0019 section 6, on the field one line above.
+
+    `SuppressionConfig.max_kalshi_quote_age_ms` is a hardcoded `30_000` that
+    never reads the environment. `MAX_KALSHI_QUOTE_AGE_S` is read by
+    `StalenessConfig.load()` and consumed by `gate.py:746`, `routes.py:1938`
+    and `scripts/run_loop.py:243`. Section 6 fixed the odds-age pair and left
+    this one, so the divergence was live until now.
+
+    **This pair is sharper than its odds-age twin.** Measured by construction
+    before the guard existed: at `MAX_KALSHI_QUOTE_AGE_S=5`, a 12-second-old
+    quote passes every suppression check -- `suppressed_reason IS NULL`, so
+    `actionable`, so on the Board and in the evidence record -- and the order
+    endpoint refuses it. `test_the_divergence_makes_a_row_actionable_that_the_
+    gate_refuses` pins that consequence directly, so a future reader does not
+    have to take the severity on trust.
+
+    **These tests cannot catch the real failure and are not meant to**, exactly
+    as for the odds-age twin. The divergence is created by a deployed
+    environment value a test never sees; that is why the guard is a startup
+    assertion. What these pin is that the assertion exists, fires, fires in the
+    right direction, and is called at both entry points.
+    """
+
+    def test_the_defaults_agree_today(self):
+        from backend.config import StalenessConfig
+
+        assert (
+            SuppressionConfig().max_kalshi_quote_age_ms
+            == StalenessConfig().max_kalshi_quote_age_s * 1000
+        )
+
+    def test_the_assertion_passes_on_the_deployed_pair(self):
+        from backend.config import (
+            StalenessConfig,
+            assert_kalshi_quote_age_limits_agree,
+        )
+
+        assert_kalshi_quote_age_limits_agree(
+            suppression_max_kalshi_quote_age_ms=(
+                SuppressionConfig().max_kalshi_quote_age_ms
+            ),
+            staleness=StalenessConfig(),
+        )
+
+    def test_it_RAISES_when_the_environment_moves_one_of_them(self):
+        """The deformation, and the whole point.
+
+        This is what happens the day someone sets MAX_KALSHI_QUOTE_AGE_S on
+        Fly. Before this guard it produced no symptom at all -- verified by
+        driving `create_app` with the diverged pair and watching it start.
+        """
+        import pytest as _pytest
+
+        from backend.config import (
+            StalenessConfig,
+            StalenessLimitsDisagree,
+            assert_kalshi_quote_age_limits_agree,
+        )
+
+        with _pytest.raises(StalenessLimitsDisagree) as excinfo:
+            assert_kalshi_quote_age_limits_agree(
+                suppression_max_kalshi_quote_age_ms=(
+                    SuppressionConfig().max_kalshi_quote_age_ms
+                ),
+                staleness=StalenessConfig(max_kalshi_quote_age_s=5),
+            )
+
+        message = str(excinfo.value)
+        assert "5" in message
+        assert "MAX_KALSHI_QUOTE_AGE_S" in message, "name the setting to change"
+        assert "ADR 0019" in message, "the error must say where the rule lives"
+
+    def test_it_raises_in_both_directions(self):
+        """A guard that only catches a tightening is half a guard.
+
+        Tightening is the likelier direction here -- it is what an operator
+        reaches for after a bad fill -- but a loosened env value silently
+        *narrows* what the Board shows relative to what the gate would take,
+        which is the same class of disagreement pointing the other way.
+        """
+        import pytest as _pytest
+
+        from backend.config import (
+            StalenessConfig,
+            StalenessLimitsDisagree,
+            assert_kalshi_quote_age_limits_agree,
+        )
+
+        for seconds in (5, 120):
+            with _pytest.raises(StalenessLimitsDisagree):
+                assert_kalshi_quote_age_limits_agree(
+                    suppression_max_kalshi_quote_age_ms=(
+                        SuppressionConfig().max_kalshi_quote_age_ms
+                    ),
+                    staleness=StalenessConfig(max_kalshi_quote_age_s=seconds),
+                )
+
+    def test_the_divergence_makes_a_row_actionable_that_the_gate_refuses(self):
+        """Why this guard raises instead of warning: the failure is a lie.
+
+        Not a test of the assertion -- a test of the damage it prevents. With
+        the env at 5s and suppression at its hardcoded 30s, a 12s-old quote is
+        unsuppressed (so `actionable`, so counted as evidence and rendered as
+        bettable) while `gate.py` and `routes.py` both refuse the same quote.
+        Nothing on either side records a disagreement.
+        """
+        from backend.config import StalenessConfig
+
+        diverged_env = StalenessConfig(max_kalshi_quote_age_s=5)
+        quote_age_ms = 12_000
+
+        result = evaluate_suppression(
+            config=SuppressionConfig(),
+            kalshi_quote_age_ms=quote_age_ms,
+            odds_age_ms=1_000,
+            commence_skew_ms=0,
+            depth_at_ask=100.0,
+            contracts=10,
+            market_width=0.01,
+            book_count=4,
+            edge_tenths=10.0,
+            method_spread_probability=0.001,
+        )
+
+        assert result.reason is None, (
+            "the suppression gauntlet passes this quote on its hardcoded 30s"
+        )
+        assert quote_age_ms > diverged_env.max_kalshi_quote_age_s * 1000, (
+            "and the order gate, reading the env, refuses the very same quote"
+        )
+
+    def test_both_entry_points_assert_it(self):
+        """`create_app` and `run_loop`, the two processes that read the env.
+
+        Asserted on the source for the same reason the odds-age sibling is: the
+        failure is a missing call, and no behavioural test distinguishes a
+        present call from an absent one while the two values are equal.
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        loop = (root / "scripts" / "run_loop.py").read_text(encoding="utf-8")
+        routes = (root / "backend" / "api" / "routes.py").read_text(
+            encoding="utf-8"
+        )
+
+        for source, name in ((loop, "run_loop.py"), (routes, "routes.py")):
+            assert "assert_kalshi_quote_age_limits_agree(" in source, (
+                f"{name} no longer asserts the Kalshi-quote-age pair at "
+                f"startup; a diverged MAX_KALSHI_QUOTE_AGE_S becomes silent "
+                f"again"
+            )

@@ -944,6 +944,27 @@ class TestConfigIsInjectedNotAmbient:
                 suppression_config=SuppressionConfig(),
             )
 
+    def test_an_inconsistent_quote_age_pair_also_refuses_to_start(self, demo_db):
+        """The other half of the same defect, and it was live until now.
+
+        ADR 0019 section 6 fixed `max_odds_age_ms` and left
+        `max_kalshi_quote_age_ms` one line above it unguarded. Verified by
+        construction before this guard: `create_app` with the pair below
+        started cleanly, and a 12s-old quote was then `actionable` on the Board
+        while `/api/order` refused it.
+        """
+        from backend.config import StalenessLimitsDisagree
+
+        with pytest.raises(StalenessLimitsDisagree):
+            create_app(
+                AppConfig(instance_mode="demo", db_path=demo_db),
+                staleness_config=StalenessConfig(
+                    max_odds_age_s=900, max_kalshi_quote_age_s=5
+                ),
+                # Left at the default 30_000 while staleness says 5,000.
+                suppression_config=SuppressionConfig(),
+            )
+
     def test_omitting_them_still_falls_back_to_the_environment(self, demo_db):
         """Injection is an option, not a new requirement on every caller."""
         app = create_app(AppConfig(instance_mode="demo", db_path=demo_db))
