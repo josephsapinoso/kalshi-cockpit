@@ -5158,3 +5158,128 @@ a checked fact rather than a snapshot, and acts on the delta.
 
 Related: [[start-md-is-a-snapshot-git-log-is-the-record]],
 [[a-measurement-is-not-new-until-you-have-grepped-for-its-own-value]].
+
+---
+
+## 2026-08-11 — A test that constructs the parameter it is checking cannot detect that no caller constructs it
+
+`test_the_daily_loss_kill_switch_refuses` was green. It passed
+`daily_pnl_dollars = -100.0` and asserted the sizer refused. The sizer did
+refuse. The guard was correct, the test was correct, and **no production call
+site had ever supplied that argument** — so an order was accepted through the
+real route with twenty thousand dollars of realised losses in the database.
+
+This is a **different species** from the four vacuous guards this file already
+records. Those had assertions that could not fail. This assertion can fail, does
+fail when the guard breaks, and is a genuinely good test of the *logic*. What it
+cannot see is the question one level out: **does anything reach this code with a
+real value?** By supplying the input itself, the test answers "if this arrives,
+the guard works" and is silent on "does this ever arrive" — and it *looks* like
+coverage of both.
+
+The reason it survives review is that it reads as an integration test. It names
+a production behaviour ("the kill switch refuses"), it exercises the production
+function, and the assertion is about a production outcome. Only the *argument*
+is synthetic, and an argument is the easiest thing in a test to stop seeing.
+
+**How to apply:**
+
+- **For any guard, write down its input and ask who produces it.** Not "is it
+  tested" — *who produces it in the deployed system*. If the only answer is a
+  test file, the guard is decoration however green the suite.
+- **Instrument, do not grep.** Wrap the production binding and run the whole
+  suite, filtering calls by the *caller's* file so only production-originated
+  calls count. That produces a number: here, 1,285 sizer calls from `backend/`,
+  exactly one with a non-zero value, and it came from a test. A grep gives you a
+  belief; this gives you a census — and it self-checks, because catching that
+  one test call proves the instrument is not simply blind.
+- **Add a caller-level test beside the logic test, never instead of it.** The
+  pair covers "the logic is right" *and* "something reaches the logic". Either
+  alone certifies nothing about the deployed system.
+- **The tell is a keyword argument with a default in a guard signature.** That
+  is where the two questions come apart, because the default lets every caller
+  omit it and stay green.
+
+Related: [[count-guard-families-not-guards]],
+[[a-guard-written-to-prove-a-property-the-code-cannot-violate]],
+[[built-but-never-called]].
+
+---
+
+## 2026-08-11 — A default on a guard input is a decision about what happens when nobody knows, and on a limit it is always the permissive one
+
+`daily_pnl_dollars: float = 0.0` on a daily-loss limit. `current_position_dollars:
+float = 0.0` on a position cap. Both read as harmless — the neutral element, the
+obvious starting value.
+
+They are not neutral. On a **loss** limit, `0.0` is "no losses". On a
+**position** cap, `0.0` is "no position". On a **staleness** bound, `0` is "brand
+new". In every case the default a programmer reaches for as *empty* is the value
+the guard treats as *safest to proceed*, so the failure mode is not that the
+guard rejects too much — it is that a caller who knows nothing gets waved
+through, silently, and the suite stays green.
+
+CLAUDE.md already states the rule — *"Unreadable resolves to `None`, never `0`.
+Callers refuse rather than substitute."* — and this file already records it for
+parsed values. **It applies with more force to guard inputs than to data**,
+because a wrong data value is usually visible downstream and a wrong guard input
+produces no output at all.
+
+**How to apply:**
+
+- **A guard input has no default.** If the caller cannot determine it, the caller
+  passes `None` and the guard **refuses**. "Clamp what you trust; refuse what
+  you are validating" is the same rule from the other end.
+- **Read every default in a risk signature as a sentence.** "If you do not tell
+  me your losses, I will assume you have none." Written out, these do not
+  survive review; written as `= 0.0`, they have survived it repeatedly.
+- **`Optional[float] = None` plus an explicit refusal is more code and it is the
+  correct amount of code.** The type then forces every call site to say
+  something, which is exactly the property the default destroys.
+- **This generalises past zero.** Any default on a guard input picks an answer
+  for the ignorant caller; check which side of the guard that answer falls on
+  before deciding it is harmless.
+
+Related: [[the-zero-that-means-no-measurement-passes-every-threshold]],
+[[a-test-that-constructs-the-parameter-it-is-checking]],
+[[unreadable-resolves-to-none-never-zero]].
+
+---
+
+## 2026-08-11 — A readout verified on the demo instance can be structurally blind on the live one
+
+`_latest_sweep_row` filtered `WHERE endpoint = '/odds'`. There are exactly two
+writers of that column: production (`budget.py`, fed by `client.py` with
+`/sports/{sport_key}/odds`) and the demo seeder (`seed_demo.py`, the literal
+`/odds`). Two writers, enumerated exhaustively, disagreeing — so the equality
+matched **every demo row and zero production rows**, structurally, from the day
+it was written.
+
+The consequence is the shape worth remembering: the last-sweep age was **correct
+on the demo instance and permanently blank on the money instance**, and it is
+the readout that would have shown that odds fetching had stopped. It ran 17
+hours unnoticed.
+
+Tests do not catch this, and the reason is not laziness: tests seed data through
+the same path the demo does, so the fixture and the bug share an author. The
+readout is *verified*, thoroughly, against the only rows that were ever going to
+match it.
+
+**How to apply:**
+
+- **Enumerate the writers of any column a reader filters on.** If a seed or
+  fixture path is one of them, compare the literals character by character. Two
+  writers disagreeing is a five-minute check and it is decisive.
+- **A claim of "never matched" needs the writer enumeration, not a sample.** One
+  production row in the long format shows the long format exists; it does not
+  show the short one never occurs. Exhaustiveness over writers does.
+- **Prefer a predicate that both formats satisfy** over correcting one literal —
+  here `endpoint LIKE '%/odds'` fixes the reader without touching the seeder,
+  and cannot re-break when a third writer appears with a fourth spelling.
+- **When a readout looks healthy, ask which instance you looked at.** Joe's
+  standing note that some verification methods lie is this, generalised: demo
+  green plus live blind is indistinguishable from working, from the demo.
+
+Related: [[a-detectors-production-must-be-the-deployments-production]],
+[[verification-methods-that-lie]],
+[[a-fixture-that-omits-a-new-column-reports-the-code-refusing]].
