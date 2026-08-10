@@ -603,6 +603,51 @@ version of this one. The options are laid out with what each would cost, and
 different project with a different question; E is orthogonal and cheap; A and F
 are the two honest readings of the same result.
 
+> #### ANNOTATION 2026-08-10 — **E has run. A-versus-F is now owned by ADR 0023. Do not re-open it cold.**
+>
+> **The table above is left exactly as written and nothing in it is withdrawn.**
+> What follows says which options have moved since, and where the reasoning now
+> lives, so a future reader does not re-derive it.
+>
+> **Option E ran.** Six real fills.
+> [`2026-08-10-fee-model-fill-calibration-result.md`](../measurements/2026-08-10-fee-model-fill-calibration-result.md)
+> returns **H3−**: every observed fee is below `min(model_a, model_b)`, so *both*
+> registered models are refuted and **no third is adopted**. `calculate_fee` is
+> unchanged, `CLAUDE.md`'s 52.00% bar is unamended, and this ADR is unamended by
+> that document. E's own prediction — §7.4's *"if both candidate models are
+> wrong, every number in this ADR moves"* — fired.
+> [`2026-08-10-fee-model-rescore-result.md`](../measurements/2026-08-10-fee-model-rescore-result.md)
+> re-scores the pinned record under all three models and records, in its §8,
+> which statements of this ADR survive and which do not. **§1 is conditional,
+> §2 is fee- and size-conditional, and §5.1 is FALSE under both corrections;
+> §3's H3b prohibition is explicitly UNTOUCHED.** Read that §8 before quoting §2
+> or §5.1.
+>
+> **A and F are the two live options, and the choice between them is DEFERRED**
+> — on a stated trigger, with a stated expiry and a stated default — by
+> [`0023-the-a-versus-f-call-is-deferred-until-the-fee-attribution-resolves.md`](0023-the-a-versus-f-call-is-deferred-until-the-fee-attribution-resolves.md).
+> In one line: **F produces zero actionable rows on this record under the
+> deployed model and under step 1, and surfaces rows only under step 2 *and* an
+> attribution other than `notional`**; the
+> round-three fee-rate registration settles which applies; and if it does not —
+> `H-NONE`, `B4-DETECTED`, or its hard expiry of **2026-08-31 (UTC)** passing
+> unrun — **A is taken by default**.
+>
+> **B, C and D are untouched by ADR 0023** and remain unranked, exactly as this
+> table leaves them.
+>
+> **Two figures in this section have since been measured and one of them moved.**
+> Option **B**'s *"26 of 29"* now has a record-native replacement: the anchoring
+> census puts the discard at **a median of 19 usable books of 21 per row**, and
+> finds the anchoring **did not bind at all on 423 of 1,564 rows (27.0%)** — no
+> sharp book had quoted, and those rows were priced against the full book set.
+> **Those 423 rows produced zero positive edges among the unsuppressed and zero
+> actionable rows.** That does not close B, but it is the first evidence about
+> B's proposition drawn from this record rather than from a fixture, and it does
+> not point B's way. See
+> [`2026-08-10-sharp-anchoring-on-the-record-result.md`](../measurements/2026-08-10-sharp-anchoring-on-the-record-result.md);
+> §7.2's annotation above still governs every bare use of `26 of 29`.
+
 ---
 
 ## 9. What this ADR does NOT do
