@@ -5423,3 +5423,57 @@ a different lane and the first lane correctly declined to cross.
 Related: [[an-observability-fix-that-stops-at-the-api-boundary-has-not-been-made]],
 [[built-but-never-called]],
 [[two-sessions-in-one-working-tree-will-fight-over-git]].
+
+---
+
+## 2026-08-10 — A permission grant is not the guarantee it is described as
+
+A governance rule was set — *"`ssh` may run only committed, reviewed scripts by
+path; no inline code, no filesystem browsing"* — and encoded as a permission
+allowlist. **The allowlist cannot express the rule.** A permission pattern
+matches a command *prefix*; it cannot see inside the quotes of
+`ssh console -C "..."`. So the installed grant permits arbitrary code on the
+money box, while the sentence describing it permits almost nothing.
+
+Worse: **the agent that proposed the rule drifted from it inside the hour**,
+using inline `grep` and `python -c` one-liners to verify a deploy. Each was
+read-only and low-risk — and "low-risk" is precisely the judgement the rule
+existed to remove from the agent.
+
+**Why:** a rule enforced by convention degrades to whatever the convention-holder
+judges reasonable in the moment, which is the state the rule was written to
+replace. The gap is invisible from inside: the agent believes it is complying,
+because it is complying with its own reading.
+
+**How to apply:** when writing any grant, state **in the same breath** which part
+is machine-enforced and which part is convention — and put that sentence where
+the *next* reader sees it, not in the reasoning that produced it. Then prefer the
+enforceable form: a committed script whose path is in the allowlist is checkable;
+a promise about what goes inside `-C` is not. When an agent notices its own
+drift, the drift is the finding — record it rather than the reassurance that
+nothing bad happened.
+
+Related: [[verification-methods-that-lie]],
+[[clamping-is-for-values-you-trust]],
+[[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-10 — The cheapest fix for a mutation is a mutation already scheduled
+
+Six unreviewed files sat in `/tmp` on the live instance. The reflex was to delete
+them; deletion is a write on the machine that holds real money, and it was
+outside the read-only grant. They were left alone. **A deploy was already queued,
+and a deploy replaces the machine — `/tmp` came back empty for free.**
+
+**Why:** the cost of a mutation is not its blast radius, it is that it needs
+authorising, scoping, and verifying, and each of those is a place to be wrong.
+An action already authorised for another reason carries none of that cost.
+
+**How to apply:** before proposing a write against production, ask what is
+*already going to happen* to that state, and when. Ephemeral state on a
+replaceable machine usually has a scheduled solvent. This does not apply to the
+volume — `/data` survives deploys, and the record on it is the one thing in this
+project that cannot be recreated.
+
+Related: [[a-permission-grant-is-not-the-guarantee-it-is-described-as]].
