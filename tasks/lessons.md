@@ -686,6 +686,45 @@ anchor is decorative. The one that works: `clv_tenths(650, 650, "yes") == 0`
 together with `clv_tenths(350, 650, "no") == 0`; the old form scores +30 on the
 second. Related: [[a-sign-convention-agreed-with-its-own-test]].
 
+> **RECURRED 2026-08-10, on the fee formula — verbatim, in the module whose
+> rounding rule the break-even bar depends on.** `tests/test_fees.py:136`
+> anchored Model A at `_model_a(50c, 100) == 1.75`. Raw is
+> `0.07 × 100 × 0.25 = 1.75`, **exactly on a cent boundary**, so ceil, floor,
+> half-up and half-even all return 1.75. The anchor written to pin the formula
+> could not see the rounding rule at all — and the rounding rule is the *entire*
+> 0.25-point gap between the 51.75% bar this repo used to claim and the 52.00%
+> it actually applies (at 50c, N=1: raw $0.0175 → ceil → $0.02).
+>
+> **Measured blindness:** mutating ceil → half-up left **all 28 pre-existing
+> tests in `test_fees.py` green.** The full suite did go red — 13 failures — but
+> every one was in `test_ev_sizing.py`, `test_joint_bound.py` and
+> `test_the_bankroll_cannot_disable_the_record.py`. **Nothing said "the rounding
+> rule changed."** A downstream test that fails for an upstream reason is a
+> smoke alarm in the wrong room: it proves the suite is not *globally* blind
+> while leaving the diagnosis to whoever reads the wreckage.
+>
+> The replacement anchors are chosen by the rule this lesson already states —
+> *what would the wrong implementation give here?* The load-bearing one is
+> `(P=0.968, n=20)`: raw $0.0433664, where ceil gives **$0.05** and half-up,
+> half-even and floor all give **$0.04**. The test computes all four inline and
+> asserts they differ, so the discrimination itself is guarded. Second anchor
+> `(P=0.990, n=1)`: raw $0.000693, where nearest-cent would charge **zero** —
+> proving the rounding rule is load-bearing at the cheap end and not a tie-break.
+> Both are real observed prices, and the value each predicts is the value Kalshi
+> actually charged.
+>
+> **The generalisation, which is the reason this is appended rather than filed
+> as a new lesson:** the failure did not recur because the lesson was unknown.
+> It recurred because *choosing an anchor at a round number is the path of least
+> resistance*, and 50c × 100 is the most natural example anyone would reach for
+> in a fee module. **A lesson that requires the writer to remember it at the
+> moment of writing has no ratchet.** Pair every definitional anchor with a test
+> that the candidate implementations *disagree* there — that is a property a
+> machine checks, and it is the only form of this lesson that cannot be
+> forgotten. Related: [[an-allowlist-cannot-report-what-is-missing-from-it]],
+> which is the same defect one level up: a guard that only ever checks what
+> someone already thought of.
+
 ---
 
 ## 2026-08-07 — One observation recorded thirty times is one observation
