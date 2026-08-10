@@ -1,5 +1,66 @@
 # Start prompt — paste this to open the next session
 
+> ## AMENDED 2026-08-10 ~22:50Z. Read this before anything below it.
+>
+> **The tip is `1e8fd2c`, and by the time you read this that is wrong** — a
+> handoff cannot count its own commit. `git log --oneline -25` and
+> `git rev-list --count origin/main..HEAD`. Everything was pushed at 22:50Z,
+> tree clean, 2,120 tests pass, `ruff check` clean.
+>
+> **THE ODDS SCARE IS OVER. Do not re-investigate it.** "Odds fetching stopped
+> 2026-08-09T23:37:15Z" led the last two handoffs and is refuted **as a cause**.
+> Between the last in-scope kickoff (2026-08-10T00:20:00Z, HOU @ SD) and the
+> next (23:07:00Z, BOS @ TOR) there were **22h 47m with zero in-scope
+> fixtures**. Nothing to sweep for. Then at **22:34:21Z the sweep served** —
+> `spent_today` 0 → 6, `fixtures_upcoming` 13 → 29. **Queue item 1 below is
+> CLOSED.** Full account, including what it does *not* establish, is the top two
+> sections of `tasks/NEXT.md`.
+>
+> **Getting there took three attempts and the first two were wrong.** Both are
+> on the record in `tasks/lessons.md` rather than tidied away, because the
+> failure is the useful part: the first used the live instance's own sweep plan
+> as evidence, which is circular (the plan reads `odds_snapshots`, and only a
+> served sweep writes `odds_snapshots`); the second used a harness that shares
+> the planner and is already recorded in ADR 0014 as undercounting ~2x, in the
+> flattering direction. **The third dropped the estimator and printed a
+> calendar.**
+>
+> **JOE AUTHORISED TWO THINGS, 2026-08-10:**
+> 1. **$5.00 for round three.** The money item is now OPEN, not pending. It is
+>    still justified on cells `R` and `W`, and is still **not** the A-versus-F
+>    trigger. **Joe places all five orders by hand on his phone** — the order
+>    path is disarmed and arming is a code change (ADR 0018).
+>    **The execution kit was NOT built** — that lane died on a session limit.
+>    That is the next session's first job: a round-three band watcher (extend
+>    `scripts/watch_fee_bands.py`, which targets round two's dead bands) and a
+>    phone sheet. Nothing has been spent.
+> 2. **The repeat poll's F9 widened to 25 credits.** Item 6 below is closed.
+>
+> **`scripts/inspect_live_db.py` is committed INERT and refuses to run (exit 3).**
+> 670 lines, complete, **no tests** — its lane died at the same moment. It ships
+> on the next deploy either way, so it was made unrunnable rather than left
+> untracked. **Write the tests before deleting the refusal block**; the block
+> says exactly which four mutations must be seen red. Finishing it unblocks
+> three questions at once, including the only missing column for the leadership
+> test.
+>
+> **The one genuinely new line of work, and it is the highest-value thing left:**
+> ADR 0021 §7's own escape hatch — *"Kalshi may be the sharp side, so the
+> comparison is empty by construction"* — **has never been tested by anyone**. A
+> census ran: the record holds the consensus price, the Kalshi price and the
+> close for **60 games (46 MLB — 77%, so nothing may be quoted pooled)**, and is
+> missing only **who won**, which lives on live. **Verdict: RUNNABLE ONLY WITH A
+> LIVE DUMP**, ~500 rows across four tables. **Read the `n` before getting
+> excited** — this repo's own rule is that CLV work needs hundreds, and 60 games
+> may be too few to say anything. Establish that before spending Joe's attention.
+>
+> **`start.md:199`'s phone health check is BROKEN and always was.**
+> `curl -H 'Authorization: Bearer …'` returns 401. The gate is a Next Edge
+> middleware reading a session cookie, not the bearer. Working recipe is in
+> `tasks/NEXT.md`. A session following the old command faithfully would have
+> concluded the live instance was unreachable.
+
+
 Written 2026-08-10, ~20:10Z. The session that **re-examined ADR 0023 and kept the
 deferral**, then found and fixed **four money-path and observability defects** —
 including a kill switch that could not fire and a readout that had never worked
