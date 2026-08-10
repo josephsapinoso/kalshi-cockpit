@@ -7,6 +7,15 @@ BLOCKED for the primary (Stage B) on full-table access.** See §P and the power
 check. Nothing here may be run against the newest-1,000 slice and reported as a
 property of the table.
 
+> **AMENDMENT 1, 2026-08-10 — read it before reading anything below.**
+> The alpha of the single interval test moves from **0.05 to 0.0167**, because
+> a second registration now shares this project's alpha budget. Five passages
+> are marked in place with a pointer and **none has been deleted**; the
+> amendment is appended at the end of this file and it, not the original text,
+> governs. **No threshold, floor, branch or bucket edge moves.**
+> **No data had been observed when it was written.**
+> See [Amendment 1](#amendment-1--2026-08-10).
+
 - Owner: `pre-registrar` (agent), on behalf of Joe.
 - Scored against by: `measurement-skeptic`, after the run.
 - Negative-result destination: fixed in §9, before the result exists.
@@ -603,7 +612,7 @@ Counted now, not after.
 
 | Family | Cells | Standing |
 |---|---:|---|
-| Primary interval test on `M` | **1** | Decision-bearing, always-valid boundary, alpha = 0.05 |
+| Primary interval test on `M` | **1** | Decision-bearing, always-valid boundary, alpha = 0.05 **[SUPERSEDED by Amendment 1 — now 0.0167]** |
 | Branch A flip count | **1** | Decision-bearing, **deterministic** — a count with a reachability precondition, no alpha spent |
 | Branch C composition | **1** | Descriptive; names a constraint, cannot declare a finding |
 | Grid F cells | 7 | Descriptive |
@@ -632,6 +641,10 @@ sequences in this repo it fires **13.7%** of the time within 100 looks, and
 13.7% is a floor because the simulation stops and the record does not. Under a
 true zero it crosses eventually with probability 1.
 
+> **[SUPERSEDED by Amendment 1 §A1 — text retained.]** `alpha = 0.05` becomes
+> `alpha = 0.0167`, and the multipliers below become **5.82 at G=100** and
+> **4.22 at G=300**. Nothing else in this paragraph changes.
+
 The boundary is `gate.always_valid_multiplier(G, tuning=300, alpha=0.05)` — the
 Robbins normal mixture already implemented here, tuned to the gate's own floor.
 **[COMPUTED FROM CODE]** it is 5.01 at G=100 and 3.66 at G=300, never
@@ -645,7 +658,8 @@ registration.
 
 ### The decision rule, verbatim
 
-> Let `m = always_valid_multiplier(G, tuning=300, alpha=0.05)`, `se` the
+> Let `m = always_valid_multiplier(G, tuning=300, alpha=0.0167)`
+> **[AMENDED 2026-08-10 from `alpha=0.05`; §A1]**, `se` the
 > cluster-robust standard error of `M`, and the always-valid interval
 > `[M - m*se, M + m*se]`. `G` is **fresh game-clusters**, never rows.
 >
@@ -876,6 +890,11 @@ not by judgement.
 | **10.0 tenths** (the fee-model band, §C1) | 23 | 47 | **101** | 164 |
 | **3.8 tenths** (the venue's entire headroom) | 63 | 140 | **349** | 651 |
 
+> **[SUPERSEDED by Amendment 1 §A1 — table retained.]** At the amended
+> `alpha = 0.0167` the same table reads **26 / 55 / 120 / 198** and
+> **74 / 168 / 428 / 811**. The conclusions below are unchanged and the
+> direction of the change is to make both harder, never easier.
+
 Read against the real headroom, as the brief requires. **The venue lowers the
 bar from 52.38% to 52.00% — 0.38 points, 3.8 tenths — and the devig-method
 spread alone is 1–2 points.** So:
@@ -1028,10 +1047,128 @@ rule that every harness carries its own limits.
 | Population | §2, `instr`-delimited freshness predicate on a composite column |
 | Cluster key | `COALESCE(kalshi_markets.event_ticker, recommendations.ticker)`; HTTP fallback in §4 |
 | Bucket edges | Grid F (fee-model-homogeneous at n=1, seven cells, derived from `fee_candidates`); Grid B = `validate.BUCKETS` verbatim. Both descriptive. |
-| Boundary | `gate.always_valid_multiplier(G, tuning=300, alpha=0.05)`, one interval test |
+| Boundary | `gate.always_valid_multiplier(G, tuning=300, alpha=0.0167)`, one interval test **[amended 2026-08-10 from 0.05; §A1]** |
 | Decision floor | `G >= 100` **and** half-width `<= 10.0` tenths for branches A and B |
 | Stopping rule | §8 — `G = 300`, or 2026-11-30, or all branches resolved |
 | Result destination | `docs/measurements/<run-date>-fresh-odds-edge-distribution-result.md`, written either way |
 | Assumed inputs | **One** — σ, which appears only as a column of the power table and gates no threshold |
 | Verdict at registration | **READY for branches A and C; READY for branch B at `G >= 100`; BLOCKED on P1 (full-table access) for all three; permanently UNDERPOWERED at the 3.8-tenth headroom scale** |
-| Amendments | none |
+| Amendments | **1**, dated 2026-08-10, below. No data observed at amendment. |
+
+---
+
+# Amendment 1 — 2026-08-10
+
+**Reason: a second registration now shares this project's alpha budget.**
+`docs/measurements/2026-08-10-preregistration-devig-method-calibration.md` was
+written the same day, by the same agent, deliberately — `partner`'s requirement
+was that the two be designed jointly so the multiplicity is counted **across**
+them rather than within each. That count is in that document's §M and it is
+reproduced below.
+
+Nothing above has been deleted or rewritten. Five passages carry a
+`[SUPERSEDED]` or `[AMENDED]` marker in place. **Where this amendment and the
+original text conflict, this amendment governs.** The original stays because the
+record is the product: a pre-registration whose text is quietly rewritten is not
+a pre-registration.
+
+## A0. What had been observed when this was written: nothing new
+
+The clause that makes an amendment legitimate rather than contamination.
+
+**No data was observed between the registration of this document and this
+amendment.** The live database was not queried, no route was called, no script
+was run, no odds credit was spent, and no value of `M`, `E1`, `A`, `R`, `G`,
+`n_rows` or σ exists anywhere or was estimated from any record. The §0
+disclosure of this document is unchanged and no line has been added to it.
+
+Everything below was produced by executing repository code on inputs chosen
+here — `always_valid_multiplier` swept over `G` and alpha — and is **[COMPUTED
+FROM CODE]**, reproducible from the repository alone.
+
+**Per §8, `G` does not restart.** The population definition has not moved; only
+the width of the boundary has, and it has moved in the conservative direction.
+
+## A1. The alpha of the single interval test: 0.05 → 0.0167
+
+**What was registered.** §7: *"exactly one interval test carries alpha, which is
+why alpha is not split"*, at `alpha = 0.05`.
+
+**Why it is superseded.** The premise — one interval test in the project — was
+true when written and is no longer. The joint count across both registrations
+is:
+
+| | |
+|---|---:|
+| Alpha-carrying interval tests, project-wide | **3** (`M` here; `B1` and pooled `B3` there) |
+| Descriptive cells, project-wide | **156** (37 here; 119 there) |
+| Expected false findings at 2 SE over the descriptive cells | **7.10** |
+| P(at least one descriptive cell clears from nothing) | **0.9993** |
+
+This document's own §7 gave 37 cells, 1.68 expected, and 82%. **The joint
+figure is effectively certain**, which is the whole reason for counting across
+documents rather than within one.
+
+**What now governs.** Family-wise 0.05 across the project, Bonferroni across the
+three interval tests:
+
+```
+alpha per interval test = 0.05 / 3 = 0.01667
+```
+
+so the boundary in §7's decision rule, in the paragraph above it, and in the
+power table is `gate.always_valid_multiplier(G, tuning=300, alpha=0.0167)`.
+
+Bonferroni rather than anything sharper because the three tests run on different
+populations with unknown dependence, and a sharper correction would require
+assuming a dependence structure nobody has measured.
+
+**What it changes, computed rather than asserted [COMPUTED FROM CODE]:**
+
+| | alpha = 0.05 | alpha = 0.0167 |
+|---|---:|---:|
+| multiplier at `G = 100` | 5.012 | **5.823** |
+| multiplier at `G = 300` | 3.656 | **4.215** |
+| `G` for half-width ≤ 10.0 tenths (σ = 5/10/20/30) | 23/47/101/164 | **26/55/120/198** |
+| `G` for half-width ≤ 3.8 tenths (σ = 5/10/20/30) | 63/140/349/651 | **74/168/428/811** |
+
+**What it does NOT change, stated so the absence is deliberate:**
+
+- **No threshold moves.** The −10.0 tenth threshold of branch B, the `G >= 100`
+  floor, the `m*se <= 10.0` half-width precondition, branch A's reachability
+  rule, branch C's five-cluster gate, the sensitivity list, Grid F's edges,
+  Grid B, the cluster key, the population predicate, the stopping rule and the
+  result destination are all unchanged.
+- **No human chooses anything as a result of this.** The design already made the
+  binding condition a **half-width precondition** rather than a bare `G` count,
+  precisely so that a change in the multiplier would tighten the requirement
+  automatically. It does exactly that: the effective floor rises from ~101 to
+  ~120 games at σ = 20.
+- **The direction is conservative in every branch.** A wider boundary makes
+  branch B's REFUTED harder to declare and its NOT REFUTED harder to declare,
+  so the failure mode of this amendment is **more UNRESOLVED, never a false
+  declaration**. Since branch B's REFUTED is the verdict that would kill a line
+  of work, an amendment whose error can only delay it is the right way round.
+- **Branch A is untouched.** It is a deterministic count with a reachability
+  precondition and carries no alpha, so no correction applies to it. Applying
+  one would be a second correction to a test that is not an inference.
+
+## A2. One addition to §7, following from the joint count
+
+Add to §7, after the multiplicity table:
+
+> **The 37 cells counted here are not the project's total.** The joint count is
+> 156 descriptive cells across this document and the devig-method registration,
+> giving 7.10 expected false findings at two standard errors and P(≥1) = 0.999.
+> A reader taking a cell from this document without the other lane's cells in
+> the denominator is undercounting, and undercounting flatters — the p-value is
+> monotone in the number of tests. `warehouse/models/marts/mart_multiple_
+> comparisons.sql` **cannot** supply this count: it counts warehouse marts only,
+> `warehouse/` is not in the Dockerfile, `/api/dashboards` is a 503 on live, and
+> `tasks/audit-2026-08-07.md` item 7 records that it already undercounts what it
+> does cover. **The project-wide count lives in these two documents and nowhere
+> else.**
+
+---
+
+**Amendment 1 ends. No data had been observed when it was written (§A0).**
