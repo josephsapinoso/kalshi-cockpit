@@ -1059,3 +1059,359 @@ time. **For order 2 only:** the account balance immediately before and immediate
 after, with every digit shown.
 
 **Then stop.** Four orders. A fifth is a protocol breach, not a bonus.
+
+---
+---
+
+# Amendment B — REGISTERED, NOT RUN: the band the series does not offer
+
+**Written 2026-08-10 (UTC), appended. The body above is untouched and carries no
+inline marker anywhere**, following the precedent of Amendment A in
+[`2026-08-10-preregistration-clean-shortfall-distribution.md`](2026-08-10-preregistration-clean-shortfall-distribution.md).
+Where this amendment contradicts the body, **this amendment governs**, and §B8
+lists every place that happens.
+
+## §B0. Status
+
+> **REGISTERED, NOT RUN.** Zero orders were placed against this registration.
+> **No fee was observed against it**, so nothing in it is contaminated by a
+> result, and every prediction, band and decision rule above remains usable
+> **as-is** if the reachability problem of §B1 ever resolves.
+
+This amendment is a **reachability amendment**. The only new information it
+responds to is a fact about what the venue lists, which is independent of any fee
+value by construction — the board shows prices, not fees. The one contamination
+channel that *would* have been open is the choice of *which hypotheses to
+abandon*; §B4 and §B6 write that choice and its justification down rather than
+leaving it to be made on the day. Joe's decision, taken before any order, is
+**not to run**, and this amendment closes the round rather than rescuing it.
+
+## §B1. The reachability finding — the substantive result of the round
+
+**[OBSERVED, 2026-08-10, by Joe, from the app]** scanning the full baseball list
+**including live and in-progress games**, the **lowest `KXMLBGAME` game-winner
+ask available was 28c.**
+
+The body registered D1 and D2 in a **6c–14c** band. The nearest available price
+was **double the top of the band**.
+
+This is not a thin-slate accident, and the arithmetic that makes it fatal is
+already in the body:
+
+> Every price-region threshold consistent with round one lies in **(0.15, 0.27]**
+> (§1, H-PRICE). The cheapest price the series offered was **0.28**. **The entire
+> boundary interval sits below the cheapest price `KXMLBGAME` offers**, so **no**
+> `KXMLBGAME` fill placed today could have landed on the low side of the
+> boundary, by any choice of market, at any size, at any time of day.
+
+**The structural reading, marked as an inference and not as a measured
+distribution**, because one day's board is all this project has: MLB full-game
+moneylines cluster at roughly 20–80c because baseball has the highest outcome
+variance of the major sports — a bad team beats a good one often enough that the
+market rarely prices a full-game winner below ~15c. If that is right, the band is
+unreachable **on most days, not just this one**. **[INFERENCE — ONE DAY'S BOARD,
+one slate, no price distribution has been measured]**. §B6 names the measurement
+that would settle it, and it is free.
+
+## §B2. The defect in the registration, named in the words it deserves
+
+The body's §R claims *"Reachability guards — both directions, before the data
+exists"*. **It checked one thing and called it two.**
+
+- **R1, R2, R3 check that the cells could DISCRIMINATE if they were filled** —
+  that the predicted values are legal on the $0.0001 grid, that LOW and HIGH can
+  never collide at any tick, that no cell lands exactly on the grid. Those checks
+  were run and they are correct.
+- **Nothing checked that the band was FILLABLE in the named series.** No guard
+  asked "does `KXMLBGAME` offer an ask in 6c–14c?", and that question was
+  answerable for free, in the app, in thirty seconds, before the file was
+  committed.
+
+**These are different checks and only one was run.**
+
+**This is the same shape as the joint bound** — a decision value that was
+unreachable before the data existed, which nothing checked for. This project has
+now hit it **twice**, in two different guises: once as a decision threshold the
+data could not reach, and once as a price band the venue does not offer. The
+generalisation, which belongs in `tasks/lessons.md` rather than here: **a
+reachability guard must cover the instrument as well as the arithmetic.** A cell
+that discriminates perfectly and cannot be filled discriminates nothing.
+
+ADR 0016 is the habit that should have caught it: it established by arithmetic,
+before spending 9,600 credits, that a 1,200-game backfill had a 95% ceiling of 35
+actionable games. The equivalent question here was one line long and was not
+asked.
+
+## §B3. The four substitutes, ruled on — kept because the reasoning is the record
+
+Each was considered and each is **rejected for a named reason**. These rulings
+were fixed before Joe's number arrived and are preserved unchanged.
+
+**(a) Live / in-play `KXMLBGAME`, which does reach single digits. — REJECTED, and
+the reason is a confound, not a policy.**
+
+In-play is the *only* way `KXMLBGAME` reaches the band. So "price ≤ 14c" and "the
+game is in progress" are **perfectly collinear** in this design. Introduce the
+sixth attribution that state implies — **H-INPLAY**, "the rate differs once the
+game starts" — and its prediction vector across D1, D2, D3, D4 is **identical,
+cell for cell, to H-PRICE's**. Two hypotheses with identical prediction vectors
+cannot be separated by any number of these cells. A cell that cannot separate the
+hypothesis it exists to test is not worth $2.94.
+
+Secondary, and sufficient on its own: **ADR 0006 is REJECTED-as-a-decision but
+its three guards stand** — `dropped_game_started` stays a drop, the order path's
+refusal of a started game stays, and **"no in-play row may enter the evidence
+record"**. A fee fill is not a CLV row, so the third guard does not strictly
+forbid it; but placing the round's two load-bearing cells in the one regime the
+repo has explicitly walled off from its evidence record, in order to rescue a
+band, is exactly the "let rows in first and tell the two populations apart
+afterwards" failure that ADR 0006 names. Operationally it is also the worst
+regime for the taker constraint: in-play prices move inside the placement window,
+and the body's §3 allows at most two abandonments per cell.
+
+**(b) A different baseball series at an extreme line (`KXMLBTOTAL` /
+`KXMLBSPREAD`). — REJECTED.**
+
+It collapses D1/D2's series with D3's *treatment*. H-SIZE's boundary
+`c* ∈ (10, 20]` was measured against `KXMLBGAME` at `C = 10` and `KXATPDOUBLES`
+at `C = 20`; a HIGH at `C = 20` on `KXMLBTOTAL` is ambiguous between H-SIZE and
+H-SERIES, because H-SERIES makes **no** prediction for a series it has not seen
+(§C1). The cell that was supposed to isolate size would isolate nothing.
+
+**(c) A non-baseball series in the band. — REJECTED at `C = 20`, ACCEPTED in one
+specific paired form, which is the nuance the proposal missed.**
+
+As a *lone* cell it abandons both the series and the sport control and is worse
+than (b). But as a **within-series price pair** it does not: `KXATPDOUBLES` at
+`C = 1` in **6–15c** (call it E1) and `KXATPDOUBLES` at `C = 1` in **27–39c**
+(which is D4, already registered) differ in **price and nothing else** — same
+series, same sport, same size, same stake region, same day. Their prediction
+vectors differ **only in H-PRICE**, so the pair is a clean test of a hypothesis
+that H-PRICE itself declares to be **global**, not series-specific.
+
+`KXATPDOUBLES` is demonstrably listed and liquid today: round one filled **20
+contracts at 15c** in it. **[COMPUTED]** 15c is admissible at `C = 1` — neither
+`0.035 × 0.1275` nor `0.07 × 0.1275` lands on the $0.0001 grid, and `P = 0.15`
+sits below every threshold in (0.15, 0.27] — so E1's band is **6–15c excluding
+10c** (10c is the `C = 1` grid landing: `0.07 × 0.09 = $0.0063` exactly).
+
+**This is the substitution the amendment would have registered.** It is recorded
+here in full, unused, so that a future round does not re-derive it. It is **not**
+a recommendation now: Joe has decided not to run.
+
+**(d) The mirror — a 6–14c ask on the NO leg of a heavy favourite. — CONFIRMED
+FORBIDDEN, with the reason corrected.**
+
+Two separate questions, and the proposal merges them:
+
+1. **For the fee itself, a NO at 12c IS a genuine 12c observation.** The charge is
+   `k·C·P(1−P)` on the price paid, and `0.12 × 0.88 = 0.88 × 0.12`, so the
+   observed `fee_cost` is identical either way. Round one's registration §10
+   already records that this design cannot tell the sides apart and does not need
+   to. **On this point the proposal is right.**
+2. **For H-PRICE, the cell's prediction is UNDETERMINED.** If `P` in the threshold
+   means the price paid, a NO at 12c predicts HIGH; if it means the market's YES
+   price, it predicts LOW. **Round one contains no observation that resolves
+   which**, because the only sub-15c fill was the ATP one and its side is not
+   recorded in what this document was given. The mirror therefore leaves the cell
+   undetermined under the very hypothesis the cell exists to test. §C5 stands.
+
+**And the mirror is unnecessary in any case, which is the useful half of this
+ruling. [COMPUTED FROM THE CAPTURED FIXTURE — `tests/fixtures/events_sports_nested.json`]**
+`KXMLBGAME` lists **two markets per event, one per team**
+(`…-26AUG092020HOUSD-HOU` and `…-26AUG092020HOUSD-SD`), each with its own
+`yes_sub_title`. So the underdog is buyable as a **genuine YES at its own ask**,
+unambiguous under both readings of H-PRICE, and no mirror is ever needed to reach
+a low price. **The constraint is the sport's variance, not the side of the book**
+— which is precisely why 28c was the floor.
+
+## §B4. What the two-cell rump would have declared — preserved, and it corrects one claim
+
+Moot as a recommendation. Kept because it contains a correction.
+
+With `C = {D3, D4}` — both `C = 1`, both 27–39c — the body's §7 walks to:
+
+```
+(D3, D4)       surviving attributions
+(LOW,  HIGH)   {H-SERIES, H-SPORT}            -> NOT SEPARATED
+(LOW,  LOW )   {H-SIZE, H-PRICE, H-NOTIONAL}  -> NOT SEPARATED
+(HIGH, HIGH)   {H-SERIES}                     -> a clean single declaration
+(HIGH, LOW )   none                           -> H-NONE, a first-class verdict
+```
+
+> **Correction to the reading that every reachable outcome would be
+> `NOT SEPARATED`: that is false.** Two of the four outcomes declare cleanly —
+> `H-SERIES` alone, or `H-NONE`. The two-cell round would have been a **one-bit**
+> round, not a zero-bit one: the bit is **market-side (series/sport) versus
+> ticket-side (size/price/stake)**, and that bit is decision-relevant, because it
+> says whether the tool may read a rate off a market's identity or must condition
+> on the ticket it is about to submit.
+
+**My ruling, had it been needed: worth $0.66, but NOT as a rump of this
+registration.** Running two of four cells under a document whose language is built
+for five attributions and a FULL/PARTIAL qualifier would let the four-cell
+registration describe a design that never had four cells. It would have needed its
+**own** one-bit registration. That ruling and Joe's decision point the same way for
+different reasons, and both are recorded.
+
+**One thing the rump genuinely could not do, and it must be said plainly because
+it is my own objection turned on me:** in the `(LOW, LOW)` branch,
+**{H-SIZE, H-PRICE, H-NOTIONAL} survive with no falsifier anywhere inside the
+reduced design.** §C3 rejected the skeptic's version of this round for exactly
+that property. It applies here and it is not softened.
+
+## §B5. Which separations the unreachable band was carrying — the arithmetic
+
+This is the part worth keeping, because it shows the band was not one cell's
+problem.
+
+Let `c*` be H-SIZE's boundary, `b` H-PRICE's, `t` H-NOTIONAL's, each pinned by
+round one to `c* ∈ (10, 20]`, `b ∈ (0.15, 0.27]`, `t ∈ ($2.70, $3.00]`.
+
+> **[COMPUTED] To isolate H-SIZE from H-NOTIONAL, a cell needs `C ≥ 20` (SIZE HIGH
+> under every `c*`) and stake `≤ $2.70` (NOTIONAL LOW under every `t`). Since
+> stake `= C·P ≥ 20P`, this forces `P ≤ 0.135`.**
+>
+> **[COMPUTED] To isolate H-PRICE from H-SIZE and H-NOTIONAL at `C = 1`, a cell
+> needs `P ≤ 0.15`.**
+>
+> **[COMPUTED] No single cell can isolate H-SIZE from BOTH H-PRICE and
+> H-NOTIONAL**, because that requires `P ≥ 0.27` (PRICE LOW) and `P ≤ 0.135`
+> (NOTIONAL LOW) simultaneously.
+
+So **both** of the design's ticket-side separations required a price at or below
+13.5c–15c, and the sub-15c band was carrying **three of the four** separations the
+round was built to make. D1 and D2 were not two cells among four; they were the
+design.
+
+## §B6. The dead end, registered as one
+
+> **REGISTERED DEAD END.** If MLB full-game moneylines structurally do not reach
+> the interval `(0.15, 0.27]` from below, then **H-PRICE cannot be tested in
+> `KXMLBGAME` at any time, by any design, at any budget.** The boundary interval
+> is inside the region the series does not price.
+
+The escape and its cost, both registered now so neither is invented later:
+
+- **Testing H-PRICE requires a series that reaches single digits.** Every such
+  series is a different series, which **reintroduces exactly the confound this
+  design exists to remove** — unless the low-price cell is paired with a
+  same-series high-price cell so that price is the only thing that varies
+  (§B3(c)). **That pairing is the way out, and it is cheap: ~$0.54.** It is a
+  genuine escape, not a dead end, and the price of it is that H-PRICE is then
+  established on `KXATPDOUBLES` and transferred to `KXMLBGAME` **only under
+  H-PRICE's own claim to be a global rule** — which is an assumption, and must be
+  labelled one.
+- **What would settle whether the dead end is real:** the price distribution of
+  `KXMLBGAME` game-winner asks. **This is free** — `backend/kalshi/discovery.py`
+  already walks `/events` and the tool already stores `kalshi_markets`. A single
+  query for the minimum ask per event over the record answers "how often, if ever,
+  does a full-game moneyline reach 15c?" **[NOT RUN — and it should be run before
+  any round three, because it costs nothing and it decides whether the low-price
+  cell is worth designing around at all.]** One day's board is one slate; this
+  amendment does not pretend otherwise.
+
+## §B7. The cheapest discriminating cell that needs no low price — a round-three nucleus
+
+Registered now, with its predictions, so a future round does not re-derive them and
+cannot choose them after seeing anything.
+
+The question — *`C = 20` on a `KXMLBTOTAL` at 27–39c raises the stake to $6–8,
+which crosses the notional window and may confound size with notional again; is
+that confound unavoidable, and does a third size break it?* — has a clean answer:
+
+**The confound at `C = 20, P ≥ 27c` is real** (stake `≥ $5.40 ≥ $3.00`, so H-SIZE
+and H-NOTIONAL both predict HIGH), **and a third size does break it, with no low
+price required:**
+
+> **Cell N — `KXMLBGAME`, `C = 10`, ask 31–39c.** Stake **$3.10–$3.90**.
+> `C = 10` is LOW under every `c* ∈ (10, 20]`; stake `≥ $3.10` is HIGH under every
+> `t ∈ ($2.70, $3.00]`; `P ≥ 0.31` is LOW under every `b ∈ (0.15, 0.27]`; series
+> and sport both LOW. **H-NOTIONAL is the only attribution predicting HIGH there,
+> so Cell N is its unique falsifier — at a price the series demonstrably offers.**
+>
+> 30c is excluded: **[COMPUTED]** `0.035 × 10 × 0.21 = $0.0735` and
+> `0.07 × 10 × 0.21 = $0.1470` both land exactly on the $0.0001 grid.
+
+**Predicted `fee_cost` for Cell N, to $0.0001 [COMPUTED over the round-one `k`
+intervals]:**
+
+```
+  ask   stake    LOW                       HIGH
+  31c   $3.10    0.0748 / 0.0749           0.1497 / 0.1498
+  32c   $3.20    0.0761 / 0.0762           0.1523 / 0.1524
+  33c   $3.30    0.0773 / 0.0774 / 0.0775  0.1547 / 0.1548
+  34c   $3.40    0.0785 / 0.0786           0.1570 / 0.1571
+  35c   $3.50    0.0796 / 0.0797           0.1592 / 0.1593
+  36c   $3.60    0.0806 / 0.0807           0.1612 / 0.1613
+  37c   $3.70    0.0815 / 0.0816 / 0.0817  0.1631 / 0.1632
+  38c   $3.80    0.0824 / 0.0825           0.1649 / 0.1650
+  39c   $3.90    0.0832 / 0.0833           0.1665 / 0.1666
+```
+
+**Cell N alone consumes the whole ~$4 authorisation**, which is why it is
+registered as a nucleus and not slipped into this round. A round three that wanted
+Cell N **and** the E1/D4 price pair **and** D3 would need ~$4.80.
+
+## §B8. What stands unamended
+
+**Unchanged and still binding if this registration is ever run:** the five
+attributions and their falsifiers, the decision rule of §7 verbatim, every
+predicted `fee_cost` set in §1, the reachability guards R1–R4, the pre-submit
+check of §3, the hard stop of §8, the exclusions of §2, and §10's list of what the
+measurement cannot establish. **None of it cost anything to keep and a future
+round should not re-derive it.** In particular **H-NOTIONAL, added at §C4, stands
+as a fifth attribution that fits all six round-one fills** and that the round-one
+result's four-way list does not carry.
+
+**Amended:**
+
+| Body location | Amendment |
+|---|---|
+| §V, *"READY"* | **Superseded by §B0: REGISTERED, NOT RUN.** The design was ready; the venue was not. |
+| §R, heading *"both directions"* | **Overclaimed.** It guards discriminability, not fillability. §B2. |
+| §1, D1 and D2 | **NOT ATTEMPTED**, permanently for the run of 2026-08-10. §8's no-rollover rule applies and is not waived. |
+| §8, the window | **Closed unused.** No order was placed. The hard stop was never tested and remains untested. |
+| §9, destinations | The result document named there is **not written**, because there is no result. This amendment is the round's record. |
+
+## §B9. What the settlement capture delivers on its own — and what it does not
+
+**Do not over-read tomorrow's capture.** It is a different instrument answering a
+different question, and it is **unaffected** by anything here.
+
+**What it does:** it separates the three readings of the settlement-versus-fill
+contradiction ranked in the round-one result — **(1)** the schedule's granularity
+changed at the July 2026 revision, **(2)** per-category, **(3)** settlement
+`fee_cost` is a different quantity from fill `fee_cost` — and it tests **H4**
+(settlement charges no second fee). The round-one result registered the
+discriminating predictions **before** the data: `…BALMIN-MIN` and `…TEXLAA-LAA`
+(both `C = 1`, Σ fill fees $0.0088) and `…KCLAD-KC` (`C = 11.27`, $0.0778) each
+separate all three readings.
+
+**What it does not do:**
+
+- **It does not touch the rate attribution.** Nothing in it distinguishes
+  H-SERIES, H-SPORT, H-SIZE, H-PRICE or H-NOTIONAL. Those five remain exactly as
+  they were before this registration was written.
+- **The ATP position `…CERETC` must not be read.** Reading 3 and the old cent
+  model both predict **$0.18** there, so it separates nothing. This was fixed in
+  the round-one result before the data existed, precisely so it could not be
+  quoted afterwards as though it could.
+- §R5's paired guard applies unchanged: if the query returns no settlement charge
+  **and** cannot see the entry fees either, it is measuring nothing, and that is a
+  STOP THE LINE naming the harness rather than the exchange.
+
+## §B10. What would reopen this registration
+
+Any one of these, and nothing less:
+
+1. **A measured `KXMLBGAME` ask distribution showing the band is reachable** on
+   some identifiable class of games (§B6). Free, not run.
+2. **A budget that covers Cell N** (§B7), which tests H-NOTIONAL without needing a
+   low price at all.
+3. **A decision that H-PRICE may be established on `KXATPDOUBLES` and transferred
+   to `KXMLBGAME` under its own global-rule claim** (§B3(c)), at ~$0.54, with the
+   transfer labelled as an assumption.
+
+Until one of those, this file is a registered design with a registered
+reachability failure, and **that failure is the round's result.**
