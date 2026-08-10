@@ -7,6 +7,24 @@ and write the refutation"*. `partner`'s job one.
 slice, and REQUIRED to be re-run whole-table before any ADR is written (§P1).
 CONFIRMATORY is BLOCKED on a deploy, not on code (§P4).**
 
+> **AMENDMENT 1, 2026-08-10 — read it before reading anything below.**
+> Two changes. **(A1)** the δ ladder's top rung sat *below* the devig knob's
+> measured reach, so Branch Z could have declared closure at a generosity the
+> knob can exceed; a **δ = 16.7** rung is added and Branch Z's threshold moves
+> to it. **(A2)** `ALT-2` moves from `N = 10` to **`N = 1`**, because the
+> ADR 0017 Correction 1 premise quoted in §C5 — *"the smallest order this
+> software can send is 10 contracts"* — was **retired on 2026-08-09 by ADR
+> 0017's own Addendum A.2**. Six passages are marked in place with a pointer
+> and **none has been deleted**; the amendment is appended at the end of this
+> file and it, not the original text, governs.
+> **The primary estimand does NOT change: `S` stays primary and `D*` is
+> registered as a required derived print, not a replacement** (§A3).
+> **The PRIMARY bound is untouched and its headline finding cannot move**, by
+> §C3's size-invariance. Only the CONFIRMATORY variant's ALT-2 and Branch M
+> are affected by A2.
+> **No data had been observed when it was written** (§A0).
+> See [Amendment 1](#amendment-1--2026-08-10).
+
 - Owner: `pre-registrar` (agent), on behalf of Joe.
 - Scored against by: `measurement-skeptic`, after the run.
 - Negative-result destination fixed in §9, before the result exists.
@@ -201,6 +219,12 @@ alternative, which is safe for a bound and would be a fabrication in a
 measurement.
 
 ### C5. "1.94 points, 5.1x" is the `N = 100` limit, and it is not the operative figure
+
+> **[SUPERSEDED IN PART by Amendment 1 §A2 — text retained.]** The table below
+> is correct and unchanged. The *conclusion* drawn from it — that 1.88 pts /
+> 4.9x at `N = 10` is "operative" — rests on a premise ADR 0017 retired in its
+> own Addendum A.2 on 2026-08-09. The operative figure is **1.38 pts / 3.6x at
+> `N = 1`**. See §A2.
 
 **[COMPUTED FROM CODE — `effective_price(500, N, maker=...)`]** at 50.0c,
 against a −110 sportsbook's 52.38%:
@@ -518,6 +542,13 @@ fixed here and nothing may be re-cut after the data is read.
 
 ### The δ ladder — five named readouts, and no sixth
 
+> **[AMENDED by Amendment 1 §A1 — text retained.]** A **sixth** rung is added
+> at **δ = 16.7 points**, the largest devig-method spread produced anywhere in
+> the swept two-outcome line space. The five below are unchanged and none moves.
+> The heading's "and no sixth" is the clause the amendment overturns, and the
+> reason is that the ladder as registered topped out **below** the knob it was
+> built to bound. See §A1.
+
 | δ, points | δ, tenths | what it is |
 |---:|---:|---|
 | **0.00** | 0.0 | no devig allowance at all — pure "ask vs conservative fair at zero fee" |
@@ -572,6 +603,13 @@ FORBIDDEN for the exact one.** The cheaper-fee saving and the maker saving are
 | **ALT-0** | deployed: max fee model, taker | 1 | the baseline. Lane A §6's basis, reused so the two documents are commensurable |
 | **ALT-1** | cheapest candidate fee model, taker | 1 | Lane A §6's `E1min`, reused. `E1min − E1 == Δ(price)` from §C4 is an **assertable invariant**, not a hope |
 | **ALT-2** | max fee model (`calculate_fee`), maker | **10** | ADR 0017 Correction 1: *the smallest order this software can send is 10 contracts*. `N=1` maker is not a realisable state |
+
+> **[SUPERSEDED by Amendment 1 §A2 — row retained.]** **ALT-2 is `N = 1`.**
+> The justification above is false as of 2026-08-09: `min_order_contracts` was
+> retired, `sizing.py:156` prices unconditionally at `contracts=1`, and `N = 1`
+> maker is therefore the realisable state rather than the excluded one. `N = 10`
+> becomes the labelled non-decision-bearing secondary — the exact inverse of
+> what this row says. See §A2.
 
 The exact bound clears a row iff it clears under **ALT-1 or ALT-2 individually**
 — a union of realisable states, never their combination. **[COMPUTED FROM
@@ -763,6 +801,13 @@ Registered, so this is not rediscovered later:
 > **BRANCH Z — CLOSED.**
 > Declared if and only if `K(δ) = 0` for **every** δ on the §5 ladder,
 > on population P0, on a run satisfying both preconditions.
+>
+> **[AMENDED by Amendment 1 §A1 — text retained.]** The §5 ladder now carries a
+> sixth rung at **δ = 16.7 points**, so this clause binds at 16.7 rather than
+> at 10.0, and a new intermediate verdict **Z-NARROW** occupies
+> `3.5 < min(S)/10 ≤ 16.7`. As registered, Branch Z could have been declared on
+> a record whose nearest row was 12 points short — inside the knob's reach.
+> See §A1.
 > The finding is then written in these words and no broader ones: **"Kalshi is
 > not mispriced relative to a consensus it may itself lead."** The sentence
 > *"no edge exists at Kalshi"* is **forbidden** (§10).
@@ -786,6 +831,9 @@ Registered, so this is not rediscovered later:
 > `[173, 827]`; the shortfall block restricted to that band; and `K` under
 > **ALT-2 alone** (maker basis, max fee model, `N=10`, no stacking, real
 > per-row `p_max` in the confirmatory / `fair + δ` in the primary).
+> **[SUPERSEDED by Amendment 1 §A2 — text retained: `N=1`, not `N=10`.
+> `N=10` overstates the maker saving by 0.5 points at 50c, which is the
+> flattering direction for this branch specifically.]**
 > **Named** if and only if the band contains at least **5 clusters** — the
 > repo's `MIN_EXPECTED_PER_SIDE` rule, read before the effect size — **and**
 > ALT-2 alone clears at least one row that ALT-0 does not.
@@ -1119,6 +1167,8 @@ Read `n` before the effect size, and read the frame before `n`.
 8. **Branch M — the maker line.** Band `[173, 827]` row and cluster counts;
    shortfall block restricted to the band; ALT-2 vs ALT-0 clearing counts at
    `N=10`, with `N=1` printed beside it and labelled non-decision-bearing.
+   **[SUPERSEDED by Amendment 1 §A2 — the two sizes swap roles: `N=1` is
+   decision-bearing, `N=10` is the labelled secondary.]**
 9. **CONFIRMATORY shortfall blocks**, one per alternative ALT-0/ALT-1/ALT-2,
    with **the stacked count explicitly NOT computed** and a line saying so.
 10. **Invariants, asserted and printed:** `E1min − E1 == Δ(price)` per §C4;
@@ -1147,7 +1197,7 @@ bullet.
 | Direction | One-sided, generous. `K(δ) = 0` is the registered claim; `K(δ) ≥ 1` is a live outcome |
 | Primary basis | **Stacked generous: loosest devig at `fair + δ`, cheapest fee model, maker basis — which is a fee of exactly zero at every price and every size (§C3)** |
 | Confirmatory basis | Real per-row `max(p_mult, p_add, p_power, p_shin)`; **ALT-1 or ALT-2 individually, never stacked** |
-| δ ladder | 0.00 / 0.18 / 2.03 / 5.00 / 10.00 points — fixed, five rungs, no sixth |
+| δ ladder | 0.00 / 0.18 / 2.03 / 5.00 / 10.00 points — fixed, five rungs, no sixth **[AMENDED §A1: a sixth rung at 16.70]** |
 | Population | **P0 = all rows with a tradeable ask and a non-NULL fair.** P1/P2/P3 reported, decision reads P0 |
 | Cluster key | `COALESCE(kalshi_markets.event_ticker, recommendations.ticker)`; HTTP fallback per Lane A §4 |
 | Bucket edges | Shortfall histogram (8 cells, §5); Grid B = `validate.BUCKETS` verbatim; maker band `[173, 827]` tenths exactly |
@@ -1158,4 +1208,297 @@ bullet.
 | Result destination | `docs/measurements/<run-date>-joint-bound-result.md`, written either way. ADR **0019** reserved |
 | Assumed inputs | **Zero** |
 | Verdict at registration | **READY.** PRIMARY runnable today as PROVISIONAL; decision-bearing on the whole-table run; CONFIRMATORY blocked on a deploy, not on code |
-| Amendments | None |
+| Amendments | **1**, dated 2026-08-10, below. **No data observed at amendment** (§A0). |
+
+---
+
+# Amendment 1 — 2026-08-10
+
+**Reason: two defects found after commit `a23a36f`, one in a threshold and one
+in a premise. Neither was found by looking at data; both were found by checking
+this document's own citations against source.**
+
+Nothing above has been deleted or rewritten. Nine passages carry a
+`[SUPERSEDED]` or `[AMENDED]` marker in place. **Where this amendment and the
+original text conflict, this amendment governs.** The original stays because the
+record is the product.
+
+**A process failure is recorded here rather than hidden, because it is the exact
+failure this document exists to prevent.** The first response to these two
+defects was a wholesale rewrite of the registration body — **561 insertions and
+352 deletions against the committed text** — changing the primary estimand,
+rewriting the decision rule and re-cutting §5, with no amendment block and no
+`[SUPERSEDED]` markers. `partner` caught it and reverted it. A pre-registration
+whose text is quietly rewritten after commit is not a pre-registration, and the
+fact that the rewrite was well-intentioned and contained real improvements is
+precisely why the rule has to be mechanical rather than a matter of judgement.
+**The improvements are in this amendment instead, where they are dated,
+attributed and diffable against what was registered.**
+
+## A0. What had been observed when this was written: nothing
+
+The clause that makes an amendment legitimate rather than contamination.
+
+**No data was observed between the registration of this document and this
+amendment.** The live database was not queried, `/api/ledger` was not called, no
+pull was made, no odds credit was spent, and **no value of `S`, `K(δ)`, `D*`,
+`G`, `n_rows`, any shortfall, any quantile or any argmin row exists anywhere or
+was estimated from any record.** The §0 disclosure is unchanged and no line has
+been added to it.
+
+**What does exist, disclosed for completeness:** `backend/analysis/joint_bound.py`
+(untracked, 32 KB) implements the committed specification, with `S` as the
+instrument and the primary's zero fee verified exhaustively in tests. **Verified
+before writing this: no result file exists at the registered destination
+(`docs/measurements/*joint-bound-result*`), and no pull artefact exists.** The
+harness has not been run against the record by me.
+
+Everything below was produced by executing repository code on inputs chosen
+here, or by reading repository source, and is **[COMPUTED FROM CODE]**,
+reproducible from the repository alone.
+
+**Per §8, nothing restarts.** No population definition moved. The primary bound
+is untouched.
+
+## A1. The δ ladder topped out below the knob it was built to bound
+
+**What was registered.** §5: five rungs, `0.00 / 0.18 / 2.03 / 5.00 / 10.00`
+points, *"and no sixth"*; §7 Branch Z declared **CLOSED** if `K(δ) = 0` at every
+rung.
+
+**Why it is superseded.** §C2 correctly recorded that *"2.03 is a local maximum
+over the lines anyone has looked at"* and that *"nothing in the repository
+proves a global one"* — and then set a ladder whose top rung was 10.0 points
+anyway, without ever measuring what the knob can actually reach. Measuring it
+now:
+
+**[COMPUTED FROM CODE — sweep of the two-outcome line space. Book probabilities
+allocated proportionally, `q_fav = p(1+v)` and `q_dog = (1−p)(1+v)`; spread is
+`DevigResult.method_spread`; favourite swept 50.00%–98.99% in 0.01% steps]**
+
+| overround `v` | worst method spread | at fair favourite |
+|---:|---:|---:|
+| 1% | 0.981 pts | 99.0% |
+| 2% | 1.950 pts | 98.0% |
+| 3% | 2.901 pts | 97.1% |
+| 4% | 3.839 pts | 96.2% |
+| 6% | 5.641 pts | 94.3% |
+| 10% | 9.065 pts | 90.9% |
+| **20%** | **16.649 pts** | 83.3% |
+
+Restricted to the region this project trades — **favourite ≤ 85%, overround
+≤ 6%** — the worst case is **3.472 points**, at the corner.
+
+**And the sharpest form of it:** the 1.11 / 7.50 line carries an overround of
+**3.42%** **[COMPUTED FROM CODE — `DevigResult.overround`]**, and the worst
+spread *at that same hold* is **3.301 points**. So 2.03 is **not even the
+maximum at its own overround**.
+
+**The defect, stated plainly.** As registered, Branch Z could have declared the
+central question **CLOSED** on a record whose nearest row was 12 points short —
+comfortably inside the devig knob's reach. That is a false closure in the
+flattering direction, inside an instrument built specifically to resist one.
+
+**What now governs.**
+
+| symbol | value | what it is |
+|---|---:|---|
+| `D_realistic` | **3.5 pts** | worst spread over favourite ≤ 85%, overround ≤ 6%. Measured 3.472, rounded **up** |
+| `D_swept` | **16.7 pts** | worst spread anywhere in the swept space. Measured 16.649, rounded **up** |
+
+- **A sixth δ rung is added at 16.70 points.** The five registered rungs are
+  unchanged and none moves.
+- **Branch Z** is declared iff `K(16.70) = 0` on P0 — equivalently
+  `min(S)/10 > 16.7` points.
+- **A new intermediate verdict, Z-NARROW**, occupies `3.5 < min(S)/10 ≤ 16.7`:
+  closed against realistic slates, **not** closed against lopsided or high-hold
+  lines. **In Z-NARROW the confirmatory run after the deploy becomes
+  decision-bearing rather than a footnote, and the ADR waits for it.**
+- **Branch N** is `min(S)/10 ≤ 3.5`, unchanged in substance from the committed
+  Branch N.
+
+**Both thresholds are rounded up, and that is not cosmetic:** a threshold the
+record must *exceed* to declare closure is made harder to clear by rounding up,
+so the rounding runs against the declaration. `partner`'s independent sweep gave
+15.875 at the same nominal parameters where this one gives 16.649 — the
+difference is grid resolution against the `q < 1` feasibility boundary — and
+**the larger figure is registered**, because the disagreement runs in the
+direction that matters.
+
+**What A1 does NOT change.** The population ladder, the exclusions, the
+freshness predicate, the cluster key, the `S` definition, the histogram grid,
+Grid B, the maker band `[173, 827]`, the stopping rule, the result destination,
+the D-gate, the harness-reachability precondition, the alpha budget (still
+zero), and the PRIMARY bound itself. **The sweep is frozen at the parameters
+printed above and may not be re-run at different bounds once `S` is known** —
+that would be choosing the verdict threshold with knowledge of the answer.
+
+## A2. ALT-2 moves from `N = 10` to `N = 1` — a retired premise, one section after §C1 warned about exactly this
+
+**What was registered.** §5 set `ALT-2` at `N = 10`, justified as *"ADR 0017
+Correction 1: the smallest order this software can send is 10 contracts. `N=1`
+maker is not a realisable state"*, and §C5 concluded *"the operative maker
+headroom is 1.88 points, 4.9x"*.
+
+**Why it is superseded — the premise was retired on 2026-08-09, and ADR 0017
+says so itself, in the same Addendum this document already cited.**
+**[COMPUTED FROM CODE — read at source]**
+
+- `backend/core/sizing.py:15` — *"**There is no minimum order size, because
+  there is nothing for one to prevent.** There was, until 2026-08-09: a flat
+  `min_order_contracts = 10`…"*
+- `backend/core/sizing.py:189` — *"No minimum order size, and no whole-order fee
+  check here either. Both would be guards that cannot fire."*
+- `backend/config.py:273` — `MIN_ORDER_CONTRACTS` is in `RETIRED_SETTINGS`; it
+  logs an ERROR on config load and surfaces on `/api/health`, and does not raise.
+- `docs/adr/0017` **Addendum A.2** — *"The setting was removed the same day…
+  There is no minimum order size anywhere in the sizer now, and **nothing
+  replaced it**."*
+
+**This is §C1's failure mode recurring one section later, and that is the part
+worth recording.** §C1 caught a number traced to a document whose scope did not
+support the use. §C5 then took a number from ADR 0017 **Correction 1** while
+citing ADR 0017 **Addendum A.2** — the very addendum that retires Correction 1's
+premise — for a different fact eleven lines away. **Tracing a citation to a
+document is not the same as checking whether the document retired it**, and a
+document can supersede itself without renumbering the passage it supersedes.
+
+**The direction matters and it is the flattering one.** `N = 10` makes the maker
+saving look **larger** than `N = 1` does: **[COMPUTED FROM CODE]** at 50c the
+maker saving against the deployed basis is **10.0 tenths at `N = 1` and 15.0
+tenths at `N = 10`** — an overstatement of 0.5 points — and the headroom figure
+moves 1.38 → 1.88 points. That flatters **Branch M**, which `tasks/NEXT.md`
+calls *"the one line where a positive finding is not power-precluded"*. An error
+that inflates the only branch which could still produce a positive result is the
+one to catch before the run, not after.
+
+**What now governs.**
+
+- **`ALT-2` is `N = 1`**, matching `sizing.py:156`'s unconditional
+  `effective_price(ask_tenths, contracts=1)` and Lane A §F3. **`N = 10` is
+  printed beside it as the labelled non-decision-bearing secondary** — the exact
+  inverse of what §5 says.
+- **§C5's operative figure is `1.38 points, 3.6x` at `N = 1`.** The §C5 table
+  itself is correct and unchanged; only the sentence naming which row is
+  operative is superseded. 1.94 / 5.1x remains the `N = 100` limit and remains
+  not operative.
+- **Branch M** is evaluated at `N = 1`; its 5-cluster gate, its band
+  `[173, 827]`, and the exhaustive list of what it authorises — **a cancel path
+  and the free markout harness, not a strategy** — are unchanged.
+
+**A consequential correction outside this document, flagged rather than made.**
+`tasks/lessons.md`, in commit `6f82830`, carries the sentence *"'1.94 points /
+5.1x' failed the same way: real, and the N=100 limit, quoted for a system whose
+minimum order is 10 contracts."* **That system has no minimum order.** The
+lesson's own example has propagated the retired premise, which is a tidy
+demonstration of the lesson it is teaching. It is flagged here and not edited
+from inside a pre-registration amendment; correcting it is a separate commit.
+
+**What A2 does NOT change, and this is the bound on the correction.** **The
+PRIMARY bound is size-invariant** by §C3 — Model B's maker fee is 0.00 in 7,992
+of 7,992 (price, size) cases, independently re-verified by `partner` — so the
+stacked generous fee is zero at `N = 1`, at `N = 10` and at every size.
+**The headline finding cannot move.** A2 touches only the CONFIRMATORY variant's
+ALT-2 and Branch M.
+
+## A3. `D*` is registered as a required derived print, NOT as a new estimand
+
+`partner` asked whether `D*` — the smallest uniform additive bonus to
+`fair_probability`, in points, at which any row clears — should replace `S` as
+the primary estimand, and asked for it to be argued rather than asserted.
+
+**Argued, and the answer is no.**
+
+```
+D*_row  =  S_row / 10                              exactly, by the units
+D*      =  min over rows of D*_row  =  min(S) / 10
+```
+
+`D*` is a **reading of the committed artefact**, not a replacement for it. The
+committed §6 already made the `S` distribution the primary artefact, already
+registered every `K(δ)` as a readout of it, and already fixed the histogram, the
+printed form and the nearest-row print. Nothing about the instrument changes if
+the same numbers are divided by ten and reported as a minimum instead of as a
+count.
+
+**So the estimand does not move, and saying otherwise would overstate what was
+wrong.** The genuine defect in the committed document was **the threshold**
+(§A1) — the ladder topped out below the knob's reach — and a threshold defect is
+fixed by fixing the threshold. Presenting a units change as an estimand change
+would have obscured that, and would have forced a rewrite of
+`backend/analysis/joint_bound.py`, which correctly implements the committed
+spec.
+
+**What is registered instead:** `D* = min(S)/10`, in probability points, is a
+**required print** in every run's output block, on the line immediately above
+`S`'s minimum, beside both verdict thresholds and beside the fee-and-maker
+knob's ceiling from §C4. The reason is legibility and it is worth stating: the
+verdict compares the record's requirement against **the devig knob's reach**,
+which is denominated in points, so a reader should not have to divide by ten to
+check the branch. **Cents stay in the printed form too**, because *"the nearest
+row is 11c short"* is the sentence a human reads.
+
+**One comparison the print makes free, and it is the strongest line in the
+artefact if Branch Z is declared:** the fee-and-maker knob is worth **at most
+2.0 points** (20 tenths in the middle band, 10 in the wings — §C4). So a `D*` of
+15 points would mean the fee model and the maker basis are not merely *set*
+generous but **arithmetically incapable of mattering, by a factor of seven.**
+That sentence is authorised only when the numbers support it, and the factor is
+computed, never rounded up in prose.
+
+## A4. One addition that is not a correction: the argmin integrity precondition
+
+`min(S)` is decided by a **single row**, and the committed §6 did not say what
+happens if that row is corrupt. Registered now, before any run:
+
+> **PRECONDITION — ARGMIN INTEGRITY.** The row setting `min(S)` is printed in
+> full — ticker, side, ask, fair, `created_ms`, cluster, `suppressed_reason`,
+> horizon, config version — and checked against **CLAUDE.md rule 1**, *a large
+> apparent edge is a bug until proven otherwise*, **before any branch is
+> declared**. If its ask or fair is implausible it is **investigated as a data
+> defect**, and the run reports the bound both with and without it. In addition,
+> `min(S)` is always printed beside the **p1, p5 and p10** of `S` and beside the
+> per-cluster-minimum distribution, so that a lone outlier is visible as one.
+
+This is the instrument's only real fragility and it runs both ways: a corrupt
+row **understates** closure, a missing row **overstates** it. §P2's
+`len(set(ids)) == total` is the only defence against the second, which is why
+the paging pin is a prerequisite rather than a nicety.
+
+## A5. One caveat added to §10, for the same reason the others are there
+
+Appended to §10, and it is the caveat that could overturn Branch Z:
+
+> **`D_swept = 16.7` is a maximum over a *swept* space, not over all lines.**
+> The sweep is two-outcome, proportional-overround, favourite ≤ 99%, hold ≤ 20%
+> **[COMPUTED FROM CODE — §A1]**. Three-way markets, non-proportional vig
+> allocation — which is what real books actually do to longshots — and holds
+> above 20% are outside it. **`min(S)/10 > 16.7` does not mean "above every
+> conceivable devig spread"**; it means above every spread this sweep could
+> produce. This caveat exists because the committed version of this document
+> made exactly the error it warns about, one rung down.
+
+## A6. What this amendment does not change, stated so the absence is deliberate
+
+- **No population, predicate, exclusion, cluster key, bucket edge or grid
+  moves.** P0 is still primary; the `instr` freshness predicate, Grid B, the
+  histogram grid and the band `[173, 827]` are untouched.
+- **The primary estimand is `S`, as registered.** §A3.
+- **The PRIMARY bound and its size-invariance are untouched.** §C3 holds; the
+  headline finding cannot move.
+- **The alpha budget is still zero**, and the project-wide interval-test count
+  is still 3 at `alpha = 0.0167` each. Neither Lane A nor Lane B needs amending.
+- **The stopping rule, the result destination and the reserved ADR 0019 are
+  unchanged.**
+- **The direction of both corrections is conservative.** A1 makes Branch Z
+  *harder* to declare; A2 makes Branch M *harder* to name. The failure mode of
+  this amendment is **more UNRESOLVED, never a false declaration** — which is
+  the right way round, since Z closes a line of work and M is the only branch
+  that could still open one.
+- **No human chooses anything as a result of this.** Both thresholds are fixed
+  numbers computed before any row was read, and both alternatives' sizes are
+  fixed by what the deployed sizer does rather than by anyone's preference.
+
+---
+
+**Amendment 1 ends. No data had been observed when it was written (§A0).**
