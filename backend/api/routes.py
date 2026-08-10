@@ -769,10 +769,21 @@ def create_app(
             # the record rather than only from a fixture captured on a
             # different day. `books_used` names *which* books, which is the
             # part no count can recover.
+            #
+            # **`anchored_on_sharp` is the fourth, and it is the one that
+            # decides whether that reading holds at all.** The anchoring is
+            # `selected = sharp or usable` (`backend/core/devig.py:288-289`), so
+            # on a row where **no** sharp book quoted it falls back silently to
+            # the full book set -- and that row was compared against a *wide*
+            # consensus, not against the sharp reference class. Whether that
+            # ever happened is data, not code, and `book_count` cannot reveal
+            # it: three sharp books and three soft ones both read `3`. Without
+            # this column §7.2's central claim is unfalsifiable on the record.
             "SELECT r.*, "
             "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
             "       f.p_conservative, "
-            "       f.market_width, f.book_count, f.books_used "
+            "       f.market_width, f.book_count, f.books_used, "
+            "       f.anchored_on_sharp "
             "FROM recommendations r "
             "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
             "WHERE (? IS NULL OR r.id <= ?) "
@@ -2088,6 +2099,20 @@ def _serialise(
             # on anything unreadable -- an empty list is a claim that no book
             # was used, which is a different fact from "we could not tell".
             "books_used": _decode_books_used(row["books_used"]),
+            # **Did the sharp anchoring actually bind on this row?**
+            # `selected = sharp or usable`, so `False` means no sharp book
+            # quoted and the fair value came from the *full* book set -- a wide
+            # consensus wearing a sharp consensus's name.
+            #
+            # Stored as INTEGER 0/1 and surfaced as a real bool, because
+            # `0` and `False` read identically in JSON while `None` must stay
+            # distinct: the column is `NOT NULL DEFAULT 0` in `fair_prices`, so
+            # `None` here means the LEFT JOIN missed and nothing else.
+            "anchored_on_sharp": (
+                None
+                if row["anchored_on_sharp"] is None
+                else bool(row["anchored_on_sharp"])
+            ),
         }
         if "book_count" in row.keys()
         else {}

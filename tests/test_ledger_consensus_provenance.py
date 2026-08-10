@@ -56,6 +56,7 @@ def _insert_row(
     market_width,
     book_count: int,
     books_used: str,
+    anchored_on_sharp: int = 1,
     with_fair: bool = True,
 ) -> None:
     ticker = f"KXTEST-{created_ms}"
@@ -69,10 +70,11 @@ def _insert_row(
         cur = conn.execute(
             "INSERT INTO fair_prices (computed_ms, link_id, market, "
             "outcome_name, p_multiplicative, p_additive, p_power, p_shin, "
-            "p_conservative, market_width, book_count, books_used) "
+            "p_conservative, market_width, book_count, books_used, "
+            "anchored_on_sharp) "
             "VALUES (?, 1, 'h2h', 'Team', 0.55, 0.54, 0.53, 0.56, 0.52, "
-            "?, ?, ?)",
-            (created_ms, market_width, book_count, books_used),
+            "?, ?, ?, ?)",
+            (created_ms, market_width, book_count, books_used, anchored_on_sharp),
         )
         fair_price_id = cur.lastrowid
     conn.execute(
@@ -139,6 +141,20 @@ class TestTheConsensusProvenanceReachesTheCaller:
         assert row["market_width"] == 0.031
         assert row["book_count"] == 3
         assert row["books_used"] == _BOOKS
+
+    async def test_whether_the_sharp_anchoring_bound_travels_with_the_row(
+        self, provenance_app
+    ):
+        """`book_count` cannot answer this and the ADR's §7.2 turns on it.
+
+        The anchoring is `selected = sharp or usable`, so a row where no sharp
+        book quoted was priced against the **full** book set. Three sharp books
+        and three soft ones both read `book_count = 3`, so without this column
+        "we tested Kalshi only against references as sharp as Kalshi" is
+        unfalsifiable on the record.
+        """
+        row = (await get(provenance_app, "/api/ledger?limit=1")).json()["rows"][0]
+        assert row["anchored_on_sharp"] is True
 
     async def test_books_used_arrives_decoded_not_as_json_inside_json(
         self, provenance_app
@@ -215,6 +231,35 @@ class TestTheThreeAbsentStatesStayDistinguishable:
         assert row["market_width"] == 0.0
         assert row["market_width"] is not None
 
+    async def test_a_fallback_to_the_full_book_set_is_false_and_not_null(
+        self, provenance_db, provenance_app
+    ):
+        """"No sharp book quoted" and "we could not tell" are different facts.
+
+        The pair with the unjoined case below is the guard. `anchored_on_sharp`
+        is `NOT NULL DEFAULT 0` in `fair_prices`, so a stored `0` is a real
+        measurement — this row was priced against a *wide* consensus — while
+        `None` can only mean the join missed. Collapsing them would let the one
+        row that refutes §7.2's tautology reading hide as a missing value.
+        """
+        conn = db.connect(provenance_db)
+        _insert_row(
+            conn,
+            created_ms=6500,
+            market_width=0.02,
+            book_count=3,
+            books_used='["draftkings", "fanduel", "betmgm"]',
+            anchored_on_sharp=0,
+        )
+        conn.commit()
+        conn.close()
+
+        row = (await get(provenance_app, "/api/ledger?limit=1")).json()["rows"][0]
+        assert row["created_ms"] == 6500
+        assert row["anchored_on_sharp"] is False
+        assert row["anchored_on_sharp"] is not None
+        assert row["book_count"] == 3, "a soft-book consensus counts books too"
+
     async def test_a_row_with_no_fair_price_gets_none_never_zero_or_empty(
         self, provenance_db, provenance_app
     ):
@@ -242,6 +287,7 @@ class TestTheThreeAbsentStatesStayDistinguishable:
         assert row["market_width"] is None
         assert row["book_count"] is None
         assert row["books_used"] is None
+        assert row["anchored_on_sharp"] is None, "not False -- that is a measurement"
 
     async def test_an_unreadable_books_used_is_none_rather_than_an_empty_list(self):
         """Corrupt JSON must not resolve to "no books were used".
@@ -283,5 +329,5 @@ class TestRoutesThatDidNotJoinOmitTheKeysEntirely:
             + board["no_edge"]
         )
         assert every, "the fixture must produce board rows or this proves nothing"
-        for key in ("market_width", "book_count", "books_used"):
+        for key in ("market_width", "book_count", "books_used", "anchored_on_sharp"):
             assert all(key not in r for r in every), key

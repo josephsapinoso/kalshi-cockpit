@@ -66,6 +66,17 @@ export type ConsensusProvenance = {
   book_count: number | null;
   /** Which books. `null` if the join missed or the column is unreadable, never `[]`. */
   books_used: string[] | null;
+  /**
+   * Whether sharp anchoring actually bound on this row.
+   *
+   * The anchoring is `selected = sharp or usable`, so `false` means **no sharp
+   * book quoted** and the fair value came from the full book set — a wide
+   * consensus wearing a sharp consensus's name. `book_count` cannot reveal
+   * this: three sharp books and three soft ones both read `3`.
+   *
+   * `null` means the join missed. The column is `NOT NULL` in the database.
+   */
+  anchored_on_sharp: boolean | null;
 };
 
 export type Recommendation = Partial<DevigMethods> &
