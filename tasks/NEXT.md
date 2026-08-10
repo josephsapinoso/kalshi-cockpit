@@ -1,5 +1,139 @@
 # Next — your checklist
 
+## 2026-08-10 — THE PLAN: one joint bound, then stop and write the refutation
+
+`partner` re-triaged after `pre-registrar` refuted two of its three load-bearing
+claims. It took both, and the resulting plan is smaller and stronger than
+anything proposed this session. **This section supersedes the ordering below
+it.**
+
+### Collapse both lanes into one instrument
+
+Lane A's fee-model flip and the devig B2 check are **the same instrument pointed
+at different knobs**: *take our most conservative choice, set it to the most
+generous alternative, recount.* Run separately they produce two documents a
+reader has to combine. Run together they produce the number that settles it:
+
+> **With every conservative choice this project makes set simultaneously to its
+> most generous alternative — the loosest of four devig methods, the cheaper fee
+> model, and the maker basis — how many rows are actionable?**
+
+One pull, one module, one registration. **If it returns 0, per-knob attribution
+is a footnote and the central question is closed.** Decompose per knob *only*
+conditional on a non-zero count.
+
+Two reasons this is the right instrument and not fishing:
+
+- **It is a bound, not an estimate.** Same move that permanently closed the
+  half-spread question with `sd <= 2.5`, where a point estimate would only have
+  nudged it.
+- **It is deterministic, so it carries no alpha at all** — it does not enter the
+  multiplicity count. Against P(at least one cell clears from nothing) = 0.9993,
+  that matters enormously.
+
+### Why this is the whole ballgame — the argument to keep
+
+**A null at n=29 games is provisional.** A future session will reasonably ask
+whether more data or a different devig would have changed it.
+
+**The joint bound is not provisional.** It is a deterministic statement about
+prices already recorded: if the ask sits above the most generous fair under the
+cheapest fee on every row, then **no method choice, no fee resolution, and no
+additional sample of the same kind could have produced an actionable row.** It
+converts *"we didn't find one"* into *"one could not have been found here"* —
+and **no amount of future data can reverse it.**
+
+By CLAUDE.md's own standard — the product is the record — that is a *delivered
+result*, and a better portfolio artefact than a cockpit asserting an unverified
+edge.
+
+### Then stop
+
+If the bound returns 0: write the refutation ADR, correct CLAUDE.md's premise
+section from *"this tool exists to find out whether an edge is there"* to what
+it found, and close every accumulation-justified line. **Leave the recorder
+running because it costs nothing, but with no work planned against it and no
+promise attached.**
+
+**Accumulating more rows is worthless and always was.** 1,529 rows is 29 games;
+ADR 0016 caps a 1,200-game backfill at 35 actionable against a floor of 300. Any
+plan whose mechanism is "keep it running" is not a plan, and the fall slate does
+not rescue it.
+
+### The one line where a positive finding is not power-precluded
+
+**The maker basis.** Verified this session: at 50c the maker fee is exactly half
+the taker fee ($0.0100 vs $0.0200), and the headroom is **1.94 points against
+0.38 — 5.1x.** It is the only quantity in this project where a positive result
+is not excluded on its face, it is R3 inside the registration, and **it rides
+free inside the same joint bound at zero extra cost.**
+
+If it shows no mass in the 18c–82c band, the line closes with everything else.
+If it does show mass, ADR 0017's counterargument still stands and it authorises
+exactly two things: **a cancel path and the free markout harness. Not a
+strategy.**
+
+### The bundle shrinks — the calibration route is OUT
+
+Its justification died with the power calculation, and a route must not be kept
+alive on a rationale invented after the old one failed.
+
+1. **`offset` on `/api/ledger`**
+2. **The four per-method probabilities on the ledger payload**, joined through
+   `recommendations.fair_price_id` — raw data out, recount in a tested local
+   module, because batched deploys make baked-in analysis cost a release to
+   re-cut
+3. **`unreadable_examples`** (built, `4473641`)
+
+**Do NOT expose `kalshi_markets.result`.** There is no reader, calibration is
+dead at this `n`, and a field added for a consumer that does not exist is how
+this repo got four built-never-called modules. **The data accrues; the analysis
+waits for `n`.** The 1,601 outcomes keep accruing free at ~15 games/day, and a
+5-point gross miss needs ~400 games — reachable in months, not this quarter.
+Written down so nobody rediscovers the idea and rebuilds the harness.
+
+Build order is `offset` → widen the payload → one joint module. Reporting order
+is the joint bound first.
+
+### Cut the descriptive surface structurally, not by count
+
+0.9993 does not mean "be careful with descriptives". It means **at least one
+striking cell is guaranteed to exist from nothing**, and this repo already
+records that a "not the test" label falls off in three weeks while the digits
+stay.
+
+They cannot simply be deleted — the measurement rules *mandate* per-group views.
+So cut by kind:
+
+- **Keep** cells that are decompositions of a registered quantity, plus the
+  largest contributor's share. That is the mandated consistency check.
+- **Delete** every free-floating cell that is not a decomposition of something
+  registered.
+- **Strip intervals, standard errors and significance marks from all
+  descriptives.** Count and share only.
+
+The last is the structural part: **a cell with no interval attached cannot
+"clear 2 SE" — it leaves the multiplicity count by construction rather than by a
+label that erodes.** Expect 156 to land near 20–30; `pre-registrar` sets the
+exact number.
+
+**Then recompute Bonferroni.** If the joint bound is primary and carries no
+alpha, the alpha-carrying count may fall below 3, which loosens the correction
+on whatever remains. Do not inherit 0.0167.
+
+### The decision that is Joe's, and when to make it
+
+If the joint bound returns 0, **continuing is not a smaller version of this
+project — it is a different one**: liquidity provision, or Kalshi as the sharp
+reference against another venue. That deserves a fresh decision made with a
+clean record in hand, not a drift out of an ambiguous one.
+
+**Make that call after the refutation is written, not now.** Cost to get there:
+the three-item bundle, one deterministic module, one skeptic pass. Days, not
+weeks, and no money.
+
+---
+
 ## 2026-08-10 — the edge test is REGISTERED, and it retracts a claim of mine
 
 `docs/measurements/2026-08-10-preregistration-fresh-odds-edge-distribution.md`.

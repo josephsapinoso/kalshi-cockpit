@@ -3732,3 +3732,104 @@ rules:
 The directing error is the lesson. The agent did nothing it was told not to do.
 Related: [[clamping-is-for-values-you-trust]] — the same shape, in that the
 loud, self-announcing refusal is the one worth preserving.
+
+---
+
+## 2026-08-10 — "Unblocked" is a scheduling property, not an evidentiary one
+
+A measurement was promoted to the top of the queue on the argument that it
+"needs no actionable row" — i.e. that nothing was in its way. It was ranked
+above everything else, a registration was commissioned, and a route to serve it
+was put in a deploy bundle.
+
+Then the power calculation was run, for the first time, by the registrar. Closed
+form, `4p(1-p)/gap^2` at two standard errors:
+
+    resolve the 0.38-point headroom     69,252 games
+    resolve 2.0 points                   2,500 games
+    resolve a gross 5-point miss           400 games
+    games in the record                       29
+
+**Underpowered by roughly four orders of magnitude, permanently.** The
+calculation takes under a minute and is closed-form. Nothing about the answer
+required data, a harness, or a deploy — it required asking.
+
+**Why the mistake was available.** "This is unblocked" and "this can answer the
+question" are different predicates that feel like the same one when a backlog is
+mostly blocked. A blocked queue makes availability scarce, and scarce things get
+over-valued. The item genuinely *was* the only one not blocked by the
+0-actionable wall. It was also incapable of resolving anything.
+
+The same session had a related near-miss in the opposite direction: the
+measurement that *can* settle the question turned out to need **no** statistics
+at all — a deterministic bound over rows already recorded, with zero sampling
+error. So the ranking was wrong twice over, and both errors came from never
+asking what effect size each instrument could resolve.
+
+**How to apply:** before ranking any measurement, compute the smallest effect it
+could resolve at the `n` actually available, and put that number in the ranking
+argument. If it cannot be computed in a few minutes, that is itself the finding.
+Two corollaries:
+
+- **Ask whether the question needs a statistic at all.** A bound over the whole
+  population beats an estimate over a sample, carries no alpha, and cannot be
+  reversed by more data. Prefer it whenever the claim is "X could not have
+  happened" rather than "X happens at rate r".
+- **A blocked backlog distorts ranking.** When most work is blocked, the
+  unblocked item wins by default rather than on merit. Say out loud which
+  property is doing the promoting.
+
+Related: [[cLV-needs-hundreds-of-bets-not-dozens]],
+[[a-sample-whose-strata-do-not-overlap-the-target]].
+
+---
+
+## 2026-08-10 — A number quoted from your own project's prose is an assumed number
+
+`tasks/lessons.md` records that the four devig methods spread "1–2 percentage
+points". That sentence was lifted into a ranking argument and set against the
+0.38-point taker headroom, concluding that the conservative rule was eating
+**three to five times** the edge being hunted. It was relayed onward twice
+before anyone checked it.
+
+The measurement it came from is sitting in the code, four lines above the guard
+that uses it — `core/suppression.py:217-220`:
+
+> Measured on real lines: the four devig methods spread **~0.18 points on an even
+> moneyline and ~2.03 on a longshot.**
+
+"1–2 points" was the longshot end quoted as though it were the range. And the
+guard's *cost* is mean−min, roughly half the spread. So at 50c, where this
+strategy actually trades, the rule costs about **0.24x the headroom** — not
+three to five times it. **The conclusion inverted.**
+
+**Why this evades the rule it breaks.** This repo already requires every number
+to be labelled *computed from code*, *measured from data*, or *assumed*, and the
+third kind counted. That discipline gets applied to numbers arriving from
+outside — a paper, a vendor doc, another agent's report. A number found in your
+own repo's prose reads as already-vetted, because at some point it was. What
+does not survive the copy is the **scope**: the original said which end of a
+range it described, and the quotation dropped it.
+
+Note the shape. The original sentence was *true*. Nothing was fabricated. The
+error was entirely in the conditions that travelled with it, and a range
+collapsed to its worst end always moves the argument in the direction of
+whoever is quoting it.
+
+**How to apply:**
+
+- **A number in your own docs is `assumed` until you have found the code or the
+  measurement behind it**, in this session. Prior vetting does not transfer,
+  because what fails is scope, not accuracy.
+- **When a quantity varies over a domain, never quote it without the domain.**
+  "1–2 points" is not a fact about devig methods; "0.18 at 50c, 2.03 at a
+  longshot" is. If the argument only works at one end of the range, say which
+  end and check the population lives there.
+- **Distrust the direction.** Both this error and the ranking error above ran
+  the flattering way. That is not coincidence — a flattering reading terminates
+  the search early, because it feels like an answer. Spend *more* scrutiny when
+  a number helps, not less.
+
+Related: [[arithmetic-that-reproduces-to-the-digit-says-nothing-about-its-inputs]],
+[[an-enumeration-is-not-a-proof]],
+[[a-true-measurement-licensed-a-false-conclusion]].
