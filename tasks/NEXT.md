@@ -9,7 +9,31 @@ settlement row is not a $0.00 charge, R5 does not fire, and the ATP position may
 not be read alone.** Full statement — including what round three inherits as
 still-conditional — is the time-sensitive item at the top of `start.md`.
 
-## ⛔ 2026-08-11 — DO NOT RUN `capture_odds_repeat_poll.py`. Its P1 passes vacuously.
+## 2026-08-11 — RESOLVED: `capture_odds_repeat_poll.py`'s P1 could not fail. Fixed at `39628e0`.
+
+> **THE STOP IS LIFTED.** `39628e0` gives the capture a **pre-flight `/sports`
+> probe** (unmetered) and enforces P1 clause 3 against that **live header**. A
+> `None` now **refuses** — 30 tests, all 30 observed red under 19 mutations,
+> including M1 which restores the original "`None` passes" shape and turns 11
+> red. **Amendment A is appended** to the registration; the body is untouched,
+> and no hypothesis, prediction, population, statistic, threshold, decision rule
+> or destination changed.
+>
+> **Two things did NOT get fixed and remain open — read them before running it:**
+>
+> 1. **The per-database / per-account credit gap (§ below) still has no ADR.**
+>    Amendment A §A6 records it as open.
+> 2. **A new assumed input is registered (F9): `/sports` is unmetered.** If that
+>    is wrong the capture costs **25 credits against a 24-credit
+>    authorisation** — a one-credit breach of an explicit authorisation.
+>    **Joe's call, not an agent's.**
+>
+> The registration carries **no dated expiry**; its only time-bound is **P4**,
+> decided fresh at each `T0` (no event commencing within 20 minutes, at least 5
+> within 6 hours). That is *not* the round-three expiry, which is a different
+> document.
+
+**The defect, kept for the record — this is what was wrong:**
 
 **The 24 credits are already authorised** (registration §head: *"The capture Joe
 authorised: 24 Odds API credits, one shot"*), P0 is satisfied at `60629c2` and
