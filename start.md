@@ -31,42 +31,37 @@ whole wasted lane.
 .venv\Scripts\python.exe scripts\capture_fills_fixture.py
 ```
 
-**Run it after 2026-08-11T05:30Z**, not before. Laptop only, needs `.env`,
-takes seconds. **No money, no deploy, no orders.** It already ran at
-**18:18:12Z** tonight and returned **NOT YET OBSERVABLE / PREMATURE**; run it
-early and it returns the same null and wastes the trip.
+**After 2026-08-11T05:30Z**, not before. Laptop only, needs `.env`, seconds.
+**No money, no deploy, no orders.** It ran at 18:18:12Z and returned **NOT YET
+OBSERVABLE / PREMATURE**; early is the same null and a wasted trip. **The
+clock:** all four 2026-08-10 positions were `status: active`, `result` empty,
+with `expected_expiration_time` 2026-08-11 **02:40Z** (`…BALMIN-MIN`),
+**04:38Z** (`…TEXLAA-LAA`), **05:10Z** (`…KCLAD-KC`), and 2026-08-10T19:30Z for
+the ATP position — the three **discriminating** ones cannot all be readable
+before ~05:10Z, plus Kalshi's settlement lag.
 
-**The clock.** All four 2026-08-10 positions were still `status: active` with
-`result` empty. `expected_expiration_time` is 2026-08-11 **02:40Z**
-(`…BALMIN-MIN`), **04:38Z** (`…TEXLAA-LAA`), **05:10Z** (`…KCLAD-KC`), and
-2026-08-10T19:30Z for the ATP position. The three **discriminating** positions
-cannot all be readable before ~05:10Z, plus Kalshi's own settlement lag.
-
-**An absent settlement row is NOT a $0.00 settlement charge.** The state is
-*premature*, never *null* — **no zero may be recorded anywhere**. **R5 does not
-fire:** entry fees are visible on 6 of 6 fills, and a stop-the-line guard cannot
-fire on a measurement that has not been taken. Ruled twice tonight.
-
-**The ATP position may not be read alone.** `KXATPDOUBLES-…CERETC` expires first
-and is therefore the tempting early read, but it is **registered as
-non-discriminating** (result §S9) and may not be cited in any conclusion.
+**An absent settlement row is NOT a $0.00 charge.** The state is *premature*,
+never *null*; **no zero may be recorded anywhere**. **R5 does not fire** — entry
+fees are visible on 6 of 6 fills, and a stop-the-line guard cannot fire on a
+measurement not yet taken. Ruled twice tonight. **And the ATP position may not
+be read alone**: `KXATPDOUBLES-…CERETC` expires first, so it is the tempting
+early read, but it is **registered as non-discriminating** (result §S9).
 
 **Round three inherits this unresolved.** §6.2 of *both* the round-two and
-round-three registrations makes the settlement-`fee_cost`-substitutes-for-a-
-missed-fill-capture rule **conditional** on Amendment A §A5 returning
-`settlement fee_cost == fill-time fee`. §A5 has still not returned a value:
-**CONDITIONAL AND PENDING — not confirmed, not withdrawn**, and tonight's
-non-observation moves it neither way. §A8's entry-only (i) versus lifetime (ii)
-reading is likewise open, so **H4 remains untested**.
+round-three registrations makes settlement `fee_cost` a substitute for a missed
+fill-time capture only **conditional** on Amendment A §A5 returning `settlement
+fee_cost == fill-time fee`. §A5 has still not returned a value — **CONDITIONAL
+AND PENDING, not confirmed and not withdrawn**; tonight moves it neither way.
+§A8's entry-only (i) versus lifetime (ii) reading is likewise open, so **H4
+remains untested**.
 
-**One worry it already shortens:** the six fills re-captured **identically** —
-same six `created_time` values (13:38:01 → 13:52:17 UTC), same fees, all
-`is_taker: true` — so §A4's retention-window concern has not materialised.
-`/portfolio/settlements` returned 55 rows with an empty `cursor`: a complete
-record, not a first page.
+**One worry already shortened:** the six fills re-captured **identically** (same
+`created_time` values 13:38:01 → 13:52:17 UTC, same fees, all `is_taker: true`),
+so §A4's retention concern has not materialised, and `/portfolio/settlements`
+returned 55 rows with an empty `cursor` — a complete record, not a first page.
 
-Predictions are already committed — **point at them, do not copy them**: §S9 of
-`docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`, and
+Predictions are committed — **point, do not copy**: §S9 of
+`docs/measurements/2026-08-10-fee-model-fill-calibration-result.md` and
 Amendment A §A5/§A8 of
 `docs/measurements/2026-08-10-preregistration-fee-model-fill-calibration.md`.
 
