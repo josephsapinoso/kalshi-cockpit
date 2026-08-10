@@ -1,5 +1,117 @@
 # Next — your checklist
 
+## 2026-08-10, overnight — SIX DURABLE FACTS FROM TONIGHT'S LANES
+
+These are **facts and queued items**, not a plan. Two of them close things the
+section below still asks for; read these before acting on it. Nothing here is
+deployed, nothing here spends money.
+
+### 1. `KXMLBGAME` cannot fill a sub-20c pre-game band. The census below is answered.
+
+The "census the minimum `KXMLBGAME` ask per event" item in the next section has
+been run against the stored record. **85 events, 6 slates, 0 of 51,286 pre-game
+observations below 20c.** Cheapest pre-game ask ever recorded **26.0c**; p1
+**28.5c**. Cross-checked against `closing_lines.yes_ask_tenths`, which is
+independently sourced and puts the floor at **29.0c** — two sources, same wall.
+
+**Sub-15c prices exist in the record only 140–215 minutes after first pitch**,
+i.e. deep in-play. There is no pre-game route to the band.
+
+**So round two as written is dead**, and it is dead on reachability, not on
+budget: a registered band of 6c–14c on `KXMLBGAME` cannot be filled at the
+prices the series offers, and the hypothesis boundary `(0.15, 0.27]` sits
+entirely below the cheapest price the series has ever shown pre-game. Any
+re-proposal must either move the series or state, up front and from the board,
+where the price is coming from. See
+[[a-reachability-guard-has-to-run-in-both-directions]] and
+[[reachability-has-two-halves-and-this-project-keeps-checking-one]] in
+`tasks/lessons.md`.
+
+**The honest limit:** this is **one week of one August**, MLB only. It says
+nothing about September, nothing about a winter slate, and nothing about any
+other series. It refutes the band on the population it covers and no wider.
+
+**Status of the write-up:** the formal result document is **pending the
+skeptic's audit** and is deliberately not written yet. These figures are
+recorded here so the question is not re-asked; treat them as unreleased until
+that document lands.
+
+### 2. `KXATPDOUBLES` is not in the record at all
+
+**0 rows** in `kalshi_quotes`, `kalshi_events`, `kalshi_markets` and
+`recommendations`. The record holds exactly **11 series**: MLB
+GAME/SPREAD/TOTAL/TEAMTOTAL, NFL GAME/SPREAD/TOTAL, NCAAF GAME, WNBA
+GAME/SPREAD/TOTAL.
+
+This matters because the escape hatch from fact 1 — "a within-series price pair
+in `KXATPDOUBLES`" — is written in the section below as though the prices were
+knowable from disk. **They are not.** Any ATP work needs a **live board read**
+first, and that read is a precondition, not a detail.
+
+### 3. Odds fetching stopped at 2026-08-09T23:37:15Z and ran 17+ hours unnoticed behind a green health check
+
+Last odds observation in the record: **2026-08-09T23:37:15Z**. The loop was
+**alive the whole time** — it kept writing ~5,000 quote rows an hour — and the
+health check stayed green throughout. Every `recommendations` row written in
+that window carried `stale_odds`.
+
+**No cause is established, and none is written here on purpose.** This repo has
+a recorded misdiagnosis of exactly this shape (ADR 0014: a frozen counter blamed
+on the sweep scheduler, when the slate was empty). The observation is the fact;
+the cause is **open**. Candidate explanations must be distinguished by evidence
+before one is written down.
+
+### 4. A refused sweep leaves no trace in any table in the record
+
+Checked across the whole schema (`backend/store/schema.sql`). Three independent
+silences, each individually reasonable:
+
+- `api_credits` gets a row **only if an HTTP call was made** —
+  `backend/odds/client.py:233-234` returns `[]` before the request when
+  `can_afford` is false, and the insert is at `backend/odds/budget.py:236`.
+- `notifications` writes `window_open` **only when `sweeps_this_pass > 0`**
+  (`backend/notify/alerts.py:183`).
+- `decide_sweeps` returns a `detail` string that is **only logged**
+  (`backend/runner.py:868`), and `flyctl logs` is lossy.
+
+So **silence is indistinguishable from a system that never looked**, which is
+why fact 3 went unnoticed for 17 hours.
+
+**QUEUED — and read the trap before choosing the fix.** The obvious remedy is a
+zero-cost row in `api_credits` recording the refusal. **That remedy is unsafe as
+stated:** `last_sweep_by_sport` (`backend/odds/timing.py:315-322`) filters only
+on `called_ms >= ?` and `sport_key IS NOT NULL`, with **no endpoint or cost
+filter**, so it would read the refusal row as a *served* sweep and silently
+disable the scheduler for that sport. A separate table, a `cost = 0` filter
+added to that query first, or a different sink entirely are all viable. **The
+remedy is queued, not chosen.**
+
+### 5. Config drift: `ODDS_DAILY_CREDIT_BUDGET` is 400 deployed against a code default of 16
+
+`fly.live.toml:116` sets `400`. `backend/config.py:194` defaults to `16`, and so
+does `.env.example` — which CLAUDE.md names as **the contract**. Not binding
+today, because the deployed value is the larger one. **A rollback or a
+regeneration of `fly.live.toml` drops the budget 25x, silently**, and the
+symptom would be refused sweeps, which per fact 4 leave no trace.
+
+Related and now annotated: ADR 0014's "6 sweeps, 36 credits" is the *one-shot
+plan's* count, not the loop's; the dynamic figure is roughly 2x. See the
+annotation appended to `docs/adr/0014-the-sweep-schedule-is-accepted-as-it-stands.md`.
+
+### 6. `beb91d8` is committed and **unpushed**
+
+`config: the quote-age pair now refuses to start when it disagrees` — adds
+`assert_kalshi_quote_age_limits_agree`, closing the twin of the pair ADR 0019 §6
+closed.
+
+**Why it mattered:** a divergence between the two quote-age limits let a
+12-second-old quote leave suppression with `suppressed_reason IS NULL` —
+**actionable, and counted in the gate's 300-game denominator** — while
+`backend/gate.py:746` and `backend/api/routes.py:1946` refused the same quote.
+The screen and the denominator disagreed with the order path.
+
+---
+
 ## ⏱ 2026-08-10, evening — RUN THIS FIRST, THEN READ THE REST
 
 **Read this first. It supersedes everything below it.**

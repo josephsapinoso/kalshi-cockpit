@@ -1010,6 +1010,41 @@ whether the thing works at all. It is the same failure as a threshold set below
 a systematic offset, one level up: not one limit that is an off switch, but
 several that multiply into one.
 
+**Recurred 2026-08-10, in the guard built to detect exactly this.** The remedy
+above is "assert the relationship in a test rather than trusting two comments to
+stay in agreement". `inconsistent_consensus_metadata`
+(`backend/core/suppression.py:338`) is that assertion for the book-count pair —
+and it compares `book_count` against `_CONSENSUS_NEEDS_TWO_BOOKS`, the
+**producer's own literal `2`** (defined at `backend/core/suppression.py:35`,
+used at `:335`, and itself only a mirror of the hardcoded `1` at
+`backend/core/devig.py:312`), rather than against `config.min_book_count`, which is
+what the consumer half actually reads. So it verifies that the producer agrees
+with itself. Set `min_book_count = 3` and the two halves diverge exactly as
+before, and this check stays green through it.
+
+**The code says so, and it is still worth writing down.** The comment above it
+(`backend/core/suppression.py:320-333`) names the divergence, names this very
+lesson by its shape (*"Two limits on one quantity, currently equal by
+coincidence"*), and states the intent: *"assert the producer's invariant
+instead"*. That is a defensible choice — the producer's invariant is real and
+was previously true only by accident. What is not defensible is the **name**.
+`inconsistent_consensus_metadata` reads as the cross-check, sits in the same
+list as the guards that are cross-checks, and is counted alongside them; a reader
+auditing whether the pair is protected finds it and stops. This is
+[[count-guard-families-not-guards]] on the naming rather than the condition.
+
+**How to apply:** **a consistency check must read both sides from where each
+side actually reads them.** If one operand is a module-level constant belonging
+to the producer, the check is a self-check no matter what it is called, and it
+is structurally blind to the divergence it appears to cover — a self-check
+cannot fail on disagreement between two parties when only one party is present,
+which is [[a-shared-object-cannot-disagree-with-itself]] read as a warning
+rather than as a fix. Two consequences: name self-checks so they cannot be
+mistaken for cross-checks (`producer_metadata_self_consistent`, not
+`inconsistent_*`), and verify by the disable test that CLAUDE.md already
+mandates — change the *consumer's* value and watch the check go red. If it stays
+green, it is not guarding the pair.
+
 ---
 
 ## 2026-08-07 — A captured fixture that no test loads is decoration
@@ -1352,6 +1387,41 @@ Same shape as [[an-idle-threadpool-hides-every-thread-safety-bug]]: a comment
 explaining one instance of a hazard is evidence the hazard is understood, not
 evidence it has been handled everywhere. Grep for the *other* places that need
 the knowledge, not just the one that has it.
+
+**Recurred 2026-08-10, running the other way: a current value used to
+characterise a past observation.** Above, a stored "then" was rendered as "now".
+The mirror is a stored "now" read as though it were "then". `kalshi_markets.status`
+is overwritten on every discovery pass — `backend/runner.py:1099-1108` upserts
+with `ON CONFLICT(ticker) DO UPDATE SET … status = excluded.status`, with no
+history kept — so it is **as-of-read, never as-of-observation**. A lane joined it
+to quote rows to argue that the sub-15c prices in the record came from markets
+that had settled. The conclusion happened to survive, but not on that evidence:
+what carried it was the **timing**, +140 to +215 minutes after first pitch, which
+is written at observation time and cannot be rewritten.
+
+Note which column in the same schema is safe. `kalshi_quotes.observed_ms` is
+commented *"when WE saw it"* (`backend/store/schema.sql:150`) and is
+insert-only; `kalshi_markets.result` is deliberately `COALESCE`d on conflict, so
+an outcome is written once and never unwritten, and `first_seen_ms` never moves.
+The table is a **mixture** — some columns are facts about an instant, some are a
+cache of the latest poll — and nothing in a column's name tells you which. Only
+the write statement does.
+
+**How to apply:** when characterising a historical fact row, **only columns
+written at observation time are admissible.** Anything on a table that is
+upserted is a statement about *now* that happens to be stored next to a row
+about *then*. Before joining a dimension table to a fact table for an argument
+about the past, read the `INSERT … ON CONFLICT` clause and treat every column in
+the `DO UPDATE SET` list as unusable — the join will succeed and be silently
+anachronistic either way. Where the mutable value is the one you need, the fix is
+to stamp it onto the fact row at write time, not to reason about it later.
+
+This is CLAUDE.md's *"the convenient column is usually contaminated"* with a
+mechanism attached: there the contamination is convergence on the outcome
+(`last_price` on a settled market), here it is overwrite. Same instruction —
+state when a value was observed relative to the thing it describes — and the
+overwrite case is worse, because convergence leaves a trace in the value and an
+upsert leaves none.
 
 ---
 
@@ -4852,3 +4922,116 @@ occurred, would the rule discriminate? *(b)* does this value occur, and how ofte
 actual board. The cost of getting this wrong is not a wasted measurement; it is a
 **confidently reported null** that is a property of the design. Related:
 [[the-joint-bound-could-not-have-worked]], [[count-guard-families-not-guards]].
+
+---
+
+## 2026-08-10 — A measurement is not new until you have grepped for its own value
+
+A lane pulled 55 settled positions off the account, computed the distribution of
+their fee decimals, found that single-game fees are whole cents while combo fees
+are not, and reported it as a new finding that might be load-bearing on the fee
+model.
+
+It was already in the repo, twice. `backend/core/fees.py:226-232` carries the
+identical measurement — *"11 of 11 single-game fees are whole cents… 32 of 43
+KXMVE combo fees are not"* — with the caveat the new report lacked, and the
+`note` field of the artefact the lane had **itself just written** carried it as
+well. One `grep` for the number it had in its hand would have returned both.
+
+**Why this evades every check that was actually run.** The lane verified its
+*provenance* rigorously: the data was real, the query was right, the arithmetic
+reproduced. Novelty is a different property from correctness, and nothing in the
+pipeline tests for it — a correct measurement feels finished the moment it
+validates. The specific trap is that a re-derivation is **maximally
+convincing**: it agrees with the record perfectly, because it *is* the record,
+and that agreement reads as corroboration from an independent source.
+
+Note the direction, again. Re-deriving inflates the apparent weight of evidence:
+two sightings of one number look like two measurements. This repo already has
+[[one-observation-recorded-thirty-times-is-one-observation]] for the case where
+the *storage* duplicates; this is the case where the *analyst* does.
+
+This is the mirror of
+[[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]]. That rule
+says: before quoting a number you found, go find the code behind it. This one
+says: before reporting a number you computed, go find whether the repo already
+has it. Both directions have now failed here, and the two together are the whole
+discipline — **a number and the repo must be reconciled in both directions.**
+
+**How to apply:**
+
+- **Grep for the literal value before writing "new".** Not the concept — the
+  digits, and a couple of roundings of them (`11 of 11`, `0.0700`, `0.070`).
+  Concepts are named inconsistently across a repo; numbers are not. It is one
+  command and it runs before the write-up, not after.
+- **Search the artefact you just produced too.** Harnesses copy notes, caveats
+  and prior findings into their own output; the duplicate is sometimes inside
+  the file you are describing.
+- **When a fresh measurement matches the record exactly, that is a prompt, not a
+  confirmation.** Ask whether it *is* the record before treating it as
+  independent agreement with it.
+- **A re-derivation is still worth recording — as a re-derivation.** The value
+  is in the *caveat delta*: if the older statement carries a limit yours does
+  not, yours is the weaker document and should be dropped, not merged.
+
+Related: [[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]],
+[[tracing-a-number-to-code-is-only-half-the-check]],
+[[one-observation-recorded-thirty-times-is-one-observation]].
+
+---
+
+## 2026-08-10 — A number produced by calling a function once is not a claim about a loop that calls it ninety-six times
+
+Three instances in this repo, and they look nothing like each other:
+
+- **ADR 0014's "6 sweeps, 36 credits".** `scripts/measure_slot_coverage.py:262`
+  calls `plan_sweep_slots` **once** and counts what it returns. The deployed
+  runner calls `decide_sweeps` every 900s (`docker/entrypoint.sh:161-164`,
+  `backend/runner.py:860`) — **96 times a day** — against a planner that holds no
+  state and is re-made from scratch on every pass
+  (`backend/odds/timing.py:53-56`). A simulation of the same slate through the
+  running path fired **13 sweeps, 78 credits**: roughly 2x. The figure went into
+  the ADR and onward into `fly.live.toml`'s budget comment.
+- **ADR 0021 §7.2's "a median of 26 of 29 books".** Measured on one fixture
+  captured 5.65 h before the record's earliest odds observation, then quoted as
+  a fact about the record's own rows. Same shape: one evaluation of the
+  production code, presented as a property of the production *run*.
+- **`tests/test_has_callers.py`.** Green because its enumeration enumerated
+  nothing. The file now says so in its own docstring
+  (`tests/test_has_callers.py:611-614`): *"an enumeration that enumerates
+  nothing passes every assertion below."*
+
+**Why the substitution is invisible.** Calling the real function on real inputs
+is *exactly what rigour looks like* — nothing is mocked, nothing is
+reimplemented, and `measure_slot_coverage.py:25` even says so proudly:
+*"Nothing here reimplements the schedule."* That is true and it is the right
+design. It is also not the claim being made. A static artefact and a running
+system share their code, which is precisely why a number about one is so easy to
+read as a number about the other; the divergence lives entirely in **state and
+repetition**, and neither is visible in the source.
+
+The error is not bounded in either direction. Re-planning made the ADR's figure
+too *low*; a harness that runs a loop once and multiplies by the pass count
+would make it too *high*. So "it errs conservatively" is not available as a
+defence.
+
+**How to apply:**
+
+- **A harness must state, in its own output, which of the two it measured** —
+  the static artefact or the running system — and a number that does not say is
+  unusable. Not in a docstring a reader might open: in the printed result, next
+  to the figure, so it travels with the number when the number is copied.
+- **Ask what state the running system carries between calls.** If the answer is
+  "none, it re-plans every time", a single call cannot bound the total, because
+  the total is a function of *when* the calls land, not of what one returns.
+- **Name the invocation count.** "6 slots per plan" is a fact; "6 sweeps a day"
+  is an extrapolation with an unstated multiplier of 1. Writing the multiplier
+  down forces the question of whether it is really 1.
+- **Prefer the observation to either estimate when the system already records
+  it.** A loop that writes a row per call has already answered the question; the
+  simulation exists only because nobody read the rows.
+
+Related: [[tracing-a-number-to-code-is-only-half-the-check]] (regime, one level
+up), [[a-detectors-production-must-be-the-deployments-production]],
+[[an-enumeration-is-not-a-proof-and-every-is-the-word-to-distrust]],
+[[a-guard-standing-behind-a-stricter-guard-is-decoration]].

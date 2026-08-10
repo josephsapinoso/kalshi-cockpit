@@ -45,6 +45,10 @@ no odds credits):
 
 Six windows, not one, and all of them after 15:45Z.
 
+**[ANNOTATED 2026-08-10: "6 sweeps / 36 credits" is the *one-shot plan's* sweep
+count, not the running loop's. It may not be quoted bare. See the annotation at
+the foot of this document.]**
+
 **Loosening the separation buys one game.** The single miss is the 16:15Z
 opener, dropped because its slot sits 80 minutes from the 17:35Z cluster and
 `MIN_SLOT_SEPARATION_MS` keeps the one covering 13 games:
@@ -93,7 +97,9 @@ scheduler was never the binding constraint.
 - `actionable=0` after a day of real windows is **the answer**, not a fault.
   The tool is actionable in the pre-kickoff windows and nowhere else, by design.
 - The odds budget is confirmed as massively non-binding: 36 credits of 400 for
-  a full slate. `tasks/NEXT.md`'s "≤12 useful slots/day per sport, so six
+  a full slate **[ANNOTATED 2026-08-10: the *plan's* 36, not the loop's; the
+  conclusion survives, the number does not — see the foot of this document]**.
+  `tasks/NEXT.md`'s "≤12 useful slots/day per sport, so six
   leagues cannot exceed ~432/day" is a ceiling from the separation constant
   alone; the real bound is kickoff clusters, which on an August slate is three
   per sport.
@@ -119,3 +125,66 @@ scheduler was never the binding constraint.
 - **Distinct-game coverage falling below the slate.** The claim accepted here is
   "the schedule covers the games that exist". If a future slate shape breaks
   that, this ADR is void.
+
+---
+
+## ANNOTATION 2026-08-10 — the decision stands; **"6 sweeps, 36 credits" measures the plan, not the loop**
+
+**Nothing above is withdrawn, and the decision is unchanged.** What follows
+narrows what may be quoted from the number.
+
+**The number's address is wrong.** `36 credits of 400` comes from
+`scripts/measure_slot_coverage.py:262`, which calls `plan_sweep_slots`
+**exactly once** and counts the slots it returns. That is a measurement of a
+*static artefact* — the plan a single call produces from one slate.
+
+The deployed system is not that. `docker/entrypoint.sh:161-164` runs
+`scripts/run_loop.py --interval ${RUNNER_INTERVAL_S:-900}`, so a full pass every
+900s — **96 passes a day** — and each pass calls `decide_sweeps`
+(`backend/runner.py:860`). The plan holds **no state**: `backend/odds/timing.py:53-56`
+says so in the module's own words, *"Re-planned from scratch every pass, with no
+stored state"*, with which slots have already been served read back from
+`api_credits`. Re-planning is correct — it is what makes a restart neither
+double-spend nor forget — but it means the per-day sweep count is a property of
+96 re-plans against a moving clock, not of one.
+
+**The size of the gap, and exactly how much it is worth.** A simulation of the
+same slate shape driven through the repo's own `decide_sweeps` and
+`CreditBudget` fired **13 sweeps, 78 credits** — about **2x** the plan's 6/36.
+Three caveats, all binding:
+
+- It is a **simulation on a synthetic August slate**, not an observation of live
+  behaviour. No count of sweeps actually fired per day has been read off the
+  deployed instance.
+- **No committed harness reproduces it.** `scripts/measure_slot_coverage.py`
+  measures the plan and only the plan; the 13/78 figure was produced ad hoc on
+  2026-08-10 and is re-derivable only by rebuilding the simulation. Treat it as
+  an order-of-magnitude check, not as a pinned value.
+- Consequently `13` and `78` carry the same defect as `6` and `36` if quoted
+  bare in the other direction — they are the *simulation's* count.
+
+**Why the decision survives anyway, and this is the whole point of the
+annotation.** The accepted claim was that the odds budget is not the binding
+constraint. `ODDS_DAILY_CREDIT_BUDGET` on the deployed instance is **400**
+(`fly.live.toml:116`). 78 is not near 400, and neither is any small multiple of
+it. The conclusion has ~5x of headroom against the *dynamic* figure, so the
+error in the number never reached the decision. **A wrong number that does not
+change the answer is still a wrong number in the record**, and it was quoted
+onward — into `fly.live.toml`'s `ODDS_DAILY_CREDIT_BUDGET` comment block — before
+anyone checked what it counted.
+
+**The quoting rule this imposes.** The figure may be cited only as *"the
+one-shot plan's sweep count"*, never bare and never as "a full slate costs 36
+credits". Anything asserting a **per-day** cost must come from either the
+dynamic simulation (labelled as such) or from `api_credits` on the live
+instance, which is the only source that has actually observed it.
+
+**What would close this properly:** read the real per-day count off
+`api_credits`, grouping the rows written by `backend/odds/budget.py:236` by
+budget day and by `endpoint`. It costs nothing, the data is already on disk, and
+it replaces both estimates with an observation. No SQL is written here on
+purpose — unrun SQL in a document is a guess wearing a monospace font, and the
+`endpoint` values would have to be read before the filter could be trusted.
+
+Related: `tasks/lessons.md`, *"A number produced by calling a function once is
+not a claim about a loop that calls it ninety-six times"*.
