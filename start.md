@@ -25,6 +25,51 @@ record.** Before acting on any "still to do" below, run
 `git log --oneline -20` and `ls docs/adr/`. Thirty seconds, and it caught a
 whole wasted lane.
 
+## ⏱ TIME-SENSITIVE — a free capture that must NOT be run before 05:30Z
+
+```
+.venv\Scripts\python.exe scripts\capture_fills_fixture.py
+```
+
+**Run it after 2026-08-11T05:30Z**, not before. Laptop only, needs `.env`,
+takes seconds. **No money, no deploy, no orders.** It already ran at
+**18:18:12Z** tonight and returned **NOT YET OBSERVABLE / PREMATURE**; run it
+early and it returns the same null and wastes the trip.
+
+**The clock.** All four 2026-08-10 positions were still `status: active` with
+`result` empty. `expected_expiration_time` is 2026-08-11 **02:40Z**
+(`…BALMIN-MIN`), **04:38Z** (`…TEXLAA-LAA`), **05:10Z** (`…KCLAD-KC`), and
+2026-08-10T19:30Z for the ATP position. The three **discriminating** positions
+cannot all be readable before ~05:10Z, plus Kalshi's own settlement lag.
+
+**An absent settlement row is NOT a $0.00 settlement charge.** The state is
+*premature*, never *null* — **no zero may be recorded anywhere**. **R5 does not
+fire:** entry fees are visible on 6 of 6 fills, and a stop-the-line guard cannot
+fire on a measurement that has not been taken. Ruled twice tonight.
+
+**The ATP position may not be read alone.** `KXATPDOUBLES-…CERETC` expires first
+and is therefore the tempting early read, but it is **registered as
+non-discriminating** (result §S9) and may not be cited in any conclusion.
+
+**Round three inherits this unresolved.** §6.2 of *both* the round-two and
+round-three registrations makes the settlement-`fee_cost`-substitutes-for-a-
+missed-fill-capture rule **conditional** on Amendment A §A5 returning
+`settlement fee_cost == fill-time fee`. §A5 has still not returned a value:
+**CONDITIONAL AND PENDING — not confirmed, not withdrawn**, and tonight's
+non-observation moves it neither way. §A8's entry-only (i) versus lifetime (ii)
+reading is likewise open, so **H4 remains untested**.
+
+**One worry it already shortens:** the six fills re-captured **identically** —
+same six `created_time` values (13:38:01 → 13:52:17 UTC), same fees, all
+`is_taker: true` — so §A4's retention-window concern has not materialised.
+`/portfolio/settlements` returned 55 rows with an empty `cursor`: a complete
+record, not a first page.
+
+Predictions are already committed — **point at them, do not copy them**: §S9 of
+`docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`, and
+Amendment A §A5/§A8 of
+`docs/measurements/2026-08-10-preregistration-fee-model-fill-calibration.md`.
+
 ## THE FIRST THING TO DO — and it is not a task
 
 **Re-examine ADR 0023's deferral.** Read
@@ -163,10 +208,11 @@ what CI runs (`ci.yml:71`). `ruff format --check` reports 153 files, which is
 **pre-existing and not enforced anywhere** — do not "fix" it. `next build` was
 not re-run this session; nothing under `frontend/` changed.
 
-**The settlement capture has RUN.** `data/captures/portfolio_fills.json` and
-`portfolio_settlements.json` exist (11:18 today). `data/` is gitignored
-(`.gitignore:33`). **Another lane owns `scripts/capture_fills_fixture.py` and
-those files — do not touch either.**
+**The settlement capture has RUN — and returned PREMATURE.**
+`data/captures/portfolio_fills.json` and `portfolio_settlements.json` exist
+(captured 18:18:12Z). `data/` is gitignored (`.gitignore:33`), so neither is in
+version control. **It must be re-run after 05:30Z — see the time-sensitive item
+at the top of this file.** No lane owns `scripts/capture_fills_fixture.py` now.
 
 Six agents in `.claude/agents/`: **`partner`** (directs the fleet — *delegation
 is its call*), **`measurement-skeptic`**, **`pre-registrar`**, **`sharp-bettor`**,

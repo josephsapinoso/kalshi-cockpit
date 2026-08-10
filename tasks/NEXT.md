@@ -1,5 +1,14 @@
 # Next — your checklist
 
+## ⏱ Time-sensitive, and it is free
+
+`.venv\Scripts\python.exe scripts\capture_fills_fixture.py` must be re-run
+**after 2026-08-11T05:30Z**. It ran at 18:18:12Z and returned **PREMATURE** —
+all four 2026-08-10 positions still `active`, last expiry 05:10Z. **An absent
+settlement row is not a $0.00 charge, R5 does not fire, and the ATP position may
+not be read alone.** Full statement — including what round three inherits as
+still-conditional — is the time-sensitive item at the top of `start.md`.
+
 ## 2026-08-10, overnight — SIX DURABLE FACTS FROM TONIGHT'S LANES
 
 These are **facts and queued items**, not a plan. Two of them close things the
