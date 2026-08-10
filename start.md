@@ -1,8 +1,8 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-10, ~03:00Z. The session that got live read access, answered D1,
-audited two of its own claims into retractions, and ended with a plan to
-**finish the project rather than continue it.**
+Written 2026-08-10. The session that shipped the deploy bundle, ran the joint
+bound, **proved the joint bound could never have worked**, and found a real bug
+in the suppression layer while doing it.
 
 Everything below is the prompt. Paste it whole, or just say *"read start.md and
 follow it"*.
@@ -15,21 +15,23 @@ NEXT.md supersedes everything below it.**
 
 ## State
 
-`main` is at `1ada3e6`, pushed, CI green on all three jobs. **1,776 tests**,
-ruff clean, `next build` clean, tree clean, no worktrees.
+`main` is at `86e83e7`, pushed, in sync, tree clean, no worktrees. **1,890
+tests**, ruff clean, `next build` clean.
 
-**LIVE IS DEPLOYED on `ec53ba9`**, verified independently rather than by the
-workflow's assertions. `main` is **6 commits ahead** — five docs and one
-built-not-shipped feature. No migration ran: `SCHEMA_VERSION` 6 on both, and
-`schema.sql`/`db.py` byte-identical.
+**LIVE IS DEPLOYED and current.** Joe deployed the bundle at the end of last
+session and it was verified independently, not by the workflow's assertions:
 
-    live   instance_mode=live, live_trading_enabled=false, retired_settings_set=[]
-           /api/results /api/gate /api/ledger /api/orders all 401 unauthenticated
-           forged bearer 401; six pages 307 -> /login
+    unauth /api/{ledger,gate,orders,results}  401;  forged bearer 401
+    health  instance_mode=live, live_trading_enabled=false,
+            execution_available=false, retired_settings_set=[]
 
-**You can read the live record programmatically.** Joe put the live
-`APP_AUTH_TOKEN` on **line 68 of `.env`** (gitignored). Form-POST `token` to
-`/session`, get a cookie, then GET any route. It works — do not re-derive this.
+**You can read the live record programmatically, and now page it.** The live
+`APP_AUTH_TOKEN` is on the `APP_AUTH_TOKEN=` line of `.env` (gitignored).
+Form-POST `token` to `/session`, keep the cookie, then GET. **A whole-table pull
+is: read `newest_id` from page 0, pass it back as `max_id` on every page, and
+assert `len(set(ids)) == total`.** Verified working end to end — 1,549 rows,
+1,549 distinct ids. Do not re-derive this. `scripts/run_joint_bound.py` has the
+pull already written.
 
 Six agents in `.claude/agents/`: **`partner`** (directs the fleet — *delegation
 is its call*), **`measurement-skeptic`**, **`pre-registrar`**, **`sharp-bettor`**,
@@ -38,151 +40,193 @@ is its call*), **`measurement-skeptic`**, **`pre-registrar`**, **`sharp-bettor`*
 **Standing instructions from Joe, which override defaults:**
 
 1. **Call `partner` first** and let it set the queue.
-2. **Parallelise by default** — but budget the API session limit as a real
-   constraint. Four concurrent lanes burned it mid-flight last session.
+2. **Parallelise by default** — but **two concurrent lanes, never more.** Four
+   burned the API session limit; `partner` set two as the cap and it held.
 3. **`measurement-skeptic` audits anything before it enters the record**,
-   especially good news.
-4. **Deploys are BATCHED.** Do not ship one small route at a time — Joe was
-   paying a wait-and-verify cycle for each. Three items are queued.
+   especially good news. It earned its cost twice last session.
+4. **Deploys are BATCHED**, and Joe runs them. The classifier blocks
+   `gh workflow run Deploy` from a tool call and routing around it via the
+   browser is off-limits. He runs:
+   `! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
 5. **Don't ask permission to continue.** Do ask before money or a re-deploy.
 
-## THE PLAN — read this before planning anything
+## JOB ONE — the bug, and it needs an ADR before a line of code
 
-The project is close to a **delivered answer**, and the answer is probably *no*.
-That is a result, not a failure. `CLAUDE.md` says the product is the record.
+**`edge_within_method_noise` cannot fire on the one input where the edge is
+purely a devig-method artefact.**
 
-**Run one joint bound:**
+One book quoting both outcomes of a two-way market at identical decimal odds
+makes all four devig methods agree to ~1e-14, so `spread_tenths ≈ 1.4e-11` and
+`suppression.py:231`'s `edge_tenths > spread_tenths` **passes for any positive
+edge whatsoever.** The guard reads *"the methods agree, so this edge is
+trustworthy"* when what happened is there was one book and nothing to disagree
+about.
 
-> With every conservative choice this project makes set simultaneously to its
-> most generous alternative — the loosest of four devig methods, the cheaper fee
-> model, and the maker basis — **how many rows are actionable?**
+It produces `fair_probability = 0.49999999999999994` — a coin flip — on a game
+the Kalshi book prices **84/16**. Measured over the whole table: **21 rows, 2
+WNBA games, 1.4% of the record, all single-book, 0 unsuppressed, 8 fresh.**
+Bounded, but live.
 
-If it returns 0, **the central question is closed** and per-knob attribution is a
-footnote. Decompose per knob *only* conditional on a non-zero count.
+**`min_book_count = 2` is the single threshold between a fabricated fair and a
+surfaced row**, and it has **no environment plumbing anywhere** — not `.env`,
+`.env.example`, `fly.live.toml` or `config.py`. And `too_few_books` /
+`no_market_width` fire on the *identical* condition (185 rows each over 1,000,
+symmetric difference **0**), so they are **one guard counted twice, not defence
+in depth.** Eight rows were fresh, fillable, +1.2c post-fee and stopped only by
+that threshold — ids 979/980 are the worked example.
 
-**Why this and not more measurement.** A null at n=29 games is *provisional* —
-someone will always ask whether more data would have changed it. The joint bound
-is **not provisional**: if the ask sits above the most generous fair under the
-cheapest fee on every row, then no method choice, no fee resolution and no
-further sample of the same kind could have produced an actionable row. It
-converts *"we didn't find one"* into *"one could not have been found here"*, and
-**no future data can reverse it.** It is also deterministic, so it carries **no
-alpha** — which matters against P(some cell clears from nothing) = **0.9993**.
+**Do not just patch it.** `suppressed_reason` is half the `actionable`
+predicate, so changing when a suppression fires changes what the gate counts.
+This repo already refused a cheaper version of exactly that move. Route through
+`partner`, write the ADR (**0019** is next; 0018 is taken), then fix.
 
-**Then stop.** Refutation ADR, correct CLAUDE.md's premise section to what was
-found, close every accumulation-justified line. Leave the recorder running
-because it costs nothing, with no work planned against it.
+The float itself is diagnostic and worth keeping: nothing defaults to 0.5.
+`power()` solves with `brentq`, lands one ULP high, and `min` across four
+methods — three of them exact — **systematically selects the root-finder's error
+floor**. The signature to grep for anywhere is `p_multiplicative == p_additive
+== 0.5` with `p_power` one ULP below.
 
-**One line survives and rides free inside the same bound: the maker basis.**
-Verified — at 50c the maker fee is exactly half the taker fee ($0.0100 vs
-$0.0200); headroom **1.94 points against 0.38, i.e. 5.1x.** The only quantity
-here where a positive finding is not power-precluded on its face. No mass in
-18c–82c and it closes with everything else.
+**Riding along, found and not acted on:** `SuppressionConfig.max_odds_age_ms =
+900_000` (`suppression.py:40`) is hardcoded and does **not** read
+`MAX_ODDS_AGE_S`, which is `900` in `fly.live.toml:128` and `.env` and feeds a
+different object consumed by `gate.py`, `live.py` and `routes.py`. They agree
+today; changing the env value moves the gate and the API but **not the runner's
+suppression.**
 
-## Where the numbers stand, read from live
+## THE JOINT BOUND IS DEAD — do not re-run it, on any population
 
-    populations   actionable 0    no_edge 614    suppressed 915   total 1529
-    horizons      "0" 532    "1" 569    unscored 428
-    per game      actionable 0g/0r   no_edge 20g/279r   suppressed 25g/253r
-                  29 scored games, none actionable
-    outcomes      recorded 1601 (no 1039, yes 562), pending 0, abandoned 0,
-                  unreadable 219
+`docs/measurements/2026-08-10-joint-bound-result.md`. `measurement-skeptic`
+verdict: **UNSUPPORTED as a decision-bearing reading.**
 
-**`actionable` has been 0 for the entire life of the record.** `abandoned 0`
-means no outcome has ever been lost. A consistency check that holds:
-279 + 253 = 532 = the horizon-`"0"` row count.
+**Branch Z — the outcome that would have closed the central question — was
+arithmetically unreachable before the data existed.** So `BRANCH N — NOT CLOSED`
+is a consequence of the design, not an observation, and **it authorises nothing,
+including the withdrawal of the plan to stop.**
 
-## The deploy bundle — three items, and Joe runs it
+- **The complementary-leg identity.** Every game has two complementary tickers,
+  so at a zero fee `S_A + S_B` = market width + devig deficit. Over 312
+  same-instant pairs: median +13.0, max +82.0 tenths. That caps
+  `min(S_A,S_B)` at **4.10 points at the worst pair**, against Branch Z's
+  requirement of `> 16.7 points on every row` — off 4x at the best pair, 25x at
+  the median, **on any two-sided record.**
+- **Amendment 1 made Branch Z and the reachability precondition mutually
+  exclusive.** §5 registers δ=10.00 as *"certainly non-zero if the arithmetic
+  works at all"*; A1 moved Branch Z above it, and `K` is monotone. **I
+  authorised that amendment**, on the reasoning that rounding thresholds up is
+  conservative — true against false closure, no protection against this.
 
-1. **`offset` on `/api/ledger`** — a prerequisite, not a convenience. The ledger
-   returns the newest 1,000 of 1,529, and `persist_if_changed` writes only on
-   price movement, so rows-per-game tracks **volatility** — the slice is
-   weighted toward volatile wide-disagreement games, which is the direction that
-   **inflates an apparent edge.**
-2. **The four per-method probabilities on the ledger payload**, joined via
-   `recommendations.fair_price_id`. Raw data out; recount in a tested local
-   module, because batched deploys make baked-in analysis cost a release to
-   re-cut.
-3. **`unreadable_examples`** — already built, `4473641`.
+The registration guards `K = 0` everywhere as a broken harness and **does not
+guard `K ≈ N` everywhere.** It saturated: `K(16.70) = 984/1000` on P0 and
+**100% on P1.**
 
-**Do NOT expose `kalshi_markets.result`.** No reader, calibration is dead at this
-`n`, and a field added for a consumer that does not exist is how this repo got
-four built-never-called modules. The data accrues free; the analysis waits for
-`n`.
+## THE FINDING THAT SURVIVED, and it is whole-table
 
-Joe deploys — **the classifier blocks `gh workflow run Deploy` from a tool call,
-and routing around it via the browser is off-limits.** He runs:
-`! gh workflow run Deploy -f instance=live -f confirm_live=kalshi-cockpit`
+    unsuppressed rows                              614   in 59 games
+      ...with a positive NET edge at the deployed fee  0
+      largest clean NET edge                        −2.1 tenths (0.21c short)
+    actionable rows anywhere in the table, ever        0
 
-## READ THIS — three claims died last session, two of them mine
+**614 matches `/api/gate`'s published `no_edge` exactly** — two code paths
+agreeing. The largest clean net edge over all 1,549 rows is the **same** −2.1 as
+over the 1,000-row slice, so the slice hid nothing at the top.
 
-**Every one ran in the flattering direction.** That is not coincidence: a
-flattering reading terminates the search early because it feels like an answer.
+This is the direct empirical confirmation, over the complete table, of what the
+fresh-odds registration deduced at §0.3 from a counter alone: *every unsuppressed
+row already has a non-positive edge.* **And all 45 rows with a positive net edge
+are suppressed** — zero unsuppressed, zero actionable, 8 games. The guards and
+the edge computation agree about which rows are garbage. That is a coherence
+result, it needed no bound, and it is better evidence than the instrument was
+built to produce.
 
-- **"`no_edge` may be a sizing artifact" — RETRACTED.** Measured: at the $1,000
-  reference profile the smallest edge that sizes to one contract is 0.6–1.0
-  *tenths of a cent*. The floor is nil, so every unsuppressed row genuinely has
-  a non-positive edge. There is no hidden population.
-- **"Calibration separates sharp-Kalshi from our-fair-too-low" — REFUTED.**
-  `4p(1-p)/gap²` at two SE: the 0.38-point headroom needs **69,252 games**, 2.0
-  points needs 2,500, a gross 5-point miss needs 400. The record has **29**.
-  Underpowered by four orders of magnitude, permanently.
-- **"The devig conservatism eats 3–5x the headroom" — INVERTED.** The "1–2
-  points" was the *longshot* end. `core/suppression.py:217-220`: **0.18 points
-  at 50c, 2.03 at a longshot**, and the guard's cost is about half the spread —
-  so **~0.24x** the headroom where this strategy trades.
+**The refutation ADR is still unwritten, and its argument changed.** It now rests
+on the paragraph above, and that is **provisional in exactly the way an n=29 null
+is provisional** — which is what the joint bound existed to escape and did not.
+**Say so in its own named section or the ADR repeats the failure.** `partner`'s
+standing requirement also holds: the honest finding is *"Kalshi is not mispriced
+relative to a consensus it may itself lead"*, **never** *"no edge exists at
+Kalshi"*.
 
-The two lessons are in `tasks/lessons.md`: **"unblocked is a scheduling
-property, not an evidentiary one"** and **"a number quoted from your own
-project's prose is an assumed number until you have found the code behind it."**
+## The 219 — a lead, and it must not be over-read
+
+`unreadable_examples` shipped and paid for itself on its first call:
+
+    KXMLBTOTAL-26AUG071840NYMPIT-3 .. -7
+
+All five are **MLB totals**, and all five are thresholds of **one game**. Set
+beside a whole-record measurement: series prefixes across all 1,549
+recommendation rows are `KXMLBGAME` 1,131 and `KXWNBAGAME` 418 — **the
+recommendation engine has never written a row about a total or a spread.**
+
+So *if* the unreadable set is dominated by totals, the 219 is **not a leak in the
+evidence path at all**: those markets are result-polled because discovery finds
+them, and never bet.
+
+**What is NOT established: that the other 214 are totals.** Five examples, one
+event, and the route appears to return the first five rather than a sample. This
+is [[a-true-measurement-licensed-a-false-conclusion]] waiting to happen — the
+measurement is about five tickers and the conclusion on offer is about 219. Widen
+`unreadable_examples` or census by series prefix first.
+
+## Four lessons landed last session — read them, they are the product
+
+In `tasks/lessons.md`:
+
+- **A reachability guard has to run in both directions.** An instrument that
+  cannot return its decision value is as broken as one that always returns it.
+- **The guard that cannot fire on the input it was built for.** Near-zero
+  dispersion makes any `effect > spread` threshold trivially true; and two codes
+  firing on one condition are one guard — check row-sets, not names.
+- **Tracing a number to code is only half the check.** An inequality is not a
+  pin, an example is not an extremum, and **a document can supersede itself
+  without renumbering the passage it supersedes** (ADR 0017 §1 Correction 1 vs
+  its own Addendum A.2).
+- **A pull can be incomplete while every check on it adds up.** `len(set(ids))
+  == total` is the only check that catches it.
 
 ## Settled — do not re-derive or re-propose
 
-- **CLAUDE.md now says one signal, not two.** `model_probability` is NULL on
-  every row and no decision reads it; `elo.py` has no production caller. **Do
-  not wire it up to make the documentation true** — the documented design was a
-  *conjunction*, and adding an AND-gate to an empty set leaves it empty, so the
-  missing half cannot explain `actionable = 0` away. Arithmetic, not judgement.
+- **One signal, not two.** `model_probability` is NULL on every row and no
+  decision reads it. **Do not wire `elo.py` up to make the documentation true** —
+  the documented design was a conjunction, and an AND-gate on an empty set leaves
+  it empty.
 - **Arming real trading is a code change** (ADR 0018). `ORDERS_ARE_DRY_RUNS` is a
-  module constant with no env read. `LIVE_TRADING_ENABLED` moves no money.
-- **The account has zero fills, ever.** The envelope is measured; every field
-  *inside* a fill is unobserved, including whether the fee is called `fee`. Run
+  module constant with no env read.
+- **The account has zero fills, ever.** Every field *inside* a fill is
+  unobserved, including whether the fee is called `fee`. Run
   `scripts/capture_fills_fixture.py` the moment trades fill, **before** writing
   any parser.
 - **The $5 buys less than claimed.** The two fee models agree at 163 of 999
   prices — including **exactly 50.0c** — and differ by exactly 1c/contract
-  elsewhere. It is quantised to a whole cent, not a smooth 0.38 points.
-- **The 219 unreadable — deferred, not investigated.** 802 settled markets parse
-  100% readable; the "Kalshi finalizes before publishing `result`" hypothesis is
-  **refuted**. `abandoned_total: 0` makes this 12% missing from a *future*
-  sample, not a leak.
+  elsewhere.
+- **There is no minimum order size.** `MIN_ORDER_CONTRACTS` was retired
+  2026-08-09 and is in `config.RETIRED_SETTINGS`; ADR 0017 §1 Correction 1 says
+  otherwise and is superseded by its own Addendum A.2. The maker figures are
+  **1.38 points / 3.6x** at `N=1`.
+- **Scout and Historian have no production caller.** Only `agents.review` is
+  imported by production (`runner.py:61`). `partner` wants that named in the ADR.
+- **Kalshi's `occurrence_datetime` runs exactly 3 hours late**, and it is
+  recorded rather than corrected away.
 
-## Traps from this session specifically
+## Traps
 
-- **Subagent lanes die mid-edit.** Four were killed at once by a session limit;
-  one had already edited three tracked files and added a test. **`git status`
-  first** after any lane failure, review each partial diff on its merits, and
-  expect to finish by hand — the partial work was good and discarding it would
-  have cost more.
-- **"Read-only" is not a scope boundary.** Name the environment as its own
-  sentence and explicitly offer *"stop and say so"*, or an agent's only path to
-  a complete answer runs through production.
-- **On live, the Anthropic bill is held at zero by `surfaced == 0`, not by the
-  absence of a key** — `agent_fleet_configured: true`. The spend switches itself
-  on precisely when the project starts working. Set a spend limit.
-- **Do not persist `binding_constraint`** the cheap way: it writes into
-  `suppressed_reason`, which is half the `actionable` predicate. That changes
-  what the gate counts to make a measurement easier.
+- **On live the Anthropic bill is held at zero by `surfaced == 0`**, not by a
+  missing key — `agent_fleet_configured: true`. The spend switches itself on
+  precisely when the project starts working. **Set a spend limit.**
+- **`$CLAUDE_JOB_DIR/tmp` is not empty at session start.** A `git commit -F
+  msg.txt` there picked up a stale file from a previous day and committed a
+  correct diff under a totally unrelated message. Give scratch files
+  task-specific names and check `git log -1 --format=%s` after any scripted
+  commit.
+- **A committed registration must never be edited in place.** One was rewritten
+  last session — 561 insertions, 352 deletions — by the role that wrote the rule
+  against it. Amendments are appended, superseded text marked in place and
+  deleted never.
 - **`?event_ticker=` ignores `limit` entirely** on Kalshi.
 - **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.**
 
-## The decision that is Joe's, and its timing
+## The decision that is Joe's
 
-If the joint bound returns 0, **continuing is not a smaller version of this
-project — it is a different one**: liquidity provision, or Kalshi as the sharp
-reference against another venue. That deserves a fresh decision with a clean
-record in hand, not a drift out of an ambiguous one.
-
-**Make that call after the refutation is written.** Cost to get there: the
-three-item bundle, one deterministic module, one skeptic pass. **Days, and no
-money.**
+If the refutation stands, **continuing is not a smaller version of this project —
+it is a different one**: liquidity provision, or Kalshi as the sharp reference
+against another venue. That deserves a fresh decision with a clean record in
+hand. **Make the call after the ADR is written**, not before.
