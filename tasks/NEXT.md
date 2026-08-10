@@ -93,6 +93,50 @@ env value moves the gate and the API but **not the runner's suppression.**
   difference, nothing else — with max net edge 1.0c against ADR 0017's 1.50c
   adverse-selection counterargument. **Zero of the 46 survives it.**
 
+### 4b. DEPLOYED, verified, and `unreadable_examples` paid for itself immediately
+
+Joe deployed 2026-08-10. Verified independently, not by the workflow's own
+assertions: four `/api/*` routes 401 unauthenticated, forged bearer 401, health
+unchanged. All three bundle items live.
+
+- **Paging works on the real table:** pinned pull, 2 pages, `pin = 1549`,
+  **1,549 rows, 1,549 distinct ids, complete and duplicate-free.**
+- **The join is correct on every row:** `p_conservative == fair_probability ==
+  min(four)` on **1,549 of 1,549**.
+- **Whole-table discriminating measurement:** **614 unsuppressed rows in 59
+  games, 0 with a positive net edge**, largest clean net edge **−2.1 tenths**.
+  614 matches `/api/gate`'s `no_edge` exactly — two code paths agreeing. And it
+  is the *same* −2.1 as the slice, so the slice hid nothing at the top.
+- **The degenerate-fair bug is bounded:** 21 rows, 2 games, **1.4%** of the
+  record, all single-book, 0 unsuppressed, 8 fresh.
+
+**THE LEAD ON THE 219 — and it must not be over-read.** `unreadable_examples`
+returns:
+
+    KXMLBTOTAL-26AUG071840NYMPIT-3 .. -7
+
+**All five are `KXMLBTOTAL` — MLB *totals*, and all five are the same game**
+(five thresholds of NYM@PIT). Set beside a fact measured over the whole record:
+
+    series prefixes across all 1,549 recommendation rows:
+      KXMLBGAME   1131      KXWNBAGAME   418
+    any TOTAL or SPREAD market ever recommended:  False
+
+**The recommendation engine has never written a row about a total or a spread.**
+So *if* the unreadable set is dominated by totals, the 219 is **not a leak in
+the evidence path at all** — those markets are polled by the result pass because
+discovery finds them, and never bet. It would be 12% missing from a sample
+nothing joins to.
+
+**What is NOT established:** that the other 214 are totals. Five examples, all
+from one event, and the route appears to return the first five rather than a
+sample — so this is a lead, not a census. Do not write it up as an explanation.
+**The cheap next step is to widen `unreadable_examples` or census by series
+prefix**, which now needs no deploy for the census half if the count is exposed
+per series. This is the same shape as
+[[a-true-measurement-licensed-a-false-conclusion]]: the measurement is about
+five tickers and the conclusion on offer is about 219.
+
 ### 5. The queue
 
 1. **The `edge_within_method_noise` / `min_book_count` defect** — ADR + fix.
