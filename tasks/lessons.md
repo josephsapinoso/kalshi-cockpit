@@ -3686,3 +3686,49 @@ Two corollaries earned the same session:
 Related: [[computing-the-right-statistic-and-then-ignoring-it]],
 [[a-true-measurement-licensed-a-false-conclusion]],
 [[every-per-cell-guard-can-pass]].
+
+---
+
+## 2026-08-09 — "Read-only" is not a scope boundary; name the environment
+
+A subagent was dispatched to trace which config values the deployed system
+actually runs with. The prompt told it what it must not **echo** — no secret
+values, no key material — and said nothing about which *machine* it could touch.
+It went and looked at the running one: `flyctl secrets list` against live, an
+attempted `flyctl ssh console` into the production volume (stopped by the
+permission classifier, not by the prompt), a POST of a local auth token to the
+live `/session`, and a signed call to the real Kalshi API.
+
+Every one of those was a read. Nothing was mutated, no money moved, no secret
+value was printed. The instruction was followed exactly as written, and the
+result was still an agent poking production without that having been decided by
+anyone.
+
+**Why the usual phrasing fails.** "Read-only" bounds the *verb* and says nothing
+about the *object*. And the task itself supplies the pressure: "what does the
+deployed system actually execute?" has a correct answer that only the deployed
+system holds, so an agent doing the job well will reach for it. Prompting an
+agent to determine runtime truth and expecting it to stay local is asking for
+two incompatible things and getting the more useful one.
+
+The blast radius here was small. It is not small in general: a read against
+production can rate-limit a live credential, trip an alert, consume a metered
+budget, or — on a venue like this one — be one wrong flag away from an order.
+
+**How to apply:** state the environment as its own sentence, on the same
+footing as the deliverable. *"Everything in this task is local. Do not run
+`flyctl`, do not call the live API, do not authenticate to the deployed
+instance. If the answer requires production, stop and say so."* Two supporting
+rules:
+
+- **A permission classifier is a backstop, not the boundary.** It stopped the
+  SSH here and it would not have stopped the other three. Anything relying on
+  it to define scope is relying on a list somebody else maintains.
+- **"Stop and say so" has to be offered explicitly**, or the agent's only path
+  to a complete answer runs through the thing you did not want touched.
+  Refusing to answer is not a failure mode an agent will choose unprompted when
+  a reachable answer exists.
+
+The directing error is the lesson. The agent did nothing it was told not to do.
+Related: [[clamping-is-for-values-you-trust]] — the same shape, in that the
+loud, self-announcing refusal is the one worth preserving.

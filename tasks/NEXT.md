@@ -1,5 +1,214 @@
 # Next — your checklist
 
+## 2026-08-10 — half the documented strategy has never run, and the $5 buys a field name
+
+Session ended early: **four parallel lanes were killed mid-flight by an API
+session limit**, not by any code fault. What landed is below and is complete and
+green. What did not land is listed with what it had already done, so it can be
+resumed rather than restarted.
+
+`main` was at `b6ce9c9` on entry, verified independently: tree clean, no
+worktrees, `main == origin/main`, **1,753 tests passing**. One handoff
+correction: `origin/lane/frontend-wip` still exists remotely but is fully merged
+(0 commits ahead), so it is stale-but-harmless rather than a lost branch.
+
+### THE FINDING — the second signal has never existed
+
+`CLAUDE.md`'s opening paragraph describes the product as comparing Kalshi
+against devigged consensus **and an in-house power-ratings model**, surfacing
+opportunities where **both agree**. In the deployed system there is no second
+signal and no agreement requirement.
+
+**Verified from code, four ways:**
+
+- `backend/runner.py:685` builds the production `Candidate` and never passes
+  `model_probability`, so it takes its dataclass default of `None`. Every live
+  row has it NULL.
+- `model_probability` appears in `backend/engine.py` at five sites only: two
+  dataclass declarations, one pass-through (`:231`), and the INSERT column list
+  and value tuple (`:368`, `:375`). **Written to the database, read by nothing.**
+- It is referenced nowhere in `backend/core/`, `backend/gate.py` or
+  `backend/api/` — so no suppression rule, sizing calculation, EV computation,
+  gate condition or API response consumes it.
+- `backend/model/elo.py` — the power-ratings model itself — is imported only by
+  `backend/model/backtest.py` and `tests/test_model.py`, and `backtest.py` is in
+  turn imported only by that same test. **No production caller.**
+
+One near-miss worth keeping, because it is how this claim could have been
+overstated: `backend/model/margins.py` *does* have a production path
+(`core/teaser.py` → `routes.py:62 find_wong_candidates`). That is the teaser
+feature, not the power-ratings signal in the recommendation engine. The
+distinction is real and the claim is scoped to `elo.py` and
+`model_probability`.
+
+**How to read this, and how not to.** `actionable = 0` over 1,462 rows describes
+a **consensus-only** strategy, not the two-signal one on record. That is *not*
+evidence the missing half would help — CLAUDE.md's own premise is that Kalshi is
+informationally efficient, and there is no reason to expect a power-ratings
+model to beat a devigged sharp consensus on major-league sides. **Do not treat
+this as a reprieve.** What it changes is the *description*: the record cannot
+honestly be written up as "the strategy found no edge" when half of it has never
+run. It is "consensus alone found no edge, at n=1,462, over horizon-mixed rows."
+
+**CLAUDE.md is deliberately NOT edited yet.** The independent `runtime-realist`
+audit of this claim was one of the four lanes killed by the limit, and the
+standing rule is that things get audited before entering the record — the spine
+document most of all. **First job next session: re-run that audit, then correct
+CLAUDE.md's opening paragraph.** The evidence above is mechanical and I believe
+it holds; it has simply not been checked by a second pair of eyes.
+
+### The fills probe — the $5 is load-bearing for more than the fee value
+
+Probed Joe's **production** account (`api.elections.kalshi.com`, confirmed not
+demo): **zero fills, ever.** So there is no free path to the fee model, and no
+historical fills from the predecessor project to mine.
+
+Separate what that settled from what it did not:
+
+- **Measured:** the envelope is `{"cursor": str, "fills": list}`. So
+  `payload.get("fills")` reads the right key, and the four-wrong-wire-keys
+  failure is not present at the envelope level.
+- **Not measured, and unmeasurable without a fill:** every field *inside* a
+  record — including whether the fee is called `fee`, its units, and whether it
+  is per-contract or per-order.
+
+`backend/kalshi/rest.py:fills()` documented `fee` as **ground truth**. That name
+was inherited from the predecessor and had never been observed here. Docstring
+corrected to say what is measured and what is not.
+
+**So the four trades buy the fee *value* and the fee *field name* at once.**
+Spend the money without capturing verbatim first and the answer may be
+unreadable, in the well-formed-empty way this repo has been burned by four
+times. `scripts/capture_fills_fixture.py` is written, run, and currently exits
+3 with an honest "zero fills, nothing to capture". **Run it immediately after
+the trades fill, before writing any parser.**
+
+Not time-critical, and that is stated rather than assumed: `/portfolio/fills` is
+historical, so the laptop step can wait for the next laptop session. Kalshi's
+fill retention window is **unknown to this project** — assumed, not measured —
+so do not stretch it indefinitely.
+
+Also corrected: `tests/test_execution.py`'s fee test claimed the calibration
+trades "do not also need a `/portfolio/fills` poll" because the fee arrives in
+the order response. **Wrong for the trades actually planned** — see ADR 0018;
+our order path cannot place a real order, so the trades go through the Kalshi
+app and produce no order response here. `/portfolio/fills` is the only channel.
+
+### ADR 0018 — arming real trading is a code change, not a config act
+
+`backend/store/orders.py:129` is `ORDERS_ARE_DRY_RUNS = True`, a **module
+constant with no environment read**. `routes.py:1382` is the only production
+`OrderPlacer` construction and takes it; `place` short-circuits to
+`STATUS_DRY_RUN` before any POST. The only `dry_run=False` constructions in the
+repo are in tests.
+
+**`LIVE_TRADING_ENABLED` satisfies one gate condition and moves no money.**
+`gate.py`'s wording did not say that was false — it said nothing about what the
+flag is *sufficient* for, and a reader supplies the wrong answer. Both branches
+of the condition detail now say so, and the ADR enumerates all four things that
+would have to move, in order (including a second barrier nobody had recorded:
+`routes.py` passes no REST client, so flipping the constant alone raises at
+construction rather than placing an order).
+
+Enforced by `TestArmingRealTradingIsACodeChange`. **The disable-check was run by
+hand this session and all four deformations confirmed**, including the two that
+matter most: a *harmless* `dry_run=True` literal at the call site is still
+refused (the defect is divergence between two sites, not the value at either),
+and pointing the AST walker at a name that does not exist turns it red on
+`found >= 2` rather than passing vacuously.
+
+### `fly.live.toml` was wrong on both halves, and one has a bill attached
+
+It said the agent fleet and the notifier "are not wired into the runner, so
+nothing reads them yet." Both false, verified: `run_loop.py:278` reads
+`DiscordConfig.from_env()` on every boot, and `runner.py:489` defaults
+`review=review_surfaced` with both production callers going through it.
+
+**The trap, and it is specific to live.** There are two independent reasons the
+Anthropic bill is zero — an empty candidate list (`review.py:194`, checked
+*before* the environment) and a missing key (`:197`). Locally, reason 2 does the
+work. **On live it does not**: live reports `agent_fleet_configured: true`, so
+the key is set, and the only thing standing between the deployment and a live
+bill is `surfaced == 0`.
+
+So the spend is gated by a **measurement outcome**, not by config — it switches
+itself on precisely when the project starts working. One call per surfaced row
+per pass, ~96 passes a day. **Set a spend limit on the Anthropic account.**
+
+### The D1 deadline, derived rather than repeated
+
+`MARKET_RESULT_MAX_AGE_S` is **unset on live**, so the 7-day code default
+applies (`config.py:410`). The result pass drops any market more than 7 days
+past commencement.
+
+That makes it a **rolling loss, not a cliff**: if the pass is silently broken,
+one day of outcomes is lost per day, permanently, and it cannot be detected from
+outside. That is what makes the read-access decision below the gating item
+rather than a convenience.
+
+### DECISION WAITING ON JOE — it blocks two queue items
+
+An agent cannot read the live evidence record. The `APP_AUTH_TOKEN` in the local
+`.env` is **not** the live token (verified: live `/session` 303s it to
+`/login?error=1`).
+
+**Recommended: type the live `APP_AUTH_TOKEN` into the local `.env` yourself.**
+Never paste it into a chat window. `.env` is gitignored and the existing loader
+picks it up; every future measurement becomes programmatic.
+
+Blast radius: an agent holding it can read every route and create dry-run order
+rows. It **cannot** move money — ADR 0018 is exactly why, and the gate is closed
+on three independent evidence conditions besides. The alternative (a Bash
+permission rule for `flyctl ssh console`) is strictly more powerful, grants raw
+DB access, and reintroduces the laptop dependency we are trying to remove.
+
+Until then the live pull is a phone tap: **`GET /api/gate` is the single
+highest-yield request** — four gate conditions plus `populations.counts` over
+the whole table.
+
+### The four lanes that were killed, and where each got to
+
+Resume rather than restart. None left the tree dirty except the first.
+
+1. **ADR 0018 + doc defects — LANDED.** It died before writing the ADR, having
+   already made good, correctly-cited edits to `gate.py` and `fly.live.toml`.
+   Those were verified line by line and kept; the ADR was written by hand and
+   one overstated claim was tightened (the Anthropic sentence above — the
+   absence of a key *also* keeps the bill at zero, so the claim is true of live
+   specifically, not universally).
+2. **Pre-registration for the fresh-odds edge distribution — NOT STARTED.**
+   Wrote nothing. This is NEXT.md item 2 and still needs `pre-registrar`. The
+   record has now been seen, so an unregistered cut is a fishing expedition.
+3. **`publish` + ledger `offset` — NOT STARTED.** Its worktree was pruned. The
+   premise to re-verify first: `publish()` reportedly writes to a
+   container-local relative path with no route serving it, so the evidence
+   record has never left the volume, and `/api/ledger` has no way to page past
+   the newest 1,000 of 1,462 rows.
+4. **`runtime-realist` audit of the power-ratings finding — NOT STARTED.** See
+   the top section. This is the first job next session.
+
+### `partner`'s kill list, recorded so it is not re-litigated
+
+In-play (3.5–6x underwater on measured cost vs headroom); ADR 0016 Phases 1 and
+2 (9,600 credits for precision on a question already answered twice); Phase 0
+downgraded to no-go (the 80-day window rolls forward with no cliff, and it needs
+a `provenance` column that was never shipped, i.e. a schema v7 migration on the
+live volume); combo/KXMVE (hit its own stopping rule); Scout and Historian (no
+production caller — `playbook.py:18` says so in its own source); the dbt
+warehouse and Dashboards screen (`warehouse/` is not in the Dockerfile and
+`/api/dashboards` is a 503 on live — build analysis as Python modules behind
+routes, the way `/api/gate` just proved works from a phone); NFL preseason
+widening; and the maker *live* test (no cancel path exists).
+
+### One housekeeping note
+
+`.claude/worktrees/agent-ac69ee4907c57aa1a/frontend` could not be removed — a
+file handle is still open on it. It contains **zero files** and `.claude` is on
+`NOT_PRODUCTION`, so it cannot pollute the has-no-caller walker. Delete it when
+convenient.
+
+---
+
 ## 2026-08-09, ~22:40Z — DEPLOYED, and `actionable` has been 0 for the whole record
 
 `main` at `1002028`, pushed, **CI green on all three jobs**. 1,753 tests, ruff
