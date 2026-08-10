@@ -212,25 +212,51 @@ dispatch that prints nothing.
 1. **Joe: set the Actions spending limit to $10.** At the default $0, Actions
    *stops* at the cap rather than slowing, taking `Deploy` and `Ops` with it —
    the only phone paths to Fly. See `tasks/PHONE.md` item 0.
-2. **Full-history secret audit, then make the repo public.** Public repos get
-   unlimited free Actions minutes and `CLAUDE.md` already states this is meant
-   to become a public portfolio repo. That ends the cost problem permanently,
-   which is why the heavier CI restructuring was deliberately *not* done.
+2. ~~Full-history secret audit~~ **DONE 2026-08-10 — CLEAN. The repo is clear
+   to go public.** No credential has ever been committed, on any ref.
 
-   A preliminary check is encouraging but is **not** an audit: 236 commits, the
-   only secret-shaped file ever committed is `.env.example`, and every
-   `BEGIN … PRIVATE KEY` hit across full history is a bare header with no key
-   body — in `tests/`, the secret-scan canary, and `lessons.md` prose, i.e.
-   exactly the files `ci.yml` already whitelists.
+   What was actually run, so nobody repeats it:
 
-   It was a pattern grep with no entropy detection. Before flipping, run
-   gitleaks over `--log-opts="--all"`, and specifically hunt the **Odds API
-   key**, which per `lessons.md` leaks through httpx URL logging into query
-   strings and has no distinctive prefix to grep for. If anything real
-   surfaces, **rotate first** — history rewriting is not a substitute.
+   - **gitleaks over `--log-opts="--all --full-history"`** (218 commits, 14 MB).
+     Two `private-key` findings, **both verified false positives**: the bodies
+     are 3 and 37 base64 characters (`.github/workflows/ci.yml` canary printf,
+     `tests/test_logging_redaction.py` fixture) and neither parses as DER. A
+     real RSA-2048 key is ~1,600 characters.
+   - **Blob-level scan of all 1,944 objects reachable from every ref** — a
+     strict superset of diff-based scanning, which is what closes gitleaks'
+     218-vs-240 commit gap — against 12 credential patterns (Fly, Discord bot +
+     webhook, Anthropic, OpenAI, AWS, GitHub PAT, Slack, generic assigned
+     secret). **One** hit: a 32-hex value in the redaction test.
+   - **That hit was verified synthetic.** Its sha256 differs from the live
+     `ODDS_API_KEY`; it appears in exactly one file, ever, and only as the
+     subject of `assert <value> not in cleaned`. This was the specific risk
+     called out in advance — the Odds key has no greppable prefix — and it came
+     back clean on a value comparison, not a guess.
+   - **Every live secret** (`APP_AUTH_TOKEN`, `KALSHI_API_KEY`, `ODDS_API_KEY`)
+     checked byte-for-byte against every historical blob: **absent**.
+   - **`KALSHI_PRIVATE_KEY_PATH` points outside the repo tree entirely**
+     (`~/.kalshi/`), so the key is structurally uncommittable.
+   - **`.gitignore` carried `.env`, `.env.*`, `*.pem`, `*.key`, `*.pfx` from
+     the first commit** (`330fe04`) — verified, not taken from CLAUDE.md.
+   - **Entropy sweep** (>4.4 bits, len 28–80): every hit is a public Kalshi
+     ticker (`KXMLB…`, `KXMVE…`) or an ESPN URL. No secrets.
 
-   Flipping is irreversible for anything already committed. Do it at a
-   keyboard.
+   Caveat worth keeping: `ANTHROPIC_API_KEY`, `DISCORD_BOT_TOKEN` and
+   `DISCORD_CHANNEL_ID` are empty in `.env`, so they could not be compared by
+   value. They were covered by pattern (`sk-ant-`, bot-token and webhook
+   regexes) across all blobs, which found nothing.
+
+   **Two housekeeping items before flipping — neither is a security blocker:**
+
+   - `.tmp_shots390/` — six PNGs, 1.5 MB, committed accidentally in `a92ac42`
+     from a `.tmp_` directory and **not gitignored**. Content is demo data
+     (gate Locked, 0/300 scored, `LIVE_TRADING_ENABLED` off). Delete from the
+     tip and add to `.gitignore`; no history rewrite needed.
+   - `gate.png` shows `Bankroll $1000`, which is your real configured
+     `BANKROLL_DOLLARS`. Not a credential — your call whether a portfolio repo
+     should show it. Deleting the screenshots handles it either way.
+
+   Flipping is still irreversible. Settings → General → Danger Zone.
 
 ---
 
