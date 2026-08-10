@@ -1,5 +1,34 @@
 # Next — your checklist
 
+## ⚠ 2026-08-10 — READ THIS IF YOU ARE A PARALLEL SESSION
+
+Infrastructure changed underneath you, from a session running in parallel. This
+does **not** supersede the technical work below — it is a different lane. But
+these four points will cost you time if you meet them cold.
+
+1. **THE REPO IS NOW PUBLIC.** Every push publishes to the world immediately.
+   Before committing a measurement, fixture, log capture or screenshot, ask
+   whether it should be world-readable. Screenshots of the live UI are the
+   sharp edge — one live run away from showing a real position or bankroll.
+2. **Push protection is ON.** A push containing anything that looks like a
+   credential will be **rejected by GitHub**. That is the guard working. Do
+   **not** bypass it — stop, look at what tripped it, and rotate if it is real.
+   Nothing in existing history trips it: GitHub's own scan of the full history
+   returned **0 alerts**, independently confirming the gitleaks audit.
+3. **CI now cancels superseded runs.** If you push twice in quick succession
+   and the earlier run shows `cancelled`, **that is not a failure and not
+   something to debug** — `ci.yml` gained `concurrency` with
+   `cancel-in-progress: true`. Judge CI by the run on your latest SHA.
+4. **`.github/workflows/**` and `.gitignore` were edited.** Pull before touching
+   either. `.tmp_*` is now gitignored and `.tmp_shots390/` was removed from the
+   tip, so screenshot and probe scratch output is no longer committable — which
+   is intended.
+
+Nothing in `backend/`, `tests/`, `warehouse/` or `frontend/` was touched, so
+work in progress there is unaffected.
+
+---
+
 ## 2026-08-10, end of session — ADR 0019 LANDED, AND THE REPORTED BUG WAS WRONG
 
 **Read this first. It supersedes everything below.**
