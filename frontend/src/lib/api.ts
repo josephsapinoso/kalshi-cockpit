@@ -7,7 +7,34 @@
  * places drift apart.
  */
 
-export type Recommendation = {
+/**
+ * All four devig readings for the side bought, plus the one that was used.
+ *
+ * **Present only on `/api/ledger`**, which is the one route that joins
+ * `fair_prices` through `recommendations.fair_price_id`. The Board and the
+ * market detail select from `recommendations` alone and omit these keys
+ * entirely rather than sending them as `null` — a `null` there would be
+ * indistinguishable from a join that ran and found nothing.
+ *
+ * `fair_probability` is `p_conservative`: the **lowest** reading across
+ * methods for the side being bought. That is a deliberate downward bias on
+ * fair value, and a downward bias mechanically produces `edge <= 0` — so with
+ * only that one column, no consumer can separate "Kalshi is sharp" from "we
+ * chose a low fair". These four are what make that question answerable.
+ *
+ * Each is independently nullable: a devig method that could not be solved
+ * resolves to `null`, never `0`, because `0` is a legitimate probability.
+ */
+export type DevigMethods = {
+  p_multiplicative: number | null;
+  p_additive: number | null;
+  p_power: number | null;
+  p_shin: number | null;
+  /** Should equal `fair_probability` exactly. Sent so the join can be checked. */
+  p_conservative: number | null;
+};
+
+export type Recommendation = Partial<DevigMethods> & {
   id: number;
   ticker: string;
   created_ms: number;
@@ -395,6 +422,28 @@ export type Ledger = {
   returned: number;
   /** The `LIMIT` that was applied. */
   limit: number;
+  /**
+   * The `OFFSET` that was applied. Echoed because `total`, `returned` and
+   * `limit` cannot tell "I fetched every page" from "I fetched page 0 twice".
+   */
+  offset: number;
+  /**
+   * The snapshot pin in force, or `null` for an unpinned read.
+   *
+   * A multi-page pull **must** pass `newest_id` back as `max_id`. The route
+   * sorts newest-first, so a row written during the pull lands on page 0 and
+   * shifts every later page — and on live one `created_ms` carries 84 rows,
+   * so a single sweep landing mid-pull duplicates a quarter of the result and
+   * drops rows that were there the whole time, with `returned` and `total`
+   * still adding up.
+   */
+  max_id: number | null;
+  /**
+   * The newest `id` in the table, not in the page. Pass it back as `max_id`
+   * to pin a snapshot. Under a pin, `newest_id > max_id` says rows arrived
+   * during the pull and were correctly excluded.
+   */
+  newest_id: number | null;
   /**
    * The whole table counted by `clv_horizon_hours`, keyed as strings — `"0"`,
    * `"1"`, `"unscored"`. Over the table rather than the returned window,

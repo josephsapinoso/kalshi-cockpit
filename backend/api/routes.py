@@ -632,6 +632,8 @@ def create_app(
     def ledger(
         conn=Depends(get_conn),
         limit: int = Query(200, le=1000),
+        offset: int = Query(0, ge=0),
+        max_id: Optional[int] = Query(None, ge=1),
     ) -> dict:
         """Every recommendation, surfaced or not.
 
@@ -659,14 +661,111 @@ def create_app(
         the *oldest* ones and `ORDER BY created_ms DESC` is precisely the window
         that hides them. `primary_horizon_hours` names the anchor the gate
         counts, so a reader does not have to know which key is the current one.
+
+        **`offset` exists so the table can be read whole.** `limit` caps at
+        1,000 against 1,535 rows -- and `engine.persist_if_changed` writes a row
+        only when the ask or the fair *moved*, so rows-per-game tracks price
+        volatility and the newest slice is weighted toward volatile,
+        wide-disagreement games. That is the direction that **inflates** an
+        apparent edge, which is why paging is a prerequisite for a decisive
+        measurement rather than a convenience.
+
+        **`max_id` is the load-bearing half of that, and `offset` alone is a
+        trap.** `ORDER BY created_ms DESC` sorts newest first, so a row written
+        *during* a multi-page pull lands on page 0 and pushes every later page
+        along by one. The recorder writes ~500-600 rows a day in sweeps, and
+        **[MEASURED on live, 2026-08-10] one `created_ms` on this table carries
+        84 rows**, so a sweep landing mid-pull shifts the window by most of a
+        page. This is not hypothetical and it is not rare; it is what an active
+        slate does.
+
+        Reproduced directly, 120 rows pulled in four pages of 30 with one
+        84-row sweep landing between page 0 and page 1:
+
+            unpinned            returned 120, distinct  90, duplicated 30,
+                                and 84 original rows never returned
+            pinned to max_id    returned 120, distinct 120, duplicated  0
+
+        **The failure is silent.** `returned` is 30 on every page, the four
+        pages sum to 120, and `total` agrees -- so every check the payload
+        supports passes while a quarter of the pull is duplicates and 84 rows
+        are simply absent. A consumer would report a whole-table measurement
+        over a multiset that is not the table.
+
+        So a whole-table pull reads `max_id` from the first page and passes it
+        back on every subsequent page. `id` is `INTEGER PRIMARY KEY
+        AUTOINCREMENT`, so `id <= max_id` names a fixed prefix of the table that
+        later writes cannot enter: the snapshot is immutable by construction
+        rather than by hoping the recorder is idle. **`total` is counted under
+        the same pin**, so paging until `offset + returned == total` terminates
+        on the snapshot and not on a target that keeps moving.
+
+        **The ordering also gains `id DESC`, and that one is hardening rather
+        than a fix.** Ties are the normal case here -- [MEASURED] the newest
+        1,000 rows carry only **169 distinct `created_ms` values** and 960 of
+        them tie with at least one other row -- and within a tie
+        `ORDER BY created_ms DESC` alone leaves the order unspecified by SQL,
+        resting on whichever plan the query planner picks. It was measured to
+        page consistently on a static table today, so no corruption is being
+        claimed; but adding the `fair_prices` join below already changed the
+        plan (`USE TEMP B-TREE FOR RIGHT PART OF ORDER BY`), and a paging
+        contract that depends on a plan staying put is one optimiser change
+        from being wrong. `(created_ms DESC, id DESC)` is a **total** order, so
+        it cannot be. It also makes the route honest about "newest first":
+        under the old ordering the 84 rows of one sweep came back
+        oldest-`id`-first inside a descending page.
         """
         rows = conn.execute(
-            "SELECT * FROM recommendations ORDER BY created_ms DESC LIMIT ?",
-            (limit,),
+            # **The four devig methods travel with the row, not just the one
+            # used.** `fair_probability` is `p_conservative` -- the *lowest*
+            # reading across methods for the side being bought
+            # (`devig.conservative_probability`) -- which is a deliberate
+            # downward bias on fair value, and a downward bias mechanically
+            # produces `edge <= 0`. Without the other three, no consumer can
+            # ask what that policy costs, and `actionable = 0` cannot be
+            # separated into "Kalshi is sharp" and "we chose a low fair".
+            #
+            # Raw columns rather than a computed spread or a server-side
+            # histogram, on purpose: deploys are batched, so anything baked in
+            # here costs a release to re-cut, while raw rows are re-cut for
+            # free in a tested local module.
+            #
+            # `p_conservative` is sent beside the other four although it should
+            # equal `fair_probability` exactly -- that equality is the check
+            # that the `fair_price_id` join landed on the right row, and a
+            # consumer cannot make it if only one of the pair is present.
+            #
+            # LEFT JOIN, and the four are `None` when it misses. `fair_price_id`
+            # is nullable and the four `p_*` columns are themselves nullable in
+            # `fair_prices`, so a missing method is a real state -- and per this
+            # repo's rule it resolves to `None`, never `0`. A `0.0` here would
+            # be a fair probability of zero, which is a legitimate value, so the
+            # two states would be indistinguishable.
+            "SELECT r.*, "
+            "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
+            "       f.p_conservative "
+            "FROM recommendations r "
+            "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
+            "WHERE (? IS NULL OR r.id <= ?) "
+            "ORDER BY r.created_ms DESC, r.id DESC LIMIT ? OFFSET ?",
+            (max_id, max_id, limit, offset),
         ).fetchall()
+        # Counted under the same pin as the rows, or paging to `total` never
+        # terminates on an active slate: the target would grow while the pull
+        # walks it. Unpinned, this is the whole table exactly as before.
         total = int(
-            conn.execute("SELECT COUNT(*) AS n FROM recommendations").fetchone()["n"]
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM recommendations "
+                "WHERE (? IS NULL OR id <= ?)",
+                (max_id, max_id),
+            ).fetchone()["n"]
         )
+        # The newest id **in the table**, not in the page -- so a caller can
+        # pin a snapshot from page 0 without having read the rows, and so a
+        # pinned pull can still see that the table has moved on.
+        newest_id = conn.execute(
+            "SELECT MAX(id) AS m FROM recommendations"
+        ).fetchone()["m"]
         # `null` for the unscored, keyed as a string because JSON object keys
         # are strings and `0.0` and `1.0` must stay distinguishable from each
         # other and from "not scored".
@@ -691,6 +790,20 @@ def create_app(
             "total": total,
             "returned": len(rows),
             "limit": limit,
+            # Echoed so a pull assembled from several pages can prove which
+            # pages it holds. `total`, `returned` and `limit` alone cannot
+            # distinguish "I fetched every page" from "I fetched page 0 twice".
+            "offset": offset,
+            # The pin in force on this response, echoed back rather than
+            # assumed: `None` says the caller is reading a moving table and any
+            # multi-page pull off it is unsound.
+            "max_id": max_id,
+            # The newest id in the table. Pass it back as `max_id` to pin a
+            # snapshot. Under a pin it also reports how far the table has moved
+            # since -- `newest_id > max_id` means rows arrived during the pull
+            # and were correctly excluded, which is the check that the pin did
+            # something rather than the check that it was unnecessary.
+            "newest_id": newest_id,
             "horizons": horizons,
             "primary_horizon_hours": DEFAULT_HORIZON_HOURS,
         }
@@ -1851,8 +1964,33 @@ def _serialise(
     # Cost stays in integer tenths until the last step. `ask * contracts` is
     # exact; `tenths_to_dollars(ask) * contracts` is not.
     stake = tenths_to_dollars(ask * contracts)
+    # **All four devig readings, when the caller joined them in.** Present only
+    # on the Ledger, which is the one route that joins `fair_prices` through
+    # `recommendations.fair_price_id`; the Board and the market detail select
+    # from `recommendations` alone and get `{}` here rather than five null keys
+    # pretending the join was attempted and empty.
+    #
+    # `row.keys()` rather than a parameter, matching how `yes_side_team` and
+    # `event_title` are already handled: the shape of the row is what decides,
+    # so a caller cannot ask for the fields and silently get nulls because its
+    # query lacked the join.
+    methods = (
+        {
+            "p_multiplicative": row["p_multiplicative"],
+            "p_additive": row["p_additive"],
+            "p_power": row["p_power"],
+            "p_shin": row["p_shin"],
+            # Should equal `fair_probability` exactly. Sent so a consumer can
+            # check the join landed on the right `fair_prices` row rather than
+            # assuming it.
+            "p_conservative": row["p_conservative"],
+        }
+        if "p_conservative" in row.keys()
+        else {}
+    )
     return {
         **live,
+        **methods,
         "id": row["id"],
         "ticker": row["ticker"],
         "created_ms": row["created_ms"],
