@@ -1079,3 +1079,284 @@ Read `n` before the effect size, and read the frame before `n`.
 | Assumed inputs | **One** — the aggregator's scrape period, which justifies the schedule and gates no threshold |
 | Verdict at registration | **READY.** Preconditions P0 (commit) and P1 (budget headroom, §C4) are outstanding and are not this agent's to satisfy. |
 | Amendments | **None.** |
+
+---
+---
+
+# Amendment A — two of P1's three clauses were unenforceable, and the script printed `P1 pass`
+
+**Written 2026-08-11 (UTC), appended. Still zero credits spent on this
+measurement. Not one poll has been made.**
+
+**The body above is untouched.** No inline marker has been added to it anywhere,
+following the precedent of Amendment A on
+[`2026-08-10-preregistration-fee-model-fill-calibration.md`](2026-08-10-preregistration-fee-model-fill-calibration.md)
+and Correction A on
+[`2026-08-10-preregistration-fee-rate-attribution-round-three.md`](2026-08-10-preregistration-fee-rate-attribution-round-three.md).
+Where this amendment contradicts the body, **this amendment governs**, and §A7
+lists every place that happens. The Registration record's `Amendments | None.`
+line predates this amendment and is left as written rather than edited, for the
+same reason.
+
+## §A0. What this amendment does and does not do — read this before anything else
+
+**It changes no hypothesis, no prediction, no population, no exclusion, no
+unit, no bucket edge, no statistic, no threshold, no precondition, no decision
+rule, no stopping rule, and no destination.**
+
+Specifically and by name, all of the following are **unchanged**: §1's `S` and
+its direction; the `S >= 0.90` / `S <= 0.20` thresholds; `S_strict`; §2's
+population and its four exclusions; §3's clustering on `bookmaker`; §4's
+allocation of 1 sport × 4 polls; §5's schedule, primary pair 1→3, registered
+fallback 1→4, row key, and exact-equality predicate; §6's estimators including
+`R` and `movers`; §7's PC1–PC6 and the verbatim decision rule; §8's stopping
+rule; §9's destination and consequence table; §10's limits; and the whole of
+§S1/§S2.
+
+**The 24-credit authorisation is unchanged.** `REQUIRED_CREDITS = 24`, four
+calls at 6, one shot, no fifth call. The fix did not touch that constant, and a
+test pins it
+(`tests/test_repeat_poll_preconditions.py::test_required_credits_is_the_registered_authorisation`).
+
+**The registration's own expiry is unchanged**, and it is worth being precise
+about what that is: this document carries **no dated expiry**. Its only
+time-bound is **P4**, which is decided fresh from a zero-credit source at each
+`T0` and is satisfiable or not on the day. This amendment does not add an
+expiry, shorten one, or extend one.
+
+What it does is narrower and entirely about **enforcement**: it records that
+two of P1's three clauses could not fail on the machine the capture is built to
+run on, and it records what enforces each of them now. §8 requires an amendment
+to be appended, dated, with its reason, **before** the analysis runs and with
+the pre-amendment rule reported alongside. All three conditions are met here,
+and a stronger one is met too — **no poll has been made, so no data exists that
+could have shaped this.**
+
+## §A1. The defect, with the mechanism rather than an adjective
+
+**P1 as registered (§P, and §C4's "Registered consequence") requires three
+things, each read and printed before poll 1:**
+
+```
+remaining_today             >= 24
+remaining_this_month        >= 24
+server x-requests-remaining >= 24
+```
+
+**As first implemented** — `scripts/capture_odds_repeat_poll.py:278-301` at
+commit `60629c2`, the same commit that satisfied P0 — clauses 2 and 3 were
+guarded by `is not None`:
+
+```python
+failures = []
+if state.remaining_today < REQUIRED_CREDITS:                       # :279
+    failures.append(...)
+if (state.remaining_this_month is not None                         # :281
+        and state.remaining_this_month < REQUIRED_CREDITS):
+    failures.append(...)
+if (state.remaining_reported is not None                           # :286
+        and state.remaining_reported < REQUIRED_CREDITS):
+    failures.append(...)
+```
+
+**On the machine this script is built to run on, both guarded values are
+always `None`:**
+
+| Clause | Source | Why it is `None` on the laptop |
+|---|---|---|
+| 2 — `remaining_this_month` | `BudgetState.remaining_this_month`, `backend/odds/budget.py:85-94` | Returns `None` whenever `monthly_budget is None`, and `.env` sets no `ODDS_MONTHLY_CREDIT_BUDGET` (`.env.example:49` has it commented out). |
+| 3 — `remaining_reported` | `CreditBudget.state`, `backend/odds/budget.py:159-170` | Selects the most recent `api_credits` row with a non-null `remaining_reported`. The local `api_credits` table holds **0 rows**, so `latest` is `None`. |
+
+`None is not None` is `False`, so **neither clause could append to `failures`,
+at any value of the account's real credit balance.** They were not lenient.
+They were absent.
+
+## §A2. And the script reported a pass
+
+With `failures` necessarily empty, control reached `:301`:
+
+```
+  P1 pass (subject to the live header check after poll 1)
+```
+
+All three numbers *were* printed (`:271-276`), which satisfies the
+registration's literal words "printed before poll 1" — two of the three lines
+read `None`. **A precondition set in which two of three clauses cannot fail,
+reported as a pass, is the exact failure mode a pre-registration exists to
+prevent**, and it sat inside the pre-registration's own precondition list.
+
+**The comment at `:255-258` asserted the opposite and was false:**
+
+> *"The monthly ceiling and the server's own `x-requests-remaining` are NOT
+> touched and still refuse."*
+
+They did not refuse. There was nothing there to refuse with. That comment is
+now rewritten to describe what the code does.
+
+**The exposure is stated in proportion, because overstating it would be its own
+error.** Clause 1 *did* bind: `:259` raises the daily cap to exactly
+`REQUIRED_CREDITS = 24` and no further, so the worst case was 24 credits of a
+prepaid 20,000-credit tier — the authorised spend, not an unbounded one. **The
+defect is a vacuous precondition, not a runaway.**
+
+## §A3. What enforces each clause now
+
+The remedy costs zero credits, and the code for it already existed in this
+repo: `scripts/setup_odds_key.sh` `probe_key` (~`:227-239`) calls **`/sports`**
+and reads `x-requests-remaining` from the response headers. **The Odds API does
+not meter `/sports`.** The account-truthful number was obtainable at zero cost
+at any moment, including before poll 1.
+
+Each clause now resolves to exactly one of three **explicit** states —
+`PASS`, `FAIL`, `NOT-APPLICABLE` — printed with its reason. There is no fourth
+state and there is no silence.
+
+| Clause | Enforced by | On an unreadable input |
+|---|---|---|
+| 1 — daily | `evaluate_p1`, against `BudgetState.remaining_today`. **Unchanged in substance**; the daily cap is still raised to exactly 24 and no further. | `FAIL`. A `None` daily figure refuses; it is never treated as headroom. |
+| 2 — our own monthly ceiling | `evaluate_p1`, against `BudgetState.remaining_this_month`. | If `ODDS_MONTHLY_CREDIT_BUDGET` **is set** and its headroom reads `None`: **`FAIL`** — a ceiling that was asked for and cannot be read refuses. If it is **unset**: **`NOT-APPLICABLE`**, printed as such, for the reason in §A4. |
+| 3 — the account's own count | **A pre-flight `/sports` probe, made before anything is spent**, reading `x-requests-remaining` from the live response. Not `state.remaining_reported`, which is this database's cache of a header it may never have seen. | **`FAIL`.** Transport error, non-200, absent header, and unparseable header all resolve to `None`, and `None` refuses. Nothing is spent. |
+
+**And the structural guard that makes `NOT-APPLICABLE` safe at all:
+`p1_passes` refuses unless clause 3 is a live `PASS`.** So the state that
+produced this amendment — two of three clauses failing to bind — is now
+unreachable whatever `.env` holds, and it stays unreachable if a future edit
+reintroduces a skippable clause elsewhere.
+
+**Credential hygiene (P2) binds on the new call and was treated as binding.**
+The probe never reads `response.url` or `response.request.url`, and on an
+exception it reports **only `type(exc).__name__`** — `httpx` puts the full
+request URL in exception text and this provider takes the credential as a query
+parameter. The repo is public. F8 already records that `configure_logging()`
+does not protect a value the script itself prints; this is the same hazard, one
+call further out.
+
+## §A4. The design decision on clause 2, stated rather than left implicit
+
+**An unset `ODDS_MONTHLY_CREDIT_BUDGET` is `NOT-APPLICABLE`, not a refusal.**
+The reasoning, so it can be disagreed with rather than trusted:
+
+1. **Clauses 2 and 3 are not two readings of one quantity.** Clause 3 is the
+   **account's** remaining allowance for the billing period, and on this plan
+   the Odds API's period *is* the calendar month (`backend/odds/budget.py:56`,
+   `_utc_month_start_ms`; the tier is 20,000 credits a month). So the monthly
+   headroom the registration cared about — *will this spend blow the month?* —
+   **is** clause 3, now read live.
+2. **Clause 2 is a self-imposed reservation, not a protection of the account.**
+   Its documented purpose (`backend/odds/budget.py:186-191`) is to keep
+   headroom for another lane — the historical backfill — that would otherwise
+   be starved by whoever spends first. That is a scheduling preference between
+   our own lanes.
+3. **An unset optional ceiling is a configured absence, not a failed read.**
+   The repo rule is *unreadable resolves to `None`, never `0`; callers refuse
+   rather than substitute.* The distinguishing test is whether there is a fact
+   of the world we tried and failed to observe. For clause 3 there is: the
+   account has a real balance, and failing to read it is ignorance, so it
+   refuses. For clause 2 there is not: no second ceiling exists because nobody
+   asked for one. Refusing on it would be refusing because a preference was not
+   expressed.
+4. **It is only defensible because of the coupling in §A3.** If clause 3 could
+   also be skipped, this reasoning would rebuild the defect. It cannot.
+
+**The rejected alternative, named so it is not silently forgotten:** requiring
+`ODDS_MONTHLY_CREDIT_BUDGET` to be set before the capture may run. That is a
+defensible stricter rule, and it was rejected because it would make the
+precondition a statement about our `.env` rather than about the account, and
+because setting a number purely to satisfy a check is how a threshold becomes
+decoration. **If a future session prefers the stricter rule it is a one-line
+change and a further amendment — not a judgement call at run time.**
+
+## §A5. The in-flight check at `:344-350`, and what the fix does to it
+
+The body's P1 note and the old `:292-295` NOTE both deferred clause 3 to "the
+live header check after poll 1". That check is at `:344-350`:
+
+```python
+still_needed = cost * (len(POLL_OFFSETS_S) - index)
+if remaining is not None and int(remaining) < still_needed:
+```
+
+At poll 1 this is `6 × (4 − 1) = 18`, **not 24**. So under the old code:
+
+- the **first 6 credits were spent against a counter that had never seen the
+  account** — the check cannot run before the call that produces the header it
+  reads; and
+- the first threshold it applied was **18**, three-quarters of the authorised
+  spend, because by then poll 1 was already paid for.
+
+**Does the fix change the `18`? No, and that is deliberate.** `still_needed`
+asks the correct in-flight question — *can the polls not yet made still be paid
+for?* — and after poll 1 has been paid, three polls remain, which is 18 credits.
+Raising it to 24 would compare a post-spend balance against a pre-spend
+requirement and would abort a healthy capture.
+
+**What the fix does change is the thing that actually mattered: the first 6
+credits are no longer spent against an unseen counter.** P1 now reads the
+account live and requires `>= 24` **before** poll 1. `:344-350` is therefore
+demoted from *"the enforcement of clause 3, deferred"* to *"an in-flight
+backstop against the account being drained by another instance mid-capture"* —
+which is the per-database/per-account gap `tasks/NEXT.md` records, and which no
+pre-flight check can cover.
+
+**One further change there, and it is a decision, not a tidy-up.** The same
+`is not None` shape appeared at `:345`, and `int(remaining)` would additionally
+raise on a non-numeric header. An absent or unparseable header mid-capture now
+prints a loud `WARNING` and **continues**, rather than aborting. The reason is
+that the spend is already bounded three ways — the daily cap is pinned at
+exactly 24, P1 read the account live before poll 1, and §8 fixes the capture at
+four calls — while aborting a one-shot capture on a transient header would burn
+the credits already spent and forfeit the slate, which §8 says there is no
+second attempt at. **It is printed, not skipped**; that is the distinction this
+whole amendment turns on.
+
+## §A6. What this amendment does not establish
+
+- **It does not establish that 24 credits are available.** It establishes that
+  the script will now refuse if they are not, and refuse if it cannot tell.
+- **It does not establish that `/sports` is unmetered.** That is a property of
+  the provider. The evidence is that `scripts/setup_odds_key.sh` has called it
+  on every key install without a documented cost, and no test in this repo can
+  settle it without spending the credit it claims not to cost. **If `/sports`
+  turns out to be metered, the pre-flight probe costs 1 credit and the capture
+  is 25, not 24** — that is the one way this amendment could breach the
+  authorisation, it is named here rather than discovered later, and it is why
+  this paragraph exists.
+- **It does not establish that the rest of §C4's arithmetic is right.** That
+  table is unchanged and was not re-derived.
+- **It says nothing whatever about `last_update`**, which is the registration's
+  actual question. No poll has been made.
+- **It does not fix the per-database/per-account gap.** `CreditBudget` still
+  meters this database while the quota is the account's, and `drift` is still
+  mis-specified when two databases hold one key. That needs its own ADR and is
+  out of scope here.
+
+## §A7. What now binds
+
+**Unchanged, and confirmed:** every section of the body listed in §A0; the
+24-credit authorisation; the absence of a dated expiry; P0 (satisfied at
+`60629c2`) and P2–P6.
+
+**Amended:**
+
+| Body location | Amendment |
+|---|---|
+| §P, **P1** | Unchanged as a *rule* — still `remaining_today >= 24` **and** `remaining_this_month >= 24` **and** `x-requests-remaining >= 24`, all printed before poll 1. **Amended in what satisfies it:** clause 3 is read from a **pre-flight zero-credit `/sports` probe**, never from `state.remaining_reported`; an unreadable answer is a **FAIL**; clause 2 is **`NOT-APPLICABLE` when no self-imposed ceiling is configured** (§A4) and a **FAIL** when one is configured and unreadable; and P1 cannot pass unless clause 3 is a live PASS. |
+| §C4, "Registered consequence" | The three-part conjunction stands verbatim. Added: *"read"* means read **live**, before poll 1, and a value that cannot be read refuses. |
+| §F, new **F9** | `/sports` is unmetered by The Odds API and returns `x-requests-remaining` — `scripts/setup_odds_key.sh:227-239`. **[ASSUMED — provider behaviour, not verified by any test in this repo; see §A6.]** |
+| §10 | Add: *the pre-flight probe establishes the account's balance at `T0` only. Another instance holding the same key can spend against it during the 15-minute capture; `:344-350` is a backstop against that, not a guarantee.* |
+| Assumed inputs | Rises from **one** to **two**: the aggregator's scrape period (§0.4, unchanged), and now that `/sports` is unmetered (F9). Neither gates a threshold in §7. |
+
+**Verdict at registration, after Amendment A: READY, unchanged — and now
+genuinely NOT RUNNABLE until the account has 24 credits, rather than nominally
+so.** The design answers exactly the question the body registered, at exactly
+the authorised cost. What changed is that its preconditions can now say no.
+
+| | |
+|---|---|
+| Amendment | **A** — 2026-08-11 (UTC) |
+| Data seen at amendment | **None.** Zero polls, zero credits; no `last_update` comparison exists. |
+| Changes to §§1–7 | **None.** No hypothesis, prediction, threshold, statistic, exclusion or decision rule is touched. |
+| Changes to §8 | **None.** Four calls, no fifth. |
+| Authorised spend | **24 credits, unchanged** |
+| Expiry | **Unchanged — the registration has none.** Its only time-bound is P4, decided fresh at each `T0`. |
+| Enforced by | `scripts/capture_odds_repeat_poll.py` (`probe_server_credits`, `evaluate_p1`, `p1_passes`), pinned by `tests/test_repeat_poll_preconditions.py` |

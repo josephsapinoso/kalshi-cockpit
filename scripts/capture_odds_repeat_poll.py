@@ -37,6 +37,19 @@ budget refuses (`client.py:233`), which at the call site is indistinguishable
 from an empty slate. Any empty poll aborts the capture and is recorded as an
 abort, never analysed as a finding.
 
+**P1 clause 3 is read live from `/sports`, and a `None` refuses.** The Odds API
+does not meter `/sports` -- `scripts/setup_odds_key.sh` `probe_key` has called
+it since the key was installed -- so the account's own `x-requests-remaining`
+costs nothing and is obtainable *before* poll 1. It used to be read from
+`state.remaining_reported`, this database's cache of the last header it saw,
+which is `None` on a laptop whose `api_credits` table is empty; the clause was
+guarded by `is not None` and so could never fail. Clause 2 had the same shape.
+**Two of P1's three registered clauses were unenforceable on the machine this
+script is built to run on, and the script printed `P1 pass`.** See Amendment A
+of the registration. Every clause now reports one of `PASS` / `FAIL` /
+`NOT-APPLICABLE` explicitly, an unreadable probe is a `FAIL`, and the whole of
+P1 cannot pass unless clause 3 is a live `PASS`.
+
 ## What this script does NOT establish
 
 Nothing. It is a recorder. It computes no statistic, prints no verdict, and
@@ -54,10 +67,10 @@ import json
 import logging
 import sys
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import httpx
 
@@ -88,6 +101,25 @@ MIN_EVENTS_IN_WINDOW = 5
 
 DEFAULT_SPORT = "baseball_mlb"
 
+# §P1 clause 3. `/sports` is NOT metered by The Odds API -- it is what
+# `scripts/setup_odds_key.sh` `probe_key` (~:227-239) has called since the key
+# was installed, and it returns the same `x-requests-remaining` header the
+# metered endpoints do. So the account-truthful credit count is free, and it is
+# free *before* poll 1, which is the only moment at which it is a precondition.
+SPORTS_PROBE_PATH = "/sports"
+PROBE_TIMEOUT_S = 20.0
+
+# The three states a P1 clause can be in. Three, not two: a clause that does
+# not bind must SAY so in the output. The defect this replaces was a clause
+# that did not bind and said nothing at all.
+CLAUSE_PASS = "PASS"
+CLAUSE_FAIL = "FAIL"
+CLAUSE_NOT_APPLICABLE = "NOT-APPLICABLE"
+
+CLAUSE_DAILY = "clause 1 -- remaining_today (our daily cap)"
+CLAUSE_MONTHLY = "clause 2 -- remaining_this_month (our own monthly ceiling)"
+CLAUSE_SERVER = "clause 3 -- x-requests-remaining (live /sports probe)"
+
 
 def _utc(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime(
@@ -97,6 +129,20 @@ def _utc(ms: int) -> str:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _as_int(raw: Any) -> Optional[int]:
+    """Parse a header value to `int`, or `None`. Never `0` on failure.
+
+    The repo rule, and the whole subject of Amendment A: unreadable resolves to
+    `None`, and callers refuse or say so rather than substitute a number.
+    """
+    if raw is None:
+        return None
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +204,209 @@ class _RawCapturingClient(httpx.AsyncClient):
 
 
 # ---------------------------------------------------------------------------
+# P1 -- the three clauses, each with an explicit state. Zero credits.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ClauseResult:
+    """One P1 clause and the state it resolved to.
+
+    `state` is one of `PASS`, `FAIL`, `NOT-APPLICABLE`. The third exists so
+    that a clause which genuinely does not bind is **visible as such** rather
+    than contributing silence to a list of failures. Silence is what let two of
+    P1's three clauses be unenforceable while the script printed `P1 pass`.
+    """
+
+    name: str
+    state: str
+    detail: str
+
+
+async def probe_server_credits(
+    config: OddsConfig, *, http: Optional[httpx.AsyncClient] = None
+) -> tuple[Optional[int], str]:
+    """Read the account's own `x-requests-remaining` from `/sports`. Free.
+
+    Returns `(remaining, detail)`. **`remaining` is `None` on every failure
+    path** -- transport error, non-200, absent header, unparseable header --
+    and a `None` makes P1 clause 3 FAIL. It is never coerced to 0, never
+    coerced to "assume plenty", and never skipped. `tasks/lessons.md`:
+    *unreadable resolves to `None`, never `0`; callers refuse rather than
+    substitute.* ADR 0024 is what the other direction costs.
+
+    **P2 -- what is deliberately not read.** `response.url`,
+    `response.request.url` and `config.api_key` are never touched, and on an
+    exception only `type(exc).__name__` is returned: `httpx` puts the full
+    request URL in its exception text, and this provider takes the credential
+    as a query parameter. The repo is public.
+
+    A dedicated short-lived client is used rather than the capture's
+    `_RawCapturingClient`, so a probe body can never end up in a poll artefact.
+    `http` is injectable for tests, which drive it through
+    `httpx.MockTransport` and never over the network.
+    """
+    url = f"{config.base_url.rstrip('/')}{SPORTS_PROBE_PATH}"
+    params = {"apiKey": config.api_key}
+
+    async def _call(client: httpx.AsyncClient) -> tuple[Optional[int], str]:
+        try:
+            response = await client.get(url, params=params)
+        except httpx.HTTPError as exc:
+            return None, (
+                f"the /sports probe raised {type(exc).__name__}. Its message is "
+                "deliberately not printed -- httpx puts the full request URL in "
+                "exception text and the credential rides in the query string."
+            )
+        if response.status_code != 200:
+            return None, (
+                f"the /sports probe returned HTTP {response.status_code}. "
+                "No credit count was obtained."
+            )
+        raw = response.headers.get("x-requests-remaining")
+        if raw is None:
+            return None, (
+                "the /sports response carried no x-requests-remaining header."
+            )
+        parsed = _as_int(raw)
+        if parsed is None:
+            return None, (
+                f"x-requests-remaining was present but not an integer: "
+                f"{str(raw)[:32]!r}."
+            )
+        return parsed, "read live from the /sports response header (zero credits)."
+
+    if http is not None:
+        return await _call(http)
+    async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_S) as client:
+        return await _call(client)
+
+
+def evaluate_p1(
+    *,
+    remaining_today: Optional[int],
+    monthly_budget: Optional[int],
+    remaining_this_month: Optional[int],
+    live_remaining: Optional[int],
+    probe_detail: str = "",
+    required: int = REQUIRED_CREDITS,
+) -> list[ClauseResult]:
+    """The registration's three P1 clauses, each resolved to an explicit state.
+
+    Pure: no I/O, no clock, no database. Everything it decides on is an
+    argument, which is what makes "can this clause fail?" a testable question
+    rather than an inspection.
+
+    **The design decision on clause 2, stated rather than implied.** An unset
+    `ODDS_MONTHLY_CREDIT_BUDGET` is `NOT-APPLICABLE`, not a `FAIL` -- and the
+    reason is that clause 2 and clause 3 measure different things. Clause 3 is
+    the **account's** remaining allowance for the period, which is the ceiling
+    that actually stops answering; on this plan the Odds API's period *is* the
+    calendar month, so clause 3 already binds the monthly quantity the
+    registration cared about. Clause 2 is a **self-imposed** reservation whose
+    stated purpose (`budget.py:186-191`) is to keep headroom for another lane,
+    not to protect the account. An unset optional ceiling is a configured
+    absence -- a decision not to reserve -- not a failed read of a fact that
+    exists. Refusing on it would be refusing because nobody asked for a second
+    limit.
+
+    That is only defensible because of the coupling in `p1_passes`: **clause 3
+    can never be `NOT-APPLICABLE`, and P1 cannot pass unless clause 3 is a live
+    `PASS`.** So the state in which two of three clauses fail to bind -- the
+    defect this replaces -- is now unreachable, whatever `.env` holds.
+
+    And the converse is enforced: if a monthly ceiling **is** configured but
+    its headroom reads `None`, that is an unreadable input to a clause that was
+    asked for, and it `FAIL`s.
+    """
+    results: list[ClauseResult] = []
+
+    if remaining_today is None:
+        results.append(ClauseResult(
+            CLAUSE_DAILY, CLAUSE_FAIL,
+            "remaining_today is None -- unreadable, and an unreadable ceiling "
+            "refuses. It is never substituted with a number.",
+        ))
+    elif remaining_today < required:
+        results.append(ClauseResult(
+            CLAUSE_DAILY, CLAUSE_FAIL,
+            f"remaining_today {remaining_today} < {required}.",
+        ))
+    else:
+        results.append(ClauseResult(
+            CLAUSE_DAILY, CLAUSE_PASS,
+            f"remaining_today {remaining_today} >= {required}.",
+        ))
+
+    if monthly_budget is None:
+        results.append(ClauseResult(
+            CLAUSE_MONTHLY, CLAUSE_NOT_APPLICABLE,
+            "ODDS_MONTHLY_CREDIT_BUDGET is unset, so no self-imposed monthly "
+            "ceiling exists to check. This is a configured absence, not a "
+            "failed read. The account's own monthly allowance is clause 3, "
+            "which is live and cannot be skipped.",
+        ))
+    elif remaining_this_month is None:
+        results.append(ClauseResult(
+            CLAUSE_MONTHLY, CLAUSE_FAIL,
+            f"ODDS_MONTHLY_CREDIT_BUDGET is set to {monthly_budget} but its "
+            "remaining headroom read as None. A ceiling that was asked for and "
+            "cannot be read refuses.",
+        ))
+    elif remaining_this_month < required:
+        results.append(ClauseResult(
+            CLAUSE_MONTHLY, CLAUSE_FAIL,
+            f"remaining_this_month {remaining_this_month} < {required} "
+            f"(ceiling {monthly_budget}).",
+        ))
+    else:
+        results.append(ClauseResult(
+            CLAUSE_MONTHLY, CLAUSE_PASS,
+            f"remaining_this_month {remaining_this_month} >= {required} "
+            f"(ceiling {monthly_budget}).",
+        ))
+
+    if live_remaining is None:
+        results.append(ClauseResult(
+            CLAUSE_SERVER, CLAUSE_FAIL,
+            "no live credit count was obtained, so the account's own headroom "
+            "is unknown. Unknown refuses; nothing is spent. "
+            + (probe_detail or ""),
+        ))
+    elif live_remaining < required:
+        results.append(ClauseResult(
+            CLAUSE_SERVER, CLAUSE_FAIL,
+            f"the account reports {live_remaining} credits remaining this "
+            f"period, < {required}.",
+        ))
+    else:
+        results.append(ClauseResult(
+            CLAUSE_SERVER, CLAUSE_PASS,
+            f"the account reports {live_remaining} credits remaining this "
+            f"period, >= {required}. " + (probe_detail or ""),
+        ))
+
+    return results
+
+
+def p1_passes(results: Sequence[ClauseResult]) -> bool:
+    """P1 passes only if nothing failed **and** clause 3 is a live `PASS`.
+
+    The second condition is the structural guard, not a belt-and-braces one.
+    Without it a future edit that reintroduced a skippable clause 3 would once
+    again make P1 pass on a machine that had never asked the account anything.
+    `NOT-APPLICABLE` is a legitimate state for the self-imposed monthly ceiling
+    and is not a legitimate state for the account's own.
+    """
+    if any(r.state == CLAUSE_FAIL for r in results):
+        return False
+    server = [r for r in results if r.name == CLAUSE_SERVER]
+    if len(server) != 1 or server[0].state != CLAUSE_PASS:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # P4 -- the slate rule, decided from ESPN. Zero credits.
 # ---------------------------------------------------------------------------
 
@@ -213,8 +462,19 @@ def check_slate(sport_key: str, t0_ms: int) -> tuple[bool, str, list[int]]:
 
 
 async def run_capture(
-    *, sport_key: str, out_dir: Path, db_path: str, dry_run: bool
+    *,
+    sport_key: str,
+    out_dir: Path,
+    db_path: str,
+    dry_run: bool,
+    probe_client: Optional[httpx.AsyncClient] = None,
 ) -> int:
+    """Run the capture. `probe_client` is a test seam for the `/sports` probe.
+
+    `probe_client` is `None` in every production path, so the probe opens and
+    closes its own client. Tests pass an `httpx.MockTransport`-backed client;
+    nothing in this module reaches the network under test.
+    """
     base_config = OddsConfig.load()
     cost = sweep_cost(base_config.markets, base_config.regions)
     total = cost * len(POLL_OFFSETS_S)
@@ -254,8 +514,17 @@ async def run_capture(
     #
     # The daily cap is deliberately raised to exactly the authorised spend and
     # no further. §C4: at the default 16 the THIRD call is the first refusal
-    # (12 spent, 4 left, 6 needed) -- not the fourth. The monthly ceiling and
-    # the server's own `x-requests-remaining` are NOT touched and still refuse.
+    # (12 spent, 4 left, 6 needed) -- not the fourth.
+    #
+    # **Clause 3 is now read live from a zero-credit `/sports` probe, and an
+    # unreadable answer refuses.** It used to be read from
+    # `state.remaining_reported` -- this database's cache of the last header it
+    # happened to see -- and guarded by `is not None`. On a laptop whose
+    # `api_credits` table is empty that cache is `None`, so the clause could not
+    # append a failure; clause 2 was in the same shape whenever
+    # `ODDS_MONTHLY_CREDIT_BUDGET` was unset. Two of the three registered
+    # clauses were unenforceable on the machine this script runs on and it
+    # printed `P1 pass` anyway. See Amendment A of the registration.
     config = replace(base_config, daily_credit_budget=REQUIRED_CREDITS)
     budget = CreditBudget(
         conn,
@@ -264,41 +533,41 @@ async def run_capture(
         day_start_hour=config.budget_day_start_utc_hour,
     )
     state = budget.state(t0_ms)
+
+    live_remaining, probe_detail = await probe_server_credits(
+        config, http=probe_client
+    )
+
     print("\nP1 -- budget headroom")
     print(f"  daily cap raised for this capture: "
           f"{base_config.daily_credit_budget} -> {config.daily_credit_budget} "
-          f"(deliberate; monthly and server ceilings untouched)")
+          f"(deliberate; the account's own ceiling is clause 3 and is live)")
     print(f"  spent today            {state.spent_today}")
     print(f"  remaining today        {state.remaining_today}")
     print(f"  spent this month       {state.spent_this_month}")
     print(f"  remaining this month   {state.remaining_this_month}")
-    print(f"  server remaining (last recorded)  {state.remaining_reported}")
-    print(f"  server used     (last recorded)   {state.used_reported}")
+    print(f"  monthly ceiling (ours) {config.monthly_credit_budget}")
+    print(f"  live /sports probe     {live_remaining}   ({probe_detail})")
+    print(f"  cached header, THIS DB, not a P1 input: "
+          f"remaining={state.remaining_reported} used={state.used_reported}")
 
-    failures = []
-    if state.remaining_today < REQUIRED_CREDITS:
-        failures.append(f"remaining_today {state.remaining_today} < {REQUIRED_CREDITS}")
-    if (state.remaining_this_month is not None
-            and state.remaining_this_month < REQUIRED_CREDITS):
-        failures.append(
-            f"remaining_this_month {state.remaining_this_month} < {REQUIRED_CREDITS}"
-        )
-    if (state.remaining_reported is not None
-            and state.remaining_reported < REQUIRED_CREDITS):
-        failures.append(
-            f"server x-requests-remaining {state.remaining_reported} "
-            f"< {REQUIRED_CREDITS}"
-        )
-    if state.remaining_reported is None:
-        print("  NOTE: no server credit count has ever been recorded in this "
-              "database, so the third P1 check cannot be made in advance. It "
-              "is enforced after poll 1 instead, against the live header.")
+    results = evaluate_p1(
+        remaining_today=state.remaining_today,
+        monthly_budget=config.monthly_credit_budget,
+        remaining_this_month=state.remaining_this_month,
+        live_remaining=live_remaining,
+        probe_detail=probe_detail,
+    )
+    for result in results:
+        print(f"  [{result.state:>14}] {result.name}")
+        print(f"                   {result.detail}")
 
-    if failures:
-        print("\nP1 FAIL: " + "; ".join(failures))
-        print("Nothing spent.")
+    if not p1_passes(results):
+        print("\nP1 FAIL. Nothing spent. The registration is amended rather "
+              "than worked around.")
         return 4
-    print("  P1 pass (subject to the live header check after poll 1)")
+    print("  P1 pass -- all three clauses evaluated, none skipped, and the "
+          "account's own count was read live before anything was spent.")
 
     if dry_run:
         print("\n--dry-run: preconditions only. NOTHING SPENT, no poll made.")
@@ -339,14 +608,36 @@ async def run_capture(
                 remaining = headers.get("x-requests-remaining")
                 used = headers.get("x-requests-used")
 
-                # The live P1 check, enforced from poll 1 onward against the
-                # server's own count rather than our tally of it.
+                # The in-flight backstop, not P1. P1 already established
+                # `live >= 24` against the account before poll 1, so this asks
+                # only the weaker in-capture question -- can the REMAINING
+                # polls still be paid for -- hence `still_needed` counts the
+                # polls not yet made (18 at poll 1, not 24). It is a backstop
+                # against the account being drained by another instance
+                # mid-capture, which is the per-database/per-account gap
+                # `tasks/NEXT.md` records.
+                #
+                # An absent or unparseable header here does NOT abort. The
+                # spend is already bounded three ways -- the daily cap is
+                # exactly 24, P1 read the account live, and §8 fixes the
+                # capture at four calls -- and aborting a one-shot capture on a
+                # transient header would burn the credits already spent for
+                # nothing. It is printed loudly instead of skipped silently,
+                # which is the difference that matters.
                 still_needed = cost * (len(POLL_OFFSETS_S) - index)
-                if remaining is not None and int(remaining) < still_needed:
+                remaining_int = _as_int(remaining)
+                if remaining_int is None:
+                    print(f"  WARNING poll {index}: no readable "
+                          f"x-requests-remaining header (value {remaining!r}). "
+                          "The in-flight backstop cannot evaluate this poll. "
+                          "Continuing: P1 read the account live before poll 1 "
+                          "and the daily cap is pinned at "
+                          f"{REQUIRED_CREDITS}.")
+                elif remaining_int < still_needed:
                     print(f"\nABORT at poll {index}: server reports "
-                          f"{remaining} credits remaining, {still_needed} still "
-                          "needed. Stopping before a refusal is mistaken for an "
-                          "empty slate.")
+                          f"{remaining_int} credits remaining, {still_needed} "
+                          "still needed. Stopping before a refusal is mistaken "
+                          "for an empty slate.")
                     return 6
 
                 artefact = {
