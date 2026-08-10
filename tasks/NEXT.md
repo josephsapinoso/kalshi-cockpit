@@ -9,6 +9,99 @@ settlement row is not a $0.00 charge, R5 does not fire, and the ATP position may
 not be read alone.** Full statement — including what round three inherits as
 still-conditional — is the time-sensitive item at the top of `start.md`.
 
+## ⛔ 2026-08-11 — DO NOT RUN `capture_odds_repeat_poll.py`. Its P1 passes vacuously.
+
+**The 24 credits are already authorised** (registration §head: *"The capture Joe
+authorised: 24 Odds API credits, one shot"*), P0 is satisfied at `60629c2` and
+the scripts exist — so any session can run this, and it must not until the fix
+below lands.
+
+**Two of P1's three registered preconditions cannot fail on the machine the
+script is designed to run on.** `scripts/capture_odds_repeat_poll.py:281-291`
+guards clause 2 (`remaining_this_month`) and clause 3
+(`x-requests-remaining`) with `is not None`. On the laptop both **are** `None` —
+local `api_credits` holds **0 rows** so `remaining_reported` is `None`, and
+`.env` sets no `ODDS_MONTHLY_CREDIT_BUDGET` so `remaining_this_month` is `None`
+(`backend/odds/budget.py:85-94`). Neither can append to `failures`. The script
+then prints **`P1 pass`** at `:301`. All three values *are* printed
+(`:267-276`), which satisfies the registration's literal "printed before poll
+1" — two of the three lines say `None` and the script reports a pass.
+
+**The comment at `:257-258` states the opposite and is false:** *"The monthly
+ceiling and the server's own `x-requests-remaining` are NOT touched and still
+refuse."* **They do not refuse. They are absent.** This is
+[[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]] sitting on
+top of a guard that cannot fire — inside a *pre-registration's* precondition
+set, which is worse than in code, because fixing the rules before the data is
+the entire purpose of the document.
+
+**Keep the exposure in proportion — this is not a fire.** The script raises the
+daily cap to exactly `REQUIRED_CREDITS = 24` (`:259`), so clause 1 *does* bind
+and the spend is capped at **24 credits of a prepaid 20,000 tier**. The
+deferred live-header check at `:344-350` is real but weaker than P1: it fires
+from poll 1 onward against `still_needed = cost * (4 - index)` = **18** at poll
+1, so **the first 6 credits are spent on a counter that has never seen the
+account.** The defect is the vacuous precondition, not an unbounded spend.
+
+### The fix is free, and the code for it is already in this repo
+
+`scripts/setup_odds_key.sh` (`probe_key`, ~`:227-239`) calls **`/sports`** and
+reads `x-requests-remaining` from the response headers. **The Odds API does not
+meter `/sports`.** So the account-truthful number was obtainable at zero credit
+cost at any moment, including before poll 1.
+
+**Remedy, queued:** give the capture script a pre-flight `/sports` probe and
+enforce P1 clause 3 against **that live header**, not against
+`state.remaining_reported`. Zero credits, no change to `CreditBudget`. Then
+**append an amendment** to
+`docs/measurements/2026-08-10-preregistration-odds-last-update-repeat-poll.md`
+recording that clauses 2 and 3 were unenforceable as first implemented and what
+now enforces them. **Never edit the registration body in place** — Amendment A's
+precedent governs.
+
+### The larger finding underneath it, which needs its own ADR
+
+**The credit budget is enforced per-DATABASE; the quota is per-ACCOUNT.**
+`CreditBudget.state()` sums this database's `api_credits`
+(`backend/odds/budget.py:150-176`). `x-requests-remaining` **is** parsed
+(`backend/odds/client.py:278-279`) and **is** enforced first in line
+(`budget.py:202-208`, pinned by `tests/test_odds.py:630-639`) — but against the
+header **as of this instance's own last call**, cached in this database
+(`budget.py:159-162`). Every credit another instance spends in between is
+invisible until this one calls and overwrites the cache, i.e. after spending.
+
+**Consequence: `drift` is mis-specified.** `budget.py:97-119` defines it as
+`spent_this_month - used_reported` and documents it as *"our cost model
+disagrees with theirs"*. With two databases on one key it is
+**`(our spend) − (everyone's spend)`**, which trends negative regardless of
+whether the cost model is right. `budget.py:18-22` presents that reconciliation
+as the meter's central safety property; **it cannot serve that role while more
+than one database holds the key.**
+
+**OBSERVED, not merely reachable, and already realised once.**
+`docs/measurements/2026-08-10-sharp-anchoring-on-the-record-run.txt:181` shows
+the live instance's `api_credits` at `remaining_reported: 19940`,
+`used_reported: 60` on 2026-08-09; the laptop's `api_credits` holds **0 rows**
+on the same date. And `tasks/NEXT.md` already records a realised instance on the
+free tier: *"one local smoke test cost 6 of ~500 monthly credits"*, with
+reconciliation catching it only after the fact.
+
+**Why it is money and not just a refused sweep:** the tier is **prepaid**
+(`budget.py:3-4`). Exhaustion returns 429 → `QuotaExhausted`
+(`client.py:66,70-71`), explicitly *not retryable this period* and explicitly
+not a rate limit. The live cockpit then loses its only sportsbook price source
+for the balance of the period, `stale_odds` suppresses everything, and the 429
+arrives mid-slate. **A local script cannot see the live instance's spend and the
+live instance cannot see the script's**, so neither can refuse on the other's
+behalf.
+
+**Not established:** no numeric drift for the live instance. The committed
+sample shows 2 of its 16 rows, so the apparent `16 x 6 = 96` against
+`used_reported = 60` is **not a finding** — row costs and months are unverified
+for the other 14. Do not quote it.
+
+---
+
 ## 2026-08-10, overnight — SIX DURABLE FACTS FROM TONIGHT'S LANES
 
 These are **facts and queued items**, not a plan. Two of them close things the

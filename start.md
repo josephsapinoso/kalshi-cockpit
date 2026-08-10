@@ -147,6 +147,26 @@ committed script — so agents never need a shell on the machine that holds real
 money. That is an **ADR-sized decision**, not a patch. Do not build it before
 Joe rules.
 
+> **CORRECTION 2026-08-11 — a third cost was claimed for this governance question
+> and it is WRONG. Withdrawn here rather than quietly dropped.**
+>
+> `partner` told Joe that the repeat poll behind **ADR 0020** was a third thing
+> blocked on production access, on the reasoning that its P1 clause requires a
+> live budget read. **It is not blocked on production access.** The
+> account-truthful number is available **free** from `/sports`, which The Odds
+> API does not meter, and the probe is already written in this repo
+> (`scripts/setup_odds_key.sh`, `probe_key`).
+>
+> What actually blocks the repeat poll is that **its P1 passes vacuously** —
+> two of three preconditions are guarded by `is not None` against values that
+> are always `None` on the laptop. **See the ⛔ block at the top of
+> `tasks/NEXT.md`.** The 24 credits are already authorised, so the script is
+> runnable today and must not be run.
+>
+> The two costs listed above (cell `R`'s residuals; the correction lane's
+> inability to re-derive any census figure) **stand and are unaffected.** The
+> governance question is still worth Joe's ruling on those two.
+
 ### 3. Unreviewed artefacts left in `/tmp` on `kalshi-cockpit`
 
 `p.b64`, `p2.b64`, `p3.b64`, `probe.py`, `probe2.py`, `probe3.py` — left by the
