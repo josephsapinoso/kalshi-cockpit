@@ -114,6 +114,11 @@ DAY_MS = 24 * 60 * 60 * 1000
 # never truncated; only the strings are.
 MAX_REPORTED_ERRORS = 5
 
+# How many unreadable tickers `result_coverage` names. Enough to run a
+# diagnosis against the exchange, few enough that the report stays
+# readable on a phone.
+UNREADABLE_EXAMPLES = 5
+
 
 @dataclass
 class MarketResultCounts:
@@ -449,6 +454,23 @@ def result_coverage(
 
     abandoned = _abandoned(conn, oldest=oldest, now=now)
 
+    # A count cannot be investigated; a ticker can.
+    #
+    # This is the same lesson `abandoned_oldest` already encodes -- name the
+    # population so it is identifiable from a phone -- and it was not applied
+    # here until the count came back at 219 on live and there was no way to ask
+    # what any of them were. A bounded sample rather than the whole list, for
+    # the reason `abandoned_oldest` is one string: the diagnostic must not
+    # itself become the flood.
+    unreadable_examples = [
+        r["ticker"]
+        for r in conn.execute(
+            "SELECT ticker FROM kalshi_markets "
+            "WHERE result IS NULL AND status = ? ORDER BY ticker LIMIT ?",
+            (SETTLED_STATUS, UNREADABLE_EXAMPLES),
+        ).fetchall()
+    ]
+
     # Derived from the fields above and from nothing else. A verdict computed by
     # a parallel path eventually contradicts the statistic printed beside it,
     # and the verdict is the half that gets read.
@@ -488,7 +510,8 @@ def result_coverage(
         attention.append(
             f"{unreadable} market(s) are finalized with no readable outcome. "
             f"Kalshi called them final and the answer was not yes or no -- a "
-            f"tie, or a wire format this code does not recognise"
+            f"tie, or a wire format this code does not recognise. "
+            f"Examples: {', '.join(unreadable_examples) or '(none)'}"
         )
 
     return {
@@ -520,6 +543,7 @@ def result_coverage(
         "pending_total": pending_total,
         "too_new_total": too_new_total,
         "unreadable_total": unreadable,
+        "unreadable_examples": unreadable_examples,
         "abandoned_total": abandoned["abandoned_total"],
         "abandoned_oldest": abandoned["abandoned_oldest"] or None,
         "expiring_soon_total": expiring_soon_total,

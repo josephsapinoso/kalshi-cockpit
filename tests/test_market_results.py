@@ -28,6 +28,7 @@ from backend.kalshi.discovery import (
 from backend.config import MarketResultConfig
 from backend.market_results import (
     MAX_REPORTED_ERRORS,
+    UNREADABLE_EXAMPLES,
     count_unreadable,
     markets_awaiting_result,
     markets_by_ticker,
@@ -868,3 +869,38 @@ class TestAnEmptyQueueIsNotAClaimOfHealth:
         _market(conn, "TIE", commence_ms=COMMENCE, status=SETTLED_STATUS)
         cov = result_coverage(conn, now=NOW)
         assert any("not yes or no" in a for a in cov["attention"])
+
+
+class TestTheUnreadablePopulationIsIdentifiable:
+    """A count cannot be investigated; a ticker can.
+
+    Live returned `unreadable_total: 219` with no way to ask what any of them
+    were, so the population could not be diagnosed at all -- the parser was
+    checked against 800 real settled markets and came back 100% readable, which
+    left the 219 unexplained and unreachable. `abandoned_oldest` already
+    encoded this lesson for its own population and it had not been applied here.
+    """
+
+    def test_the_unreadable_markets_are_named(self, conn):
+        _market(conn, "TIE-A", commence_ms=COMMENCE, status=SETTLED_STATUS)
+        _market(conn, "TIE-B", event="EV2", commence_ms=COMMENCE,
+                status=SETTLED_STATUS)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["unreadable_total"] == 2
+        assert set(cov["unreadable_examples"]) == {"TIE-A", "TIE-B"}
+        assert "TIE-A" in " ".join(cov["attention"])
+
+    def test_the_sample_is_bounded_so_it_cannot_become_the_flood(self, conn):
+        """The diagnostic must not reproduce the 962-line burst it exists to
+        avoid. The count stays exact; only the naming is capped."""
+        for i in range(UNREADABLE_EXAMPLES + 7):
+            _market(conn, f"TIE-{i:02d}", event=f"EV{i}", commence_ms=COMMENCE,
+                    status=SETTLED_STATUS)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["unreadable_total"] == UNREADABLE_EXAMPLES + 7
+        assert len(cov["unreadable_examples"]) == UNREADABLE_EXAMPLES
+
+    def test_a_clean_database_names_nothing(self, conn):
+        _market(conn, "OK", result="yes", commence_ms=COMMENCE)
+        cov = result_coverage(conn, now=NOW)
+        assert cov["unreadable_examples"] == []
