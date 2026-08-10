@@ -2098,3 +2098,192 @@ order that was submitted, did not fill and was cancelled costs nothing and does
 not count against the six — but you get **at most two tries per cell**, and each
 try must be a different market, taken in the app's default order going down.
 Never go back up the list.
+
+---
+---
+
+# Correction A — the `KXMLBGAME` `p1` figure quoted in §0.4 and §1.2 is wrong, and cell `R`'s inference survives on a different statistic
+
+**Written 2026-08-10 (UTC), appended. Round-three fills at the time of writing:
+0.**
+
+**The body above is untouched and carries no inline marker anywhere**, following
+the precedent of Amendment A on
+[`2026-08-10-preregistration-fee-model-fill-calibration.md`](2026-08-10-preregistration-fee-model-fill-calibration.md).
+Where this correction contradicts the body, **this correction governs**. The
+Registration record's `Amendments | none` line predates this correction and is
+not edited, per the same rule.
+
+**This correction moves nothing in the design.** No band, no cell, no price, no
+exclusion, no envelope, no prediction, no decision rule, no stopping rule and no
+cost changes. §X4 verifies that claim line by line rather than asserting it.
+
+## §X1. The figure that was wrong, and where the corrected value is recorded
+
+The body quotes `KXMLBGAME` pre-game **p1 28.5c** in two places — the §0.4
+finding table and cell `R`'s availability column in §1.2. **That figure
+reproduces from neither the census lane nor the audit lane.**
+
+The corrected value, and the whole set of figures circulating that evening that
+did not reproduce, is recorded in
+[`2026-08-10-price-band-reachability-census-result.md`](2026-08-10-price-band-reachability-census-result.md)
+— **§2** for the `KXMLBGAME` distribution and the per-slate view, and **§8**,
+which is that document's table of circulated figures against their actual
+values. The corrected numbers are **not restated here**; that document is the
+citation, and a future lane should read the number there rather than from this
+appendix.
+
+Everything the error touched in this file, with its disposition:
+
+| where in the body | what it says | disposition |
+|---|---|---|
+| §0.4 finding table, `KXMLBGAME` row | p1 **28.5c** | **WRONG.** Read the census result §2/§8 instead. |
+| §1.2, cell `R`, availability column | "99% of pre-game asks are ≥ **28.5c** (p1)" | **WRONG, and resting on the wrong statistic even with the right number.** Ruled on in §X3. |
+| §0.4 finding table, `KXMLBSPREAD` row | "55 events, **437 markets**" | **MISLABELLED, not wrong.** That count is the series total, not the pre-game count; the pre-game figure is the one §0.4a, §10 and the Registration record already print. **Nothing in this file divides by it**, so no ratio moves. |
+| §0.4d, and the matching bullet in §10 | "22 of the 307 sub-10c rows are one market" | **TWO FACTS MERGED INTO ONE SENTENCE.** The census result §8 separates them. The separation makes the sub-10c region **thinner**, not better evidenced — which is the direction §0.4d's conclusion already assumes, and §0.4d's load-bearing fact ("only 3 markets and 3 events ever printed below 10c") is stated correctly in the same sentence. |
+| §0.4 finding table and §0.5 Cost 2 | **51,286** pre-game observations | **CORRECT AS WRITTEN. Do not "fix" it.** Two cuts two minutes apart produce two counts, and both are right at their own cut; the census result §1 prints the cut ladder. This file cites the census lane throughout §0.4, so the census-cut figure is the one that belongs here. Presenting either count as the other is the error to avoid, not the count itself. |
+
+**One circulated figure never reached this file at all.** The `p5` value in the
+same circulated pair was also wrong, and by far the larger of the two errors.
+**It appears nowhere in this document** — the only `p5` in the body is the
+`KXMLBSPREAD` *displayed-size* percentile in §0.4 and §1.2, which is a contract
+count, a different series and a different quantity. So no section of this
+registration was ever built on it. The same is true of the per-slate minimum
+that was misquoted for one of the six slates: this file carries no `KXMLBGAME`
+per-slate minima.
+
+## §X2. The direction of the error, stated so the correction is not misread
+
+The corrected `p5` puts the `KXMLBGAME` price wall **further above** the
+registered 6–14c band than the circulated figure did, not closer to it. **The
+`KXMLBGAME` dead end that §0.4 and §0.5 Cost 2 rest on is therefore more
+decisive after the correction, not less.** The conclusion did not move; only the
+figure was wrong. Nothing in this correction should be written up, or cited, as
+a weakening of §0.3, §0.4 or §0.5 Cost 2.
+
+## §X3. The ruling on cell `R` — the inference SURVIVES, and the route it took is replaced
+
+**Verdict: `R`'s availability inference survives, and the corrected figure
+strengthens it. But the route the body took to it is unsound independently of
+the wrong number, and it is withdrawn and replaced here rather than repaired.**
+
+§1.2's `R` citation has three parts. The first two are unaffected: the censused
+`KXMLBGAME` 27–39c availability count, and the observation that `R`'s 27–52c
+band is a **superset** of that, making the censused count a hard lower bound.
+Neither uses `p1`. The third part is the inference, and it is the part that
+carried the wrong figure.
+
+**Why the route is unsound, independently of 28.5c.** `p1` is a percentile over
+**all pre-game rows** — both sides of every event, at every polling instant.
+What the inference needs to bound is a **per-event minimum**. Those are
+different objects, and the first does not bound the second: "99% of rows are at
+or above `p1`" permits the remaining 1% — several hundred rows at this row count
+— to concentrate in a handful of events, or to spread across many. An all-rows
+percentile cannot make a per-event claim. **That defect was present at 28.5c and
+is still present at 29.0c**, so correcting the number alone would have left the
+citation resting on the wrong instrument.
+
+**Why the conclusion survives anyway: the census measures the per-event
+statistic directly, so no inference is needed.** The census result §2 reports
+the `KXMLBGAME` **per-event minimum ask** distribution — min 26.0c, p10 35.0c,
+p25 39.0c, **median 42.0c**, p75 46.0c, max 49.0c. Read against `R`'s band of
+**27–52c excluding 30c, 40c and 50c**:
+
+- **The ceiling is not in play.** The largest per-event minimum across the 85
+  events is **49.0c**, below `R`'s 52c ceiling. So **every one of the 85 events**
+  has at least one market whose ask is at or under the ceiling — the "cheaper
+  side" half of the body's claim, measured rather than inferred.
+- **The median event lands inside the band, at a legal tick.** 42.0c is inside
+  27–52c and is not one of the three excluded prices.
+- **The floor is reached by very few events, and only on one slate.** p10 =
+  35.0c puts at most about 8 of the 85 events below 35c at all, and the
+  per-slate view (census result §2, as corrected in its §8) shows only **one**
+  of the six slates reaching below 28.0c. Every other slate's cheapest event
+  sits **inside** `R`'s band. `R` needs one qualifying market anywhere on the
+  board, not one per event, so this is satisfied with an enormous margin.
+
+**Registered replacement for the citation.** §1.2's `R` availability column is
+to be read as: *the censused 27–39c event count, a hard lower bound because
+27–52c is a superset; plus the per-event minimum ask distribution (census result
+§2), whose median sits inside `R`'s band at a non-excluded tick and whose
+maximum sits below `R`'s ceiling.* **The `[INFERENCE, not a per-event count]`
+label is withdrawn, because the per-event count exists and there is no longer an
+inference to label.** This is the rare case where a correction upgrades a
+labelled inference into a direct measurement.
+
+**What this ruling does NOT change, and it is the part that matters most for the
+run.** `R` remains the **weakest availability citation in the design** and
+remains the round's single likeliest failure point. This correction improves
+only the **price** half of `R`'s citation. The other two halves are untouched
+and still adverse:
+
+- **depth `≥ 1` is still not separately censused for `KXMLBGAME`, and not
+  audited** — the residual §1.2 names is unchanged;
+- **time-of-day is still not censused for any `KXMLBGAME` band**, and the one
+  adjacent audited figure is still the adverse one the body quotes.
+
+§R5's naming of `R` as the weakest citation, §R7's statement that `R` is the
+cell that guard covers least, §8's grant of the first re-attempt to `R`, §1.5's
+`R`-is-VOID-or-NOT-ATTEMPTED consequence and the `NOT ATTEMPTED` branch all
+stand **exactly as registered**. So does §3's two-pass scan: Pass 1's 47–52c
+window is not separately censused, this correction does not censuse it, and
+Pass 2 remains the registered fallback for precisely that reason.
+
+## §X4. Verified before being written: nothing in the design moves
+
+Each of these was checked against the body, not assumed:
+
+- **The bands.** `R`'s 27–52c is derived in §C5 from round one's `P = 0.27` and
+  `P = 0.48` anchors, as an interpolation argument. No census figure is an
+  input. `S1`, `S2`, `S3` and `W` are `KXMLBSPREAD` and `KXWNBA*` bands, and no
+  `KXMLBGAME` percentile enters any of them.
+- **The predictions.** Every ENVELOPE and CENTRAL value in §1.4, and every
+  signature in §1.5, is computed from round one's `k` and `a` intervals and the
+  legal price grid. **No census figure is an input to any of them**, so no
+  envelope boundary, no classification and no B4 signature changes.
+- **The cells, sizes, exclusions and costs.** Five cells, sizes 1 and 20, the
+  same excluded prices, the same maximum stake and the same maximum loss at the
+  §8 cap. Untouched.
+- **The decision rule, §Power's enumeration, the stopping rule, the hard
+  expiry.** None of them takes a census figure as an input; §Power enumerates
+  outcome vectors, not prices.
+- **The denominators.** The mislabelled market count is a `KXMLBSPREAD` series
+  total, and §0.4a, §10 and the Registration record already carry the pre-game
+  figure as the honest unit. **No ratio in this file is computed against the
+  series total**, so no concentration or coverage statement moves.
+- **§0.4d's ruling.** Its conclusion is that no registered band leans on the
+  sub-10c region and that `S1` is not narrowed, because narrowing would trade a
+  fully cited band for an uncited sub-band. That argument is about **citation
+  coverage**, not about how thin the sub-10c region is, so a thinner sub-10c
+  region does not touch it. The ruling stands.
+
+**So: no band, no cell, no price and no prediction is changed by this
+correction.** The only thing that changes is which statistic cell `R`'s
+availability citation points at, and it now points at a stronger one.
+
+## §X5. Zero fills, so nothing is contaminated
+
+**Round-three fills: 0** — at registration, and still 0 at the time of this
+correction. No order has been placed, no `fee_cost` has been read, and no
+round-three number of any kind exists. **The correction therefore cannot have
+been shaped by a result, and no cell's classification can have been shaped by
+the wrong figure**, because no cell has been classified.
+
+The distinction from the body's in-place revision is preserved deliberately.
+That revision was made **before** this file's commit, at an empty population.
+This correction is **appended** because the file is now committed — not because
+a fill exists — which is the amend-by-appending rule taking effect exactly as
+the body registered it.
+
+## §X6. What this correction does not establish
+
+- **It does not re-derive the census.** Every corrected figure is cited to the
+  census result document and to the lane that re-executed the audit passes
+  against an exported slice. This lane had no access to the live record and
+  re-derived nothing from raw rows; it verified the body's *uses* of the
+  figures, not the figures themselves.
+- **It does not close `R`'s two remaining residuals** — uncensused depth and
+  uncensused time-of-day. It closes neither, and §X3 says so.
+- **It does not license anything.** No order, no deploy, no code change, no band
+  amendment. `ORDERS_ARE_DRY_RUNS` stays `True`; ADR 0018 is untouched; the
+  `max()` hedge in `backend/core/fees.py` stays.
