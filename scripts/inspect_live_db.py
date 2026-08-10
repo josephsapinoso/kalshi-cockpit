@@ -667,34 +667,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# UNFINISHED — this file refuses to run, deliberately.
+# This file refused to run until 2026-08-10, because its authoring lane died on
+# a session limit before writing a single test and an unverified reader pointed
+# at `/data/cockpit.db` is exactly what this repo's mutation rule exists for.
 #
-# The lane writing it was killed by a session limit after the module was
-# complete and BEFORE `tests/test_inspect_live_db.py` was written. Not one
-# assertion in this file has been seen to go red, and this repo has found seven
-# guards in two sessions that could not fail. An unverified reader pointed at
-# `/data/cockpit.db` is exactly the artefact that rule exists for.
+# The refusal is lifted by `tests/test_inspect_live_db.py`, which builds its
+# database by executing `backend/store/schema.sql` verbatim -- so a query naming
+# a column the live box does not have fails locally -- and which observed every
+# guard here go red under a named mutation: `mode=ro` widened to `mode=rwc`; the
+# unknown-query raise softened to `QUERIES.get`; the cap's `+1` truncation probe
+# removed; `>` widened to `>=` at exactly the cap; the `effective == cap` clause
+# dropped so a query's own `-n` reported as truncation; the `0 rows` branch
+# deleted; `_iso(None)` folded to the epoch; and `--pin` opened up. The mutation
+# is written beside each test.
 #
-# It is committed rather than discarded because `Dockerfile:66` copies
-# `scripts/` into the image, so it will ship on the next deploy whether or not
-# anyone remembers it. Shipping it inert is safe; shipping it silently runnable
-# is not.
-#
-# To finish it, write the tests first, against a temp DB built from
-# `backend/store/schema.sql`, and prove by mutation that: a read-only
-# connection refuses a write; an unknown query name is rejected rather than
-# silently doing nothing; `--limit` truncates AND says so; and a zero-row result
-# prints an explicit "0 rows" line rather than empty output. Then delete this
-# block. Deleting it without the tests is the failure this block exists to
-# prevent.
+# What is still NOT established is in that file's docstring, and the shortest
+# version of it is: a green suite says these eight queries are well-formed and
+# their guards fire. It says nothing about what the live database contains.
 # ---------------------------------------------------------------------------
-_UNVERIFIED = (
-    "scripts/inspect_live_db.py is UNFINISHED and has no tests. It refuses to "
-    "run. See the block above this message in the source. Do not delete the "
-    "refusal to 'just check one thing' against the live database."
-)
 
 
 if __name__ == "__main__":  # pragma: no cover
-    print(_UNVERIFIED, file=sys.stderr)
-    raise SystemExit(3)
+    raise SystemExit(main())
