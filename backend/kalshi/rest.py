@@ -495,9 +495,25 @@ class KalshiRestClient:
     ) -> list[dict]:
         """Recent fills.
 
-        `fee` on each fill is **ground truth** for the fee model, and the only
-        way to close the open question in `core/fees.py`. Every fill recorded
-        by this project stores the actual fee beside the predicted one.
+        A real fill is the only ground truth for the fee model, and the only
+        way to close the open question in `core/fees.py`.
+
+        **The per-fill wire shape has never been observed on this account.**
+        Probed against production on 2026-08-09: the envelope is measured and
+        correct (`{"cursor": str, "fills": list}`, so the `payload.get("fills")`
+        below reads the right key), and the account holds **zero fills**, so
+        every field *inside* a record is unobserved -- including whether the fee
+        is called `fee`, what units it carries, and whether it is per-contract
+        or per-order.
+
+        This docstring previously named `fee` as ground truth as though the
+        field had been seen. It had not; the name was inherited from the
+        predecessor project. That is the shape behind the four wrong wire keys
+        in this repo's history, each of which returned a well-formed empty
+        result that satisfied every test written about its contents.
+
+        Run `scripts/capture_fills_fixture.py` the moment fills exist -- before
+        writing any parser against them.
         """
         payload = await self.get("/portfolio/fills", ticker=ticker, limit=limit)
         return payload.get("fills") or []
