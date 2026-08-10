@@ -4065,3 +4065,90 @@ Related: [[two-limits-on-one-quantity]],
 [[the-zero-that-means-no-measurement-passes-every-threshold]],
 [[every-per-cell-guard-can-pass]],
 [[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-10 — The guard that cannot fire on the input it was built for
+
+`edge_within_method_noise` exists to catch edge that is an artefact of
+devig-method choice. Its comment says so: *"If they disagree by more than the
+edge being claimed, the 'edge' is a statement about method choice, not about the
+market."* It is the right idea and it is structurally incapable of firing on the
+one input where the edge is **purely** a method-choice artefact.
+
+One book, quoting both outcomes of a two-way market at identical decimal odds.
+All four devig methods then agree to ~1e-14, so `method_spread ≈ 1.4e-11`
+tenths, and `suppression.py`'s condition
+
+```python
+edge_tenths <= 0 or edge_tenths > spread_tenths
+```
+
+passes for **any** positive edge whatsoever. The guard reads "the methods agree,
+so this edge is trustworthy" — when what actually happened is that there was
+only one book, so there was nothing for them to disagree about. **Agreement was
+being used as evidence of reliability, and it was really evidence of absence.**
+
+The fair it produces is `0.49999999999999994`, and even that digit is
+instructive: nothing defaults to 0.5. `power()` solves for its exponent with
+`brentq`, lands one ULP high, and `p**k` rounds to `nextafter(0.5, 0)`;
+`conservative_probability` takes the `min` across four methods, three of which
+are exact, so it **systematically selects the root-finder's error floor**. The
+tell for this bug in any record is the signature `p_multiplicative == p_additive
+== 0.5` with `p_power` one ULP below.
+
+The consequence measured on the live record: a 50/50 fair on a WNBA game the
+Kalshi book prices **84/16**, producing the three largest `|edge_tenths|` values
+in the entire slice (+33.0c, +32.0c, −36.0c). And eight rows that were **fresh,
+fillable, and stopped by exactly one threshold** — `min_book_count = 2`, which
+has no environment plumbing anywhere and is the code default.
+
+**Two guards that are one guard.** `too_few_books` and `no_market_width` fire on
+the identical condition (`book_count < 2` and `len(first_values) <= 1`), so
+their row-sets were bit-identical across 1,000 rows — 185 each, symmetric
+difference 0. Anything counting them separately double-weights one signal, and
+the suppression summary reads like defence in depth when there is one threshold.
+
+**This is [[the-zero-that-means-no-measurement-passes-every-threshold]] one step
+further on**, and the repo had that lesson written. There, a one-book consensus
+reported `market_width = 0.0` and so passed the width check most easily of all;
+the fix made width `Optional`. The *same* single-book state then walked into the
+*next* guard and did the same thing to it, through a different field. Fixing the
+instance did not fix the shape.
+
+**And no test could have caught it.** The suite's only equal-odds two-outcome
+fixture is `(1.95, 1.95)` — one of the values where the defect does **not**
+reproduce, because all four methods return exactly 0.5 there and the spread is
+exactly 0.0. The values that do reproduce it include 1.82, 1.85 and 1.86:
+ordinary h2h prices. A fixture chosen for being "obviously symmetric" landed on
+the one symmetric point that is clean.
+
+**How to apply:**
+
+- **For every guard that compares a quantity against a measure of dispersion,
+  ask what the dispersion does when the input is degenerate.** Near-zero spread
+  makes any threshold of the form `effect > spread` trivially true. The guard
+  must refuse on unmeasurable dispersion, not pass — the same
+  `Optional`-not-zero rule this repo already applies to `market_width`, applied
+  to the *comparison* rather than to the field.
+- **Agreement among methods is not evidence when there is only one input.**
+  Distinguish "four methods examined the data and concurred" from "there was
+  nothing to disagree about". `usable_book_count` distinguishes them, is
+  computed at `devig.py:339`, and **is not persisted** — so the live database
+  cannot answer which one happened.
+- **Count your guards before trusting depth.** Two codes firing on one condition
+  are one guard. Check the row-sets, not the names: identical sets across a real
+  sample is the test, and it takes one line.
+- **Pick degenerate-input fixtures by finding where the defect reproduces, not
+  by what looks symmetric.** Sweep the input and choose a value where a wrong
+  implementation differs from a right one —
+  [[a-test-that-passes-on-the-bug-is-not-a-test]] applied to fixture selection.
+- **When a lesson names a mechanism, grep for the mechanism, not the field.**
+  "One book cannot disagree with itself" had consequences in at least two
+  guards. The first was fixed and written up; the second was still live eleven
+  days later.
+
+Related: [[the-zero-that-means-no-measurement-passes-every-threshold]],
+[[two-limits-on-one-quantity]],
+[[a-guard-that-routes-around-thin-data-into-a-fallback-built-from-it]],
+[[code-with-no-caller-is-not-a-feature]].
