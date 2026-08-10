@@ -536,3 +536,129 @@ first.
   `event_ticker`, so this is a reconstruction. It is checked against the
   quantities ADR 0021 published from the same file — 59 clean clusters, 614 clean
   rows, 950 suppressed, 0 actionable — all four of which reproduce exactly.
+
+---
+
+## ANNOTATION 2026-08-11 — the deferral was re-examined on day one and **STANDS**. What changed is why round three is worth buying.
+
+**Nothing above is withdrawn, amended, or edited.** Trigger (§6), expiry and
+default (§7) are unchanged. This annotation records a re-examination, its
+verdict, and one fact the body does not contain.
+
+### A1. Why it was re-opened, and why that was half a mistake
+
+`start.md` carried §5.4 forward as *"a number that landed while the ADR was
+being drafted and weakens its rationale"* — F is ~11–14 months even on step 2,
+its most favourable branch.
+
+**§5.4 is not new information to this ADR. It is an input this ADR already
+used.** §7.2's second bullet reads, in full: *"F on its best branch is still
+about a year of uninterrupted daily slates (§5.4), and the record has not
+accumulated a single new game cluster since 2026-08-09 (§8)."* The number is
+cited by section number as one of the three stated reasons the default is A.
+
+So §5.4 weakened the **commissioning brief's** belief — that F is live under
+step 2 — and the ADR absorbed that correction before it was accepted. Re-opening
+on §5.4 is re-litigating a settled decision using evidence the decision cites.
+**Recorded here so a third session does not spend a fourth hour on it.**
+
+### A2. What §5.4 *does* establish is about the trigger, not about F
+
+Verified for this annotation, adversarially and independently, against the
+committed registrations:
+
+> **On the taker path, step 2 is the ceiling of favourability among the
+> round-one-admissible fee models.** No outcome vector of round three can yield
+> an applicable fee below **$0.0088 at 50c**. The registered classification
+> alphabet is `{LOW = k_MLB, HIGH = 2*k_MLB}` with `HIGH` defined as exactly
+> twice `LOW` (round three §B7), so the family has **no member below 0.035 by
+> construction**; the LOW envelope at 50c admits only `{$0.0088, $0.0089}`, so
+> step 2 sits at the *favourable edge* of LOW rather than its midpoint; and the
+> one attribution that moves the candidate rows at all — `H-NOTIONAL` — moves
+> **three of four to the dearer rate** (§5.3). A sub-envelope observation
+> classifies `NOVEL` / `B4-DETECTED (novel)`, which round three §7.5 makes
+> *hypothesis-generating only* and which **suspends** the step-1/step-2
+> decomposition rather than improving it.
+
+**Consequence.** Branch (a)'s best case is "step 2 applies at these cells" —
+which is §5.4's 3-of-60, ~11–14 months. Branch (b), 26 of 32 vectors, kills F
+outright. **Every branch of the trigger points at A, differing only in
+confidence.** Round three's contribution to the A-versus-F question is
+therefore **confirmatory at best**, and §6 overstates it.
+
+### A3. And that is an argument about the purchase, not a reason to resolve today
+
+**Resolving A-versus-F now buys approximately nothing.** Option A keeps the
+recorder and the measurement discipline (ADR 0021 §8), changes no code, and
+leaves `ORDERS_ARE_DRY_RUNS` at `True`. Nothing in the queue is blocked on the
+answer. The delta between "A, declared today" and "deferred, defaults to A on
+2026-08-31" is a **label on a claim**, for three weeks.
+
+**Resolving now has a real and asymmetric cost.** §6 makes A-versus-F round
+three's stated purpose. Declaring A while the $5 authorisation is still in front
+of Joe invites the reading *"the line is stopped, so don't spend it"* — and
+cells `R` (the B4 replication detector) and `W` (the first WNBA fee ever
+observed) earn on **every** branch including `H-NONE`, for `core/fees.py`, for
+CLAUDE.md's 52.00% bar, and for options B, C and D, none of which option A
+touches.
+
+**§7's carve-out cuts the same way and is independent.** A verdict line carrying
+`NOT ATTEMPTED` on two or more cells is instrument failure, not a result — round
+two died exactly that way. Taking A today takes it *without the chance to
+distinguish* those two cases, which is committing the reachability error in
+advance rather than guarding against it.
+
+> **THE ASK CHANGES, THE DECISION DOES NOT.** Round three must be put to Joe on
+> **cells `R` and `W`**, which earn unconditionally — not on being the
+> A-versus-F trigger, which A2 shows it barely is.
+
+### A4. The fact the body does not contain — and it is not good news
+
+The ceiling in A2 is a **taker-path** ceiling. Stating it unqualified is false,
+and the counterexample is live in deployed code:
+
+```
+backend/core/fees.py:74   MAKER_COEFFICIENT       = Decimal("0.0175")
+backend/core/fees.py:79   SPORTS_MAKER_MULTIPLIER = SPORTS_MULTIPLIER / 4
+```
+
+Both are wired into `calculate_fee(price_tenths, contracts, maker=...)`
+(`:130`, `:163`). At size that is **$0.004375 at 50c → a 50.44% break-even**,
+**0.44 points cheaper than step 2** and the cheapest bar anywhere in this
+project.
+
+**These are code constants, not measurements**, and round three does not touch
+them: P3 voids a maker fill (round three §P3), and round three's own §10 says
+*"it does not establish the maker rate at all … `MAKER_COEFFICIENT = 0.0175` and
+`SPORTS_MAKER_MULTIPLIER = 0.015` remain untested everywhere in this project."*
+
+**Read the offset before the number.** This is ADR 0021 §8 **option D**, which
+is unranked, unstarted, and owned by **ADR 0017 — proposed, not accepted**.
+ADR 0017's own adverse-selection counterargument is **1.50c**, which is larger
+than the entire 1.50-point headroom step 2 would buy and far larger than the
+0.44 points the maker path adds on top; **no named row has ever cleared it.**
+A cheaper bar against an unmeasured adverse-selection cost is not headroom, it
+is an untested trade. Nothing here revives D, and this annotation does not rank
+it.
+
+**It is recorded because A2's ceiling claim is wrong without it**, and because a
+future session hunting for headroom will find these two constants and needs to
+meet the counterargument in the same paragraph.
+
+### A5. What this annotation does NOT establish
+
+- **It does not decide A versus F**, and it does not shorten or extend the
+  expiry. 2026-08-31 (UTC) and the default to A are untouched.
+- **It adopts no fee model.** H3− stands; `calculate_fee` keeps its `max()`
+  hedge; CLAUDE.md's 52.00% bar is unamended.
+- **It does not revive option D**, propose the maker path, or authorise a maker
+  fill. §A4 records two constants and their untested status, nothing more.
+- **It does not re-derive §5.4 or license it further.** §5.4 remains a
+  projection, not a forecast; ADR 0021 §7.1 still governs and nothing here
+  generalises to a single future row. §A2's argument is *structural* — about
+  what the registered outcome vectors can and cannot declare — and does not
+  depend on §5.4's rate being right.
+- **It does not diagnose §8's condition 2.** The recorder has still produced no
+  new game clusters since 2026-08-09 and no cause is written here either.
+- **Counted assumptions: 0.** Every claim in §A2 and §A4 is read from a
+  committed registration or from `backend/core/fees.py` at the cited line.
