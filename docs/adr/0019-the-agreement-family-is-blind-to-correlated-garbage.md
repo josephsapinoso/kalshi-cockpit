@@ -455,23 +455,39 @@ to one regime or reports both separately.
 0020.** `suppression.py` emitted *"book last moved {x}min ago"*. `odds_age_ms`
 is measured from The Odds API's `last_update`, which is a **scrape** timestamp:
 measured on the captured fixture (15 MLB events, 30 books, 440 book+event
-pairs), **335 of 335** pairs quoting more than one market carry one identical
-stamp across every market they quote — **243 of 243** of the three-market
-subset — and **27 of 30** books have exactly one distinct stamp across all
-fifteen games. FanDuel reports `13:49:00Z` for three markets on fifteen
-different games. No book reprices fifteen moneylines, run lines and totals in
-the same second.
+pairs), **320 of 320** pairs quoting more than one priceable market carry one
+identical stamp across every market they quote — **258 of 258** of the
+three-market subset — and **27 of 30** books have exactly one distinct stamp
+across all fifteen games. FanDuel reports `13:49:00Z` for three markets on
+fifteen different games. No book reprices fifteen moneylines, run lines and
+totals in the same second.
 
 **Corrected 2026-08-09 — this section first read "440 of 440", and that
-denominator was padded.** 105 of the 440 pairs quote a **single** market, where
-"one stamp across its markets" is vacuously true and no disagreement was
-possible. The non-vacuous population is the 335 pairs quoting two or more, and
-it is unanimous. The correction does not weaken the finding — it is the same
-100%, over the rows that could have refuted it — but publishing a denominator
-inflated by rows incapable of dissent invites exactly the audit this repo runs
-on everything else. Same shape as
-`tasks/lessons.md`'s *a true measurement licensed a false conclusion*: the
-number was true and its scope was wider than what was measured.
+denominator was padded.** 120 of the 440 pairs quote a **single** priceable
+market, where "one stamp across its markets" is vacuously true and no
+disagreement was possible. The non-vacuous population is the 320 pairs quoting
+two or more, and it is unanimous. The correction does not weaken the finding —
+it is the same 100%, over the rows that could have refuted it — but publishing
+a denominator inflated by rows incapable of dissent invites exactly the audit
+this repo runs on everything else. Same shape as `tasks/lessons.md`'s *a true
+measurement licensed a false conclusion*: the number was true and its scope was
+wider than what was measured.
+
+**And the correction needed correcting, which is the more useful half.** Its
+first version said **335**, counting every market key in the raw payload —
+including the `h2h_lay` prices that `EXCLUDED_MARKETS` **never stores**. A stamp
+on a row the system discards cannot belong in a denominator about
+`odds_age_ms`. Filtering to `PRICEABLE_MARKETS` moves 15 pairs across the
+vacuous boundary: 335 → **320**.
+
+Twice, in the same direction, by the same mechanism — a population widened with
+rows incapable of refuting the claim. The transferable rule is not *count more
+carefully*; it is that **a census supporting a claim about a stored quantity
+must apply the same filter the storage path applies.** The raw payload is not
+the population. `scripts/census_odds_stamps.py` now imports
+`PRICEABLE_MARKETS` from `odds/client.py` rather than re-typing it, so the
+census cannot drift from the filter again, and it prints the rejected 335
+beside the 320 so the difference stays visible instead of being assumed away.
 
 **And "27 of 30" needs its definition stated, because two defensible counts
 differ.** Counting book- and market-level stamps together gives 27 of 30;

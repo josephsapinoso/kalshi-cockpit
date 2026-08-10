@@ -211,13 +211,20 @@ def evaluate_suppression(
     # **scrape** timestamp, not a **reprice** timestamp. Measured on the captured
     # fixture (15 MLB events, 30 books, 440 book+event pairs):
     #
-    #   335 of 335 pairs quoting MORE THAN ONE market carry one identical stamp
-    #   across every market they quote (243 of 243 of the three-market subset).
+    #   320 of 320 pairs quoting MORE THAN ONE priceable market carry one
+    #   identical stamp across every market they quote (258 of 258 of the
+    #   three-market subset).
     #
-    # **Counted over the 335, not over all 440**, because 105 pairs quote a
-    # single market and agreement with oneself is vacuous -- including them
-    # inflates the denominator with rows that could not have disagreed. The
-    # unanimity is total either way; the honest number is the smaller one.
+    # **Counted over the 320, not over all 440**, because 120 pairs quote a
+    # single priceable market and agreement with oneself is vacuous --
+    # including them inflates the denominator with rows that could not have
+    # disagreed. The unanimity is total either way; the honest number is the
+    # smaller one.
+    #
+    # **Priceable markets only**, per PRICEABLE_MARKETS. Counting raw payload
+    # keys would give 335, but `h2h_lay` is in EXCLUDED_MARKETS and is never
+    # stored, so it cannot contribute to `odds_age_ms` and does not belong in a
+    # denominator about it. Re-derive with `scripts/census_odds_stamps.py`.
     #
     # And 27 of 30 books carry exactly one distinct stamp across all fifteen
     # games, counting book- and market-level stamps together (29 of 30 on the

@@ -155,18 +155,23 @@ rule that can never report.
 ### 5. The queue
 
 1. **ADR 0020 — `stale_odds` reads a scrape clock.** `odds_age_ms` comes from
-   The Odds API `last_update`, which is a **scrape** timestamp: **335 of 335**
-   book+event pairs quoting more than one market share one stamp across every
-   market they quote, and **27 of 30** books carry exactly one stamp across
-   fifteen games. It measures our polling cadence, not line freshness. **The
-   false message is already corrected;** the remedy is undecided and has three
-   live options.
+   The Odds API `last_update`, which is a **scrape** timestamp: **320 of 320**
+   book+event pairs quoting more than one priceable market share one stamp
+   across every market they quote, and **27 of 30** books carry exactly one
+   stamp across fifteen games. **The false message is already corrected;** the
+   remedy is undecided and has three live options.
 
-   **This read "440 of 440" until 2026-08-09 and that denominator was padded** —
-   105 of the 440 pairs quote a single market, so unanimity was vacuous for
-   them. Corrected in the same four places it was written (here, `start.md`,
-   `docs/adr/0019`, `backend/core/suppression.py`). Still 100%, over rows that
-   could have disagreed. Quote 335, not 440.
+   **Quote 320. Not 440, and not 335.** This read "440 of 440" until
+   2026-08-09; 120 of those pairs quote a single priceable market, where
+   unanimity is vacuous. The first fix said 335 and was *also* padded — it
+   counted raw payload keys including `h2h_lay`, which `EXCLUDED_MARKETS` never
+   stores. Corrected in four places (here, `start.md`, `docs/adr/0019`,
+   `backend/core/suppression.py`) and re-derivable at zero credit cost with
+   `scripts/census_odds_stamps.py`.
+
+   **Do not say "it measures our polling cadence."** The aggregator scrapes on
+   its own schedule; our polling only samples it. The defensible claim is the
+   weaker one: `last_update` is **not a per-line reprice timestamp**.
 2. **The refutation ADR** — still waits on item 4. Its argument is provisional in
    exactly the way an n=29 null is provisional; say so in its own named section.
    The honest claim is *"Kalshi is not mispriced relative to a consensus it may

@@ -4360,3 +4360,55 @@ logging into query strings, so it hides in committed logs and fixtures where no
 absence of a match is not evidence of absence. If something surfaces, **rotate
 it first** — rewriting history is not a substitute for rotation, because you
 cannot know who already cloned.
+
+---
+
+## 2026-08-09 — The census must apply the same filter the storage path applies
+
+A published claim read *"**440 of 440** book+event triples carry one identical
+`last_update` across h2h, spreads and totals"*, offered as proof that the stamp
+is a scrape clock rather than a reprice clock. It was corrected twice in one
+session, **both times in the same direction**, and the second correction is the
+one worth keeping.
+
+| Denominator | What it counted | Why it was wrong |
+|---|---|---|
+| 440 | every book+event pair | 120 quote **one** market — unanimity is vacuous |
+| 335 | pairs with ≥2 **raw payload** keys | counts `h2h_lay`, which is **never stored** |
+| **320** | pairs with ≥2 **priceable** markets | the population that could have refused |
+
+Unanimity is 100% under all three. Nothing about the finding moved. What moved
+is whether the denominator contained rows **capable of refuting the claim** —
+and twice it was padded with rows that were not.
+
+The first padding is the familiar one: agreement with oneself is not evidence
+of agreement. The second is subtler and is the actual lesson. The census read
+the **raw API payload**, while the quantity it was arguing about — `odds_age_ms`
+— is computed only from markets in `PRICEABLE_MARKETS`. `h2h_lay` is in
+`EXCLUDED_MARKETS` and is discarded at ingest, so a lay price's stamp cannot
+contribute to `odds_age_ms` at all. Fifteen pairs sat on the wrong side of the
+vacuous boundary purely because of it.
+
+**Why it hides:** both numbers are true statements about *something*, both are
+100%, and both move in the flattering direction — a bigger denominator reads as
+stronger evidence. Nothing in the output announces which population was
+counted, and the difference (335 vs 320) is small enough to look like a
+rounding disagreement rather than a scope error.
+
+**How to apply:** when a census is offered as evidence about a **stored or
+derived** quantity, the census must filter its input **exactly as the
+production path does**, and it should do so by *importing* the filter rather
+than restating it. `scripts/census_odds_stamps.py` imports `PRICEABLE_MARKETS`
+from `odds/client.py` for that reason — a re-typed constant is a copy that
+drifts, and the drift is silent. It also prints the rejected 335 beside the 320,
+because a discarded alternative that stays visible cannot be quietly
+reintroduced by the next reader.
+
+Corollary, and it generalises past filters: **before quoting `N of N`, ask what
+the rows that are not in N would have had to do to break the claim.** If the
+answer is "nothing — they could not have disagreed", they are not evidence and
+must leave the denominator. Related:
+[[a-true-measurement-licensed-a-false-conclusion]] (the number was true and its
+scope was wider than what was measured),
+[[the-zero-that-means-no-measurement]] (an unmeasurable case wearing a
+measured case's representation).
