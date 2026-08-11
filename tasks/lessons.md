@@ -6454,3 +6454,110 @@ prefer *"decided on <date>, on <evidence>"* to *"do not re-put this"*: the first
 invites the cheap check, the second forbids it.
 
 Related: [[a-test-that-passes-on-the-bug-is-not-a-test]].
+
+---
+
+## 2026-08-11 — Deployment cannot be inferred from commit times in this repo
+
+An argument that a suppression check had never run: *"it was committed 54
+minutes after the last deploy, so it cannot have been deployed."* Precise,
+checkable, and **unsound**.
+
+`flyctl deploy` builds from the **working directory**, not from `HEAD`. This
+repo's deploys have been made from a dirty tree. So the commit clock bounds
+nothing in either direction: code can be running that was never committed, and
+a commit can already be running before it exists.
+
+**It demonstrably happens here.** The first `no_market_width` row lands **63
+seconds** after commit `58f7a7c` — faster than any Fly build of this image. The
+deploy preceded the commit.
+
+**What proves deployment is the record.** The deployed code writes fields; those
+fields are the only witness. Here the sound proof was `strategy_config_version`:
+the same commit added `suppression_checks` to the strategy-config payload
+(`backend/runner.py:577`), and `ensure_strategy_config`
+(`backend/engine.py:342-376`) mints a new version whenever that payload changes.
+The record holds v1 and v2 and no v3 — therefore not deployed. Same conclusion,
+and this time it follows.
+
+**How to apply:** prove "was this running?" from a field the code itself writes
+into the data — a config version, a schema column, a value only the new branch
+can produce. Never from `git log`, and never from `flyctl releases`. If no such
+field exists, the honest answer is *unknown*, and adding one is cheaper than the
+argument.
+
+**Why this is worse than the caution it generalises.** The memory note says
+`flyctl logs` is lossy — a source that visibly under-reports, which you learn to
+distrust. This is the second and nastier case: a source that is **exact,
+verifiable, and about the wrong thing.** A commit timestamp is not approximately
+right about deployment; it is precisely right about something else. Nothing in
+checking it more carefully would have caught the error.
+
+Related: [[a-detectors-production-must-be-the-deployments-production]],
+[[start-md-is-a-snapshot-git-log-is-the-record]],
+[[verification-methods-that-lie]], [[code-with-no-caller-is-not-a-feature]].
+
+---
+
+## 2026-08-11 — A repeated row is not an independent observation, and the denominator that flatters a claim is usually the row count
+
+I published, in a status report: the two devig-conservatism charges total **≈4.9
+tenths** against **3.8 tenths** of venue advantage — *the caution exceeds the
+prize*. The per-row arithmetic was right (median 5.0041 tenths over 1,564 rows).
+
+**The unit was wrong.** Those 1,564 rows are only **325 distinct devig
+computations**. Rows repeat because the same odds snapshot is re-swept on every
+pass, and because mirrored tickers on the same game share one devig. On the 325,
+the median combined charge is **3.1067 tenths — below the 3.8 headroom — and
+54.5% sit at or below it.** The conclusion reverses.
+
+**And the parts disagree, which is the more useful half:**
+
+```
+MLB    n=262   median 2.518   63.0% under 3.8
+WNBA   n=63    median 8.871   19.0% under 3.8
+```
+
+WNBA is a **fifth** of the units and carries the entire pooled result. The
+supported statement is the WNBA one, said with its `n` and its label — not a
+sentence about "the devig charge".
+
+**Also correct the frame.** 3.8 tenths is the size of the **prize**; the devig
+charge is an **evidentiary bar**. A charge exceeding it means the pipeline will
+refuse to *name* an edge, not that a real edge is unprofitable. It is a claim
+about **detectability, not profitability**, and the two get conflated because
+they are measured in the same unit.
+
+**Why the existing rule did not fire, and this is the part worth keeping.**
+[[one-observation-recorded-thirty-times-is-one-observation]] already covers
+this, and its stated trigger is *"before dividing by `sqrt(n)`"*. This statistic
+had no `sqrt(n)` in it. A median and a percentage carry no error bar to shrink,
+so the rule read as inapplicable — and it is not: **repetition reweights a
+median and a percentage directly**, and here it moved both across the threshold
+the claim was about. The scope of that lesson is every aggregate, not only the
+ones with an error bar.
+
+**How to apply:** before publishing any aggregate, write down what **one unit**
+is in words, count the distinct units, and print that count beside the row
+count. If a poller wrote the rows, the row count measures **uptime**. And when a
+figure is close to a threshold, expect the row-count denominator to be the one
+that flatters it — that is the direction the duplication always points, because
+the busiest markets are the most re-swept.
+
+**The aggravating fact, plainly.** `CLAUDE.md` carries both rules already —
+*"read `n` before the effect size"* and *"a pooled number is not a finding until
+the parts agree"* — and I **quoted the second at another agent the same day**,
+hours before this number reversed on exactly it. The rule being written down,
+known, and recently invoked did not prevent it. What would have: publishing
+**after** the audit rather than before. A status report is publication; a
+`measurement-skeptic` pass costs minutes and this one changed the sign of the
+conclusion.
+
+**Not the finding, and do not re-litigate it:** the *median of sums vs sum of
+medians* objection moves 4.87 to 5.00 and changes nothing. The unit error and
+the league split are the whole finding.
+
+Related: [[one-observation-recorded-thirty-times-is-one-observation]],
+[[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
+[[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]],
+[[before-quoting-n-of-n]], [[two-populations-in-one-record]].

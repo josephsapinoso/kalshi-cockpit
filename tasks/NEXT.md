@@ -2262,8 +2262,34 @@ worst-of-four rule is eating **three to five times the entire edge being
 hunted** — and `actionable = 0` is partly a restatement of our own policy rather
 than a fact about the venue.
 
+> **CORRECTED 2026-08-11 — the paragraph above is kept only so its two
+> refutations have something to point at. Do not quote it.**
+>
+> - **"Three to five times" was refuted the same week.** "1–2 points" was the
+>   *longshot* end of a measured range quoted as if it were the range
+>   (`backend/core/suppression.py:217-220`: ~0.18 points on an even moneyline,
+>   ~2.03 on a longshot). At 50c, where this strategy trades, the rule costs
+>   about **0.24x** the headroom. See `tasks/lessons.md`,
+>   [[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]].
+> - **The replacement figure I then published was also wrong, on the unit.** I
+>   reported a combined devig charge of ≈4.9 tenths against 3.8, i.e. "the
+>   caution exceeds the prize". The per-row arithmetic held (median 5.0041 over
+>   1,564 rows) but 1,564 rows are only **325 distinct devig computations** —
+>   rows repeat across sweeps and across mirrored tickers. On the 325 the median
+>   is **3.1067 tenths, below the 3.8 headroom**, with 54.5% at or under it, and
+>   the parts disagree sharply: **MLB n=262, median 2.518, 63.0% under; WNBA
+>   n=63, median 8.871, 19.0% under.** WNBA is a fifth of the units and carries
+>   the whole pooled result. **The only supported statement is the WNBA one,
+>   with its `n` and its label.** See `tasks/lessons.md`,
+>   [[a-repeated-row-is-not-an-independent-observation]].
+> - **And it is the wrong kind of quantity.** 3.8 tenths is the size of the
+>   **prize**; the devig charge is an **evidentiary bar**. Exceeding it means the
+>   pipeline will refuse to *name* an edge — a claim about **detectability, not
+>   profitability**. The two are conflated because they share a unit.
+
 **(b) is not a reprieve and it is not a bug.** It is a policy consequence that
-has never been priced.
+has never been priced — and note that both attempts to price it so far have
+erred in the same direction, toward "our own caution explains the zero".
 
 ### What makes it answerable today
 
