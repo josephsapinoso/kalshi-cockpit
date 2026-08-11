@@ -146,7 +146,7 @@ export default async function BoardPage({
           </div>
         )}
 
-        <div className="mb-8 flex flex-wrap items-center gap-3 border-y py-4">
+        <div className="mb-3 flex flex-wrap items-center gap-3 border-y py-4">
           <Stat label="Bettable now" value={board.counts.surfaced} accent />
           {/* Shown only when it is non-zero, because it is a qualifier on the
               number to its left rather than a category of its own. */}
@@ -162,7 +162,29 @@ export default async function BoardPage({
           </Link>
         </div>
 
-        <HowToRead />
+        {/* **The central fact, which was in the payload and on no screen.**
+            The counts above are correctly *this slate's* now, and that
+            windowing quietly took away the Board's only statement about the
+            record: "Bettable now: 0" reads as a quiet half-hour when what it
+            actually reports is zero actionable across the entire life of the
+            database. Both numbers come off the server — `recorded_total`, and
+            the gate's own `suppressed_reason IS NULL AND reference_contracts >
+            0` — because a zero typed in here would go on reading as a finding
+            on the day it stopped being one. */}
+        <p className="mb-8 max-w-xl text-sm leading-relaxed text-muted">
+          Bettable now{" "}
+          <span className="font-semibold text-foreground">
+            {board.counts.surfaced}
+          </span>{" "}
+          &mdash; and{" "}
+          <span className="font-semibold text-foreground">
+            {board.slate.actionable_total}
+          </span>{" "}
+          of {board.slate.recorded_total}{" "}
+          {board.slate.recorded_total === 1 ? "decision" : "decisions"} ever
+          recorded. The second pair is the whole record rather than this slate,
+          and it is what the gate counts towards opening.
+        </p>
 
         {board.surfaced.length === 0 ? (
           <div className="rounded-2xl border bg-card p-7">
@@ -289,6 +311,23 @@ export default async function BoardPage({
                   this slate.{" "}
                 </>
               )}
+              {/* The other way a row leaves this list, and it used to leave it
+                  without a trace: counted inside the window by the timestamp
+                  the query filtered on, then put back outside it by the
+                  freshness the server actually measured. Named separately from
+                  the truncation above because the two drops have nothing to do
+                  with each other, and reading a re-decision as a page limit
+                  would send anyone looking in the wrong place. */}
+              {board.slate.off_basis > 0 && (
+                <>
+                  {board.slate.off_basis}{" "}
+                  {board.slate.off_basis === 1 ? "row was" : "rows were"} inside
+                  this slate by the recorded timestamp and outside it by the
+                  freshness the server measured, so{" "}
+                  {board.slate.off_basis === 1 ? "it is" : "they are"} counted
+                  in the window above and listed nowhere below.{" "}
+                </>
+              )}
               {board.slate.older_than_window > 0 && (
                 <>
                   A further {board.slate.older_than_window} recorded{" "}
@@ -328,6 +367,18 @@ export default async function BoardPage({
             )}
           </section>
         )}
+
+        {/* **Below the prices, not above them.** The copy is good and is
+            unchanged; the placement was the defect. Sitting between the counts
+            and the cards it is ~1,700px of a ~9,000px page, so every phone load
+            scrolls past a lesson to reach a price — and a block that has to be
+            scrolled past to do the thing you opened the page for gets swiped
+            through like a cookie banner, which is the exact failure its own
+            docstring warns about. A permanent block is read once and
+            remembered; it does not need to be first. */}
+        <div className="mt-14">
+          <HowToRead />
+        </div>
       </TicketProvider>
     </Shell>
   );
