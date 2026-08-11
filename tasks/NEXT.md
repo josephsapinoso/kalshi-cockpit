@@ -1,5 +1,45 @@
 # Next — your checklist
 
+## 2026-08-11 — ADR 0025: the `stale_odds` claim was OVERSTATED by ~10x, and its mechanism ran backwards
+
+A backlog-triage agent proposed that ADR 0021's headline *"0 actionable rows,
+ever"* rests on a guard that **discarded the only rows that could have
+contradicted it**, citing `844 of 935`. `measurement-skeptic` returned
+**OVERSTATED**. `docs/adr/0025-the-stale-odds-semantics-is-unpinned-by-any-test.md`
+records what survived. **Do not re-open this from the original framing.**
+
+**What is true and is new:** `stale_odds` is the only suppression code holding
+back any would-be-`actionable` row, and it holds back **23 rows / 9 game
+clusters / 8 odds snapshots**, all `strategy_config_version` 1. Removing it
+alone would move `actionable` from **0 rows to 23** and the gate's scored counter
+from **0 of 300 to 4 of 300**.
+
+**What is false, and must not be repeated:**
+
+- **`844 of 935` is not the number of rows in play.** It is reason-code
+  coverage, **at the wrong pin**, and **836 of 859 (97.3%)** cannot be surfaced
+  by removing the guard. The number is **23**.
+- **The mechanism inverts.** `odds_age_ms` is a **scrape** clock, so it is a
+  **lower bound** on true line age — every rejection is correct under either
+  reading, and the defect contaminates the **clean** set instead. That is ADR
+  0021 §7.5, which the claim cited while concluding its opposite.
+- **"Never written down" is false.** §7.5, two registrations and ADR 0020's
+  queue all write it down. Only the **magnitude** was undocumented.
+- **The 23 lost to the close.** All 11 that carry a score are negative (mean
+  **−18.64 tenths**) against **−5.12** per cluster over the 20 scored clean
+  games. And **8 of the 23 are not pre-game** — 4 of the 9 games were in
+  progress when the row was written.
+
+**What to act on:** the repeat poll's value goes **up**. It is the registered
+instrument for the only question that could change the direction, and ADR 0025
+§5 shows no unit test can substitute — `test_a_stale_book_suppresses` anchored
+at **4×** the threshold with a docstring asserting the semantics the code
+corrects. Boundary tests added; 4 mutations seen red.
+
+**Also settled:** `ALL_CHECK_NAMES` has **12** entries, not 14. Verified at
+`backend/core/suppression.py:119`. At least five committed documents say
+fourteen — correct them as those files are next touched.
+
 ## 2026-08-10 — `inspect_live_db.py` RUNS NOW, and answers ONE of the four questions it was queued for
 
 The script is finished: refusal block gone, **68 tests**, **17 mutations all seen

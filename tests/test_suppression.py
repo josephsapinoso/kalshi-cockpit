@@ -47,10 +47,69 @@ class TestFreshness:
         assert "stale_kalshi_quote" in result.reason
 
     def test_a_stale_book_suppresses(self):
-        """A book that has not repriced in an hour is stale even if we fetched
-        it a second ago."""
+        """A book we last SCRAPED an hour ago is stale.
+
+        The docstring used to read "a book that has not repriced in an hour is
+        stale even if we fetched it a second ago". That is the **reprice-clock**
+        reading of `last_update`, and `suppression.py:210-243` explicitly
+        corrects it: `last_update` is a **scrape** clock, which is why the
+        guard's own message says `book last scraped`. The test asserted, in
+        prose, the semantics the code it defends had rejected. See ADR 0025 §5.
+        """
         result = check(odds_age_ms=3_600_000)
         assert "stale_odds" in result.reason
+
+    def test_the_boundary_is_pinned_at_the_limit(self):
+        """Exactly at `max_odds_age_ms` is fresh; one millisecond over is not.
+
+        The test above fires at 3,600,000ms against a 900,000ms limit -- **four
+        times** the threshold. Mutations run against it: a limit of `900_001`
+        stays GREEN, and flipping `<=` to `<` stays GREEN. A *tenfold* slip to
+        `9_000_000` does go red, so the loose anchor is not blind to everything
+        -- it is blind to everything smaller than 4x, which is the size of error
+        a threshold actually suffers. ADR 0025 §5.
+        """
+        limit = SuppressionConfig().max_odds_age_ms
+        assert limit == 900_000, (
+            "ADR 0025 §5 pins this boundary; a change here is a decision"
+        )
+
+        at_limit = check(odds_age_ms=limit)
+        # `reason` is None when nothing suppressed, so read it as a string
+        # rather than substituting -- an empty string here would make the
+        # `not in` assertion pass for the wrong reason.
+        assert not at_limit.suppressed, at_limit.detail
+        assert at_limit.reason is None
+
+        over = check(odds_age_ms=limit + 1)
+        assert over.suppressed
+        assert "stale_odds" in over.reason
+
+    def test_no_unit_test_can_separate_the_two_readings(self):
+        """The semantics stays unpinned, and this test says so out loud.
+
+        Both candidate readings of `last_update` -- scrape clock and reprice
+        clock -- return the SAME answer for every `odds_age_ms` a unit test can
+        supply, because the guard sees only the integer. So this file pins the
+        **threshold** and cannot pin the **semantics**. The registered
+        instrument for that is the repeat poll
+        (`docs/measurements/2026-08-10-preregistration-odds-last-update-repeat-poll.md`),
+        which has not returned.
+
+        This test exists to fail loudly if someone adds a semantics-dependent
+        branch here and believes the unit tests now cover it.
+        """
+        import inspect
+
+        from backend.core import suppression as module
+
+        source = inspect.getsource(module)
+        # The guard reads one integer. If it ever reads a second field to
+        # decide freshness, the claim in ADR 0025 §5 needs re-deriving.
+        assert "odds_age_ms <= config.max_odds_age_ms" in source
+        assert "last scraped" in source, (
+            "the message must not revert to reprice-clock wording"
+        )
 
 
 class TestIdentity:

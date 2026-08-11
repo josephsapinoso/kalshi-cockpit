@@ -6114,3 +6114,88 @@ punishes a rule for working is worse than no guard.
 Related: [[a-measurement-is-not-new-until-you-have-grepped-for-its-own-value]],
 [[the-power-of-an-instrument-is-not-the-power-of-the-question]],
 [[a-pooled-number-is-not-a-finding-until-the-parts-agree]].
+
+---
+
+## 2026-08-11 — A lower bound rejects correctly; it is the acceptances that are unproven
+
+A claim was built to re-open a refuted result: *"`odds_age_ms` comes from
+`last_update`, which is a scrape clock rather than a quote-freshness signal —
+so the `stale_odds` guard may have discarded exactly the rows that would have
+contradicted the refutation."*
+
+**The premise is correct and the conclusion is its opposite.** Under a scrape
+clock, `odds_age_ms` is a **lower bound** on true line age. A row rejected at
+259 minutes carries price information *at least* 259 minutes old under either
+candidate reading of the field. **Every rejection is still correct.** What a
+lower bound cannot support is the *other* verdict: a row that passes at 3
+minutes is not proven fresh, because the book may have last moved long before
+we scraped it.
+
+So the defect contaminates the **accepted** population, not the rejected one —
+which is exactly what the ADR being attacked already said, in a section the
+claim cited. Only the opposite semantics (an old stamp meaning a *confirmed
+unmoved* line) would make the rejections wrong.
+
+**Why this is easy to get backwards.** "The measurement is unreliable" feels
+symmetric — it sounds like it should weaken every decision the measurement fed.
+It does not. A one-sided error weakens one side of a threshold and *strengthens*
+the other, and which side depends on the sign, which is one sentence of
+reasoning that nobody performs because the conclusion is already available.
+Everyone reaches for "the guard was wrong to reject" because that is the
+direction with something to gain behind it.
+
+**The tell was in the guard's own message.** It reads `book last scraped
+{x}min ago`, having been deliberately corrected from `book last moved`. The
+code had already recorded which reading was true, in the string a human sees.
+
+**How to apply:** whenever an argument runs *"this input is measured wrongly,
+therefore this threshold's output is wrong"*, write down whether the measurement
+error is one-sided and in which direction, before writing the conclusion. Then
+check which side of the threshold that direction attacks. A lower bound
+invalidates *acceptances*; an upper bound invalidates *rejections*. Say which
+one you have. And when a guard's user-facing message was itself corrected once,
+read that message before theorising about the field it describes — it is the
+cheapest surviving record of what the last person established.
+
+Related: [[unreadable-must-never-resolve-to-zero]],
+[[clamping-is-for-values-you-trust]],
+[[the-power-of-an-instrument-is-not-the-power-of-the-question]],
+[[an-amended-registrations-body-is-not-the-registration]].
+
+---
+
+## 2026-08-11 — Two artefacts that agree on the number you check are how a pin swap goes unnoticed
+
+A census was quoted against a result — 844 stale-touching rows of 935
+suppressed — and the figures reproduced exactly. They came from
+`2026-08-10-wholetable-pull.json`, **pin 1549**. The result they were quoted
+against was pinned to `2026-08-10-clean-shortfall-pull.json`, **pin 1564**,
+where the same query returns **859** and **950**.
+
+**The substitution was invisible because the one figure a reader would spot-check
+is identical under both pins: `clean == 614`.** Check the headline number, it
+matches, stop checking. Every other number in the paragraph was from the wrong
+population.
+
+The repo already had the rule — ADR 0021 §4: *"§0.2 and this run are one
+population read twice under two pins — the same 614 clean rows — not two
+measurements."* It was written **because** 614 is pin-invariant, and it was not
+enough to prevent the error, because a rule about a coincidence does not fire
+when you are looking at the coincidence.
+
+**Why:** two pulls of a growing table share a prefix. Any statistic over the
+prefix agrees; any statistic over the whole differs. So "the numbers reproduce"
+is evidence of a shared prefix, not of a shared population — and reproduction
+is exactly the check a careful person runs and then trusts.
+
+**How to apply:** quote the pin beside every count, in the same sentence, the
+way this repo already quotes `n`. When you verify a figure reproduces, verify it
+against the artefact the *conclusion* is pinned to, not against whichever
+artefact contains the number. And treat a pin-invariant quantity as a **warning
+sign** rather than a reassurance: it is the one figure that cannot tell you
+which population you are in.
+
+Related: [[a-borrowed-number-must-overlap-the-population-you-spend-it-on-in-time]],
+[[a-measurement-with-no-committed-artifact-is-a-rumour]],
+[[a-pooled-number-is-not-a-finding-until-the-parts-agree]].

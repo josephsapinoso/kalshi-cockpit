@@ -116,6 +116,16 @@ registration's only time-bound. **The per-database / per-account credit gap
 `stale_odds` remedy waits on it and the credits are already granted. **Write the
 remedy after the poll, not before.**
 
+**Its value went UP on 2026-08-11.** ADR 0025 §5 establishes that **no unit test
+in this repo can distinguish the two readings of `last_update`** — both return
+the same answer for every input a test can supply. The poll is the registered
+instrument and there is no cheaper substitute.
+
+**MEASURED WINDOW, free, from ESPN:** P4 passes only between **17:30Z and
+~22:00Z**. Before that the slate is too thin (0 events within 6h at 00:16Z, 2 at
+17:00Z); after ~22:20Z a game starts inside the 20-minute blackout. Re-check at
+the real `T0` — the script decides P4 itself and spends nothing if it fails.
+
 ### 2. Round three — the kit is BUILT and Joe has a decision to make
 
 $5.00 authorised 2026-08-10, hard expiry **2026-08-31 UTC**, **nothing spent**.
@@ -301,6 +311,20 @@ for the CLV rewrite.
   — do not "fix" it.**
 
 ## SETTLED — do not re-derive or re-propose
+
+- **ADR 0025 — the `stale_odds` re-opening is refused, and the refusal is
+  narrow.** *"ADR 0021 rests on a guard that discarded the only rows that could
+  have contradicted it, 844 of 935"* was audited **OVERSTATED**. The real number
+  is **23 rows / 9 clusters / 8 odds snapshots**; **836 of 859 (97.3%)** cannot
+  be surfaced by removing the guard. **The mechanism inverts**: a scrape clock
+  makes `odds_age_ms` a **lower bound**, so every rejection is correct under
+  either reading and the defect contaminates the **clean** set — ADR 0021 §7.5,
+  which the claim cited while concluding its opposite. All 11 of the 23 that
+  carry a close are **negative** (mean −18.64 tenths vs −5.12 clean), and **8 of
+  23 are not pre-game**. **Never write "844 of 935" as rows in play.**
+- **`ALL_CHECK_NAMES` has 12 entries, not 14** (`backend/core/suppression.py:119`,
+  verified). Five committed documents say fourteen. **Six of the twelve never
+  fired on this record.**
 
 - **One signal, not two.** `elo.py` has no production caller. **Do NOT wire it
   up.** Any claim that two signals must "agree" describes a design, not the
