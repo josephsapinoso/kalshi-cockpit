@@ -1,4 +1,5 @@
 import type { Recommendation } from "@/lib/api";
+import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 
 /**
  * One candidate, as a line rather than a card.
@@ -14,6 +15,13 @@ import type { Recommendation } from "@/lib/api";
  * bettable — which is why nothing here is tappable and nothing here shows a
  * size or a cost. A rejected row that opened an order ticket would suggest the
  * decision is reversible from this screen; it is not.
+ *
+ * **Colour is a claim, not the sign of a subtraction.** The edge took
+ * `text-positive` on `edge_cents > 0` alone, so the live demo drew
+ * `REJECTED … +24.4c` with the number in bright green and `suspicious_edge` in
+ * grey beside it — the largest apparent edge in the room, painted as the most
+ * attractive thing on the page, by the rule that exists to catch it. The tone
+ * now comes from `edgeTone`, which reads the suppression state first.
  */
 
 export type SlateState = "expired" | "rejected" | "no-edge";
@@ -59,7 +67,14 @@ export default function SlateRow({
 }) {
   const resolved = stateOf(rec, state);
   const chip = CHIP[resolved];
-  const positive = rec.edge_cents > 0;
+  /**
+   * **Not `edge_cents > 0`.** That is the sign of a subtraction; this is a
+   * claim about whether the number is money. A refused row never reads
+   * `text-positive` here, and `suspicious_edge` reads louder than anything
+   * else on the line — see `edgeTone`.
+   */
+  const tone = edgeTone(rec);
+  const suspect = tone === "suspect";
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
@@ -76,15 +91,25 @@ export default function SlateRow({
       <span className="tabular text-sm text-muted">
         {rec.fair_percent_display} fair / {rec.ask_display} ask
       </span>
-      <span
-        className={`tabular text-sm font-semibold ${
-          positive ? "text-positive" : "text-negative"
-        }`}
-      >
-        {positive ? "+" : ""}
+      <span className={`tabular text-sm font-semibold ${EDGE_TONE_CLASS[tone]}`}>
+        {EDGE_TONE_MARK[tone]}
+        {rec.edge_cents > 0 ? "+" : ""}
         {rec.edge_cents.toFixed(1)}c
       </span>
-      <span className="ml-auto min-w-0 break-words font-mono text-xs text-muted">
+      {/* **The reason, at the weight of a reason.** This was `text-muted` on
+          every row, so the code naming the row a defect rendered as a footnote
+          beside an edge rendered as an opportunity — the two claims exactly the
+          wrong way round. A refused row's reason is the content of the row; on
+          a `suspicious_edge` row it is the loudest thing on it. */}
+      <span
+        className={`ml-auto min-w-0 break-words font-mono text-xs ${
+          suspect
+            ? "font-bold text-negative"
+            : resolved === "rejected"
+              ? "text-accent"
+              : "text-muted"
+        }`}
+      >
         {resolved === "rejected"
           ? rec.suppressed_reason
           : resolved === "expired"

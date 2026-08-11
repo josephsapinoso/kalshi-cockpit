@@ -252,9 +252,29 @@ export type Board = {
     /** The window before `limit`, and what survived it. */
     in_window: number;
     returned: number;
+    /**
+     * Rows inside the window by the stored timestamp and outside it by the age
+     * that was actually measured, so counted in `in_window` and listed nowhere.
+     *
+     * Its own number rather than part of `truncated`, because `LIMIT` and the
+     * server's second freshness reading drop rows for unrelated reasons. Until
+     * this existed those rows set nothing and the page printed nothing.
+     */
+    off_basis: number;
+    /** `in_window > returned`. Both kinds of drop, not just the `LIMIT`. */
     truncated: boolean;
     /** The record deliberately left off — what the old query ranked and showed. */
     recorded_total: number;
+    /**
+     * Rows in the **whole table** the strategy would have bet: the gate's own
+     * `suppressed_reason IS NULL AND reference_contracts > 0`, not this slate's.
+     *
+     * The Board's counts are correctly windowed now, and that windowing took
+     * away its one statement about the record — "Bettable now: 0" reads as a
+     * quiet half-hour when the actual finding is zero across the life of the
+     * database. Nothing else in this payload can reconstruct it.
+     */
+    actionable_total: number;
     older_than_window: number;
   };
   note: string;
@@ -728,6 +748,88 @@ export const fetchHealth = () =>
      */
     live_quotes_available?: boolean;
   }>("/api/health");
+
+/**
+ * Whether a row failed a named suppression rule.
+ *
+ * **`suppressed_reason` is a comma-joined list, not one code.**
+ * `SuppressionResult.reason` joins every failed check with `,`
+ * (`backend/core/suppression.py`), and `engine.py` can write a
+ * `sizing:{constraint}` code into the same column. So a row reads
+ * `suspicious_edge,wide_market` as often as it reads one word, and an equality
+ * test against the whole string silently misses every row that broke more than
+ * one rule — which is the row most worth shouting about.
+ */
+export function hasSuppression(
+  rec: Pick<Recommendation, "suppressed_reason">,
+  code: string,
+): boolean {
+  if (!rec.suppressed_reason) return false;
+  return rec.suppressed_reason.split(",").some((part) => part.trim() === code);
+}
+
+/**
+ * What the edge number on a row *means*, which is not the sign of a subtraction.
+ *
+ * The Board rendered `+24.4c` in `text-positive` on `edge_cents > 0` alone,
+ * with no reference to whether the row had been refused — so a row reading
+ * `REJECTED … suspicious_edge` painted the largest apparent edge in the room in
+ * the colour that means take this, and put the code identifying it as a defect
+ * in small grey monospace beside it. On a phone at a glance that row was the
+ * most attractive thing on the page.
+ *
+ * `CLAUDE.md` rule 1 is that **a large apparent edge is a bug until proven
+ * otherwise**. Colour is a claim about whether a number is money, so the
+ * suppression state is consulted *before* the sign and the sign is only ever
+ * reached on a row nothing refused:
+ *
+ *   suspect   `suspicious_edge` fired. The code that means the data is broken,
+ *             and the one whose rows sort to the top of any edge ranking. It
+ *             gets the loudest treatment on the row, not the quietest.
+ *   refused   some other rule fired. Caution, never money — the number is a
+ *             record of what the arithmetic said, not an offer.
+ *   positive  nothing refused it and the edge survives fees.
+ *   negative  nothing refused it and there is no edge.
+ *
+ * Shared rather than written per screen because a suppressed row reaches the
+ * eye down more than one path — the Board's slate rows and the Ledger — and a
+ * second copy of this rule is a second chance to render green over a defect.
+ */
+export type EdgeTone = "suspect" | "refused" | "positive" | "negative";
+
+export function edgeTone(
+  rec: Pick<Recommendation, "edge_cents" | "suppressed_reason">,
+): EdgeTone {
+  if (hasSuppression(rec, "suspicious_edge")) return "suspect";
+  if (rec.suppressed_reason) return "refused";
+  return rec.edge_cents > 0 ? "positive" : "negative";
+}
+
+/**
+ * The tone as classes. `suspect` is a filled chip rather than coloured text:
+ * the point is that the figure stops reading as a figure.
+ */
+export const EDGE_TONE_CLASS: Record<EdgeTone, string> = {
+  suspect: "rounded bg-accent-soft px-1.5 py-0.5 font-extrabold text-negative",
+  refused: "text-accent-2",
+  positive: "text-positive",
+  negative: "text-negative",
+};
+
+/**
+ * A cue that survives the colour being invisible.
+ *
+ * Roughly one man in twelve cannot separate the two hues this palette uses for
+ * good and bad, and `--negative` is the same red as `--accent` — so a rule
+ * carried by colour alone is carried by nothing for those readers, and the
+ * whole defect this tone exists to fix would render exactly as before.
+ */
+export const EDGE_TONE_MARK: Record<EdgeTone, string> = {
+  suspect: "⚠ ",
+  refused: "",
+  positive: "",
+  negative: "",
+};
 
 /** Freshness band for a quote age. Drives colour, so the eye reads it. */
 export function freshness(ageMs: number, limitMs: number) {
