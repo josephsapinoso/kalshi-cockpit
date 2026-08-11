@@ -121,6 +121,27 @@ primary_region = "ord"
   # deliberate headroom for that work.
   ODDS_MONTHLY_CREDIT_BUDGET = "13000"
 
+  # Ceilings on Anthropic spend, enforced by `backend/agents/budget.py`.
+  #
+  # **This instance is the one that had no ceiling.** `ANTHROPIC_API_KEY` is set
+  # here (`/api/health` reports `agent_fleet_configured: true`) and `AGENT_MODEL`
+  # is not, so the live model is `agents/base.py`'s default -- claude-opus-5, the
+  # expensive one. Before 2026-08-11 the Skeptic fanned out over every surfaced
+  # row with no cap, on a full pass every RUNNER_INTERVAL_S and a quote pass
+  # every RUNNER_FAST_INTERVAL_S. The bill was held at zero by `surfaced == 0`,
+  # which is a measurement outcome and not a configuration value.
+  #
+  # Stated explicitly here even though they equal the code defaults, because the
+  # deployed value of a money cap should be readable in the deploy file rather
+  # than inferred from a default two files away -- that inference is how the
+  # missing AGENT_MODEL above ends up billing at the Opus rate unnoticed.
+  #
+  # ~4.5 cents a call at list price, so 8 a pass is ~$0.36 and 24 a day is
+  # ~$1.10 (~$33/month). Raise deliberately, after the first real bill --
+  # `skeptic_unreviewed` in the pass log counts the rows a ceiling refused.
+  AGENT_MAX_CALLS_PER_PASS = "8"
+  AGENT_MAX_CALLS_PER_DAY = "24"
+
   ODDS_REGIONS = "us,eu"
   ODDS_MARKETS = "h2h,spreads,totals"
 

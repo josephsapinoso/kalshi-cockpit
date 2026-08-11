@@ -35,11 +35,58 @@ from typing import Any, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
+from ..config import ConfigError
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5"
 
+# Conservative on purpose, and neither number is measured -- the population they
+# would be measured on has never existed, because `surfaced` has been 0 on every
+# live pass. The arithmetic they *are* derived from:
+#
+#   one Skeptic call ~= 1,400 input + ~1,500 output tokens
+#   claude-opus-5 list price = $5 / $25 per million
+#   -> ~$0.045 a call, so 8 a pass is ~$0.36 and 24 a day is ~$1.10 (~$33/month)
+#
+# 8 per pass bounds one `asyncio.gather`; 24 a day is three saturated passes, on
+# a loop that wakes up to 96 times. The daily cap is the one that actually binds
+# the bill -- 96 x 8 would be 768 calls, ~$35 a day.
+#
+# **These will bind the first time this project succeeds, and that is intended.**
+# If the `stale_odds` question resolves the way it might, a pass could surface
+# ~23 rows; 15 of them would come back refused rather than reviewed. That is the
+# right direction for a first ceiling on a path that had none: the alternative
+# is discovering the correct number from an invoice. Raising it is one line in
+# `fly.live.toml` and a deploy, taken deliberately after the first real bill.
+DEFAULT_MAX_CALLS_PER_PASS = 8
+DEFAULT_MAX_CALLS_PER_DAY = 24
+
 T = TypeVar("T", bound=BaseModel)
+
+
+def _positive_int_env(key: str, default: int) -> int:
+    """Parse a ceiling from the environment. Malformed raises; it never defaults.
+
+    `backend/config.py`'s rule, applied here because these are risk caps and not
+    preferences: *a silently-defaulted cap is how you discover your exposure
+    limit was 0 or unset at the worst possible moment*. A typo in
+    `AGENT_MAX_CALLS_PER_DAY` must not resolve to "the generous default".
+
+    Zero is accepted and means "make no calls" -- a legitimate way to hold the
+    fleet at zero spend without unsetting the key. Negative is not, because it
+    is not a quantity anything can mean.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{key}={raw!r} is not an integer.") from exc
+    if value < 0:
+        raise ConfigError(f"{key}={value} must be zero or more.")
+    return value
 
 
 class AgentUnavailable(RuntimeError):
@@ -50,6 +97,12 @@ class AgentUnavailable(RuntimeError):
 class AgentConfig:
     api_key: str
     model: str = DEFAULT_MODEL
+    # The spend ceilings. They live here, beside the key and the model, because
+    # this is already the fleet's one env-reading site -- and because a config
+    # object that carries "which model to bill" and not "how much of it" is the
+    # shape that let the spend path ship with no ceiling at all.
+    max_calls_per_pass: int = DEFAULT_MAX_CALLS_PER_PASS
+    max_calls_per_day: int = DEFAULT_MAX_CALLS_PER_DAY
 
     @classmethod
     def from_env(cls) -> Optional["AgentConfig"]:
@@ -58,12 +111,26 @@ class AgentConfig:
         The fleet is decision support. A missing key must degrade the tool to
         "no agent commentary", never stop the ingest loop that is recording the
         evidence the whole project depends on.
+
+        **A malformed ceiling is the one thing here that does raise**, and the
+        asymmetry is deliberate. An absent key means "no agents", which costs
+        nothing; an unreadable cap means "we do not know what the limit is", and
+        the only safe reading of that on a metered path is to stop. The blast
+        radius is bounded to instances that have the key set at all.
         """
         key = os.getenv("ANTHROPIC_API_KEY", "").strip()
         if not key:
             return None
-        return cls(api_key=key, model=os.getenv("AGENT_MODEL", DEFAULT_MODEL).strip()
-                   or DEFAULT_MODEL)
+        return cls(
+            api_key=key,
+            model=os.getenv("AGENT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+            max_calls_per_pass=_positive_int_env(
+                "AGENT_MAX_CALLS_PER_PASS", DEFAULT_MAX_CALLS_PER_PASS
+            ),
+            max_calls_per_day=_positive_int_env(
+                "AGENT_MAX_CALLS_PER_DAY", DEFAULT_MAX_CALLS_PER_DAY
+            ),
+        )
 
 
 # Shared across all three agents. Kept byte-stable, because a change here

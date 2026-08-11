@@ -113,10 +113,24 @@ async def research(
     commence_iso: Optional[str],
     focus_team: Optional[str] = None,
 ) -> Optional[ScoutReport]:
-    """Research one game. Runs on demand, from the Market screen.
+    """Research one game. **Nothing calls this.**
 
-    On-demand rather than scheduled so cost scales with attention: pre-running
-    this over a full slate would spend tokens on games nobody opens.
+    There is no Market-screen caller and there never has been: no scout route in
+    `backend/api/routes.py`, no reference anywhere in `frontend/`. This
+    docstring used to say *"Runs on demand, from the Market screen"*, which
+    described an intended UI rather than a deployed one -- the exact shape
+    `tasks/lessons.md` names as *code with no caller is not a feature, it is a
+    plan*, and the reason `docs/adr/0022-quarantine-the-orphaned-modules.md`
+    classifies this module **QUARANTINED**.
+
+    Do not wire it up to make this sentence true. Wiring Scout on means live
+    Anthropic calls, and ADR 0022 §4 records that as a decision Joe has not
+    taken. `tests/test_has_callers.py` enforces it: an import that connects this
+    module to a deployed entry point turns that file red.
+
+    The on-demand design below is still the right one *if* it is ever revived --
+    cost would scale with attention, where pre-running a full slate would spend
+    tokens on games nobody opens.
     """
     focus = f"\nThe tool flagged the {focus_team} side." if focus_team else ""
     prompt = (

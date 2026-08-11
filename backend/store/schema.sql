@@ -688,3 +688,38 @@ CREATE TABLE IF NOT EXISTS notifications (
     UNIQUE (kind, key)
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_time ON notifications(sent_ms DESC);
+
+-- ============================================================================
+-- Anthropic agent calls
+-- ============================================================================
+-- One row per call the agent fleet makes, written whether or not the call
+-- produced a verdict. Two jobs, and the second is the reason the table exists
+-- rather than a counter in memory:
+--
+-- **It is the meter.** `agents/budget.py` reads `COUNT(*)` over the current
+-- sports day from here, so the per-day ceiling survives a process restart. A
+-- counter held in `PassCounts` would reset on every deploy, and a daily cap
+-- that resets whenever the container restarts is not a daily cap.
+--
+-- **It is the only durable record that the fleet ever ran.**
+-- `PassCounts.skeptic_reviewed` / `skeptic_blocked` are logged and nothing
+-- else, and the Fly log buffer is 100 lines -- so before this table, "the
+-- Skeptic reviewed a row on Tuesday" was unanswerable the following morning.
+--
+-- `verdict` and `blocked` are NULL -- never 0, never "none" -- when the call
+-- returned no opinion (an outage, a safety refusal, unparseable output). A
+-- call that happened and said nothing and a call that blocked nothing are
+-- different facts; see `tasks/lessons.md` on the zero that means "no
+-- measurement".
+CREATE TABLE IF NOT EXISTS agent_calls (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    called_ms   INTEGER NOT NULL,
+    agent       TEXT NOT NULL,      -- skeptic | scout | historian
+    model       TEXT NOT NULL,      -- what it cost, per token, is a fact about this
+    ticker      TEXT,               -- NULL for a call that is not about one row
+    side        TEXT,
+    verdict     TEXT,               -- defect | suspicious | plausible | NULL
+    blocked     INTEGER,            -- 1 | 0 | NULL when there was no verdict
+    CHECK (blocked IS NULL OR blocked IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);

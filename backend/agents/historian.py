@@ -137,7 +137,22 @@ def build_prompt(
 async def review(
     client, config: AgentConfig, **prompt_kwargs: Any
 ) -> Optional[HistorianReport]:
-    """Run the weekly post-mortem."""
+    """Run the weekly post-mortem. **Nothing calls this.**
+
+    There is no weekly scheduler, no route, and no reference outside this module
+    and `scripts/measure_agent_cache_prefix.py` -- which imports the prompt text
+    to count tokens and never runs the agent. The module's own docstring
+    describes a cadence ("Once a week you read the measurement marts") that
+    nothing produces; the same shape as `scout.research`, and recorded in
+    `docs/adr/0022-quarantine-the-orphaned-modules.md`, which classifies this
+    module **QUARANTINED**.
+
+    Do not wire it up. ADR 0022 §4 keeps it parked rather than deleted because
+    it plausibly matters under ADR 0021 §8 Options B and F, both of which need a
+    post-mortem loop -- but turning it on is live Anthropic spend and is Joe's
+    call. `tests/test_has_callers.py` fails if an import connects it to a
+    deployed entry point.
+    """
     return await structured_call(
         client,
         model=config.model,

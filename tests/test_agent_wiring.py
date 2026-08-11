@@ -215,10 +215,14 @@ class _Reviewer:
         self.batches.append(list(candidates))
         if self._on_call is not None:
             self._on_call(list(candidates))
+        # `conn` and `now` are forwarded rather than re-supplied: the runner is
+        # what owns both, and a stand-in that invented its own would be testing
+        # a budget the production path never uses.
         return review_surfaced(
             candidates,
             config=AgentConfig(api_key="test-key"),
             client_factory=lambda config: _StubClient(self._verdict),
+            **kwargs,
         )
 
     @property
@@ -373,6 +377,7 @@ class TestASkepticOutageDoesNotStopThePass:
                 client_factory=lambda config: _StubClient(
                     None, raises=RuntimeError("anthropic is down")
                 ),
+                **kwargs,
             )
 
         counts = run_pricing_pass(conn, surfacing_slate, now=NOW, review=failing)
@@ -398,6 +403,7 @@ class TestASkepticOutageDoesNotStopThePass:
 
         outcome = review_surfaced(
             [candidate],
+            conn=conn,
             config=AgentConfig(api_key="test-key"),
             client_factory=lambda config: _StubClient(_verdict("defect")),
         )
@@ -536,7 +542,7 @@ class TestTheRowIsRestatedConsistently:
             "(+2.9c after fees)."
         )
 
-    def test_the_agents_verdict_is_never_the_only_thing_standing(self):
+    def test_the_agents_verdict_is_never_the_only_thing_standing(self, conn):
         """A `None` verdict cannot un-suppress a row the checks refused."""
         already = _recommendation(
             suppressed_reason="stale_odds", suggested_contracts=0
@@ -544,6 +550,7 @@ class TestTheRowIsRestatedConsistently:
         client = _StubClient(_verdict("plausible"))
         outcome = review_surfaced(
             [ReviewCandidate(recommendation=already, prompt_kwargs=_prompt_kwargs())],
+            conn=conn,
             config=AgentConfig(api_key="test-key"),
             client_factory=lambda config: client,
         )

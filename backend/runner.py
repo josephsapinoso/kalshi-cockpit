@@ -147,6 +147,12 @@ class PassCounts:
     # digest.
     skeptic_reviewed: int = 0
     skeptic_blocked: int = 0
+    # Surfaced rows the fleet was NOT asked about, because the per-pass or
+    # per-day Anthropic ceiling refused the call (`agents/budget.py`). These are
+    # suppressed rather than surfaced, so this is a count of bets the tool
+    # declined for a cost reason rather than a market one -- the one number that
+    # says a ceiling is set too low, and the only place it is visible.
+    skeptic_unreviewed: int = 0
     # Why the pass did or did not spend an odds credit, in words. A pass that
     # skips the sweep silently looks exactly like one that swept and found
     # nothing, and those two need opposite responses.
@@ -172,6 +178,7 @@ class PassCounts:
         "suppressed",
         "skeptic_reviewed",
         "skeptic_blocked",
+        "skeptic_unreviewed",
         "sweep_decision",
     )
 
@@ -793,24 +800,39 @@ def run_pricing_pass(
     # then died in scoring. `run_loop.py` reports the counts on that path
     # explicitly, which is where the knowledge of "there is more to come"
     # actually lives.
-    return _review_and_persist(conn, pending, counts=counts, review=review)
+    return _review_and_persist(
+        conn, pending, counts=counts, review=review, now=stamp
+    )
 
 
 def _review_and_persist(
-    conn, pending: Sequence[ReviewCandidate], *, counts: PassCounts, review
+    conn,
+    pending: Sequence[ReviewCandidate],
+    *,
+    counts: PassCounts,
+    review,
+    now: Optional[int] = None,
 ) -> PassCounts:
-    """Phase two: attack the surfaced rows, then write everything.
+    """Phase two: attack the surfaced rows the budget affords, then write.
 
     The Skeptic sees only the rows that would be surfaced. That is a cost
     decision as much as a design one -- a live pass builds ~100 rows and nearly
     all of them have no edge, so reviewing the lot would buy a hundred "no"s a
     pass at 96 passes a day. It also means the bill today is exactly zero calls,
     because `surfaced` has never been anything but zero.
+
+    **`surfaced == 0` is not a spend guard, and it was the only one.** See
+    `agents/budget.py`. The connection and the clock are both handed down now
+    because the meter's state lives on disk and its day is a sports day: the
+    ceiling has to survive a restart, and the pass's own `now` has to be the one
+    that decides which day a call lands in, or a pass straddling 10:00 UTC would
+    bill against a boundary the rest of it did not use.
     """
     positions = [i for i, c in enumerate(pending) if c.recommendation.surfaced]
-    outcome = review([pending[i] for i in positions])
+    outcome = review([pending[i] for i in positions], conn=conn, now=now)
     counts.skeptic_reviewed += outcome.reviewed
     counts.skeptic_blocked += outcome.blocked
+    counts.skeptic_unreviewed += outcome.unreviewed
 
     # Positional, so it is worth stating what would happen if it stopped being
     # true: a short list would make `zip` drop the tail silently, and the

@@ -52,12 +52,42 @@ builds its prompt *before* the API call, so a bad field raises before
 isolated, and the result is asserted rather than assumed. The alternative is a
 slate that silently stops being recorded.
 
+**5. The fan-out is metered, and what it cannot afford is refused rather than
+dropped.** Until 2026-08-11 `_review_batch` gathered over every candidate with
+no cap of any kind, so the bill was bounded only by `surfaced == 0` -- a
+measurement outcome, not a setting. `agents/budget.py` now bounds one pass and
+the day. When the ceiling binds, the rows past it come back **suppressed with
+`skeptic_unreviewed`**, not silently truncated: a row nobody attacked must not
+be indistinguishable from one the Skeptic tried and failed to break. Per
+CLAUDE.md the unreadable resolves to a refusal, never to a pass.
+
+That choice has money attached in the other direction too, and it is worth
+stating plainly rather than burying: **the rows the ceiling refuses are rows the
+tool will not bet**, so the ceiling can cost opportunities as well as save
+dollars. The slice is the caller's order -- the order rows were judged, which is
+discovery order and is not a ranking. Nothing here decides that the first eight
+rows are the eight worth reviewing; the ceiling is meant to be set high enough
+that it does not choose, and its binding is meant to be visible on the card.
+
 Cost note
 ---------
 The client is constructed per batch, because each batch runs on its own event
 loop and an `httpx.AsyncClient` cannot be shared across loops. That is ~500ms
 (`tasks/lessons.md`), paid only on passes that surface something -- never on
 the quote passes that make up the cadence.
+
+What this module does NOT establish
+-----------------------------------
+(beyond the note above)
+
+**That every row reaching the database was attacked.** A Skeptic outage still
+returns `None` per row and `None` still means "no opinion", so on a bad day a
+surfaced row reaches the screen having been *asked about* and not answered. That
+is decision 4 and it is unchanged here. Only rows that were never asked about --
+because the ceiling refused the call -- carry `skeptic_unreviewed`. The two
+states are recorded differently in `agent_calls` (an outage writes a row with a
+`NULL` verdict; a refusal writes nothing, because nothing was spent) but they
+are **not** distinguishable on the card, and that gap is not closed here.
 """
 
 from __future__ import annotations
@@ -69,10 +99,19 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
 from ..engine import Recommendation, with_added_suppression
+from ..store.db import now_ms
 from . import skeptic
 from .base import AgentConfig, build_client
+from .budget import AgentBudget
 
 logger = logging.getLogger(__name__)
+
+# The suppression reason a row carries when no Skeptic call was made for it.
+# Deliberately not one of `core/suppression.ALL_CHECK_NAMES`: that vocabulary is
+# the deterministic checks and is part of `strategy_config_version`. This is the
+# same class of tag as `skeptic_defect` -- added after the checks have run, by
+# the layer above them.
+UNREVIEWED_REASON = "skeptic_unreviewed"
 
 
 @dataclass(frozen=True)
@@ -91,11 +130,19 @@ class ReviewCandidate:
 
 @dataclass(frozen=True)
 class ReviewOutcome:
-    """What the review did, so a pass can report it rather than imply it."""
+    """What the review did, so a pass can report it rather than imply it.
+
+    `unreviewed` is separate from `reviewed` rather than derivable from it,
+    because the caller holds the total and this object does not: a pass that
+    reviewed 8 rows looks identical whether it was handed 8 or 23. That is the
+    difference between "the fleet ran" and "the fleet ran and refused fifteen
+    bets", and the second one has to be reportable.
+    """
 
     recommendations: list[Recommendation]
     reviewed: int = 0
     blocked: int = 0
+    unreviewed: int = 0
 
 
 def _amend(candidate: ReviewCandidate, verdict) -> tuple[Recommendation, bool]:
@@ -118,6 +165,24 @@ def _amend(candidate: ReviewCandidate, verdict) -> tuple[Recommendation, bool]:
             problem=f"the Skeptic calls this {verdict.verdict}: {concern}",
         ),
         True,
+    )
+
+
+def _refuse_unreviewed(candidate: ReviewCandidate, reason: str) -> Recommendation:
+    """One row that no call was made for, re-stated as not actionable.
+
+    Uses the same machinery as a Skeptic block, which is the point: the four
+    fields `with_added_suppression` moves together are exactly the ones that
+    stop `POST /api/orders` and stop the card rendering as buyable. A row that
+    was never attacked must not be sellable, and it must not read as one the
+    Skeptic cleared.
+    """
+    existing = candidate.recommendation.suppressed_reason
+    tag = UNREVIEWED_REASON if not existing else f"{existing},{UNREVIEWED_REASON}"
+    return with_added_suppression(
+        candidate.recommendation,
+        reason=tag,
+        problem=f"the Skeptic never saw this row: {reason}",
     )
 
 
@@ -175,10 +240,13 @@ def _run_off_loop(coroutine_factory: Callable[[], Any]) -> Any:
 def review_surfaced(
     candidates: Sequence[ReviewCandidate],
     *,
+    conn,
     config: Optional[AgentConfig] = None,
     client_factory=build_client,
+    budget: Optional[AgentBudget] = None,
+    now: Optional[int] = None,
 ) -> ReviewOutcome:
-    """Attack every surfaced row, and fold the verdicts back in.
+    """Attack every surfaced row the budget affords, and fold the verdicts in.
 
     Callers pass **only** rows they intend to surface -- filtering is the
     caller's job because the caller is what holds the un-surfaced rows, and
@@ -190,6 +258,16 @@ def review_surfaced(
     unset: `AgentConfig.from_env()` returns `None` and every row comes back
     untouched. That is the state on any instance without the secret set,
     including every local run.
+
+    **`conn` is required, and there is no default.** It is what makes the daily
+    ceiling durable, and an optional connection would mean a caller could reach
+    the billed path with the meter silently absent -- which is a precise
+    restatement of the defect this function was changed to fix. The signature is
+    the enforcement: a caller with no database cannot spend money by omission.
+
+    The meter is consulted **before** any call goes out, not after: reserving
+    the whole fan-out up front is what bounds a single `asyncio.gather`, and
+    counting afterwards would bound nothing at all.
     """
     if not candidates:
         return ReviewOutcome(recommendations=[])
@@ -203,14 +281,46 @@ def review_surfaced(
         )
         return ReviewOutcome(recommendations=[c.recommendation for c in candidates])
 
-    verdicts = _run_off_loop(
-        lambda: _review_batch(candidates, resolved, client_factory)
+    meter = budget if budget is not None else AgentBudget.from_config(conn, resolved)
+    stamp = now if now is not None else now_ms()
+
+    allowance = meter.allowance(stamp)
+    reviewable = list(candidates[:allowance])
+    refused = list(candidates[allowance:])
+    # Asked for the *whole* batch, so the reason names the real shortfall rather
+    # than the part that happened to fit.
+    refusal = meter.refusal_reason(len(candidates), stamp) if refused else None
+    if refused and refusal is None:  # pragma: no cover - defended below
+        raise RuntimeError(
+            f"the agent budget allowed {allowance} of {len(candidates)} calls "
+            f"and then declined to say which ceiling bound. Refusing to persist "
+            f"rows whose refusal has no stated reason."
+        )
+
+    verdicts = (
+        _run_off_loop(lambda: _review_batch(reviewable, resolved, client_factory))
+        if reviewable
+        else []
     )
 
     out: list[Recommendation] = []
     blocked = 0
-    for candidate, verdict in zip(candidates, verdicts):
+    for candidate, verdict in zip(reviewable, verdicts):
         row, did_block = _amend(candidate, verdict)
+        # Recorded here rather than inside the batch because the batch runs on a
+        # dedicated thread with its own event loop and a sqlite3 connection is
+        # thread-affine -- writing from there raises. Every call is recorded,
+        # including the ones that came back with no verdict: they cost money and
+        # they consumed the day's allowance.
+        meter.record(
+            called_ms=stamp,
+            agent="skeptic",
+            model=resolved.model,
+            ticker=row.ticker,
+            side=row.side,
+            verdict=None if verdict is None else verdict.verdict,
+            blocked=None if verdict is None else did_block,
+        )
         out.append(row)
         blocked += 1 if did_block else 0
         if did_block:
@@ -219,6 +329,16 @@ def review_surfaced(
                 row.ticker, row.side, row.suppressed_reason,
             )
 
+    for candidate in refused:
+        row = _refuse_unreviewed(candidate, refusal or "")
+        out.append(row)
+        logger.warning(
+            "skeptic did not review %s %s: %s", row.ticker, row.side, refusal
+        )
+
     return ReviewOutcome(
-        recommendations=out, reviewed=len(candidates), blocked=blocked
+        recommendations=out,
+        reviewed=len(reviewable),
+        blocked=blocked,
+        unreviewed=len(refused),
     )
