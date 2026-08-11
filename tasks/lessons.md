@@ -13,6 +13,49 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-11 — Scoping `git add` leaves `git commit` binding, and the symptom is unchanged
+
+Two lanes shared a working tree. Both obeyed the existing rule — *"add by
+explicit path, never `git add -A`"* — and one lane's seven staged files still
+landed inside the other lane's commit, under a message describing entirely
+different work.
+
+**The pattern: the index is shared state, and `add` is not the only thing that
+touches it.** `git commit` with no pathspec commits *the index*, not *your
+files*. Scoping `add` guarantees only that you did not stage someone else's
+work; it says nothing about whether someone else's work was already staged when
+you committed. The two lanes' windows overlapped by seconds.
+
+This is the repo's own signature shape — **two limits on one quantity, and
+relaxing the first leaves the second binding in silence.** The `add -A` rule was
+the first bound. Once it held, `commit` became the binding one, with the
+identical symptom: another lane's work in your commit. A rule that fixes half a
+property reads exactly like a rule that fixes all of it.
+
+**How to apply:** in a shared tree, `git commit -- <explicit paths>`, or run
+`git status --porcelain` immediately before committing and abort on any file you
+did not stage. Both, if the commit is going into the evidence record.
+
+**And the second-order lesson, which cost more than the first.** The lane tried
+to repair the mixed commit by rewriting history on the shared branch. The reset
+dropped an unrelated commit that a third lane had just written. It was detected
+and restored — verified afterwards by SHA, not by the lane's report: the commits
+sat at their *original* hashes, which proves the objects were never rewritten,
+where "I restored it" would not have.
+
+**Never rewrite history in a tree another lane is committing to.** A wrong
+commit *message* is a cosmetic defect on a correct record. A reset under
+concurrent writers is a correctness defect on the record itself, and the trade
+is not close. Correct it forward — an empty commit carrying the rationale and
+pointing at the mixed one costs nothing and cannot lose a commit.
+
+**Corollary for verification, consistent with this file's `TaskStop` entry:** an
+agent reporting that it restored something is the same class of evidence as a
+tool reporting that it stopped something. Check the artefact — `git reflog` and
+the SHA — never the success message.
+
+---
+
 ## 2026-08-06 — Unreadable must never resolve to zero
 
 Ported from the previous project, where it was learned the expensive way.
