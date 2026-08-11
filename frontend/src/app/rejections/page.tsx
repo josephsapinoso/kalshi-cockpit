@@ -55,6 +55,18 @@ const EXPLAINED: Record<string, string> = {
     "The consensus reported a book count and a market width that cannot both be true — a measured width with fewer than two books, or no width with two or more. This should never fire. It exists because 'too few books' and 'no market width' happen to describe the same rows today only while the book-count threshold is two, and nothing in the code ties those two facts together. If you are seeing this, the consensus producer is broken, not the market.",
 };
 
+/**
+ * The engine's whole check vocabulary, read off `EXPLAINED` rather than
+ * declared a second time.
+ *
+ * `tests/test_suppression_screen.py` pins `EXPLAINED`'s keys to the `Check(...)`
+ * names in `backend/core/suppression.py` in **both** directions — every rule
+ * needs a sentence, and no sentence may name a rule that no longer exists. So
+ * these keys are exactly `ALL_CHECK_NAMES`, and a literal list here would be a
+ * second copy with nothing pinning it: the one that silently falls behind.
+ */
+const ALL_CHECKS = Object.keys(EXPLAINED);
+
 export default async function RejectionsPage() {
   let suppression;
   try {
@@ -67,9 +79,35 @@ export default async function RejectionsPage() {
     );
   }
 
-  const entries = Object.entries(suppression.counts);
-  const total = entries.reduce((sum, [, n]) => sum + n, 0);
-  const largest = entries.length > 0 ? entries[0][1] : 0;
+  // **The payload carries only codes that fired.** `suppression_summary` groups
+  // over rows with a reason, so a check that refused nothing has no key at all —
+  // and this page iterated the payload, so the rules that caught nothing were
+  // invisible on the one screen whose entire job is saying which check refused
+  // everything. Six of the twelve have never fired on the record, and none of
+  // them could be seen here.
+  //
+  // That is the more alarming half of the diagnostic, not the boring half. A
+  // guard that has never fired is an assumption, not a guard: it may be
+  // correctly quiet, it may be unreachable because something upstream already
+  // dropped every row it would have caught, or its input may be arriving as a
+  // value that passes every threshold — which is exactly what `no_market_width`
+  // was built to end, and is recorded in its sentence below. This screen cannot
+  // tell those three apart. It can at least stop hiding the question.
+  //
+  // Zero-filled from the vocabulary, never from the payload, and the two lists
+  // are kept apart rather than merged and re-sorted: `fired` arrives already
+  // sorted descending server-side and that order is the finding, while the
+  // silent ones have no order to preserve and are listed alphabetically so the
+  // page does not reshuffle between loads.
+  const fired = Object.entries(suppression.counts);
+  const firedNames = new Set(fired.map(([name]) => name));
+  const silent = ALL_CHECKS.filter((name) => !firedNames.has(name)).sort();
+  const entries: [string, number][] = [
+    ...fired,
+    ...silent.map((name): [string, number] => [name, 0]),
+  ];
+  const total = fired.reduce((sum, [, n]) => sum + n, 0);
+  const largest = fired.length > 0 ? fired[0][1] : 0;
 
   return (
     <Shell>
@@ -82,8 +120,11 @@ export default async function RejectionsPage() {
         </p>
       </header>
 
-      {entries.length === 0 ? (
-        <div className="rounded-2xl border bg-card p-7">
+      {/* The banner no longer replaces the list. Twelve rules that have each
+          refused nothing is a different statement from "no data", and the old
+          early return rendered them identically — as an empty screen. */}
+      {total === 0 && (
+        <div className="mb-8 rounded-2xl border bg-card p-7">
           <h2 className="text-xl font-bold tracking-tight">
             Nothing has been rejected
           </h2>
@@ -91,70 +132,117 @@ export default async function RejectionsPage() {
             No candidate has failed a check yet. That is not the same as no
             candidates: a row with no edge is the normal answer and is never
             logged as a rejection, because on any real slate it would be most of
-            them and would bury every genuine diagnostic underneath it.
+            them and would bury every genuine diagnostic underneath it. Every
+            rule is still listed below, at zero.
           </p>
         </div>
-      ) : (
-        <>
-          <div className="mb-8 flex flex-wrap items-baseline gap-x-6 gap-y-2 border-y py-4">
-            <Stat label="Rules that fired" value={entries.length} />
-            <Stat label="Refusals counted" value={total} accent />
-            <Stat label="Largest single rule" value={largest} />
-          </div>
-
-          {/* The bar is scaled against the largest rule, not against the total.
-              A row can fail several checks and is counted under each, so the
-              counts do not partition anything and a share-of-total bar would be
-              a proportion of a number that means nothing. */}
-          <ol className="divide-y border-t">
-            {entries.map(([reason, count]) => (
-              <li key={reason} className="py-5">
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="min-w-0 break-all font-mono text-sm font-semibold">
-                    {reason}
-                  </span>
-                  <span className="tabular ml-auto text-sm font-bold text-accent">
-                    {count}
-                  </span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full border">
-                  <div
-                    className="h-full bg-accent"
-                    style={{
-                      width: `${largest > 0 ? (count / largest) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-2 text-sm leading-relaxed text-muted">
-                  {EXPLAINED[reason] ??
-                    "No explanation is recorded for this code yet. It is shown verbatim rather than dropped — an unexplained rule firing is still a rule firing."}
-                </p>
-              </li>
-            ))}
-          </ol>
-
-          <p className="mt-8 border-t pt-6 text-sm leading-relaxed text-muted">
-            <span className="font-semibold text-foreground">
-              These counts do not add up to the number of rejected rows, and
-              should not.
-            </span>{" "}
-            A candidate that fails three checks is counted once under each, so{" "}
-            {/* `{" "}` explicitly, not a newline before the word. JSX trims a
-                text node that begins with a line break, and this rendered
-                "5refusals" -- the same defect `tasks/lessons.md` records as
-                "15minutes". No check in this repo sees it; only the screenshot
-                does. */}
-            <span className="tabular">{total}</span>{" "}
-            refusals can come from fewer rows than that. And rows with no edge at all never appear
-            here: &ldquo;there is no bet&rdquo; is the ordinary answer, not a
-            rejection, and logging it would drown every real diagnostic. The{" "}
-            <Link href="/" className="underline">
-              Board
-            </Link>{" "}
-            shows those separately.
-          </p>
-        </>
       )}
+
+      <div className="mb-8 flex flex-wrap items-baseline gap-x-6 gap-y-2 border-y py-4">
+        <Stat label="Rules that fired" value={fired.length} />
+        <Stat label="Refusals counted" value={total} accent />
+        <Stat label="Largest single rule" value={largest} />
+        {/* The counter this page existed without. */}
+        <Stat label="Never fired" value={silent.length} />
+      </div>
+
+      {/* The bar is scaled against the largest rule, not against the total.
+          A row can fail several checks and is counted under each, so the
+          counts do not partition anything and a share-of-total bar would be
+          a proportion of a number that means nothing. */}
+      <ol className="divide-y border-t">
+        {entries.map(([reason, count]) => {
+          // Zero and absent are the same state here, and deliberately so:
+          // the server omits a code precisely when it counted zero, and the
+          // page asks for the whole record rather than a window, so there is
+          // no "quiet lately" to confuse this with. See the footer.
+          const neverFired = count === 0;
+          return (
+            <li key={reason} className="py-5">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span
+                  className={`min-w-0 break-all font-mono text-sm font-semibold ${
+                    neverFired ? "text-muted" : ""
+                  }`}
+                >
+                  {reason}
+                </span>
+                {neverFired && (
+                  <span className="rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted">
+                    never fired
+                  </span>
+                )}
+                <span
+                  className={`tabular ml-auto text-sm font-bold ${
+                    neverFired ? "text-muted" : "text-accent"
+                  }`}
+                >
+                  {count}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full border">
+                <div
+                  className="h-full bg-accent"
+                  style={{
+                    width: `${largest > 0 ? (count / largest) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                {EXPLAINED[reason] ??
+                  "No explanation is recorded for this code yet. It is shown verbatim rather than dropped — an unexplained rule firing is still a rule firing."}
+              </p>
+              {neverFired && (
+                <p className="mt-2 text-sm leading-relaxed text-muted">
+                  <span className="font-semibold text-foreground">
+                    This rule has refused nothing.
+                  </span>{" "}
+                  That is not the same as working. It may be correctly quiet,
+                  it may be unreachable because something upstream already
+                  drops every row it would catch, or its input may be
+                  arriving as a value that passes the threshold every time.
+                  A guard that has never fired is an assumption, not a guard,
+                  and the three cases are worth telling apart before this one
+                  is trusted.
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      <p className="mt-8 border-t pt-6 text-sm leading-relaxed text-muted">
+        <span className="font-semibold text-foreground">
+          These counts do not add up to the number of rejected rows, and
+          should not.
+        </span>{" "}
+        A candidate that fails three checks is counted once under each, so{" "}
+        {/* `{" "}` explicitly, not a newline before the word. JSX trims a
+            text node that begins with a line break, and this rendered
+            "5refusals" -- the same defect `tasks/lessons.md` records as
+            "15minutes". No check in this repo sees it; only the screenshot
+            does. */}
+        <span className="tabular">{total}</span>{" "}
+        refusals can come from fewer rows than that. And rows with no edge at all never appear
+        here: &ldquo;there is no bet&rdquo; is the ordinary answer, not a
+        rejection, and logging it would drown every real diagnostic. The{" "}
+        <Link href="/" className="underline">
+          Board
+        </Link>{" "}
+        shows those separately.
+      </p>
+
+      <p className="mt-4 text-sm leading-relaxed text-muted">
+        <span className="font-semibold text-foreground">
+          A zero here means never, not lately.
+        </span>{" "}
+        This page asks <span className="font-mono text-xs">/api/suppression</span>{" "}
+        for the whole record rather than a recent window, so a rule marked{" "}
+        <span className="font-mono text-xs">never fired</span> has refused
+        nothing across every row the system has ever judged — not merely
+        nothing today. If a window is ever passed, that badge stops meaning
+        this and the wording has to change with it.
+      </p>
     </Shell>
   );
 }
