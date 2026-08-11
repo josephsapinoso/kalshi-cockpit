@@ -53,6 +53,38 @@ free and prints the kickoff list.
 **Then analyse.** `scripts/analyse_odds_repeat_poll.py` — see §2 below before
 you trust a single number it prints.
 
+### The exact command, derived 2026-08-11 16:45Z so nobody re-derives it at 18:01Z
+
+Every value below was read off the code or the live scheduler, not remembered:
+
+- **What fires it:** `Get-ScheduledTask KalshiRepeatPoll` → `bash.exe -c "sh
+  .../4e69ab52-.../scratchpad/fire_now.sh"`. **That path is a *previous*
+  session's scratchpad and was verified to still exist** (1,068 bytes,
+  06:04:21 local). If a temp sweep ever removes it the task fires into nothing
+  and spends nothing — check `Test-Path` before assuming a silent success.
+- **`fire_now.sh` passes no `--out-dir`**, so the default at
+  `capture_odds_repeat_poll.py:701-703` applies: `docs/measurements/data`.
+- **Artefact names** (`:671`, `run_tag` = `T0` as `%Y%m%dT%H%M%SZ` at `:578`):
+
+```
+docs/measurements/data/repeat_poll_20260811T180000Z_p1.json   (p1..p4)
+```
+
+- **The analyser takes the files as bare positional args** (`:469`,
+  `nargs="+"`), no flags:
+
+```
+.venv\Scripts\python.exe scripts\analyse_odds_repeat_poll.py `
+  docs\measurements\data\repeat_poll_20260811T180000Z_p1.json `
+  docs\measurements\data\repeat_poll_20260811T180000Z_p2.json `
+  docs\measurements\data\repeat_poll_20260811T180000Z_p3.json `
+  docs\measurements\data\repeat_poll_20260811T180000Z_p4.json
+```
+
+**Pass each file exactly once.** A repeated `poll_index` is now `exit 2` — it
+used to compare a poll with itself and print **CONFIRMED off a single poll**
+(`a639591`). Fewer than four files can only ever reach UNRESOLVED (PC6).
+
 ## THE THREE THINGS THAT DECIDE THIS PROJECT
 
 Joe said on 2026-08-11, and he was right to: *"You seem to do so much testing
