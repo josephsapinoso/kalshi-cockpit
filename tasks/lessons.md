@@ -13,6 +13,46 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-11 — Mutation testing belongs in its own worktree, not in the shared one
+
+The existing trap says *"mutation testing in a shared working tree makes every
+concurrent suite run untrustworthy."* True, and it covers half the hazard. A
+mutation battery does not only *read* wrong — it **writes**. It edits a file,
+runs the suite, and restores from a snapshot. If a second lane edited that same
+file inside the window, the restore silently reverts the second lane's work,
+and the symptom is not a red test. It is a file that parses, imports cleanly,
+and is quietly a version older than the lane that owns it believes.
+
+That happened today on `backend/agents/budget.py`. The work survived — verified
+by reading the file, not by accepting the reporting lane's *"I do not believe
+anything was lost"* — but it survived by timing, not by design.
+
+**The pattern is bigger than mutation testing, and it is why this entry exists
+rather than a fourth git rule.** Three separate shared-tree hazards landed in
+one session, and every one was a rule already in the file that covered half its
+property:
+
+- *"add by explicit path"* left `git commit` binding, with the same symptom.
+- The Board's *age* fix left the *selection* that chose the rows.
+- *"mutation testing makes suite runs untrustworthy"* left mutation **writes**
+  destroying concurrent edits.
+
+Writing a fourth narrow rule would produce a fourth half-covered property. The
+structural fix is to stop sharing the tree for work that writes to it.
+
+**How to apply:** any lane that runs a mutation battery, or that will edit files
+another lane may touch, gets `isolation: "worktree"` when it is launched. It
+costs nothing when the work is unchanged and removes the whole class. Reserve
+the shared tree for lanes with disjoint, declared file sets — and declare them
+in the brief, so a collision is a violated instruction rather than a surprise.
+
+**And the general form, which is this repo's oldest lesson wearing new clothes:**
+when a rule stops a failure, ask what *else* had that property. The rule you
+just wrote is a bound on one quantity, and the next bound is already there,
+binding in silence, with the symptom unchanged.
+
+---
+
 ## 2026-08-11 — Scoping `git add` leaves `git commit` binding, and the symptom is unchanged
 
 Two lanes shared a working tree. Both obeyed the existing rule — *"add by
