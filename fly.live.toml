@@ -73,8 +73,21 @@ primary_region = "ord"
 
   # The gate stays LOCKED until the paper record earns it: >=300 scored
   # recommendations, positive CLV surviving the noise guard, and every fill
-  # matching its predicted fee. Flipping this to "true" before then is the one
-  # change that turns a measurement tool into a way to lose money.
+  # matching its predicted fee.
+  #
+  # **This flag is not the binding limit, and calling it one was wrong.** Until
+  # 2026-08-11 the line above read "flipping this to true is the one change that
+  # turns a measurement tool into a way to lose money". It is not one change:
+  # `ORDERS_ARE_DRY_RUNS` is a hardcoded `True` at `backend/store/orders.py:129`,
+  # so the order path stays dry-run whatever this variable says, and
+  # `backend/gate.py:729-737` already says exactly that in BOTH branches of its
+  # own detail string. The deploy file was stale relative to the gate.
+  #
+  # The error direction was safe -- it overstated this flag's reach -- but a
+  # future session reading only this file would believe one secret arms the
+  # system, and would then be surprised twice: once when flipping it moves no
+  # money, and once when a code change does. Arming is TWO deliberate acts: this
+  # flag, and a code change to that constant. ADR 0018.
   LIVE_TRADING_ENABLED = "false"
   LIVE_GATE_MIN_SCORED_RECOMMENDATIONS = "300"
 
