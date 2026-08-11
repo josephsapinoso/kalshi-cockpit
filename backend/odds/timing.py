@@ -86,6 +86,27 @@ CLUSTER_MS = 20 * _MS_PER_MIN
 # passes or the slot is missed; see `sweep_window_survives_interval`.
 DUE_WINDOW_MS = 30 * _MS_PER_MIN
 
+# How far back "the current slate" reaches, measured from the most recent
+# decision this instance recorded. `/api/board` selects on this; a row older
+# than this is history, however large its edge.
+#
+# **The floor is the loop's worst-case gap between passes**, and that is the
+# whole derivation. Every pass re-prices every candidate and either records a
+# new row or stamps the existing one via `confirm_recommendation`, so a window
+# shorter than one gap would drop rows off the Board between passes and put
+# them back afterwards — a slate that flickers with the loop's cadence rather
+# than with the market. `sweep_window_survives_interval` already proves
+# `DUE_WINDOW_MS` exceeds that gap and `run_loop` refuses to start when it does
+# not, so borrowing that number here inherits a check that already runs at
+# startup instead of introducing a second, unchecked one.
+#
+# It is deliberately *not* `max_odds_age_ms`. That limit says when a row stops
+# being bettable, which the Board already answers per row with
+# `actionable` — and answering it twice, once as a filter, would delete the
+# rejected rows that are the only evidence the page has on a slate with zero
+# actionable.
+SLATE_WINDOW_MS = DUE_WINDOW_MS
+
 # Games kicking off within this far of the anchor are counted as covered by the
 # slot. Three hours: a line that far out is a real price a human would bet, and
 # it is the same sweep that produced it.

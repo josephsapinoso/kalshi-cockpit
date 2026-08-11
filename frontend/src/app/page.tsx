@@ -4,7 +4,7 @@ import LiveBoard from "@/components/LiveBoard";
 import SlateRow, { type SlateState } from "@/components/SlateRow";
 import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
-import { fetchBoard, fetchHealth, fetchWindow } from "@/lib/api";
+import { fetchBoard, fetchHealth, fetchWindow, formatAge, formatDuration } from "@/lib/api";
 import type { ActionableWindow } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -124,6 +124,28 @@ export default async function BoardPage({
           />
         )}
 
+        {/* **When this slate was recorded, whenever that is not now.**
+            The rows below carry no date of their own, so without this a slate
+            from last night and a slate from ninety seconds ago draw
+            identically — which is exactly how a hundred rows from across the
+            whole record came to be read as today's board. Shown only when the
+            slate is not current: a line saying "this is current" on every page
+            load is a line nobody reads by the third time. */}
+        {!board.slate.is_current && board.slate.age_ms !== null && (
+          <div className="mb-8 rounded-2xl border border-accent-2/50 bg-card p-4">
+            <p className="text-sm text-muted">
+              <span className="font-semibold text-accent-2">
+                Not a live slate.
+              </span>{" "}
+              These are the last decisions this instance recorded,{" "}
+              {formatAge(board.slate.age_ms)}. Nothing here is bettable, and the
+              prices are a record rather than an offer. A slate older than{" "}
+              {formatDuration(board.slate.window_ms)} means the recording loop
+              is not running, not that the market is quiet.
+            </p>
+          </div>
+        )}
+
         <div className="mb-8 flex flex-wrap items-center gap-3 border-y py-4">
           <Stat label="Bettable now" value={board.counts.surfaced} accent />
           {/* Shown only when it is non-zero, because it is a qualifier on the
@@ -149,10 +171,26 @@ export default async function BoardPage({
                 explanation over an expired slate would report a quiet market
                 when what actually happened is that the clock ran out. */}
             <h2 className="text-xl font-bold tracking-tight">
-              {board.expired.length > 0 ? "Nothing bettable now" : "Nothing to bet"}
+              {board.slate.anchor_ms === null
+                ? "Nothing recorded yet"
+                : board.expired.length > 0
+                  ? "Nothing bettable now"
+                  : "Nothing to bet"}
             </h2>
             <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
-              {board.expired.length > 0 ? (
+              {board.slate.anchor_ms === null ? (
+                <>
+                  {/* The third state, and it was drawn as the first. A database
+                      that has never recorded a decision and a slate on which
+                      nothing has an edge are opposite findings: one says the
+                      loop has not run, the other says it has and the market is
+                      priced. */}
+                  This database holds no recommendations at all, so the engine
+                  has not yet priced anything — which is a different statement
+                  from &ldquo;nothing had an edge&rdquo;. Nothing has been
+                  judged.
+                </>
+              ) : board.expired.length > 0 ? (
                 <>
                   {/* One cause now, and it is stated rather than counted. This
                       once asserted every expired row had a stale Kalshi quote,
@@ -236,6 +274,34 @@ export default async function BoardPage({
               )}
               Suppression and staleness still decide what is bettable; they
               stopped deciding what is visible.
+            </p>
+            {/* **What the slate is a slice of.** These rows are the current
+                slate and nothing older, which is the fix to a Board that ranked
+                the whole record by apparent edge. Both halves are stated: the
+                history left off, and — when the window itself is longer than
+                one page — the rows inside it that this response did not carry.
+                A truncation nobody is told about is the same defect in a
+                smaller frame. */}
+            <p className="mt-2 max-w-xl text-xs text-muted">
+              {board.slate.truncated && (
+                <>
+                  Showing {board.slate.returned} of {board.slate.in_window} in
+                  this slate.{" "}
+                </>
+              )}
+              {board.slate.older_than_window > 0 && (
+                <>
+                  A further {board.slate.older_than_window} recorded{" "}
+                  {board.slate.older_than_window === 1 ? "decision is" : "decisions are"}{" "}
+                  older than this slate and{" "}
+                  {board.slate.older_than_window === 1 ? "is" : "are"} history
+                  rather than a board — read{" "}
+                  <Link href="/ledger" className="underline">
+                    the ledger
+                  </Link>{" "}
+                  for those.
+                </>
+              )}
             </p>
             <div className="mt-6 divide-y border-y">
               {rest.map(({ rec, state }) => (

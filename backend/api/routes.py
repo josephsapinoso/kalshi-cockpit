@@ -80,7 +80,7 @@ from ..market_results import result_coverage
 from ..agents.base import AgentConfig
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
-from ..odds.timing import window_status
+from ..odds.timing import SLATE_WINDOW_MS, window_status
 from ..playbook import read_playbook
 from ..settlement import daily_realised_pnl_dollars, open_position_dollars
 from ..store import db
@@ -538,21 +538,95 @@ def create_app(
         window's rows as expired while the server sold them, so the split is on
         the odds clock and `price_stale` counts the rows whose displayed price
         is older than the quote limit.
+
+        **Which hundred rows, which is the other half of the bug above.** The
+        paragraph about age fixed the *rendering* and left the *selection*
+        exactly as it was: `ORDER BY suggested_contracts DESC, edge_tenths DESC
+        LIMIT 100` over the whole table, with no clock in it. Recomputing the
+        age of a row cannot help when the row should not have been fetched.
+
+        With `suggested_contracts = 0` on essentially every row ever written,
+        that ordering collapses to `edge_tenths DESC` across the entire history
+        of the database — so the Board was the hundred largest apparent edges
+        this instance has ever recorded, rendered as today's slate under "the
+        rest of the slate", with no date on any of them. That is the selection
+        this repo's first rule warns about: a large apparent edge is a bug until
+        proven otherwise, and `suspicious_edge` rows sort straight to the top of
+        it. The truncation is the sharp end — the ordinary rows are the ones
+        `LIMIT` drops, so the sample is biased *by construction* toward the rows
+        least likely to be real.
+
+        So selection is now on the clock and never on the edge:
+
+        - **The window** is `SLATE_WINDOW_MS` back from `anchor_ms`, the most
+          recent freshness basis in the table. Anchored on the record rather
+          than on `now` because a slate is a thing this instance recorded, not a
+          thing the wall clock did: anchoring on `now` would blank the Board —
+          and the demo — the moment the loop stopped, which is when the rows are
+          most worth reading. The cost of that choice is that a dead loop shows
+          its last slate, so `slate.is_current` and `slate.age_ms` say outright
+          how old what you are looking at is.
+        - **Within the window**, `suggested_contracts DESC` (a bettable row must
+          never be the one `LIMIT` drops) then the freshness basis, newest
+          first. `edge_tenths` no longer participates in selection at all; it
+          only orders `surfaced`, which is a complete bucket rather than a
+          truncated sample.
+        - **Nothing is silently discarded.** `slate.in_window` is the whole
+          window before `LIMIT`, `slate.returned` is what came back,
+          `slate.truncated` says the two differ, and `slate.older_than_window`
+          counts the history that was deliberately left off. An empty table
+          (`anchor_ms = null`) and a stale slate (`is_current = false`) are
+          different states and read differently.
+
+        The window is applied twice on purpose. `_BASIS_SQL` restates
+        `gate.live_ages`' basis in SQL as a *bound* on what to fetch; the
+        decision is then re-made on `freshness_measured_from_ms`, which is
+        `live_ages` itself. A half-written confirmation — a timestamp with a
+        missing age — is newer in SQL and older to `live_ages`, and only the
+        second reading may decide.
         """
         now = db.now_ms()
-        rows = conn.execute(
-            "SELECT r.*, m.title AS market_title, m.yes_side_team, "
-            "e.title AS event_title, e.commence_ms "
-            "FROM recommendations r "
-            "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
-            "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
-            "ORDER BY r.suggested_contracts DESC, r.edge_tenths DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        anchor_row = conn.execute(
+            f"SELECT MAX({_BASIS_SQL}) AS anchor_ms, COUNT(*) AS total "
+            "FROM recommendations r"
+        ).fetchone()
+        anchor = None if anchor_row["anchor_ms"] is None else int(anchor_row["anchor_ms"])
+        recorded_total = int(anchor_row["total"] or 0)
+        since = None if anchor is None else anchor - SLATE_WINDOW_MS
+
+        rows, in_window = [], 0
+        if since is not None:
+            # Full scan of `recommendations`: the basis is an expression over two
+            # columns and no index covers it. The table is small (~1.5k rows on
+            # the live instance after a year) and this is three reads a page
+            # load, so an index would be a guess at a cost nobody has measured.
+            in_window = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM recommendations r "
+                    f"WHERE {_BASIS_SQL} >= ?",
+                    (since,),
+                ).fetchone()["n"]
+            )
+            rows = conn.execute(
+                "SELECT r.*, m.title AS market_title, m.yes_side_team, "
+                "e.title AS event_title, e.commence_ms "
+                "FROM recommendations r "
+                "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+                "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+                f"WHERE {_BASIS_SQL} >= ? "
+                f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
+                "LIMIT ?",
+                (since, limit),
+            ).fetchall()
 
         surfaced, expired, suppressed, no_edge = [], [], [], []
         for row in rows:
             item = _serialise(row, now_ms=now, staleness=staleness)
+            # The window, decided by `live_ages` rather than by the SQL that
+            # fetched the row. See the docstring: the two can only disagree
+            # towards *older*, and older means off the slate.
+            if since is not None and item["freshness_measured_from_ms"] < since:
+                continue
             if row["suggested_contracts"] > 0:
                 (surfaced if item["actionable"] else expired).append(item)
             elif row["suppressed_reason"]:
@@ -560,7 +634,16 @@ def create_app(
             else:
                 no_edge.append(item)
 
+        # Presentation order, stated for every bucket rather than inherited from
+        # the query for some of them. `suppressed` and `no_edge` used to come
+        # back in whatever order the ranking happened to leave them in, which on
+        # the old query meant descending apparent edge -- the ranking this
+        # endpoint no longer does anywhere.
+        surfaced.sort(key=lambda r: (-r["suggested_contracts"], -r["edge_tenths"]))
         expired.sort(key=lambda r: r["created_ms"], reverse=True)
+        suppressed.sort(key=lambda r: r["freshness_measured_from_ms"], reverse=True)
+        no_edge.sort(key=lambda r: r["freshness_measured_from_ms"], reverse=True)
+        returned = len(surfaced) + len(expired) + len(suppressed) + len(no_edge)
 
         return {
             "surfaced": surfaced,
@@ -594,6 +677,36 @@ def create_app(
             "staleness": {
                 "max_kalshi_quote_age_s": staleness.max_kalshi_quote_age_s,
                 "max_odds_age_s": staleness.max_odds_age_s,
+            },
+            # **Which rows this is, and which rows it is not.** Every field here
+            # exists so that the four lists above cannot be read as more than
+            # they are. Without it a slate from last night and a slate from
+            # ninety seconds ago render identically, which is the bug this
+            # endpoint has now had twice.
+            "slate": {
+                # The most recent freshness basis in the table: when this
+                # instance last decided anything. `None` means it never has.
+                "anchor_ms": anchor,
+                # How old that is. The number that says whether the list below
+                # is a slate or a souvenir.
+                "age_ms": None if anchor is None else max(0, now - anchor),
+                "since_ms": since,
+                "window_ms": SLATE_WINDOW_MS,
+                # Whether the instance is still recording. False with rows
+                # present is a different state from an empty table and needs a
+                # different sentence on the page.
+                "is_current": anchor is not None and now - anchor <= SLATE_WINDOW_MS,
+                # The window before `limit`, and what survived it. A page that
+                # cannot tell it is looking at a truncated slate cannot be read
+                # as evidence about the slate.
+                "in_window": in_window,
+                "returned": returned,
+                "truncated": in_window > len(rows),
+                # The history deliberately left off. Stated rather than
+                # implied: this is precisely the population the Board used to
+                # rank by apparent edge and show as today.
+                "recorded_total": recorded_total,
+                "older_than_window": max(0, recorded_total - in_window),
             },
             # An empty Board is the expected state most of the time. Saying so
             # here stops it reading as a malfunction.
@@ -1946,6 +2059,24 @@ def _gate_open(conn, gate: GateConfig) -> bool:
     would have reported open on a positive-but-indistinguishable record.
     """
     return evaluate_gate(conn, gate).open
+
+
+# A row's freshness basis, in SQL, for the row alias `r`.
+#
+# **A bound, never a decision.** `gate.live_ages` owns what instant a row is
+# measured from, and `_live_ages` below reports it as
+# `freshness_measured_from_ms`. This expression exists only so `/api/board` can
+# ask SQLite for the current slate without reading the whole table, and it is
+# deliberately the *loose* form: it takes any `last_confirmed_ms` at face value,
+# where `live_ages` additionally requires both confirmed ages to be present.
+#
+# That asymmetry is the safe direction and is the reason it is written this way
+# rather than mirrored exactly. A half-written confirmation is *newer* here and
+# *older* there, so this over-selects and `live_ages` then removes the row --
+# whereas an exact copy would be two implementations of one boundary, which is
+# the failure `gate.live_ages` and `odds/timing._SERVED_SWEEP` were both written
+# to end.
+_BASIS_SQL = "MAX(r.created_ms, COALESCE(r.last_confirmed_ms, r.created_ms))"
 
 
 def _live_ages(

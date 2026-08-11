@@ -471,6 +471,357 @@ class TestTheBoardCannotOfferWhatTheServerWillRefuse:
             conn.close()
 
 
+def _slate_row(
+    conn,
+    *,
+    ticker: str,
+    created_ms: int,
+    edge_tenths: float = 1.0,
+    contracts: int = 0,
+    suppressed: str | None = None,
+    confirmed_ms: int | None = None,
+    confirmed_ages: bool = True,
+) -> None:
+    """One recommendation, positioned in time. Nothing else about it varies.
+
+    `confirmed_ages=False` writes the half-written confirmation that
+    `gate.live_ages` refuses: a timestamp with no ages beside it.
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, first_seen_ms, "
+        "last_seen_ms) VALUES (?, ?, ?)",
+        (ticker, created_ms, created_ms),
+    )
+    conn.execute(
+        "INSERT INTO recommendations (created_ms, strategy_config_version, "
+        "ticker, side, entry_ask_tenths, fair_probability, edge_tenths, "
+        "fee_predicted, ev_net_dollars, kelly_fraction, suggested_contracts, "
+        "reference_contracts, kalshi_quote_age_ms, odds_age_ms, "
+        "last_confirmed_ms, last_confirmed_quote_age_ms, "
+        "last_confirmed_odds_age_ms, suppressed_reason, reason_text) "
+        "VALUES (?, 1, ?, 'yes', 500, 0.52, ?, 0.1, 0.2, 0.01, ?, ?, 1000, "
+        "2000, ?, ?, ?, ?, 'test row')",
+        (
+            created_ms, ticker, edge_tenths, contracts, contracts,
+            confirmed_ms,
+            1_000 if (confirmed_ms is not None and confirmed_ages) else None,
+            2_000 if (confirmed_ms is not None and confirmed_ages) else None,
+            suppressed,
+        ),
+    )
+
+
+def _every_row(board: dict) -> list[dict]:
+    return board["surfaced"] + board["expired"] + board["suppressed"] + board["no_edge"]
+
+
+class TestTheBoardShowsTheCurrentSlateAndNotTheRecord:
+    """The other half of the bug the endpoint's docstring already described.
+
+    Recomputing a row's age fixed how the Board *rendered* what it fetched. What
+    it fetched was `ORDER BY suggested_contracts DESC, edge_tenths DESC LIMIT
+    100` over the whole table with no clock in it -- and `suggested_contracts`
+    is 0 on essentially every row ever written, so that collapses to the hundred
+    largest apparent edges in the history of the database, rendered as today's
+    slate with no date on any of them.
+
+    Rule 1 of this repo is that a large apparent edge is a bug until proven
+    otherwise. That query selected for them, and the `LIMIT` is the sharp end:
+    the ordinary rows are the ones it drops.
+    """
+
+    @pytest.fixture(scope="class")
+    def history_db(self, tmp_path_factory):
+        """Nine current rows and a back-record, as the demo deploy has.
+
+        The back-record is deliberately larger than the Board's default limit.
+        A shorter one would let every row through the `LIMIT` regardless of the
+        selection, and the tests below would pass on a query with no window in
+        it at all.
+        """
+        from backend.seed_demo import seed_all, seed_history
+        from backend.store.db import now_ms
+
+        path = tmp_path_factory.mktemp("history") / "history.db"
+        stamp = now_ms()
+        seed_all(path, now_ms=stamp)
+        seed_history(path, n=200, now_ms=stamp)
+        return path
+
+    @pytest.fixture(scope="class")
+    def history_app(self, history_db):
+        return create_app(AppConfig(instance_mode="demo", db_path=history_db))
+
+    async def test_no_row_from_the_back_record_reaches_the_board(
+        self, history_app
+    ):
+        """`seed_history` writes one row an hour going backwards. None of them
+        is today's slate, and every one of them used to be eligible."""
+        body = (await get(history_app, "/api/board?include_suppressed=true")).json()
+        assert _every_row(body), "the fixture must produce a slate or this proves nothing"
+        assert not [r for r in _every_row(body) if r["ticker"].startswith("KXHIST-")]
+
+    async def test_what_the_old_query_would_have_shown_is_mostly_history(
+        self, history_app, history_db
+    ):
+        """The defect and the fix, asserted against each other on one fixture.
+
+        The old selection is re-derived here rather than described, so the test
+        fails if the endpoint ever returns to it -- and so a reader can see what
+        it actually produced. `seed_history` writes `suspicious_edge` rows at
+        45-90 tenths, an order of magnitude above anything on a real slate, and
+        those are exactly the rows an edge ranking puts on the screen first.
+        """
+        from backend.store import db as store
+
+        conn = store.open_db(history_db, read_only=True)
+        try:
+            would_have_shown = [
+                r["ticker"]
+                for r in conn.execute(
+                    "SELECT ticker FROM recommendations "
+                    "ORDER BY suggested_contracts DESC, edge_tenths DESC LIMIT 100"
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+
+        from_history = [t for t in would_have_shown if t.startswith("KXHIST-")]
+        assert len(from_history) > len(would_have_shown) / 2, (
+            "the fixture must reproduce the bug or the assertion below is vacuous"
+        )
+
+        body = (await get(history_app, "/api/board?include_suppressed=true")).json()
+        shown = {r["ticker"] for r in _every_row(body)}
+        assert shown, "the board must still have a slate"
+        assert not shown & set(from_history)
+
+    async def test_the_board_says_how_much_of_the_record_it_left_off(
+        self, history_app
+    ):
+        """A filter that discards what it rejects cannot be audited."""
+        body = (await get(history_app, "/api/board?include_suppressed=true")).json()
+        assert body["slate"]["older_than_window"] == 200
+        assert body["slate"]["in_window"] == len(_every_row(body))
+        assert body["slate"]["recorded_total"] == body["slate"]["in_window"] + 200
+
+    async def test_the_window_is_in_the_query_not_applied_to_its_results(
+        self, tmp_path
+    ):
+        """A filter applied after `LIMIT` is a filter the record can starve.
+
+        Sized rows sort first -- deliberately, so a bettable row is never what
+        the limit drops -- and the record is full of rows the sizer once sized.
+        Fetch the whole table and discard the old ones afterwards and those fill
+        the limit on their own, so the Board comes back empty while a slate
+        exists. The window has to be in the `WHERE`, not in the loop over the
+        results.
+        """
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "starved.db"
+        conn = store.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale) VALUES (1, 0, 0, '{}', 'test')"
+        )
+        now = now_ms()
+        for i in range(150):
+            _slate_row(conn, ticker=f"KXPAST-{i:03d}",
+                       created_ms=now - 4 * 3_600_000 - i, contracts=20)
+        for i in range(3):
+            _slate_row(conn, ticker=f"KXTODAY-{i}", created_ms=now - 30_000 - i)
+        conn.commit()
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+
+        body = (await get(app, "/api/board?include_suppressed=true")).json()
+        assert {r["ticker"] for r in _every_row(body)} == {
+            "KXTODAY-0", "KXTODAY-1", "KXTODAY-2"
+        }
+
+    async def test_a_live_slate_says_it_is_current(self, tmp_path):
+        from backend.seed_demo import seed_all
+        from backend.store.db import now_ms
+
+        path = tmp_path / "now.db"
+        seed_all(path, now_ms=now_ms())
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        slate = (await get(app, "/api/board")).json()["slate"]
+        assert slate["is_current"] is True
+        assert slate["age_ms"] < 60_000
+
+    async def test_a_slate_nobody_has_updated_is_not_passed_off_as_current(
+        self, demo_app
+    ):
+        """The demo seed is a year old. It is still shown -- a slate is a thing
+        this instance recorded, not a thing the wall clock did, and blanking the
+        page when the loop stops hides the rows worth reading. What must not
+        happen is showing it *as today*."""
+        body = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+        assert _every_row(body), "the seeded slate must still be reachable"
+        assert body["slate"]["is_current"] is False
+        assert body["slate"]["age_ms"] > 30 * 24 * 3_600_000
+
+    async def test_a_database_that_has_recorded_nothing_says_so_distinctly(
+        self, tmp_path
+    ):
+        """Empty and stale are different states. `anchor_ms` is the one that
+        separates them, and neither may render as the other."""
+        from backend.store import db as store
+
+        path = tmp_path / "empty.db"
+        store.init_db(path).close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        body = (await get(app, "/api/board?include_suppressed=true")).json()
+
+        assert _every_row(body) == []
+        assert body["slate"]["anchor_ms"] is None
+        assert body["slate"]["age_ms"] is None
+        assert body["slate"]["recorded_total"] == 0
+        assert body["slate"]["is_current"] is False
+
+
+class TestWhatTheLimitDropsIsNotChosenByEdge:
+    """Truncation is a sampling decision, and it was made on the edge.
+
+    A window of 200 rows shown 100 at a time is fine. A window of 200 rows shown
+    *largest-edge-first* 100 at a time is a sample built from the tail this repo
+    treats as bugs -- and nothing on the page said 100 rows were missing.
+    """
+
+    @pytest.fixture
+    def crowded(self, tmp_path):
+        """One slate: an outsized edge written first, ordinary rows after it."""
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "crowded.db"
+        conn = store.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale) VALUES (1, 0, 0, '{}', 'test')"
+        )
+        base = now_ms() - 60_000
+        _slate_row(conn, ticker="KXBIG", created_ms=base, edge_tenths=90.0,
+                   suppressed="suspicious_edge")
+        for i in range(6):
+            _slate_row(conn, ticker=f"KXORD-{i}", created_ms=base + 1_000 + i,
+                       edge_tenths=1.0)
+        conn.commit()
+        conn.close()
+        return create_app(AppConfig(instance_mode="demo", db_path=path))
+
+    async def test_the_outsized_row_is_what_the_limit_drops(self, crowded):
+        """It is the oldest row in the window, so recency drops it. Under the
+        old ordering it was the one row guaranteed to survive."""
+        body = (
+            await get(crowded, "/api/board?include_suppressed=true&limit=3")
+        ).json()
+        tickers = {r["ticker"] for r in _every_row(body)}
+        assert len(tickers) == 3
+        assert "KXBIG" not in tickers
+
+    async def test_truncation_is_reported_rather_than_silent(self, crowded):
+        body = (
+            await get(crowded, "/api/board?include_suppressed=true&limit=3")
+        ).json()
+        assert body["slate"]["truncated"] is True
+        assert body["slate"]["in_window"] == 7
+        assert body["slate"]["returned"] == 3
+
+    async def test_a_whole_window_is_not_reported_as_truncated(self, crowded):
+        body = (await get(crowded, "/api/board?include_suppressed=true")).json()
+        assert body["slate"]["truncated"] is False
+        assert body["slate"]["returned"] == 7
+
+    async def test_a_sized_row_is_never_the_one_dropped(self, tmp_path):
+        """The bettable rows are what the page exists for, so they sort first
+        whatever their age. This is the one place size still outranks the clock.
+        """
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "sized.db"
+        conn = store.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale) VALUES (1, 0, 0, '{}', 'test')"
+        )
+        base = now_ms() - 60_000
+        # The oldest row in the window, and the only one anybody could bet.
+        _slate_row(conn, ticker="KXSIZED", created_ms=base, contracts=4)
+        for i in range(6):
+            _slate_row(conn, ticker=f"KXORD-{i}", created_ms=base + 1_000 + i)
+        conn.commit()
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+
+        body = (await get(app, "/api/board?include_suppressed=true&limit=2")).json()
+        assert "KXSIZED" in {r["ticker"] for r in _every_row(body)}
+
+
+class TestTheWindowIsDecidedByLiveAgesNotBySql:
+    """The SQL is a bound on what to fetch. `gate.live_ages` decides.
+
+    Two implementations of one boundary is the failure this repo keeps
+    recording, so the SQL is deliberately the *loose* form: it can only
+    over-select, and the second reading removes what it should not have taken.
+    """
+
+    @pytest.fixture
+    def confirmations(self, tmp_path):
+        from backend.store import db as store
+        from backend.store.db import now_ms
+
+        path = tmp_path / "confirmed.db"
+        conn = store.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+            "config_json, rationale) VALUES (1, 0, 0, '{}', 'test')"
+        )
+        now = now_ms()
+        old = now - 4 * 3_600_000
+        # The anchor: something this instance decided moments ago.
+        _slate_row(conn, ticker="KXNOW", created_ms=now - 30_000)
+        # Four hours old, re-derived unchanged just now. `persist_if_changed`
+        # writes exactly this, and it is still part of the current slate.
+        _slate_row(conn, ticker="KXCONFIRMED", created_ms=old,
+                   confirmed_ms=now - 40_000)
+        # The same shape with the ages missing. `live_ages` refuses it and falls
+        # back to `created_ms`, so it is four hours old and off the slate.
+        _slate_row(conn, ticker="KXHALF", created_ms=old,
+                   confirmed_ms=now - 40_000, confirmed_ages=False)
+        # Never re-derived. Plainly history.
+        _slate_row(conn, ticker="KXOLD", created_ms=old)
+        conn.commit()
+        conn.close()
+        return create_app(AppConfig(instance_mode="demo", db_path=path))
+
+    async def test_a_confirmed_row_is_part_of_the_current_slate(
+        self, confirmations
+    ):
+        """Freshness is measured from the last time the decision was re-derived,
+        so selection must be too -- otherwise a row the loop confirms every
+        twenty seconds falls off the Board after half an hour."""
+        body = (await get(confirmations, "/api/board?include_suppressed=true")).json()
+        assert "KXCONFIRMED" in {r["ticker"] for r in _every_row(body)}
+
+    async def test_a_half_written_confirmation_does_not_extend_the_window(
+        self, confirmations
+    ):
+        """SQL takes the timestamp at face value and hands the row over;
+        `live_ages` requires both ages beside it and refuses. Only the second
+        reading may decide, and this is the row where they disagree."""
+        body = (await get(confirmations, "/api/board?include_suppressed=true")).json()
+        assert "KXHALF" not in {r["ticker"] for r in _every_row(body)}
+
+    async def test_an_unconfirmed_old_row_is_history(self, confirmations):
+        body = (await get(confirmations, "/api/board?include_suppressed=true")).json()
+        assert "KXOLD" not in {r["ticker"] for r in _every_row(body)}
+
+
 class TestMarketDetail:
     async def test_returns_a_known_market(self, demo_app, demo_db):
         board = (await get(demo_app, "/api/board")).json()

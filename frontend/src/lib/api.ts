@@ -226,6 +226,37 @@ export type Board = {
   };
   /** The limits the server judged against, so the page cannot state its own. */
   staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
+  /**
+   * **Which rows these are, and which rows they are not.**
+   *
+   * The Board used to select `ORDER BY suggested_contracts DESC, edge_tenths
+   * DESC LIMIT 100` over the whole table with no clock in it — and with
+   * `suggested_contracts` 0 on essentially every row ever written, that is the
+   * hundred largest apparent edges in the history of the database, drawn as
+   * today's slate with no date on any of them. Selection is now on the clock;
+   * this block is what stops the four lists above being read as more than they
+   * are.
+   *
+   * `anchor_ms === null` (nothing ever recorded) and `is_current === false` (a
+   * slate, but not this hour's) are different states and must not render the
+   * same way.
+   */
+  slate: {
+    /** When this instance last decided anything. `null` if it never has. */
+    anchor_ms: number | null;
+    /** How old that is. The number that says slate or souvenir. */
+    age_ms: number | null;
+    since_ms: number | null;
+    window_ms: number;
+    is_current: boolean;
+    /** The window before `limit`, and what survived it. */
+    in_window: number;
+    returned: number;
+    truncated: boolean;
+    /** The record deliberately left off — what the old query ranked and showed. */
+    recorded_total: number;
+    older_than_window: number;
+  };
   note: string;
 };
 

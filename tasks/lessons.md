@@ -6292,3 +6292,43 @@ as a result.
 Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
 [[a-registered-decision-rule-can-be-logically-defective]],
 [[seven-guards-found-that-could-not-fail]].
+
+---
+
+## 2026-08-11 — Fixing how a wrong row is drawn leaves the query that chose it
+
+`/api/board` ranked every recommendation ever written by
+`suggested_contracts DESC, edge_tenths DESC LIMIT 100`, with no clock in the
+query, and drew each as a live buy. The fix recomputed each row's age, split
+`surfaced` from `expired`, and wrote the diagnosis into the docstring — and left
+the `ORDER BY` untouched. `suggested_contracts` is 0 on essentially every row,
+so the ranking collapses to `edge_tenths DESC`: the screen stayed the hundred
+largest apparent edges in the history of the database, now correctly labelled as
+expired. Three months of one-a-day slates renders identically to today's.
+
+**Two patterns, and the second is the one that costs days.**
+
+**A presentation fix cannot repair a selection defect.** Recomputing a row's age
+is a statement about a row you already have. Nothing downstream of `LIMIT` can
+put back a row the `LIMIT` dropped, and nothing that reformats a row can make it
+belong on the page.
+
+**Ranking by the quantity a rule calls suspicious builds a sample out of the
+suspects.** Rule 1 of this repo is that a large apparent edge is a bug until
+proven otherwise; ordering by `edge_tenths` selects for exactly those, and the
+`LIMIT` is what makes it a *sample* rather than a sort — the ordinary rows are
+the ones it discards. Any truncation ordered by the result being studied is
+biased by construction, and it is invisible because the discarded rows leave no
+trace in the payload.
+
+**How to apply:** when a screen shows the wrong thing, name which of the three
+it is — the wrong rows were *chosen*, the right rows were *drawn* wrong, or the
+right rows were *dropped* — before writing a fix, and check the other two are
+not also true. Any endpoint that truncates must return the size of the window it
+truncated (`in_window`/`returned`), and must order the truncation by something
+that is not the quantity under study. A time-bounded selection needs its window
+stated in the payload too: "there is no current slate" and "nothing was ever
+recorded" are different findings and must not render the same.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[the-anchor-where-the-error-vanishes-keeps-getting-chosen]].
