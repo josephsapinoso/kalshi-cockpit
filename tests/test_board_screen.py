@@ -54,6 +54,7 @@ FRONTEND = ROOT / "frontend" / "src"
 API_TS = FRONTEND / "lib" / "api.ts"
 SLATE_ROW = FRONTEND / "components" / "SlateRow.tsx"
 BOARD_PAGE = FRONTEND / "app" / "page.tsx"
+LEDGER_PAGE = FRONTEND / "app" / "ledger" / "page.tsx"
 
 
 def source(path: Path) -> str:
@@ -224,12 +225,23 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
     # rows these three ever see.
     CANNOT_RECEIVE_A_REFUSED_ROW = {
         "components/OpportunityCard.tsx": "rendered by LiveBoard from board.surfaced",
-        "components/LiveBoard.tsx": "board.surfaced only",
+        # Matches on both substrings without ever colouring an edge: its
+        # `edge_cents` is a field of the streamed quote it merges into a row,
+        # and its `text-positive` is the LIVE feed-status chip. Kept in the
+        # inventory rather than special-cased -- a screen that holds both names
+        # for unrelated reasons today is one edit from holding them for the
+        # related one.
+        "components/LiveBoard.tsx": "board.surfaced only; colours a feed status, not an edge",
         "components/TicketSheet.tsx": "opens only for a surfaced row",
     }
 
-    # The path this lane was not permitted to touch. Recorded, not pruned.
-    STILL_UNFIXED = {"app/ledger/page.tsx"}
+    # The two screens a row carrying `suppressed_reason` actually reaches, and
+    # therefore the two that must ask `edgeTone` rather than the sign. The
+    # Ledger was the second one and was fixed one lane later than the Board.
+    TAKE_THE_SHARED_TONE = {
+        "components/SlateRow.tsx",
+        "app/ledger/page.tsx",
+    }
 
     def colouring_screens(self) -> set[str]:
         found = set()
@@ -250,31 +262,69 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
         """The anchor that makes this an inventory rather than a snapshot.
 
         A new screen rendering `edge_cents` in a tone colour fails here until
-        somebody decides which of the three groups it belongs to.
+        somebody decides which of the two groups it belongs to: it asks
+        `edgeTone`, or the engine invariant says no refused row can reach it.
         """
-        accounted = (
-            {"components/SlateRow.tsx"}
-            | set(self.CANNOT_RECEIVE_A_REFUSED_ROW)
-            | self.STILL_UNFIXED
-        )
+        accounted = self.TAKE_THE_SHARED_TONE | set(self.CANNOT_RECEIVE_A_REFUSED_ROW)
         assert self.colouring_screens() <= accounted
 
     def test_the_board_slate_row_takes_the_shared_tone(self):
         assert "edgeTone" in source(SLATE_ROW)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "The Ledger renders every recommendation the database holds, "
-            "suppressed ones included, and colours the edge on "
-            "`rec.edge_cents > 0` alone -- the same defect as the Board's, one "
-            "screen over. `frontend/src/app/ledger/page.tsx` was outside this "
-            "lane's file ownership. The fix is one call to `edgeTone`; delete "
-            "this marker when it lands."
-        ),
-    )
     def test_the_ledger_takes_the_shared_tone(self):
-        assert "edgeTone" in source(FRONTEND / "app" / "ledger" / "page.tsx")
+        """The Ledger is the *wider* of the two paths, not a lesser one.
+
+        The Board shows one windowed slate; the Ledger lists every
+        recommendation the database holds, so before this every
+        `suspicious_edge` row ever written rendered in the colour that means
+        take this. This was a strict xfail while the file sat outside the
+        Board lane's ownership.
+
+        Asserting only that the name `edgeTone` appears in the file would pass
+        on an import nothing calls, and on a file that computes the tone and
+        then colours the span by the sign anyway. So: the helper is *called*,
+        the class map is keyed on what it returned, and no sign-of-edge test
+        reaches a tone colour.
+        """
+        ledger = code(LEDGER_PAGE)
+
+        call = re.search(r"(?:const|let)\s+(\w+)\s*=\s*edgeTone\(\s*rec\s*\)", ledger)
+        assert call, (
+            "the Ledger does not call edgeTone on its row, so any tone name it "
+            "mentions came from somewhere else."
+        )
+        tone = call.group(1)
+        assert f"EDGE_TONE_CLASS[{tone}]" in ledger, (
+            "the Ledger computes the shared tone and does not colour the edge "
+            "with it, which renders exactly as the original defect."
+        )
+        assert f"EDGE_TONE_MARK[{tone}]" in ledger, (
+            "the Ledger carries the rule in colour alone, so for a reader who "
+            "cannot separate the two hues a suspicious_edge row is identical "
+            "to a bettable one."
+        )
+
+    def test_the_ledger_never_decides_a_tone_colour_from_the_sign(self):
+        """The mechanism, not just the presence of the call.
+
+        `text-positive` legitimately survives on this page for `clv_tenths` --
+        a settled measurement against Kalshi's close, which is an outcome
+        rather than a claim that a number is money. What must not survive is a
+        tone colour chosen from `edge_cents` in the same expression, which is
+        the defect verbatim.
+        """
+        ledger = code(LEDGER_PAGE)
+        # `[^;{}]`: one JSX expression. The defect was
+        # `rec.edge_cents > 0 ? "text-positive" : "text-negative"`, with
+        # nothing but a comparison and a quote between the two names.
+        for pattern in (
+            r"edge_cents[^;{}]*text-(?:positive|negative)",
+            r"text-(?:positive|negative)[^;{}]*edge_cents",
+        ):
+            assert not re.search(pattern, ledger), (
+                "the Ledger picks a tone colour from the sign of the edge, "
+                "with no reference to whether the row was refused."
+            )
 
     def test_the_allowlisted_screens_really_cannot_receive_a_refused_row(self):
         """The allowlist above is a claim about the engine, so check it there.

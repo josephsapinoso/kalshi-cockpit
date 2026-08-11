@@ -1,5 +1,68 @@
 # Next — your checklist
 
+## 2026-08-11 — THE CEILING ON RELAXING `stale_odds` IS 23 ROWS = 14 OPPORTUNITIES, AND NOTHING BEHIND IT IS A RUNWAY
+
+Audited re-derivations from `docs/measurements/2026-08-10-clean-shortfall-pull.json`
+(1,564 rows, ids verified unique), computed independently of the claims they
+check. **Read this before concluding anything about relaxing a guard.**
+
+### 1. Deleting `stale_odds` entirely surfaces 23 rows — and nothing else
+
+ADR 0025's 23 is a **sole-code** predicate and reproduces exactly: 23 rows / 18
+tickers / 9 game clusters / 11 sweeps / 8 odds stamps, all
+`strategy_config_version` 1, sizing 4–37 contracts on re-derivation. The **614
+clean rows have a maximum edge of −2.0534 tenths and none sizes.** So the poll
+cadence cannot move this ceiling: there is no reservoir of near-miss rows behind
+the guard waiting on fresher odds.
+
+**And the 23 rows are 14 opportunities.** Rows arrive in mirrored ticker pairs
+betting the *identical* outcome — ids **431** (`...GSDAL-DAL`, yes, 500) and
+**434** (`...GSDAL-GS`, no, 500) are both "Dallas Wings at 50c". ADR 0025
+already deflates 23 to "8 odds snapshots, not 23 observations"; **14 is the
+missing intermediate** and is the right unit for "how many bets".
+
+**11 of 11 scored rows lost to Kalshi's close, mean −18.64 tenths.**
+
+### 2. The next binding constraint is `suspicious_edge`, not `edge_within_method_noise`
+
+An earlier claim of mine — that `edge_within_method_noise` was the next limit —
+was narrowed by audit. Residual code-sets on positive-edge rows after deleting
+`stale_odds`:
+
+| block | rows | opportunities | edges (tenths) |
+|---|---|---|---|
+| `suspicious_edge` | **66** | 36 distinct sweep×outcome pairs, 8 clusters | 59.1–363.3, median 134.4 (= 5.9c–36c) |
+| `edge_within_method_noise` | 10 | **7** | 0.104–5.979 |
+
+`suspicious_edge` is the largest remaining block and it is **not a runway**:
+those are CLAUDE.md rule-1 bugs by construction — 5.9c to 36c of apparent edge
+at a venue that prices to ~2c.
+
+The `edge_within_method_noise` block is not one either: **8 of its 10 rows sit
+below the 3.8-tenth venue advantage**, and **9 of 9 scored rows are negative**.
+
+Disjointness from the 23 holds (verified empty intersection), and structurally a
+row carrying two codes cannot be surfaced by removing one of them.
+
+### 3. `c4bca6b` was never deployed — and the argument I first gave for that is unsound
+
+`inconsistent_consensus_metadata` (commit `c4bca6b`, 2026-08-10T05:00:06Z)
+produced no row in this record.
+
+**Do not repeat my first proof.** I argued it was "committed 54 minutes after
+the last deploy". That is unsound: `flyctl deploy` builds from the **working
+directory**, which was dirty, so a deploy can carry uncommitted code. Commit
+timestamps do not bound what is running. (See `tasks/lessons.md`.)
+
+**The sound proof comes from the record.** The same commit added
+`"suppression_checks": list(ALL_CHECK_NAMES)` to the strategy-config payload
+(`backend/runner.py:577`), and `ensure_strategy_config`
+(`backend/engine.py:342-376`) mints a new version whenever the serialised config
+changes. The record holds **v1 (1,394 rows) and v2 (170 rows) and no v3.**
+Therefore the check was never deployed, and its zero means **"could not fire"**,
+not "fired and caught nothing".
+
+
 ## 2026-08-11 — OPEN QUESTION FOR JOE: 85.8% of the $3.66 lands in a series with zero rows in the record
 
 **This is not a decision and must not be recorded as one. It is his money.**

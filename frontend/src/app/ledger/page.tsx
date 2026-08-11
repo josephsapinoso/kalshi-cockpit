@@ -1,4 +1,10 @@
-import { fetchLedger, formatAge } from "@/lib/api";
+import {
+  EDGE_TONE_CLASS,
+  EDGE_TONE_MARK,
+  edgeTone,
+  fetchLedger,
+  formatAge,
+} from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +15,15 @@ export const dynamic = "force-dynamic";
  * on closing-line value whether or not money was placed on it, which is what
  * makes three hundred scored observations reachable without three hundred
  * wagers.
+ *
+ * **Colour is a claim, not the sign of a subtraction.** This screen lists every
+ * recommendation the database holds — suppressed rows included, since a refused
+ * row is the evidence — and it coloured the edge on `rec.edge_cents > 0` alone.
+ * That is the Board's defect one screen over, and worse here: the Board shows a
+ * windowed slate, the Ledger shows the whole record, so every `suspicious_edge`
+ * row ever written rendered in the colour that means take this. The tone now
+ * comes from `edgeTone`, the same call the Board's `SlateRow` makes, because a
+ * second copy of the rule is a second chance to paint green over a defect.
  */
 export default async function LedgerPage() {
   let ledger;
@@ -63,69 +78,75 @@ export default async function LedgerPage() {
       </div>
 
       <div className="divide-y border-t">
-        {ledger.rows.map((rec) => (
-          <div
-            key={rec.id}
-            className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4"
-          >
-            <span className="font-mono text-xs text-muted">
-              {formatAge(Date.now() - rec.created_ms)}
-            </span>
-            <span className="font-semibold tracking-tight">
-              {rec.team ?? rec.ticker}
-            </span>
-            {/* Fair value as a percentage, ask as a price. Rendering both
-                with a `c` suffix put a probability and a price side by side in
-                the same unit, and only one of them is money. */}
-            <span className="tabular text-sm text-muted">
-              {rec.fair_percent_display} fair / {rec.ask_display} ask
-            </span>
-            <span
-              className={`tabular text-sm font-semibold ${
-                rec.edge_cents > 0 ? "text-positive" : "text-negative"
-              }`}
+        {ledger.rows.map((rec) => {
+          /**
+           * **Not `edge_cents > 0`.** That is the sign of a subtraction; this
+           * is a claim about whether the number is money. See `edgeTone`.
+           */
+          const tone = edgeTone(rec);
+          return (
+            <div
+              key={rec.id}
+              className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4"
             >
-              {rec.edge_cents > 0 ? "+" : ""}
-              {rec.edge_cents.toFixed(1)}c
-            </span>
-            {rec.suggested_contracts > 0 ? (
-              <span className="rounded-full bg-accent-soft px-3 py-0.5 font-mono text-xs text-accent">
-                buy {rec.suggested_contracts}
-              </span>
-            ) : rec.suppressed_reason ? (
               <span className="font-mono text-xs text-muted">
-                {rec.suppressed_reason}
+                {formatAge(Date.now() - rec.created_ms)}
               </span>
-            ) : (
-              <span className="font-mono text-xs text-muted">no edge</span>
-            )}
-            {/* **The score, on the scoreboard.** `clv_tenths` has been
-                serialised at `routes.py` since the evidence layer was built
-                and rendered nowhere, so this page showed the progress bar
-                towards 300 scored games and never the result of scoring any
-                of them.
-
-                `null` is *unscored*, which is most rows and is not a zero:
-                a game whose closing line has not been recorded yet has no
-                CLV, and printing 0.0c there would be the flattering reading
-                of an absence. Said in words rather than left blank, because a
-                blank cell reads as "nothing happened". */}
-            <span className="ml-auto shrink-0 font-mono text-xs">
-              {rec.clv_tenths === null ? (
-                <span className="text-muted">clv —</span>
-              ) : (
-                <span
-                  className={
-                    rec.clv_tenths > 0 ? "text-positive" : "text-negative"
-                  }
-                >
-                  clv {rec.clv_tenths > 0 ? "+" : ""}
-                  {(rec.clv_tenths / 10).toFixed(1)}c
+              <span className="font-semibold tracking-tight">
+                {rec.team ?? rec.ticker}
+              </span>
+              {/* Fair value as a percentage, ask as a price. Rendering both
+                  with a `c` suffix put a probability and a price side by side in
+                  the same unit, and only one of them is money. */}
+              <span className="tabular text-sm text-muted">
+                {rec.fair_percent_display} fair / {rec.ask_display} ask
+              </span>
+              <span
+                className={`tabular text-sm font-semibold ${EDGE_TONE_CLASS[tone]}`}
+              >
+                {EDGE_TONE_MARK[tone]}
+                {rec.edge_cents > 0 ? "+" : ""}
+                {rec.edge_cents.toFixed(1)}c
+              </span>
+              {rec.suggested_contracts > 0 ? (
+                <span className="rounded-full bg-accent-soft px-3 py-0.5 font-mono text-xs text-accent">
+                  buy {rec.suggested_contracts}
                 </span>
+              ) : rec.suppressed_reason ? (
+                <span className="font-mono text-xs text-muted">
+                  {rec.suppressed_reason}
+                </span>
+              ) : (
+                <span className="font-mono text-xs text-muted">no edge</span>
               )}
-            </span>
-          </div>
-        ))}
+              {/* **The score, on the scoreboard.** `clv_tenths` has been
+                  serialised at `routes.py` since the evidence layer was built
+                  and rendered nowhere, so this page showed the progress bar
+                  towards 300 scored games and never the result of scoring any
+                  of them.
+
+                  `null` is *unscored*, which is most rows and is not a zero:
+                  a game whose closing line has not been recorded yet has no
+                  CLV, and printing 0.0c there would be the flattering reading
+                  of an absence. Said in words rather than left blank, because a
+                  blank cell reads as "nothing happened". */}
+              <span className="ml-auto shrink-0 font-mono text-xs">
+                {rec.clv_tenths === null ? (
+                  <span className="text-muted">clv —</span>
+                ) : (
+                  <span
+                    className={
+                      rec.clv_tenths > 0 ? "text-positive" : "text-negative"
+                    }
+                  >
+                    clv {rec.clv_tenths > 0 ? "+" : ""}
+                    {(rec.clv_tenths / 10).toFixed(1)}c
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* One permanent sentence, once, where CLV is. Not a tooltip: there is
