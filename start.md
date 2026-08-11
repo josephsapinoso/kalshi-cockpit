@@ -1,8 +1,23 @@
 # Start prompt — paste this to open the next session
 
-Written 2026-08-11 ~00:20Z. The session that **built round three's execution
-kit**, **finished the live-database inspector**, and **had its own headline
-result overturned by audit and rewrote it**.
+Rewritten 2026-08-11 ~02:00Z. The session that **gave the 05:30Z capture a
+verdict it never had**, **had a backlog claim shrunk tenfold by audit and its
+mechanism reversed**, and **found that the inspector was never on the machine at
+all**.
+
+## THE ONE THING TO DO FIRST, if the clock has passed 17:30Z
+
+```
+.venv\Scripts\python.exe scripts\capture_odds_repeat_poll.py --dry-run
+.venv\Scripts\python.exe scripts\capture_odds_repeat_poll.py --confirm-spend-24
+```
+
+**Joe decided 2026-08-11 that this session fires the poll unattended.** 24
+credits, already authorised. **P4 passes only between 17:30Z and ~22:00Z** —
+measured free from ESPN, and the script re-decides it at the real `T0` and
+spends nothing if it fails. **Dry-run first, always.** There is **no second
+attempt at a slate**: an abort halfway loses the credits and the slate has moved.
+Its value went **up** — see ADR 0025 §5.
 
 Everything below the line is the prompt. Paste it whole, or say *"read start.md
 and follow it"*.
@@ -254,13 +269,37 @@ curl -sS -c jar.txt -X POST -F "token=$TOKEN" -F "next=/" \
 curl -sS -b jar.txt https://kalshi-cockpit.fly.dev/api/window
 ```
 
+## DECISIONS JOE MADE ON 2026-08-11 — do not re-put these to him
+
+Taken in a `/grilling` session. They are settled; execute them.
+
+| Question | Decision |
+|---|---|
+| Round three, 4 cells or 5 | **(a) four cells, ~$3.66.** Option (b) died with the `.dockerignore` finding — no deploy was coming anyway |
+| Is the $5 still worth spending | **Yes.** `core/fees.py` cannot resolve itself; it needs a fill |
+| When Joe places the orders | **On his clock, any time before 2026-08-31.** Phone sheet is a standing procedure |
+| When the watcher runs | **At the moment he places, never in advance.** A pre-generated sheet is stale quotes wearing a live board's look |
+| Who fires the 24-credit poll | **This session, unattended**, inside the P4 window |
+| The 05:30Z capture | **Fix the script first, then run.** Done at `aaf163a` |
+| A repeat blank from the capture | **Write it up as a defect. Do not retry on a schedule.** A repeat blank means §S9's expiry clock is what to question |
+| Partner's `stale_odds` finding | **ADR it, skeptic-gated.** Done — ADR 0025, and the audit shrank it tenfold |
+
 ## THE STANDING SUSPICION, and it caught this session's own work
 
 **Seven guards found that could not fail**, three of them caught by a different
 agent than wrote them. **"This check is green" is unproven until the check has
 been seen to go red.**
 
-**This session was the eighth, and it was self-inflicted.** A test class was
+**The ninth and tenth were found on 2026-08-11, in code nobody had tested.**
+`capture_fills_fixture.py`'s settlements half had **no return statement** and
+fell through to `return 0` — and the fills branch returned *before* it could
+report, so the exit code answering §A5 was unreachable by construction. That
+script had **no test file at all**. And `test_a_stale_book_suppresses` anchored
+at **4×** its threshold, so an off-by-one in the limit stayed green while the
+docstring asserted the semantics the code corrects. **Both were checks that
+could not fail, in the two places the record most depended on.**
+
+**The eighth was self-inflicted.** A test class was
 written to defend a refusal; it asserted the contested premise as a module
 constant and then mutated only the arithmetic nobody disputed — **verified
 everywhere except at the one point that carried the argument**, by the author who
@@ -291,6 +330,22 @@ for the CLV rewrite.
 ## TRAPS
 
 - **`start.md` is a snapshot; `git log` is the record.**
+- **`Dockerfile:66` does not decide what ships. `.dockerignore:59-61` does.**
+  `scripts/*` with `!run_loop.py` and `!migrate_db.py` — **two of thirty-four
+  scripts are in the image.** Never conclude a file ships because a `COPY` names
+  its directory; check the exclusion layer in the same breath and cite both
+  lines or neither.
+- **A status word in a handoff may be a human's summary, not the instrument's
+  output.** `PREMATURE` led two handoffs and appears nowhere in the script it
+  described. **Grep the named instrument for the literal token before repeating
+  it.**
+- **A mutation that stays green may be semantically equivalent, not a bad test.**
+  One of thirteen was, this session. **Do not prune it from the list to make the
+  count clean** — record that it was applied and why it proved nothing.
+- **Quote the pin beside every count.** `clean == 614` is identical at pin 1549
+  and pin 1564, which is exactly how a whole paragraph of pin-1549 figures got
+  quoted against a pin-1564 result and reproduced perfectly on the one number
+  anyone spot-checks.
 - **Backticks inside a shell-quoted Python string get executed by the shell.**
   Writing a markdown block containing backticks through `python -c "..."` cost
   several commands this session. **Bash heredocs also break** on a redirect
