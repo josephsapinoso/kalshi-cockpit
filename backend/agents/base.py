@@ -41,17 +41,42 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-opus-5"
 
-# Conservative on purpose, and neither number is measured -- the population they
-# would be measured on has never existed, because `surfaced` has been 0 on every
-# live pass. The arithmetic they *are* derived from:
+# **The count cap is the safety claim, and it holds whatever a call costs.**
+# 24 calls a day is 24 HTTP requests a day (see `build_client`: `max_retries=0`
+# makes that an identity, not an estimate). Everything below converts that count
+# into dollars, and the conversion rests on a rate this repo cannot verify.
 #
-#   one Skeptic call ~= 1,400 input + ~1,500 output tokens
-#   claude-opus-5 list price = $5 / $25 per million
-#   -> ~$0.045 a call, so 8 a pass is ~$0.36 and 24 a day is ~$1.10 (~$33/month)
+# Token counts per Skeptic call, ~1,730 input:
 #
-# 8 per pass bounds one `asyncio.gather`; 24 a day is three saturated passes, on
-# a loop that wakes up to 96 times. The daily cap is the one that actually binds
-# the bill -- 96 x 8 would be 768 calls, ~$35 a day.
+#   401   HOUSE_CONTEXT              measured (`scripts/measure_agent_cache_prefix.py`)
+#   ~584  skeptic.SYSTEM             measured, same script (house+skeptic = 985)
+#   ~330  the user prompt            estimated from `skeptic.build_prompt`
+#   ~415  the `SkepticVerdict` schema  sent as `output_format`, BILLED AS INPUT
+#
+# and up to 3,000 output, because `skeptic.evaluate` sets `max_tokens=3000` and
+# `thinking: {"type": "adaptive"}` (see `structured_call`) bills thinking tokens
+# as output. So use the ceiling, not a midpoint: an adaptive-thinking call can
+# spend the whole budget.
+#
+#   **[ASSUMED, uncited] claude-opus-5 list price = $5 / $25 per million.**
+#   Nothing in this repo cites that rate. It is not on an invoice, not in a
+#   fixture, and not read from any API. It matches the cached model table in the
+#   `claude-api` skill (cached 2026-06-24), which is corroboration and not a
+#   citation: a future session may not have that skill, and a cached table is
+#   not a bill. Treat every dollar figure below as conditional on it.
+#
+# On that assumption, and only on it:
+#
+#   ceiling  1,730 x $5/M + 3,000 x $25/M  = $0.084 a call
+#   floor    1,730 x $5/M +  ~200 x $25/M  = $0.014 a call  (a terse verdict,
+#                                            little thinking -- not measured)
+#   -> a saturated day of 24 calls is **$0.35 to $2.01**, so ~$10-$60 a month.
+#
+# The old figure in this block was ~$0.045 a call and ~$1.10 a day. It was wrong
+# twice over: it used ~1,400 input (no schema) and ~1,500 output (half the real
+# `max_tokens`), and it counted one HTTP request per candidate while the SDK's
+# `DEFAULT_MAX_RETRIES = 2` allowed three -- up to $0.25 a call and ~$6.05 a
+# day. `max_retries=0` closed the second gap; this block closes the first.
 #
 # **These will bind the first time this project succeeds, and that is intended.**
 # If the `stale_odds` question resolves the way it might, a pass could surface
@@ -59,6 +84,12 @@ DEFAULT_MODEL = "claude-opus-5"
 # right direction for a first ceiling on a path that had none: the alternative
 # is discovering the correct number from an invoice. Raising it is one line in
 # `fly.live.toml` and a deploy, taken deliberately after the first real bill.
+#
+# What each cap does -- they are not two spend ceilings. See `budget.py`:
+# `allowance = max(0, min(per_pass, remaining_today))` puts both in one `min()`,
+# so the **day** is the money control (24 calls, whatever `per_pass` is) and the
+# **pass** cap controls fan-out width and how the day's 24 are spread over the
+# day's passes.
 DEFAULT_MAX_CALLS_PER_PASS = 8
 DEFAULT_MAX_CALLS_PER_DAY = 24
 
@@ -176,10 +207,43 @@ structured fields already carry your confidence."""
 
 
 def build_client(config: AgentConfig):
-    """Construct the Anthropic client. Imported lazily so the SDK is optional."""
+    """Construct the Anthropic client. Imported lazily so the SDK is optional.
+
+    **`max_retries=0`, so one candidate is exactly one HTTP request.**
+
+    The installed SDK (`anthropic` 0.120.2) defaults to `DEFAULT_MAX_RETRIES =
+    2` and retries 408/409/429/>=500 and connection errors. `structured_call`
+    collapses every attempt into one return value, and `AgentBudget` records
+    once per candidate -- so under the default the 24/day ceiling permitted up
+    to **72 billed requests** and the meter could not see the other 48. The cap
+    was a cap on candidates wearing a cap on spend's name.
+
+    **The choice was between `0` and `1`, and it is a real trade.** A retry that
+    is not made is a row that goes unreviewed: `structured_call` returns `None`,
+    `apply_verdict` treats that as "no opinion", and the row reaches the card
+    with only the deterministic checks behind it. `max_retries=1` would buy that
+    row back at the cost of exactness -- one candidate would be one *or* two
+    requests, and the day's true bill would be somewhere in 24-48 with nothing
+    able to say where.
+
+    `0` wins because **the retry already exists one level up, where it is
+    metered.** `run_loop` re-prices the same slate every `RUNNER_INTERVAL_S`; a
+    row lost to a 429 is re-surfaced and re-attacked on the next pass, at a cost
+    of one call that `agent_calls` records. An SDK-level retry is an unmetered
+    duplicate of a metered mechanism, and this repo's rule is that the
+    unreadable resolves to a refusal rather than to a silent substitution.
+
+    So the relationship is stated and exact, not assumed:
+
+        1 candidate == 1 `messages.parse` == 1 HTTP request
+        AGENT_MAX_CALLS_PER_DAY == the day's HTTP request ceiling
+
+    `tests/test_agent_budget.py::TestOneCandidateIsExactlyOneRequest` pins it
+    with a stub that *would* retry if the client let it.
+    """
     import anthropic
 
-    return anthropic.AsyncAnthropic(api_key=config.api_key)
+    return anthropic.AsyncAnthropic(api_key=config.api_key, max_retries=0)
 
 
 async def structured_call(
@@ -207,9 +271,20 @@ async def structured_call(
     738–985 tokens depending on the agent, which is over the line.
 
     The cost is one cache entry per agent instead of one shared across three.
-    That is a real loss and it is smaller than it looks: an agent runs many
-    times in a row on a slate, so the reuse that matters is an agent against
-    itself — and the alternative on offer was no cache at all.
+
+    **That cost is not recovered within a pass, and the earlier claim here that
+    "an agent runs many times in a row on a slate" was false for the deployed
+    shape.** `review._review_batch` puts every candidate in flight at once under
+    `asyncio.gather`, so no call in a batch can read a prefix another call in
+    the same batch has not finished writing — all of them pay the 1.25x
+    cache-*write* premium. The reuse is *across* passes, not within one: the
+    entry a pass writes is read by the next pass that surfaces a row, if that
+    happens inside the 5-minute ephemeral TTL. On a `RUNNER_INTERVAL_S` of 900
+    it usually will not.
+
+    In dollars this is small -- 985 cached tokens at the 0.25x premium is a
+    fraction of a cent a call against a ~$0.084 ceiling. It is corrected because
+    a false stated rationale is how the next reader justifies the next thing.
     """
     kwargs: dict[str, Any] = {
         "model": model,

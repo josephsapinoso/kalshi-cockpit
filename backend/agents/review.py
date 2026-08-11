@@ -265,9 +265,25 @@ def review_surfaced(
     restatement of the defect this function was changed to fix. The signature is
     the enforcement: a caller with no database cannot spend money by omission.
 
-    The meter is consulted **before** any call goes out, not after: reserving
-    the whole fan-out up front is what bounds a single `asyncio.gather`, and
-    counting afterwards would bound nothing at all.
+    **The whole fan-out is reserved before any call goes out.** `meter.reserve`
+    writes one `agent_calls` row per reviewable candidate *before*
+    `_run_off_loop`, and `meter.settle` fills in the verdicts when the batch
+    returns. Until 2026-08-11 this docstring claimed that and the code did the
+    opposite: the first row was written only after every call in the batch had
+    returned, so a process death mid-`gather` left up to
+    `AGENT_MAX_CALLS_PER_PASS` billed calls with no row at all -- and since
+    `spent_today` is `COUNT(*)`, the next pass saw a *larger* allowance than it
+    was owed. `docker/entrypoint.sh` restarts, `run_loop` re-prices the same
+    slate, the same rows surface, and nothing in this repo bounded the loop.
+
+    Reserving first inverts the error: a crash now over-counts, so the day is
+    charged for calls it may not have made. That costs reviews, which tomorrow
+    returns; the other direction costs money, which it does not.
+
+    Both the reserve and the settle happen on the **calling** thread, not inside
+    `_review_batch`. The batch runs on a dedicated thread with its own event
+    loop and a `sqlite3` connection is thread-affine, so writing from there
+    raises.
     """
     if not candidates:
         return ReviewOutcome(recommendations=[])
@@ -290,12 +306,30 @@ def review_surfaced(
     # Asked for the *whole* batch, so the reason names the real shortfall rather
     # than the part that happened to fit.
     refusal = meter.refusal_reason(len(candidates), stamp) if refused else None
-    if refused and refusal is None:  # pragma: no cover - defended below
+    # Was `# pragma: no cover` and unverified: no test could reach it, so by
+    # this repo's standard it was decoration. `TestAGuardIsNotAGuardUntilItHasFired`
+    # now drives it with a budget whose `allowance` and `refusal_reason`
+    # disagree, and the mutation is recorded there.
+    if refused and refusal is None:
         raise RuntimeError(
             f"the agent budget allowed {allowance} of {len(candidates)} calls "
             f"and then declined to say which ceiling bound. Refusing to persist "
             f"rows whose refusal has no stated reason."
         )
+
+    # Reserve first. One row per call this pass is about to make, written and
+    # committed before `_run_off_loop` starts any of them, so a death anywhere
+    # in the fan-out leaves the day charged rather than unrecorded.
+    reservations = [
+        meter.reserve(
+            called_ms=stamp,
+            agent="skeptic",
+            model=resolved.model,
+            ticker=candidate.recommendation.ticker,
+            side=candidate.recommendation.side,
+        )
+        for candidate in reviewable
+    ]
 
     verdicts = (
         _run_off_loop(lambda: _review_batch(reviewable, resolved, client_factory))
@@ -305,19 +339,16 @@ def review_surfaced(
 
     out: list[Recommendation] = []
     blocked = 0
-    for candidate, verdict in zip(reviewable, verdicts):
+    for candidate, call_id, verdict in zip(reviewable, reservations, verdicts):
         row, did_block = _amend(candidate, verdict)
-        # Recorded here rather than inside the batch because the batch runs on a
+        # Settled here rather than inside the batch because the batch runs on a
         # dedicated thread with its own event loop and a sqlite3 connection is
-        # thread-affine -- writing from there raises. Every call is recorded,
-        # including the ones that came back with no verdict: they cost money and
-        # they consumed the day's allowance.
-        meter.record(
-            called_ms=stamp,
-            agent="skeptic",
-            model=resolved.model,
-            ticker=row.ticker,
-            side=row.side,
+        # thread-affine -- writing from there raises. A `None` verdict settles
+        # to the NULLs `reserve` already wrote: the call cost money and consumed
+        # the day's allowance either way, and "said nothing" must not be stored
+        # as "looked and did not block".
+        meter.settle(
+            call_id,
             verdict=None if verdict is None else verdict.verdict,
             blocked=None if verdict is None else did_block,
         )

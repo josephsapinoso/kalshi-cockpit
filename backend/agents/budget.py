@@ -22,16 +22,45 @@ Three properties, taken from `odds/budget.py` deliberately rather than invented:
 caller asked for blocks those calls. A budget that logs and proceeds is not a
 budget.
 
-**It caps one fan-out as well as the day.** The per-pass ceiling bounds a single
-`asyncio.gather`; the daily ceiling bounds the day. Neither implies the other:
-96 passes at 8 calls each is 768 calls, and one pathological pass over a
-600-market slate is 600 calls inside a day that has spent nothing.
+**The daily cap is the money control. The per-pass cap is not a second one.**
+Until 2026-08-11 this paragraph said "neither implies the other: 96 passes at 8
+calls each is 768 calls". That describes a system this file does not implement.
+`allowance` is `max(0, min(per_pass, remaining_today))` -- both ceilings are in
+the *same* `min()`, so the day's total is 24 for **any** `per_pass` in [1, 24]
+and 768 is not reachable by any configuration.
+
+What the per-pass cap actually controls is **fan-out width, and therefore how
+the day's 24 calls are distributed across the day's passes**. On a 23-row slate
+with `per_pass=8`: pass 1 reviews 8 and refuses 15, and the day's 24 are spread
+over three passes. Without it (`per_pass >= 24`): pass 1 reviews all 23 and
+refuses none, and pass 2 reviews 1 and refuses 22 -- the day is spent by the
+second pass of ~96. That is a real difference and it is why the cap is not
+decoration; it is *not* a spend ceiling, and calling it one was how a false
+$35/day figure stayed in three files for a day.
+`tests/test_agent_budget.py::TestThePerPassCapDistributesTheDayItDoesNotShrinkIt`
+asserts both halves of that arithmetic.
 
 **Its state is on disk, not in the process.** `spent_today` is `COUNT(*)` over
 `agent_calls`, so a restart -- a deploy, a crash loop, a Fly machine
 migration -- cannot reset the day's tally. `PassCounts.skeptic_reviewed` is the
 in-memory alternative and it is why there was, until now, no durable record
 anywhere that a Skeptic call had ever happened.
+
+**A row is written before the call, not after, so a crash over-counts.** The
+first version of this module recorded after `asyncio.gather` returned, which
+meant a process death mid-batch left up to 8 billed calls with no row -- and
+because `spent_today` is `COUNT(*)`, the next pass would then see a *larger*
+allowance than it was owed. In a crash loop (`docker/entrypoint.sh` restarts,
+`run_loop` re-prices the same slate, the same rows surface) that repeats with
+nothing in this repo bounding it. `reserve` now writes the rows first and
+`settle` fills the verdict in afterwards, so an interrupted batch counts calls
+it may not have made. **That is the correct direction for a money guard:
+over-counting costs reviews, under-counting costs money, and only one of those
+is recoverable by waiting for tomorrow.**
+
+`CreditBudget` (`odds/client.py`) still records after its call, and that is not
+the same defect at a different address: its window is **one** call wide, and one
+uncounted credit is not eight uncounted dollars-and-a-crash-loop.
 
 The **day** is the sports day used everywhere else in this project (10:00 UTC by
 default, `odds/timing.py`), not the calendar day. Reusing it is not decoration:
@@ -78,6 +107,29 @@ class AgentBudgetState:
     @property
     def remaining_today(self) -> int:
         return max(0, self.daily_budget - self.spent_today)
+
+
+@dataclass(frozen=True)
+class AgentSpendSummary:
+    """Today's Anthropic spend, in the three numbers an operator asks for.
+
+    The operator runs this tool from a phone (`tasks/lessons.md`), and
+    `fly.live.toml` tells them to "raise deliberately, after the first real
+    bill" -- an instruction with no phone-reachable way to answer "how much of
+    today's 24 have I spent?". `agent_calls` appears in exactly two files and
+    nothing outside this module reads `spent_today`.
+
+    Deliberately a **count**, not a dollar figure. The per-token rate is marked
+    [ASSUMED, uncited] in `agents/base.py` and this object must not be the place
+    an unverified rate turns into a number on a screen.
+    """
+
+    calls_today: int
+    daily_budget: int
+    remaining_today: int
+    per_pass_budget: int
+    day_start_ms: int
+    day_start_hour: int
 
 
 class AgentBudget:
@@ -180,7 +232,27 @@ class AgentBudget:
         """
         return self.refusal_reason(requested, now_ms) is None
 
-    def record(
+    def today_summary(self, now_ms: int) -> AgentSpendSummary:
+        """The read side of the meter: what has been spent today, and of what.
+
+        Nothing outside this module read `spent_today` before this existed. See
+        `AgentSpendSummary` for why it reports counts and not dollars.
+
+        **Outstanding:** `/api/health` should carry these three numbers so the
+        answer is one tap from a phone. `backend/api/routes.py` is not this
+        change's to edit; the route is a two-line addition on top of this.
+        """
+        state = self.state(now_ms)
+        return AgentSpendSummary(
+            calls_today=state.spent_today,
+            daily_budget=state.daily_budget,
+            remaining_today=state.remaining_today,
+            per_pass_budget=state.per_pass_budget,
+            day_start_ms=self.day_start_ms(now_ms),
+            day_start_hour=self.day_start_hour,
+        )
+
+    def reserve(
         self,
         *,
         called_ms: int,
@@ -188,32 +260,53 @@ class AgentBudget:
         model: str,
         ticker: Optional[str] = None,
         side: Optional[str] = None,
+    ) -> int:
+        """Claim one call's worth of the day's allowance, **before making it**.
+
+        Returns the `agent_calls` row id, which `settle` needs. The row lands
+        with `verdict` and `blocked` NULL, which is the same shape a call that
+        came back with no opinion leaves behind -- deliberately, because until
+        `settle` runs those two facts are genuinely indistinguishable.
+
+        **Reserving up front is the whole point, and the error direction is
+        why.** If the process dies between here and `settle`, the day is charged
+        for a call that may not have been billed: the meter over-counts, the
+        next pass gets a smaller allowance, and the cost is a review that does
+        not happen. Recording afterwards inverts that -- a crash mid-fan-out
+        leaves up to `AGENT_MAX_CALLS_PER_PASS` billed calls with no row, and
+        `spent_today` being `COUNT(*)` means the restart that follows sees a
+        *larger* allowance than it is owed. On a restarting loop that re-prices
+        the same slate, that is unbounded.
+
+        Every call is reserved, including the ones that will fail. A call that
+        errored, was refused by a safety classifier, or returned unparseable
+        output still cost money and still consumed the day's allowance.
+        """
+        cursor = self.conn.execute(
+            "INSERT INTO agent_calls (called_ms, agent, model, ticker, side, "
+            "verdict, blocked) VALUES (?, ?, ?, ?, ?, NULL, NULL)",
+            (called_ms, agent, model, ticker, side),
+        )
+        self.conn.commit()
+        return int(cursor.lastrowid)
+
+    def settle(
+        self,
+        call_id: int,
+        *,
         verdict: Optional[str] = None,
         blocked: Optional[bool] = None,
     ) -> None:
-        """Record one call. Called for every call, successful or not.
-
-        A call that failed, was refused by a safety classifier, or returned
-        unparseable output still cost money and still consumed the day's
-        allowance. Recording only the ones that produced a verdict would
-        understate spend in exactly the situation where the count matters most
-        -- an outage that retries against a ceiling that cannot see it.
+        """Fill in what a reserved call came back with. Never adds to the count.
 
         `blocked` is `None` rather than `False` when there was no verdict to
         fold in. "The Skeptic looked and did not block" and "the Skeptic said
-        nothing" are different facts and must not share a value.
+        nothing" are different facts and must not share a value -- so a call
+        that returned nothing settles to exactly the NULLs `reserve` wrote, and
+        that is correct rather than a no-op worth optimising away.
         """
         self.conn.execute(
-            "INSERT INTO agent_calls (called_ms, agent, model, ticker, side, "
-            "verdict, blocked) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                called_ms,
-                agent,
-                model,
-                ticker,
-                side,
-                verdict,
-                None if blocked is None else int(blocked),
-            ),
+            "UPDATE agent_calls SET verdict = ?, blocked = ? WHERE id = ?",
+            (verdict, None if blocked is None else int(blocked), call_id),
         )
         self.conn.commit()

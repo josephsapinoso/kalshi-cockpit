@@ -51,8 +51,18 @@ or 50.44% (maker, at size). It does not clear that bar.
 52.00%, not the 51.75% this file used to claim: 51.75% is what the published
 fee coefficient gives, but `calculate_fee` charges the conservative maximum
 across candidate models, so the bar the code actually applies is higher. The
-headroom is 0.38 points, not 0.63. This tool exists to find out
-whether an edge is there — not to assume one.
+headroom is 0.38 points, not 0.63.
+
+**And 0.38 is an upper bound, not a point figure.** Both bars are computed
+through `settlement_fee()` (`backend/core/fees.py:197`), which is a rename of
+`calculate_fee` asserting *"Settlement is not a trade, so there is exactly one
+fee"*. That is H4, and **H4 is untested** — eligible denominator 1, at an anchor
+where the charge is $0 by construction. A sportsbook's 52.38% has no settlement
+fee to omit and Kalshi may, so the omission subtracts from the 0.38 and nothing
+subtracts from the 52.38. The 1.12-point gap to the 50.88% bar is robust; the
+headroom is not. See `docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md`.
+
+This tool exists to find out whether an edge is there — not to assume one.
 
 ## The three rules everything else follows from
 

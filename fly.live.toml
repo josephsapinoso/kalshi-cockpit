@@ -136,9 +136,32 @@ primary_region = "ord"
   # than inferred from a default two files away -- that inference is how the
   # missing AGENT_MODEL above ends up billing at the Opus rate unnoticed.
   #
-  # ~4.5 cents a call at list price, so 8 a pass is ~$0.36 and 24 a day is
-  # ~$1.10 (~$33/month). Raise deliberately, after the first real bill --
-  # `skeptic_unreviewed` in the pass log counts the rows a ceiling refused.
+  # **The count is the guarantee: 24 calls a day is 24 HTTP requests a day.**
+  # `build_client` passes `max_retries=0`, so one candidate is exactly one
+  # request. That sentence holds whatever a call turns out to cost, and it is
+  # the one to rely on. (Before 2026-08-11 it did not: the SDK default of two
+  # retries meant 24 counted calls permitted up to 72 billed requests.)
+  #
+  # In dollars, **conditional on a rate this repo cannot verify**: the
+  # claude-opus-5 list price of $5 / $25 per million is [ASSUMED, uncited] --
+  # see `backend/agents/base.py`, which carries the derivation. On that
+  # assumption a call is ~1,730 input and up to 3,000 output (`max_tokens=3000`
+  # with adaptive thinking billed as output), i.e. **$0.014-$0.084 a call**, so
+  # a saturated day of 24 is **$0.35-$2.01** and a saturated month ~$10-$60.
+  #
+  # Quote the range or quote the count, not a point estimate. The figure that
+  # used to sit here -- "~4.5c a call, ~$1.10 a day" -- was a point estimate on
+  # an uncited rate, and it was low by ~1.9x even before the missing retries.
+  #
+  # AGENT_MAX_CALLS_PER_DAY is the money control. AGENT_MAX_CALLS_PER_PASS is
+  # not a second one: both live in the same `min()` in `agents/budget.py`, so
+  # the day is 24 for any per-pass value in [1, 24]. What the per-pass cap
+  # controls is fan-out width -- how the day's 24 are spread over the day's
+  # passes rather than spent in the first one.
+  #
+  # Raise deliberately, after the first real bill -- `skeptic_unreviewed` in the
+  # pass log counts the rows a ceiling refused, and `AgentBudget.today_summary`
+  # reports how much of today's 24 is gone.
   AGENT_MAX_CALLS_PER_PASS = "8"
   AGENT_MAX_CALLS_PER_DAY = "24"
 

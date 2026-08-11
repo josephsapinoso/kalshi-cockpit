@@ -838,6 +838,14 @@ def _review_and_persist(
     # true: a short list would make `zip` drop the tail silently, and the
     # dropped rows would persist as surfaced without ever having been reviewed.
     # That is the one failure here that money could reach.
+    #
+    # Verified by disabling, 2026-08-11. Until then this raise had never been
+    # driven by any test -- it was asserted as a consequence of another test's
+    # mutation ("`runner._review_and_persist` *would* have raised") and never
+    # actually fired, which by this repo's standard makes it decoration.
+    # `tests/test_agent_budget.py::TestAGuardIsNotAGuardUntilItHasFired` now
+    # drives it with a stub `review` that returns a short list; deleting these
+    # four lines turns that test RED with the tail silently persisted.
     if len(outcome.recommendations) != len(positions):
         raise RuntimeError(
             f"the Skeptic returned {len(outcome.recommendations)} rows for "
