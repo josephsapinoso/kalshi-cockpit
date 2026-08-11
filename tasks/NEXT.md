@@ -1,5 +1,57 @@
 # Next — your checklist
 
+## 2026-08-11 — OPEN QUESTION FOR JOE: 85.8% of the $3.66 lands in a series with zero rows in the record
+
+**This is not a decision and must not be recorded as one. It is his money.**
+`start.md:286` used to carry a four-cell answer; it now records the
+contradiction above. What follows is the arithmetic that should be in front of
+him when he decides, and nothing more.
+
+The four cells and their max stakes, from
+`docs/measurements/2026-08-10-preregistration-fee-rate-attribution-round-three.md:657-661`:
+`R $0.52 + S1 $0.15 + S2 $2.60 + S3 $0.39 = $3.66` exactly. `W` at `$0.39` is
+the deletion that turns the five-cell `$4.05` into `$3.66` (`:1702-1714`).
+
+**Where the money lands, against the pinned record**
+(`docs/measurements/2026-08-10-clean-shortfall-pull.json`, 1,564 rows;
+re-derived, not quoted):
+
+```
+series composition of the record   KXMLBGAME 1142   KXWNBAGAME 422
+KXMLBSPREAD                        0 rows
+
+S1 + S2 + S3 = $3.14 = 85.8% of $3.66, all three in KXMLBSPREAD  -> 0 of 1,564
+W            = $0.39, KXWNBAGAME                                 -> 422 of 1,564 = 27.0%
+                                                                    and 0 of 6 fills ever observed
+```
+
+**What each cell buys**, per the audit: **only `R` ($0.52) discriminates the
+coefficient** — ENV LOW `$0.0069–$0.0089` against ENV HIGH `$0.0138–$0.0177`,
+minimum separation `$0.0017` (`:840-847`, `:1143`) — and even `R` is a
+**replication** of round one's F4/TEXLAA cells. `S1`/`S2`/`S3` buy *attribution
+within* `KXMLBSPREAD`. And A-versus-F is **"confirmatory at best"** by ADR
+0023's own amendment (`docs/adr/0023-*.md:583-587`), whose boxed instruction two
+paragraphs later says round three *"must be put to Joe on cells `R` and `W`,
+which earn unconditionally"* (`:611-613`) — `W` being exactly the cell the
+$3.66 option deletes.
+
+> **The question, and it is narrow.** Given that the four-cell branch is **not
+> licensed** and that 85.8% of it lands off-record: is the spend **cell `R`
+> alone at $0.52**, or the **full five cells at $4.05** after making Q-W
+> answerable — rather than the four at $3.66?
+>
+> **Not answered here.** Making Q-W answerable needs a `kalshi_quotes` query and
+> therefore a deploy, and deploys are his.
+
+**What this does not establish.** It does not say the `KXMLBSPREAD` cells are
+worthless — the record is one pull of two series, and `KXMLBSPREAD` was
+*selected* on an audited depth census (`:174-184`), not because it is where the
+record already sits. Attribution within a series the record does not contain is
+a real purchase if the coefficient is series-scoped; the point is only that
+**85.8% of the spend is buying that, and 0% of it is replicating on the
+population ADR 0021 was refuted on.**
+
+
 ## 2026-08-11 — ADR 0025: the `stale_odds` claim was OVERSTATED by ~10x, and its mechanism ran backwards
 
 A backlog-triage agent proposed that ADR 0021's headline *"0 actionable rows,
@@ -92,56 +144,8 @@ Joe's.
 is **not** licensed. `scripts/watch_fee_bands.py` reports exactly this
 distinction and refuses to collapse it.
 
-### 2026-08-11 — OPEN QUESTION FOR JOE: 85.8% of the $3.66 lands in a series with zero rows in the record
-
-**This is not a decision and must not be recorded as one. It is his money.**
-`start.md:286` used to carry a four-cell answer; it now records the
-contradiction above. What follows is the arithmetic that should be in front of
-him when he decides, and nothing more.
-
-The four cells and their max stakes, from
-`docs/measurements/2026-08-10-preregistration-fee-rate-attribution-round-three.md:657-661`:
-`R $0.52 + S1 $0.15 + S2 $2.60 + S3 $0.39 = $3.66` exactly. `W` at `$0.39` is
-the deletion that turns the five-cell `$4.05` into `$3.66` (`:1702-1714`).
-
-**Where the money lands, against the pinned record**
-(`docs/measurements/2026-08-10-clean-shortfall-pull.json`, 1,564 rows;
-re-derived, not quoted):
-
-```
-series composition of the record   KXMLBGAME 1142   KXWNBAGAME 422
-KXMLBSPREAD                        0 rows
-
-S1 + S2 + S3 = $3.14 = 85.8% of $3.66, all three in KXMLBSPREAD  -> 0 of 1,564
-W            = $0.39, KXWNBAGAME                                 -> 422 of 1,564 = 27.0%
-                                                                    and 0 of 6 fills ever observed
-```
-
-**What each cell buys**, per the audit: **only `R` ($0.52) discriminates the
-coefficient** — ENV LOW `$0.0069–$0.0089` against ENV HIGH `$0.0138–$0.0177`,
-minimum separation `$0.0017` (`:840-847`, `:1143`) — and even `R` is a
-**replication** of round one's F4/TEXLAA cells. `S1`/`S2`/`S3` buy *attribution
-within* `KXMLBSPREAD`. And A-versus-F is **"confirmatory at best"** by ADR
-0023's own amendment (`docs/adr/0023-*.md:583-587`), whose boxed instruction two
-paragraphs later says round three *"must be put to Joe on cells `R` and `W`,
-which earn unconditionally"* (`:611-613`) — `W` being exactly the cell the
-$3.66 option deletes.
-
-> **The question, and it is narrow.** Given that the four-cell branch is **not
-> licensed** and that 85.8% of it lands off-record: is the spend **cell `R`
-> alone at $0.52**, or the **full five cells at $4.05** after making Q-W
-> answerable — rather than the four at $3.66?
->
-> **Not answered here.** Making Q-W answerable needs a `kalshi_quotes` query and
-> therefore a deploy, and deploys are his.
-
-**What this does not establish.** It does not say the `KXMLBSPREAD` cells are
-worthless — the record is one pull of two series, and `KXMLBSPREAD` was
-*selected* on an audited depth census (`:174-184`), not because it is where the
-record already sits. Attribution within a series the record does not contain is
-a real purchase if the coefficient is series-scoped; the point is only that
-**85.8% of the spend is buying that, and 0% of it is replicating on the
-population ADR 0021 was refuted on.**
+> **Moved.** The round-three cell question raised here is a live money
+> question and now leads this file. See the top section of the same date.
 
 ## 2026-08-10 — ADR 0021 §7: the dump is refused for the CLV test, and NOT ruled on for the other one
 
