@@ -102,6 +102,11 @@ SENTINEL_PRICE = 1.9999937
 # Artefact construction, from the captured payload
 # --------------------------------------------------------------------------
 
+#: Sentinel so `artefact(used=None)` can mean "an unreadable counter" and be
+#: distinguishable from "the caller said nothing".
+_UNSET = object()
+
+
 def _base_events() -> list[dict]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))["events"]
 
@@ -211,6 +216,15 @@ def _count_quotes(payload: list[dict]) -> int:
     )
 
 
+#: The account's `x-requests-used` immediately BEFORE poll 1. Poll `i` then
+#: reads `USED_BASELINE + cost * i`, which is what the real capture did
+#: (114 -> 120/126/132/138 on 2026-08-11). Until 2026-08-11 this helper wrote
+#: the SAME string to all four polls, so every fixture in this file was, in
+#: credit terms, four copies of one poll -- the precise artefact PC6's
+#: docstring says PC6 exists to reject, sitting in PC6's own test data.
+USED_BASELINE = 100
+
+
 def artefact(
     index: int,
     events: list[dict],
@@ -218,8 +232,14 @@ def artefact(
     cost: int = 6,
     text_subs: tuple[tuple[str, str], ...] = (),
     n_quotes: Optional[int] = None,
+    used: Any = _UNSET,
 ) -> dict[str, Any]:
-    """The capture's own envelope. One body, parsed twice -- as it writes it."""
+    """The capture's own envelope. One body, parsed twice -- as it writes it.
+
+    `used` overrides `x_requests_used` so a test can present a counter that is
+    frozen, backwards, or unreadable. It defaults to the honest advancing value
+    rather than to a constant, so a test must *opt in* to a broken counter.
+    """
     text = json.dumps(events)
     for old, new in text_subs:
         assert old in text, f"text substitution {old!r} matched nothing"
@@ -241,8 +261,10 @@ def artefact(
         "markets": ["h2h", "spreads", "totals"],
         "regions": ["us", "eu"],
         "cost_credits": cost,
-        "x_requests_remaining": "500",
-        "x_requests_used": "100",
+        "x_requests_remaining": str(500 - cost * index),
+        "x_requests_used": (
+            str(USED_BASELINE + cost * index) if used is _UNSET else used
+        ),
         "n_quotes_parsed": _count_quotes(payload) if n_quotes is None else n_quotes,
         "payload": payload,
         "payload_raw_tokens": raw,
@@ -282,6 +304,7 @@ def run(
     text_subs: Optional[dict[int, tuple[tuple[str, str], ...]]] = None,
     n_quotes: Optional[dict[int, int]] = None,
     indices: Optional[dict[int, int]] = None,
+    used: Optional[dict[int, Any]] = None,
     reverse: bool = False,
     capsys=None,
 ) -> tuple[int, str]:
@@ -293,6 +316,7 @@ def run(
             cost=(costs or {}).get(index, 6),
             text_subs=(text_subs or {}).get(index, ()),
             n_quotes=(n_quotes or {}).get(index),
+            used=(used or {}).get(index, _UNSET),
         )
         if indices and index in indices:
             art["poll_index"] = indices[index]
@@ -660,6 +684,235 @@ class TestEveryPreconditionCanFail:
         assert pc_flags(out)["PC6"] == "FAIL"
         assert "all non-empty: False" in out
         assert "VERDICT: UNRESOLVED" in verdict_line(out)
+
+
+class TestTheCountersThatCameBackZeroCanActuallyMove:
+    """Every counter that read 0 on 2026-08-11, driven non-zero here.
+
+    An audit of the CONFIRMED verdict found that `D`, `C`, `regressed`,
+    `ABSENT-1`, `ABSENT-2` and `ROWSET-CHANGED` were all exactly 0, and that
+    **no test in this file drove any of them.** Deleting PC4's `cell_d`
+    conjunct left the whole suite green -- mutation X1 -- so the conjunct was
+    decoration. That is this repo's thirteenth guard-that-could-not-fail.
+
+    Two of those zeros were also *forced* rather than observed: `advanced` held
+    on all 465 pairs, so the static row of the 2x2 (`C` and `D`) and
+    `regressed` were arithmetically unreachable in that capture. Forced zeros
+    are not evidence of integrity, and the tests below are the only thing that
+    distinguishes "did not happen" from "cannot happen".
+    """
+
+    @staticmethod
+    def _static_but_repriced(polls: dict[int, list[dict]], books: list[str]) -> None:
+        """Freeze `last_update` for `books` at poll 3 while moving their price.
+
+        That is cell D exactly: a reprice with no stamp advance -- the defect
+        the whole registration is built to detect, because it is the one
+        observation that refutes the scrape-clock reading outright.
+        """
+        shift_stamps(polls[3], -OFFSETS[2], books=books)
+        change_prices(polls[3], books=books, event_indices=[0])
+
+    def test_cell_d_can_be_driven_non_zero(self, tmp_path, capsys):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        self._static_but_repriced(polls, ALL_BOOKS[:6])
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        d = int(out.split("D static   & changed")[1].split()[0])
+        assert d > 0, f"cell D still 0 -- the defect cell is unreachable:\n{out}"
+
+    def test_pc4_fails_on_a_defect_rate_above_five_percent(self, tmp_path, capsys):
+        """The conjunct mutation X1 proved was decoration. This is its test.
+
+        Six books are left advancing deliberately. Freezing *every* book drops
+        `N_adv` to 0, PC2's fallback swaps the deciding pair to 1 -> 4 where
+        poll 4's stamps are untouched, and `D` returns to 0 -- the defect is
+        rescued by the fallback and PC4 never sees it. Leaving 6 advancing
+        keeps the primary pair deciding, which is where the defect lives.
+        """
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=3)
+        frozen = ALL_BOOKS[:-6]
+        shift_stamps(polls[3], -OFFSETS[2], books=frozen)
+        change_prices(polls[3], books=frozen, event_indices=[0, 1, 2])
+        code, out = run(tmp_path, polls, capsys=capsys)
+
+        d = int(out.split("D static   & changed")[1].split()[0])
+        both = int(out.split("attrition  BOTH")[1].split()[0])
+        assert d > 0.05 * both, f"D {d} is within tolerance of BOTH {both}"
+        assert code == 0
+        assert pc_flags(out)["PC4"] == "FAIL"
+        assert "VERDICT: UNRESOLVED" in verdict_line(out)
+
+    def test_cell_c_can_be_driven_non_zero(self, tmp_path, capsys):
+        """Static and identical: the uninformative cell, also never exercised."""
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        shift_stamps(polls[3], -OFFSETS[2], books=ALL_BOOKS[:6])
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        c = int(out.split("C static   & identical")[1].split()[0])
+        assert c > 0, f"cell C still 0 -- the static row is unreachable:\n{out}"
+
+    def test_absent_2_is_a_pair_that_vanished_from_the_later_poll(
+        self, tmp_path, capsys
+    ):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        keep_books(polls[3], ALL_BOOKS[:-1])  # drop one book from poll 3 only
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        absent_2 = int(out.split("ABSENT-2")[1].split()[0])
+        assert absent_2 > 0, f"ABSENT-2 still 0 -- attrition unreachable:\n{out}"
+
+    def test_absent_1_is_a_pair_that_only_the_later_poll_has(
+        self, tmp_path, capsys
+    ):
+        """The direction matters: `absent_1` iterates poll 3 against poll 1.
+
+        `compare()` walks poll 1's pairs for `absent_2` and then poll 3's for
+        `absent_1` (`analyse_odds_repeat_poll.py:497-499`), so a book dropped
+        from the LATER poll can never move `absent_1`. Dropping from poll 1 is
+        the only way to reach it, and nothing in this file did.
+        """
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        keep_books(polls[1], ALL_BOOKS[:-1])  # drop one book from poll 1 only
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        absent_1 = int(out.split("ABSENT-1")[1].split()[0])
+        assert absent_1 > 0, f"ABSENT-1 still 0 -- unreachable in this direction"
+
+    def test_rowset_changed_is_a_pair_that_kept_its_key_but_not_its_rows(
+        self, tmp_path, capsys
+    ):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        # Same (event, book) present in both polls, one market fewer in poll 3.
+        for book in polls[3][0]["bookmakers"]:
+            if len(book["markets"]) > 1:
+                book["markets"] = book["markets"][:-1]
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        rowset = int(out.split("ROWSET-CHANGED")[1].split()[0])
+        assert rowset > 0, f"ROWSET-CHANGED still 0 -- unreachable:\n{out}"
+
+
+class TestPC6ReadsTheServersCounterAndNotOurOwn:
+    """PC6 summed a number we wrote ourselves until 2026-08-11.
+
+    The module docstring said PC6 "asks the server's own credit delta"
+    *precisely because* the rest of the script would compute a clean `S` over
+    four copies of one poll. It did not ask that. These tests are the ones that
+    would have caught it, and the first is the exact artefact it names.
+    """
+
+    def test_four_copies_of_one_poll_are_refused(self, tmp_path, capsys):
+        """`cost_credits` sums to 24; the account was charged for one poll."""
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5])
+        frozen = {i: "106" for i in (1, 2, 3, 4)}
+        code, out = run(tmp_path, polls, used=frozen, capsys=capsys)
+
+        assert code == 0
+        assert "24 credits over 4/4 polls" in out, "cost_credits still totals 24"
+        assert pc_flags(out)["PC6"] == "FAIL"
+        assert "server-observed 6" in out
+        assert "VERDICT: UNRESOLVED" in verdict_line(out)
+
+    def test_an_unreadable_counter_fails_rather_than_defaulting_to_zero(
+        self, tmp_path, capsys
+    ):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5])
+        code, out = run(tmp_path, polls, used={2: None}, capsys=capsys)
+
+        assert code == 0
+        assert pc_flags(out)["PC6"] == "FAIL"
+        assert "server-observed UNREADABLE" in out
+        assert "Unreadable is not 0" in out
+
+    def test_a_backwards_counter_is_unreadable_not_a_small_spend(
+        self, tmp_path, capsys
+    ):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5])
+        code, out = run(tmp_path, polls, used={3: "104"}, capsys=capsys)
+
+        assert code == 0
+        assert pc_flags(out)["PC6"] == "FAIL"
+        assert "went backwards" in out
+
+    def test_the_header_arrives_as_a_string_and_that_is_readable(
+        self, tmp_path, capsys
+    ):
+        """`x_requests_used` is an HTTP header: `'120'`, not `120`.
+
+        The first version of `server_spend` demanded `int` and so failed PC6 on
+        the real capture. A different type is not an absent value.
+        """
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5])
+        as_ints = {i: USED_BASELINE + 6 * i for i in (1, 2, 3, 4)}
+        _, out_int = run(tmp_path, polls, used=as_ints, capsys=capsys)
+        assert pc_flags(out_int)["PC6"] == "PASS"
+
+        polls2 = base_polls()
+        make_control_reachable(polls2, ALL_BOOKS[:5])
+        _, out_str = run(tmp_path, polls2, capsys=capsys)
+        assert pc_flags(out_str)["PC6"] == "PASS"
+        assert "server x_requests_used 100 -> 124" in out_str
+
+
+class TestTheInPlayExclusionIsImplementedAndNotMerelyVacuous:
+    """§2:286 excludes any event commencing before poll 4's fetch.
+
+    It was never implemented. It happened to be vacuous on the 2026-08-11
+    slate -- first pitch was 266 minutes after poll 4 -- so nothing was wrongly
+    included, and that is exactly why it survived: a vacuous exclusion and an
+    absent one print the same thing unless the count is printed either way.
+    """
+
+    def test_the_count_is_printed_even_when_zero(self, tmp_path, capsys):
+        _, out = run(tmp_path, base_polls(), capsys=capsys)
+        assert "sec 2 in-play exclusion  0 event(s) dropped" in out
+
+    def test_an_event_that_has_started_is_dropped(self, tmp_path, capsys):
+        polls = base_polls()
+        make_control_reachable(polls, ALL_BOOKS[:5], event_index=1)
+        started = _iso_shift(
+            datetime.fromtimestamp(T0_MS / 1000, timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+            -3600,
+        )
+        for index in polls:
+            polls[index][0]["commence_time"] = started
+        _, out = run(tmp_path, polls, capsys=capsys)
+
+        assert "sec 2 in-play exclusion  1 event(s) dropped" in out
+        both = int(out.split("attrition  BOTH")[1].split()[0])
+        baseline_both = int(
+            run(tmp_path, base_polls(), capsys=capsys)[1]
+            .split("attrition  BOTH")[1].split()[0]
+        )
+        assert both < baseline_both, (
+            "the excluded event's pairs are still being counted"
+        )
+
+    def test_an_unreadable_commence_time_refuses_rather_than_including(
+        self, tmp_path, capsys
+    ):
+        polls = base_polls()
+        for index in polls:
+            polls[index][0]["commence_time"] = "not-a-timestamp"
+        code, out = run(tmp_path, polls, capsys=capsys)
+
+        assert code == 2
+        assert "sec 2's in-play exclusion cannot be decided" in out
+        assert "No verdict" in out
+        assert "VERDICT: CONFIRMED" not in out
 
 
 class TestThePreconditionsPrintBeforeS:

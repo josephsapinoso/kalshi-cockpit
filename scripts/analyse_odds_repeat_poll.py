@@ -39,6 +39,16 @@ PC2 (`N_adv >= 5`) fails on 1 -> 3.
   can be edited. PC6 asks the server's own credit delta precisely because the
   rest of this script would compute a clean `S` over four copies of one poll.
 
+  **This sentence was false from the day it was written until 2026-08-11**, and
+  it was found by an audit of the result, not by a test. PC6 summed
+  `cost_credits` -- a constant the capture script writes into each artefact --
+  so the check the docstring advertised as the reason PC6 exists was the one
+  thing PC6 did not do, and four copies of one poll would have passed it. It now
+  reads `x_requests_used` (`server_spend`), and both counts must equal 24. The
+  registered clause held on the 2026-08-11 capture (120 -> 138, six per poll,
+  baseline 114) -- but it held because an auditor checked it by hand, which is
+  not a property of this file. **A docstring is not a test.**
+
 ## `poll_index` is 1-based, on both sides
 
 `scripts/capture_odds_repeat_poll.py:588` is
@@ -143,6 +153,7 @@ import json
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -207,6 +218,120 @@ def load_poll(path: Path) -> dict[str, Any]:
         if field not in artefact:
             raise SystemExit(f"{path.name}: missing '{field}'. Not a capture artefact.")
     return artefact
+
+
+def _as_int(raw: Any) -> Optional[int]:
+    """An HTTP header count as `int`, or `None` if it cannot be read.
+
+    `x_requests_used` arrives as the **string** `'120'` -- it is a response
+    header, and `capture_odds_repeat_poll.py` stores the header verbatim rather
+    than coercing it. A first version of `server_spend` required `int` and so
+    called a perfectly readable counter unreadable, failing PC6 on the real
+    capture. The lesson is the repo's own: parse at the boundary, and let
+    `None` mean unreadable -- but do not mistake *a different type* for
+    *absent*. `bool` is excluded because `True` is an `int` in Python and a
+    boolean here would mean a field that was never a count.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def server_spend(artefacts: list[dict[str, Any]]) -> tuple[Optional[int], str]:
+    """§7 PC6: the credits the SERVER says it charged, not the ones we wrote.
+
+    Until 2026-08-11 PC6 summed `cost_credits` -- a constant this repo's own
+    capture script writes into each artefact -- and compared it to 24. The
+    module docstring claimed PC6 "asks the server's own credit delta"; it did
+    not, and four copies of one poll with distinct `poll_index` values would
+    have passed it. That is the exact failure the docstring names as the reason
+    PC6 exists, sitting inside PC6.
+
+    `x_requests_used` is the account's own counter, echoed by the aggregator on
+    every response and already written to each artefact
+    (`capture_odds_repeat_poll.py:658`). The first poll's own cost is *inside*
+    its counter reading, so the pre-capture baseline is `used[0] - cost[0]` and
+    the spend is measured from there -- not `used[-1] - used[0]`, which
+    undercounts by exactly one poll.
+
+    Returns `(credits, reason)`. **`None` is not zero.** An unreadable or
+    backwards counter fails PC6; it never silently agrees with `cost_credits`.
+    """
+    ordered = sorted(artefacts, key=lambda a: a["poll_index"])
+    used: list[int] = []
+    for a in ordered:
+        u = _as_int(a.get("x_requests_used"))
+        if u is None:
+            return None, (f"poll {a['poll_index']} has no readable "
+                          f"`x_requests_used` ({a.get('x_requests_used')!r}). "
+                          f"Unreadable is not 0.")
+        used.append(u)
+    first_cost = _as_int(ordered[0].get("cost_credits"))
+    if first_cost is None:
+        return None, (f"poll {ordered[0]['poll_index']} has no readable "
+                      f"`cost_credits`, so the pre-capture baseline is unknown.")
+    for i, (a, b) in enumerate(zip(used, used[1:]), start=1):
+        if b < a:
+            return None, (f"the server counter went backwards between polls "
+                          f"{i} and {i + 1} ({a} -> {b}). Not a small spend -- "
+                          f"an unreadable one.")
+    return used[-1] - (used[0] - first_cost), (
+        f"server x_requests_used {used[0] - first_cost} -> {used[-1]}"
+    )
+
+
+def _commence_ms(raw: Any) -> Optional[int]:
+    """`commence_time` as epoch ms, or `None` if it cannot be read."""
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return None  # a naive stamp is ambiguous, which is unreadable
+    return int(dt.timestamp() * 1000)
+
+
+def commence_exclusions(
+    artefacts: list[dict[str, Any]],
+) -> tuple[set[str], set[str], int]:
+    """§2's registered exclusion: an event that has started is out of scope.
+
+    §2 (registration `:286`) excludes any event with
+    `commence_ms < fetched_ms` of the last poll, because an in-play market is
+    suspended and re-opened by a different process entirely (`docs/adr/0006`).
+    It is a schedule fact, known before poll 1, so applying it cannot be a
+    post-hoc filter.
+
+    **This was never implemented.** The exclusion was vacuous on the 2026-08-11
+    slate -- the earliest first pitch was 266 minutes after poll 4 -- so nothing
+    was wrongly included, but a slate with an earlier kickoff would have
+    violated §2 silently. Vacuous-in-practice is not the same as enforced, and
+    only one of the two survives a change of slate.
+
+    Returns `(excluded_ids, unreadable_ids, cutoff_ms)`.
+    """
+    ordered = sorted(artefacts, key=lambda a: a["poll_index"])
+    cutoff = int(ordered[-1]["fetched_ms"])
+    excluded: set[str] = set()
+    unreadable: set[str] = set()
+    for a in ordered:
+        for event in a["payload"]:
+            eid = str(event.get("id"))
+            ms = _commence_ms(event.get("commence_time"))
+            if ms is None:
+                unreadable.add(eid)
+            elif ms < cutoff:
+                excluded.add(eid)
+    return excluded, unreadable, cutoff
 
 
 def project(artefact: dict[str, Any]) -> list[Row]:
@@ -488,7 +613,26 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("=" * 72)
         return 2
 
-    rows = {a["poll_index"]: project(a) for a in artefacts}
+    # §2's in-play exclusion, applied BEFORE anything is counted. An event that
+    # commenced before the last poll's fetch is suspended-and-reopened by a
+    # different process (ADR 0006) and is not the population this registration
+    # priced. Unreadable is refusal, not inclusion: if the exclusion cannot be
+    # decided, the registered population cannot be constructed, and a verdict
+    # over a population you cannot name is not the registered verdict.
+    excluded_events, unreadable_commence, cutoff_ms = commence_exclusions(artefacts)
+    if unreadable_commence:
+        print(f"REFUSED: {len(unreadable_commence)} event(s) have no readable "
+              f"`commence_time`, so sec 2's in-play exclusion cannot be decided: "
+              f"{sorted(unreadable_commence)[:5]}")
+        print("No verdict. Nothing was analysed.")
+        return 2
+
+    rows = {
+        a["poll_index"]: [
+            r for r in project(a) if r.event_id not in excluded_events
+        ]
+        for a in artefacts
+    }
     span_readable = {1, N_POLLS} <= available
 
     print("=" * 72)
@@ -507,6 +651,11 @@ def main(argv: Optional[list[str]] = None) -> int:
               f"  realised +{a['realised_offset_s']:8.1f}s"
               f"  quotes {a['n_quotes_parsed']:5d}"
               f"  server remaining {a.get('x_requests_remaining')}")
+    # §S2 item 2: the exclusions, counted. Printed even when zero -- a vacuous
+    # exclusion and an unimplemented one look identical in a report that only
+    # prints non-zero counts, and this one was unimplemented until 2026-08-11.
+    print(f"  sec 2 in-play exclusion  {len(excluded_events)} event(s) dropped "
+          f"for commencing before poll {N_POLLS}'s fetch ({cutoff_ms} ms)")
 
     # --- the pair that decides, chosen by INDEX -------------------------------
     res = compare(rows[pair_idx[0]], rows[pair_idx[1]])
@@ -534,6 +683,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     movers_deciding = movers_over_span(rows[pair_idx[0]], rows[pair_idx[1]])
     total_spend = sum(a.get("cost_credits", 0) for a in artefacts)
     all_non_empty = all(a["n_quotes_parsed"] > 0 for a in artefacts)
+    # The server's own counter, which is what §7 PC6 actually registered. Kept
+    # alongside `total_spend` rather than replacing it: they answer different
+    # questions, and PC6 requires BOTH. `cost_credits` says the capture script
+    # believed it spent 24; `observed_spend` says the account was charged 24.
+    # Four copies of one poll agree on the first and cannot agree on the second.
+    observed_spend, spend_detail = server_spend(artefacts)
 
     print(f"\ndeciding pair: poll {pair_idx[0]} -> {pair_idx[1]}"
           f"{'   (PC2 FALLBACK APPLIED)' if substituted else '   (PRIMARY)'}")
@@ -618,9 +773,13 @@ def main(argv: Optional[list[str]] = None) -> int:
          (f"NOT EVALUABLE -- poll {N_POLLS} absent, so the full span cannot be "
           "read. An unmeasured control fails; it does not default to 0.")),
         ("PC6 the spend is real",
-         complete and all_non_empty and total_spend == EXPECTED_TOTAL_CREDITS,
+         (complete and all_non_empty
+          and total_spend == EXPECTED_TOTAL_CREDITS
+          and observed_spend == EXPECTED_TOTAL_CREDITS),
          f"{total_spend} credits over {len(artefacts)}/{N_POLLS} polls, "
-         f"all non-empty: {all_non_empty}"),
+         f"all non-empty: {all_non_empty}; server-observed "
+         f"{observed_spend if observed_spend is not None else 'UNREADABLE'} "
+         f"({spend_detail})"),
     ]
 
     print("\nPRECONDITIONS -- evaluated and printed BEFORE S (sec 7)")
