@@ -40,6 +40,14 @@ property:
 Writing a fourth narrow rule would produce a fourth half-covered property. The
 structural fix is to stop sharing the tree for work that writes to it.
 
+**And a second mechanism the worktree does NOT cover.** Reverting a mutation
+with `git checkout -- <file>` discards **every** unstaged change in that file,
+including the lane's own uncommitted work. That happened a fourth time today,
+in an isolated-enough context that a worktree would not have saved it: the file
+was the lane's own, and the loss was silent because `git checkout` reports
+nothing when it succeeds. **Snapshot with `cp` and restore with `cp`. Never use
+`git checkout` to undo a mutation on a tree holding uncommitted work.**
+
 **How to apply:** any lane that runs a mutation battery, or that will edit files
 another lane may touch, gets `isolation: "worktree"` when it is launched. It
 costs nothing when the work is unchanged and removes the whole class. Reserve
