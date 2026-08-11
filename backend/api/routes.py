@@ -42,6 +42,7 @@ from ..config import (
     StalenessConfig,
     assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
+    assert_risk_day_start_agrees,
     retired_settings_present,
 )
 from ..core.correlation import CorrelationRefused, Leg
@@ -80,7 +81,11 @@ from ..market_results import result_coverage
 from ..agents.base import AgentConfig
 from ..notify.discord import DiscordConfig
 from ..odds.budget import CreditBudget
-from ..odds.timing import SLATE_WINDOW_MS, window_status
+from ..odds.timing import (
+    DEFAULT_DAY_START_UTC_HOUR,
+    SLATE_WINDOW_MS,
+    window_status,
+)
 from ..playbook import read_playbook
 from ..settlement import daily_realised_pnl_dollars, open_position_dollars
 from ..store import db
@@ -251,6 +256,13 @@ def create_app(
     assert_kalshi_quote_age_limits_agree(
         suppression_max_kalshi_quote_age_ms=thresholds.max_kalshi_quote_age_ms,
         staleness=staleness,
+    )
+    # The third of the family, and the only one whose two sides live in two
+    # processes: this one's `day_start_hour` below and at :1546 is configured,
+    # while `runner.py` and every other risk-day signature default to the
+    # constant. The loop asserts the same thing at `scripts/run_loop.py`.
+    assert_risk_day_start_agrees(
+        default_day_start_hour=DEFAULT_DAY_START_UTC_HOUR, odds=odds,
     )
 
     # **The line that makes the line above provable.**

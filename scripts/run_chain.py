@@ -35,7 +35,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.config import KalshiConfig, OddsConfig, RiskConfig  # noqa: E402
+from backend.config import (  # noqa: E402
+    KalshiConfig,
+    OddsConfig,
+    RiskConfig,
+    configured_day_start_utc_hour,
+)
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.discovery import discover_from_events  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
@@ -112,6 +117,11 @@ async def main() -> int:
         # changes only when the code does.
         suppression=SuppressionConfig(),
         now=stamp, counts=counts,
+        # Read directly rather than off an `OddsConfig`, because `--no-odds`
+        # builds none and `OddsConfig.load` demands the API key this branch
+        # deliberately does not need. Same single parse either way, so this
+        # script's kill-switch day cannot differ from the loop's.
+        day_start_hour=configured_day_start_utc_hour(),
     )
 
     print(json.dumps(counts.as_dict(), indent=2))

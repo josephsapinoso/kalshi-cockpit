@@ -161,6 +161,31 @@ class KalshiConfig:
         )
 
 
+def configured_day_start_utc_hour() -> int:
+    """The **one** env read of `ODDS_BUDGET_DAY_START_UTC_HOUR`, validated.
+
+    Three different days are cut on this hour -- the odds credit budget
+    (`odds/budget.py`), the risk day the daily-loss kill switch measures
+    (`settlement.risk_day_start_ms`) and the Anthropic call budget
+    (`agents/budget.py`) -- and every one of them has a signature that defaults
+    to `odds.timing.DEFAULT_DAY_START_UTC_HOUR` when a caller forgets. A second
+    parse of the same variable would drift from this one silently, which is the
+    failure the whole family of `assert_*_agree` checks exists to prevent, so
+    both `OddsConfig` constructors and `AgentBudget.from_config` come here.
+
+    Raises rather than clamping an out-of-range hour, per
+    `clamping-is-for-values-you-trust`: an hour is a value being *validated*,
+    not one being trusted, and `hour=25` silently becoming 23 would move the
+    kill switch's day by two hours with nothing saying so.
+    """
+    hour = _int("ODDS_BUDGET_DAY_START_UTC_HOUR", 10)
+    if not 0 <= hour <= 23:
+        raise ConfigError(
+            f"ODDS_BUDGET_DAY_START_UTC_HOUR={hour} must be 0-23."
+        )
+    return hour
+
+
 @dataclass(frozen=True)
 class OddsConfig:
     api_key: str
@@ -183,11 +208,7 @@ class OddsConfig:
 
     @classmethod
     def load(cls) -> "OddsConfig":
-        hour = _int("ODDS_BUDGET_DAY_START_UTC_HOUR", 10)
-        if not 0 <= hour <= 23:
-            raise ConfigError(
-                f"ODDS_BUDGET_DAY_START_UTC_HOUR={hour} must be 0-23."
-            )
+        hour = configured_day_start_utc_hour()
         return cls(
             api_key=_require("ODDS_API_KEY"),
             base_url=_optional("ODDS_API_BASE_URL", "https://api.the-odds-api.com/v4"),
@@ -220,7 +241,12 @@ class OddsConfig:
             markets=[
                 m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
             ],
-            budget_day_start_utc_hour=_int("ODDS_BUDGET_DAY_START_UTC_HOUR", 10),
+            # Validated here too. Until 2026-08-11 this constructor read the
+            # variable raw while `load` validated it, so the demo instance --
+            # and every reader that never calls the API -- would have accepted
+            # `hour=99` and cut its day at a `datetime.replace` that raises far
+            # from here.
+            budget_day_start_utc_hour=configured_day_start_utc_hour(),
         )
 
     @property
@@ -471,6 +497,83 @@ def assert_kalshi_quote_age_limits_agree(
             f"order gate, the Board's price_is_current flag and the "
             f"fast-cadence startup check move to {expected_ms / 1000:.0f}s. "
             f"Change both or neither -- see ADR 0019 section 6."
+        )
+
+
+class RiskDayDisagrees(RuntimeError):
+    """Two definitions of "today" for the kill switch, in two processes."""
+
+
+def assert_risk_day_start_agrees(
+    *, default_day_start_hour: int, odds: OddsConfig
+) -> None:
+    """Fail at startup if any risk-day call site could still default. ADR 0024.
+
+    **The third member of the `assert_*_agree` family, and the first one that
+    spans two processes.** `settlement.daily_realised_pnl_dollars`,
+    `live.QuoteHub` and `agents.AgentBudget` all take `day_start_hour` as a
+    keyword with `odds.timing.DEFAULT_DAY_START_UTC_HOUR` as its default.
+    `api/routes.py:1546` passes `OddsConfig.budget_day_start_utc_hour`;
+    `runner.py` did not, so the runner's kill-switch day came from the hardcoded
+    constant and the order endpoint's from the environment. They agree today
+    only because `ODDS_BUDGET_DAY_START_UTC_HOUR` is unset on live and both
+    resolve to 10 -- the divergence is one `fly secrets set` away and nothing
+    downstream can see it, because each process computes a day boundary that is
+    internally consistent and never compares it with the other's.
+
+    So this does not compare two call sites against each other. It compares the
+    **default** against the **configured** value, which is the only check that
+    still holds after a future call site is added and forgets the argument:
+    while those two are equal, a forgotten argument is harmless; the moment they
+    differ, every defaulting site is on a different day from every configured
+    one. That makes the guard survive the fix rather than only certifying it.
+
+    **Which way each divergence fails, because they are not symmetric.** A
+    *later* day start means less of the day's realised P&L is counted as
+    "today", so `size_position`'s `max_daily_loss_dollars` engages **less** --
+    the permissive direction.
+
+    - configured **later** than the default (e.g. 14 vs 10): the *order
+      endpoint* is the permissive one. It would admit an order the runner had
+      already sized against a fuller day of losses.
+    - configured **earlier** than the default (e.g. 6 vs 10): the *runner* is
+      the permissive one, and this is the sharper case -- it is the same shape
+      as `assert_kalshi_quote_age_limits_agree`, where the screen offers a bet
+      the server then refuses. The card is sized, surfaced and recorded; the
+      endpoint applies a fuller day of losses and declines.
+
+    Both directions raise. An assertion that fired only on the permissive one
+    would leave the other silent, and "silent" is the entire defect.
+
+    **Why this is a runtime assertion and deliberately not a test**, unchanged
+    from its two twins: the divergence is created by a deployed environment
+    value that a test never sees, so a test comparing one hardcoded default
+    against another passes green forever. That is a verification method that
+    lies, and this repo has a file of them. The check has to run where the env
+    does -- which is why it is wired into `api/routes.py` *and*
+    `scripts/run_loop.py`, the two processes that hold the two definitions.
+
+    Raising rather than warning, per `clamping-is-for-values-you-trust`: a log
+    line nobody reads is not a control on a money path, and the failure this
+    prevents is silent by construction.
+    """
+    if odds.budget_day_start_utc_hour != default_day_start_hour:
+        looser = (
+            "the order endpoint"
+            if odds.budget_day_start_utc_hour > default_day_start_hour
+            else "the runner"
+        )
+        raise RiskDayDisagrees(
+            f"ODDS_BUDGET_DAY_START_UTC_HOUR="
+            f"{odds.budget_day_start_utc_hour} but "
+            f"odds.timing.DEFAULT_DAY_START_UTC_HOUR is "
+            f"{default_day_start_hour}. Every risk-day signature defaults to "
+            f"the constant, so any call site that omits `day_start_hour` now "
+            f"measures the daily-loss kill switch over a different day from "
+            f"the ones that pass it -- and {looser} would be the permissive "
+            f"side, counting less of today's realised P&L as today's. Pass the "
+            f"configured hour at every site and change the constant to match, "
+            f"or change neither -- see docs/adr/0024."
         )
 
 

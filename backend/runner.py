@@ -88,7 +88,11 @@ from .match.linker import (
 from .odds.budget import sweep_cost
 from .odds.client import store_quotes
 from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
-from .odds.timing import SweepDecision, decide_sweeps
+from .odds.timing import (
+    DEFAULT_DAY_START_UTC_HOUR,
+    SweepDecision,
+    decide_sweeps,
+)
 from .store import db
 from .store.db import ask_for_side, now_ms
 from .settlement import daily_realised_pnl_dollars, open_position_dollars
@@ -512,6 +516,7 @@ def run_pricing_pass(
     now: Optional[int] = None,
     counts: Optional[PassCounts] = None,
     review=review_surfaced,
+    day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
 ) -> PassCounts:
     """Devig what is stored and write recommendations. Touches no network.
 
@@ -532,6 +537,16 @@ def run_pricing_pass(
     which compares against the most recent stored row for a `(ticker, side)`:
     each pair is judged exactly once per pass, so no entry in the batch can be
     the thing another entry would have compared against.
+
+    `day_start_hour` is the roll hour of the **risk** day -- the window
+    `max_daily_loss_dollars` measures realised losses over. It is threaded in
+    rather than defaulted because `api/routes.py:1546` passes the configured
+    `OddsConfig.budget_day_start_utc_hour` and this pass did not, so the
+    kill-switch day the runner sized every card against and the one the order
+    endpoint admits it against came from two different sources in two different
+    processes. `config.assert_risk_day_start_agrees` is what refuses to start
+    when the default left in this signature has stopped matching the deployed
+    value; see it for which way each divergence fails.
 
     `review` is a parameter and not just an import because it is the one leg of
     this function that leaves the process. Everything else here is arithmetic
@@ -622,8 +637,15 @@ def run_pricing_pass(
     # read makes two lines up: `None` would refuse every candidate on the slate
     # and persist a hundred rows saying "not sized" for a reason that has
     # nothing to do with any of them.
+    # `day_start_hour` is passed, not defaulted. Omitting it silently took
+    # `DEFAULT_DAY_START_UTC_HOUR` while `api/routes.py:1546` took the
+    # configured hour, so the kill switch that suppresses *every row on the
+    # slate* (`core/sizing.py:186-191`) and the one that admits the resulting
+    # order were measuring two different days the moment
+    # `ODDS_BUDGET_DAY_START_UTC_HOUR` was set to anything but 10.
     daily_pnl = daily_realised_pnl_dollars(
-        conn, now_ms=stamp, dry_run=ORDERS_ARE_DRY_RUNS
+        conn, now_ms=stamp, dry_run=ORDERS_ARE_DRY_RUNS,
+        day_start_hour=day_start_hour,
     )
     if daily_pnl is None:
         raise RuntimeError(
@@ -1101,7 +1123,12 @@ async def run_once(
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
 ) -> PassCounts:
-    """One full pass: ingest, then price. The unit the scheduler repeats."""
+    """One full pass: ingest, then price. The unit the scheduler repeats.
+
+    The risk day comes off `config` rather than being a parameter of its own, so
+    this caller cannot forget it: `OddsConfig` is already required here, and the
+    hour it carries is the one `api/routes.py` uses for the same kill switch.
+    """
     stamp = now if now is not None else now_ms()
     suppression = suppression or SuppressionConfig()
     events, counts = await run_ingest_pass(
@@ -1109,7 +1136,8 @@ async def run_once(
         suppression=suppression,
     )
     return run_pricing_pass(
-        conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts
+        conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,
+        day_start_hour=config.budget_day_start_utc_hour,
     )
 
 
@@ -1126,6 +1154,7 @@ async def run_quote_pass(
     risk: Optional[RiskConfig] = None,
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
+    day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
 ) -> PassCounts:
     """Re-read Kalshi and re-price against the odds already stored.
 
@@ -1150,6 +1179,14 @@ async def run_quote_pass(
     `MAX_ODDS_AGE_S` and the credit budget, and no amount of Kalshi polling
     changes it. What this fixes is that the fifteen minutes are now usable
     throughout rather than for the first thirty seconds.
+
+    **`day_start_hour` is an explicit parameter here and is read off `config` in
+    `run_once`.** This pass takes no `OddsConfig` -- it spends no credits, which
+    is the point -- so there is nothing to derive the risk day from, and a
+    default that silently disagrees with the order endpoint is exactly the
+    defect being closed. `scripts/run_loop.py` passes the configured hour to
+    both entry points; `config.assert_risk_day_start_agrees` refuses to start if
+    the default left here has stopped matching what is deployed.
     """
     stamp = now if now is not None else now_ms()
     counts = PassCounts(sweep_decision=QUOTE_PASS_SWEEP_DETAIL)
@@ -1158,7 +1195,8 @@ async def run_quote_pass(
         log_discovery_summary=False,
     )
     return run_pricing_pass(
-        conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts
+        conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,
+        day_start_hour=day_start_hour,
     )
 
 

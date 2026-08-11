@@ -93,6 +93,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
+from ..config import configured_day_start_utc_hour
 from ..odds.timing import DEFAULT_DAY_START_UTC_HOUR, day_start_ms
 
 logger = logging.getLogger(__name__)
@@ -161,11 +162,25 @@ class AgentBudget:
         The limits live on `AgentConfig` rather than being read here because
         `AgentConfig.from_env` is already the fleet's single env-reading site,
         and two places parsing `AGENT_MAX_CALLS_PER_DAY` would drift.
+
+        **The roll hour does not, and until 2026-08-11 that was a lie in
+        `.env.example`.** That file said the agent day "rolls at
+        `ODDS_BUDGET_DAY_START_UTC_HOUR`, the same sports day the odds budget
+        uses" while this constructor passed nothing and took the hardcoded
+        `DEFAULT_DAY_START_UTC_HOUR` -- true at the default, false the moment
+        anyone set the variable, and the doc would have kept saying otherwise.
+        `configured_day_start_utc_hour` is the single parse of that variable
+        (`OddsConfig` uses it too), which is why reading it here is not the
+        second-parser drift the paragraph above objects to. The direction of the
+        old failure was money-shaped: a later day start means fewer of today's
+        `agent_calls` rows fall inside the window, so `spent_today` reads low
+        and the daily cap lets *more* calls through.
         """
         return cls(
             conn,
             per_pass_budget=config.max_calls_per_pass,
             daily_budget=config.max_calls_per_day,
+            day_start_hour=configured_day_start_utc_hour(),
         )
 
     def day_start_ms(self, now_ms: int) -> int:

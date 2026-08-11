@@ -74,6 +74,7 @@ from backend.config import (  # noqa: E402
     StalenessConfig,
     assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
+    assert_risk_day_start_agrees,
 )
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
@@ -83,6 +84,7 @@ from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.odds.client import OddsClient  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
+    DEFAULT_DAY_START_UTC_HOUR,
     DUE_WINDOW_MS,
     sweep_window_survives_interval,
     window_status,
@@ -287,6 +289,15 @@ async def main() -> int:
         suppression_max_kalshi_quote_age_ms=suppression.max_kalshi_quote_age_ms,
         staleness=staleness,
     )
+    # The risk day, and this is the process that had it wrong: `runner.py:625`
+    # read the daily realised P&L with no `day_start_hour` at all, so the kill
+    # switch that suppresses every row on the slate ran on the hardcoded
+    # constant while the order endpoint ran on the configured hour. That is now
+    # passed at both entry points below; this refuses to start if the default
+    # those signatures still carry has stopped matching what is deployed.
+    assert_risk_day_start_agrees(
+        default_day_start_hour=DEFAULT_DAY_START_UTC_HOUR, odds=odds_config,
+    )
     budget = CreditBudget(
         conn,
         daily_budget=odds_config.daily_credit_budget,
@@ -418,6 +429,13 @@ async def main() -> int:
                 # and neither of those touches that.
                 counts = await run_quote_pass(
                     conn, kalshi, risk=risk, suppression=suppression, now=stamp,
+                    # A quote pass takes no `OddsConfig` -- it spends no
+                    # credits -- so unlike `run_once` it cannot derive the risk
+                    # day, and this is the site that would silently fall back to
+                    # the constant. It runs ~96 times a day against the full
+                    # pass's ~1, so it is the majority of the slates the kill
+                    # switch is applied to.
+                    day_start_hour=odds_config.budget_day_start_utc_hour,
                 )
 
             with counts_survive_a_late_failure(log, kind, counts):
