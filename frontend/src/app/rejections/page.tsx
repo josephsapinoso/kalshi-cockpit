@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
  */
 const EXPLAINED: Record<string, string> = {
   suspicious_edge:
-    "The edge was larger than the ceiling, so it is treated as a bug rather than a bet. The spread between the four devigging methods alone is bigger than the fee advantage being hunted, so a large number here is far more likely to be a pricing error than free money.",
+    "The edge was larger than the ceiling, so it is treated as a bug rather than a bet. On the pinned record this is the largest block left once stale odds are set aside — 66 rows spanning 5.9c to 36c, at a venue that prices to about 2c — and a number that size is far more likely to be a pricing error than free money.",
   edge_within_method_noise:
     "The edge survived fees but not the disagreement between the four devig methods. It cannot be told apart from an artefact of which method was chosen.",
   stale_kalshi_quote:
@@ -67,6 +67,121 @@ const EXPLAINED: Record<string, string> = {
  */
 const ALL_CHECKS = Object.keys(EXPLAINED);
 
+/**
+ * **A zero that means "could not fire" is not the same zero as "did not fire",
+ * and this page shipped them under one badge.**
+ *
+ * The previous version of this screen badged all six never-fired checks
+ * identically and printed one paragraph saying the three cases — correctly
+ * quiet, unreachable, or fed an input that passes every threshold — could not
+ * be told apart. That refusal was honest when it was written. It is no longer
+ * true: an audit of the pinned record
+ * (`docs/measurements/2026-08-10-clean-shortfall-pull.json`, 1,564 rows) has
+ * since answered four of the six, and rendering an answered question
+ * identically to an open one is worse than refusing both.
+ *
+ * It is also the exact error ADR 0021 §S10 is criticised for — pooling a "could
+ * not fire" zero with genuinely-quiet zeros — reproduced on a screen. So the
+ * two kinds of silence are now separated here, with the reason and its citation
+ * attached to each, and the count of *genuinely* quiet guards is what the
+ * header reports.
+ *
+ * **The classification is a fact about a pinned pull, not a live computation.**
+ * It cannot update itself. That is why `classify` treats a non-zero count on
+ * anything listed here as a *stale classification* and says so loudly, rather
+ * than letting a sentence that says "this cannot fire" sit beside evidence that
+ * it just did.
+ */
+const COULD_NOT_FIRE: Record<string, string> = {
+  stale_kalshi_quote:
+    "Could not fire: the input is a constant. `kalshi_quote_age_ms` is 0 on 1,564 of 1,564 recorded rows, so the age never approaches the limit and the comparison has never had anything to decide. Recorded in ADR 0021 §7.6.",
+  no_commence_time:
+    "Could not fire: unreachable in production. `link_discovered_events` (`backend/runner.py:446`) inserts a link only when the match succeeded, and `backend/match/linker.py:288-292` always sets an integer commence skew on a successful match — so a linked row with no start time cannot be constructed. Note this one rests on the code alone: no document in this repo names it, and this sentence is the first place it is written down.",
+  commence_skew:
+    "Could not fire: the guard's limit equals the matcher's own tolerance. `max_commence_skew_ms` (`backend/core/suppression.py:61`) is exactly `DEFAULT_COMMENCE_TOLERANCE_MS` (`backend/match/linker.py:75`), the linker admits only candidates inside that tolerance (`backend/match/linker.py:250-253`) and then records that same difference as the skew (`:291`). Anything the guard would refuse was already refused upstream. The tolerance is never overridden — `link_event` has one caller, `backend/runner.py:436-443`, which passes no tolerance argument.",
+  inconsistent_consensus_metadata:
+    "Could not fire: it was never deployed. The commit that added it (`c4bca6b`) also writes `suppression_checks` into the strategy-config payload (`backend/runner.py:577`), and `ensure_strategy_config` (`backend/engine.py:342-376`) mints a new version whenever that payload changes — yet the record holds only versions 1 and 2. Note the proof is the record, not the commit clock: `flyctl deploy` builds from the working directory, so commit times cannot bound what is running. See `tasks/NEXT.md`, 2026-08-11.",
+};
+
+/**
+ * The two guards that really are quiet — each with the denominator that makes
+ * the silence mean something.
+ *
+ * A zero with no denominator beside it is unreadable: it is the same glyph
+ * whether the rule was evaluated on 1,564 rows and refused none, or was never
+ * evaluated at all. These two were evaluated, and that is the whole difference
+ * between this list and the one above.
+ */
+const DID_NOT_FIRE: Record<string, string> = {
+  wide_market:
+    "Did not fire, on a live denominator: evaluated on 1,334 rows and not one consensus spanned more than the 6-point limit. This is a guard that has been asked the question and kept answering no.",
+  no_depth:
+    "Did not fire, on a live denominator: `depth_at_ask` is non-null on all 1,564 rows, ranging from 0.01 to 1,364,323. The book has always been readable, which is exactly what this rule tests for.",
+};
+
+type Status =
+  | { kind: "fired" }
+  | { kind: "could_not_fire"; reason: string }
+  | { kind: "did_not_fire"; reason: string }
+  | { kind: "unclassified" }
+  | { kind: "classification_stale"; reason: string };
+
+/**
+ * Which of the four states a row is in.
+ *
+ * `unclassified` is a real answer and not a gap to be tidied away: a check that
+ * has refused nothing and is on neither list above is the original open
+ * question, and the page still has to say so rather than guess. A new rule
+ * added tomorrow lands here by default, which is the safe direction.
+ */
+function classify(name: string, count: number): Status {
+  const couldNot = COULD_NOT_FIRE[name];
+  const didNot = DID_NOT_FIRE[name];
+  if (count > 0) {
+    if (couldNot !== undefined) {
+      return {
+        kind: "classification_stale",
+        reason:
+          "This rule is recorded below as one that could not fire, and it has now fired. The recorded reason is derived from a pinned pull and is therefore out of date — trust this count, not that sentence, and re-derive the classification.",
+      };
+    }
+    return { kind: "fired" };
+  }
+  if (couldNot !== undefined) return { kind: "could_not_fire", reason: couldNot };
+  if (didNot !== undefined) return { kind: "did_not_fire", reason: didNot };
+  return { kind: "unclassified" };
+}
+
+/**
+ * One badge per state, and no two of them alike.
+ *
+ * The wording is the load-bearing part: "could not fire" and "did not fire"
+ * differ by one word in English and by everything in meaning, so they are also
+ * separated by weight and by the border — a muted dashed outline for the zeros
+ * that carry no information, a solid one for the zeros that do. A fired rule
+ * gets no badge; its count is the statement.
+ */
+const BADGE: Record<Status["kind"], { label: string; className: string } | null> =
+  {
+    fired: null,
+    could_not_fire: {
+      label: "could not fire",
+      className: "border border-dashed text-muted",
+    },
+    did_not_fire: {
+      label: "did not fire",
+      className: "border text-muted",
+    },
+    unclassified: {
+      label: "silent, unexplained",
+      className: "border text-foreground",
+    },
+    classification_stale: {
+      label: "classification stale",
+      className: "border border-accent font-bold text-accent",
+    },
+  };
+
 export default async function RejectionsPage() {
   let suppression;
   try {
@@ -87,12 +202,11 @@ export default async function RejectionsPage() {
   // them could be seen here.
   //
   // That is the more alarming half of the diagnostic, not the boring half. A
-  // guard that has never fired is an assumption, not a guard: it may be
-  // correctly quiet, it may be unreachable because something upstream already
-  // dropped every row it would have caught, or its input may be arriving as a
-  // value that passes every threshold — which is exactly what `no_market_width`
-  // was built to end, and is recorded in its sentence below. This screen cannot
-  // tell those three apart. It can at least stop hiding the question.
+  // guard that has never fired is an assumption, not a guard — and the four
+  // states it can be in are now separated above rather than pooled under one
+  // badge. Four of the six cannot fire at all; two are quiet with a live
+  // denominator; a rule on neither list is the open question the page started
+  // with, and still says so.
   //
   // Zero-filled from the vocabulary, never from the payload, and the two lists
   // are kept apart rather than merged and re-sorted: `fired` arrives already
@@ -108,6 +222,12 @@ export default async function RejectionsPage() {
   ];
   const total = fired.reduce((sum, [, n]) => sum + n, 0);
   const largest = fired.length > 0 ? fired[0][1] : 0;
+
+  // The header counters are computed off `classify`, not off the maps, so the
+  // number beside "Genuinely quiet" cannot drift from the badge on the row.
+  const statuses = entries.map(([name, count]) => classify(name, count));
+  const countOf = (kind: Status["kind"]) =>
+    statuses.filter((s) => s.kind === kind).length;
 
   return (
     <Shell>
@@ -142,8 +262,13 @@ export default async function RejectionsPage() {
         <Stat label="Rules that fired" value={fired.length} />
         <Stat label="Refusals counted" value={total} accent />
         <Stat label="Largest single rule" value={largest} />
-        {/* The counter this page existed without. */}
-        <Stat label="Never fired" value={silent.length} />
+        {/* The split this page shipped without. "Never fired: 6" read as six
+            working guards; four of the six were never in a position to fire,
+            so the honest count of guards that have been asked the question and
+            answered no is two. Pooling them is the ADR 0021 §S10 error. */}
+        <Stat label="Could not fire" value={countOf("could_not_fire")} />
+        <Stat label="Genuinely quiet" value={countOf("did_not_fire")} />
+        <Stat label="Silent, unexplained" value={countOf("unclassified")} />
       </div>
 
       {/* The bar is scaled against the largest rule, not against the total.
@@ -156,7 +281,12 @@ export default async function RejectionsPage() {
           // the server omits a code precisely when it counted zero, and the
           // page asks for the whole record rather than a window, so there is
           // no "quiet lately" to confuse this with. See the footer.
+          const status = classify(reason, count);
           const neverFired = count === 0;
+          // `classification_stale` is louder than a fired row on purpose: it
+          // means the page is carrying a sentence the data has contradicted.
+          const alarming = status.kind === "classification_stale";
+          const badge = BADGE[status.kind];
           return (
             <li key={reason} className="py-5">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -167,43 +297,89 @@ export default async function RejectionsPage() {
                 >
                   {reason}
                 </span>
-                {neverFired && (
-                  <span className="rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted">
-                    never fired
+                {badge && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-widest ${badge.className}`}
+                  >
+                    {badge.label}
                   </span>
                 )}
                 <span
                   className={`tabular ml-auto text-sm font-bold ${
-                    neverFired ? "text-muted" : "text-accent"
+                    alarming
+                      ? "text-accent"
+                      : neverFired
+                        ? "text-muted"
+                        : "text-accent"
                   }`}
                 >
                   {count}
                 </span>
               </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full border">
-                <div
-                  className="h-full bg-accent"
-                  style={{
-                    width: `${largest > 0 ? (count / largest) * 100 : 0}%`,
-                  }}
-                />
-              </div>
+              {/* No bar on a rule that could not fire. A 0%-wide bar is the
+                  same picture as "evaluated 1,334 times and refused none",
+                  and drawing both is how the two zeros got conflated in the
+                  first place. */}
+              {status.kind !== "could_not_fire" && (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full border">
+                  <div
+                    className="h-full bg-accent"
+                    style={{
+                      width: `${largest > 0 ? (count / largest) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+              )}
               <p className="mt-2 text-sm leading-relaxed text-muted">
                 {EXPLAINED[reason] ??
                   "No explanation is recorded for this code yet. It is shown verbatim rather than dropped — an unexplained rule firing is still a rule firing."}
               </p>
-              {neverFired && (
-                <p className="mt-2 text-sm leading-relaxed text-muted">
+
+              {status.kind === "could_not_fire" && (
+                <p className="mt-2 border-l-2 py-1 pl-3 text-sm leading-relaxed text-muted">
                   <span className="font-semibold text-foreground">
-                    This rule has refused nothing.
+                    This zero is not evidence of anything.
                   </span>{" "}
-                  That is not the same as working. It may be correctly quiet,
-                  it may be unreachable because something upstream already
-                  drops every row it would catch, or its input may be
-                  arriving as a value that passes the threshold every time.
-                  A guard that has never fired is an assumption, not a guard,
-                  and the three cases are worth telling apart before this one
-                  is trusted.
+                  {status.reason}
+                </p>
+              )}
+
+              {status.kind === "did_not_fire" && (
+                <p className="mt-2 border-l-2 py-1 pl-3 text-sm leading-relaxed text-muted">
+                  <span className="font-semibold text-foreground">
+                    This zero was earned.
+                  </span>{" "}
+                  {status.reason}{" "}
+                  <span className="italic">
+                    It still is not proof the threshold is right — only that the
+                    rule ran and said no.
+                  </span>
+                </p>
+              )}
+
+              {status.kind === "unclassified" && (
+                <p className="mt-2 border-l-2 py-1 pl-3 text-sm leading-relaxed text-muted">
+                  <span className="font-semibold text-foreground">
+                    This rule has refused nothing, and nobody has worked out
+                    why.
+                  </span>{" "}
+                  That is not the same as working. It may be correctly quiet, it
+                  may be unreachable because something upstream already drops
+                  every row it would catch, or its input may be arriving as a
+                  value that passes the threshold every time — which is exactly
+                  what <span className="font-mono text-xs">no_market_width</span>{" "}
+                  was built to end. A guard that has never fired is an
+                  assumption, not a guard, and the three cases are worth telling
+                  apart before this one is trusted.
+                </p>
+              )}
+
+              {status.kind === "classification_stale" && (
+                <p className="mt-2 border-l-2 py-1 pl-3 text-sm leading-relaxed text-muted">
+                  <span className="font-semibold text-foreground">
+                    The recorded classification is out of date.
+                  </span>{" "}
+                  {status.reason}
                 </p>
               )}
             </li>
@@ -237,11 +413,36 @@ export default async function RejectionsPage() {
           A zero here means never, not lately.
         </span>{" "}
         This page asks <span className="font-mono text-xs">/api/suppression</span>{" "}
-        for the whole record rather than a recent window, so a rule marked{" "}
-        <span className="font-mono text-xs">never fired</span> has refused
-        nothing across every row the system has ever judged — not merely
-        nothing today. If a window is ever passed, that badge stops meaning
-        this and the wording has to change with it.
+        for the whole record rather than a recent window, so a rule badged{" "}
+        <span className="font-mono text-xs">did not fire</span> has refused
+        nothing across every row the system has ever judged — not merely nothing
+        today. If a window is ever passed, that badge stops meaning this and the
+        wording has to change with it.
+      </p>
+
+      <p className="mt-4 text-sm leading-relaxed text-muted">
+        <span className="font-semibold text-foreground">
+          Two of these zeros are measurements. Four are not.
+        </span>{" "}
+        A rule badged{" "}
+        <span className="font-mono text-xs">could not fire</span> was never in a
+        position to refuse anything — its input is a constant, its branch is
+        unreachable, its limit is enforced upstream, or the code was not
+        deployed — so counting it among the working guards inflates the number
+        of things standing between a bad row and an order. That pooling is the
+        criticism ADR 0021 §S10 carries, and this screen made the same mistake
+        until it was split.{" "}
+        <span className="font-semibold text-foreground">
+          Those four reasons are read off a pinned pull
+        </span>{" "}
+        (
+        <span className="font-mono text-xs">
+          docs/measurements/2026-08-10-clean-shortfall-pull.json
+        </span>
+        , 1,564 rows) and are not recomputed on every load, so they age. If one
+        of them ever does fire, the row says{" "}
+        <span className="font-mono text-xs">classification stale</span> and the
+        count is to be believed over the sentence.
       </p>
     </Shell>
   );
