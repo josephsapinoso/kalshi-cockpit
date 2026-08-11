@@ -1,31 +1,42 @@
 # Start prompt — paste this to open the next session
 
-Rewritten 2026-08-11 ~02:00Z. The session that **gave the 05:30Z capture a
-verdict it never had**, **had a backlog claim shrunk tenfold by audit and its
-mechanism reversed**, and **found that the inspector was never on the machine at
-all**.
+Rewritten **2026-08-11 ~06:30Z**. The session that **gave two untested scripts a
+verdict they never had**, **had one backlog claim shrunk tenfold and its own
+headline claim reversed, both by audit**, and **found the inspector was never on
+the deployed machine at all**.
 
-## THE ONE THING TO DO FIRST, if the clock has passed 17:30Z
+Say *"read start.md and follow it"*, or paste this whole file.
+
+---
+
+Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md`. NEXT.md is the
+actionable checklist and **its top supersedes everything here**.
+
+## ⏱ DO THIS FIRST — it is time-boxed and it is today
 
 ```
 .venv\Scripts\python.exe scripts\capture_odds_repeat_poll.py --dry-run
 .venv\Scripts\python.exe scripts\capture_odds_repeat_poll.py --confirm-spend-24
 ```
 
-**Joe decided 2026-08-11 that this session fires the poll unattended.** 24
-credits, already authorised. **P4 passes only between 17:30Z and ~22:00Z** —
-measured free from ESPN, and the script re-decides it at the real `T0` and
-spends nothing if it fails. **Dry-run first, always.** There is **no second
-attempt at a slate**: an abort halfway loses the credits and the slate has moved.
-Its value went **up** — see ADR 0025 §5.
+**Joe decided 2026-08-11 that a session fires this unattended.** 24 credits,
+already authorised, nothing spent yet.
 
-Everything below the line is the prompt. Paste it whole, or say *"read start.md
-and follow it"*.
+**P4 passes only between 17:30Z and ~22:00Z on 2026-08-11** — measured free from
+ESPN. Outside that the script refuses and spends nothing, so **run the dry-run
+first regardless of the clock**: it is free and it prints the next kickoffs.
 
----
+**There is no second attempt at a slate.** Four polls over ~15 minutes; an abort
+halfway loses all 24 credits and the slate has moved. Do not start it on a
+flaky connection.
 
-Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md`. NEXT.md is the
-actionable checklist and **its top supersedes everything here**.
+**Its value went UP on 2026-08-11**: ADR 0025 §5 establishes that **no unit test
+in this repo can separate the two readings of `last_update`**. The poll is the
+registered instrument and there is no cheaper substitute.
+
+**If the window has passed**, re-derive the next one free — the dry-run prints
+the kickoff list, and `check_slate()` in that script can be called at candidate
+`T0` values without spending anything.
 
 ## FIRST — check this file before you trust it
 
@@ -37,13 +48,18 @@ git rev-list --count origin/main..HEAD
 git status
 ```
 
-**The tip at writing was `dd6ed11` and by the time you read this that is
+**The tip at writing was `57d2ad5` and by the time you read this that is
 wrong** — a handoff cannot count its own commit, and this guard has been needed
-at nine, at twenty-one, and again here. At writing: everything pushed, tree
-clean, **2,268 tests pass**, `ruff check .` clean.
+at nine, at twenty-one, and twice more since. At writing: tree clean,
+**2,296 tests pass**, `ruff check .` clean.
+
+**⚠ `57d2ad5` was NOT pushed.** Joe authorised one push explicitly (through
+`faa9d43`) and was asleep when the settlement result landed. **Check
+`git rev-list --count origin/main..HEAD` and ask him before pushing** — every
+push publishes immediately.
 
 **Treat every command in this file as a test never seen red** unless it says it
-was run. The previous edition's headline health check returned 401 and always
+was run. A previous edition's headline health check returned 401 and always
 would have.
 
 ## ✅ THE 05:30Z CAPTURE HAS RUN. Exit 0. Do not re-run it for §A5.
@@ -182,11 +198,16 @@ instrument and there is no cheaper substitute.
 17:00Z); after ~22:20Z a game starts inside the 20-minute blackout. Re-check at
 the real `T0` — the script decides P4 itself and spends nothing if it fails.
 
-### 2. Round three — the kit is BUILT and Joe has a decision to make
+### 2. Round three — kit BUILT, scope DECIDED, waiting only on Joe's thumbs
 
 $5.00 authorised 2026-08-10, hard expiry **2026-08-31 UTC**, **nothing spent**.
-Joe places all five orders **by hand on his phone**; the order path is disarmed
-and arming is a code change (ADR 0018).
+Joe places the orders **by hand on his phone**; the order path is disarmed and
+arming is a code change (ADR 0018).
+
+> **There is nothing to decide and nothing to prompt him about.** Scope is
+> **four cells, ~$3.66** (decided 2026-08-11). Placement is **on his clock, any
+> time before 2026-08-31**. Do **not** generate a phone sheet in advance and do
+> **not** chase him for it — if he asks, run the watcher then.
 
 - **The watcher**: `.venv\Scripts\python.exe scripts\watch_fee_bands.py --once`.
   **Run end-to-end against the live board on 2026-08-10** — it works. 64 tests,
@@ -199,7 +220,7 @@ and arming is a code change (ADR 0018).
   wasted** — round one's app defaulted to buy-in-dollars and produced
   `count = 0.27`.
 
-**THE DECISION, and it is Joe's:**
+**THE DECISION — MADE. Do not re-put it to him.**
 
 > **Cell `W` is UNRESOLVED, and that is NOT §1.3's "no series passed".** Q-W
 > reads `kalshi_quotes` on the live record; the laptop's `kalshi.db` is empty and
@@ -265,7 +286,7 @@ citing `Dockerfile:66`. **A deploy is not sufficient and no deploy is pending.**
 Option (b) is therefore a `.dockerignore` widening **plus** a new query **plus**
 a deploy that exists only to carry them. **Joe chose (a): four cells.**
 
-### 4. Still open, unchanged
+### 4. Still open — two entries sharpened on 2026-08-11, the rest unchanged
 
 - **An ADR for the per-database / per-account credit gap** (Amendment A §A6).
 - **ADR 0020 — `stale_odds` reads a scrape clock.** Numbering runs 0019 → 0021 →
@@ -277,7 +298,16 @@ a deploy that exists only to carry them. **Joe chose (a): four cells.**
 - **`decide_sweeps` reads only the daily ceiling** while `refusal_reason` checks
   three. Now visible as a `refused` row, not closed.
 - **`core/fees.py` cannot express the observed fee** — needs an **ADR, not a
-  patch**. The `max()` hedge stays.
+  patch**. The `max()` hedge stays. **This got sharper on 2026-08-11, not
+  softer:** the six fills fit `k = 0.035` on MLB and `k = 0.070` on ATP with
+  four-decimal rounding, and `fees.py` can express neither the split nor the
+  granularity. **Do not patch a coefficient in.** The ADR has to decide whether
+  the rate is per-category before any number changes.
+- **An ADR for §A8's defect.** A registered decision rule declared a hypothesis
+  on an observation its rival predicts equally well. That is a *design* failure
+  in how this project writes registrations, and it has now happened twice in one
+  document (§S8 is the first). Worth its own ADR so the next registration's
+  rules are written with both branches priced.
 - **Whether the dbt marts are computed over anything at all.** `publish()` has
   exactly one caller — its own `__main__`. `ls /data/lake/recommendations`
   settles it, but that is filesystem browsing, which the ruling bans. **Until
@@ -327,28 +357,58 @@ Taken in a `/grilling` session. They are settled; execute them.
 
 ## THE STANDING SUSPICION, and it caught this session's own work
 
-**Seven guards found that could not fail**, three of them caught by a different
-agent than wrote them. **"This check is green" is unproven until the check has
-been seen to go red.**
+**Eleven guards have now been found that could not fail.** **"This check is
+green" is unproven until the check has been seen to go red.**
 
-**The ninth and tenth were found on 2026-08-11, in code nobody had tested.**
+**1–7** — found across earlier sessions, three of them caught by a different
+agent than wrote them.
+
+**8, self-inflicted.** A test class written to defend a refusal asserted the
+contested premise as a module constant and then mutated only the arithmetic
+nobody disputed — **verified everywhere except at the one point that carried the
+argument**, by the author who needed that point to be true.
+
+**9 and 10, found 2026-08-11 in code nobody had tested.**
 `capture_fills_fixture.py`'s settlements half had **no return statement** and
-fell through to `return 0` — and the fills branch returned *before* it could
+fell through to `return 0`, and the fills branch returned *before* it could
 report, so the exit code answering §A5 was unreachable by construction. That
 script had **no test file at all**. And `test_a_stale_book_suppresses` anchored
-at **4×** its threshold, so an off-by-one in the limit stayed green while the
-docstring asserted the semantics the code corrects. **Both were checks that
-could not fail, in the two places the record most depended on.**
+at **4×** its threshold, so an off-by-one in the limit stayed green while its
+docstring asserted the semantics the code corrects.
 
-**The eighth was self-inflicted.** A test class was
-written to defend a refusal; it asserted the contested premise as a module
-constant and then mutated only the arithmetic nobody disputed — **verified
-everywhere except at the one point that carried the argument**, by the author who
-needed that point to be true. It was rewritten. Every guard this session ships
-states the mutation that killed it: 20 for the watcher, 17 for the inspector, 5
-for the CLV rewrite.
+**11 is the one to study, because it was not code.** Amendment A **§A8** is a
+*registered decision rule*, and it is logically defective: it declares H4 on an
+observation that the losing hypothesis predicts just as strongly. It fired
+correctly, on schedule, on data that arrived exactly as designed — and it
+established nothing. **A registered rule gets less scrutiny at the moment of
+use, not more, because its authority came from being fixed in advance.**
 
-## FOUR WAYS THIS SESSION WAS WRONG. Read these before doing analysis.
+Every guard shipped 2026-08-11 states the mutation that killed it: **13** for the
+capture script, **4** for the staleness boundary. One mutation was applied and
+**stayed green** — semantically equivalent, so it proved nothing — and it is
+**recorded in the docstring rather than pruned**, because a mutation list is a
+claim about what was verified.
+
+## HOW RECENT SESSIONS WERE WRONG. Read these before doing analysis.
+
+### 2026-08-11 — three, and two were mine rather than a subagent's
+
+1. **I reported a result an hour before the audit killed it.** *"`BALMIN-MIN`
+   won, so H4 has its separation"* — no. The observation landed in §A8's
+   **non-discriminating** branch, and the losing hypothesis predicts the same
+   equality unconditionally. **Ask what the rival hypothesis predicts at the
+   exact input you observed, before recording any verdict.**
+2. **I put a claim in an ADR without running it.** The ADR said a tenfold slip
+   in the staleness limit would have survived the old 4× anchor. It would not —
+   it goes red. One mutation settled it. **The rule about unchecked negatives
+   applies to your own confident positives too.**
+3. **The `partner` agent produced four errors in one report, all leaning
+   toward cutting work from the board.** It self-corrected three; the fourth —
+   quoting pin-1549 census figures against a pin-1564 result — was caught only
+   by the audit. **A self-audit is not an audit, and the direction of an
+   author's caught errors does not predict the direction of the missed ones.**
+
+### Earlier sessions — still live
 
 1. **A registration's body is not the registration.** A refusal was built on
    *"`beta = 1` is the ceiling of plausibility"* — a sentence Amendment 1 §A3
@@ -436,6 +496,19 @@ for the CLV rewrite.
 - **Option E is closed. Verdict H3 minus.** Model A's **coefficient** is
   confirmed to seven decimals at the ATP cell — only its cent ceiling is refuted.
   **Never write "Model A is refuted" bare.**
+- **The coefficient is not one number across the record, and this is the live
+  question.** The ATP fill matches `k = 0.070` exactly; the five MLB fills match
+  `k = 0.035`. **That is a hypothesis generator, not a finding** — two distinct
+  fee cells, one sport, one day, and it is the largest piece of good news
+  anywhere in this record. It would move the bar from 52.00% to **50.88%** on a
+  **0.38-point** headroom. **The `max()` hedge stays; the verdict stays H3−.**
+  Six preconditions are listed in §3 of
+  `docs/measurements/2026-08-11-settlement-fee-capture-result.md` and **none are
+  done**. Never write *"the fee is 0.035"* or *"the bar falls to"*.
+- **H4 is UNTESTED, not pending and not confirmed** — and it is load-bearing:
+  `settlement_fee()` (`core/fees.py:197`) feeds `core/ev.py:89,140` and
+  `core/parlay.py:213`, so **every EV figure rests on it**. §A8's declaration
+  rule must not be applied.
 - **The joint bound is dead on every population. H3b is REFUTED — sign only**,
   with no "nearly clears" and no "clearly misses", at any `n`.
 - **Say `59 games across 34 recording instants`, never `614 rows`.**
@@ -458,10 +531,15 @@ for the CLV rewrite.
 ## Standing instructions from Joe
 
 1. **Call `partner` first** and let it set the queue. **Delegation is its call.**
+   *Its output is not exempt from rule 3* — on 2026-08-11 it produced four errors
+   in one report, all leaning toward cutting work off the board, and the audit
+   caught the one it had missed itself.
 2. **Parallelise by default — two concurrent lanes, never more.**
 3. **`measurement-skeptic` audits anything before it enters the record**,
-   especially good news — and **especially a kill**. It overturned this session's
-   headline result and was right.
+   especially good news — and **especially a kill**. On 2026-08-11 it overturned
+   a backlog claim (10× too large, mechanism inverted) *and* this session's own
+   headline result (H4), and it was right both times. **It has never yet been
+   wrong on this project. Budget for it rather than treating it as optional.**
 4. **Deploys are batched and Joe runs them.**
 5. **Don't ask permission to continue. Do ask before money or a deploy.**
 6. **Say unprompted when the session should end.** Joe would rather start a clean
