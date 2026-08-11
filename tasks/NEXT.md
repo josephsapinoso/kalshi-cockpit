@@ -1,5 +1,38 @@
 # Next — your checklist
 
+## 2026-08-10 — `inspect_live_db.py` RUNS NOW, and answers ONE of the four questions it was queued for
+
+The script is finished: refusal block gone, **68 tests**, **17 mutations all seen
+red**, exits 0 against a real database. `19bb3b6`.
+
+**But the reason it was prioritised is largely gone, and that is the finding.**
+The handoff said finishing it *"unblocks three questions at once"*. Its whitelist
+reads only `api_credits`, `odds_sweep_log`, `kalshi_markets`, `kalshi_events`,
+`kalshi_series`, `closing_lines`, and `recommendations` (tickers only, pinned).
+
+| Question | Status | Blocker |
+|---|---|---|
+| **Q-W** — cell `W`'s activation, half of what the $5.00 bought | **NOT ANSWERABLE** | needs `kalshi_quotes`, which appears **0** times in the file |
+| scored-game rate vs `gate.py`'s 300 floor | **NOT ANSWERABLE** | `gate.py:354` counts `FROM recommendations` as a population; the whitelist selects only tickers |
+| the 423 non-anchored rows | **NOT ANSWERABLE** | `fair_prices` appears **0** times |
+| raw `closing_lines` | **PARTIAL** | returns the columns, but restricted to `recommendations.id <= --pin` |
+
+**Verified independently rather than taken from the lane's report.** A negative
+claim of this weight gets its own grep — this file's own rule, and it had just
+been written into `lessons.md` when this arrived.
+
+**No query was added, and that is correct.** A new query is a real change to what
+runs against the money box, needs its own review, and reaches the machine only at
+the **next deploy** (`Dockerfile:66`). **Adding a `kalshi_quotes` query for Q-W is
+the highest-value next step on this file** — it is the difference between round
+three running five cells and four. It needs a deploy either way, and deploys are
+Joe's.
+
+**Consequence for round three:** cell `W` stays **UNRESOLVED**. That is **not**
+§1.3's *"no series passed, `W` is not registered"*, so §Power's four-cell branch
+is **not** licensed. `scripts/watch_fee_bands.py` reports exactly this
+distinction and refuses to collapse it.
+
 ## 2026-08-10 — ADR 0021 §7: the dump is refused for the CLV test, and NOT ruled on for the other one
 
 **This section was first written in a stronger form and an audit overturned two
