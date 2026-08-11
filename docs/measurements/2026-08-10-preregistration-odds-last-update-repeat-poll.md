@@ -1360,3 +1360,332 @@ the authorised cost. What changed is that its preconditions can now say no.
 | Authorised spend | **24 credits, unchanged** |
 | Expiry | **Unchanged — the registration has none.** Its only time-bound is P4, decided fresh at each `T0`. |
 | Enforced by | `scripts/capture_odds_repeat_poll.py` (`probe_server_credits`, `evaluate_p1`, `p1_passes`), pinned by `tests/test_repeat_poll_preconditions.py` |
+
+---
+---
+
+# Amendment B — §7 licenses "the strong wording" at `S_strict >= 0.90`, and that phrase is defined nowhere
+
+**Written 2026-08-11 (UTC), appended, and appended *before poll 1*. Still zero
+credits spent on this measurement. Not one poll has been made, so no
+`last_update` value has been compared against another at a different fetch
+instant — by this agent or by anyone (§0.3 still holds verbatim).**
+
+**The body above is untouched, and so is Amendment A.** No inline marker has been
+added to either, following the precedent Amendment A set. Where this amendment
+contradicts the body, **this amendment governs**, and §B5 lists the one place
+that happens. The Registration record's `Amendments | None.` line and Amendment
+A's record table both predate this amendment and are left as written.
+
+**Why it exists.** `measurement-skeptic` audited ADR 0026's prospective
+verification of §7 and returned **SURVIVES NARROWED**, with the operational
+verdict *fire the capture*. It found one gap, and it is on the good-news side:
+**§7's MANDATORY QUALIFIER has two legs and only one of them is priced.**
+
+- The `S_strict < 0.90` leg is priced, in fixed words, and ADR 0026 §6 quotes it
+  approvingly as *"rule 4 of §5, executed a day before this ADR existed"*.
+- The `S_strict >= 0.90` leg says the write-up *"may say the stamp advanced with
+  **no observed reprice anywhere**, and ADR 0020 may use the strong wording."*
+  **"The strong wording" is not defined in this registration, in
+  `scripts/analyse_odds_repeat_poll.py` (which prints the phrase and nothing
+  more), or in ADR 0020 — which does not exist; `docs/adr/` runs 0019, 0021.**
+  §9 defines it circularly (*"the `S_strict` qualifier decides its permitted
+  wording (§7)"*), and §1 completes the circle by pointing at §9.
+
+**And the registration already knows why that leg is not clean**, in its own
+§10, which is why this is a gap in §7 rather than a new objection to it:
+
+> A book-scoped stamp advanced by an unobserved market is **indistinguishable
+> from a scrape clock even at `S_strict`**. **This is the single caveat most
+> likely to overturn the strong reading, and no observation in this capture can
+> remove it.**
+
+So the `S_strict >= 0.90` leg is **NON-DISCRIMINATING against the out-of-slate
+book-scoped rival**, and it responds by licensing an undefined phrase. `S_strict`
+prices *within-slate* cross-event bleed, which it genuinely excludes by
+construction (§6). It does **not** price *out-of-slate* bleed, which is the
+mechanism §10 names as the most dangerous one. The two were collapsed.
+
+§8 requires an amendment to be appended, dated, with its reason, **before** the
+analysis runs, with the pre-amendment rule reported alongside. All three are met,
+and the stronger condition is met too: **no poll has been made, so no data exists
+that could have shaped this.** ADR 0026 §6 ends by saying that if either of its
+two scorer's notes is to bind it *"needs an amendment appended to that
+registration by the lane that owns it, before poll 1 — this ADR does not amend it
+and cannot."* This is that amendment, for the gap the skeptic found rather than
+for those two notes, which remain prints and are not made binding here.
+
+## §B0. What this amendment does and does not do — read this before anything else
+
+**It changes no hypothesis, no prediction, no population, no exclusion, no unit,
+no bucket edge, no statistic, no threshold, no precondition, no decision rule, no
+stopping rule, and no destination.**
+
+Specifically and by name, all of the following are **unchanged**: §1's `S` and
+its direction; the `S >= 0.90` / `S <= 0.20` thresholds; the definition of
+`S_strict` and its `0.90` cut; §2's population and its four exclusions; §3's
+clustering on `bookmaker`; §4's allocation of 1 sport × 4 polls; §5's schedule,
+primary pair 1→3, registered fallback 1→4, row key, and exact-equality predicate;
+§6's estimators including `R` and `movers`; §7's PC1–PC6, its CONFIRMED /
+REFUTED / UNRESOLVED rule, the `S_strict < 0.90` leg **verbatim**, and the
+operational corollary; §8's stopping rule; §9's destination and consequence
+table; §10's limits; and the whole of §S1/§S2. **The 24-credit authorisation is
+unchanged**, and so is everything Amendment A settled.
+
+**The clause that governs this entire amendment is §7's own, and it is preserved
+word for word:**
+
+> `S_strict` **can only ever strengthen the wording. It can never upgrade,
+> downgrade, or create a verdict.**
+
+**§B1 constrains wording, and only wording.** It does not create a threshold,
+does not gate a verdict, and cannot move `S`. It replaces an *undefined* licence
+with a *bounded* one, which is by construction a tightening: a phrase with no
+definition has no upper bound on what it permits.
+
+**It does not weaken §7 anywhere.** The `S_strict < 0.90` leg is untouched. The
+`S_strict >= 0.90` leg becomes strictly harder to over-read. An amendment that
+made a claim easier to state would be worse than no amendment, and this one is
+checked against that standard in §B5.
+
+## §B1. The permitted wording at `S_strict >= 0.90`, fixed now, before poll 1
+
+**Pre-amendment rule, reported alongside as §8 requires.** §7 said, in full:
+
+> — `S_strict >= 0.90`: the write-up may say the stamp advanced with **no
+> observed reprice anywhere**, and ADR 0020 may use the strong wording.
+
+**Amended rule.** If CONFIRMED is declared and `S_strict >= 0.90`, the write-up
+and ADR 0020 may state this, and **this is the whole of what that value of
+`S_strict` licenses**:
+
+> **`last_update` is not a per-line reprice timestamp. No price change was
+> observed anywhere in the captured `baseball_mlb` / `us,eu` /
+> `h2h,spreads,totals` slate between poll 1 and poll 4 (nominal 900 s), for the
+> bookmakers whose stamps advanced. A reprice in a market, region or sport that
+> was not requested remains an unexcluded cause of the advance (§10) — as does a
+> price that moved and moved back between the two sampled instants (§10).**
+
+**No wording beyond this is licensed by any value of `S_strict`.** In particular
+`S_strict >= 0.90` does **not** license: "no reprice occurred"; "the books were
+not repricing"; "the stamp is a scrape clock" as a statement about the
+aggregator's mechanism; "the odds are stale" in any form (§1, §10); "our polling
+cadence" (§C2, §10); or any claim about a sport, league, region, market or
+interval not captured (§4, §10). **"The strong wording" is not a term of this
+registration and may not be used as one in the result file, in ADR 0020, or in
+any document scored against this registration.** If a future session wants
+wording beyond the paragraph above, that is a new claim needing its own
+registration — not a reading of this one.
+
+**This is a sharpening of the text `measurement-skeptic` proposed, in four
+places, each in the direction of a narrower claim.** The proposal was: *"…no
+reprice was observed anywhere in the captured … slate over the interval. A
+reprice in a market, region or sport not requested remains an unexcluded cause of
+the advance (§10)."* The changes:
+
+1. **"over the interval" → "between poll 1 and poll 4 (nominal 900 s)"**, because
+   that is the span the implementation actually computes `S_strict` over,
+   whatever the deciding pair is — see §B2. A wording licence must name the
+   window it was earned on.
+2. **"no reprice was observed" → "no price change was observed"**, because the
+   observable is a changed `(outcome_point, price_decimal)` tuple under §5.3's
+   exact-equality predicate, not a repricing event. The first phrasing quietly
+   promotes an absence of observed change into an absence of repricing.
+3. **"for the bookmakers whose stamps advanced" added**, because that is
+   `S_strict`'s denominator (§6, the `N_adv` books) — not every book in the
+   slate. Without it the sentence claims a quiet slate, which is a different and
+   larger claim, and one PC5 exists to make impossible (§B3).
+4. **The moved-and-moved-back caveat added**, because §10 lists it, its direction
+   **inflates cell A**, and the skeptic's proposed text omitted it while naming
+   its sibling caveat. A licence that recites one §10 caveat and drops another
+   reads as if the dropped one were retired.
+
+**Why this had to be fixed before poll 1 and not at scoring time.** A permitted
+wording chosen after `S_strict` is known is a wording chosen from the data. This
+paragraph is fixed while nobody knows whether the `S_strict >= 0.90` leg will
+fire at all — and §B3 argues it probably cannot.
+
+## §B2. The implementation computes `S_strict` over poll 1 → poll 4 always. Recorded, not changed
+
+**§6 reads as though `S_strict` binds on the deciding pair:**
+
+> Among the same `N_adv` bookmakers, the share for which **not one price changed
+> anywhere in the captured slate** *between the two polls* — every event, every
+> market, every outcome.
+
+"The two polls" most naturally means the compared pair, which is 1→3 under the
+primary and 1→4 only under the PC2 fallback.
+
+**The implementation always uses 1→4.** `scripts/analyse_odds_repeat_poll.py`
+calls `s_strict(rows[1], rows[4], books_adv)` unconditionally, with `books_adv`
+taken from the deciding pair. (Cited by symbol rather than line number
+deliberately: at commit `efa5bff` the call is at `:434`, and the concurrent lane
+editing that file has it at `:634` in the working tree. The skeptic's citation of
+`:592` matches neither and is a line-drift artefact, not a substantive error —
+§B4 records this.) `movers_over_span(rows[1], rows[N_POLLS])` is the same
+1→4 span, and M20 in that file's mutation table pins it. **There is no mutation
+in that table covering `s_strict`'s span**, which is why it is written down here
+instead.
+
+**Standing: this is an unregistered deviation, and the implementation is the more
+conservative of the two readings, so it is recorded and left alone.**
+
+- 1→4 is a superset window of 1→3. Any book that moved a price in 1→3 also
+  differs at 1→4 unless it moved back (§10). So the 1→4 `moved` set is at least
+  as large, `S_strict` is at most as high, and the `>= 0.90` leg is **harder** to
+  reach. It cannot flatter the strong wording.
+- It is also what produces the protective coupling in §B3, which is the reason
+  §B1 is a wording risk rather than a verdict risk. Changing it to 1→3 would
+  break that coupling and make the unpriced leg easier to fire.
+- Under the PC2 fallback the deviation vanishes entirely: the deciding pair *is*
+  1→4 and both readings coincide.
+
+**Registered consequence.** `S_strict`'s span is **poll 1 → poll 4**, stated
+here in advance, and the result file must print it as such beside the value.
+`scripts/analyse_odds_repeat_poll.py` is **not** altered by this amendment — it
+is another lane's file, the code is already the conservative reading, and §8's
+prohibition is on changing rules after poll 1, not on recording what the rule
+already was. **No threshold moves. `S_strict >= 0.90` remains the cut.**
+
+## §B3. Under the hypothesis being confirmed, the unpriced leg is arithmetically unreachable
+
+This is why §B1 is prudence rather than an emergency, and it is a re-derivation,
+not a quotation — the skeptic's boundary was off and §B4 records the correction.
+
+**The mechanism.** `movers_over_span` and `s_strict` are the *same* set
+computation over the *same* rows (poll 1 → poll 4): both build a `moved` set of
+bookmakers with at least one changed value tuple. `movers` returns `|moved|`;
+`S_strict` returns `1 − |moved ∩ books_adv| / N_adv`. They are therefore coupled,
+and PC5 pushes on one while the `>= 0.90` leg pushes on the other:
+
+```
+PC5                      |moved|                >= 5
+S_strict >= 0.90         |moved ∩ books_adv|    <= floor(0.10 * N_adv)
+```
+
+A mover that is **not** in `books_adv` satisfies PC5 without costing `S_strict`
+anything. There are at most `n_books − N_adv` of those. So the strong leg is
+reachable if and only if:
+
+```
+floor(0.10 * N_adv) + (n_books - N_adv)  >=  5
+```
+
+**[COMPUTED — from the two function bodies above and PC5's constant, at
+`n_books = 30`, the prior capture's book count (§0.2).]**
+
+| `N_adv` | movers tolerated inside `books_adv` | movers available outside | max `movers` compatible with `S_strict >= 0.90` | PC5 needs 5 | strong leg |
+|---:|---:|---:|---:|---|---|
+| **30** | 3 | 0 | **3** | not met | **UNREACHABLE** |
+| 29 | 2 | 1 | 3 | not met | **UNREACHABLE** |
+| **28** | 2 | 2 | **4** | not met | **UNREACHABLE** |
+| **27** | 2 | 3 | **5** | met, exactly | reachable |
+| 25 | 2 | 5 | 7 | met | reachable |
+| 20 | 2 | 10 | 12 | met | reachable |
+
+**The reading, which is the point.** The more decisively `H_scrape` holds, the
+closer `N_adv` runs to `n_books` — a scrape clock advances every book's stamp —
+and the fewer books remain outside `books_adv` to satisfy PC5 for free. **In the
+world where the confirmation is strongest, the `S_strict >= 0.90` leg cannot
+fire, and §7's mandatory qualifier fires instead.** The unpriced branch is
+therefore not the branch a decisive CONFIRMED lands on.
+
+**And the general form, which does not depend on `n_books = 30`.** At full
+advance (`N_adv = n_books`) the condition collapses to
+`floor(0.10 * n_books) >= 5`, i.e. **`n_books >= 50`**. The prior capture had 30
+books and PC1 floors at 20, so **at any book count this capture can produce, a
+complete scrape-clock signature makes the strong leg unreachable.**
+
+**What this argument does not do, stated so it is not over-read:**
+
+- **It is not a reason to skip §B1.** The leg is reachable at `N_adv <= 27`, and
+  `N_adv < n_books` is entirely ordinary — a book with no advancing pair at the
+  deciding interval is not a defect.
+- **It assumes the book universe of the deciding pair and of the 1→4 span
+  coincide.** They need not. A book present in polls 1 and 3 but absent from poll
+  4 cannot join `moved` and so counts as *not moved* in `S_strict` — which
+  relaxes the bound in the strong leg's favour. That is a second reason the
+  remedy is a fixed wording (§B1) and not a threshold.
+- **It creates no rule.** Nothing here is a precondition, nothing is checked at
+  run time, and no verdict turns on it. It is registered arithmetic, printed so
+  that a firing of the `>= 0.90` leg is recognised as the *surprising* branch it
+  would be.
+
+## §B4. What this amendment does not establish, and what it corrects in the brief that prompted it
+
+- **It does not establish that CONFIRMED will be declared**, or that `S_strict`
+  will take any particular value. No poll has been made.
+- **It does not price the out-of-slate rival. It concedes it.** §10 says no
+  observation in this capture can remove that caveat, and §B1's fixed wording is
+  a concession written into the licence rather than an exclusion of the rival.
+  Excluding it would need a capture covering the unrequested markets and regions,
+  which is a different registration and a different spend.
+- **It does not make ADR 0026's two scorer's notes binding.** Those remain
+  prints, exactly as that ADR left them.
+- **It changes nothing in `scripts/analyse_odds_repeat_poll.py`.** §B2 records
+  that file's behaviour; it does not alter it, and the file is owned by another
+  lane. If that lane later changes `s_strict`'s span, §B2 is the record that the
+  change is a rule change requiring its own amendment.
+- **It says nothing whatever about `last_update`**, which is the registration's
+  actual question.
+
+**Two corrections to the audit that prompted this amendment, recorded because a
+citation that has drifted gets re-checked in thirty seconds and an adjective does
+not:**
+
+1. **The line citation.** The audit cited `scripts/analyse_odds_repeat_poll.py:592`
+   for the `S_strict` span. At `efa5bff` the call is `:434`; in the working tree
+   the concurrent lane has it at `:634`. `:592` is neither. **The substance is
+   correct** — the call is `s_strict(rows[1], rows[4], books_adv)`,
+   unconditionally — and §B2 cites it by symbol for that reason.
+2. **The reachability boundary was off by two.** The audit's two worked rows
+   reproduce exactly: at `N_adv = 30`, 2 movers are still needed from 0 available
+   books; at `N_adv = 28`, 3 from 2. But it then stated that *"at `N_adv = 25` and
+   below it becomes reachable"*. **The true boundary at `n_books = 30` is
+   `N_adv <= 27`**: 2 tolerated inside plus 3 outside is exactly 5, which meets
+   PC5. `N_adv = 29` is also unreachable and the audit did not list it. **The
+   correction runs against the audit's conclusion** — the dangerous leg becomes
+   reachable two books sooner than claimed — which is why it is recorded here
+   rather than smoothed over. The direction of the argument is unaffected: the
+   unreachable region is still exactly the region where `H_scrape` holds most
+   completely.
+
+## §B5. What now binds
+
+**Unchanged, and confirmed:** every section of the body and every clause of
+Amendment A listed in §B0; the 24-credit authorisation; the absence of a dated
+expiry; P0–P6 as Amendment A left them.
+
+**Amended:**
+
+| Body location | Amendment |
+|---|---|
+| §7, MANDATORY QUALIFIER, **`S_strict >= 0.90` leg only** | The licence *"the write-up may say the stamp advanced with no observed reprice anywhere, and ADR 0020 may use the strong wording"* is replaced by the **exact paragraph in §B1, which is the whole of what any value of `S_strict` licenses**. **"The strong wording" is retired as a term of this registration.** |
+| §7, MANDATORY QUALIFIER, `S_strict < 0.90` leg | **Unchanged, verbatim.** Its fixed words and its restriction of ADR 0020 stand exactly as written. |
+| §7, the governing clause | **Unchanged and reaffirmed:** `S_strict` *"can only ever strengthen the wording. It can never upgrade, downgrade, or create a verdict."* §B1 is a wording constraint under this clause, not an exception to it. |
+| §6, `S_strict` | The estimator and its `0.90` cut are unchanged. **Recorded:** its span is **poll 1 → poll 4** in the implementation, always, whatever the deciding pair (§B2), and the result file prints the span beside the value. |
+| §9 | The circular definition (*"the `S_strict` qualifier decides its permitted wording (§7)"*) now terminates: §7 → §B1 → a fixed paragraph. §1's pointer to §9 resolves the same way. |
+| §10 | Unchanged. It is the **source** of §B1 rather than a target of it: the out-of-slate caveat it names is now carried in the permitted wording itself. |
+| Thresholds, preconditions, decision rules | **None added, none changed, none removed.** §B3's arithmetic is registered, not enforced. |
+
+**The check this amendment must pass, applied to itself:** does it make any claim
+*easier* to state than §7 did? **No.** The `S_strict < 0.90` leg is untouched;
+the `S_strict >= 0.90` leg moves from an undefined phrase to a bounded paragraph
+that recites two §10 caveats and names the window it was earned on. Every
+difference is a restriction.
+
+**Verdict at registration, after Amendment B: READY, unchanged. Fire the
+capture.** Both legs of §7's mandatory qualifier now have their permitted wording
+fixed before the data exists, which is the only time it can honestly be fixed.
+
+| | |
+|---|---|
+| Amendment | **B** — 2026-08-11 (UTC), appended **before poll 1** |
+| Data seen at amendment | **None.** Zero polls, zero credits; no `last_update` comparison exists (§0.3 holds verbatim). |
+| Changes to §§1–7 | **One, and it constrains wording only.** §7's MANDATORY QUALIFIER, `S_strict >= 0.90` leg: an undefined licence (*"the strong wording"*) is replaced by the fixed paragraph in §B1. **No hypothesis, prediction, population, exclusion, unit, statistic, threshold, precondition or verdict is touched**, and §7's clause that `S_strict` *"can never upgrade, downgrade, or create a verdict"* is preserved verbatim and governs §B1. |
+| Changes to §8 | **None.** Four calls, no fifth. |
+| Recorded, not changed | `S_strict`'s implementation span is poll 1 → poll 4 always (§B2) — an unregistered deviation, the conservative reading, with no mutation covering it. |
+| Registered arithmetic | §B3 — the `S_strict >= 0.90` leg is unreachable against PC5 at `N_adv >= 28` when `n_books = 30`, and at `N_adv = n_books` for any `n_books < 50`. **Not a rule; nothing is checked at run time.** |
+| Authorised spend | **24 credits, unchanged** |
+| Expiry | **Unchanged — the registration has none.** Its only time-bound is P4, decided fresh at each `T0`. |
+| Prompted by | `measurement-skeptic`'s audit of ADR 0026 §6 (**SURVIVES NARROWED**, *fire the capture*), whose line citation and reachability boundary are corrected in §B4. |
