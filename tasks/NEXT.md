@@ -1,59 +1,100 @@
 # Next — your checklist
 
-## 2026-08-10 — CLOSED: ADR 0021 §7's escape hatch does NOT license a live dump
+## 2026-08-10 — ADR 0021 §7: the dump is refused for the CLV test, and NOT ruled on for the other one
 
-**Do not re-open this by proposing a dump for the leadership question.** The
-handoff's third job — *"Kalshi may be the sharp side, so the comparison is empty
-by construction"* — was priced before it was run, and the price refuses it.
+**This section was first written in a stronger form and an audit overturned two
+of its three load-bearing moves within the hour.** Both versions were mine, in
+one session, with no reader in between. What follows is the corrected scope; the
+faults are recorded in `tasks/lessons.md` because they are the useful part.
 
-**The arithmetic, reproducible in one command.** The registered statistic is the
-CLV pass-through `beta`, whose **ceiling of plausibility is `beta = 1`** (full,
-lossless pass-through). Smallest resolvable `beta` from the repo's own boundary,
-`gate.always_valid_multiplier(G, tuning=300) / sqrt(G) x 2`:
+### What is settled, by registration and not by arithmetic
 
-```
-G =  60  (every game in the record)      1.57   cannot resolve
-G =  48  (games with a derivable close)  1.93   cannot resolve
-G =  29  (games at horizon 0)            3.09   cannot resolve
-G = 300  (the registered floor)          0.42   resolves
-```
+**The registered CLV pass-through test cannot declare anything on this record**,
+and no power calculation is needed to say so
+(`2026-08-09-preregistration-clv-signal-test.md:420-427`, a clause Amendment 1
+does **not** supersede):
 
-**The refusal is written against `G = 60`, and that is the point.** 48 and 29
-come from a handoff and reproduce from **no committed harness or result
-document** — they are unverified. They did not need to be: the test is
-underpowered at the **largest** count anyone claimed, so every smaller figure
-fails a fortiori. **A disputed number was routed around, not adjudicated.**
+> **UNRESOLVED.** Declared in every other case, **including every look taken when
+> `G < 300`**. […] A look taken when `G < 300` may report point estimates and
+> intervals. **It may not declare SIGNAL, BUG or NO SIGNAL.**
 
-**Where this would be wrong, so it can be checked.** `sigma_eps / sigma_x = 2`
-is **ASSUMED and measured nowhere** (registration Amendment 1 §A5.2). At
-`G = 60` the design resolves `beta = 1` only if the true ratio is **≤ 1.27**; at
-`G = 48`, only if **≤ 1.04** — a near-noiseless CLV process. Per §A5.2 the error
-direction is safe, so the verdict is **UNRESOLVED by construction**, never *"the
-hypothesis is refuted"*.
+Amendment 1 §A3's replacement SIGNAL and BUG clauses each re-state `G >= 300`.
+The record supplies **~20 game clusters** on §2's registered population (60 is
+the *unfiltered* count). **A dump raising `G` to 60 buys an UNRESOLVED, which the
+record already has.**
 
-**The better falsifier already ran, and nobody finished reading it.**
-`2026-08-10-sharp-anchoring-on-the-record-result.md` §5: on **423 of 1,564 rows
-(27.0%)** no sharp book had quoted, so those rows were priced against the
-**full** book set — and produced **0** positive edges among the 189 unsuppressed
-and **0** actionable. That is the direct test of the tautology objection and it
-needs no dump.
+### What was NOT ruled on, and this is the correction that matters
 
-> **Read the `n` before that lands.** 423 rows are **34 links**, 49 consumed
-> instants, 21 runner cycles, 13 odds stamps. The conservative unit is **34
-> fixtures**. The set is selected toward **thin** instants (median **12** books,
-> against 23 overall), is **91% MLB**, and 190 of the 423 were already
-> `stale_odds`. It **narrows** the tautology objection to 73% of the record. It
-> is **not** a partial run of option B and must never be written up as one.
+**The dump was proposed for a different test, and that one is still unpriced.**
+The handoff said the record *"is missing only who won"* — but the CLV design
+needs `clv_tenths` and `edge_tenths`, both already scored, and **no outcome
+column at all**. ADR 0021 §9 already separates them: outcome-scored calibration
+is *"a different question with different inputs — `kalshi_markets.result`"*.
 
-**Arithmetic pinned to code, not transcribed:** `tests/test_clv.py`,
-`TestTheRegisteredPowerTableReproduces`. Nine assertions, seen red under three
-mutations of `gate.always_valid_multiplier` — including replacing the confidence
-sequence with the fixed-sample **1.96**, which flips the verdict to *"the test
-works"*. That flip is the whole lesson and it is in `lessons.md`.
+**So do not read this as "the leadership question is closed".** *"Is Kalshi the
+sharp side"* maps onto a **paired forecast-accuracy** comparison — Kalshi's price
+against the devigged consensus, both scored on `result`. Different estimator,
+different null, **no committed arithmetic anywhere in this repo**. Two
+provisional figures exist as **leads, not results**: a paired sign test at
+`G = 60` would need a true rate above **0.893**, and a paired Brier difference
+crosses over near **`G = 68`** before clustering. Both point the same way.
+**Neither licenses a conclusion, and either needs its own pre-registration.**
 
-**A live dump is still wanted for a DIFFERENT set of questions** — Q-W (cell
-`W`'s activation), the scored-game accumulation rate against `gate.py`'s 300
-floor, and raw `closing_lines`. None of them is this one.
+> **The first version claimed the refusal at the scope of the whole question.**
+> That is this repo's named failure shape — the `/markets` sample that licensed
+> *"Kalshi has no combo product"* — measurement about one instrument, conclusion
+> about the subject. Anyone proposing a dump for the **outcome-scored** test is
+> not re-opening a closed question; they are opening one nobody has designed.
+
+### The premise that was withdrawn
+
+The first version argued *"MDE 1.57 exceeds the ceiling of plausibility
+`beta = 1`, therefore the design cannot resolve anything"*. **Amendment 1 §A3
+(:1093) replaces the `beta > 1 -> BUG` rule outright** and states a point
+estimate above one is the **expected** reading under a deliberately conservative
+engine. The sentence quoted as a ceiling was from a body the file's own header
+(:10-15) says does not govern. **Never quote this registration's body without
+checking Amendment 1.**
+
+The MDE table survives as **corroboration only**: 4.40 at `G = 20`, 3.09 at 29,
+1.93 at 48, 1.57 at 60, 0.42 at the floor of 300. Monotone decreasing in `G`
+(checked at every integer to 5,000), which is what lets an argument at the
+largest count cover every smaller one. It carries two assumptions the refusal no
+longer needs — `sigma_eps/sigma_x = 2` is **assumed and measured nowhere**
+(§A5.2), and the boundary assumes **independence across games**
+(`gate.py:165-169`) which the record contradicts. Both errors reduce power.
+
+### The falsifier that already ran, and needs no dump
+
+On **423 of 1,564 rows (27.0%)** no sharp book had quoted, so those rows were
+priced against the **full** book set — **0** positive edges among the **189**
+unsuppressed. **Across all 423: 6 positive rows, every one suppressed, max
++15.06 tenths.** Not "nothing appeared".
+
+> **Read the `n` first.** 423 rows are **13 distinct odds-observation stamps**.
+> The source document names *"34 links"*, but ADR 0021 §2 settles it the other
+> way — *"the sweep is the dependence unit"* — and 13 is tighter. The set is
+> selected toward **thin** instants (median **12** books against 23 overall), is
+> **91% MLB**, and **190 of 423** were already `stale_odds`. It **narrows** the
+> tautology objection to 73% of the record. **Not** a partial run of option B.
+
+### One number corrected the other way
+
+The first version called the counts 48 and 29 *"unverified, reproducing from no
+committed harness"*. **They reproduce exactly** from
+`docs/measurements/2026-08-10-clean-shortfall-pull.json`: 1,564 rows over **60**
+clusters, 1,101 with any `clv_tenths` over **48**, 532 horizon-0 over **29**, and
+614 unsuppressed over **59** — which is §2's own `G = 59`. **The pull carries no
+`event_ticker` column**, so the cluster key is the ticker minus its final
+segment; `COALESCE(event_ticker, ticker)` silently gives market-level 120/96/55.
+A negative claim about the repo's own contents was published without running the
+search that refutes it.
+
+**Pinned in code:** `tests/test_clv.py`,
+`TestTheCLVDesignCannotDeclareAnythingOnThisRecord` and
+`TestTheRegisteredPowerTableReproduces`. Seen red under five mutations, including
+the cluster-key degradation above and the fixed-sample 1.96 that flips the
+reading.
 
 ## 2026-08-10 — CORRECTED: ADR 0021 §7.2 asserted something its own source had already refuted
 

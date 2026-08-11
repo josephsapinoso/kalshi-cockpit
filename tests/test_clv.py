@@ -25,6 +25,8 @@ from backend.analysis.clv import (
 from backend.core.prices import PRICE_MAX
 from backend.store import db
 
+ROOT = Path(__file__).resolve().parent.parent
+
 NOW = 1_754_800_000_000
 
 
@@ -450,42 +452,106 @@ class TestTheHorizonIsRecordedWithTheScore:
         assert row["clv_horizon_hours"] is not None
 
 
-class TestTheRegisteredPowerTableReproduces:
-    """ADR 0021 §7's escape hatch is ruled on with arithmetic, so pin it.
+class TestTheCLVDesignCannotDeclareAnythingOnThisRecord:
+    """ADR 0021 §7's escape hatch refuses a live dump. Pin what carries it.
 
-    The 2026-08-10 annotation to ADR 0021 §7.2 refuses a live database dump on
-    the grounds that the CLV design cannot resolve any plausible effect at any
-    sample size the record can supply. That refusal is a table of numbers
-    written into a document, and `tasks/lessons.md` records the rule: arithmetic
-    written into a document is code, and unrun arithmetic is a guess.
-
-    These pin the table to `gate.always_valid_multiplier`, so that changing the
-    boundary makes the ADR go red instead of quietly wrong.
+    **The first version of this class pinned the wrong thing, and that is why it
+    is written this way.** It asserted `BETA_CEILING = 1.0` as a module constant
+    and then mutated only `always_valid_multiplier` -- verifying the arithmetic
+    nobody disputed while leaving the contested premise untouched, in a class
+    written by the author who needed that premise to be true. Registration
+    Amendment 1 §A3 withdraws the ceiling outright. The refusal now rests on the
+    registered 300-game floor, which is a rule rather than an estimate.
 
     WHAT THIS DOES NOT ESTABLISH
-      Nothing about whether the CLV design is *correct*. It reproduces the
-      registered minimum-detectable-effect table from the repo's own boundary
-      function; it does not check that a confidence sequence is the right
-      instrument, and it cannot -- `sigma_eps / sigma_x = 2` is ASSUMED and
-      measured nowhere (registration Amendment 1 §A5.2).
+      - **Nothing about the outcome-scored comparison**, which is the test the
+        dump was actually proposed for. The CLV design needs no `result` column;
+        a paired forecast-accuracy comparison of Kalshi against the consensus is
+        a different estimator with a different null, and nothing here prices it.
+      - **Nothing about whether the CLV design is correct**, only about what its
+        own registration permits it to declare.
+      - **Nothing about the assumed noise ratio.** `sigma_eps / sigma_x = 2` is
+        assumed and measured nowhere (§A5.2), and `always_valid_multiplier`
+        assumes independence across games (`gate.py:165-169`) which the record
+        contradicts. Both errors reduce power, so neither can manufacture the
+        refusal -- which is exactly why the refusal does not lean on them.
+    """
+
+    # The registered floor. `...preregistration-clv-signal-test.md:420-427`:
+    # "A look taken when `G < 300` may report point estimates and intervals. It
+    # may NOT declare SIGNAL, BUG or NO SIGNAL." Amendment 1 §A3's replacement
+    # SIGNAL and BUG clauses each re-state `G >= 300`.
+    REGISTERED_FLOOR = 300
+
+    # Game clusters available on the pinned record, re-derived below.
+    AVAILABLE = {"all rows": 60, "any clv_tenths": 48, "horizon 0": 29, "clean": 59}
+
+    def test_no_available_sample_size_reaches_the_registered_floor(self):
+        """The whole refusal, and it needs no arithmetic at all.
+
+        A dump that raised `G` from ~20 to 60 would buy an UNRESOLVED, which the
+        record already has.
+        """
+        for label, games in self.AVAILABLE.items():
+            assert games < self.REGISTERED_FLOOR, label
+
+    def test_the_cluster_counts_reproduce_from_the_committed_pull(self):
+        """The annotation called 48 and 29 "unverified". They are not.
+
+        The pull carries **no `event_ticker` column**, so the cluster key is the
+        ticker with its final segment removed -- `COALESCE(event_ticker,
+        ticker)` silently degrades to market-level counts of 120/96/55 and would
+        make this test pass against the wrong numbers if it were not pinned.
+        """
+        import json
+
+        path = ROOT / "docs" / "measurements" / "2026-08-10-clean-shortfall-pull.json"
+        pull = json.loads(path.read_text(encoding="utf-8"))
+        rows = [r for page in pull["pages"] for r in page["rows"]]
+        assert "event_ticker" not in rows[0], "cluster key assumption changed"
+
+        def clusters(subset):
+            return len({r["ticker"].rsplit("-", 1)[0] for r in subset})
+
+        scored = [r for r in rows if r.get("clv_tenths") is not None]
+        horizon0 = [r for r in scored if r.get("clv_horizon_hours") == 0.0]
+        clean = [r for r in rows if not r.get("suppressed_reason")]
+
+        assert len(rows) == 1564
+        assert clusters(rows) == self.AVAILABLE["all rows"]
+        assert clusters(scored) == self.AVAILABLE["any clv_tenths"]
+        assert clusters(horizon0) == self.AVAILABLE["horizon 0"]
+        # ADR 0021 §2 states G = 59 for the clean population. Independent check.
+        assert clusters(clean) == self.AVAILABLE["clean"] == 59
+
+
+class TestTheRegisteredPowerTableReproduces:
+    """Corroboration only -- the refusal above does not depend on this.
+
+    Arithmetic written into a document is code, and unrun arithmetic is a guess,
+    so the table quoted in ADR 0021 is pinned to the function that produced it.
+    It is **not** read against `beta = 1`: Amendment 1 §A3 withdraws that ceiling
+    and states a point estimate above one is the *expected* reading under a
+    deliberately conservative engine.
     """
 
     # `2026-08-09-preregistration-clv-signal-test.md`, "Smallest resolvable
-    # `beta`, against the always-valid boundary". Transcribed from the
-    # registration, not from the code.
+    # `beta`, against the always-valid boundary" (:606-613). Transcribed from
+    # the registration, not from the code.
     REGISTERED = {
         20: (9.84, 2.20, 4.40, 6.60),
         40: (7.21, 1.14, 2.28, 3.42),
         60: (6.09, 0.79, 1.57, 2.36),
         100: (5.01, 0.50, 1.00, 1.50),
+        200: (4.03, 0.29, 0.57, 0.86),
         300: (3.66, 0.21, 0.42, 0.63),
+        500: (3.34, 0.15, 0.30, 0.45),
+        1000: (3.11, 0.10, 0.20, 0.30),
     }
-
-    # The ceiling of plausibility: `beta = 1` is full, lossless pass-through.
-    BETA_CEILING = 1.0
 
     @pytest.mark.parametrize("games", sorted(REGISTERED))
     def test_the_multiplier_and_every_ratio_column_reproduce(self, games):
+        """All 24 cells, from the registration's own `se` formula at :581."""
         import math
 
         from backend.gate import always_valid_multiplier
@@ -499,36 +565,45 @@ class TestTheRegisteredPowerTableReproduces:
         assert 2 * base == pytest.approx(r2, abs=0.005)
         assert 3 * base == pytest.approx(r3, abs=0.005)
 
-    @pytest.mark.parametrize("games,mde", [(60, 1.57), (48, 1.93), (29, 3.09)])
-    def test_no_available_sample_size_can_resolve_a_plausible_effect(self, games, mde):
-        """The three counts the escape-hatch dump was proposed to buy.
+    def test_the_mde_is_monotone_so_the_largest_count_covers_every_smaller_one(self):
+        """Why an argument written at G = 60 covers 48, 29 and 20 for free.
 
-        60 is every game in the record, 48 the games with a derivable close, 29
-        those at horizon 0. **The refusal is written against 60** -- the largest
-        count anyone claimed -- precisely so that the two smaller, unverified
-        figures cannot change it.
+        Without monotonicity, routing around the disputed counts instead of
+        adjudicating them would be unsound.
         """
+        import math
+
+        from backend.gate import always_valid_multiplier
+
+        previous = float("inf")
+        for games in range(1, 5001):
+            mde = always_valid_multiplier(games, tuning=300) / math.sqrt(games)
+            assert mde < previous, games
+            previous = mde
+
+    @pytest.mark.parametrize("games,mde", [(20, 4.40), (29, 3.09), (48, 1.93), (60, 1.57)])
+    def test_the_quoted_table_values_reproduce(self, games, mde):
         import math
 
         from backend.gate import always_valid_multiplier
 
         computed = 2 * always_valid_multiplier(games, tuning=300) / math.sqrt(games)
         assert computed == pytest.approx(mde, abs=0.005)
-        assert computed > self.BETA_CEILING
 
-    def test_the_registered_floor_is_where_the_design_starts_working(self):
-        """300 is not arbitrary and it is not a check on anything.
+    def test_a_fixed_sample_multiplier_would_reverse_the_reading(self):
+        """The 3.1x power inflation, pinned because it is the lesson.
 
-        Amendment 1 §A5.3 withdraws the claim that the floor and the arithmetic
-        agreeing was independent corroboration: `tuning=300` IS the floor, so
-        the agreement is the tuning parameter reappearing in its own output.
-        Pinned here as the contrast that makes the refusal legible -- 0.42 is
-        below the ceiling, and every reachable `n` is above it.
+        Quoting the fixed-sample 1.96 for a gate that re-checks on every request
+        turns the smallest resolvable effect at G = 60 from 1.57 into 0.51 --
+        which reads as "the instrument works". The boundary must be named
+        whenever a power figure is quoted.
         """
         import math
 
         from backend.gate import always_valid_multiplier
 
-        at_floor = 2 * always_valid_multiplier(300, tuning=300) / math.sqrt(300)
-        assert at_floor < self.BETA_CEILING
-        assert at_floor == pytest.approx(0.42, abs=0.005)
+        always_valid = 2 * always_valid_multiplier(60, tuning=300) / math.sqrt(60)
+        fixed_sample = 2 * 1.96 / math.sqrt(60)
+        assert always_valid == pytest.approx(1.5715, abs=0.001)
+        assert fixed_sample == pytest.approx(0.5061, abs=0.001)
+        assert always_valid / fixed_sample == pytest.approx(3.11, abs=0.01)

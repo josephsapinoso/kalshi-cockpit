@@ -5685,9 +5685,25 @@ who won. **Verdict: RUNNABLE ONLY WITH A LIVE DUMP.**"*
 That sentence has the shape of a finished measurement — a population, a
 breakdown, a limitation and a verdict. **It has no harness, no result document,
 no commit and no raw output.** It exists in exactly one place: the handoff that
-asked the next session to act on it. Some of it reproduces from the pinned pull
-and some of it does not, and there is no way to tell which without redoing the
-work the census supposedly did.
+asked the next session to act on it.
+
+> **CORRECTED, same day, and the correction is half the lesson.** This entry
+> first went on to say the figures could not be checked. **They check out.**
+> `2026-08-10-clean-shortfall-pull.json` gives 1,564 rows over **60** game
+> clusters, 1,101 with any `clv_tenths` over **48**, and 532 horizon-0 rows over
+> **29** — the handoff's numbers, exactly. It took one command.
+>
+> So the fault was never that the numbers were wrong. **The fault is that
+> nothing said where they came from**, and a reader had no way to distinguish
+> "carefully derived and never written up" from "remembered". Both look
+> identical in a handoff, and the second is what a reader must assume. **An
+> artifact is not evidence that a number is right; it is evidence about how to
+> find out.**
+>
+> And the entry's original wording — *"there is no way to tell which without
+> redoing the work"* — was itself an unchecked negative claim about the repo's
+> contents, written into the very lesson about unchecked claims. The check it
+> called impossible was one command.
 
 **The word "Verdict" is doing the damage.** It is the vocabulary of this repo's
 committed result documents, which earn it by carrying their population, their
@@ -5791,3 +5807,139 @@ until the destination file shows the edit.
 Related: [[the-file-ownership-map-between-parallel-lanes-is-a-design-artefact]],
 [[an-observability-fix-that-stops-at-the-api-boundary-has-not-been-made]],
 [[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]].
+
+---
+
+## 2026-08-10 — An amended registration's body is not the registration, and the superseded sentence is the one that reads best
+
+A refusal to request a production database dump was built on one sentence from a
+pre-registration:
+
+> *"Recall `beta = 1` is full pass-through and is the **ceiling** of
+> plausibility."*
+
+**That sentence does not govern.** The file's own header, six hundred lines
+above it, says: *"Seventeen registered passages are superseded, extended or
+completed … the amendment is appended at the end of this file and **it, not the
+original text, governs**."* And Amendment 1 §A3 is titled *"The `beta > 1 -> BUG`
+rule is replaced"*. It states that a point estimate above one is the **expected**
+reading under a deliberately conservative engine, and lists four mechanisms that
+produce it with no defect anywhere.
+
+So the whole inference — *"the smallest resolvable effect is 1.57, the ceiling is
+1.0, therefore the design cannot resolve anything"* — was reasoning from a
+premise the document had already withdrawn.
+
+**The failure is not carelessness about markers.** The superseded passage *was*
+marked in place, correctly, with a pointer. **The marked sentence was still the
+most quotable object in the file.** It is short, it is emphatic, it begins with
+"Recall", and it says exactly what an argument needs. The amendment's
+replacement is four paragraphs of conditions with no memorable line in it. **A
+document's centre of gravity does not move when its content is superseded**, and
+a reader arriving through search or through a section heading lands on the body,
+not on the amendment.
+
+**And the conclusion survived anyway, on better ground** — the registration's
+`G >= 300` floor, which forbids declaring any verdict below it and needs no
+assumed input at all. That ground was two hundred lines from the superseded
+sentence and was not reached, because the first argument had already succeeded.
+**An argument that works stops you looking for the one that holds.**
+
+**How to apply:** before quoting any registration, grep it for `Amendment` and
+read the amendment's section titles first — they name what moved. Treat a
+`[SUPERSEDED]` marker as a **stop**, not a footnote, and never quote the
+sentence it marks even when the surrounding paragraph is untouched. When an
+argument rests on one memorable line, ask what the least memorable version of
+the same claim would be; if the document does not contain it, the line is
+probably doing more work than the document intends. And prefer a **rule** over
+an **estimate** wherever both are available: a registered decision threshold
+cannot be argued with, while a power calculation carries every assumption it was
+built from.
+
+Related: [[a-fixed-sample-threshold-quoted-for-a-design-that-peeks-inflates-its-own-power]],
+[[the-false-reassurance-in-a-comment-outlives-the-code-it-describes]],
+[[evidence-a-decision-already-cites-is-not-grounds-to-re-open-it]].
+
+---
+
+## 2026-08-10 — The power of an instrument is not the power of the question, and the gap is invisible from inside the arithmetic
+
+A live database dump was proposed to answer *"is Kalshi the sharp side of the
+comparison?"*. The refusal computed the minimum detectable effect of the
+**registered CLV pass-through regression** at every available sample size, found
+it hopeless, and concluded: *"no live dump is licensed for the leadership
+question."*
+
+**The arithmetic was right and the conclusion was out of scope.** The handoff's
+own words were that the record *"is missing only who won"* — and the CLV design
+**needs no outcome column at all**. It runs on `clv_tenths` and `edge_tenths`,
+both already scored. So the dump was never for that test. The question maps onto
+a **paired forecast-accuracy comparison** scored on the outcome — a different
+estimator, a different null, and different power arithmetic, none of which was
+computed.
+
+**This is the repo's own named failure shape**, run again: `/markets` was ~99.8%
+`KXMVE` with no volume, and that sample licensed *"Kalshi has no combo
+product"* for eleven build steps. Measurement about the instrument, conclusion
+about the subject.
+
+**Why it is hard to catch from inside.** Every step of the power calculation is
+checkable and every step checked out — the formula, the multiplier, the
+monotonicity, the table. **Nothing in a correct calculation points at the
+question it is not about.** The scope error lives entirely in the sentence that
+introduces the arithmetic and the sentence that concludes from it, and those are
+the two least mathematical sentences in the work.
+
+**And the direction is dangerous.** A too-narrow conclusion is merely
+unambitious. A too-broad one **cancels work**, and the cancelled work leaves no
+trace to be re-examined — a future session reads "closed, do not re-open" and
+never learns that a different instrument was never tried.
+
+**How to apply:** write down the **input the proposed work needs** before
+pricing anything, and check that the design you are pricing consumes it. If a
+dump is wanted for column `X`, a power calculation for a test that never reads
+`X` is off-topic no matter how correct it is. State the refusal at the scope of
+the thing you actually priced — *"refused for instrument A"* — and say
+explicitly that instrument B is **neither licensed nor refused**, so the next
+reader knows there is a door rather than a wall.
+
+Related: [[do-not-repeat-this-inference]],
+[[a-control-that-swaps-the-data-source-still-shares-the-estimator]],
+[[reachability-has-two-halves-and-this-project-keeps-checking-one]].
+
+---
+
+## 2026-08-10 — The rule about other agents' confident negatives applies to your own, and you will not notice
+
+Within one session this file gained an entry saying *"a subagent's confident
+negative is the one result you must re-run yourself"* — and the **same commit**
+published two unchecked negatives of its own:
+
+- *"the counts 48 and 29 reproduce from no committed harness or result document
+  — they are unverified"*. They reproduce exactly, from a committed pull, in one
+  command.
+- *"there is no way to tell which figures reproduce without redoing the work"*.
+  The check was one command.
+
+**The asymmetry is the whole point.** A delegated negative arrives as a
+*claim* — it has an author, it is in a report, and it reads as something to
+accept or reject. A negative you form yourself never arrives at all. It appears
+as the absence of a memory of having found something, which feels exactly like
+knowledge and has no author to be sceptical of.
+
+**Both of the above were also load-bearing in the flattering direction.**
+Calling a figure unverified made an argument look more careful — it added a
+caveat — while quietly excusing the author from checking it. **A caveat that
+saves you work is not a caveat; it is a conclusion wearing one.**
+
+**How to apply:** treat every sentence of the form *"there is no X"*, *"X is not
+recorded anywhere"*, or *"X cannot be checked"* as a claim requiring a command,
+in your own writing exactly as in a subagent's. Before publishing one, run the
+search and paste what it returned — or write *"not checked"*, which is honest
+and costs one word. Be most suspicious when the negative makes your own position
+more defensible; that is when the incentive and the blind spot point the same
+way.
+
+Related: [[a-subagents-confident-negative-is-the-one-result-you-must-re-run]],
+[[a-measurement-with-no-committed-artifact-is-a-rumour]],
+[[verification-methods-that-lie]].
