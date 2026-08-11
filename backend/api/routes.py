@@ -585,10 +585,31 @@ def create_app(
           truncated sample.
         - **Nothing is silently discarded.** `slate.in_window` is the whole
           window before `LIMIT`, `slate.returned` is what came back,
-          `slate.truncated` says the two differ, and `slate.older_than_window`
-          counts the history that was deliberately left off. An empty table
-          (`anchor_ms = null`) and a stale slate (`is_current = false`) are
-          different states and read differently.
+          `slate.off_basis` counts the rows the second reading below put back
+          outside the window, `slate.truncated` says `in_window` and `returned`
+          differ, and `slate.older_than_window` counts the history that was
+          deliberately left off. An empty table (`anchor_ms = null`) and a stale
+          slate (`is_current = false`) are different states and read
+          differently.
+
+          That claim was false when it was written. `truncated` compared
+          `in_window` against `len(rows)` — the rows *fetched*, before the
+          `live_ages` re-decision below dropped any of them — so a row dropped
+          there was counted in `in_window`, absent from every returned bucket,
+          and set nothing. It vanished, and the page printed no sentence about
+          it, which is the same defect as the truncation nobody was told about
+          in a smaller frame. The comparison is now against `returned` and the
+          drops are counted in their own field, because folding them into
+          truncation would say `LIMIT` did something `LIMIT` did not do.
+
+        - **`slate.actionable_total` is the finding this screen exists to
+          report.** Windowing the selection was right and it cost the Board its
+          only statement about the whole record: "Bettable now: 0" now reads as
+          a quiet half-hour rather than as zero actionable across the life of
+          the database, which is what it has been. It comes from
+          `gate.population_counts` over `since_ms = 0` rather than a count
+          written here, so the number on the Board and the number the gate
+          admits evidence on cannot drift — they are one predicate.
 
         The window is applied twice on purpose. `_BASIS_SQL` restates
         `gate.live_ages`' basis in SQL as a *bound* on what to fetch; the
@@ -632,12 +653,18 @@ def create_app(
             ).fetchall()
 
         surfaced, expired, suppressed, no_edge = [], [], [], []
+        # Rows the SQL window admitted and `live_ages` put back outside it.
+        # Counted rather than dropped on the floor: `in_window` is computed from
+        # the SQL basis and therefore includes these, so without this number the
+        # response asserts a window size it does not return the contents of.
+        off_basis = 0
         for row in rows:
             item = _serialise(row, now_ms=now, staleness=staleness)
             # The window, decided by `live_ages` rather than by the SQL that
             # fetched the row. See the docstring: the two can only disagree
             # towards *older*, and older means off the slate.
             if since is not None and item["freshness_measured_from_ms"] < since:
+                off_basis += 1
                 continue
             if row["suggested_contracts"] > 0:
                 (surfaced if item["actionable"] else expired).append(item)
@@ -713,11 +740,24 @@ def create_app(
                 # as evidence about the slate.
                 "in_window": in_window,
                 "returned": returned,
-                "truncated": in_window > len(rows),
+                # Inside the window by the stored timestamp and outside it by
+                # the age that was actually measured. Its own field, not folded
+                # into `truncated`: `LIMIT` and the `live_ages` re-decision drop
+                # rows for unrelated reasons and call for different sentences.
+                "off_basis": off_basis,
+                # Against `returned`, not `len(rows)`. See the docstring: the
+                # old comparison let a row be counted in `in_window`, be absent
+                # from every bucket, and set nothing.
+                "truncated": in_window > returned,
                 # The history deliberately left off. Stated rather than
                 # implied: this is precisely the population the Board used to
                 # rank by apparent edge and show as today.
                 "recorded_total": recorded_total,
+                # Rows in the whole table the strategy would have bet, on the
+                # gate's own predicate. Zero for the project's life, which is
+                # the finding — and it is not derivable from anything else in
+                # this payload, all of which describes one slate.
+                "actionable_total": population_counts(conn, 0)["actionable"],
                 "older_than_window": max(0, recorded_total - in_window),
             },
             # An empty Board is the expected state most of the time. Saying so
