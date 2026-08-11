@@ -94,7 +94,7 @@ const ALL_CHECKS = Object.keys(EXPLAINED);
  */
 const COULD_NOT_FIRE: Record<string, string> = {
   stale_kalshi_quote:
-    "Could not fire: the input is a constant. `kalshi_quote_age_ms` is 0 on 1,564 of 1,564 recorded rows, so the age never approaches the limit and the comparison has never had anything to decide. Recorded in ADR 0021 §7.6.",
+    "Could not fire: the input is a constant. `kalshi_quote_age_ms` is 0 on 1,564 of 1,564 recorded rows, so the age never approaches the limit and the guard has never had anything to decide — the ask's own freshness is simply unmeasurable from this record. Written up in ADR 0021 §7.6, which argues it is 0 by construction; note that section's two code citations have since drifted and no longer point at the code they describe. The value is produced at `backend/runner.py:770` and the quote it reads is inserted at `backend/runner.py:1030-1034`.",
   no_commence_time:
     "Could not fire: unreachable in production. `link_discovered_events` (`backend/runner.py:446`) inserts a link only when the match succeeded, and `backend/match/linker.py:288-292` always sets an integer commence skew on a successful match — so a linked row with no start time cannot be constructed. Note this one rests on the code alone: no document in this repo names it, and this sentence is the first place it is written down.",
   commence_skew:

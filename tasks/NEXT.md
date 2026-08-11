@@ -62,6 +62,25 @@ changes. The record holds **v1 (1,394 rows) and v2 (170 rows) and no v3.**
 Therefore the check was never deployed, and its zero means **"could not fire"**,
 not "fired and caught nothing".
 
+### 4. Incidental, but re-check before you quote it: ADR 0021 §7.6's citations have drifted
+
+§7.6 argues `kalshi_quote_age_ms` is 0 **by construction**, citing
+`backend/runner.py:913` (*"writes `observed_ms = now`"*) and `:718` (*"differences
+it against the same cycle stamp"*). **Neither line points at that code today.**
+`runner.py:913` is now inside `soonest_by_sport`, and `:718` is inside a
+`write_fair_price` call. The current sites are the subtraction at
+`backend/runner.py:770` and the insert at `backend/runner.py:1030-1034` — and
+those two sit in **different functions on different stamps** (`stamp` in the
+sweep, `now` in `run_kalshi_pass`), so **the "same cycle stamp" step of §7.6's
+argument is not re-verified here** and should not be repeated on its authority
+alone.
+
+**The conclusion is unaffected** — 0 on 1,564 of 1,564 rows is an empirical fact
+about the record and does not depend on the mechanism — but the *reason* is
+currently unproven, and this is the second unsound-argument-for-a-true-claim in
+this section. If it matters to a decision, re-derive it; otherwise cite the
+count, not the construction.
+
 
 ## 2026-08-11 — OPEN QUESTION FOR JOE: 85.8% of the $3.66 lands in a series with zero rows in the record
 
