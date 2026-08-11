@@ -1,9 +1,8 @@
 # Start prompt — paste this to open the next session
 
-Rewritten **2026-08-11 ~13:15Z**. The session that **found the instrument
-reading a one-shot 24-credit capture had never been run by anything**, **killed
-the leadership question on arithmetic rather than deferring it again**, and
-**caught its own capture timer still alive after it had been stopped**.
+Rewritten **2026-08-11 ~20:00Z**. The session that **fired the 24-credit
+capture, got CONFIRMED, and then found that the interval the code actually
+ships is the one the instrument cannot decide**.
 
 Say *"read start.md and follow it"*, or paste this whole file.
 
@@ -12,78 +11,62 @@ Say *"read start.md and follow it"*, or paste this whole file.
 Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md`. NEXT.md is the
 actionable checklist and **its top supersedes everything here**.
 
-## ⏱ FIRST — the capture is ARMED and it is NOT yours to fire
+## ⏱ FIRST — THE CAPTURE IS SPENT. There is nothing to fire and nothing to wait for.
 
-**`KalshiRepeatPoll` is a Windows scheduled task.** It fires
-`scripts/capture_odds_repeat_poll.py --confirm-spend-24` at **11:00:00-07:00 =
-18:00:00Z on 2026-08-11**. It is **not** a session timer, **not** a Monitor, and
-**not** a background bash job. It survives session death, terminal close and
-logoff. That was deliberate — see the trap below.
+**Do not re-arm anything. Do not run `capture_odds_repeat_poll.py`.** The 24
+credits are gone and the slate is closed; a second run buys a different day's
+question at full price.
 
-```
-powershell -c "Get-ScheduledTask -TaskName KalshiRepeatPoll | Select-Object State"
-powershell -c "(Get-ScheduledTaskInfo -TaskName KalshiRepeatPoll).LastTaskResult"
-```
+`KalshiRepeatPoll` fired at **18:00:01Z on 2026-08-11**, exit **0**, four polls
+complete at 18:15:02Z, `x_requests_used` 114 → 138. `FIRED.lock` is claimed, so
+the double-fire guard will refuse a repeat — **but the guard is the backstop,
+not the plan.** The scheduled task has no future run time. It can be deleted
+whenever convenient; leaving it costs nothing.
 
-**DO NOT re-arm it. DO NOT run the capture by hand.** Two waiters means **48
-credits, not 24**. A double-fire guard exists — `fire_now.sh` claims
-`C:\Users\josep\AppData\Local\Temp\kalshi_capture\FIRED.lock` with an atomic
-`mkdir` — but the guard is the backstop, not the plan.
+**The result is written up and pushed.** Read
+`docs/measurements/2026-08-11-odds-last-update-repeat-poll-result.md` — not this
+summary — before citing a single number from it.
 
-**After 18:00Z, read these three, in this order:**
+**Headline: CONFIRMED — `last_update` is NOT a per-line reprice timestamp.**
+`S = 0.9376` at the pre-registered pair 1 → 3 (~300 s), `N_adv = 31`, PC1–PC6
+met, audited **SURVIVES NARROWED**.
 
-```
-C:\Users\josep\AppData\Local\Temp\kalshi_capture\waiter.trace
-C:\Users\josep\AppData\Local\Temp\kalshi_capture\EXIT_CODE
-C:\Users\josep\AppData\Local\Temp\kalshi_capture\capture.log
-```
+**And the part that must travel with it:** at **900 s — the deployed
+`MAX_ODDS_AGE_S`** — `S = 0.8860`, **mid-band, UNRESOLVED**. No rule was broken;
+the primary pair was fixed by index before the data and PC2 passed, so the
+fallback correctly never fired. **The verdict is a statement about the ~300 s
+interval and may never be cited interval-free.**
 
-**Read the exit code, not the prose.** `0` = polled. `3` = P4 failed, nothing
-spent. `4` = P1 failed, nothing spent. `6` = aborted in flight on a credit
-backstop. Anything else, read the log before saying a word about it.
+**This does NOT move `actionable` from 0 to 23.** ADR 0025's inversion stands:
+a scrape clock makes `odds_age_ms` a *lower* bound, so every rejection is still
+correct. What changed is what **ADR 0020 may claim**, not what the gate
+surfaces. **Question 1 is answered, not converted into a runway.**
 
-**The window was measured free from ESPN and independently re-derived this
-session by calling `check_slate()` at candidate `T0` values: P4 passes only
-17:30Z–22:00Z on 2026-08-11.** At 22:30Z a kickoff enters the 20-minute
-blackout; 2026-08-12 is too thin all day (1 event within 6 h at 12:00Z). 25
-known MLB kickoffs, earliest 22:40Z. **There is no second attempt at this
-slate.** If it did not fire, re-derive the next window free — the dry-run is
-free and prints the kickoff list.
+**Quote §7's mandatory qualifier verbatim from the result file. Do not
+paraphrase it, and do not reach for Amendment B — B1 is licensed only at
+`S_strict >= 0.90`, this capture was 0.2903, and B1's sentence ("no price change
+was observed anywhere") is FALSE here: 22 of 31 books moved a price.** A first
+reading of the result had those two legs backwards.
 
-**Then analyse.** `scripts/analyse_odds_repeat_poll.py` — see §2 below before
-you trust a single number it prints.
-
-### The exact command, derived 2026-08-11 16:45Z so nobody re-derives it at 18:01Z
-
-Every value below was read off the code or the live scheduler, not remembered:
-
-- **What fires it:** `Get-ScheduledTask KalshiRepeatPoll` → `bash.exe -c "sh
-  .../4e69ab52-.../scratchpad/fire_now.sh"`. **That path is a *previous*
-  session's scratchpad and was verified to still exist** (1,068 bytes,
-  06:04:21 local). If a temp sweep ever removes it the task fires into nothing
-  and spends nothing — check `Test-Path` before assuming a silent success.
-- **`fire_now.sh` passes no `--out-dir`**, so the default at
-  `capture_odds_repeat_poll.py:701-703` applies: `docs/measurements/data`.
-- **Artefact names** (`:671`, `run_tag` = `T0` as `%Y%m%dT%H%M%SZ` at `:578`):
-
-```
-docs/measurements/data/repeat_poll_20260811T180000Z_p1.json   (p1..p4)
-```
-
-- **The analyser takes the files as bare positional args** (`:469`,
-  `nargs="+"`), no flags:
+### Re-running the analyser is free, and the artefacts are now in git
 
 ```
 .venv\Scripts\python.exe scripts\analyse_odds_repeat_poll.py `
-  docs\measurements\data\repeat_poll_20260811T180000Z_p1.json `
-  docs\measurements\data\repeat_poll_20260811T180000Z_p2.json `
-  docs\measurements\data\repeat_poll_20260811T180000Z_p3.json `
-  docs\measurements\data\repeat_poll_20260811T180000Z_p4.json
+  docs\measurements\data\repeat_poll_20260811T180001Z_p1.json `
+  docs\measurements\data\repeat_poll_20260811T180001Z_p2.json `
+  docs\measurements\data\repeat_poll_20260811T180001Z_p3.json `
+  docs\measurements\data\repeat_poll_20260811T180001Z_p4.json
 ```
 
-**Pass each file exactly once.** A repeated `poll_index` is now `exit 2` — it
-used to compare a poll with itself and print **CONFIRMED off a single poll**
-(`a639591`). Fewer than four files can only ever reach UNRESOLVED (PC6).
+Run tag is **`180001Z`**, not `180000Z` — realised `T0` was +1.7 s. The four
+files were **force-added past `.gitignore:33`** because the spend is not
+repeatable; they are in the repo, credential-scanned before staging.
+
+**Pass each file exactly once**, and **never a wildcard** — a partial
+three-file capture from 2026-08-10 (`20260810T220001Z_p1..p3`) sits in the same
+directory and `repeat_poll_*` sweeps it in. A repeated `poll_index` is `exit 2`;
+it used to compare a poll with itself and print **CONFIRMED off a single poll**
+(`a639591`).
 
 ## THE THREE THINGS THAT DECIDE THIS PROJECT
 
@@ -95,14 +78,21 @@ decide whether that changes. Everything else on this file is bookkeeping.
 
 | # | Question | State |
 |---|---|---|
-| 1 | **Is the staleness guard wrong?** `stale_odds` is the **only** suppression code holding back any would-be-actionable row — **23 rows / 9 clusters**. If the guard is wrong, `actionable` goes 0 → 23. | **Fires 18:00Z today.** Not blocked. |
-| 2 | **Is the fee coefficient 0.070 or 0.035?** At 0.035 the taker bar drops 52.00% → **50.88%**, against **0.38 points** of total headroom. That is the difference between "no edge exists" and "an edge exists". | **Blocked on Joe's phone.** 4 cells, **~$3.66**, any time before **2026-08-31**. |
+| 1 | **Is the staleness guard wrong?** `stale_odds` is the **only** suppression code holding back any would-be-actionable row — **23 rows / 9 clusters**. | **ANSWERED 2026-08-11, and it does not open a runway.** The stamp is a scrape clock at ~300 s (CONFIRMED, `S = 0.9376`) and **UNRESOLVED at the deployed 900 s**. ADR 0025's inversion stands, so `actionable` stays **0**. What it licenses is **ADR 0020**, nothing else. |
+| 2 | **Is the fee coefficient 0.070 or 0.035?** At 0.035 the taker bar drops 52.00% → **50.88%**, against **0.38 points** of total headroom. That is the difference between "no edge exists" and "an edge exists". | **Blocked on Joe's phone.** 4 cells, **~$3.66**, any time before **2026-08-31**. **Now the only live question on the board.** |
 | 3 | **Is Kalshi simply the sharp side?** | **DEAD — closed 2026-08-11 on arithmetic.** See §3. |
 
-**Item 2 has been waiting on Joe since 2026-08-10 and is the largest single
-lever on the board.** Do not chase him for it — but if he asks, run the watcher
-*then* and hand him the four lines. Never generate the sheet in advance; a
-pre-generated sheet is stale quotes wearing a live board's look.
+**Item 2 has been waiting on Joe since 2026-08-10, is the largest single lever
+on the board, and is now the *only* one of the three still capable of moving.**
+Do not chase him for it — but if he asks, run the watcher *then* and hand him
+the four lines. Never generate the sheet in advance; a pre-generated sheet is
+stale quotes wearing a live board's look.
+
+> **Read item 1's new state before proposing work off it.** Answering a question
+> is not the same as unblocking one. The capture retired an *unknown*; it did
+> not produce a row. **A session that reads "question 1 answered" and starts
+> building a surfacing path has misread it** — the number that decides whether
+> anything is surfaceable is item 2, and item 2 needs Joe's phone, not an agent.
 
 ## FIRST — check this file before you trust it
 
@@ -112,20 +102,57 @@ git rev-list --count origin/main..HEAD
 git status
 ```
 
-**The tip at writing was `b3fd15a` plus this commit, and by the time you read
-this that is wrong.** At writing: tree clean, **2,339 tests pass** (2,296
-baseline + 43 new), `ruff check .` clean — all three verified by me, not
-inherited.
+**The tip at writing was `26f764d` plus this commit, and by the time you read
+this that is wrong.** At writing: tree clean, **2,494 tests pass**, `ruff check
+.` clean, **and everything is PUSHED** — `origin/main` is level. All verified by
+me, not inherited.
 
-**⚠ SEVEN commits are unpushed** (`57d2ad5`, `efa5bff`, `1aa75bd`, `0e9b310`,
-`a639591`, `b3fd15a`, and this one). Joe last authorised a push through
-`faa9d43`. **Ask before pushing** — every push publishes to the world
-immediately.
+**Joe authorised a push on 2026-08-11 and it ran** — `faa9d43 → 26f764d`, 34
+commits, the repo is public and they are live. **That authorisation was for that
+batch. Ask again before the next push.**
+
+**⚠ USAGE: Joe had ~15% of his allowance left for the four days from
+2026-08-11.** He paused deliberately at a clean point. **Do not open with an
+expensive fan-out.** Nothing in this project has a deadline before
+**2026-08-31** (item 2), so there is no work that justifies burning a reserve.
 
 **Treat every command in this file as a test never seen red** unless it says it
 was run.
 
-## WHAT THIS SESSION DID — four commits, and one of them was load-bearing
+## WHAT THE 2026-08-11 EVENING SESSION DID
+
+**Four commits, all pushed.** In order:
+
+1. **`1f9f866`** — derived the 18:00Z command *before* 18:00Z, and in doing so
+   found the one thing nobody had checked: the scheduled task invoked
+   `fire_now.sh` from a **previous session's scratchpad**. It was still there.
+   Had a temp sweep removed it, the capture would have fired into nothing and
+   **looked exactly like a silent success.**
+2. **`322e4c3`** — the four artefacts, force-added past `.gitignore:33`,
+   credential-scanned first (0 hits for the key literal and for
+   `apiKey`/`Authorization`/`PRIVATE KEY` shapes).
+3. **`12ecc03`** — three repairs from the audit. **PC6 was summing a number our
+   own capture script wrote into its own output**, while the module docstring
+   advertised it as reading the server's credit delta — *the exact artefact it
+   named as the reason PC6 exists*. Four copies of one poll would have passed.
+   §2's in-play exclusion had never been implemented. And the **thirteenth**
+   guard-that-could-not-fail: PC4's `cell_d` conjunct was decoration, deletable
+   with all 43 tests green. Tests **43 → 56**, six mutations seen red.
+4. **`26f764d`** — the result file.
+
+**Two errors caught before publishing, both worth copying:**
+
+- **Amendment B's legs were read backwards.** The draft would have published
+  B1's *"no price change was observed anywhere"* — **false**, 22 of 31 books
+  moved a price. §7's `< 0.90` leg is the one that fires and its words are
+  fixed; quote them from the result file.
+- **A ranking was inherited from the audit that the audit's own table
+  contradicted.** Re-derived every §4 and §6 figure through the analyser's own
+  `compare()`/`statistic_s()`: worst book is **`nordicbet` 0.6000, not an
+  exchange**. **`measurement-skeptic` has never been wrong on a verdict here —
+  and its prose is still prose.** Recompute anything load-bearing.
+
+## SUPERSEDED — the pre-capture session's notes, kept for the lessons only
 
 ### 1. `a639591` — the instrument that spends 24 credits had never been run by anything
 
@@ -265,11 +292,25 @@ question it was proposed for is now **§3 above: dead on power.**
 - **An ADR for the per-database / per-account credit gap** (Amendment A §A6).
   Urgency partly consumed by the P1 clause-3 fix at `39628e0` — the pre-flight
   now reads the account's live count. Real hole, no clock.
-- **ADR 0020 — `stale_odds` reads a scrape clock.** **0020 stays reserved.**
-  Quote **320**, not 440 or 335. **Waits on the 18:00Z result** — §7's mandatory
-  qualifier *dictates* its permitted wording, so writing it first is writing a
-  conclusion ahead of the rule that governs it. **This is the best first item
-  for the post-capture session.**
+- **ADR 0020 — `stale_odds` reads a scrape clock. UNBLOCKED, and it is the
+  first item.** **0020 stays reserved.** Quote **320**, not 440 or 335. The
+  18:00Z result landed, so §7's mandatory qualifier — which *dictates* the
+  permitted wording — is now known and is quoted verbatim in
+  `docs/measurements/2026-08-11-odds-last-update-repeat-poll-result.md` §1.
+  **Take the wording from the result file, never from this summary.**
+
+  Three constraints the ADR must respect, all established before it is written:
+
+  1. It is **restricted to the claim that `odds_age_ms` is not a per-line
+     freshness measure.** That restriction is §7's, not a caution added here.
+  2. It must **carry the interval.** CONFIRMED is a ~300 s statement; at the
+     deployed 900 s the instrument is **UNRESOLVED (`S = 0.8860`)**. An ADR that
+     recommends a remedy for a 900 s window while citing a 300 s verdict is
+     citing interval-free, which the result file forbids.
+  3. It **may not claim the remedy surfaces rows.** ADR 0025's inversion stands.
+
+  It is a **cheap** item — one document, no measurement, no spend — which is why
+  it suits a session opening on a thin usage budget.
 - **`core/fees.py` cannot express the observed fee** — needs an **ADR, not a
   patch**. Six fills fit `k = 0.035` on MLB and `k = 0.070` on ATP with
   four-decimal rounding; `fees.py` expresses neither the split nor the
