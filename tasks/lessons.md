@@ -6332,3 +6332,34 @@ recorded" are different findings and must not render the same.
 
 Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
 [[the-anchor-where-the-error-vanishes-keeps-getting-chosen]].
+
+---
+
+## 2026-08-11 — A "decisions already made" list is a cache with no invalidation
+
+A handoff document carried a section headed *"DECISIONS ALREADY MADE — do not
+re-put these to him"*. One of its rows asserted a settled answer that a **newer
+section of a file in the same repo had already withdrawn**, on evidence the
+newer file states in terms. The stale row won for days, and money stayed queued
+against it, because the heading tells a reader not to check.
+
+**The pattern:** a list whose purpose is to stop a question being re-asked will
+also stop it being **re-checked**, and those are different things. The
+instruction *don't re-litigate* is read as *don't re-read*. This is the same
+shape as a pre-registered rule getting less scrutiny than an improvised one
+(ADR 0026 §4): authority granted to save re-derivation is spent on suppressing
+verification.
+
+**Precedence written down does not fix it.** The document already said, in its
+own opening lines, that the checklist file's top supersedes it. A precedence
+rule tells you who wins **once you have looked at both**; the defect is that the
+heading stops anyone looking at the second one.
+
+**How to apply:** every row in a decisions list carries the date and the
+evidence it rests on, and a row that has been overtaken is **edited to say so**
+rather than deleted or left standing — a quiet row and a live row look
+identical. Before quoting any such row, read the superseding file's top. And
+prefer *"decided on <date>, on <evidence>"* to *"do not re-put this"*: the first
+invites the cheap check, the second forbids it.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]].

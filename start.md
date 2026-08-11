@@ -283,12 +283,21 @@ curl -sS -b jar.txt https://kalshi-cockpit.fly.dev/api/window
 
 | Question | Decision |
 |---|---|
-| Round three, 4 cells or 5 | **(a) four cells, ~$3.66.** Option (b) died with the `.dockerignore` finding |
+| Round three, 4 cells or 5 | **CONTRADICTED — this row is not a decision.** It read *"(a) four cells, ~$3.66"*. `tasks/NEXT.md:90-93` records that cell `W` stays **UNRESOLVED** because Q-W was never answerable (`NEXT.md:74`), which is **not** §1.3's *"no series passed, `W` is not registered"* — so **§Power's four-cell branch is not licensed**. `scripts/watch_fee_bands.py:39-51` refuses to collapse the same distinction. Per line 12-13, NEXT.md's top supersedes this file: **read NEXT.md, not this row** |
 | Is the $5 still worth spending | **Yes.** `core/fees.py` cannot resolve itself; it needs a fill |
 | When Joe places the orders | **On his clock, any time before 2026-08-31** |
 | When the watcher runs | **At the moment he places, never in advance** |
 | Who fires the 24-credit poll | **Done — a scheduled task, decoupled from any session** |
 | Partner's `stale_odds` finding | **ADR 0025.** The audit shrank it tenfold |
+
+**A governance defect this table caused, and it is the reason row 1 now reads as
+it does.** *"Do not re-put these to him"* outranked fresher evidence sitting in
+the same repo: `NEXT.md:90-93` had already withdrawn the four-cell branch, and
+$3.66 stayed queued against it because this list is read as settled rather than
+as dated. **A decision list is a cache, and this one had no invalidation.**
+Before quoting any row here, check whether NEXT.md's top has overtaken it — line
+12-13 says it wins, and a row that has been overtaken must say so rather than go
+quiet.
 
 ## THE STANDING SUSPICION — twelve guards that could not fail
 
