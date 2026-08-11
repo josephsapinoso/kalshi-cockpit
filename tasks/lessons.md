@@ -6199,3 +6199,96 @@ which population you are in.
 Related: [[a-borrowed-number-must-overlap-the-population-you-spend-it-on-in-time]],
 [[a-measurement-with-no-committed-artifact-is-a-rumour]],
 [[a-pooled-number-is-not-a-finding-until-the-parts-agree]].
+
+---
+
+## 2026-08-11 — A registered decision rule can be logically defective, and pre-registration is exactly what stops you noticing
+
+A pre-registration said: *"if `settlement fee_cost == fill-time fee`, then
+readings (i) and (ii) coincide only if settlement charged zero — so H4 is
+declared for that cell."* The data arrived, equality held on all three
+positions, and the rule fired.
+
+**The rule is invalid.** Reading (i) — *the field reports the entry fee only* —
+predicts equality **unconditionally, whatever settlement actually charged**. So:
+
+```
+P(observed == entry | reading i)  = 1     regardless of H4
+P(observed == entry | reading ii) = 1     iff H4
+```
+
+The likelihood ratio for H4 is bounded by the prior mass on reading (ii), which
+was never measured and never registered. The design's separating power existed
+only in the `>` branch, and the `=` branch — the one that landed — is the
+non-discriminating one. **H4 came out untested, not confirmed.**
+
+**Pre-registration is what made this hard to catch, and that is the lesson.**
+The whole point of registering a rule in advance is that you then apply it
+without re-litigating — the rule's authority comes from having been fixed before
+the data. So the moment the data lands, the rule is treated as a *fact about
+what to conclude* rather than as an argument that could be wrong. A registered
+rule gets **less** scrutiny at the moment of use than an improvised one would,
+precisely because it was registered.
+
+**And the same registration had already produced one defective reading.** Its
+linearity-bonus clause called `fee(F2) = 10 × fee(F1)` *"evidence for
+per-contract scope"*; that was refuted coefficient-free by a third fill. Two
+auxiliary readings, both logically defective, in one document. **The base rate
+of defects inside a registration is a measurable thing and it is not zero.**
+
+**The tell was available in the registration's own words.** Its opening
+paragraph said the two readings *"cannot be separated"* by settlements and that
+the fills separate them. The declaration rule two hundred lines later
+contradicted its own preamble — but the preamble is prose and the rule is a
+procedure, and a procedure is what a reader executes.
+
+**How to apply:** when a registered decision rule fires, ask one question before
+recording its verdict — **does the losing hypothesis also predict what I
+observed?** If it does, the branch is non-discriminating no matter what the rule
+says, and the honest output is UNTESTED. Register **both** branches' predictions
+under **both** hypotheses when the rule is written, not just the branch you
+expect. And when a registration is found to contain one defective reading, audit
+its other auxiliary readings rather than assuming the fault was local — this
+one had two.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[an-amended-registrations-body-is-not-the-registration]],
+[[the-power-of-an-instrument-is-not-the-power-of-the-question]],
+[[a-lower-bound-rejects-correctly]].
+
+---
+
+## 2026-08-11 — The anchor where the error vanishes keeps getting chosen, and it looks like the natural place to measure
+
+Three times now, a check has been run at exactly the point where the thing it
+was meant to detect is invisible:
+
+- `clv_tenths(500, 500, "no")` — 50c is where the side-flip error disappears.
+- `test_a_stale_book_suppresses` at 4× the threshold — where an off-by-one in
+  the limit cannot show.
+- A settlement fee read at `P ∈ {0, 1}` — where a charge of the exchange's own
+  `k·C·P(1−P)` shape is **identically zero by construction**, so "no exit fee"
+  and "an exit fee by the same formula" return the same answer.
+
+**These were not careless choices. Each is the most natural place to look.** 50c
+is the midpoint. 4× the limit is unambiguously stale. Settlement is when a
+position resolves. The obvious anchor and the blind anchor are the same point,
+and that is why this keeps happening rather than happening once.
+
+**Why:** a quantity that is symmetric, extreme, or definitional is easy to
+reason about — which is what makes it attractive — and those are exactly the
+properties that make competing hypotheses agree there. Disagreement lives in the
+awkward interior.
+
+**How to apply:** before recording a check's result, ask **what value the rival
+hypothesis predicts at this exact input**. If it predicts the same thing, the
+observation is non-discriminating and no verdict may be declared from it, no
+matter how clean the number is. Choose anchors where the candidates *disagree
+most*, not where the arithmetic is tidiest — and when an anchor is forced on you
+(a settlement only ever happens at resolution), say in the write-up that the
+design cannot separate the readings there, rather than reporting the agreement
+as a result.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[a-registered-decision-rule-can-be-logically-defective]],
+[[seven-guards-found-that-could-not-fail]].

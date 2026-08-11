@@ -875,6 +875,35 @@ holds, and **H4** (settlement charges no second fee). **Does not settle:** the
 rate attribution — H-SERIES / H-SPORT / H-SIZE / H-PRICE / H-NOTIONAL are
 untouched.
 
+> **RAN 2026-08-11T05:32Z, exit 0 — and this sentence was HALF WRONG. It is
+> corrected here rather than fulfilled.** See
+> `docs/measurements/2026-08-11-settlement-fee-capture-result.md`.
+>
+> - **The contradiction:** reading 3 is refuted — but only for `KXMLBGAME`, on
+>   2026-08-11. The 11 baseline rows are NFL/NBA/futures settled 2025-11 →
+>   2026-02 and have no fills to compare against, so §A2.1's confound applies
+>   and is **worse** here than at fill time: the ATP position has not settled,
+>   so there is **no cross-sectional lever at all**.
+> - **H4 is NOT settled. It is UNTESTED.** The observation landed in the branch
+>   of Amendment A **§A8** where its two readings are indistinguishable —
+>   reading (i) predicts equality *unconditionally, whatever settlement
+>   charged*. **§A8's declaration rule is logically defective and a future
+>   session must not apply it.** It is the *second* defective auxiliary reading
+>   in that registration; §S8 records the first.
+> - The H4 denominator is **1, not 3** — two positions lost, so they had no
+>   proceeds for a charge to be levied on. And at settlement `P ∈ {0,1}`, where
+>   a `k·C·P(1−P)` charge is **identically zero**, so the one eligible row
+>   cannot separate the readings either.
+> - **This downgrades confidence rather than raising it:** `settlement_fee()`
+>   (`core/fees.py:197`) is consumed by `core/ev.py:89,140` and
+>   `core/parlay.py:213`, so **every EV figure in the tool rests on H4** — now
+>   explicitly untested rather than pending.
+> - **The bar does not move.** No new (price, size) cell was observed; the
+>   verdict stays **H3−** and the `max()` hedge stays. The `k = 0.035` MLB
+>   reading implies 50.88% against a 0.38-point headroom — **3.9× the good news
+>   in the whole record, from two cells on one sport on one day. Treat it as a
+>   bug.**
+
 **Then, also free, before any round three:** census the **minimum `KXMLBGAME` ask
 per event over the stored `kalshi_markets` record** — it decides whether the
 sub-15c band is *ever* reachable, i.e. whether the dead end below is real or was

@@ -46,14 +46,50 @@ clean, **2,268 tests pass**, `ruff check .` clean.
 was run. The previous edition's headline health check returned 401 and always
 would have.
 
-## ⏱ TIME-SENSITIVE, free, and the window is OPEN if the clock has passed it
+## ✅ THE 05:30Z CAPTURE HAS RUN. Exit 0. Do not re-run it for §A5.
+
+Ran **2026-08-11T05:32Z**. Settlements **55 → 58**, fills **0 → 6**. §A5 has
+returned a value. Full write-up:
+`docs/measurements/2026-08-11-settlement-fee-capture-result.md`, audited by
+`measurement-skeptic` → **SURVIVES NARROWED**.
+
+**What it settled:** reading 3 (the cent-display rule) is refuted — **for
+`KXMLBGAME`, on 2026-08-11 only.** §A2.1's confound is **worse** here than at
+fill time: the ATP position has not settled, so there is **no cross-sectional
+lever at all** and category and era differ together.
+
+**What it did NOT settle, against the first reading of it — including mine:**
+**H4 is UNTESTED, not confirmed.** The observation landed in the branch of
+Amendment A **§A8** where its two readings are indistinguishable. **§A8's
+declaration rule is logically defective — a future session must not apply it.**
+It is the *second* defective auxiliary reading in that registration (§S8 records
+the first). The H4 denominator is **1, not 3**: two positions lost, and at
+settlement `P ∈ {0,1}` a `k·C·P(1−P)` charge is **identically zero**.
+
+**This LOWERS confidence.** `settlement_fee()` (`core/fees.py:197`) is consumed
+by `core/ev.py:89,140` and `core/parlay.py:213` — **every EV figure in the tool
+rests on H4**, now explicitly untested rather than pending.
+
+**⚠ THE NUMBER NOT TO ACT ON.** The MLB fills imply `k = 0.035`, which would put
+the bar at **50.88%** against 52.00% — a 1.12-point drop on a 0.38-point
+headroom, **3.9× the good news in the whole record**, from **two cells, one
+sport, one day**. **The verdict stays H3− and the `max()` hedge stays.** Six
+things must be true before the bar moves; they are listed in §3 of the result
+document and **none of them are done**. Over-estimating the fee costs
+opportunity; under-estimating it costs money.
+
+**Still outstanding:** the ATP position `…CERETC` has not settled. **§S9 fixed
+in advance that it must not be read** — two readings both predict $0.18 there.
+Re-running the capture is free and would pick it up, but it **cannot**
+discriminate anything, so it is not queued as evidence.
 
 ```
 .venv\Scripts\python.exe scripts\capture_fills_fixture.py
 ```
 
-**Not before 2026-08-11T05:30Z. Check the clock first.** Laptop only, needs
-`.env`, seconds, no money, no orders.
+Laptop only, needs `.env`, seconds, no money, no orders. The 05:30Z gate has
+passed and the run is done — the command is kept here only because the ATP
+position is still unsettled.
 
 **CORRECTED 2026-08-11: this script has never returned `PREMATURE`.** That word
 appears nowhere in it and never did — a human read the output twice and supplied
@@ -70,9 +106,14 @@ ATP position may not be read alone** — `KXATPDOUBLES-…CERETC` expires first 
 is registered as non-discriminating (result §S9). Predictions are committed —
 **point at them, do not copy**: §S9 of
 `docs/measurements/2026-08-10-fee-model-fill-calibration-result.md`, and
-Amendment A §A5/§A8 of the matching pre-registration. §A5 has still not returned
-a value, so round three's §6.2 substitution stays **CONDITIONAL AND PENDING**
-and **H4 remains untested**.
+Amendment A §A5/§A8 of the matching pre-registration.
+
+**§A5 HAS NOW RETURNED A VALUE** (2026-08-11T05:32Z). **H4 still remains
+untested** — but for a different and stronger reason than "the data has not
+arrived": the data arrived and landed in §A8's **non-discriminating branch**.
+Round three's §6.2 substitution is **no longer pending on §A5**; check the
+round-three registration for what, if anything, it now depends on, rather than
+assuming this released it.
 
 ## DO NOT RE-OPEN THESE. Both led a previous handoff.
 
