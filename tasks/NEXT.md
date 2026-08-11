@@ -40,6 +40,25 @@ corrects. Boundary tests added; 4 mutations seen red.
 `backend/core/suppression.py:119`. At least five committed documents say
 fourteen — correct them as those files are next touched.
 
+> **AMENDED 2026-08-11: four of those five cannot be corrected, and that is the
+> finding.** The five sites are `tasks/NEXT.md:2056` and the bodies of
+> `2026-08-10-preregistration-clean-shortfall-distribution.md:235`,
+> `-fresh-odds-edge-distribution.md:699`, `-joint-bound.md:409`, and
+> `-odds-last-update-repeat-poll.md:866`. **Four are registration bodies**, and
+> a registration body is never edited — amendments are appended. So "correct
+> them as those files are next touched" is **not executable** for four of five;
+> touching one of those files does not license editing its body.
+>
+> **Done:** `tasks/NEXT.md:2056` is corrected, because it is a checklist and not
+> a registration.
+>
+> **The substantive claim survives the correction at every site.** All **twelve**
+> codes contain underscores, so the `instr`-not-`LIKE` predicate those sentences
+> justify is unaffected. Only the count is wrong, and the correction of record
+> lives in ADR 0025 §7 and here. **Do not append an amendment to a registration
+> to fix a count** — an amendment that carries no consequence for a threshold or
+> a decision rule adds a document and dilutes the ones that do.
+
 ## 2026-08-10 — `inspect_live_db.py` RUNS NOW, and answers ONE of the four questions it was queued for
 
 The script is finished: refusal block gone, **68 tests**, **17 mutations all seen
@@ -2053,7 +2072,10 @@ contract is large against the headroom — but it does mean the $5 buys less tha
 
 - **The freshness predicate is `instr`, not `LIKE`.**
   `instr(',' || suppressed_reason || ',', ',stale_odds,') = 0` — because `_` is a
-  `LIKE` wildcard and **all fourteen suppression codes contain underscores.**
+  `LIKE` wildcard and **all twelve suppression codes contain underscores.**
+  (Corrected 2026-08-11 from "fourteen". The count was wrong; the design point
+  is unaffected — all twelve do contain underscores, verified by reading
+  `backend/core/suppression.py:119-131`.)
   This is Amendment 1's D1 defect one step further on.
 - **The edge is recomputed, never read.** `edge_after_fees_tenths(ask,
   contracts=1, fair)` per row; the stored column is selected only as
