@@ -88,6 +88,40 @@ written **verbatim** -- a redacted capture is a hand-constructed payload wearing
 a capture's name, which is the failure this file exists to prevent -- and the
 promotion into `tests/fixtures/` happens in the same commit as the test that
 loads it, once a human has read the field list printed below.
+
+Exit codes, and why the settlements half now has one
+-----------------------------------------------------
+Until 2026-08-11 the settlements half of this script had **no return at all**.
+It printed prose and fell through to `return 0`. Two handoffs recorded that
+this script "returned PREMATURE" -- a word that appears nowhere in it, then or
+now, because a human read the output and supplied it. Meanwhile the zero-fills
+branch returned early, *before* the settlements half could report, and since
+the calibration trades have not been placed, zero fills is guaranteed. So the
+exit code answering the registered question (Amendment A §A5, which is about a
+**settlement**) was unreachable by construction.
+
+    0  new settlements AND fills observed
+    1  the fills envelope was renamed -- stop
+    2  no usable Kalshi credential -- stop
+    3  settlements moved, fills have not
+    4  PREMATURE: nothing new has settled
+    5  settlements absent or renamed, contradicting the 55 measured -- stop
+
+What this script does NOT establish
+------------------------------------
+- **That a settlement is genuinely absent.** The premature test is a **count**
+  against a baseline of 55, not a ticker-set difference, because a ticker list
+  in a public repo discloses what was bet. So a new settlement landing in the
+  same run that an old one ages out of retention reads as PREMATURE. That error
+  runs in the safe direction -- it refuses rather than substitutes -- but it is
+  an error, and `/portfolio/fills` has already demonstrated that this account's
+  history does age out.
+- **Anything about the fee model.** It captures; it computes nothing. The
+  settlements it writes are position-level, so they pin a coefficient and
+  cannot settle per-order versus per-contract rounding.
+- **That exit 0 means the calibration worked.** It means two payloads were
+  non-empty and larger than a baseline. Reading a fee off them is a separate
+  step with its own reconciliation.
 """
 
 from __future__ import annotations
@@ -126,9 +160,134 @@ OUT_SETTLEMENTS = CAPTURES / "portfolio_settlements.json"
 # trades produce.
 LIMIT = 100
 
+# Measured 2026-08-10 against the production account: `/portfolio/settlements`
+# returned **55** real settled positions dated 2025-11-27 to 2026-05-10.
+#
+# That is the BASELINE, and it is stored as a COUNT rather than a ticker list on
+# purpose: this repo is public, and a settlement ticker discloses what was bet.
+# See the publication note in the module docstring.
+#
+# A run returning this many or fewer has observed NOTHING NEW. That state is
+# **premature** -- the word two handoffs used for it, which this script could
+# not previously say -- and premature is emphatically **not** a zero. No fee, no
+# charge and no $0.00 may be recorded anywhere from a run that returns
+# EXIT_SETTLEMENTS_PREMATURE. An absent settlement row means the position has
+# not settled, never that it settled free.
+BASELINE_SETTLEMENT_COUNT = 55
+
+# Settlement states. Four, not two: the difference between "nothing new yet",
+# "the account's history vanished" and "the envelope was renamed" demands three
+# different responses, and they are indistinguishable from an exit code of 0.
+SETTLEMENTS_OK = "OK"
+SETTLEMENTS_PREMATURE = "PREMATURE"
+SETTLEMENTS_ABSENT = "ABSENT"
+SETTLEMENTS_NO_KEY = "NO_KEY"
+
+# Fill states, on the same principle.
+FILLS_OK = "OK"
+FILLS_NONE = "NONE"
+FILLS_NO_KEY = "NO_KEY"
+
+# Exit codes. 0/1/2/3 keep the meanings they already had, so anything reading
+# this script's status is not silently re-pointed; 4 and 5 are new.
+EXIT_OK = 0
+EXIT_FILLS_ENVELOPE = 1
+EXIT_CONFIG = 2
+EXIT_NO_FILLS = 3
+EXIT_SETTLEMENTS_PREMATURE = 4
+EXIT_SETTLEMENTS_CONTRADICTED = 5
+
 # Substrings that mark a field as worth a human glance before the repo is
 # public. Deliberately broad -- the cost of over-flagging is one read.
 _ID_SHAPED = ("id", "user", "account", "member", "owner")
+
+
+def classify_settlements(
+    settlements: Any, baseline: int = BASELINE_SETTLEMENT_COUNT
+) -> str:
+    """Which of the four settlement states this payload is in.
+
+    Pure, so the state machine can be driven to every branch by a test without
+    a network, a credential or an account. The previous version of this script
+    had no such function and no test file at all: the settlements half printed
+    prose and then fell through to `return 0`, so a run that observed nothing
+    new was indistinguishable, to any caller, from a run that observed the
+    thing it was waiting for. Two handoffs recorded the word "premature" that
+    this script had no way to emit.
+    """
+    if settlements is None:
+        return SETTLEMENTS_NO_KEY
+    if not settlements:
+        return SETTLEMENTS_ABSENT
+    if len(settlements) <= baseline:
+        return SETTLEMENTS_PREMATURE
+    return SETTLEMENTS_OK
+
+
+def classify_fills(fills: Any) -> str:
+    """Which of the three fill states this payload is in. Pure."""
+    if fills is None:
+        return FILLS_NO_KEY
+    if not fills:
+        return FILLS_NONE
+    return FILLS_OK
+
+
+def decide_exit_code(settlements_status: str, fills_status: str) -> int:
+    """Collapse both halves into one status, settlements first.
+
+    Ordering is a decision, not a convenience. A renamed or emptied envelope
+    outranks everything -- it means the wire moved and no reading is
+    trustworthy. Below that, the **settlements** verdict outranks the fills
+    verdict, which reverses the old control flow: the previous version returned
+    on zero fills *before* the settlements half could report, and since the
+    calibration trades have not been placed, zero fills is guaranteed. The
+    registered question (Amendment A §A5) is about a settlement, so the exit
+    code that answers it was unreachable by construction.
+    """
+    if settlements_status in (SETTLEMENTS_NO_KEY, SETTLEMENTS_ABSENT):
+        return EXIT_SETTLEMENTS_CONTRADICTED
+    if fills_status == FILLS_NO_KEY:
+        return EXIT_FILLS_ENVELOPE
+    if settlements_status == SETTLEMENTS_PREMATURE:
+        return EXIT_SETTLEMENTS_PREMATURE
+    if fills_status == FILLS_NONE:
+        return EXIT_NO_FILLS
+    return EXIT_OK
+
+
+# What each exit code means, printed on the way out. A code nobody can read is
+# the same defect as no code at all.
+EXIT_MEANING: dict[int, str] = {
+    EXIT_OK: "OK -- new settlements AND fills observed.",
+    EXIT_FILLS_ENVELOPE: "STOP -- the fills envelope was renamed.",
+    EXIT_CONFIG: "STOP -- no usable Kalshi credential.",
+    EXIT_NO_FILLS: "NO FILLS YET -- settlements moved, fills have not.",
+    EXIT_SETTLEMENTS_PREMATURE: (
+        "PREMATURE -- nothing new has settled. Not a zero, not a null, "
+        "and R5 does not fire."
+    ),
+    EXIT_SETTLEMENTS_CONTRADICTED: (
+        "STOP -- settlements absent or renamed, contradicting the "
+        "2026-08-10 measurement of 55."
+    ),
+}
+
+
+def _verdict(settlements_status: str, fills_status: str) -> int:
+    """Announce the combined verdict and return its exit code.
+
+    Every `return` in `capture()` goes through here, so no exit path can leave
+    without saying which of the six states it is in. That is the whole defect
+    this replaces: the settlements half printed prose and fell through.
+    """
+    code = decide_exit_code(settlements_status, fills_status)
+    print()
+    print("=" * 70)
+    print(f"VERDICT  settlements={settlements_status}  fills={fills_status}")
+    print(f"exit {code}: {EXIT_MEANING[code]}")
+    print("=" * 70)
+    return code
 
 
 def _describe(records: list[dict], label: str) -> tuple[Counter, list[str]]:
@@ -210,7 +369,7 @@ async def capture() -> int:
         config = KalshiConfig.load()
     except ConfigError as exc:
         print(f"Cannot reach Kalshi: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG
 
     async with KalshiRestClient(config) as api:
         # Deliberately NOT `api.fills()` / `api.settlements()`. Those helpers
@@ -229,14 +388,16 @@ async def capture() -> int:
     print("envelope keys:", sorted(settlements_payload.keys()))
 
     settlements = settlements_payload.get("settlements")
-    if settlements is None:
+    settlements_status = classify_settlements(settlements)
+
+    if settlements_status == SETTLEMENTS_NO_KEY:
         print(
             "\nNo 'settlements' key. The envelope has been renamed since it "
             "was measured on 2026-08-10; KalshiRestClient.settlements() will "
             "now raise, which is correct. Fix the key before reading anything.",
             file=sys.stderr,
         )
-    elif not settlements:
+    elif settlements_status == SETTLEMENTS_ABSENT:
         print(
             "\nZero settlements -- which CONTRADICTS the 2026-08-10 "
             "measurement of 55 on this account. Either the account changed or "
@@ -246,6 +407,24 @@ async def capture() -> int:
         )
     else:
         keys, fee_shaped = _describe(settlements, "settlement(s)")
+        if settlements_status == SETTLEMENTS_PREMATURE:
+            # The state the registration calls premature, said out loud for the
+            # first time. It is a STATE, not an error and not a zero.
+            print(
+                f"\n!! PREMATURE. {len(settlements)} settlement(s) returned, "
+                f"against a baseline of {BASELINE_SETTLEMENT_COUNT} measured "
+                "2026-08-10. NOTHING NEW HAS SETTLED.\n"
+                "!! Amendment A §A5 has still not returned a value, so round "
+                "three's §6.2 substitution stays CONDITIONAL AND PENDING and "
+                "H4 remains untested.\n"
+                "!! This is NOT a $0.00 charge and NOT a null. Record no fee, "
+                "no zero and no settlement figure from this run -- the "
+                "position has not settled, which is a different fact from "
+                "settling free. R5 does not fire.\n"
+                "!! The capture below is still written: it is the same "
+                "verbatim history, and it is evidence, not a result.",
+                file=sys.stderr,
+            )
         _write(
             OUT_SETTLEMENTS,
             "/portfolio/settlements",
@@ -269,7 +448,9 @@ async def capture() -> int:
     print("envelope keys:", sorted(fills_payload.keys()))
 
     fills = fills_payload.get("fills")
-    if fills is None:
+    fills_status = classify_fills(fills)
+
+    if fills_status == FILLS_NO_KEY:
         print(
             "\nNo 'fills' key in the response.\n"
             "The envelope has been renamed since it was measured 2026-08-09.\n"
@@ -278,9 +459,9 @@ async def capture() -> int:
             "portfolio as the explanation.",
             file=sys.stderr,
         )
-        return 1
+        return _verdict(settlements_status, fills_status)
 
-    if not fills:
+    if fills_status == FILLS_NONE:
         # A state, not an error -- and the message has to say which, because
         # "no fills yet" and "the parser cannot see them" look identical from
         # outside and demand opposite responses.
@@ -297,7 +478,7 @@ async def capture() -> int:
             "than three months and its lower bound is unmeasured.",
             file=sys.stderr,
         )
-        return 3
+        return _verdict(settlements_status, fills_status)
 
     keys, fee_shaped = _describe(fills, "fill(s)")
     if not fee_shaped:
@@ -327,7 +508,7 @@ async def capture() -> int:
         "the\nhand-constructed fee assertion in tests/test_execution.py. A "
         "fixture\nthat no test loads is decoration."
     )
-    return 0
+    return _verdict(settlements_status, fills_status)
 
 
 if __name__ == "__main__":

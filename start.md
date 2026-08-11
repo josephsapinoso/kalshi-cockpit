@@ -37,8 +37,17 @@ would have.
 .venv\Scripts\python.exe scripts\capture_fills_fixture.py
 ```
 
-**Not before 2026-08-11T05:30Z. Check the clock first.** It has returned
-`PREMATURE` twice. Laptop only, needs `.env`, seconds, no money, no orders.
+**Not before 2026-08-11T05:30Z. Check the clock first.** Laptop only, needs
+`.env`, seconds, no money, no orders.
+
+**CORRECTED 2026-08-11: this script has never returned `PREMATURE`.** That word
+appears nowhere in it and never did — a human read the output twice and supplied
+it. The settlements half had **no return statement at all** and fell through to
+`return 0`, and the zero-fills branch returned *before* it could report, so the
+exit code answering §A5 (which is about a **settlement**) was unreachable by
+construction. Fixed 2026-08-11: six exit codes, `4` is a real PREMATURE, all
+thirteen mutations seen red (`tests/test_capture_fills_fixture.py`, which is the
+first test file this script has ever had). **Read the exit code, not the prose.**
 
 **An absent settlement row is NOT a $0.00 charge.** The state is *premature*,
 never *null*; **no zero may be recorded anywhere**. **R5 does not fire.** **The
@@ -131,14 +140,23 @@ and arming is a code change (ADR 0018).
 > `inspect_live_db.py` **cannot read that table** (see item 3). So **§Power's
 > four-cell branch is not licensed** — nothing has failed, nothing has been run.
 >
-> **(a) Run 4 cells now** (~$3.66). Works. But the all-LOW vector then declares
-> **H-SERIES, H-SPORT and H-NOTIONAL at once** and must be reported as a
-> three-way non-separation.
-> **(b) Add a Q-W query, Joe deploys, then run 5.** The fifth cell costs $0.39
-> and buys real separation. Three weeks to expiry.
+> **DECIDED 2026-08-11 by Joe: (a), four cells, ~$3.66.** The case for (b)
+> rested entirely on a deploy being free because one was already coming. It
+> was not — see the `.dockerignore` correction in item 3. Option (b)'s real
+> price is a widening of what ships to the money machine, plus a query, plus a
+> deploy carrying nothing else.
 >
-> **Recommend (b) if a deploy is coming anyway; (a) if not.** Do not decide this
-> for him.
+> **The cost of (a) is stated, not hidden:** if the vector comes back all-LOW it
+> declares **H-SERIES, H-SPORT and H-NOTIONAL at once**, and it must be reported
+> as a **three-way non-separation** — not as three findings.
+>
+> **Cell `W` stays UNRESOLVED**, which is *not* §1.3's "no series passed", so
+> §Power's four-cell branch is still not licensed. Nothing failed; nothing ran.
+>
+> **Placement is on Joe's clock** (decided 2026-08-11): the phone sheet is a
+> standing procedure, the watcher runs at the moment he places and not before,
+> any time before the **2026-08-31** expiry. A sheet generated in advance is
+> stale quotes wearing the look of a live board.
 
 Justify the round on cells **`R`** and **`W`**, which earn on every branch
 including `H-NONE`. **It is NOT the A-versus-F trigger** — ADR 0023's deferral
@@ -165,10 +183,21 @@ survive its own whitelist**, which reads only `api_credits`, `odds_sweep_log`,
 | the 423 non-anchored rows | **NOT ANSWERABLE** — `fair_prices`, 0 occurrences |
 | raw `closing_lines` | **PARTIAL** — pinned to `recommendations.id <= --pin` |
 
-**Adding a `kalshi_quotes` query for Q-W is the highest-value change to this
-file**, and it is item 2's option (b). A new query is a real change to what runs
-against the money box: it needs its own review, and `Dockerfile:66` means it
-reaches the machine only at the **next deploy**.
+**CORRECTED 2026-08-11 — and the correction killed option (b).** This block used
+to say a `kalshi_quotes` query "reaches the machine only at the next deploy",
+citing `Dockerfile:66`. **A deploy is not sufficient and no deploy is pending.**
+
+- `.dockerignore:59-61` is `scripts/*`, `!scripts/run_loop.py`,
+  `!scripts/migrate_db.py`. **Two of thirty-four scripts ship.**
+  `inspect_live_db.py` is not one of them, so it has **never read the
+  production database** — its tests build a `tmp_path` file from the schema
+  (`tests/test_inspect_live_db.py:85-96`).
+- `git diff --name-only 799a5f3..HEAD` (the deployed SHA to HEAD) touches
+  **zero** files that enter the image. So "recommend (b) if a deploy is coming
+  anyway" resolves to: **a deploy is not coming anyway.**
+
+Option (b) is therefore a `.dockerignore` widening **plus** a new query **plus**
+a deploy that exists only to carry them. **Joe chose (a): four cells.**
 
 ### 4. Still open, unchanged
 

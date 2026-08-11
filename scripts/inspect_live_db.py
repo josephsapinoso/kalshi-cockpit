@@ -31,8 +31,31 @@ string constant; every number a caller can influence -- the tail length, the
 day boundary, the recommendation pin, the row cap -- is a bound parameter.
 There is no table name, column name, or predicate assembled from input.
 
-`scripts/` is copied into the image at `Dockerfile:66`, so a new query here is
-usable only from the **next deploy** onward.
+**THIS SCRIPT IS NOT ON THE DEPLOYED MACHINE, and a deploy alone will not put
+it there.** An earlier version of this paragraph said `scripts/` is copied into
+the image at `Dockerfile:66`, so a new query would be usable "from the next
+deploy onward". That is wrong in a way that matters, and it was repeated in
+`tasks/NEXT.md` and `start.md` where it was used to price a decision.
+
+`Dockerfile:66` does say `COPY scripts/ ./scripts/`, but `.dockerignore:59-61`
+strips the directory out of the build context before the Dockerfile ever sees
+it:
+
+    scripts/*
+    !scripts/run_loop.py
+    !scripts/migrate_db.py
+
+Two of thirty-four scripts ship. This one is not among them, and
+`.dockerignore` has not changed since `17c24f0`, long before the running image
+was built. `tests/test_has_callers.py:299-302` already records the count.
+
+So this script **has never read the production database**, and its test suite
+does not contradict that: the fixture at `tests/test_inspect_live_db.py:85-96`
+is a `tmp_path` file built from the schema. "Exits 0 on a real database" means
+a real *schema*, not real rows. Making it usable on the live machine takes
+**both** an `!scripts/inspect_live_db.py` line in `.dockerignore` -- a widening
+of what ships to the machine that holds real money, and therefore its own
+review -- **and** a deploy. Adding a query without the first ships nothing.
 
 What this does not establish
 ----------------------------

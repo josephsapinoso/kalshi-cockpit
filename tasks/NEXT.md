@@ -303,11 +303,23 @@ SELECT called_ms, endpoint, sport_key, cost, remaining_reported, used_reported
 FROM api_credits ORDER BY called_ms DESC LIMIT 5;
 ```
 
-**Joe's ruling permits a committed script by path only, and `Dockerfile:66`
-copies `scripts/` into the image — so a script committed today reaches the live
-machine only at the next deploy.** `scripts/inspect_live_db.py` is being written
-for exactly this. **Do not reach for `python -c` to get around it; that is the
-drift already recorded in `lessons.md`.**
+**Joe's ruling permits a committed script by path only. Do not reach for
+`python -c` to get around it; that is the drift already recorded in
+`lessons.md`.**
+
+> **CORRECTED 2026-08-11.** This paragraph used to add that `Dockerfile:66`
+> copies `scripts/` into the image, "so a script committed today reaches the
+> live machine only at the next deploy". **A deploy is not sufficient.**
+> `.dockerignore:59-61` is `scripts/*` with `!scripts/run_loop.py` and
+> `!scripts/migrate_db.py` — two of thirty-four scripts ship, and
+> `inspect_live_db.py` is not one of them. Verified by reading
+> `.dockerignore` directly and by `git diff --name-only 799a5f3..HEAD`, which
+> touches no file that enters the image.
+>
+> The consequence is a decision, not a footnote: making the inspector usable on
+> the live machine requires **widening `.dockerignore`** — a change to what
+> ships to the machine holding real money — **plus** a deploy. See the
+> round-three entry below; this is why the four-cell branch was chosen.
 
 ### A verb to keep honest
 

@@ -5943,3 +5943,174 @@ way.
 Related: [[a-subagents-confident-negative-is-the-one-result-you-must-re-run]],
 [[a-measurement-with-no-committed-artifact-is-a-rumour]],
 [[verification-methods-that-lie]].
+
+---
+
+## 2026-08-11 — A verdict the instrument cannot emit was written into two handoffs as a result
+
+Two consecutive handoffs said `scripts/capture_fills_fixture.py` "has returned
+`PREMATURE` twice". **The string `PREMATURE` appears nowhere in that script and
+never has.** It appears in exactly two places in the repo, `start.md:41` and
+`tasks/NEXT.md:360` — both handoffs, neither the instrument.
+
+What actually happened is that a human ran it, read the prose it printed, and
+supplied a word for what they saw. That word then hardened: the second handoff
+inherited it from the first, and by the third it was being used to plan a
+retry policy for a state the script had no way to report.
+
+**Underneath the vocabulary was a real defect the word concealed.** The
+settlements half of that script had **no return statement at all** — it printed
+three paragraphs and fell through to `return 0`. Worse, the zero-fills branch
+returned *before* the settlements half could report, and since the calibration
+trades have not been placed, zero fills is guaranteed. So the exit code
+answering the registered question — Amendment A §A5, which is about a
+**settlement** — was unreachable by construction. The script could not fail,
+and the word "PREMATURE" is precisely what made nobody check.
+
+**Why:** a human-supplied label is indistinguishable in a handoff from a
+machine-emitted one. Both arrive as a bare capitalised token in backticks. The
+machine-emitted one is falsifiable — you can grep for it — and the
+human-supplied one is a memory of an impression, which is exactly the thing a
+context window does not preserve.
+
+**And the direction is flattering.** "It returned PREMATURE" describes an
+instrument working correctly on an unripe input. "I looked at some output and
+decided nothing had happened" describes an instrument with no verdict, which
+would have prompted someone to give it one.
+
+**How to apply:** before repeating any status token from a handoff — `PREMATURE`,
+`PASS`, `REFUSED`, `UNRESOLVED` — grep the named instrument for that literal
+string. If it is not there, the token is a reader's summary and must be written
+as one. When you find that gap, the fix is not to stop using the word: it is to
+give the instrument the exit code, so the next reader gets it from the machine.
+Every exit path should announce which of its states it is in, including the
+success path.
+
+Related: [[a-command-in-a-handoff-has-the-status-of-a-test-never-seen-red]],
+[[a-measurement-with-no-committed-artifact-is-a-rumour]],
+[[an-allowlist-cannot-report-what-is-missing-from-it]].
+
+---
+
+## 2026-08-11 — The exclusion outranks the copy, and it is the copy that gets cited
+
+Three files stated that `scripts/inspect_live_db.py` would reach the live
+machine "at the next deploy", each citing `Dockerfile:66` — `COPY scripts/
+./scripts/`. The citation is real, the line says what they said it says, and
+the conclusion is still wrong.
+
+`.dockerignore:59-61` strips the directory out of the build context **before**
+the Dockerfile is evaluated:
+
+    scripts/*
+    !scripts/run_loop.py
+    !scripts/migrate_db.py
+
+Two of thirty-four scripts ship. The inspector is not one of them, so it has
+never read the production database — and a deploy alone never would have made
+it do so. The repo already knew: `tests/test_has_callers.py:299-302` states the
+two-entry allowlist and the count.
+
+**The failure shape is that a build has two files and only one of them is
+grep-able for the thing you are looking for.** Searching for `scripts/` finds
+the `COPY`. Nothing about the `COPY` line points at the exclusion that governs
+it, and the exclusion does not mention the Dockerfile. So a correct citation of
+a real line produced a false conclusion, three times, and each repetition
+looked better sourced than the last.
+
+**It was load-bearing.** The false premise priced a decision: "a query reaches
+the machine at the next deploy" made a five-cell experiment look like it cost
+$0.39 more than a four-cell one. The true cost was a `.dockerignore` widening —
+a change to what ships to the machine that holds real money — plus a query,
+plus a deploy carrying nothing else. The decision reversed once the premise was
+corrected.
+
+**Why:** every packaging system has a subtractive layer and an additive layer,
+and the additive one is the one written in the file people read. This
+generalises past Docker — `.gitignore` against `git add`, `pytest` collection
+rules against a test that "is in the directory", a route table against a
+handler that exists.
+
+**How to apply:** never conclude a file ships because a `COPY`, `include` or
+`add` names its directory. Check the exclusion layer in the same breath, and
+cite **both** lines or neither. When a handoff prices a decision on
+reachability, re-derive the reachability before re-using the price — and state
+the exclusion path explicitly so the next reader inherits both halves.
+
+Related: [[built-but-never-called]],
+[[reachability-has-two-halves-and-this-project-keeps-checking-one]],
+[[verification-methods-that-lie]].
+
+---
+
+## 2026-08-11 — A mutation that cannot change behaviour is a green light you awarded yourself
+
+Thirteen mutations were applied to a new state machine to prove its tests could
+go red. Twelve killed a test. One — swapping the order of two branches in a
+dispatch chain — **stayed green, and was right to.** The two branches tested
+mutually exclusive states, so the swap was semantically equivalent. It could
+not have failed, and running it established nothing about either guard.
+
+The tempting move was to drop it from the list and report twelve. That is the
+one that must not happen: the mutation list had already been written into the
+test file's docstring as a claim about what was verified, and a list of
+mutations is exactly the artefact a future reader trusts instead of re-checking.
+Silently removing the one that proved nothing would have left a docstring
+asserting a verification that never occurred.
+
+**Why:** "all mutations seen red" and "all mutations that could go red were seen
+red" are different claims, and only the second is worth anything. A mutation
+list is not a count — it is a set of specific counterfactuals, and an equivalent
+one contributes a passing number without contributing a counterfactual. This is
+the same shape as a test class that asserts its contested premise as a module
+constant and then mutates only the arithmetic nobody disputes.
+
+**How to apply:** when a mutation stays green, first ask whether it *could* have
+gone red before concluding the test is decoration. If it could not, replace it
+with one that could — and record in the docstring that it was applied, stayed
+green, and why that is correct. Never let the list shrink quietly. A mutation
+list should name the mutations, not report a total.
+
+Related: [[a-test-that-passes-on-the-bug-is-not-a-test]],
+[[seven-guards-found-that-could-not-fail]].
+
+---
+
+## 2026-08-11 — Two rows that name the same outcome are not a pair, and pairing them halves nothing
+
+An agent checked whether devigged fair probabilities were internally consistent
+by summing complementary pairs and looking for departures from 1.0. It reported
+27 broken pairs and a sum of 0.4402 — roughly half of what it should be, which
+looks like a serious pricing defect.
+
+**Every one was an artefact of the join.** For a game `BALMIN`, the rows
+`(-MIN, yes)` and `(-BAL, no)` both encode P(MIN wins). They are the *same*
+outcome expressed two ways, not complements, and they carry identical
+`fair_probability` by construction. So `0.4402` was `2 × 0.2201`: the same
+number added to itself. Re-pairing on outcome rather than on ticker-and-side
+produced 535 same-outcome groups with **0** disagreements.
+
+**The second half of the error is worse.** Once corrected, the residual
+shortfall from 1.0 was read as pathology too — and it is not. `fair == min(p_mult,
+p_add, p_power, p_shin)` on 1,549 of 1,549 rows, and all four raw methods
+normalise to exactly 1. **Taking the worst of four methods on each side
+independently cannot sum above 1.** The shortfall is CLAUDE.md rule 2 operating
+as designed, and its distribution was already measured and committed in
+`2026-08-10-clean-shortfall-distribution-result.md`. The agent re-derived an
+existing measurement on a broken key and read its normal range as a bug.
+
+**Every error pointed the same way** — toward "these rows are junk, don't bother
+measuring them" — which was the conclusion the agent was already reaching for.
+
+**How to apply:** before pairing rows, assert the pairing key names *opposite*
+outcomes and check the assertion holds on real data; identical values across a
+"pair" is the signature of a self-join, not of agreement. Before treating a
+distribution as anomalous, grep `docs/measurements/` for its own name — the
+normal range may already be committed. And when a check's output is a
+*shortfall from a round number*, ask whether a documented conservatism rule
+produces exactly that shortfall before calling it a defect. A guard that
+punishes a rule for working is worse than no guard.
+
+Related: [[a-measurement-is-not-new-until-you-have-grepped-for-its-own-value]],
+[[the-power-of-an-instrument-is-not-the-power-of-the-question]],
+[[a-pooled-number-is-not-a-finding-until-the-parts-agree]].
