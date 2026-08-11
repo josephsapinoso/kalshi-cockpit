@@ -65,6 +65,53 @@ Two holes this closes, both found the same day
    list: `MUST_HAVE_CALLERS` now demands a reference outside the import
    statement, so a stale `from x import y` no longer stands in for a caller.
 
+Deny-by-default over the call sites of a billed function
+--------------------------------------------------------
+The last section of this file is the *opposite* shape to `MUST_HAVE_CALLERS`,
+and the difference has to be stated because ADR 0022's central complaint was
+about allowlists.
+
+That complaint was precise: `MUST_HAVE_CALLERS` "cannot report what is missing
+from it". It is an allowlist of *symbols someone remembered*, drawn from an
+unbounded population -- every symbol in the repo -- so an omission is invisible
+and the check fails **open**. `BILLED_PATH_CALL_SITES` is an allowlist over a
+population the scanner **enumerates itself**: every call of, and every reference
+to, `structured_call` and `build_client` in production sources. Nothing has to
+be remembered because nothing can be omitted -- a new call site is found by the
+walk and fails for not being on the list. It fails **closed**. A future reader
+should not file it under the pattern ADR 0022 condemned; it is the inversion of
+that pattern, applied to call sites of a dangerous function rather than to
+modules.
+
+Why this exists rather than a meter inside `structured_call`
+------------------------------------------------------------
+`7b2252d` put a spend ceiling on `review_surfaced`, and an audit found the meter
+is per-*caller*, not per-*call*: `structured_call` and `build_client` carry no
+ceiling in their signatures, so a second caller starts unmetered by default.
+Moving the meter down into `structured_call` was assessed and **rejected** --
+the allowance is a batch question. `review_surfaced` must know it *before* the
+fan-out in order to mark the rows it cannot afford `skeptic_unreviewed`; a
+per-call refusal could only return `None`, which `apply_verdict` reads as "no
+opinion", erasing the distinction between "nobody looked" and "the Skeptic
+looked and had nothing". This file is the cheaper enforcement instead: it cannot
+make the path metered, but it can make the *arrival of an unmetered caller* a
+red test rather than an invoice.
+
+Scout and Historian are permitted, and the permission is derived
+---------------------------------------------------------------
+`backend/agents/scout.py` and `backend/agents/historian.py` both call
+`structured_call` today and neither is metered. They are not hand-waved onto the
+allowlist. The allowed set is `BILLED_PATH_CALL_SITES` **plus** the modules that
+`DISPOSITIONS` classifies `QUARANTINED` *and* that `reachable_modules()` cannot
+reach -- computed, both halves, at assertion time. So the permission is exactly
+the ADR 0022 invariant: an unmetered call site is tolerated only while the
+deployed entry points provably cannot get to it. Wire Scout into the chain and
+it stops being unreachable, so it drops out of the allowed set and turns *this*
+test red for spending money, at the same moment it turns
+`test_a_quarantined_module_has_not_been_wired_up_by_the_back_door` red for
+escaping quarantine. Two independent guards, and the money one no longer depends
+on someone remembering to also edit a list here.
+
 What this does not establish
 ----------------------------
 That the caller is reached at *runtime*. A function imported by a module nobody
@@ -72,6 +119,33 @@ runs still passes the symbol half here. Module reachability is import-based, so
 a module imported behind a branch that never fires still counts as LIVE. It is
 a floor, not a proof -- the behavioural tests beside it are what establish the
 path actually executes.
+
+And, for the billed-path ratchet specifically:
+
+- **It does not make the path metered by construction.** `structured_call` and
+  `build_client` still take no ceiling. The only claim is that the *set of
+  callers* cannot grow in silence.
+- **It is per module, not per call site.** An already-allowlisted module can
+  gain a *second* call the batch meter never sees -- a retry loop, a two-stage
+  prompt -- and stay green, because `AgentBudget` reserves one row per
+  *candidate*, not per request. Verified by mutation on 2026-08-11: a second
+  `structured_call` added inside `backend/agents/skeptic.py` left every
+  assertion here **GREEN**. Recorded rather than closed: pinning a site count
+  would go red on any honest refactor of a file already on the list, and the
+  damage it guards against is the entry below, which is pinned at its own layer.
+- **It would not have caught the `max_retries` defect.** That was an unmetered
+  request *multiplier* inside an allowlisted caller: one `structured_call` from
+  `skeptic.py` became up to three billed HTTP requests, because the SDK's
+  `DEFAULT_MAX_RETRIES = 2` was in force and the meter still counted one. No
+  call site appeared and none moved, so nothing in a call-site enumeration could
+  see it. `test_build_client_asks_the_sdk_not_to_retry` pins that separately, at
+  the constructor, where it actually lives.
+- **It does not establish that the SDK is reached only through `base.py`.** It
+  is not: `scripts/measure_agent_cache_prefix.py:64` constructs
+  `anthropic.Anthropic()` directly. That file is excluded from the image by
+  `.dockerignore` and only calls `messages.count_tokens`, but the enumeration
+  here is over two named functions rather than over the SDK, so a module that
+  imports `anthropic` and bills it directly is outside what this can see.
 """
 
 from __future__ import annotations
@@ -971,6 +1045,357 @@ class TestEveryOrphanIsAccountedFor:
 # fleet up would turn this file red and point at the list above. It did, on
 # 2026-08-08, and `apply_verdict` and `review_surfaced` are now entries in
 # MUST_HAVE_CALLERS rather than a documented exception beside it.
+
+
+# ---------------------------------------------------------------------------
+# The billed path: deny-by-default over every caller of the Anthropic seam.
+# ---------------------------------------------------------------------------
+# The two questions above are "is this reached" and "is the argument supplied".
+# This is the third: **who can reach the thing that spends money**, and the
+# answer has to be a closed set rather than a growing one.
+#
+# `7b2252d` capped the fan-out in `review.review_surfaced`. The cap is real and
+# it is in the wrong layer to be a property of the path: `structured_call` and
+# `build_client` have no ceiling in their signatures, and `AgentBudget` has
+# exactly one caller. A second caller of either does not have to opt out of the
+# meter -- it starts outside it. See the module docstring for why the meter was
+# not simply moved down (the allowance is a batch question, and a per-call
+# refusal is indistinguishable from "no opinion").
+#
+# So: enumerate, and deny by default. The docstring says at length why this is
+# not the allowlist ADR 0022 condemned.
+
+# The functions that reach Anthropic. `build_client` is included as well as
+# `structured_call` because it is the constructor of the object that bills --
+# a module that builds its own client is off the meter whether or not it goes
+# through `structured_call` afterwards.
+BILLED_PATH = ("structured_call", "build_client")
+
+# Where they are defined. Excluded by *path* rather than by "any module that
+# defines a function of this name", which is the tempting shortcut and is an
+# open door: a module that declared its own `structured_call` -- a wrapper, a
+# shim, a local rebinding -- would exclude itself from the scan by the very act
+# that makes it worth scanning.
+#
+# The price is a false positive if some unrelated module ever defines a function
+# called `structured_call`. That direction fails **closed**, costs one line in
+# the allowlist with a reason beside it, and is the direction to be wrong in on
+# a path that bills.
+BILLED_PATH_SOURCE = "backend/agents/base.py"
+
+# Modules permitted to reach the billed path, and what meters them.
+#
+# Deliberately NOT a list of `file:line`. A line number goes stale on any edit
+# above it, and a test that has to be re-blessed for unrelated reasons is a test
+# that gets re-blessed without being read. The module is the unit that a human
+# decides about.
+BILLED_PATH_CALL_SITES: dict[str, str] = {
+    "backend/agents/skeptic.py": (
+        "`evaluate` is the one Skeptic call, and it is metered by its caller: "
+        "`review.review_surfaced` reserves one `agent_calls` row per candidate "
+        "before the fan-out starts. This module is downstream of the ceiling, "
+        "not outside it."
+    ),
+    "backend/agents/review.py": (
+        "Holds the meter. `review_surfaced` computes `AgentBudget.allowance` "
+        "before the batch and refuses what it cannot afford with "
+        "`skeptic_unreviewed`, so it is the only place a fan-out width is "
+        "chosen. `build_client` appears here as the `client_factory` default -- "
+        "a reference rather than a call, which is exactly why the scanner below "
+        "counts references too."
+    ),
+}
+
+
+def _billed_path_sites(symbol: str) -> list[tuple[str, int, str]]:
+    """`(file, line, kind)` for every production use of `symbol`, kind in
+    `{"call", "reference"}`, outside `BILLED_PATH_SOURCE`.
+
+    **References as well as calls, and that is not belt-and-braces.**
+    `_call_sites` above matches `ast.Call` only, and `build_client` is never
+    called by name in production: `review.py` passes it as the `client_factory`
+    parameter *default* and the call goes through that local name. So an
+    `ast.Call` scan finds **zero** sites for it and every assertion over them
+    passes by checking nothing -- the exact vacuity this file exists to detect,
+    reproduced in the detector, on the half of the pair that constructs the
+    billing object. A factory handed around by name is still a caller.
+
+    An `import` is not a use here (`ast.alias` is not matched), for the reason
+    `_uses_beyond_import` gives: a stale import is the residue of a caller that
+    was deleted, and it must not stand in for one.
+    """
+    found: list[tuple[str, int, str]] = []
+    for path in production_sources():
+        rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        if rel == BILLED_PATH_SOURCE:
+            continue
+        try:
+            tree = ast.parse(path.read_text("utf-8", errors="replace"))
+        except SyntaxError:                                   # noqa: PERF203
+            continue
+
+        # A matching `ast.Call` also contains a matching `ast.Name`; recording
+        # both would report one site twice and, worse, would report a plain call
+        # as though something were passing the function around.
+        called_names: set[int] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.id if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute)
+                else None
+            )
+            if name == symbol:
+                called_names.add(id(func))
+                found.append((rel, node.lineno, "call"))
+
+        for node in ast.walk(tree):
+            if id(node) in called_names:
+                continue
+            if isinstance(node, ast.Name) and node.id == symbol:
+                found.append((rel, node.lineno, "reference"))
+            elif isinstance(node, ast.Attribute) and node.attr == symbol:
+                found.append((rel, node.lineno, "reference"))
+    return found
+
+
+def _unmetered_but_unreachable() -> set[str]:
+    """Quarantined modules the deployed entry points cannot reach.
+
+    The derived half of the allowed set. `scout.py` and `historian.py` call
+    `structured_call` and nothing meters them -- they are tolerable only because
+    ADR 0022 holds them off the chain, and that is a computed property here
+    rather than a sentence: both halves, `QUARANTINED` **and** not in
+    `reachable_modules()`, are evaluated at assertion time. Wiring one up
+    removes it from this set on the same commit that makes it billable.
+    """
+    reachable = reachable_modules()
+    return {
+        module
+        for module, disposition in DISPOSITIONS.items()
+        if disposition.kind == "QUARANTINED" and module not in reachable
+    }
+
+
+class TestNothingNewCanReachTheBilledPath:
+    """A ratchet on who can spend money, not on how much.
+
+    What it buys: a module that starts calling Anthropic has to say so in a
+    diff, beside the reason it is allowed to. What it does not buy is in the
+    module docstring, and the shortest version is that it counts *callers*, not
+    *requests* -- which is why the `max_retries` defect is pinned separately
+    below rather than by this class.
+
+    Verified by mutation, 2026-08-11, per CLAUDE.md -- green proves nothing on
+    an enumeration, because one that enumerates nothing passes everything here:
+
+    - `backend/agents/budget.py` (LIVE, not allowlisted) given a
+      `build_client(...)` and a `structured_call(...)`:
+      **RED** on both parametrizations of
+      `test_every_call_site_of_the_billed_path_is_allowlisted`, and RED on
+      `test_the_unmetered_callers_are_exactly_the_quarantined_ones`. Reverted.
+    - A **second** `structured_call` added inside `backend/agents/skeptic.py`,
+      which is allowlisted: **GREEN**, all seven. That is the per-module
+      granularity limitation stated in the module docstring, observed rather
+      than predicted. Reverted.
+    - `backend/agents/budget.py` given its *own* `def structured_call` beside
+      the call, i.e. the shadowing evasion `BILLED_PATH_SOURCE` exists to shut:
+      **RED**. Under the tempting `_defines`-based exclusion this would have
+      been green. Reverted.
+    """
+
+    @pytest.mark.parametrize("symbol", BILLED_PATH)
+    def test_every_call_site_of_the_billed_path_is_allowlisted(self, symbol):
+        allowed = set(BILLED_PATH_CALL_SITES) | _unmetered_but_unreachable()
+        unexpected = sorted(
+            f"{rel}:{line} ({kind})"
+            for rel, line, kind in _billed_path_sites(symbol)
+            if rel not in allowed
+        )
+        assert not unexpected, (
+            f"`{symbol}` reaches Anthropic and is used at {unexpected}, which is "
+            f"not an allowlisted caller. The ceiling from 7b2252d lives in "
+            f"`review.review_surfaced`, not in this function's signature, so a "
+            f"new caller starts **unmetered**: it can spend past "
+            f"AGENT_MAX_CALLS_PER_DAY without `agent_calls` recording a row. "
+            f"Either route it through `review_surfaced`, or add it to "
+            f"BILLED_PATH_CALL_SITES with the meter that bounds it named."
+        )
+
+    def test_the_scanner_sees_the_sites_the_audit_found(self):
+        """Anti-vacuity, and the reason `_billed_path_sites` counts references.
+
+        An enumeration that enumerates nothing satisfies the test above on any
+        tree at all. Both symbols are pinned, and they are pinned in different
+        *kinds* on purpose: `structured_call` is invoked, `build_client` is
+        handed over as a factory default and never invoked by name anywhere in
+        production. A call-only scanner reports zero sites for the second one.
+        """
+        source = ast.parse((ROOT / BILLED_PATH_SOURCE).read_text("utf-8"))
+        for symbol in BILLED_PATH:
+            assert _defines(source, symbol), (
+                f"`{symbol}` is no longer defined in {BILLED_PATH_SOURCE}. This "
+                f"file is scanning for a name that has moved, so it is watching "
+                f"an empty seam while the real one is somewhere else."
+            )
+
+        calls = _billed_path_sites("structured_call")
+        assert any(
+            rel == "backend/agents/skeptic.py" and kind == "call"
+            for rel, _, kind in calls
+        ), (
+            f"`structured_call` sites were located at {calls}, which does not "
+            f"include a call from backend/agents/skeptic.py. The scanner has "
+            f"stopped seeing the one metered caller, so the allowlist above is "
+            f"passing by finding nothing."
+        )
+
+        factory = _billed_path_sites("build_client")
+        assert any(
+            rel == "backend/agents/review.py" and kind == "reference"
+            for rel, _, kind in factory
+        ), (
+            f"`build_client` sites were located at {factory}, which does not "
+            f"include a reference from backend/agents/review.py:245 -- the "
+            f"`client_factory` default. If this scanner ever counts calls only, "
+            f"it finds zero sites for `build_client` and guards nothing."
+        )
+
+    def test_the_allowlist_names_modules_that_exist(self):
+        """A row for a module that has been renamed away is a comment."""
+        missing = sorted(m for m in BILLED_PATH_CALL_SITES if not (ROOT / m).exists())
+        assert not missing, f"{missing} are allowlisted but not in the repo"
+        for module, reason in BILLED_PATH_CALL_SITES.items():
+            assert reason.strip(), f"{module} is allowlisted with no stated meter"
+
+    def test_the_unmetered_callers_are_exactly_the_quarantined_ones(self):
+        """The substance of the scout/historian decision, asserted.
+
+        They are allowed to hold an unmetered `structured_call` **only** while
+        nothing on the instance can reach them. If the derived set ever went
+        empty this whole permission would evaporate silently in the safe
+        direction (the test above would go red), but the dangerous direction is
+        the reverse: a quarantined agent becoming reachable while still counting
+        as permitted. That cannot happen -- `_unmetered_but_unreachable`
+        recomputes reachability -- and this asserts the set is populated by the
+        two modules the audit actually found, so the mechanism is exercised.
+        """
+        unmetered = {
+            rel for rel, _, _ in _billed_path_sites("structured_call")
+            if rel not in BILLED_PATH_CALL_SITES
+        }
+        assert unmetered == {
+            "backend/agents/scout.py",
+            "backend/agents/historian.py",
+        }, (
+            f"the unmetered callers of `structured_call` are {sorted(unmetered)}, "
+            f"not the two quarantined agents ADR 0022 parked. If a module has "
+            f"left this set it should be in BILLED_PATH_CALL_SITES with its "
+            f"meter named; if one has joined, it is spending money with nothing "
+            f"counting."
+        )
+        assert unmetered <= _unmetered_but_unreachable(), (
+            f"{sorted(unmetered - _unmetered_but_unreachable())} call "
+            f"`structured_call` with no meter and are now reachable from a "
+            f"deployed entry point. Anthropic spend has arrived on the instance "
+            f"as a side effect of an import -- see ADR 0022 §4."
+        )
+
+
+def _sdk_constructor_kwargs() -> dict[str, ast.expr] | None:
+    """The keywords `build_client` passes to the SDK constructor, by AST.
+
+    `None` when no constructor call can be found inside `build_client` at all,
+    which the caller must treat as a failure rather than as "no keywords": a
+    renamed or relocated constructor would otherwise retire the assertion below
+    while leaving it green.
+    """
+    tree = ast.parse((ROOT / "backend" / "agents" / "base.py").read_text("utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != "build_client":
+            continue
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            name = (
+                func.attr if isinstance(func, ast.Attribute)
+                else func.id if isinstance(func, ast.Name)
+                else None
+            )
+            if name in ("AsyncAnthropic", "Anthropic"):
+                return {kw.arg: kw.value for kw in call.keywords if kw.arg}
+    return None
+
+
+class TestTheRequestMultiplierIsPinnedAtTheConstructor:
+    """The thing the call-site ratchet above structurally cannot see.
+
+    A caller is a caller whether it makes one HTTP request or three. The count
+    the meter records is *candidates*; the count the invoice records is
+    *requests*; and exactly one keyword argument makes those the same number.
+    The installed SDK (`anthropic` 0.120.2) defaults to `DEFAULT_MAX_RETRIES =
+    2` and retries 408/409/429/>=500 and connection errors, so dropping
+    `max_retries=0` turns a 24-call day into up to **72 billed requests** with
+    the other 48 invisible to `agent_calls` and to every assertion in this file.
+    No call site appears or moves when that happens.
+
+    `tests/test_agent_budget.py::TestOneCandidateIsExactlyOneRequest` asserts
+    the same property behaviourally, against a real SDK object and a stub that
+    would retry if the client let it. This is the cheap structural half beside
+    it: it needs no SDK installed and it names the keyword, so a diff that
+    deletes the keyword fails a test that quotes it.
+
+    Verified by mutation, 2026-08-11, in both directions that matter -- removal
+    and weakening, because a check that only catches deletion would pass on
+    `max_retries=1`, which is the change someone would actually make:
+
+    - `AsyncAnthropic(api_key=...)`, keyword dropped: **RED** ("no longer
+      passes `max_retries`").
+    - `AsyncAnthropic(api_key=..., max_retries=1)`: **RED** (not the literal 0).
+
+    Both reverted.
+    """
+
+    def test_build_client_asks_the_sdk_not_to_retry(self):
+        kwargs = _sdk_constructor_kwargs()
+        assert kwargs is not None, (
+            "no `AsyncAnthropic(...)`/`Anthropic(...)` construction was found "
+            "inside `build_client`. Either the client is now built somewhere "
+            "this cannot see, or the constructor was renamed -- and until this "
+            "is repointed the retry ceiling is unasserted at the source level."
+        )
+        assert "max_retries" in kwargs, (
+            "`build_client` no longer passes `max_retries`, so the SDK's "
+            "DEFAULT_MAX_RETRIES = 2 applies and one metered candidate becomes "
+            "up to three billed HTTP requests. The 24/day ceiling stops being a "
+            "ceiling on spend and becomes a ceiling on candidates wearing "
+            "spend's name -- see `build_client`'s docstring."
+        )
+        value = kwargs["max_retries"]
+        assert isinstance(value, ast.Constant) and value.value == 0, (
+            f"`build_client` passes max_retries={ast.unparse(value)}, not the "
+            f"literal 0. Anything but 0 breaks the identity `1 candidate == 1 "
+            f"messages.parse == 1 HTTP request`, and the day's true bill becomes "
+            f"a range nothing in this repo can narrow."
+        )
+
+    def test_the_api_key_still_comes_from_the_config(self):
+        """Anti-vacuity for the reader above, in the cheapest useful direction.
+
+        If `_sdk_constructor_kwargs` ever matched some *other* call inside
+        `build_client`, the retry assertion would be checking a stranger. The
+        constructor is the one that is handed the key.
+        """
+        kwargs = _sdk_constructor_kwargs() or {}
+        assert "api_key" in kwargs, (
+            f"the call this test reads passes {sorted(kwargs)}, which does not "
+            f"look like the Anthropic client construction"
+        )
 
 
 def _dockerignore_patterns() -> list[str]:
