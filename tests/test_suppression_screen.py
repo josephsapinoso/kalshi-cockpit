@@ -122,6 +122,20 @@ def classification_source() -> str:
     return source[start:end]
 
 
+def header_source() -> str:
+    """The page's own `statuses` / `countOf` lines, which drive the header strip.
+
+    Lifted rather than retyped for the reason the rest is: the header counter
+    that used to read `Never fired: 6` is the defect in one number, and a
+    harness that recomputed it from the maps would go green on a page whose
+    header still counted six. The counters must come from `classify`.
+    """
+    source = SCREEN.read_text(encoding="utf-8")
+    start = source.index("  const statuses = entries.map")
+    end = source.index(";", source.index("  const countOf =")) + 1
+    return source[start:end]
+
+
 def _run(program: str) -> object:
     node = shutil.which("node")
     if node is None:
@@ -149,8 +163,7 @@ def _page_program(counts: dict[str, int], tail: str) -> str:
             f"const suppression = {{ counts: {json.dumps(counts)} }};",
             derivation_source(),
             classification_source(),
-            "const statuses = entries.map(([name, count]) => classify(name, count));",
-            "const countOf = (kind) => statuses.filter((s) => s.kind === kind).length;",
+            header_source(),
             tail,
         ]
     )
@@ -318,6 +331,12 @@ class TestTheTwoKindsOfZeroAreToldapart:
         assert "const COULD_NOT_FIRE" in lifted
         assert "const DID_NOT_FIRE" in lifted
         assert "function classify" in lifted
+        # The header counters must be the page's own, computed off `classify`.
+        # Recomputing them in the harness would go green on a page whose header
+        # still said `Never fired: 6`, which is the defect being fixed.
+        header = header_source()
+        assert "classify(name, count)" in header
+        assert "countOf" in header
         could_not, did_not = classified()
         assert could_not == COULD_NOT_FIRE_ON_THE_RECORD
         assert did_not == QUIET_ON_THE_RECORD
