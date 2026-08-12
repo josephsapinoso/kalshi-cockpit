@@ -1,5 +1,45 @@
 # Next — your checklist
 
+## 2026-08-12 — ADR 0020 IS WRITTEN. The reserved number is spent, and it opens nothing.
+
+`docs/adr/0020-odds-age-ms-is-not-a-per-line-freshness-measure.md`. One document,
+no measurement, no spend, no code. It is the direct consumer the result file's §9
+named, and with it the numbering reservation held since ADR 0025 is closed —
+**0020 is no longer reserved.**
+
+**What it decides, and the whole of it:** `odds_age_ms` measures how long since
+the aggregator last **scraped** the book, not how long since the line moved. That
+was already in the code's prose (`backend/core/suppression.py:239-243`) resting on
+a 320-of-320 observational census; it now rests on an experiment with a
+pre-registered decision rule. **The upgrade is inference → measurement. Nothing
+else changed.**
+
+**Three things it explicitly does not do, and a session that reads it otherwise
+has misread it:**
+
+1. **It does not move `actionable` off 0.** ADR 0025's inversion stands — a scrape
+   clock makes `odds_age_ms` a *lower* bound, so every rejection is still correct.
+   The contamination is in the **clean** set, not the suppressed one.
+2. **It says nothing about 900 s** — the deployed `MAX_ODDS_AGE_S`
+   (`backend/config.py:406`). The verdict is a **~300 s** statement (`S = 0.9376`);
+   at 900 s the instrument is mid-band, **UNRESOLVED** (`S = 0.8860`). **Never
+   cite it interval-free.** And result §8 shows this is permanent: the `advanced`
+   bit is book-determined, so more credits buy correlated copies, not precision.
+3. **It authorises no remedy.** Patching `MAX_ODDS_AGE_S`, adding a second
+   freshness signal, or re-scoring the 23 rows each need their own decision.
+
+**One incidental find, and it is the third of its kind.** The result file cites
+`scripts/analyse_odds_repeat_poll.py:162` for `PRIMARY_PAIR`. `:162` is an import
+today; the constant is at **`:173`**, most likely moved by the §7 repairs at
+`12ecc03`. The claim survives, the citation did not. **This repo now has three
+logged citation drifts** (this one, ADR 0021 §7.6's two). Re-open every line
+number before quoting it; a line number is cheap to re-check and an adjective is
+not.
+
+**The board after this:** item 2 — the fee coefficient, ~$3.66, blocked on Joe's
+phone, deadline 2026-08-31 — is the only live question left. Nothing else has a
+clock.
+
 ## 2026-08-11 — THE CEILING ON RELAXING `stale_odds` IS 23 ROWS = 14 OPPORTUNITIES, AND NOTHING BEHIND IT IS A RUNWAY
 
 Audited re-derivations from `docs/measurements/2026-08-10-clean-shortfall-pull.json`

@@ -292,25 +292,14 @@ question it was proposed for is now **§3 above: dead on power.**
 - **An ADR for the per-database / per-account credit gap** (Amendment A §A6).
   Urgency partly consumed by the P1 clause-3 fix at `39628e0` — the pre-flight
   now reads the account's live count. Real hole, no clock.
-- **ADR 0020 — `stale_odds` reads a scrape clock. UNBLOCKED, and it is the
-  first item.** **0020 stays reserved.** Quote **320**, not 440 or 335. The
-  18:00Z result landed, so §7's mandatory qualifier — which *dictates* the
-  permitted wording — is now known and is quoted verbatim in
-  `docs/measurements/2026-08-11-odds-last-update-repeat-poll-result.md` §1.
-  **Take the wording from the result file, never from this summary.**
-
-  Three constraints the ADR must respect, all established before it is written:
-
-  1. It is **restricted to the claim that `odds_age_ms` is not a per-line
-     freshness measure.** That restriction is §7's, not a caution added here.
-  2. It must **carry the interval.** CONFIRMED is a ~300 s statement; at the
-     deployed 900 s the instrument is **UNRESOLVED (`S = 0.8860`)**. An ADR that
-     recommends a remedy for a 900 s window while citing a 300 s verdict is
-     citing interval-free, which the result file forbids.
-  3. It **may not claim the remedy surfaces rows.** ADR 0025's inversion stands.
-
-  It is a **cheap** item — one document, no measurement, no spend — which is why
-  it suits a session opening on a thin usage budget.
+- ~~**ADR 0020**~~ **CLOSED 2026-08-12.**
+  `docs/adr/0020-odds-age-ms-is-not-a-per-line-freshness-measure.md`. The number
+  is spent; **0020 is no longer reserved.** All three constraints were respected
+  — restricted to the `odds_age_ms` claim, the ~300 s interval travels with
+  every citation of `S = 0.9376`, and §4 states it does not surface rows. The
+  qualifier is verbatim (diffed against the result file, exact). It found one
+  thing on the way: the result file's `analyse_odds_repeat_poll.py:162` has
+  **drifted** — the constant is at `:173` — and ADR 0020 §3 records it.
 - **`core/fees.py` cannot express the observed fee** — needs an **ADR, not a
   patch**. Six fills fit `k = 0.035` on MLB and `k = 0.070` on ATP with
   four-decimal rounding; `fees.py` expresses neither the split nor the
