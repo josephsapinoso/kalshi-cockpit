@@ -1559,6 +1559,53 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
                 f"add `!{script}` to the allowlist."
             )
 
+    # -- the other half, which derivation cannot reach ----------------------
+    #
+    # Everything above asks "which scripts does the entrypoint run?" and is
+    # therefore blind to the second class of script that must be in the image:
+    # the ones Joe's `flyctl ssh console` ruling invokes by path. Nothing
+    # executes those at boot, so nothing derives them, so the guard above
+    # reports a healthy allowlist while they are missing from the filesystem.
+    #
+    # `inspect_live_db.py` was excluded from the image from the day it was
+    # written. It was found on 2026-08-13, while preparing to deploy a new query
+    # into it -- a deploy that would have shipped an image the query still was
+    # not in, and the failure would have surfaced as a confusing `No such file`
+    # at the ssh prompt rather than as anything a test said.
+    #
+    # This list is hand-kept BY NECESSITY, so it is asserted by name and the
+    # reason is written next to it. A derived guard here would be a guard that
+    # cannot fail.
+    SSH_INVOKED_SCRIPTS = ("scripts/inspect_live_db.py",)
+
+    def test_every_script_the_ssh_ruling_invokes_survives_dockerignore(self):
+        patterns = _dockerignore_patterns()
+        for script in self.SSH_INVOKED_SCRIPTS:
+            assert (ROOT / script).exists(), f"{script} is not in the repo"
+            assert not _is_ignored(script, patterns), (
+                f"`flyctl ssh console` is supposed to be able to run {script} "
+                f"by path, and .dockerignore excludes it from the build "
+                f"context, so `COPY scripts/` cannot ship it. The file is "
+                f"simply absent on the live box. Add `!{script}`."
+            )
+
+    def test_the_two_classes_are_guarded_separately(self):
+        """The guard on this guard.
+
+        If an ssh-invoked script ever also became an entrypoint script, the
+        derived test above would start covering it and this one would look
+        redundant -- so assert the gap it exists to close is still a real gap.
+        A pass here means the derived guard genuinely does not reach these.
+        """
+        derived = self._scripts_the_entrypoint_runs()
+        assert self.SSH_INVOKED_SCRIPTS, "the hand-kept list emptied out"
+        for script in self.SSH_INVOKED_SCRIPTS:
+            assert script not in derived, (
+                f"{script} is now run by entrypoint.sh, so the derived guard "
+                f"covers it. Move it out of SSH_INVOKED_SCRIPTS rather than "
+                f"keeping a second assertion that can no longer fail."
+            )
+
     def test_the_dockerignore_matcher_agrees_with_the_rules_it_models(self):
         """The guard on this guard.
 

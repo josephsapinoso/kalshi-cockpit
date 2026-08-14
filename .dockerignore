@@ -56,9 +56,28 @@ tasks/
 #
 # `TestTheEntrypointRunsWhatItMustRunFirst` now derives this list from the
 # script rather than trusting it to be maintained by hand.
+#
+# And it has now failed a THIRD time, in the half that derivation cannot reach.
+# That test asks "which scripts does `entrypoint.sh` run?" -- so it covers the
+# runtime, and only the runtime. `inspect_live_db.py` is never run by the
+# entrypoint: it is invoked by hand over `flyctl ssh console`, under Joe's
+# ruling that only a committed, reviewed script may be run by path. Nothing
+# executes it at boot, so nothing derived it, so it was excluded from the image
+# from the day it was written -- while four live questions were described as
+# "riding on" it and a fee-round precondition was planned around deploying a new
+# query into it.
+#
+# The failure mode is quieter than the first two. There is no crash loop and no
+# silent absence of a process: the file simply is not there when someone ssh's
+# in, months after the decision that depended on it.
+#
+# So the allowlist now has two classes, and the second one cannot be derived:
+#   - scripts the entrypoint runs      (guarded by derivation)
+#   - scripts the ssh ruling invokes   (guarded by name, below)
 scripts/*
 !scripts/run_loop.py
 !scripts/migrate_db.py
+!scripts/inspect_live_db.py
 
 *.md
 !README.md
