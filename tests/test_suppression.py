@@ -491,12 +491,19 @@ class TestTheCeilingBoundsFabricatedFairs:
 
         This is what makes the degenerate-fair defect bounded. It is not the
         guard that was designed to bound it.
+
+        **The window moved on 2026-08-14 and did not change width.** It was
+        440-479; the fee recalibration slid it to 443-482. Width is set by
+        `edge_ceiling_tenths`, position by the fee -- a cheaper fee lets a
+        fabricated fair survive at a slightly *worse* ask. Both are asserted,
+        because a test that pinned only the width would have missed the slide
+        and a test that pinned only the endpoints would read as a width change.
         """
         asks = self._surfacing_asks(CONFIG.edge_ceiling_tenths)
 
         assert asks, "the ceiling must not close the window entirely"
-        assert asks[0] == 440, f"window opens at {asks[0]}"
-        assert asks[-1] == 479, f"window closes at {asks[-1]}"
+        assert asks[0] == 443, f"window opens at {asks[0]}"
+        assert asks[-1] == 482, f"window closes at {asks[-1]}"
         assert len(asks) == 40, "exactly 4.0c wide"
 
     def test_raising_the_ceiling_widens_the_window(self):
@@ -513,25 +520,38 @@ class TestTheCeilingBoundsFabricatedFairs:
         # And 60.0 is still green under the old inequality assertion.
         assert 20.0 <= 60.0 <= 60.0
 
-    def test_the_fee_is_flat_across_the_window(self):
+    def test_the_fee_is_nearly_but_no_longer_exactly_flat_across_the_window(self):
         """Why the 44-48c arithmetic is clean rather than approximate.
 
-        The conservative max-of-models fee is 20.0 tenths at every ask in the
-        window, so the bound is exact and not a linearisation. Stated because
-        deriving it with an *assumed* flat fee would be this repo's
-        "arithmetic that reproduces to the digit says nothing about its inputs".
+        **It used to be exactly flat, and that was an artifact.** The retired
+        max-of-models fee read 20.0 tenths at every ask in the window, so the
+        bound was exact. The flatness came from CENT rounding, not from the fee
+        curve: a coarse enough grid makes any smooth function locally constant.
+
+        On the $0.0001 grid the same window spans **17.3 to 17.5 tenths** -- the
+        real curvature, previously invisible. The bound is now a linearisation
+        with a stated error of 0.2 tenths rather than an exact identity, and
+        saying so is the point: deriving it with an *assumed* flat fee would be
+        this repo's "arithmetic that reproduces to the digit says nothing about
+        its inputs".
         """
         from backend.core.ev import edge_after_fees_tenths
 
-        for ask in (440, 460, 479):
-            gross = 500 - ask
+        fees_seen = []
+        for ask in range(443, 483):
             net = edge_after_fees_tenths(
                 ask_tenths=ask,
                 contracts=1,
                 fair_probability=self.FABRICATED_FAIR,
                 maker=False,
             )
-            assert gross - net == pytest.approx(20.0, abs=0.01)
+            fees_seen.append((500 - ask) - net)
+
+        assert min(fees_seen) == pytest.approx(17.3, abs=0.01)
+        assert max(fees_seen) == pytest.approx(17.5, abs=0.01)
+        assert max(fees_seen) - min(fees_seen) == pytest.approx(0.2, abs=0.01), (
+            "the window is no longer fee-flat; the bound is a linearisation"
+        )
 
 
 class TestTheDeclaredVocabularyMatchesTheCode:

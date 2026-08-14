@@ -88,18 +88,35 @@ class TestFeeShape:
 
 
 class TestConservativeSelection:
-    """calculate_fee must return the most expensive plausible model.
+    """calculate_fee returns the MEASURED model, no longer a max over candidates.
 
-    The two candidate models genuinely disagree and neither dominates. An
-    understated fee makes a losing bet look profitable and poisons the
-    measurement record; an overstated one only costs a marginal bet.
+    The hedge was retired 2026-08-14: Model B matches 0 of 11 real fills and is
+    wrong in form, not merely in granularity. An understated fee makes a losing
+    bet look profitable and poisons the measurement record; but a *refuted*
+    model inside a `max()` is not conservatism, it is a wrong number that only
+    ever moves in one direction.
     """
 
-    def test_returns_the_maximum_across_candidates(self):
+    def test_pricing_no_longer_consults_the_refuted_model(self):
+        """The property that replaced "return the maximum".
+
+        Asserted as a pair: `calculate_fee` tracks Model A everywhere, AND
+        there exists a price where the retired `max()` would have returned
+        something different. Either half alone reads as coverage -- the first
+        would pass trivially if B never won, and this test exists precisely
+        because B *did* win three of the eleven observed rows.
+        """
+        diverged = 0
         for price_cents in range(1, 100):
             tenths = cents_to_tenths(price_cents)
-            candidates = fees.fee_candidates(tenths, 100)
-            assert fees.calculate_fee(tenths, 100) == max(candidates.values())
+            assert fees.calculate_fee(tenths, 100) == float(
+                fees._model_a(tenths, 100, maker=False)
+            )
+            if max(fees.fee_candidates(tenths, 100).values()) != fees.calculate_fee(
+                tenths, 100
+            ):
+                diverged += 1
+        assert diverged > 0, "if the max never differs, this test proves nothing"
 
     def test_neither_candidate_model_dominates(self):
         """Documents the disagreement that forces the hedge.
@@ -181,15 +198,21 @@ class TestModelARoundingIsCeilingNotNearest:
     sign convention because 50c is precisely where the error vanishes. Same
     shape, same file, different quantity.
 
-    **Provenance of the hardcoded values.** Measured 2026-08-10 against real
-    settled single-game positions: Model A (0.0700, ceil, per-order) reproduced
-    **11 of 11 to the cent**, and the identified coefficient interval is
-    (0.069771, 0.070129] -- which contains 0.0700 and excludes both 0.06 and
-    0.0175. Only observed prices and sizes appear below; no account data, since
-    this repo publishes on push.
+    **Provenance, and the schedule change these values now straddle.** Measured
+    2026-08-10 against real settled single-game positions dated 2025-11-27 to
+    2026-02-09: Model A (0.0700, ceil, per-order) reproduced **11 of 11 to the
+    CENT**, identified coefficient interval (0.069771, 0.070129].
+
+    Re-measured 2026-08-14 against 11 real taker fills dated 2026-08-10 and
+    later: **0 of 11 is a whole cent.** Kalshi revised the sports fee schedule
+    between those dates. The observations below are therefore pinned against
+    `_model_a_pre_july_2026`, which is the form that was true when they were
+    charged; `_model_a` now rounds to $0.0001 and correctly does NOT reproduce
+    them. Only observed prices and sizes appear; no account data, since this
+    repo publishes on push.
     """
 
-    # (price_tenths, contracts, dollars Kalshi actually charged)
+    # (price_tenths, contracts, dollars Kalshi actually charged) -- PRE-JULY-2026
     OBSERVED = (
         (968, 20, Decimal("0.05")),   # raw $0.043366 -- ceil, not nearest
         (980, 20, Decimal("0.03")),   # raw $0.027440 -- ceil, not floor
@@ -197,10 +220,21 @@ class TestModelARoundingIsCeilingNotNearest:
     )
 
     @pytest.mark.parametrize("price_tenths,contracts,charged", OBSERVED)
-    def test_model_a_reproduces_the_fee_kalshi_actually_charged(
+    def test_the_old_model_reproduces_the_fee_kalshi_charged_at_the_time(
         self, price_tenths, contracts, charged
     ):
-        assert fees._model_a(price_tenths, contracts, maker=False) == charged
+        assert fees._model_a_pre_july_2026(price_tenths, contracts, maker=False) == charged
+
+    @pytest.mark.parametrize("price_tenths,contracts,charged", OBSERVED)
+    def test_the_current_model_does_not_reproduce_them_and_must_not(
+        self, price_tenths, contracts, charged
+    ):
+        """The schedule change, asserted rather than described.
+
+        If `_model_a` ever reproduces these again, the deci-cent grid has been
+        reverted -- silently, since nothing else in the suite would notice.
+        """
+        assert fees._model_a(price_tenths, contracts, maker=False) != charged
 
     def test_a_remainder_below_half_a_cent_is_still_rounded_up(self):
         """The discriminating anchor, and proof that it discriminates.
@@ -218,7 +252,7 @@ class TestModelARoundingIsCeilingNotNearest:
         assert by_rule[ROUND_HALF_EVEN] == Decimal("0.04")
         assert by_rule[ROUND_FLOOR] == Decimal("0.04")
 
-        assert fees._model_a(968, 20, maker=False) == Decimal("0.05")
+        assert fees._model_a_pre_july_2026(968, 20, maker=False) == Decimal("0.05")
 
     def test_the_at_the_money_anchor_agrees_under_every_rounding_rule(self):
         """States the defect, so the anchor above is not quietly dropped again.
@@ -237,19 +271,28 @@ class TestModelARoundingIsCeilingNotNearest:
         spread = {discriminating.quantize(_CENT, rounding=r) for r in _ROUNDING_RULES}
         assert len(spread) > 1, "and the replacement must"
 
-    def test_a_sub_half_cent_fee_is_still_charged_as_a_whole_cent(self):
+    def test_a_tiny_fee_never_rounds_away_to_nothing(self):
         """Ceiling means the fee can never round away to nothing.
 
-        One contract at 99c is raw $0.000693 -- under nearest-cent rounding that
+        One contract at 99c is raw $0.000693 -- under nearest-CENT rounding that
         is a **zero fee**, and a zero fee on the money path is the fabricated
-        edge `calculate_fee` returns None to avoid. The rounding rule is load
+        edge `calculate_fee` returns None to avoid. The rounding *rule* is load
         bearing at the cheap end, not just a tie-break.
+
+        **The grid changed on 2026-08-14 and the property did not.** This used
+        to assert $0.01, on a cent grid. On the $0.0001 grid the same input
+        ceils to $0.0007 -- 14x smaller, still not zero. Asserting "> 0" rather
+        than a literal is deliberate: the literal was a fact about the grid, and
+        the property is a fact about the rounding rule.
         """
         raw = _model_a_raw(fees.TAKER_COEFFICIENT, cents_to_tenths(99), 1)
         assert raw < Decimal("0.005"), "otherwise this input proves nothing"
         assert raw.quantize(_CENT, rounding=ROUND_HALF_UP) == Decimal("0")
 
-        assert fees._model_a(cents_to_tenths(99), 1, maker=False) == Decimal("0.01")
+        charged = fees._model_a(cents_to_tenths(99), 1, maker=False)
+        assert charged == Decimal("0.0007")
+        assert charged > 0
+        assert charged < Decimal("0.01"), "the deci-cent grid is finer than the old one"
 
     def test_the_coefficient_is_inside_the_identified_interval(self):
         """0.0700, bracketed by the 11 fills rather than by a secondary source.
@@ -284,31 +327,117 @@ class TestModelARoundingIsCeilingNotNearest:
         assert with_006 == [Decimal("0.04"), Decimal("0.03"), Decimal("0.48")]
         assert sum(with_006) < sum(charged)
 
-    def test_kalshi_charged_the_model_a_value_where_model_b_was_dearer(self):
-        """The one observed fill where the two candidate models disagree.
+    def test_the_hedge_is_retired_and_model_b_no_longer_prices_anything(self):
+        """This test's predecessor predicted its own death, and was right.
 
-        59 contracts at 16c: Model A $0.56, Model B $0.59, **charged $0.56**.
-        `calculate_fee` still returns $0.59, because the conservative maximum is
-        a deliberate overstatement until the model is resolved -- so this test
-        records a 3c overcharge on a real fill as *expected* behaviour, and is
-        the anchor that will fail the day the hedge is retired.
+        It read: *"`calculate_fee` still returns $0.59 ... this test records a 3c
+        overcharge on a real fill as expected behaviour, and **is the anchor
+        that will fail the day the hedge is retired**."* The hedge was retired
+        2026-08-14 and it duly failed.
+
+        59 contracts at 16c: Kalshi **charged $0.56**, Model A's value. Model B
+        said $0.59 and the old `max()` returned it. Pricing now tracks the
+        measured model, so the 3c overcharge on this real fill is gone.
         """
         candidates = fees.fee_candidates(160, 59)
-        assert candidates["model_a_per_order_roundup"] == 0.56
         assert candidates["model_b_per_contract_nearest"] == 0.59
-        assert fees.calculate_fee(160, 59) == 0.59
-        assert fees.calculate_fee(160, 59) > 0.56, "the hedge overstates, on purpose"
+        assert fees.calculate_fee(160, 59) != 0.59, "the hedge is retired"
+        assert fees.calculate_fee(160, 59) < 0.59
 
-    def test_model_b_rounds_a_sub_half_cent_per_contract_down_to_nothing(self):
+    def test_model_b_can_reach_zero_and_that_is_why_it_cannot_price(self):
         """Model B's per-contract rounding is nearest, and that can reach zero.
 
         At 96.8c the per-contract fee is $0.00186, which rounds to zero, so
-        Model B charges **$0.00** for the whole order. Only the conservative
-        `max()` stops a zero fee reaching the money path there -- which is the
-        same fabricated-edge hazard `calculate_fee` returns None for.
+        Model B charges **$0.00** for the whole order -- the fabricated-edge
+        hazard `calculate_fee` returns None to avoid.
+
+        The `max()` used to be what stopped that reaching the money path. It is
+        gone, so the protection has to come from Model A being the only pricer:
+        a per-ORDER ceiling onto a $0.0001 grid cannot return zero for a
+        tradeable price. Asserted here rather than assumed, because removing a
+        guard and keeping the property it protected is the whole risk of this
+        change.
         """
         assert fees._model_b(968, 20, maker=False) == Decimal("0")
-        assert fees.calculate_fee(968, 20) == 0.05
+        assert fees.calculate_fee(968, 20) > 0.0
+
+        for price_cents in range(1, 100):
+            tenths = cents_to_tenths(price_cents)
+            assert fees.calculate_fee(tenths, 1) > 0.0, f"zero fee at {price_cents}c"
+
+
+class TestTheCurrentScheduleAgainstRealFills:
+    """The deployed model against the 11 taker fills that measured it.
+
+    Result: `docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`.
+    Re-derive: `scripts/reconcile_observed_fees.py`.
+
+    **Hardcoded rather than loaded from the capture**, against this repo's usual
+    rule that wire-format tests load captured payloads. The captures are
+    gitignored -- they carry a `user_id` and an account's trading history, and
+    `kalshi-cockpit` publishes on push. Only price, count and charged fee appear
+    below; there is no ticker, no id, and no side.
+    """
+
+    # (price_tenths, contracts, charged, is_baseball) -- 2026-08-10 and 2026-08-14
+    FILLS = (
+        (270, 1, Decimal("0.006900"), True),
+        (270, 10, Decimal("0.069000"), True),
+        (150, 20, Decimal("0.178500"), False),
+        (480, 1, Decimal("0.008800"), True),
+        (130, 1, Decimal("0.004000"), True),
+        (130, 20, Decimal("0.079200"), True),
+        (270, 1, Decimal("0.006900"), True),
+        (520, 1, Decimal("0.008800"), True),
+        (280, 1, Decimal("0.014200"), False),
+    )
+
+    @pytest.mark.parametrize("tenths,n,charged,baseball", FILLS)
+    def test_the_model_never_understates_what_kalshi_charged(
+        self, tenths, n, charged, baseball
+    ):
+        """The direction that matters. An understated fee poisons the record."""
+        assert Decimal(str(fees.calculate_fee(tenths, n))) >= charged
+
+    @pytest.mark.parametrize("tenths,n,charged,baseball", FILLS)
+    def test_non_baseball_is_exact_and_baseball_overstates_by_exactly_two(
+        self, tenths, n, charged, baseball
+    ):
+        """The consequence of holding TAKER_COEFFICIENT at the higher measured k.
+
+        Baseball measured k = 0.035 and this module charges 0.070, because which
+        attribute carries the split is unresolved and the k = 0.035 record spans
+        four days. So the overstatement is a known factor, not an unknown one --
+        and that is the claim worth pinning, since "conservative" without a
+        number is what the retired hedge said too.
+
+        **Not exactly 2.00, and the reason is not slack.** Both sides are ceiled
+        onto the $0.0001 grid independently, so the ratio of two ceilings sits
+        just under twice the ratio of the raws -- e.g. 48c on 1 contract gives
+        $0.0175 / $0.0088 = 1.9886. The bound below is the arithmetic
+        consequence, not a tolerance chosen to make the test pass.
+        """
+        predicted = Decimal(str(fees.calculate_fee(tenths, n)))
+        ratio = predicted / charged
+        if baseball:
+            assert Decimal("1.98") <= ratio <= Decimal("2.00")
+        else:
+            assert predicted == charged
+
+    def test_the_retired_hedge_was_worse_on_every_one_of_these(self):
+        """Why the change was made, asserted rather than asserted-about.
+
+        The old `max(candidates)` on a cent grid overcharged 1.12x-2.90x with no
+        pattern. If this ever fails, the change stopped being an improvement.
+        """
+        for tenths, n, charged, _ in self.FILLS:
+            old = max(
+                fees._model_a_pre_july_2026(tenths, n, maker=False),
+                fees._model_b(tenths, n, maker=False),
+            )
+            new = Decimal(str(fees.calculate_fee(tenths, n)))
+            assert new <= old, f"{tenths}/{n}: new {new} is worse than old {old}"
+            assert new >= charged
 
 
 class TestDeciCentPrecision:

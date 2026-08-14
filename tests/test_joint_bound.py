@@ -52,6 +52,37 @@ def fixture_tickers(fixtures_dir) -> set[str]:
     return found
 
 
+# ---------------------------------------------------------------------------
+# The fee recalibration of 2026-08-14 and what it did to this suite
+# ---------------------------------------------------------------------------
+# `joint_bound` reproduces a REGISTERED table (Lane A §C1 / ADR 0017). Its
+# premise, stated in `basis_effective_price_dollars`, is *"the production path
+# deliberately charges the maximum"* -- and that stopped being true when the
+# max-of-models hedge was retired: Model B matches 0 of 11 real taker fills.
+#
+# So `FEE_KNOB_DELTA_BANDS` and the ALT prices below now disagree with the code.
+# `fee_knob_delta_violations`'s own docstring calls that out in advance: *"if the
+# two disagree, one of the two documents is describing a fee model the code does
+# not implement."* It is the registered table, and it is describing the fee
+# schedule Kalshi charged before July 2026.
+#
+# **The bands are NOT re-derived here, deliberately.** Re-deriving a registered
+# table to match new code is fitting after seeing the data, and it would
+# silently rewrite a published measurement. The joint bound has to be RE-RUN
+# under the measured fee model, which is an analysis task with its own ADR, not
+# a test edit.
+#
+# Marked `strict=True` so these turn back green loudly the moment that re-run
+# lands, rather than sitting as permanently-tolerated failures.
+STALE_UNDER_NEW_FEE_MODEL = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "registered table predates the 2026-08-14 fee recalibration; the joint "
+        "bound must be re-run under the measured model -- see tasks/NEXT.md"
+    ),
+)
+
+
 class TestTheStackedGenerousFeeIsZeroAtEveryPriceAndSize:
     """§C3 / §F2. The whole primary bound is one subtraction because of this."""
 
@@ -245,6 +276,7 @@ class TestTheVerdictHasThreeOutcomesNotTwo:
 class TestTheKnobCeilingIsPrintedBesideDStar:
     """§A3: the comparison that makes Branch Z's strongest sentence free."""
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_whole_fee_and_maker_knob_is_worth_at_most_two_points(self):
         # 20 tenths in the middle band, 10 in the wings (§C4), so 2.0 points.
         assert jb.KNOB_CEILING_POINTS == 2.0
@@ -502,6 +534,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
             basis = jb.alt_2(n)
             assert (basis.fee_model, basis.maker, basis.contracts) == ("max", True, n)
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_alt_2_is_n_equals_one_with_n_equals_ten_as_the_labelled_secondary(self):
         # Amendment 1 §A2, and the exact inverse of the committed §5. `N=10`
         # rested on a minimum order size that `sizing.py:15` retired on
@@ -519,6 +552,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
         )
         assert (saving_n1, saving_n10) == pytest.approx((10.0, 15.0))
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_three_registered_alternatives_price_as_measured(self):
         # Measured from the repository, not quoted: at 500 tenths the deployed
         # basis costs 520 tenths, the fee knob alone 520 (§C4 records the fee
@@ -528,6 +562,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
         assert 1000 * jb.basis_effective_price_dollars(jb.ALT_1, 500) == pytest.approx(520.0)
         assert 1000 * jb.basis_effective_price_dollars(jb.ALT_2, 500) == pytest.approx(510.0)
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_a_row_only_the_stack_would_clear_does_NOT_clear(self):
         # THE anchor of this class. At 500 tenths with a loosest fair of 0.505:
         # ALT-1 is 15 tenths short, ALT-2 is 5 tenths short, and the stack would
@@ -545,6 +580,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
         assert jb.confirmatory_shortfall_tenths(row, jb.ALT_2) == pytest.approx(5.0)
         assert jb.exact_bound_clears(row) is False
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_alt_2_alone_can_clear_a_row_alt_1_cannot(self):
         row = make_row(
             ask_tenths=500,
@@ -558,6 +594,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
         assert jb.confirmatory_shortfall_tenths(row, jb.ALT_2) == pytest.approx(-5.0)
         assert jb.exact_bound_clears(row) is True
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_alt_1_alone_can_clear_a_row_alt_2_cannot(self):
         # At 10 tenths the ordering reverses: ALT-1 prices at 10.0 and ALT-2 at
         # 20.0, because Model B's taker fee rounds to zero on a cheap contract
@@ -574,6 +611,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
         assert jb.confirmatory_shortfall_tenths(row, jb.ALT_2) == pytest.approx(5.0)
         assert jb.exact_bound_clears(row) is True
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_confirmatory_uses_the_loosest_of_the_four_not_the_conservative(self):
         row = make_row(
             ask_tenths=500,
@@ -611,6 +649,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
                 jb.primary_shortfall_tenths(row)
             )
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_alt_shortfall_carries_the_ladder_identity_unchanged(self):
         # Adding delta to the fair and subtracting 10*delta from the shortfall
         # are the same move, which is why Branch M reads the same ladder.
@@ -629,6 +668,7 @@ class TestTheExactBoundIsAUnionAndNeverAStack:
 class TestThePerKnobSavingsReproduceTheRegisteredTable:
     """§C4 / §S2 item 10: `E1min - E1 == Delta(price)`, an assertable invariant."""
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_fee_and_maker_knob_deltas_match_the_registered_bands(self):
         assert jb.fee_knob_delta_violations() == []
 
@@ -646,6 +686,7 @@ class TestThePerKnobSavingsReproduceTheRegisteredTable:
         assert jb.in_maker_band(827)
         assert not jb.in_maker_band(828)
 
+    @STALE_UNDER_NEW_FEE_MODEL
     def test_the_band_detector_can_see_a_wrong_band(self):
         # The control: perturbing one band by one price must be caught, or the
         # invariant above is checking nothing.

@@ -81,49 +81,76 @@ class TestEV:
 class TestBreakevenMatchesTheVenueClaim:
     """The numbers that make Kalshi interesting at all, asserted directly.
 
-    **52.00% taker** and 50.44% maker at 50c and size, against 52.38% at a -110
+    **51.75% taker** and 50.44% maker at 50c and size, against 52.38% at a -110
     sportsbook. Kalshi lowers the bar; it does not clear it.
 
-    The docs claimed 51.75% for years. That is what the *published* 7% fee
-    coefficient gives, but `calculate_fee` charges the conservative maximum
-    across candidate models, so the bar this code applies is a quarter-point
-    higher — and the entire premise of the project is a advantage of well under
-    one point, so a quarter-point misstatement is roughly 40% of the thing being
-    measured.
+    **This class has now been wrong in both directions, and the history is the
+    point.** It first claimed 51.75% behind a band (`0.50 < rate < 0.53`) three
+    hundred times wider than the error it was meant to pin. That was corrected
+    to 52.00% on the grounds that `calculate_fee` charged the conservative
+    maximum across candidate models, so the applied bar sat a quarter-point
+    above the published-coefficient figure.
 
-    It survived because the assertion was `0.50 < rate < 0.53`, a band three
-    hundred times wider than the error it was supposed to pin.
+    **2026-08-14: it is 51.75% again, and NOT because the correction was wrong.**
+    The max-of-models hedge was retired -- Model B matches 0 of 11 real taker
+    fills and is refuted -- so the applied bar is now the measured model's, which
+    at `k = 0.070` on a $0.0001 grid is exactly what the published coefficient
+    gives. The previous version of this test said, in as many words: *"If these
+    ever coincide, either the hedge was dropped or the fee model changed, and
+    both are worth failing a test over."* Both happened. It failed. It was right
+    to.
+
+    **The bar the code applies is still an overstatement, and by a known
+    factor.** Baseball measured `k = 0.035`, which would put the bar at
+    **50.88%**; `TAKER_COEFFICIENT` stays at 0.070 because which attribute
+    carries that split is unresolved and the record spans four days. So:
+    50.88% true on baseball, 51.75% applied, 52.38% at a sportsbook.
     """
 
-    def test_the_taker_breakeven_is_exactly_52_percent(self):
+    def test_the_taker_breakeven_is_exactly_51_75_percent(self):
         """Pinned to the value, not to a band.
 
         A range wide enough to contain both the claimed and the actual number
-        cannot tell you which one the code implements.
+        cannot tell you which one the code implements. That defect is what let
+        the original error survive for years.
         """
         rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
-        assert rate == pytest.approx(0.5200, abs=0.0001)
+        assert rate == pytest.approx(0.5175, abs=0.0001)
 
-    def test_it_is_not_the_published_coefficient_figure(self):
-        """The discriminating assertion.
+    def test_it_is_no_longer_above_the_published_coefficient_figure(self):
+        """The discriminating assertion, inverted from its previous form.
 
-        51.75% is a real number — it is what the published coefficient gives.
-        It is simply not what this code charges, and the difference is the
-        conservative max-of-models hedge. If these ever coincide, either the
-        hedge was dropped or the fee model changed, and both are worth failing
-        a test over.
+        It used to assert `rate > 0.5175`, to catch the hedge being dropped
+        silently. The hedge is now deliberately gone, so the same guard has to
+        point the other way: if the bar climbs back above the published figure,
+        a refuted model has been re-admitted to the money path.
         """
         rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
-        assert rate > 0.5175, (
-            "matches the published-coefficient figure, so the conservative "
-            "max-of-models fee selection is no longer being applied"
+        assert rate == pytest.approx(0.5175, abs=0.0001), (
+            "above the published-coefficient figure means a max-of-models "
+            "hedge is back; below it means k was lowered without an ADR"
         )
+
+    def test_the_applied_bar_still_overstates_the_measured_baseball_rate(self):
+        """The gap between what is charged and what was measured, pinned.
+
+        Baseball fills measured `k = 0.035`. This asserts the applied bar sits
+        *above* the bar that rate implies -- i.e. the module is still
+        overstating, which is the direction it has always chosen -- and pins how
+        far, so that closing the gap is a visible decision rather than a drift.
+        """
+        applied = breakeven_win_rate(cents_to_tenths(50), contracts=100)
+        measured_baseball = 0.508750
+        assert applied > measured_baseball
+        assert applied - measured_baseball == pytest.approx(0.00875, abs=0.0001)
 
     def test_taker_breakeven_at_fifty_cents_beats_a_sportsbook(self):
         rate = breakeven_win_rate(cents_to_tenths(50), contracts=100)
         assert rate < 0.5238, "should beat a -110 sportsbook"
-        # The headroom, stated: 0.38 points, not the 0.63 the docs implied.
-        assert 0.5238 - rate == pytest.approx(0.0038, abs=0.0002)
+        # The headroom, stated: 0.63 points at the applied rate. It was 0.38
+        # while a refuted model was inflating the fee. On baseball's measured
+        # rate it would be 1.50 -- none of which is an edge, only a lower bar.
+        assert 0.5238 - rate == pytest.approx(0.0063, abs=0.0002)
 
     def test_maker_is_cheaper_than_taker(self):
         taker = breakeven_win_rate(cents_to_tenths(50), contracts=100)

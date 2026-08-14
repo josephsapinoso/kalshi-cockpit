@@ -119,6 +119,16 @@ SPORTS_MULTIPLIER = Decimal("0.06")
 SPORTS_MAKER_MULTIPLIER = SPORTS_MULTIPLIER / Decimal(4)
 
 _ONE_CENT = Decimal("0.01")
+
+# The grid Kalshi rounds the charge onto. **Was `_ONE_CENT` until 2026-08-14**,
+# which reproduced 11 of 11 single-game settlements dated 2025-11-27 to
+# 2026-02-09 and **0 of 11 fills dated 2026-08-10 or later**. The schedule was
+# revised in between; this is the current grid, measured, not sourced.
+#
+# `_ONE_CENT` is kept above because `_model_b` is still expressed on it -- see
+# the note on that function -- and because the old grid is the evidence that a
+# revision happened.
+FEE_GRID_DOLLARS = Decimal("0.0001")
 _PRICE_MAX_DEC = Decimal(PRICE_MAX)
 
 
@@ -128,7 +138,28 @@ def _price_dollars(price_tenths: int) -> Decimal:
 
 
 def _model_a(price_tenths: int, contracts: int, maker: bool) -> Decimal:
-    """Single coefficient, rounded up to the cent on the whole order."""
+    """Single coefficient, rounded up to `FEE_GRID_DOLLARS` on the whole order.
+
+    **This is the observed model**, not a candidate. On 11 real taker fills the
+    charged fee is exactly `ceil(k * C * P * (1-P))` to $0.0001 per order. The
+    only thing still hedged is `k`: baseball measured `(0.034969, 0.035008]`,
+    the two non-baseball fills `(0.069961, 0.070000]`, and `TAKER_COEFFICIENT`
+    stays at the **higher** of the two deliberately -- see `calculate_fee`.
+    """
+    coefficient = MAKER_COEFFICIENT if maker else TAKER_COEFFICIENT
+    price = _price_dollars(price_tenths)
+    raw = coefficient * Decimal(contracts) * price * (Decimal(1) - price)
+    return raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING)
+
+
+def _model_a_pre_july_2026(price_tenths: int, contracts: int, maker: bool) -> Decimal:
+    """The superseded whole-cent form, retained as evidence, not for pricing.
+
+    Reproduces 11 of 11 single-game settlements from 2025-11-27 to 2026-02-09 at
+    `k = 0.07`, and 0 of 11 fills from 2026-08-10 on. Kept so that "the schedule
+    changed" is a claim this module can still demonstrate rather than assert.
+    **No production caller. Do not price with it.**
+    """
     coefficient = MAKER_COEFFICIENT if maker else TAKER_COEFFICIENT
     price = _price_dollars(price_tenths)
     raw = coefficient * Decimal(contracts) * price * (Decimal(1) - price)
@@ -170,8 +201,22 @@ def fee_candidates(
 def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Optional[float]:
     """Return the Kalshi fee for an order, in dollars.
 
-    Returns the **most expensive** plausible model. See the module docstring
-    for why, and for how this hedge gets retired.
+    Returns the **measured** model (`_model_a`): `ceil(k * C * P * (1-P))` to
+    $0.0001, per order. See the module docstring for the 11 fills that pin it.
+
+    **`TAKER_COEFFICIENT` stays at 0.07 and that is deliberate, not an
+    oversight.** Baseball measured `k = 0.035`, but *which* market attribute
+    carries that split is unresolved -- sport, series, and a per-market
+    liquidity tier all fit the observations identically -- and the whole
+    `k = 0.035` record spans **four days** on a venue whose schedule demonstrably
+    changed within the preceding six months. So this function charges the
+    **higher** measured rate everywhere. On the observed fills that is exact on
+    non-baseball and exactly 2.00x on baseball: never under, which is the
+    direction the module has always chosen, and now overstating by a known
+    factor rather than an unknown one.
+
+    Hardcoding 0.035 needs a second MLB observation window >= 3-4 weeks after
+    2026-08-14, and a series argument this signature does not take.
 
     Args:
         price_tenths: Execution price in integer tenths of a cent, 1-999.
@@ -200,7 +245,19 @@ def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Opt
     if not is_valid_price(price_tenths):
         return None
 
-    return max(fee_candidates(price_tenths, contracts, maker).values())
+    # **The hedge is retired.** This was `max(fee_candidates(...).values())`
+    # until 2026-08-14. Model B -- per-category multiplier, rounded to the
+    # NEAREST CENT per contract -- is refuted: it matches **0 of 11** real
+    # fills, and it is wrong in *form*, not just in granularity, because the
+    # observed charge lands on a $0.0001 grid that per-contract cent rounding
+    # cannot produce. Keeping a refuted model inside a `max()` is not caution;
+    # it is a wrong number wearing conservatism's clothes. It kept the charge at
+    # 1.12x-2.53x the truth *after* the granularity fix, because B won three of
+    # the eleven rows outright.
+    #
+    # `fee_candidates` still reports B, because the harness's job is to show a
+    # refuted model failing. Pricing no longer consults it.
+    return float(_model_a(price_tenths, contracts, maker))
 
 
 def calculate_fee_cents(

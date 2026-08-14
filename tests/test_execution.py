@@ -252,14 +252,18 @@ class TestOrderRequestValidation:
         overstate the cost.
 
         50.9c snaps down to 50c on a whole-cent grid, giving $50.00 of stake.
-        The fee on top is $2.00 -- 50c is exactly where the conservative model
-        peaks, at 2c per contract -- so the worst case is $52.00. Quoting the
-        unsnapped 50.9c would have said $50.90 of stake for a fill that costs
-        $50.00.
+        The fee on top is $1.75 -- 50c is exactly where the fee model peaks --
+        so the worst case is $51.75. Quoting the unsnapped 50.9c would have said
+        $50.90 of stake for a fill that costs $50.00.
+
+        **Was $52.00 until 2026-08-14**, when the retired max-of-models hedge
+        stopped lifting 1.75c/contract to 2c via Model B's per-contract cent
+        rounding. The claim under test is that the SNAPPED price is used; the
+        fee is incidental to it and is pinned in `tests/test_fees.py`.
         """
         built = order(count=100, limit_price_tenths=509)
         assert built.api_price_tenths == 500
-        assert built.worst_case_cost_dollars == pytest.approx(52.0)
+        assert built.worst_case_cost_dollars == pytest.approx(51.75)
 
 
 class TestOrderPlacer:

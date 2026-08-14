@@ -162,16 +162,43 @@ class TestSizingInteraction:
 
     def test_edge_is_computed_at_the_size_actually_sent(self):
         """Fees round up on the whole order, so a per-contract edge computed
-        independently of size is wrong for every size but one."""
+        independently of size is wrong for every size but one.
+
+        **The ask is overridden to 48.1c, and that override IS the test.** At
+        the fixture's default 50.5c both sizes yield an identical edge, so the
+        assertion could not tell "the engine passes the real size" from "the
+        engine assumes 1". This is `tests/test_fees.py`'s at-the-money-anchor
+        lesson in a second place: an anchor that agrees under both hypotheses
+        proves neither.
+
+        **Why it stopped discriminating, and it is worth knowing.** Near 50c,
+        `0.07 * C * P * (1-P)` is `0.0175 * C`, which lands exactly on the
+        $0.0001 grid for every integer `C` -- so the per-order ceiling does not
+        round at all and the fee is exactly proportional to size. While fees
+        rounded to the CENT the ceiling bit almost everywhere and any price
+        would do. On the finer grid, sweeping this fixture across 200-900
+        tenths leaves **12 asks** at which the engine's edge still varies with
+        size, all in 48.1c-49.2c. The property is real and it is now narrow.
+        """
         small_bankroll = RiskConfig(
             bankroll_dollars=100.0, kelly_fraction=0.25, max_order_contracts=50,
             max_position_dollars=100.0, max_exposure_dollars=400.0,
             max_daily_loss_dollars=100.0,
         )
-        big = build(candidate())
-        small = build(candidate(), risk=small_bankroll)
+        big = build(candidate(ask_tenths=481))
+        small = build(candidate(ask_tenths=481), risk=small_bankroll)
         assert big.suggested_contracts != small.suggested_contracts
         assert big.edge_tenths != small.edge_tenths
+
+        # And the anchor discriminates -- stated as a pair, so the override
+        # above cannot be quietly reverted to a price that proves nothing.
+        flat = build(candidate(ask_tenths=505))
+        flat_small = build(candidate(ask_tenths=505), risk=small_bankroll)
+        assert flat.suggested_contracts != flat_small.suggested_contracts
+        assert flat.edge_tenths == flat_small.edge_tenths, (
+            "50.5c is fee-flat across these sizes; if this ever differs, the "
+            "override above is no longer necessary and should be removed"
+        )
 
 
 class TestPersistence:

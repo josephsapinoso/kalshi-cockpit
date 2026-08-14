@@ -356,8 +356,8 @@ class TestTheTickerSpendsTheSameBudgetsTheServerDoes:
         hub._load_subscriptions()
 
         state = hub._risk_state
-        assert state.exposure_dollars == pytest.approx(5.20)
-        assert state.positions[TICKER] == pytest.approx(5.20)
+        assert state.exposure_dollars == pytest.approx(5.175)
+        assert state.positions[TICKER] == pytest.approx(5.175)
         assert state.daily_pnl_dollars == pytest.approx(-7.77)
 
     async def test_the_frame_on_the_wire_spends_the_state_the_hub_read(

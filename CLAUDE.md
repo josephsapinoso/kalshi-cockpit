@@ -45,22 +45,37 @@ to become a public portfolio repo.
 
 **The premise, stated honestly:** Kalshi's advantage is cost, not information.
 Prices are accurate to ~2c and sports is the most bot-contested corner of the
-venue. The venue lowers the break-even bar from 52.38% to **52.00%** (taker)
+venue. The venue lowers the break-even bar from 52.38% to **51.75%** (taker)
 or 50.44% (maker, at size). It does not clear that bar.
 
-52.00%, not the 51.75% this file used to claim: 51.75% is what the published
-fee coefficient gives, but `calculate_fee` charges the conservative maximum
-across candidate models, so the bar the code actually applies is higher. The
-headroom is 0.38 points, not 0.63.
+**This number has now moved twice, and the history is load-bearing.** It was
+51.75%, corrected to 52.00% on 2026-08-10, and put back to 51.75% on 2026-08-14.
+The correction was not wrong: `calculate_fee` genuinely charged the conservative
+maximum across candidate models, so the applied bar genuinely was higher. **That
+maximum has since been measured and the model it hedged against is refuted** —
+Model B matches 0 of 11 real taker fills. Retiring it returns the applied bar to
+what the published coefficient gives. Headroom is **0.63 points**, not 0.38.
+See `docs/adr/0028-the-fee-hedge-is-retired-and-the-grid-is-deci-cent.md`.
 
-**And 0.38 is an upper bound, not a point figure.** Both bars are computed
-through `settlement_fee()` (`backend/core/fees.py:197`), which is a rename of
-`calculate_fee` asserting *"Settlement is not a trade, so there is exactly one
-fee"*. That is H4, and **H4 is untested** — eligible denominator 1, at an anchor
-where the charge is $0 by construction. A sportsbook's 52.38% has no settlement
-fee to omit and Kalshi may, so the omission subtracts from the 0.38 and nothing
-subtracts from the 52.38. The 1.12-point gap to the 50.88% bar is robust; the
-headroom is not. See `docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md`.
+**The bar the code applies still overstates the measured one, deliberately.**
+Nine baseball fills pin `k` to `(0.03497, 0.03501]` — half the coefficient the
+code charges — which would put the bar at **50.88%**. `TAKER_COEFFICIENT` stays
+at 0.070 because *which* attribute carries that split is unresolved (sport,
+series, and a per-market liquidity tier all fit identically) and every
+observation of `k = 0.035` lies inside **four days**, on a venue whose schedule
+demonstrably changed within the preceding six months. So: **50.88% true on
+baseball, 51.75% applied, 52.38% at a sportsbook.**
+
+**And 0.63 is an upper bound, not a point figure.** Both bars are computed
+through `settlement_fee()`, a rename of `calculate_fee` asserting *"Settlement
+is not a trade, so there is exactly one fee"*. That is H4, and **H4 is still
+untested**. Settlement `fee_cost` matching the summed fill fees on 4 positions
+is consistent with there being no settlement charge *and* with the field being
+entry-only — separating them needs the account balance. A sportsbook's 52.38%
+has no settlement fee to omit and Kalshi may, so the omission subtracts from the
+0.63 and nothing subtracts from the 52.38. The gap to the 50.88% bar is robust;
+the headroom is not. See
+`docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md`.
 
 This tool exists to find out whether an edge is there — not to assume one.
 

@@ -1,5 +1,46 @@
 # Next — your checklist
 
+## 2026-08-14 — THE FEE HEDGE IS RETIRED. The break-even bar is 51.75%, and one published analysis is now stale.
+
+`docs/adr/0028-the-fee-hedge-is-retired-and-the-grid-is-deci-cent.md`. Audited,
+implemented, 2,578 tests pass, 10 `xfail(strict=True)`, ruff clean.
+
+**What changed in the code:** `_model_a` rounds to `$0.0001` instead of the
+cent, and `calculate_fee` returns it **alone** — the `max()` over candidates is
+gone. Model B matches **0 of 11** real fills and is wrong in form, not just
+granularity. `TAKER_COEFFICIENT` **stays at 0.07** and that is deliberate.
+
+**The headline number moved: 52.00% → 51.75%**, headroom 0.38 → **0.63 points**.
+`CLAUDE.md` is updated. This reverses the 2026-08-10 correction *without that
+correction having been wrong* — it described a real hedge that has since been
+refuted. **50.88% true on baseball, 51.75% applied, 52.38% at a sportsbook.**
+
+**Read this before citing the split:** the `k = 0.035` record spans **four
+days**, and the two high-rate observations are **one fill each**, each the sole
+fill in its series. Sport, series, and a per-market liquidity tier all fit
+identically. A promotional MLB rate is **not excluded** — this account's own
+record shows Kalshi revising the schedule between 2026-02-09 and 2026-08-10.
+
+**`joint_bound` is stale and was NOT re-baselined.** It reproduces a registered
+table whose premise is "the production path charges the maximum". Ten tests are
+`xfail(strict=True)`; re-deriving them to match new code would be fitting after
+seeing the data. **The joint bound must be re-run** — it turns green loudly.
+
+**Two smaller things that moved:** suppression's fabricated-fair window slid
+443–482 (was 440–479, same width), and the fee across it is no longer flat
+(17.3–17.5 tenths, was exactly 20.0 — the old flatness was a cent-rounding
+artifact). Per-order rounding now bites at only 12 asks in the engine's range,
+so one test was re-anchored 50.5c → 48.1c to stay discriminating.
+
+**Before `TAKER_COEFFICIENT` is lowered, in order:**
+
+1. **A second MLB observation window, ≥3–4 weeks after 2026-08-14.** Separates
+   "the MLB rate" from "an August promotion". **Costs one 1-contract fill.**
+2. A third baseball series and a second `KXWNBAGAME` market.
+3. A series argument — `calculate_fee`/`settlement_fee` do not take one. Six
+   call sites in the risk path.
+4. Re-run the joint bound.
+
 ## 2026-08-14 — ROUND THREE IS RUN. The fee is NOT a venue constant, and the code is wrong on baseball.
 
 `docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`. **Read

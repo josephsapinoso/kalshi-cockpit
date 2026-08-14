@@ -429,7 +429,7 @@ class TestExposureIsReleased:
         _order(conn, ticker=market["ticker"], side=market["result"],
                count=10, price=500)
         assert current_exposure_dollars(conn, dry_run=True) == pytest.approx(
-            5.20  # $5.00 of stake plus the 20c taker fee
+            5.175  # $5.00 of stake plus the 17.5c taker fee
         )
 
         await run_settlement_pass(conn, FakeKalshi({market["ticker"]: market}))
@@ -577,8 +577,8 @@ class TestThePositionOnOneTickerCanBeRead:
     def test_it_counts_only_the_ticker_asked_about(self, conn):
         _order(conn, ticker="A", count=10, price=500)
         _order(conn, ticker="B", count=20, price=500)
-        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.20)
-        assert open_position_dollars(conn, "B", dry_run=True) == pytest.approx(10.40)
+        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.175)
+        assert open_position_dollars(conn, "B", dry_run=True) == pytest.approx(10.35)
 
     def test_a_ticker_with_nothing_open_is_zero(self, conn):
         _order(conn, ticker="A")
@@ -608,8 +608,8 @@ class TestThePositionOnOneTickerCanBeRead:
         _order(conn, ticker="A", count=10, price=500, dry_run=True)
         _order(conn, ticker="A", count=40, price=500, dry_run=False,
                status="resting")
-        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.20)
-        assert open_position_dollars(conn, "A", dry_run=False) == pytest.approx(20.80)
+        assert open_position_dollars(conn, "A", dry_run=True) == pytest.approx(5.175)
+        assert open_position_dollars(conn, "A", dry_run=False) == pytest.approx(20.70)
 
     def test_an_unreadable_price_refuses_the_whole_sum(self, conn):
         """Skipping it would report a smaller position than the truth and hand

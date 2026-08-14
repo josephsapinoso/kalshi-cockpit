@@ -41,6 +41,7 @@ from backend.config import (
     RiskConfig,
     StalenessConfig,
 )
+from backend.core.fees import calculate_fee
 from backend.core.suppression import SuppressionConfig
 from backend.kalshi.grid import parse_price_grid
 from backend.kalshi.orders import OrderOutcome, OrderRequest, canonical_body_json
@@ -72,12 +73,21 @@ WHOLE_CENT = parse_price_grid(
 
 
 # What the default `_order` below commits: $5.00 of stake on ten 50c contracts
-# plus the 20c taker fee. Named rather than repeated, because the population and
+# plus the taker fee. Named rather than repeated, because the population and
 # release tests below are about *which* orders count, not about the fee -- and a
 # fee recalibration (a live-gate condition) should not turn six of them red for
 # a reason none of them is testing. `TestExposureIsSpentAndAccumulatedAtThe
 # SamePrice` pins the number itself.
-ONE_ORDER = 5.20
+#
+# **Derived rather than hardcoded, since 2026-08-14.** It was `5.20`, and the
+# fee recalibration this comment predicted duly turned six of these red -- the
+# comment named the hazard and the literal walked into it anyway. The fee moved
+# from 20c (the retired `max()`, driven by the now-refuted Model B on a cent
+# grid) to 17.5c (the measured model on a $0.0001 grid). Computing it from
+# `calculate_fee` is legitimate here precisely because these tests are about
+# `current_exposure_dollars`, not about `core.fees` -- which has its own suite,
+# including anchors against 11 real fills.
+ONE_ORDER = 5.00 + calculate_fee(500, 10)
 
 
 def _order(ticker="T", *, side="yes", price_tenths=500, count=10, rec_id=None):
@@ -392,8 +402,8 @@ class TestExposureCountsTheRightPopulation:
         position it should refuse."""
         order = _order(side="no", price_tenths=405, count=10)
         record_intent(conn, order, dry_run=False, submitted_ms=1)
-        assert current_exposure_dollars(conn) == pytest.approx(4.00 + 0.17), (
-            "the stake is right; the 17c taker fee on ten 40c contracts is the "
+        assert current_exposure_dollars(conn) == pytest.approx(4.00 + 0.168), (
+            "the stake is right; the 16.8c taker fee on ten 40c contracts is the "
             "part exposure used to leave out"
         )
 
@@ -438,9 +448,16 @@ class TestExposureIsSpentAndAccumulatedAtTheSamePrice:
     """
 
     def test_the_fee_is_counted(self, conn):
-        """Ten contracts at 50c: $5.00 of stake and a 20c taker fee."""
+        """Ten contracts at 50c: $5.00 of stake and a 17.5c taker fee.
+
+        **Was 20c until 2026-08-14.** The retired `max()` returned Model B's
+        per-contract cent rounding, which lifted 1.75c/contract to 2c. The
+        measured model charges `ceil(0.07 * 10 * 0.25)` on a $0.0001 grid --
+        $0.175 exactly, no rounding applied at all. Hardcoded on purpose: this
+        class is the one that pins the number.
+        """
         record_intent(conn, _order(), dry_run=False, submitted_ms=1)
-        assert current_exposure_dollars(conn) == pytest.approx(5.20)
+        assert current_exposure_dollars(conn) == pytest.approx(5.175)
 
     def test_it_matches_what_sizing_spent(self, conn):
         """The two prices, side by side.
@@ -494,7 +511,7 @@ class TestExposureIsSpentAndAccumulatedAtTheSamePrice:
         silently treated as zero would render a ticket saying this order costs
         nothing, which is the one reading a person acts on without pausing.
         """
-        assert order_exposure_dollars(_order()) == pytest.approx(5.20)
+        assert order_exposure_dollars(_order()) == pytest.approx(ONE_ORDER)
 
 
 class TestThereIsOneDefinitionOfExposure:
@@ -802,12 +819,12 @@ class TestTheCapIsAppliedInsideTheTransactionThatWritesTheOrder:
             with pytest.raises(ExposureCapExceeded) as caught:
                 reserve_order(
                     writer,
-                    self._live(count=100, price_tenths=500),   # $50 + $2 fee
+                    self._live(count=100, price_tenths=500),   # $50 + $1.75 fee
                     dry_run=False,
                     submitted_ms=1,
                     max_exposure_dollars=10.0,
                 )
-            assert caught.value.exposure_after == pytest.approx(52.0)
+            assert caught.value.exposure_after == pytest.approx(51.75)
             assert caught.value.cap == 10.0
             assert _rows(writer) == [], "the refused order stayed on disk"
         finally:
