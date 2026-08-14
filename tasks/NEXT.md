@@ -1,5 +1,55 @@
 # Next — your checklist
 
+## 2026-08-14 — PROPS ARE REACHABLE, AND THE FEE COEFFICIENT IS THE GATE, NOT THE MARKET
+
+`docs/measurements/2026-08-14-prop-dispersion-scoping-probe.md`. **EXPLORATORY,
+not pre-registered** -- the cuts were chosen after seeing the data. Producer:
+`scripts/probe_prop_dispersion.py`, 138 credits/sweep, 19,670 remaining.
+
+**The plumbing works and is the part worth keeping.** Kalshi runs prop ladders
+on every game (`KXMLBKS`, `KXMLBTB`, `KXMLBHIT`, `KXMLBHR`, `KXMLBRBI`) --
+227-263 markets a slate, thousands of contracts deep. Kalshi's `N+` is exactly
+the books' `Over N-0.5`; `yes_sub_title` parses 227 of 227. Keying on
+**(player, threshold)** removes team-mapping entirely, 0 collisions. **8 books
+quote props and none of them is Pinnacle or Betfair** -- the reference set is
+genuinely soft, which was the whole point.
+
+**What it found, and it is not what the market change predicted:**
+
+| population | n | clears at deployed k=0.070 | clears at measured k=0.035 |
+|---|---:|---:|---:|
+| all | 96 | 1 | 3 |
+| **>= 4 books** | **42** | **0** | **1** |
+
+**Zero at the deployed fee with a real consensus -- the same answer game lines
+gave.** Changing the target market did not change the conclusion.
+
+**Every large apparent edge was a one-book "consensus"** (`+19.1t` on 1 book,
+`+10.0t` on 1 book, `+8.5t` on 2 books at depth 39), while every 5-7 book row
+was negative. **Rule 1 reproducing in the wild.** One survivor, identical on two
+runs two hours apart: `Yamamoto 7+ strikeouts, ask 52.0c, fair 53.6%, 6 books,
+spread 3.7t, depth 3,251` -- `+7.7t` at k=0.035, **`-2.3t` at k=0.070**. `n=1`,
+unregistered. **A reason to register a measurement, not a bet.**
+
+**THE CORRECTION THIS FORCES.** Every row that clears, clears *only* at
+`k = 0.035`. So the binding constraint is **the fee coefficient, not the choice
+of market**, and the second MLB observation window (>=3-4 weeks after
+2026-08-14, one 1-contract fill) is **the gate on the whole strategy** -- not
+the ADR-tidying errand it was described as. Props are baseball; whatever that
+window says about `k` applies to all of this.
+
+**Cheapest available improvement: 174 of 222 matched keys were dropped for
+having no two-sided book.** The `_alternate` feeds cover the full ladder but
+most books quote only the Over. Recovering them is **~4.6x the comparisons for
+zero extra credits** -- estimate each book's overround from its own two-sided
+primary line and apply it to that book's one-sided alternates. **That is an
+assumption and must be registered as one.**
+
+**Next step is `pre-registrar`, not more probing.** Fix population, book-count
+floor, method-spread rule, horizon and stopping rule *before* the next pull, and
+score survivors on **CLV against Kalshi's close** rather than on the gap.
+
+
 ## 2026-08-14 — THE FEE HEDGE IS RETIRED. The break-even bar is 51.75%, and one published analysis is now stale.
 
 `docs/adr/0028-the-fee-hedge-is-retired-and-the-grid-is-deci-cent.md`. Audited,
