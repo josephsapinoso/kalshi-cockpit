@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -311,6 +311,24 @@ _MIGRATIONS: dict[int, _Migration] = {
         # sentinel that makes the rebuild a no-op on a database already at v4.
         skip_statements_if_column=(("settlements", "order_id"),),
         undo_statements=_SETTLEMENTS_REBUILD_UNDO,
+    ),
+    # v7 -- player props. A prop's outcome is (player, side, line); the first
+    # component had nowhere to live, so `odds_snapshots` and `fair_prices` gain
+    # a nullable `outcome_description`.
+    #
+    # Nullable and added rather than backfilled: every existing row is a team
+    # market, where the column is meaningless. A backfill would have to invent a
+    # value, and the honest value is "this row has no player".
+    7: _Migration(
+        columns=(
+            ("odds_snapshots", "outcome_description", "TEXT"),
+            ("fair_prices", "outcome_description", "TEXT"),
+        ),
+        undo_statements=(
+            # Dropping the columns takes everything this step wrote. Stated
+            # rather than left blank so a future reader does not think it was
+            # forgotten.
+        ),
     ),
 }
 

@@ -24,6 +24,7 @@ from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.client import (
     EXCLUDED_MARKETS,
     PRICEABLE_MARKETS,
+    PROP_MARKETS,
     OddsAPIError,
     OddsClient,
     OddsQuote,
@@ -676,3 +677,146 @@ class TestTheMonthlyCeiling:
             "the fixture is not on a fresh sports day; the daily cap will decide"
         )
         assert budget.can_afford(200, august)
+
+
+PROP_FIXTURE = Path(__file__).parent / "fixtures" / "odds_mlb_player_props.json"
+
+
+@pytest.fixture(scope="module")
+def captured_props() -> dict:
+    """A verbatim `/v4/sports/baseball_mlb/events/{id}/odds` prop response.
+
+    A **different endpoint shape** from the sweep fixture above: this one
+    returns a single event object, not a list. That difference is the reason
+    this is captured rather than hand-written -- a parser fed a hand-made list
+    would agree with whoever wrote the list and still be wrong about the wire.
+    """
+    return json.loads(PROP_FIXTURE.read_text(encoding="utf-8"))
+
+
+class TestPlayerPropsOnTheRealWireFormat:
+    """Props against the bytes the API actually sends.
+
+    The load-bearing field is `description`. It carries the player, it does not
+    exist on team markets, and without it every player's Over at a given line
+    collapses into one indistinguishable bucket -- a devig over two unrelated
+    pitchers that looks entirely normal in the table.
+    """
+
+    def test_the_capture_is_a_real_single_event_prop_response(self, captured_props):
+        """Guard the fixture, so a truncated re-capture fails loudly."""
+        assert isinstance(captured_props, dict), "per-event endpoint returns an object"
+        assert "bookmakers" in captured_props
+        assert len(captured_props["bookmakers"]) >= 5
+        keys = {
+            m["key"] for b in captured_props["bookmakers"] for m in b["markets"]
+        }
+        assert keys <= PROP_MARKETS, f"unclassified prop keys: {keys}"
+        assert any(k.endswith("_alternate") for k in keys), "need the ladder feed"
+
+    def test_the_parser_carries_the_player_through(self, odds_client, captured_props):
+        quotes = odds_client._parse(
+            [captured_props], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        assert quotes, "the captured payload must produce rows"
+        players = {q.outcome_description for q in quotes}
+        assert None not in players, "every prop row must name its player"
+        assert len(players) >= 2, "the fixture has two pitchers"
+
+    def test_two_players_at_one_line_do_not_collapse(self, odds_client, captured_props):
+        """The defect `outcome_description` exists to prevent, stated as a test.
+
+        Keyed on (name, point) alone -- the shape the table had before this
+        column -- two pitchers quoted at the same line become one bucket. This
+        asserts the collision is real in the captured data, so the test cannot
+        pass by the fixture happening not to contain one.
+        """
+        quotes = odds_client._parse(
+            [captured_props], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        without = {(q.outcome_name, q.outcome_point, q.bookmaker) for q in quotes}
+        with_player = {
+            (q.outcome_name, q.outcome_point, q.bookmaker, q.outcome_description)
+            for q in quotes
+        }
+        assert len(with_player) > len(without), (
+            "no collision in this fixture, so the assertion proves nothing"
+        )
+
+    def test_team_markets_leave_the_player_null(self, odds_client, captured_odds):
+        """`outcome_description` must stay `None` where there is no player.
+
+        A non-null default would make every team row look like a prop to any
+        query that filters on the column being set.
+        """
+        quotes = odds_client._parse(
+            captured_odds["events"], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        assert quotes
+        assert {q.outcome_description for q in quotes} == {None}
+
+    def test_the_player_survives_a_round_trip_through_the_table(
+        self, conn, odds_client, captured_props
+    ):
+        quotes = odds_client._parse(
+            [captured_props], sport_key="baseball_mlb", fetched_ms=NOW
+        )
+        store_quotes(conn, quotes)
+        rows = conn.execute(
+            "SELECT outcome_description, COUNT(*) AS n FROM odds_snapshots "
+            "WHERE outcome_description IS NOT NULL GROUP BY outcome_description"
+        ).fetchall()
+        assert len(rows) >= 2
+        assert sum(r["n"] for r in rows) == len(quotes)
+
+
+class TestPropFetchingIsPerEventAndMeteredPerEvent:
+    @respx.mock
+    async def test_it_bills_every_event_separately(self, odds_client, budget, conn):
+        """Props cost `markets x regions` PER EVENT, not per sweep.
+
+        A batch-priced check would under-count by the number of events, which
+        on a 14-game slate is a 14x under-count of the month's spend.
+        """
+        for event_id in ("e1", "e2"):
+            respx.get(
+                f"{BASE}/sports/baseball_mlb/events/{event_id}/odds"
+            ).mock(return_value=httpx.Response(200, json={"bookmakers": []}))
+
+        async with odds_client as odds:
+            await odds.fetch_props(
+                "baseball_mlb", ["e1", "e2"], now_ms=NOW,
+                markets=["pitcher_strikeouts"], regions=["us"],
+            )
+        calls = conn.execute("SELECT COUNT(*) AS n FROM api_credits").fetchone()["n"]
+        assert calls == 2, "one credit record per event"
+
+    @respx.mock
+    async def test_a_mid_slate_refusal_keeps_what_was_already_fetched(
+        self, odds_client, budget, conn
+    ):
+        """The reason the budget is checked per event rather than per batch.
+
+        Refusing the whole slate throws away events the budget could afford;
+        committing to the whole slate spends past the cap. Stopping mid-slate
+        keeps the earlier events and records why the rest are missing.
+        """
+        respx.get(f"{BASE}/sports/baseball_mlb/events/e1/odds").mock(
+            return_value=httpx.Response(200, json=json.loads(
+                PROP_FIXTURE.read_text(encoding="utf-8")
+            ))
+        )
+        # `budget` is `daily_budget=16`; one market x one region costs 1, so
+        # spending 15 leaves room for exactly one more event.
+        budget.record(called_ms=NOW, endpoint="/odds", cost=15)
+
+        async with odds_client as odds:
+            quotes = await odds.fetch_props(
+                "baseball_mlb", ["e1", "e2", "e3"], now_ms=NOW,
+                markets=["pitcher_strikeouts"], regions=["us"],
+            )
+        assert quotes, "the affordable event must survive the refusal"
+        refusals = conn.execute(
+            "SELECT COUNT(*) AS n FROM odds_sweep_log WHERE outcome = 'refused'"
+        ).fetchone()["n"]
+        assert refusals >= 1, "the refusal must be recorded, not silent"

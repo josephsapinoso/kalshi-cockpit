@@ -90,8 +90,29 @@ def parse_ms(value: Any) -> Optional[int]:
 # than left to whatever the API happens to return.
 # ---------------------------------------------------------------------------
 
-# Back prices on the three markets this project prices. In scope.
-PRICEABLE_MARKETS = frozenset({"h2h", "spreads", "totals"})
+# Back prices on the three team markets this project prices. In scope.
+TEAM_MARKETS = frozenset({"h2h", "spreads", "totals"})
+
+# MLB player props, and the `_alternate` feed for each. Kalshi runs a ladder per
+# player (`2+` through `8+`); a book quotes one primary line and the rest on the
+# alternate feed, so both are needed to compare more than one rung in seven --
+# measured 2026-08-14 at 48 of 263 Kalshi markets on primaries alone.
+#
+# These are **per-event** markets: they are not returned by `/sports/{k}/odds`
+# and must be requested through `fetch_props`. Kept in one set so the parser's
+# "every market key is explicitly classified" rule still holds for them.
+PROP_BASE_MARKETS = (
+    "pitcher_strikeouts",
+    "batter_total_bases",
+    "batter_hits",
+    "batter_home_runs",
+    "batter_rbis",
+)
+PROP_MARKETS = frozenset(PROP_BASE_MARKETS) | {
+    f"{m}_alternate" for m in PROP_BASE_MARKETS
+}
+
+PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS
 
 # Recognised, and deliberately **not** stored, each with the reason. The API
 # returns these without being asked: a request for `markets=h2h,spreads,totals`
@@ -133,10 +154,16 @@ class OddsQuote:
     home_team: str
     away_team: str
     bookmaker: str
-    market: str            # h2h | spreads | totals
+    market: str            # h2h | spreads | totals | a prop market key
     outcome_name: str      # team name, or Over/Under
     outcome_point: Optional[float]
     price_decimal: float
+    # WHOSE Over/Under. `None` on every team market. A player prop's outcome is
+    # (player, side, line) and this is the first component; see
+    # `odds_snapshots.outcome_description` for why it is not folded into
+    # `outcome_name`. Defaulted so every existing construction site keeps
+    # working unchanged -- there are many, and none of them means a prop.
+    outcome_description: Optional[str] = None
 
     @property
     def implied_probability(self) -> float:
@@ -286,6 +313,91 @@ class OddsClient:
 
         return self._parse(response.json(), sport_key=sport_key, fetched_ms=now_ms)
 
+    async def fetch_props(
+        self,
+        sport_key: str,
+        odds_event_ids: Sequence[str],
+        *,
+        now_ms: int,
+        markets: Optional[Sequence[str]] = None,
+        regions: Optional[Sequence[str]] = None,
+    ) -> list[OddsQuote]:
+        """Fetch player props, which are a **per-event** endpoint.
+
+        `/sports/{key}/odds` does not return props at any market key. They come
+        from `/sports/{key}/events/{id}/odds`, one call per event, billed at one
+        credit per market key per region -- so this is `len(events)` times more
+        expensive than a team sweep and the budget is checked **per event**,
+        not once for the batch.
+
+        Checking per event is deliberate: a batch check either refuses the whole
+        slate or commits to all of it, and the useful behaviour when the budget
+        runs out mid-slate is to keep the events already fetched. Each refusal
+        is recorded, so a slate that stopped halfway is visible as such rather
+        than looking like a slate with fewer games.
+
+        Returns the flattened quotes for every event that was fetched. An event
+        whose call failed at transport level is logged and skipped rather than
+        aborting the batch -- one bad event must not cost the other thirteen.
+        """
+        markets = list(markets or PROP_BASE_MARKETS)
+        regions = list(regions or self.config.regions)
+        per_event_cost = sweep_cost(markets, regions)
+
+        quotes: list[OddsQuote] = []
+        for event_id in odds_event_ids:
+            refusal = self.budget.refusal_reason(per_event_cost, now_ms)
+            if refusal is not None:
+                record_sweep_outcome(
+                    self.budget.conn,
+                    pass_ms=now_ms,
+                    sport_key=sport_key,
+                    outcome=REFUSED,
+                    detail=f"props {event_id}: {refusal}",
+                )
+                break
+
+            path = f"/sports/{sport_key}/events/{event_id}/odds"
+            url = f"{self.base_url}{path}"
+            params = {
+                "apiKey": self.config.api_key,
+                "regions": ",".join(regions),
+                "markets": ",".join(markets),
+                "oddsFormat": "decimal",
+                "dateFormat": "iso",
+            }
+
+            try:
+                response = await self.client.get(url, params=params)
+            except httpx.HTTPError:
+                logger.exception("prop fetch failed for %s/%s", sport_key, event_id)
+                continue
+
+            self.budget.record(
+                called_ms=now_ms,
+                endpoint=path,
+                cost=per_event_cost,
+                sport_key=sport_key,
+                markets=markets,
+                regions=regions,
+                remaining_reported=_int_header(response, "x-requests-remaining"),
+                used_reported=_int_header(response, "x-requests-used"),
+            )
+
+            if response.status_code == 429:
+                raise QuotaExhausted(429, url, response.text)
+            if response.status_code >= 400:
+                raise OddsAPIError(response.status_code, url, response.text)
+
+            # The per-event endpoint returns ONE event object where the sweep
+            # endpoint returns a list. Wrapped rather than reimplemented, so
+            # props inherit every drop rule the team path already enforces --
+            # incomplete identity, lay markets, implausible decimals.
+            quotes.extend(
+                self._parse([response.json()], sport_key=sport_key, fetched_ms=now_ms)
+            )
+        return quotes
+
     def _parse(
         self, payload: Any, *, sport_key: str, fetched_ms: int
     ) -> list[OddsQuote]:
@@ -382,6 +494,11 @@ class OddsClient:
                                 bookmaker=book_key,
                                 market=market_key or "",
                                 outcome_name=name,
+                                # `None` on team markets, where the API omits
+                                # it. On a prop it is the player, and without
+                                # it every player's Over collapses into one
+                                # indistinguishable bucket.
+                                outcome_description=outcome.get("description"),
                                 outcome_point=_opt_float(outcome.get("point")),
                                 price_decimal=price_decimal,
                             )
@@ -415,13 +532,14 @@ def store_quotes(conn, quotes: Sequence[OddsQuote]) -> int:
     conn.executemany(
         "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
         "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
-        "outcome_name, outcome_point, price_decimal) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "outcome_name, outcome_description, outcome_point, price_decimal) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 q.fetched_ms, q.book_updated_ms, q.sport_key, q.odds_event_id,
                 q.commence_ms, q.home_team, q.away_team, q.bookmaker, q.market,
-                q.outcome_name, q.outcome_point, q.price_decimal,
+                q.outcome_name, q.outcome_description, q.outcome_point,
+                q.price_decimal,
             )
             for q in quotes
         ],

@@ -1,0 +1,976 @@
+{
+ "id": "f3659cdd72f761a2763f92483ca59b6e",
+ "sport_key": "baseball_mlb",
+ "sport_title": "MLB",
+ "commence_time": "2026-08-14T18:20:00Z",
+ "home_team": "Chicago Cubs",
+ "away_team": "St. Louis Cardinals",
+ "bookmakers": [
+  {
+   "key": "draftkings",
+   "title": "DraftKings",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:55Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.03,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.76,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.68,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.15,
+       "point": 3.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:55Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.03,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.16,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.44,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.03,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.29,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 6.08,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 12.2,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.07,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.26,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.68,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.58,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.54,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 9.0,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 18.2,
+       "point": 7.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "betonlineag",
+   "title": "BetOnline.ag",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:05Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.99,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.78,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.7,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.1,
+       "point": 3.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:05Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 4.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 16.5,
+       "point": 8.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 8.0,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.39,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.84,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.99,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 37.0,
+       "point": 9.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 5.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.24,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 3.4,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 19.5,
+       "point": 8.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 9.75,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.33,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.7,
+       "point": 3.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "mybookieag",
+   "title": "MyBookie.ag",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:05Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 34.0,
+       "point": 9.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.3,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.85,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.64,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 4.2,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 7.4,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 15.25,
+       "point": 8.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.15,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.55,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.14,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 3.14,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 5.1,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 9.0,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 18.0,
+       "point": 8.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "fanduel",
+   "title": "FanDuel",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:47Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.72,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.08,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.0,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.78,
+       "point": 4.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:47Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.13,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.38,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.0,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.1,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 5.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.23,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.72,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.64,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.7,
+       "point": 5.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "betrivers",
+   "title": "BetRivers",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:16Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.97,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.77,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.72,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.05,
+       "point": 3.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:16Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.09,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.55,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.1,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.03,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.3,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 5.3,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 10.5,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.97,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.72,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.43,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.17,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.35,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 8.5,
+       "point": 6.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "bovada",
+   "title": "Bovada",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:16:24Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.74,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.05,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.0,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.77,
+       "point": 4.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:16:24Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.13,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.38,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.1,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 5.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 12.0,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.22,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.55,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.4,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 8.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 17.0,
+       "point": 7.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "betmgm",
+   "title": "BetMGM",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:47Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.91,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.85,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.69,
+       "point": 3.5
+      },
+      {
+       "name": "Under",
+       "description": "Clay Holmes",
+       "price": 2.05,
+       "point": 3.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:47Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.2,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.5,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.67,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.87,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.8,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 4.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.4,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 7.25,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.29,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.15,
+       "point": 2.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "williamhill_us",
+   "title": "Caesars",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:05Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.21,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.65,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.5,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.05,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 7.5,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.12,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.42,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.01,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.05,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 5.0,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 10.0,
+       "point": 7.5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "fanatics",
+   "title": "Fanatics",
+   "markets": [
+    {
+     "key": "pitcher_strikeouts",
+     "last_update": "2026-08-14T17:17:18Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.0,
+       "point": 4.5
+      },
+      {
+       "name": "Under",
+       "description": "Matthew Liberatore",
+       "price": 1.77,
+       "point": 4.5
+      }
+     ]
+    },
+    {
+     "key": "pitcher_strikeouts_alternate",
+     "last_update": "2026-08-14T17:17:18Z",
+     "outcomes": [
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.02,
+       "point": 0.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.1,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.31,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 1.77,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 2.6,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 4.4,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 8.0,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Clay Holmes",
+       "price": 16.0,
+       "point": 7.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.06,
+       "point": 1.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.19,
+       "point": 2.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 1.47,
+       "point": 3.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 2.0,
+       "point": 4.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 3.1,
+       "point": 5.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 5.4,
+       "point": 6.5
+      },
+      {
+       "name": "Over",
+       "description": "Matthew Liberatore",
+       "price": 10.0,
+       "point": 7.5
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

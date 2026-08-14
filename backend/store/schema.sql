@@ -198,9 +198,15 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     home_team           TEXT NOT NULL,
     away_team           TEXT NOT NULL,
     bookmaker           TEXT NOT NULL,      -- pinnacle | draftkings | ...
-    market              TEXT NOT NULL,      -- h2h | spreads | totals
+    market              TEXT NOT NULL,      -- h2h | spreads | totals | prop key
     outcome_name        TEXT NOT NULL,      -- team name, or Over/Under
-    outcome_point       REAL,               -- spread/total line
+    -- WHOSE Over/Under. NULL on every team market, and that is the point: a
+    -- player prop's outcome is (player, side, line) and the first component has
+    -- nowhere else to live. Folding it into `outcome_name` as "Holmes|Over"
+    -- would make every existing query that compares `outcome_name` to a team
+    -- name silently stop matching, and would put a parser in the read path.
+    outcome_description TEXT,
+    outcome_point       REAL,               -- spread/total/prop line
     price_decimal       REAL NOT NULL       -- decimal odds
 );
 CREATE INDEX IF NOT EXISTS idx_odds_event ON odds_snapshots(odds_event_id, market, fetched_ms DESC);
@@ -325,8 +331,10 @@ CREATE TABLE IF NOT EXISTS fair_prices (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     computed_ms         INTEGER NOT NULL,
     link_id             INTEGER NOT NULL REFERENCES event_links(id),
-    market              TEXT NOT NULL,      -- h2h | spreads | totals
+    market              TEXT NOT NULL,      -- h2h | spreads | totals | prop key
     outcome_name        TEXT NOT NULL,
+    -- See `odds_snapshots.outcome_description`. NULL on team markets.
+    outcome_description TEXT,
     outcome_point       REAL,
     p_multiplicative    REAL,
     p_additive          REAL,
