@@ -1,6 +1,40 @@
 # Next — your checklist
 
-## 2026-08-13 — Q-W IS BUILT AND COMMITTED. The only thing between here and the orders is Joe's deploy.
+## 2026-08-13 — Q-W RAN AND ACTIVATED. Nothing is blocking the orders but Joe's clock.
+
+`docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md`. **Read that,
+not this summary, before citing a number from it** — and never cite §1 without
+§2, which is verbatim and may not be paraphrased.
+
+**Cell `W` is registered.** `KXWNBAGAME`, first series, no substitution. §8's
+hard precondition is satisfied and **§Power's five-cell branch is licensed**:
+five orders, max stake $4.05, inside the $5.00 authorised on 2026-08-10. Expiry
+**2026-08-31 UTC**. Placement is Joe's, from
+`docs/JOE-fee-round-three-runbook.md`. **The watcher runs when he places, never
+in advance.**
+
+**Cite 94.4%, not 97.99%.** The raw share counts poller passes, and the loop
+runs at 15s or 900s depending on whether *any* league's odds are fresh — nothing
+to do with WNBA. Deduplicated to one look per burst it is **272 of 288 = 94.4%**,
+and an independent time-weighted denominator agrees at **93.3%**. Both bars
+clear on every version. `scripts/analyse_qw_result.py` re-derives all of it from
+the committed artefact; **do not hand-compute these again.**
+
+**The three things that cut against it, all in §2 and §5:** six of thirteen
+events had not tipped when the window closed (43% of qualifying quotes), and
+restricted to in-window fixtures the event count is **7, below the bar of 8** —
+unregistered, cannot un-activate `W`, published anyway. The record covers **3.18
+days, not four**. The 16 misses are **one five-hour continuous outage**, which
+for an operator placing at one moment is the worse reading.
+
+**`W` has no depth-durability and no time-to-tip figure.** `min_depth` is 1
+contract on the four largest contributors. It must not inherit `KXMLBSPREAD`'s
+"695 of 695 at ≥20".
+
+**Q-W cannot see a fee.** It removes a precondition. It moves neither `k = 0.035`
+nor `k = 0.070`, and it does not move `actionable` off 0.
+
+## 2026-08-13 — Q-W IS BUILT AND COMMITTED (superseded above; kept for the image finding)
 
 `kalshi-quotes-band` in `scripts/inspect_live_db.py` (`fcc2c1c`). Joe chose
 **Option A** from `docs/JOE-fee-round-three-runbook.md` on 2026-08-13: build the
@@ -17,17 +51,18 @@ query rather than amend the registration to dodge cell `W`.
    prompt. The derived guard could not see it — it reads `entrypoint.sh`, and
    this script is invoked by hand under the ssh ruling. See `tasks/lessons.md`,
    2026-08-13.
-2. **The deploy.** A new query reaches the live machine only at a deploy.
-   **Joe authorised me to run it on 2026-08-13; the harness permission
-   classifier blocked `flyctl deploy` and it has NOT run.** Either Joe runs
-   `flyctl deploy --app kalshi-cockpit` himself, or he adds a Bash permission
-   rule. **This is the blocker.**
-3. Run Q-W by committed path — `flyctl ssh console` may not run inline code —
-   and **publish the output whether it passes or fails** (§1.3). A failure is a
-   reachability finding about WNBA and legitimately licenses §Power's four-cell
-   branch; it is not a reason to skip reporting.
-4. Then, and only then, Joe places five orders. Max stake $4.05, inside the
-   $5.00 he authorised on 2026-08-10. Deadline **2026-08-31 UTC**.
+2. ~~The deploy.~~ **Done 2026-08-13, by Joe.** The harness permission
+   classifier blocks `flyctl deploy` for the agent, so Joe ran it himself. If a
+   future session needs one, that is the reason to ask rather than attempt —
+   and note the app reported *"not listening on the expected address"* on the
+   way up, which was a false alarm: `/api/health` returned 200 with
+   `live_trading_enabled: false`.
+3. ~~Run Q-W and publish it.~~ **Done.** It ACTIVATED --
+   `docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md`. The
+   four-cell branch is now moot; the five-cell design is licensed.
+4. **Joe places five orders.** The only step left, and it is his clock. Max
+   stake $4.05, inside the $5.00 he authorised on 2026-08-10. Deadline
+   **2026-08-31 UTC**. Run the watcher at the moment he places.
 
 **Two things the query reports and deliberately does NOT filter on.** Either
 filter would be a threshold the registration never registered, and inventing one
