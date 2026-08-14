@@ -153,10 +153,16 @@ size is still admissible.
 lies inside 2026-08-10 → 2026-08-14. Five days is not a season.
 
 **One process note.** The `KXPGATOUR` fill was not part of any calibration
-design and was found in the capture rather than reported. It is included because
-excluding an observation for being unplanned is exactly the freedom this
-document family removes — but it is **not** a registered cell, and no decision
-rule was fixed for it in advance.
+design. **Joe confirmed 2026-08-14 that he placed it himself, deliberately, as a
+recreational bet** — it is not a stray, a duplicate, or an automated order. It is
+included in the fee evidence because excluding an observation for being unplanned
+is exactly the freedom this document family removes, but it is **not** a
+registered cell and no decision rule was fixed for it in advance.
+
+**The general rule this establishes:** this account holds positions that are not
+experiments. A future session reading `/portfolio/fills` must not assume every
+fill is calibration data. Fee arithmetic may use them all — the venue charges
+what it charges — but no *design* may count them as cells.
 
 ## What we did not decide
 

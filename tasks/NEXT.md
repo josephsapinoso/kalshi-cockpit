@@ -26,10 +26,11 @@ independent lookups that sort by sport -- unparsimonious, **not refuted**.
 Liquidity-tier is weakened too (high cluster holds a 10,206-deep WNBA market,
 low cluster a 19,749-deep prop), **also not refuted**.
 
-**Found in the capture, not reported: a `KXPGATOUR` fill**, 20 contracts at 13c,
-`$0.158400`, 2026-08-14 14:28 UTC. Not part of any calibration design; included
-because excluding an unplanned observation is the exact freedom this document
-family removes. It is the third high-cluster series.
+**A `KXPGATOUR` fill**, 20 contracts at 13c, `$0.158400`, 2026-08-14 14:28 UTC.
+**Joe placed it himself, for fun** — confirmed, not a stray order. It counts as
+fee evidence (the venue charges what it charges) and is the third high-cluster
+series, but it is **not a registered cell**. **This account holds positions that
+are not experiments: never assume a fill is calibration data.**
 
 **What this does NOT unlock, and the reason is unchanged:** every low
 observation still lies inside **2026-08-10 to 2026-08-14**. Five days is not a
