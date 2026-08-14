@@ -307,6 +307,144 @@ _SQL_SERIES = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Q-W: the WNBA band-and-depth reachability query.
+#
+# Registered at
+# `docs/measurements/2026-08-10-preregistration-fee-rate-attribution-round-three.md`
+# (§0.4, the block at line 719). §8 makes it a hard precondition: Q-W must have
+# been run and reported before the first order of the fee-calibration round.
+#
+# Every threshold below is a REGISTERED CONSTANT, deliberately not a flag with a
+# default. A flag would let a later reader move the bar after seeing the answer,
+# which is the entire degree of freedom the registration exists to remove.
+# ---------------------------------------------------------------------------
+
+# Four whole game-days. The registration writes the window as "2026-08-07 00:00Z
+# to 2026-08-10 23:59Z" and §Limits calls it "four game-days, 2026-08-07 to
+# 2026-08-10", so `23:59Z` is the last minute of the fourth day, not a boundary
+# that clips its final second. Held half-open [start, end).
+_QW_WINDOW_START_MS = int(
+    datetime(2026, 8, 7, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
+)
+_QW_WINDOW_END_MS = int(
+    datetime(2026, 8, 11, 0, 0, tzinfo=timezone.utc).timestamp() * 1000
+)
+
+# Tenths of a cent. The band is closed at both ends and has a hole at exactly
+# 300 -- 27c to 39c, excluding 30c.
+_QW_BAND_LO = 270
+_QW_BAND_HI = 390
+_QW_BAND_HOLE = 300
+
+# Contracts displayed at the derived ask.
+_QW_MIN_DEPTH = 1
+
+# Activation: >= 80% of pre-game instants AND >= 8 distinct events.
+_QW_MIN_INSTANT_PCT = 80
+_QW_MIN_EVENTS = 8
+
+# Fixed substitution order. First series passing BOTH conditions becomes `W`,
+# and the substitution is reported in the verdict line.
+_QW_SERIES_ORDER = ("KXWNBAGAME", "KXWNBASPREAD", "KXWNBATOTAL")
+
+# ADR 0006. Kalshi's `occurrence_datetime` runs exactly 3 hours late, and
+# `kalshi_events.commence_ms` stores it RAW -- `discovery.event_commence_ms`
+# (`backend/kalshi/discovery.py:432-447`) returns `parse_ms(occurrence_datetime)`
+# with no correction applied. So the correction belongs here. Verified before
+# use: had it already been applied at write time, subtracting again would have
+# moved every fixture's true start three hours early and silently widened
+# "pre-game" by three hours on every row.
+_QW_PREGAME_OFFSET_MS = 3 * 60 * 60 * 1000
+
+# The derived ask, and the depth standing at it.
+#
+# `1000 - no_bid_tenths` is the ask you would pay for YES
+# (`backend/store/schema.sql:142-145` -- ask sides are derived at read time,
+# never stored). The depth AVAILABLE at that ask is the size of the opposing
+# bid, and `backend/runner.py:1030-1037` writes
+# `market.no_bid_tenths, market.yes_ask_size` into the column pair
+# `(no_bid_tenths, no_bid_qty)`. So the depth for this predicate is
+# `no_bid_qty`, NOT `yes_bid_qty`.
+#
+# This is the trap in the query and it is silent: `yes_bid_qty` is populated on
+# essentially every row, so reading depth off it passes almost everything and
+# the query would report reachability it never measured.
+_QW_ASK = "(1000 - q.no_bid_tenths)"
+_QW_DEPTH = "q.no_bid_qty"
+
+_QW_QUALIFIES = (
+    f"q.no_bid_tenths IS NOT NULL "
+    f"AND {_QW_ASK} >= {_QW_BAND_LO} "
+    f"AND {_QW_ASK} <= {_QW_BAND_HI} "
+    f"AND {_QW_ASK} <> {_QW_BAND_HOLE} "
+    f"AND {_QW_DEPTH} IS NOT NULL AND {_QW_DEPTH} >= {_QW_MIN_DEPTH}"
+)
+
+# The pre-game population for one series, before the band is applied. A row is
+# in it when it is inside the window and strictly before the fixture's true
+# start. `commence_ms IS NULL` drops the row rather than defaulting it: an event
+# whose start we cannot determine is not evidence that its quotes were pre-game.
+_QW_FROM = (
+    "FROM kalshi_quotes q "
+    "JOIN kalshi_markets m ON m.ticker = q.ticker "
+    "JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+    "WHERE m.series_ticker = :series "
+    "AND q.observed_ms >= :start_ms AND q.observed_ms < :end_ms "
+    "AND e.commence_ms IS NOT NULL "
+    f"AND q.observed_ms < e.commence_ms - {_QW_PREGAME_OFFSET_MS}"
+)
+
+# The counts the verdict is computed from. One row by construction, and fetched
+# under a cap of its own rather than the caller's `--limit`: the verdict must
+# not be derivable from a section that truncation could have trimmed, and
+# `--limit 0` would otherwise return no row at all.
+_QW_AGGREGATE_CAP = 1
+
+_SQL_QW_COUNTS = (
+    "SELECT COUNT(DISTINCT q.observed_ms) AS pregame_instants, "
+    f"COUNT(DISTINCT CASE WHEN {_QW_QUALIFIES} THEN q.observed_ms END) "
+    "AS qualifying_instants, "
+    f"COUNT(DISTINCT CASE WHEN {_QW_QUALIFIES} THEN m.event_ticker END) "
+    "AS qualifying_events "
+    f"{_QW_FROM}"
+)
+
+# The parts, printed beside the aggregate because a pooled percentage is not a
+# finding until the per-instant view agrees with it.
+_SQL_QW_INSTANTS = (
+    "SELECT q.observed_ms, "
+    f"COUNT(CASE WHEN {_QW_QUALIFIES} THEN 1 END) AS qualifying_markets, "
+    f"COUNT(DISTINCT CASE WHEN {_QW_QUALIFIES} THEN m.event_ticker END) "
+    "AS qualifying_events, "
+    f"MIN(CASE WHEN {_QW_QUALIFIES} THEN {_QW_ASK} END) AS min_ask_tenths "
+    f"{_QW_FROM} GROUP BY q.observed_ms ORDER BY q.observed_ms"
+)
+
+_SQL_QW_EVENTS = (
+    "SELECT m.event_ticker, COUNT(*) AS qualifying_quotes, "
+    "COUNT(DISTINCT q.observed_ms) AS instants, "
+    f"MIN({_QW_ASK}) AS min_ask_tenths, MAX({_QW_ASK}) AS max_ask_tenths, "
+    f"MIN({_QW_DEPTH}) AS min_depth, "
+    # How far ahead the fixture was. Q-W puts no lower bound on this, so a
+    # WNBA game ten days out counts toward the 80% on equal footing with one
+    # tipping tonight -- on a book that is thin and wide, and that the operator
+    # will not find in band on the night. Printed, not filtered: a bound is a
+    # registered threshold and this query may not invent one.
+    "MIN(e.commence_ms) AS commence_ms, "
+    # Half-cent asks inside the band (e.g. 305) satisfy the predicate but round
+    # DOWN into the excluded hole at 300 when a limit is placed, so they would
+    # be counted reachable and be untakeable. Expected 0 -- `price_grids.json`
+    # found 1,426 of 1,426 game-level markets on `linear_cent` -- and this
+    # turns that expectation into a measurement. NULL counts as non-linear:
+    # unreadable resolves toward attention, never toward "fine".
+    "SUM(CASE WHEN COALESCE(m.price_structure, 'unknown') <> 'linear_cent' "
+    "THEN 1 ELSE 0 END) AS non_linear_cent_quotes "
+    f"{_QW_FROM} AND {_QW_QUALIFIES} "
+    "GROUP BY m.event_ticker ORDER BY m.event_ticker"
+)
+
+
 def _day_bounds(date_yyyymmdd: str, day_start_hour: int) -> tuple[int, int]:
     """The half-open [start, end) millisecond bounds of one budget day."""
     try:
@@ -471,6 +609,163 @@ def _q_series(conn: sqlite3.Connection, args) -> list[Section]:
 
 
 @dataclass(frozen=True)
+class QWVerdict:
+    """One series' Q-W counts and whether they activate `W`.
+
+    `instant_pct` is `None`, never `0.0`, when no pre-game instant exists. A
+    series with nothing to measure has not failed the 80% bar -- it could not
+    reach it -- and this repo has already published one zero that meant "could
+    not fire" while reading as "fired and caught nothing" (`c4bca6b`,
+    `tasks/NEXT.md` §3).
+    """
+
+    series: str
+    pregame_instants: int
+    qualifying_instants: int
+    qualifying_events: int
+    instant_pct: Optional[float]
+    activates: bool
+    note: str
+
+
+def _qw_verdict(conn: sqlite3.Connection, series: str) -> QWVerdict:
+    """Score one series against Q-W's two registered conditions.
+
+    The percentage test is integer arithmetic --
+    `qualifying * 100 >= 80 * pregame` -- not a float comparison against 80.0.
+    At the bar itself (4 of 5 instants) the float route is a coin toss on
+    representation, and the bar is exactly where a registered threshold has to
+    be exact.
+    """
+    counts = _fetch(
+        conn,
+        _SQL_QW_COUNTS,
+        {
+            "series": series,
+            "start_ms": _QW_WINDOW_START_MS,
+            "end_ms": _QW_WINDOW_END_MS,
+        },
+        title=f"Q-W counts: {series}",
+        cap=_QW_AGGREGATE_CAP,
+    )
+    pregame, qualifying, events = counts.rows[0]
+
+    if pregame == 0:
+        return QWVerdict(
+            series=series,
+            pregame_instants=0,
+            qualifying_instants=qualifying,
+            qualifying_events=events,
+            instant_pct=None,
+            activates=False,
+            note="NO PRE-GAME INSTANTS - could not fire, not measured and failed",
+        )
+
+    pct_met = qualifying * 100 >= _QW_MIN_INSTANT_PCT * pregame
+    events_met = events >= _QW_MIN_EVENTS
+    if pct_met and events_met:
+        note = "ACTIVATES"
+    else:
+        unmet = []
+        if not pct_met:
+            unmet.append(f"instant share < {_QW_MIN_INSTANT_PCT}%")
+        if not events_met:
+            unmet.append(f"events < {_QW_MIN_EVENTS}")
+        note = "does not activate: " + ", ".join(unmet)
+
+    return QWVerdict(
+        series=series,
+        pregame_instants=pregame,
+        qualifying_instants=qualifying,
+        qualifying_events=events,
+        instant_pct=round(100.0 * qualifying / pregame, 2),
+        activates=pct_met and events_met,
+        note=note,
+    )
+
+
+def _q_kalshi_quotes_band(conn: sqlite3.Connection, args) -> list[Section]:
+    """Q-W: was a 27-39c (excl. 30c) WNBA market reachable pre-game?
+
+    Walks `_QW_SERIES_ORDER` and stops at the first series that activates. Every
+    series attempted is reported, so a substitution is visible rather than
+    inferred -- the registration requires the substitution to be named in the
+    verdict line.
+
+    The detail sections describe the DECIDING series: the one that activated,
+    or the last one attempted when none did.
+    """
+    verdicts: list[QWVerdict] = []
+    for series in _QW_SERIES_ORDER:
+        verdicts.append(_qw_verdict(conn, series))
+        if verdicts[-1].activates:
+            break
+
+    deciding = next((v for v in verdicts if v.activates), verdicts[-1])
+
+    verdict_section = Section(
+        title=(
+            f"Q-W verdict: W {'ACTIVATES' if deciding.activates else 'IS NOT REGISTERED'}"
+            f" (bars: >= {_QW_MIN_INSTANT_PCT}% of pre-game instants,"
+            f" >= {_QW_MIN_EVENTS} distinct events)"
+        ),
+        columns=(
+            "series_ticker",
+            "pregame_instants",
+            "qualifying_instants",
+            "instant_pct",
+            "qualifying_events",
+            "activates",
+            "note",
+        ),
+        rows=[
+            (
+                v.series,
+                v.pregame_instants,
+                v.qualifying_instants,
+                v.instant_pct,
+                v.qualifying_events,
+                1 if v.activates else 0,
+                v.note,
+            )
+            for v in verdicts
+        ],
+    )
+
+    params = {
+        "series": deciding.series,
+        "start_ms": _QW_WINDOW_START_MS,
+        "end_ms": _QW_WINDOW_END_MS,
+    }
+    instants = _fetch(
+        conn,
+        _SQL_QW_INSTANTS,
+        params,
+        title=(
+            f"{deciding.series}: every pre-game polling instant, and how many "
+            "markets in band with depth at each"
+        ),
+        cap=args.limit,
+    )
+    events = _fetch(
+        conn,
+        _SQL_QW_EVENTS,
+        params,
+        title=f"{deciding.series}: distinct events contributing a qualifying market",
+        cap=args.limit,
+    )
+
+    return [
+        _window_section(
+            "Q-W window (registered)", _QW_WINDOW_START_MS, _QW_WINDOW_END_MS
+        ),
+        verdict_section,
+        _derive_iso(instants, "observed_ms", "observed_iso"),
+        _derive_iso(events, "commence_ms", "commence_iso"),
+    ]
+
+
+@dataclass(frozen=True)
 class QueryDef:
     description: str
     run: Callable[[sqlite3.Connection, Any], list[Section]]
@@ -514,6 +809,13 @@ QUERIES: dict[str, QueryDef] = {
     "series": QueryDef(
         "kalshi_series: series_ticker and league. ~10 rows.",
         _q_series,
+    ),
+    "kalshi-quotes-band": QueryDef(
+        "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "
+        "reachable at >= 80% of pre-game polling instants across >= 8 events, "
+        "2026-08-07 to 2026-08-10? Window, band, bars and series order are "
+        "registered constants, not flags. Precondition for the fee round.",
+        _q_kalshi_quotes_band,
     ),
 }
 
@@ -705,8 +1007,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 # is written beside each test.
 #
 # What is still NOT established is in that file's docstring, and the shortest
-# version of it is: a green suite says these eight queries are well-formed and
+# version of it is: a green suite says these nine queries are well-formed and
 # their guards fire. It says nothing about what the live database contains.
+#
+# That gap is widest at `kalshi-quotes-band` (Q-W), whose entire purpose is to
+# report what the live database contains. Its tests establish that the band, the
+# hole at 300, the depth column, the 3-hour pre-game offset, both activation
+# bars and the series substitution order behave as registered. They establish
+# NOTHING about WNBA reachability, which is only readable after a deploy.
 # ---------------------------------------------------------------------------
 
 

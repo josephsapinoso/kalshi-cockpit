@@ -24,11 +24,11 @@ WHAT THESE TESTS DO NOT ESTABLISH
   and the guards fire; it says nothing about what `/data/cockpit.db` holds, and
   no test here has ever seen that file.
 - **Nothing about the whitelist being sufficient.** These tests pin that the
-  eight named queries run and mean what they say. Four live questions currently
-  ride on this script and at least three of them need tables the whitelist does
-  not touch (`kalshi_quotes`, `fair_prices`, and `recommendations` as a
-  population rather than as a `--pin` subquery). A green suite is not evidence
-  that a question can be answered.
+  nine named queries run and mean what they say. `kalshi_quotes` is no longer
+  among the tables the whitelist cannot reach -- `kalshi-quotes-band` reaches it
+  -- but `fair_prices` and `recommendations` as a population rather than as a
+  `--pin` subquery still are. A green suite is not evidence that a question can
+  be answered.
 - **Nothing about the ssh convention.** The rule that `flyctl ssh console` may
   only invoke a committed script by path is a convention the agent keeps and Joe
   audits. No test can enforce it, and none here tries.
@@ -55,10 +55,20 @@ from scripts.inspect_live_db import (
     QUERIES,
     Section,
     UnknownQuery,
+    _QW_BAND_HI,
+    _QW_BAND_HOLE,
+    _QW_BAND_LO,
+    _QW_MIN_EVENTS,
+    _QW_PREGAME_OFFSET_MS,
+    _QW_SERIES_ORDER,
+    _QW_WINDOW_END_MS,
+    _QW_WINDOW_START_MS,
     _day_bounds,
     _derive_iso,
     _fetch,
     _iso,
+    _q_kalshi_quotes_band,
+    _qw_verdict,
     connect_readonly,
     main,
     render_json,
@@ -723,3 +733,523 @@ class TestTheScriptIsRunnable:
         out = capsys.readouterr().out
         assert "# series" in out
         assert str(live_db) in out
+
+
+# ---------------------------------------------------------------------------
+# Q-W: `kalshi-quotes-band`
+#
+# What these tests establish: the band, its hole at 300, the depth column, the
+# 3-hour pre-game offset, the window's half-openness, both activation bars and
+# the series substitution order behave exactly as the registration fixes them.
+#
+# What they do NOT establish, and no local test can: whether a WNBA market was
+# actually reachable in that band. That is a fact about the live database and is
+# only readable after a deploy.
+# ---------------------------------------------------------------------------
+
+# True start sits 7h after the window opens, so a quote stamped at the window's
+# own start is comfortably pre-game and the offset can be probed at its edge.
+QW_COMMENCE_MS = _QW_WINDOW_START_MS + 10 * 60 * 60 * 1000
+QW_TRUE_START_MS = QW_COMMENCE_MS - _QW_PREGAME_OFFSET_MS
+
+# Asks are stated as asks; the no-side bid that produces them is derived here so
+# no test hand-computes the identity and gets it backwards.
+IN_BAND_ASK = 350
+
+
+def _no_bid_for(ask: int) -> int:
+    return 1000 - ask
+
+
+class _Args:
+    """The one attribute `_q_kalshi_quotes_band` reads off argparse's namespace."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+
+
+def _qw_db(tmp_path, quotes, events=(("E1", "KXWNBAGAME", QW_COMMENCE_MS),)):
+    """Build a schema-real database holding exactly the quotes given.
+
+    `quotes` is a list of `(event_ticker, observed_ms, ask, no_bid_qty)`, and
+    optionally a 5th element overriding `yes_bid_qty` -- present so a test can
+    put depth on the WRONG column and watch the query refuse it.
+    """
+    path = tmp_path / "cockpit.db"
+    # Rebuilt from empty every call. `tmp_path` is per-test, not per-call, and a
+    # test that scores several populations in a loop would otherwise accumulate
+    # them -- so a row rejected on the third pass would still be counted from
+    # the first, and the band tests would all read as passes.
+    path.unlink(missing_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    for series in sorted({"KXWNBAGAME", "KXWNBASPREAD", "KXWNBATOTAL"}):
+        conn.execute(
+            "INSERT INTO kalshi_series (series_ticker, league, first_seen_ms, "
+            "last_seen_ms) VALUES (?, 'wnba', 1, 1)",
+            (series,),
+        )
+    for event_ticker, series, commence_ms in events:
+        conn.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, "
+            "commence_ms, close_ms, status, first_seen_ms, last_seen_ms) "
+            "VALUES (?, ?, ?, NULL, 'open', 1, 1)",
+            (event_ticker, series, commence_ms),
+        )
+    seen: set[str] = set()
+    for i, quote in enumerate(quotes):
+        event_ticker, observed_ms, ask, no_bid_qty = quote[:4]
+        yes_bid_qty = quote[4] if len(quote) > 4 else 500.0
+        ticker = f"{event_ticker}-M{i}"
+        series = next(s for e, s, _ in events if e == event_ticker)
+        if ticker not in seen:
+            conn.execute(
+                "INSERT INTO kalshi_markets (ticker, event_ticker, "
+                "series_ticker, market_type, status, first_seen_ms, "
+                "last_seen_ms) VALUES (?, ?, ?, 'moneyline', 'active', 1, 1)",
+                (ticker, event_ticker, series),
+            )
+            seen.add(ticker)
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, seq, source, "
+            "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, NULL, 'rest', 100, ?, ?, ?)",
+            (ticker, observed_ms, yes_bid_qty, _no_bid_for(ask), no_bid_qty),
+        )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _qw_score(tmp_path, quotes, series="KXWNBAGAME", events=None):
+    """Score one series against Q-W over a purpose-built database."""
+    path = (
+        _qw_db(tmp_path, quotes)
+        if events is None
+        else _qw_db(tmp_path, quotes, events)
+    )
+    conn = connect_readonly(str(path))
+    try:
+        return _qw_verdict(conn, series)
+    finally:
+        conn.close()
+
+
+def _blank_out(path, column):
+    """NULL one quote column, to probe an absence the fixture cannot express."""
+    conn = sqlite3.connect(path)
+    conn.execute(f"UPDATE kalshi_quotes SET {column} = NULL")
+    conn.commit()
+    conn.close()
+
+
+def _slate(n_events, n_instants, bad_instants=()):
+    """`n_events` events each quoting in band at every one of `n_instants`.
+
+    An instant listed in `bad_instants` still carries quotes -- out of band, so
+    the instant stays in the pre-game denominator. An instant that vanished from
+    the denominator entirely would make a failing share look like a passing one,
+    which is the arithmetic the 80% bar turns on.
+    """
+    quotes = []
+    for e in range(n_events):
+        for i in range(n_instants):
+            observed = _QW_WINDOW_START_MS + i * 60_000
+            ask = _QW_BAND_LO - 1 if i in bad_instants else IN_BAND_ASK
+            quotes.append((f"E{e}", observed, ask, 5.0))
+    events = tuple((f"E{e}", "KXWNBAGAME", QW_COMMENCE_MS) for e in range(n_events))
+    return quotes, events
+
+
+class TestTheBandIsClosedAndHasAHoleAt300:
+    """The registration's band is `270 <= ask <= 390, excluding exactly 300`.
+
+    Mutations seen red: the `<>` at the hole dropped; `>=`/`<=` at either bound
+    narrowed to `>`/`<`; the bounds applied to the raw `no_bid_tenths` instead
+    of the derived ask.
+    """
+
+    def test_an_ask_at_exactly_the_hole_does_not_qualify(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, _QW_BAND_HOLE, 5.0)])
+        assert v.pregame_instants == 1
+        assert v.qualifying_instants == 0
+
+    def test_one_tenth_either_side_of_the_hole_does_qualify(self, tmp_path):
+        for ask in (_QW_BAND_HOLE - 1, _QW_BAND_HOLE + 1):
+            v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, ask, 5.0)])
+            assert v.qualifying_instants == 1, ask
+
+    def test_both_bounds_are_inclusive(self, tmp_path):
+        for ask in (_QW_BAND_LO, _QW_BAND_HI):
+            v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, ask, 5.0)])
+            assert v.qualifying_instants == 1, ask
+
+    def test_one_tenth_outside_either_bound_does_not_qualify(self, tmp_path):
+        for ask in (_QW_BAND_LO - 1, _QW_BAND_HI + 1):
+            v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, ask, 5.0)])
+            assert v.qualifying_instants == 0, ask
+
+    def test_the_band_is_applied_to_the_derived_ask_not_the_stored_bid(
+        self, tmp_path
+    ):
+        # ask 350 is in band; the `no_bid_tenths` that produces it is 650, which
+        # is outside it. A query that banded the stored column would invert.
+        assert _no_bid_for(IN_BAND_ASK) > _QW_BAND_HI
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 5.0)])
+        assert v.qualifying_instants == 1
+
+    def test_a_null_no_bid_is_not_readable_as_an_ask_of_1000(self, tmp_path):
+        path = _qw_db(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 5.0)])
+        _blank_out(path, "no_bid_tenths")
+        conn = connect_readonly(str(path))
+        try:
+            assert _qw_verdict(conn, "KXWNBAGAME").qualifying_instants == 0
+        finally:
+            conn.close()
+
+
+class TestDepthIsReadFromTheOpposingBid:
+    """`no_bid_qty` holds `yes_ask_size` (`runner.py:1030-1037`).
+
+    This is the trap in the whole query and it is silent: `yes_bid_qty` is
+    populated on essentially every row, so a query reading depth off it passes
+    almost everything. Mutation seen red: `_QW_DEPTH` switched to
+    `q.yes_bid_qty` -- the first test below stays green, the second goes red.
+    """
+
+    def test_depth_below_one_at_a_banded_ask_does_not_qualify(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 0.0)])
+        assert v.pregame_instants == 1
+        assert v.qualifying_instants == 0
+
+    def test_depth_on_the_yes_side_does_not_rescue_an_empty_no_side(self, tmp_path):
+        v = _qw_score(
+            tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 0.0, 900.0)]
+        )
+        assert v.qualifying_instants == 0
+
+    def test_exactly_one_contract_qualifies(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 1.0)])
+        assert v.qualifying_instants == 1
+
+    def test_a_null_depth_does_not_qualify(self, tmp_path):
+        path = _qw_db(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 5.0)])
+        _blank_out(path, "no_bid_qty")
+        conn = connect_readonly(str(path))
+        try:
+            assert _qw_verdict(conn, "KXWNBAGAME").qualifying_instants == 0
+        finally:
+            conn.close()
+
+
+class TestPreGameIsStrictlyBeforeCommenceMinusThreeHours:
+    """ADR 0006: `occurrence_datetime` runs 3h late and `commence_ms` is raw.
+
+    Mutations seen red: the offset dropped to 0; its sign flipped; `<` widened
+    to `<=` at the true start.
+
+    One mutation SURVIVED and is recorded rather than pruned. Deleting the
+    `AND e.commence_ms IS NOT NULL` clause leaves the suite green, because it is
+    semantically equivalent: `observed_ms < NULL - offset` evaluates to NULL,
+    and SQL's three-valued logic already drops the row from the WHERE. So
+    `test_an_event_with_no_commence_ms_contributes_nothing` below establishes
+    the BEHAVIOUR -- an event with no determinable start contributes nothing --
+    but cannot establish which of the two mechanisms produced it. The clause
+    stays as documentation and as cover against a later rewrite that wraps the
+    comparison in a COALESCE, where the equivalence would stop holding.
+    """
+
+    def test_one_millisecond_before_true_start_is_pre_game(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", QW_TRUE_START_MS - 1, IN_BAND_ASK, 5.0)])
+        assert v.pregame_instants == 1
+        assert v.qualifying_instants == 1
+
+    def test_true_start_itself_is_not_pre_game(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", QW_TRUE_START_MS, IN_BAND_ASK, 5.0)])
+        assert v.pregame_instants == 0
+
+    def test_the_offset_is_three_hours_not_zero(self, tmp_path):
+        # Between the true start and `commence_ms` itself: pre-game under a
+        # dropped offset, in-play under the registered one.
+        assert _QW_PREGAME_OFFSET_MS == 3 * 60 * 60 * 1000
+        v = _qw_score(tmp_path, [("E1", QW_COMMENCE_MS - 1, IN_BAND_ASK, 5.0)])
+        assert v.pregame_instants == 0
+
+    def test_an_event_with_no_commence_ms_contributes_nothing(self, tmp_path):
+        v = _qw_score(
+            tmp_path,
+            [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 5.0)],
+            events=(("E1", "KXWNBAGAME", None),),
+        )
+        assert v.pregame_instants == 0
+        assert v.instant_pct is None
+
+
+class TestTheWindowIsHalfOpen:
+    """Four whole game-days, `[2026-08-07T00:00Z, 2026-08-11T00:00Z)`.
+
+    Mutations seen red: `>=` at the start narrowed to `>`; `<` at the end
+    widened to `<=`.
+    """
+
+    LATE_COMMENCE = _QW_WINDOW_END_MS + _QW_PREGAME_OFFSET_MS + 1
+
+    def test_the_first_millisecond_is_inside(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS, IN_BAND_ASK, 5.0)])
+        assert v.qualifying_instants == 1
+
+    def test_one_millisecond_before_the_start_is_outside(self, tmp_path):
+        v = _qw_score(tmp_path, [("E1", _QW_WINDOW_START_MS - 1, IN_BAND_ASK, 5.0)])
+        assert v.pregame_instants == 0
+
+    def test_the_last_millisecond_is_inside(self, tmp_path):
+        v = _qw_score(
+            tmp_path,
+            [("E1", _QW_WINDOW_END_MS - 1, IN_BAND_ASK, 5.0)],
+            events=(("E1", "KXWNBAGAME", self.LATE_COMMENCE),),
+        )
+        assert v.qualifying_instants == 1
+
+    def test_the_end_bound_itself_is_outside(self, tmp_path):
+        v = _qw_score(
+            tmp_path,
+            [("E1", _QW_WINDOW_END_MS, IN_BAND_ASK, 5.0)],
+            events=(("E1", "KXWNBAGAME", self.LATE_COMMENCE),),
+        )
+        assert v.pregame_instants == 0
+
+
+class TestBothActivationBarsMustBeMet:
+    """`W` activates iff >= 80% of pre-game instants AND >= 8 distinct events.
+
+    Mutations seen red: `>=` at either bar softened to `>`; the two conditions
+    joined by `or`; the percentage computed against qualifying instants rather
+    than pre-game ones.
+    """
+
+    def test_eighty_percent_exactly_meets_the_share_bar(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 5, bad_instants=(4,))
+        v = _qw_score(tmp_path, quotes, events=events)
+        assert (v.qualifying_instants, v.pregame_instants) == (4, 5)
+        assert v.instant_pct == 80.0
+        assert v.activates
+
+    def test_seventy_five_percent_does_not(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 4, bad_instants=(3,))
+        v = _qw_score(tmp_path, quotes, events=events)
+        assert v.instant_pct == 75.0
+        assert not v.activates
+        assert "instant share" in v.note
+
+    def test_eight_events_meets_the_event_bar(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        v = _qw_score(tmp_path, quotes, events=events)
+        assert v.qualifying_events == _QW_MIN_EVENTS
+        assert v.activates
+
+    def test_seven_events_does_not_even_at_full_coverage(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS - 1, 3)
+        v = _qw_score(tmp_path, quotes, events=events)
+        assert v.instant_pct == 100.0
+        assert not v.activates
+        assert "events <" in v.note
+
+    def test_an_instant_counts_once_however_many_markets_qualify(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 2)
+        v = _qw_score(tmp_path, quotes, events=events)
+        assert v.pregame_instants == 2
+        assert v.qualifying_instants == 2
+
+
+class TestNoPreGameInstantsIsNotAFailedBar:
+    """A zero meaning "could not fire" must not read as "fired and missed".
+
+    The repo has published one of those already (`c4bca6b`). Mutation seen red:
+    the `pregame == 0` branch deleted so `instant_pct` fell through to `0.0`.
+    """
+
+    def test_the_percentage_is_none_rather_than_zero(self, tmp_path):
+        assert _qw_score(tmp_path, []).instant_pct is None
+
+    def test_it_does_not_activate(self, tmp_path):
+        assert not _qw_score(tmp_path, []).activates
+
+    def test_the_note_says_it_could_not_fire(self, tmp_path):
+        assert "could not fire" in _qw_score(tmp_path, []).note
+
+
+class TestTheSeriesSubstitutionOrderIsFixed:
+    """`KXWNBAGAME -> KXWNBASPREAD -> KXWNBATOTAL`, first pass wins.
+
+    Mutations seen red: the tuple reordered; the `break` on activation removed
+    so a later series overwrote an earlier pass; only the deciding series
+    reported instead of every one attempted.
+    """
+
+    def _verdict(self, tmp_path, quotes, events):
+        path = _qw_db(tmp_path, quotes, events)
+        conn = connect_readonly(str(path))
+        try:
+            sections = _q_kalshi_quotes_band(conn, _Args(limit=2000))
+        finally:
+            conn.close()
+        return next(s for s in sections if "Q-W verdict" in s.title)
+
+    def test_the_registered_order_is_exactly_these_three(self):
+        assert _QW_SERIES_ORDER == ("KXWNBAGAME", "KXWNBASPREAD", "KXWNBATOTAL")
+
+    def test_it_stops_at_the_first_series_that_activates(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        verdict = self._verdict(tmp_path, quotes, events)
+        assert [r[0] for r in verdict.rows] == ["KXWNBAGAME"]
+        assert "ACTIVATES" in verdict.title
+
+    def test_a_failing_first_series_falls_through_to_the_next(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        events = tuple((e, "KXWNBASPREAD", c) for e, _, c in events)
+        verdict = self._verdict(tmp_path, quotes, events)
+        assert [r[0] for r in verdict.rows] == ["KXWNBAGAME", "KXWNBASPREAD"]
+        assert verdict.rows[-1][-2] == 1
+
+    def test_every_series_is_reported_when_none_passes(self, tmp_path):
+        verdict = self._verdict(
+            tmp_path, [], (("E1", "KXWNBAGAME", QW_COMMENCE_MS),)
+        )
+        assert [r[0] for r in verdict.rows] == list(_QW_SERIES_ORDER)
+        assert "IS NOT REGISTERED" in verdict.title
+
+
+class TestQWIsReachableThroughTheCommandLine:
+    """The query has to be on the whitelist, not merely defined.
+
+    Failure #12 in this repo was a 481-line instrument imported by nothing.
+    """
+
+    def test_it_is_on_the_whitelist(self):
+        assert resolve_query("kalshi-quotes-band") is QUERIES["kalshi-quotes-band"]
+
+    def test_an_end_to_end_run_publishes_the_window_and_the_verdict(
+        self, tmp_path, capsys
+    ):
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        path = _qw_db(tmp_path, quotes, events)
+        payload = _run_json(capsys, ["kalshi-quotes-band", "--db", str(path)])
+        window = _named(payload, "Q-W window")
+        assert window["rows"][0][0] == _QW_WINDOW_START_MS
+        assert window["rows"][0][2] == _QW_WINDOW_END_MS
+        assert _named(payload, "Q-W verdict")["rows"][0][0] == "KXWNBAGAME"
+
+    def test_the_parts_are_published_beside_the_aggregate(self, tmp_path, capsys):
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        path = _qw_db(tmp_path, quotes, events)
+        payload = _run_json(capsys, ["kalshi-quotes-band", "--db", str(path)])
+        assert len(_named(payload, "every pre-game polling instant")["rows"]) == 3
+        assert (
+            len(_named(payload, "distinct events contributing")["rows"])
+            == _QW_MIN_EVENTS
+        )
+
+    def test_a_database_with_no_wnba_quotes_reports_every_series_as_unmeasured(
+        self, live_db, capsys
+    ):
+        payload = _run_json(capsys, ["kalshi-quotes-band", "--db", str(live_db)])
+        verdict = _named(payload, "Q-W verdict")
+        assert [r[0] for r in verdict["rows"]] == list(_QW_SERIES_ORDER)
+        assert all(r[3] is None for r in verdict["rows"])
+
+    def test_a_zero_row_cap_does_not_take_the_verdict_out_with_it(
+        self, tmp_path, capsys
+    ):
+        # `--limit 0` empties every capped section. The verdict is computed from
+        # its own single-row aggregate for exactly this reason, so it must still
+        # be there and still be right.
+        quotes, events = _slate(_QW_MIN_EVENTS, 3)
+        path = _qw_db(tmp_path, quotes, events)
+        payload = _run_json(
+            capsys, ["kalshi-quotes-band", "--db", str(path), "--limit", "0"]
+        )
+        verdict = _named(payload, "Q-W verdict")
+        assert verdict["rows"][0][0] == "KXWNBAGAME"
+        assert verdict["rows"][0][3] == 100.0
+
+
+class TestTheEventSectionReportsWhatQWDoesNotFilterOn:
+    """Two residuals the venue review named, printed rather than filtered.
+
+    Neither may become a filter: both would be new registered thresholds, and
+    this query is not licensed to invent one. Mutations seen red: each column
+    dropped from `_SQL_QW_EVENTS`.
+    """
+
+    def _events_section(self, tmp_path, quotes, events):
+        path = _qw_db(tmp_path, quotes, events)
+        conn = connect_readonly(str(path))
+        try:
+            sections = _q_kalshi_quotes_band(conn, _Args(limit=2000))
+        finally:
+            conn.close()
+        return next(s for s in sections if "distinct events contributing" in s.title)
+
+    def test_how_far_ahead_each_fixture_was_is_published(self, tmp_path):
+        # Q-W puts no lower bound on this, so a game ten days out counts toward
+        # the 80% on equal footing with one tipping tonight. A reader has to be
+        # able to see that without decoding ticker strings by hand.
+        quotes, events = _slate(_QW_MIN_EVENTS, 2)
+        section = self._events_section(tmp_path, quotes, events)
+        assert "commence_ms" in section.columns
+        assert "commence_iso" in section.columns
+        assert section.rows[0][section.columns.index("commence_ms")] == (
+            QW_COMMENCE_MS
+        )
+
+    def test_a_non_linear_cent_market_is_counted_not_silently_included(
+        self, tmp_path
+    ):
+        # A half-cent ask inside the band rounds DOWN into the excluded hole
+        # when a limit is placed, so it would read as reachable and be
+        # untakeable. Expected 0 on this population; measured, not assumed.
+        quotes, events = _slate(_QW_MIN_EVENTS, 1)
+        path = _qw_db(tmp_path, quotes, events)
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "UPDATE kalshi_markets SET price_structure = "
+            "'center_half_edge_half_cent'"
+        )
+        conn.commit()
+        conn.close()
+        ro_conn = connect_readonly(str(path))
+        try:
+            sections = _q_kalshi_quotes_band(ro_conn, _Args(limit=2000))
+        finally:
+            ro_conn.close()
+        section = next(
+            s for s in sections if "distinct events contributing" in s.title
+        )
+        idx = section.columns.index("non_linear_cent_quotes")
+        assert section.rows[0][idx] == 1
+
+    def test_an_unknown_price_structure_counts_toward_attention(self, tmp_path):
+        # NULL is not evidence of `linear_cent`. It resolves toward the column
+        # that gets looked at, never toward "fine".
+        quotes, events = _slate(_QW_MIN_EVENTS, 1)
+        section = self._events_section(tmp_path, quotes, events)
+        idx = section.columns.index("non_linear_cent_quotes")
+        assert section.rows[0][idx] == 1
+
+    def test_a_linear_cent_market_does_not_count(self, tmp_path):
+        quotes, events = _slate(_QW_MIN_EVENTS, 1)
+        path = _qw_db(tmp_path, quotes, events)
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE kalshi_markets SET price_structure = 'linear_cent'")
+        conn.commit()
+        conn.close()
+        ro_conn = connect_readonly(str(path))
+        try:
+            sections = _q_kalshi_quotes_band(ro_conn, _Args(limit=2000))
+        finally:
+            ro_conn.close()
+        section = next(
+            s for s in sections if "distinct events contributing" in s.title
+        )
+        idx = section.columns.index("non_linear_cent_quotes")
+        assert section.rows[0][idx] == 0

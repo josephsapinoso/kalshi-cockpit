@@ -37,8 +37,18 @@ asks you for more money. The choice is about *how* to clear the blocker.
 
 ### Option A — unblock Q-W properly, then run all five cells. **This is what I'd do.**
 
-1. Next session, I add the `kalshi_quotes` query to `inspect_live_db.py`, with
-   tests, and it gets reviewed.
+> **Joe chose A on 2026-08-13, and step 1 is DONE.** The query is
+> `kalshi-quotes-band` in `scripts/inspect_live_db.py`. **Step 2 — your deploy —
+> is now the only thing standing between here and the orders.** Nothing else on
+> this page has changed.
+
+1. ~~Next session, I add the `kalshi_quotes` query to `inspect_live_db.py`, with
+   tests, and it gets reviewed.~~ **Done.** 36 tests, 23 mutations seen red,
+   reviewed against venue behaviour: the derived-ask depth column and the
+   3-hour `occurrence_datetime` offset were both re-derived from the writers
+   rather than assumed. Two things the query reports but does **not** filter on,
+   because a filter would be a threshold the registration never registered:
+   how far ahead each fixture was, and any market not on a whole-cent grid.
 2. **You deploy.** (One tap-equivalent, but it's your call — ADR 0018.)
 3. I run Q-W and publish its result *before* any order — instant count,
    percentage, event count — whether it passes or fails (§1.3).
