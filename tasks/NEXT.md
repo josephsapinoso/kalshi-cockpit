@@ -1,5 +1,54 @@
 # Next — your checklist
 
+## 2026-08-13 — Q-W IS BUILT AND COMMITTED. The only thing between here and the orders is Joe's deploy.
+
+`kalshi-quotes-band` in `scripts/inspect_live_db.py` (`fcc2c1c`). Joe chose
+**Option A** from `docs/JOE-fee-round-three-runbook.md` on 2026-08-13: build the
+query rather than amend the registration to dodge cell `W`.
+
+**The sequence from here, and step 1 is the only one that is done:**
+
+1. ~~Write the query.~~ **Done.** 41 tests, **23 mutations seen red**, reviewed
+   against venue behaviour. Tests 2,494 → 2,535, `ruff check` clean.
+2. **Joe deploys.** A new query reaches the live machine only at a deploy, and
+   deploys are his (ADR 0018). **This is the blocker. Do not chase him for it.**
+3. Run Q-W by committed path — `flyctl ssh console` may not run inline code —
+   and **publish the output whether it passes or fails** (§1.3). A failure is a
+   reachability finding about WNBA and legitimately licenses §Power's four-cell
+   branch; it is not a reason to skip reporting.
+4. Then, and only then, Joe places five orders. Max stake $4.05, inside the
+   $5.00 he authorised on 2026-08-10. Deadline **2026-08-31 UTC**.
+
+**Two things the query reports and deliberately does NOT filter on.** Either
+filter would be a threshold the registration never registered, and inventing one
+after seeing the shape of the data is the exact freedom this document family
+exists to remove. Quote both in §S:
+
+- **How far ahead each fixture was** (`commence_ms` in the events section). Q-W
+  has no lower bound, so a WNBA game ten days out counts toward the 80% on equal
+  footing with one tipping tonight — on a book that is thin, wide, and gone by
+  the night of the round. A 100% that is carried by far-future fixtures is a
+  reachability claim the operator cannot use.
+- **`non_linear_cent_quotes`.** A half-cent ask inside the band (e.g. 305)
+  satisfies the predicate but rounds *down* into the excluded hole at 300 when a
+  limit is placed — reachable on paper, untakeable in fact. Expected 0; the
+  column turns that expectation into a measurement.
+
+**And read `pregame_instants` beside every percentage.** The 80% denominator is
+per-series, so a fallback series activating on a much smaller instant count is
+an 80% over a smaller window. The verdict section prints every series attempted
+side by side for exactly this reason.
+
+**One survivor, recorded rather than pruned.** Deleting `commence_ms IS NOT NULL`
+leaves the suite green: comparing to NULL yields NULL and SQL already drops the
+row. The behaviour is pinned; which mechanism produces it is not.
+
+**Not in this diff, and proven wrong on the way:** `backend/store/schema.sql:112-118`
+says the 12 `deci_cent` markets in fixtures are "all of them on game markets."
+They are not — all twelve are `KXMVE` (`combo_priced_markets.json`), which
+`kalshi/rest.py:377-390` strips before anything reaches `kalshi_quotes`. Left
+alone as out of scope; fix it when that file is next touched.
+
 ## 2026-08-12 — ADR 0020 IS WRITTEN. The reserved number is spent, and it opens nothing.
 
 `docs/adr/0020-odds-age-ms-is-not-a-per-line-freshness-measure.md`. One document,
