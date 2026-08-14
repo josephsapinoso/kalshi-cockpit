@@ -1,5 +1,56 @@
 # Next — your checklist
 
+## 2026-08-14 — PROPS THROUGH THE EXISTING PIPELINE. Slice 1 of 4 done. **Start here.**
+
+Joe chose to route props through the deployed runner rather than a standalone
+cron, so they inherit devig, suppression, recommendations and **CLV scoring**.
+CLV is the point: a gap against soft books is not evidence, Kalshi's own close
+is (rule 3).
+
+**DONE — slice 1, the odds side** (`fa18077`). Schema **v7** adds nullable
+`outcome_description` to `odds_snapshots` and `fair_prices`; `fetch_props` calls
+the **per-event** endpoint (props are returned at no market key by
+`/sports/{k}/odds`) and meters **per event**, so a mid-slate budget refusal
+keeps the events already paid for. `PROP_MARKETS` carries primary **and**
+`_alternate` keys -- on primaries alone only 48 of 263 Kalshi markets matched.
+Tests load `tests/fixtures/odds_mlb_player_props.json`; 4 mutations run red; the
+v6→v7 migration is exercised on a downgraded database.
+
+**TODO — the three remaining slices, in order. Each ends verifiable.**
+
+2. **Discovery finds Kalshi prop markets.** `KXMLBKS`, `KXMLBTB`, `KXMLBHIT`,
+   `KXMLBHR`, `KXMLBRBI`. Set `market_type = 'prop'` (the column's comment says
+   nothing writes it -- `discovery._SUFFIX_TO_MARKET_TYPE` is the only producer)
+   and parse `yes_sub_title` `"Clay Holmes: 6+"` → (player, threshold). Regex
+   already proven: `^(?P<player>.+?):\s*(?P<threshold>\d+)\+\s*$`, 227 of 227
+   parsed on a live slate, 0 collisions.
+3. **Link prop events.** `KXMLBKS-26AUG142215COLSF` → the same game's
+   `odds_event_id`. `event_links` needs no schema change; the prop event is just
+   another `kalshi_event_ticker` against the same odds event.
+4. **Price them.** `run_pricing_pass` currently does **one devig per event over
+   team-name outcomes** (`runner.py:709`). Props need **one devig per (player,
+   threshold) over ["Over","Under"]**, written to `fair_prices` with
+   `market` = the prop key, `outcome_name` = Over/Under,
+   `outcome_description` = player, `outcome_point` = the line. Kalshi's `N+` is
+   exactly the books' `Over N-0.5`; key on **(player, threshold)**, never on
+   team -- that is what removes the abbreviation-mapping problem entirely.
+
+**Then ONE deploy from Joe** and it runs unattended. Nothing before that needs
+him.
+
+**Two things that must travel with this work:**
+
+- **174 of 222 matched keys were dropped for having no two-sided book.** The
+  alternate feeds quote mostly Over-only and `consensus_devig` needs both sides.
+  Recovering them is ~4.6x the comparisons for zero extra credits, and needs a
+  **registered** assumption: estimate each book's overround from its own
+  two-sided primary line, then apply it to that book's one-sided alternates.
+- **Props are baseball, so they are charged `k = 0.035`** (confirmed by the
+  `KXMLBKS` fill). But `TAKER_COEFFICIENT` is still 0.070 and stays there --
+  every low observation lies inside five days. **At 0.070 the prop probe found
+  ZERO clearing rows with >=4 books.** The fee window is still the gate.
+
+
 ## 2026-08-14 — PROPS ARE CHARGED THE BASEBALL RATE. H-SPORT survived a real falsification test.
 
 One 1-contract order, `KXMLBKS-26AUG142215COLSF-SFLROUPP65-6`, 51c, taker,

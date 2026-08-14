@@ -13,6 +13,37 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-14 — A cleanup that did not run is invisible; the next run then canonises the damage
+
+A mutation-testing script read the source, applied a sabotage, ran pytest, and
+restored the original in a `finally`. It crashed **before** the subprocess call
+on a Windows path problem, so the `finally` never reached — the sabotaged file
+stayed on disk.
+
+The second attempt then read that file as its `orig`, ran its own mutations, and
+faithfully **restored the sabotage**. The suite stayed green throughout, because
+the mutation it had canonised was one no test had been written against yet.
+
+**The pattern:** a save/restore harness has two failure modes, and they compose.
+The first (the restore did not run) is silent. The second (the next run treats
+the damaged file as the baseline) *launders* it into the repository's idea of
+correct. Nothing between them is red, because the tests are exactly what the
+mutation was chosen not to break.
+
+**What to do.** Do not treat "the cleanup is in a `finally`" as restoration. A
+harness that edits tracked source must:
+
+- capture the baseline from **version control**, not from the working tree, so a
+  previous crash cannot supply it;
+- assert the restore afterwards — re-read the file and check the anchor string
+  is back — rather than trusting the block ran;
+- and prefer editing a **copy** over the real file when the mutation does not
+  need to be import-visible.
+
+The generalisation is the one this repo keeps relearning: *a check whose failure
+is silent is not a check.* Same shape as the `fills` table having no producer,
+so the fee-mismatch gate could never fire.
+
 ## 2026-08-14 — The money rule is `Decimal`; an *analysis* that reconciles money in floats invents findings
 
 `CLAUDE.md` says money is integer tenths of a cent "everywhere in the risk
