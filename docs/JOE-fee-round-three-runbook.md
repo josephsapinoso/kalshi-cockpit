@@ -7,26 +7,28 @@ you can check me.
 
 ---
 
-## READ THIS FIRST — you cannot place the first order yet, and it isn't a money problem
+## READ THIS FIRST — updated 2026-08-13. The blocker is gone. You can place.
 
-**§8 of the registration says: *"Q-W must have been run and reported before the
-first order."*** That is a hard precondition, not a preference.
+**The section below used to say "do not place an order tonight." That is no
+longer true and has been replaced.** §8's hard precondition — *"Q-W must have
+been run and reported before the first order"* — **is satisfied.**
 
-**Q-W has not been run, and cannot be run today.** It needs a `kalshi_quotes`
-query inside `scripts/inspect_live_db.py`; that file has no such query, and a new
-query reaches the live machine **only at the next deploy**. Deploys are yours.
+**Q-W ran on 2026-08-13 and ACTIVATED.** Result:
+`docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md`. Read that,
+not this paragraph, before citing any number from it.
 
-**This blocks every version of the run, including the small one.** It is not a
-"cell W" problem that you can dodge by skipping cell W:
+- **Cell `W` is registered**, on **`KXWNBAGAME`** — the first series, no
+  substitution. Row 5 of the order table below is live as written.
+- **The five-cell branch is licensed.** Max stake **$4.05**, inside the **$5.00**
+  you authorised on 2026-08-10. The $3.66 four-cell branch is now moot.
+- **Every earlier step is done**: the query is in `inspect_live_db.py`, it is in
+  the image, and you deployed it.
 
-- Skipping W legally requires Q-W to have **run and failed** (§1.3). It hasn't
-  run, so W is **UNRESOLVED**, which is a different state.
-- §Power only enumerates a **5-cell** branch and a **4-cell** branch. The 4-cell
-  branch is licensed only by a failed Q-W. So **the $3.66 four-cell version is
-  not currently legal**, and neither is any smaller version.
+**The only thing left is you placing the five orders**, on one calendar date,
+inside one 120-minute window. Hard expiry is **2026-08-31 (UTC)**.
 
-So: **do not place an order tonight.** Nothing is lost — the registration's hard
-expiry is **2026-08-31 (UTC)**, which is about 19 days away.
+**What Q-W does not do:** it removes a precondition. It moves neither fee
+coefficient and it does not move `actionable` off 0.
 
 ---
 
@@ -37,10 +39,11 @@ asks you for more money. The choice is about *how* to clear the blocker.
 
 ### Option A — unblock Q-W properly, then run all five cells. **This is what I'd do.**
 
-> **Joe chose A on 2026-08-13, and step 1 is DONE.** The query is
-> `kalshi-quotes-band` in `scripts/inspect_live_db.py`. **Step 2 — your deploy —
-> is now the only thing standing between here and the orders.** Nothing else on
-> this page has changed.
+> **Joe chose A on 2026-08-13, and steps 1–3 are DONE.** The query is
+> `kalshi-quotes-band` in `scripts/inspect_live_db.py`; Joe deployed it; Q-W ran
+> and **activated**. **Step 4 — you placing the five orders — is all that is
+> left.** This decision section is kept for the record only; nothing here is
+> still open.
 
 1. ~~Next session, I add the `kalshi_quotes` query to `inspect_live_db.py`, with
    tests, and it gets reviewed.~~ **Done.** 36 tests, 23 mutations seen red,
@@ -101,7 +104,13 @@ Place them **in this sequence**, with **at least 60 seconds between S1 and S2**
 | 2 | **S2** | `KXMLBSPREAD` | **20** contracts | **6–13c** | 10c |
 | 3 | **S3** | `KXMLBSPREAD` | **1** contract | **27–39c** | 30c |
 | 4 | **R** | `KXMLBGAME` | **1** contract | see the two passes below | 30c, 40c, 50c |
-| 5 | **W** | whichever WNBA series Q-W picked | **1** contract | **27–39c** | 30c |
+| 5 | **W** | **`KXWNBAGAME`** (fixed by Q-W, 2026-08-13) | **1** contract | **27–39c** | 30c |
+
+**On cell W, expect a thin book.** Q-W measured *whether* a qualifying ask
+exists, not how deep it is: `min_depth` was **1 contract** on the four largest
+contributors. W only buys 1, so that is enough — but do not carry
+`KXMLBSPREAD`'s "695 of 695 at ≥20" over to WNBA, and do not be surprised if W
+is the cell that comes back `NOT ATTEMPTED (DID NOT FILL)`.
 
 **Cell R has two passes** (§C5), and this matters — R is the cell that anchors
 the whole round:

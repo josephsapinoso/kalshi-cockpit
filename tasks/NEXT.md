@@ -1,5 +1,51 @@
 # Next — your checklist
 
+## 2026-08-14 — ROUND THREE IS RUN. The fee is NOT a venue constant, and the code is wrong on baseball.
+
+`docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`. **Read
+that, not this summary.** Joe placed all five orders 06:23:27–06:26:33 UTC on
+2026-08-14, `$3.9131` total against a `$4.05` cap. Every cell FILLED, taker,
+limit, pre-game, zero fill lag. **No cell voided, none NOT ATTEMPTED.**
+
+**Gate G1 opened:** `R` = `$0.0088` at 52c, inside ENV LOW — **B4 NOT DETECTED**,
+so the attribution may be read.
+
+**The result, and the whole of it:**
+
+- **H-SIZE, H-PRICE, H-NOTIONAL are REFUTED** — by `S2`, by `S1`+`S2`, and by
+  `W` respectively.
+- **H-SERIES and H-SPORT both survive and are `NOT SEPARATED BY THIS DESIGN`.**
+  H-SERIES leaves `W` free, so `W` being HIGH neither earns nor costs it
+  anything. Separating them needs two series inside one sport to disagree.
+- **Baseball is `k = 0.035`. WNBA and ATP are `k = 0.070`.** All **11 fills** on
+  the account are explained with no residual, `ceil` to `$0.0001`, per order.
+
+**`backend/core/fees.py:73` hardcodes `0.07` with no sport awareness, so it is
+wrong on every baseball market by a factor of two.** Do not fix it yet — §14 of
+the result lists four reasons, and the first is that the error is in the
+*flattering* direction, which is CLAUDE.md rule 1 exactly.
+
+**The non-baseball half rests on TWO fills** — one WNBA, one ATP. That half is
+what carries the entire "not a venue constant" claim. Never cite the finding
+without it.
+
+**Three things the round registered and did not get, because Joe placed without
+recording the §3 fields:** the in-app displayed fee (§S10), the displayed size at
+submit (§S6), and the `S2` balance reading (§S11). None of them is the dependent
+variable — `fee_cost` came from the API — but the round is one instrument short
+of what it registered. **`S1`→`S2` was 32 s against a registered 60 s**; the gap
+fed only the balance channel, which was not taken.
+
+**Open, and item 1 has a clock:**
+
+1. **Capture the settlement `fee_cost`** for the five positions once settled.
+   §6.2's durable channel *and* the direct test of **H4** (ADR 0027). The fills
+   endpoint has a measured retention bound of ~3 months.
+2. §S2's census reproduction — needs `flyctl ssh` to the live volume.
+3. §S13's narrowed `k` interval.
+4. **An independent skeptic pass before any of this reaches `fees.py`.** Not run:
+   this session was instructed not to spawn agents.
+
 ## 2026-08-13 — Q-W RAN AND ACTIVATED. Nothing is blocking the orders but Joe's clock.
 
 `docs/measurements/2026-08-13-qw-wnba-band-reachability-result.md`. **Read that,

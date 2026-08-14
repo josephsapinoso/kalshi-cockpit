@@ -13,6 +13,31 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-14 — The money rule is `Decimal`; an *analysis* that reconciles money in floats invents findings
+
+`CLAUDE.md` says money is integer tenths of a cent "everywhere in the risk
+path." The round-three fee reconciliation is not the risk path — it is a
+throwaway script that reads eleven fills and matches them against candidate
+models — so it was written in floats.
+
+`0.07 × 20 × 0.15 × 0.85` is exactly `0.1785`. In binary floats it is
+`0.17850000000000002`, which `ceil`s to `0.1786`. The observed fee was
+`0.178500`. **The row came back matching none of the four candidate models**,
+which reads exactly like a novel fee schedule on that series — the most
+interesting possible result, produced entirely by the analysis tool.
+
+**The pattern:** the conventions that protect the risk path protect the
+*measurement* path for the same reason, and the measurement path is where they
+get dropped, because a script that spends no money feels like it cannot cost
+anything. A ceiling or a floor at a grid boundary turns a representation error
+into a category change — match becomes no-match — with no warning and no
+residual small enough to look like noise.
+
+**What to do:** any comparison of a computed money value against an observed
+one goes through `Decimal`, in scratch analyses too. And treat *"exactly one row
+is unexplained"* as a bug in the harness until the arithmetic has been re-run in
+exact form — the same way a large apparent edge is a bug until proven otherwise.
+
 ## 2026-08-13 — A derived guard covers exactly the class it derives from, and the class it cannot see looks identical from outside
 
 `.dockerignore` excludes `scripts/*` with a hand-kept `!` allowlist. It had
