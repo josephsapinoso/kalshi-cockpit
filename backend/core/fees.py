@@ -48,6 +48,46 @@ fills and identify which one is true. Once a model is confirmed on a
 statistically adequate sample, replace this with that model and delete the
 hedge. Until then, treat any ``fee_predicted != fee_actual`` as stop-the-line.
 
+**The exit condition above has now been met, and NEITHER MODEL IS TRUE.**
+-----------------------------------------------------------------------
+Measured 2026-08-10 and 2026-08-14 against 11 real taker fills
+(``/portfolio/fills``) plus 59 settlement records (``/portfolio/settlements``).
+Full result and its audit:
+``docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md``.
+Re-derive with ``scripts/reconcile_observed_fees.py``.
+
+**The coefficient is not a venue constant.** On 9 fills across ``KXMLBGAME``
+and ``KXMLBSPREAD`` -- 6 markets, 5 events, 2 dates, ``C in {0.27, 1, 10, 20}``,
+``P in {13, 27, 48, 52}c``, all taker, all buy-yes, all pre-game -- the charged
+fee is exactly ``ceil(k * C * P * (1-P))`` to **$0.0001, per order**, with ``k``
+pinned to ``(0.034969, 0.035008]``. On the 2 non-baseball fills in the same
+window (``KXATPDOUBLES`` 20 @ 15c, ``KXWNBAGAME`` 1 @ 28c) the same form holds
+with ``k`` pinned to ``(0.069961, 0.070000]``. The intervals are disjoint. No
+single function of ``(C, P)`` fits both groups, because fee-per-contract is
+non-monotone in ``P(1-P)``.
+
+**THE LARGER DEFECT BELOW IS GRANULARITY, NOT THE COEFFICIENT.** ``_model_a``
+rounds to the cent; Kalshi charges single-game fees to $0.0001 as of 2026-08.
+``calculate_fee`` currently overcharges these fills by **2.03x-2.90x on baseball
+and 1.12x-1.41x on non-baseball**. Changing ``TAKER_COEFFICIENT`` alone leaves
+baseball ~1.45x wrong at 27c, and ``_model_b`` would often win the ``max()``
+anyway. **Fix granularity first, and separately.**
+
+**What this does NOT establish, and no reader may infer any of it:**
+
+1. **Which market attribute carries the split.** Sport, series, and a per-market
+   liquidity or maker-programme tier all fit these rows identically; the two
+   high-rate observations are the only fills in their series. The
+   pre-registration's §10 forbids pooling across categories.
+2. **Durability.** The ``k = 0.035`` observations span **four days**. This
+   account's settlement record shows 11 of 11 single-game fees from 2025-11-27
+   to 2026-02-09 charged at ``k = 0.07`` rounded to the **whole cent** -- so the
+   sports schedule was revised at least once in the preceding six months, and a
+   promotional or temporary MLB rate is **not excluded**. There is no MLB
+   observation under the old schedule.
+3. Any rate at 16-26c, above 52c, at sizes 2-19 or above 20, on the **maker**
+   side, in-game, on a baseball series other than these two, or on combos.
+
 Consequences worth internalising before trusting any backtest
 -------------------------------------------------------------
 - The fee peaks at the 50c contract and is symmetric: a 10c contract and a 90c
@@ -223,21 +263,34 @@ def settlement_fee(
 # which shows up at every size, and a relative tolerance would forgive exactly
 # the small fills where the fee is largest as a share of stake.
 #
-# **"Kalshi charges whole cents" is half wrong, and the half that is wrong does
-# not apply here.** Measured 2026-08-10 against 55 real settled positions:
+# **"Kalshi charges whole cents" WAS true of the traded path and IS NO LONGER.**
+# This comment used to read: *"11 of 11 single-game fees are whole cents. That
+# is the path this tool trades, so the premise above holds where the constant is
+# used."* Measured 2026-08-10 against 55 settled positions, it was correct then.
 #
-#   - **11 of 11 single-game** fees are whole cents. That is the path this tool
-#     trades, so the premise above holds where the constant is used.
-#   - **32 of 43 KXMVE combo** fees are not. All 55 are multiples of $0.001, so
-#     combos are charged to the **tenth of a cent**.
+# Corrected 2026-08-14 against 11 real taker fills
+# (`docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`,
+# reproducible via `scripts/reconcile_observed_fees.py`):
 #
-# The value therefore stays at 1e-9. **The known limit, recorded rather than
-# fixed:** if this module is ever asked to price a combo, a correct model that
-# lands a tenth of a cent away will trip `fee_model_verified` as a MISMATCH --
-# a false stop-the-line. The fix at that point is a *combo-aware fee model*,
-# not a looser tolerance. Loosening it to absorb $0.001 would re-create the
-# defect this comment exists to describe, one order of magnitude down: on a
-# one-contract fill at a 1c fee, $0.001 is a 10% error waved through by the
-# check the gate treats as its most serious. See
-# `TestTheFeeMatchToleranceIsFloatNoiseOnly`.
+#   - **0 of 11 fills is a whole cent.** Single-game fees are now charged to
+#     $0.0001 -- e.g. $0.0069, $0.0088, $0.0142, $0.0792.
+#   - The old whole-cent observations are all dated **2025-11-27 to
+#     2026-02-09** (NFL, NBA). Every $0.0001 observation is dated
+#     **2026-08-10 or later**. The split by date is clean, both ways, 11 and 11.
+#   - So **Kalshi revised the sports fee schedule between those dates**, and
+#     what changed was the granularity as well as -- on baseball -- the rate.
+#
+# **The value stays at 1e-9, and the reason has inverted.** It used to stay
+# because the traded path was whole cents and the tolerance had nothing to
+# absorb. It now stays because the model below is *wrong* on every observed
+# fill, and a tolerance wide enough to hide that is a tolerance wide enough to
+# hide anything. Loosening it to absorb $0.001 would wave through a 10% error on
+# a one-contract fill -- the defect this comment exists to describe.
+#
+# **The known limit, recorded rather than fixed:** a correct combo model would
+# also trip `fee_model_verified`. The fix is a combo-aware fee model, not a
+# looser tolerance. Note that as of 2026-08-14 the condition cannot fire at all
+# -- the `fills` table has no live producer and the gate is pinned `met=False`
+# (`backend/gate.py:639-658`), which is why nothing here caught the revision.
+# See `TestTheFeeMatchToleranceIsFloatNoiseOnly`.
 FEE_MATCH_TOLERANCE_DOLLARS = 1e-9
