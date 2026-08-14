@@ -9,7 +9,7 @@ payload wearing a measurement's name.
 
 Read-only. Touches no network, no database, no credential. It reads two files:
 
-    data/captures/portfolio_fills.json         (11 taker fills)
+    data/captures/portfolio_fills.json         (13 taker fills)
     data/captures/portfolio_settlements.json   (59 settled positions)
 
 Both are **gitignored** -- they carry a `user_id` and this account's trading
@@ -35,19 +35,23 @@ present, the admissible coefficient interval per group, and that the deployed
 
 **Does NOT establish, and no output below may be read as any of these:**
 
-1. **Which market attribute carries the rate split.** The high-rate group is
-   two fills in two series, one each. Sport, series, and a per-market liquidity
-   or maker-programme tier all fit these rows identically. The
-   pre-registration's §10 forbids pooling across categories, so "non-baseball is
-   0.070" is **not** a claim this script supports -- only "these two fills are".
+1. **Which market attribute carries the rate split.** As of 2026-08-14 the
+   clusters are 3 series each -- `KXMLBGAME`/`KXMLBSPREAD`/`KXMLBKS` low against
+   `KXWNBAGAME`/`KXATPDOUBLES`/`KXPGATOUR` high -- so a per-series explanation
+   now needs six independent lookups that happen to sort by sport, which is
+   unparsimonious rather than refuted. A per-market liquidity tier is weakened
+   too: the high group includes a 10,206-deep WNBA market and the low group a
+   19,749-deep prop. **Neither is excluded.** The pre-registration's §10 forbids
+   pooling across categories, so "non-baseball is 0.070" remains a claim about
+   the three series observed, not about non-baseball.
 2. **Durability.** Every `k = 0.035` observation lies inside **2026-08-10 to
    2026-08-14**. The settlement section below shows this account's own record
    changing granularity between 2026-02-09 and 2026-08-10, so the sports
    schedule was revised at least once in the preceding six months and a
    promotional or temporary rate is not excluded.
 3. **Anything off the observed grid** -- maker fees, in-play fills, sizes
-   between 2 and 19 or above 20, prices outside {13, 15, 27, 28, 48, 52}c, any
-   baseball series other than the two seen, or combos.
+   between 2 and 19 or above 20, prices outside {13, 15, 27, 28, 48, 51, 52}c,
+   any baseball series other than the three seen, or combos.
 4. **H4.** Settlement `fee_cost` matching the summed fill fees is consistent
    with there being no settlement charge, and equally consistent with the field
    being entry-only and a settlement charge living elsewhere. Separating those
@@ -68,10 +72,15 @@ SETTLEMENTS = REPO / "data" / "captures" / "portfolio_settlements.json"
 DECI_CENT = Decimal("0.0001")
 CENT = Decimal("0.01")
 
-# Baseball is the group the round-three cells sit in. Named by series prefix
-# rather than by "sport", because which of the two carries the split is exactly
-# what the design could not separate -- see the module docstring, item 1.
-BASEBALL_PREFIXES = ("KXMLBGAME", "KXMLBSPREAD")
+# **No hardcoded grouping.** An earlier version listed the two baseball series
+# seen at the time; a third (`KXMLBKS`) then landed in "other" and the pooled
+# interval came back INVERTED -- lo > hi -- which is the correct alarm for
+# mixing two rates, but only after the list had already gone stale.
+#
+# Groups are now DERIVED: each series gets its own admissible interval, and
+# series whose intervals overlap are clustered. That reports the split the data
+# shows instead of the split a constant asserts, and it is why the sport/series
+# question stays open in the output rather than being assumed away.
 
 
 def series_of(ticker: str) -> str:
@@ -136,14 +145,14 @@ def main() -> int:
     )
     print(header)
 
-    groups: dict[str, list] = {"baseball": [], "other": []}
+    by_series: dict[str, list] = {}
     unexplained = 0
     for f in fills:
         c = Decimal(f["count_fp"])
         p = Decimal(f["yes_price_dollars"])
         actual = Decimal(f["fee_cost"])
         ser = series_of(f["ticker"])
-        groups["baseball" if ser in BASEBALL_PREFIXES else "other"].append((c, p, actual))
+        by_series.setdefault(ser, []).append((c, p, actual))
 
         cells = []
         matched = False
@@ -164,20 +173,45 @@ def main() -> int:
     print(f"\nfills with no matching candidate: {unexplained} of {len(fills)}")
 
     print("\n" + "=" * 78)
-    print("ADMISSIBLE COEFFICIENT, by group -- intersected over observations")
+    print("ADMISSIBLE COEFFICIENT, PER SERIES -- grouping derived, not assumed")
     print("=" * 78)
-    bounds = {}
-    for name, rows in groups.items():
+    per_series = {}
+    for ser, rows in sorted(by_series.items()):
         lo, hi = admissible_k(rows)
-        bounds[name] = (lo, hi)
-        print(f"  {name:<10} n={len(rows):<3} k in ({lo:.7f}, {hi:.7f}]")
-    (blo, bhi), (olo, ohi) = bounds["baseball"], bounds["other"]
-    disjoint = bhi < olo or ohi < blo
-    print(f"\n  disjoint: {disjoint}", end="")
-    if disjoint:
-        print(f"   ratio floor: {olo / bhi:.3f}x")
-    else:
-        print()
+        per_series[ser] = (lo, hi, len(rows))
+        print(f"  {ser.replace('KX', ''):<14} n={len(rows):<3} "
+              f"k in ({lo:.7f}, {hi:.7f}]")
+
+    # Single-linkage clustering on the interval graph. With two well-separated
+    # rates this is unambiguous, and a third rate would surface as a third
+    # cluster rather than as an inverted pooled interval -- which is exactly
+    # how the stale hardcoded grouping failed when `KXMLBKS` first landed.
+    clusters: list[list[str]] = []
+    for ser, (lo, hi, _) in sorted(per_series.items(), key=lambda kv: kv[1][0]):
+        for group in clusters:
+            glo = max(per_series[s2][0] for s2 in group)
+            ghi = min(per_series[s2][1] for s2 in group)
+            if lo <= ghi and hi >= glo:
+                group.append(ser)
+                break
+        else:
+            clusters.append([ser])
+
+    print(f"\n  clusters found: {len(clusters)}")
+    for group in clusters:
+        lo = max(per_series[s2][0] for s2 in group)
+        hi = min(per_series[s2][1] for s2 in group)
+        n = sum(per_series[s2][2] for s2 in group)
+        print(f"    k in ({lo:.7f}, {hi:.7f}]  n={n:<3} "
+              f"{', '.join(s2.replace('KX', '') for s2 in group)}")
+
+    rate_of = {s2: i for i, group in enumerate(clusters) for s2 in group}
+    if len(clusters) == 2:
+        ahi = min(per_series[s2][1] for s2 in clusters[0])
+        blo = max(per_series[s2][0] for s2 in clusters[1])
+        print(f"\n  disjoint: True   ratio floor: {blo / ahi:.3f}x")
+    print("  WHICH ATTRIBUTE separates the clusters is NOT decided here.")
+    print("  Sport, series and a per-market tier all fit. See ADR 0028.")
 
     print("\n" + "=" * 78)
     print("IS THE SPLIT A FUNCTION OF (count, price) ALONE?")
@@ -187,8 +221,8 @@ def main() -> int:
     print("attribute outside (C, P). This is stronger than refuting three named")
     print("hypotheses one at a time.\n")
     pts = sorted(
-        ((p * (Decimal(1) - p), fee / c, c, g)
-         for g, rows in groups.items() for c, p, fee in rows),
+        ((p * (Decimal(1) - p), fee / c, c, f"rate{rate_of[ser]}")
+         for ser, rows in by_series.items() for c, p, fee in rows),
         key=lambda t: t[0],
     )
     for shape, per_c, c, grp in pts:
@@ -218,13 +252,12 @@ def main() -> int:
         print("\n  => no strict inversion; a (C, P) model is NOT excluded by this test.")
 
     print("\n" + "=" * 78)
-    print("IS THE SPLIT TEMPORAL? -- interleaving of the two rate groups")
+    print("IS THE SPLIT TEMPORAL? -- interleaving of the rate clusters")
     print("=" * 78)
     for f in fills:
         ser = series_of(f["ticker"])
-        grp = "LOW " if ser in BASEBALL_PREFIXES else "HIGH"
-        print(f"  {f['ts']}  {grp}  {ser.replace('KX', '')}")
-    seq = ["low" if series_of(f["ticker"]) in BASEBALL_PREFIXES else "high" for f in fills]
+        print(f"  {f['ts']}  rate{rate_of[ser]}  {ser.replace('KX', '')}")
+    seq = [rate_of[series_of(f["ticker"])] for f in fills]
     runs = sum(1 for a, b in zip(seq, seq[1:]) if a != b)
     print(f"\n  group changes along the time axis: {runs}")
     print("  A single schedule move in time would give exactly 1 change.")

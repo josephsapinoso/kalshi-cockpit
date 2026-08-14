@@ -1,5 +1,47 @@
 # Next — your checklist
 
+## 2026-08-14 — PROPS ARE CHARGED THE BASEBALL RATE. H-SPORT survived a real falsification test.
+
+One 1-contract order, `KXMLBKS-26AUG142215COLSF-SFLROUPP65-6`, 51c, taker,
+pre-game. **Charged `$0.008800`** against predictions of `$0.0088` (k=0.035) and
+`$0.0175` (k=0.070) -- 87 grid units apart, no ambiguity. Cost 52c.
+
+**Why this one mattered.** `KXMLBKS` is a *third baseball series*, never
+sampled. **H-SPORT predicted `$0.0088` outright; H-SERIES left it free.** So the
+test could kill H-SPORT and did not. H-SERIES risked nothing and gained nothing.
+
+**Derived clusters** (`scripts/reconcile_observed_fees.py`, grouping now
+computed rather than hardcoded -- the old constant went stale the moment a third
+baseball series landed and produced an INVERTED pooled interval, which was the
+right alarm):
+
+```
+k in (0.0349691, 0.0350076]  n=10  MLBKS, MLBGAME, MLBSPREAD
+k in (0.0699823, 0.0700000]  n= 3  WNBAGAME, ATPDOUBLES, PGATOUR
+disjoint, ratio floor 1.999x
+```
+
+**Three series each, splitting exactly on baseball.** Per-series now needs six
+independent lookups that sort by sport -- unparsimonious, **not refuted**.
+Liquidity-tier is weakened too (high cluster holds a 10,206-deep WNBA market,
+low cluster a 19,749-deep prop), **also not refuted**.
+
+**Found in the capture, not reported: a `KXPGATOUR` fill**, 20 contracts at 13c,
+`$0.158400`, 2026-08-14 14:28 UTC. Not part of any calibration design; included
+because excluding an unplanned observation is the exact freedom this document
+family removes. It is the third high-cluster series.
+
+**What this does NOT unlock, and the reason is unchanged:** every low
+observation still lies inside **2026-08-10 to 2026-08-14**. Five days is not a
+season, and this account's own record shows Kalshi revising the schedule between
+2026-02-09 and 2026-08-10. **`TAKER_COEFFICIENT` stays at 0.070.** The second
+MLB window, >=3-4 weeks out, is still the gate.
+
+**What it does unlock:** the prop line is alive. The scoping probe's `k=0.035`
+column is now the right one to read for props, because props are charged at
+0.035. Next step there is `pre-registrar`, not more probing.
+
+
 ## 2026-08-14 — PROPS ARE REACHABLE, AND THE FEE COEFFICIENT IS THE GATE, NOT THE MARKET
 
 `docs/measurements/2026-08-14-prop-dispersion-scoping-probe.md`. **EXPLORATORY,

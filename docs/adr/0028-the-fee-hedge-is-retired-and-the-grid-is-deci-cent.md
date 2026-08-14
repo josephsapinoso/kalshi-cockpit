@@ -114,12 +114,57 @@ is `0.0175 · C`, which lands exactly on the `$0.0001` grid for every integer
 across 200–900 tenths leaves **12 asks** where edge still varies with size. One
 test had to be re-anchored from 50.5c to 48.1c to stay discriminating.
 
+## ADDENDUM 2026-08-14 — a fourth and fifth series, and one risky prediction kept
+
+Two fills landed after this ADR was accepted. Neither changes a decision in it;
+both narrow the open questions above, and one was a genuine falsification test.
+
+| series | `n` | `P` | charged | cluster |
+|---|---:|---:|---:|---|
+| `KXPGATOUR` | 20 | 0.13 | `0.158400` | **high** (`k ≈ 0.070`) |
+| `KXMLBKS` | 1 | 0.51 | `0.008800` | **low** (`k ≈ 0.035`) |
+
+**`KXMLBKS` was a risky prediction and it held.** It is a *third baseball
+series*, never sampled, and the two surviving hypotheses said different things:
+H-SPORT predicted `$0.0088` outright; H-SERIES left it free. Observed
+`$0.0088`. **H-SPORT staked something falsifiable and survived; H-SERIES risked
+nothing and gained nothing.** Had it returned `$0.0175`, H-SPORT would have died
+that afternoon.
+
+Derived clusters now, grouping computed rather than asserted
+(`scripts/reconcile_observed_fees.py`):
+
+```
+k in (0.0349691, 0.0350076]  n=10  MLBKS, MLBGAME, MLBSPREAD
+k in (0.0699823, 0.0700000]  n= 3  WNBAGAME, ATPDOUBLES, PGATOUR
+disjoint, ratio floor 1.999x
+```
+
+**Three series each, splitting exactly on baseball.** A per-series explanation
+now needs **six independent lookups that happen to sort by sport** — that is
+unparsimonious, and it is *not* a refutation. H-SERIES remains live.
+
+**The liquidity-tier rival is weakened, not closed.** The high cluster contains
+a WNBA market displaying 10,206 and the low cluster a prop displaying 19,749, so
+depth does not separate them. A tier keyed on something other than displayed
+size is still admissible.
+
+**Durability is untouched and remains the blocker.** Every low observation still
+lies inside 2026-08-10 → 2026-08-14. Five days is not a season.
+
+**One process note.** The `KXPGATOUR` fill was not part of any calibration
+design and was found in the capture rather than reported. It is included because
+excluding an observation for being unplanned is exactly the freedom this
+document family removes — but it is **not** a registered cell, and no decision
+rule was fixed for it in advance.
+
 ## What we did not decide
 
 - **Which attribute carries the rate split.** Sport, series, and a per-market
-  liquidity or maker-programme tier all fit the 11 rows identically. The two
-  high-rate observations are the only fills in their series. §10 of the
-  round-three registration forbids pooling across categories.
+  liquidity or maker-programme tier all fit. As of the addendum above the
+  clusters are three series each and split on baseball, which makes a per-series
+  reading unparsimonious — **but unparsimonious is not refuted**, and §10 of the
+  round-three registration still forbids pooling across categories.
 - **Whether `k = 0.035` is durable.** Every observation of it lies inside
   **four days**, on a venue whose schedule demonstrably changed within the
   preceding six months. A promotional or temporary MLB rate is not excluded, and
