@@ -10,8 +10,18 @@ query rather than amend the registration to dodge cell `W`.
 
 1. ~~Write the query.~~ **Done.** 41 tests, **23 mutations seen red**, reviewed
    against venue behaviour. Tests 2,494 → 2,535, `ruff check` clean.
-2. **Joe deploys.** A new query reaches the live machine only at a deploy, and
-   deploys are his (ADR 0018). **This is the blocker. Do not chase him for it.**
+1b. ~~Get the script into the image.~~ **Done (`b5419eb`), and it was not on
+   anyone's plan.** `inspect_live_db.py` was excluded by `.dockerignore` from the
+   day it was written, so **a deploy would have shipped an image the query still
+   was not in** and the failure would have surfaced as `No such file` at the ssh
+   prompt. The derived guard could not see it — it reads `entrypoint.sh`, and
+   this script is invoked by hand under the ssh ruling. See `tasks/lessons.md`,
+   2026-08-13.
+2. **The deploy.** A new query reaches the live machine only at a deploy.
+   **Joe authorised me to run it on 2026-08-13; the harness permission
+   classifier blocked `flyctl deploy` and it has NOT run.** Either Joe runs
+   `flyctl deploy --app kalshi-cockpit` himself, or he adds a Bash permission
+   rule. **This is the blocker.**
 3. Run Q-W by committed path — `flyctl ssh console` may not run inline code —
    and **publish the output whether it passes or fails** (§1.3). A failure is a
    reachability finding about WNBA and legitimately licenses §Power's four-cell
