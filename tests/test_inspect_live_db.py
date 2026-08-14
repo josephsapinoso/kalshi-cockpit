@@ -1196,11 +1196,34 @@ class TestTheEventSectionReportsWhatQWDoesNotFilterOn:
         # able to see that without decoding ticker strings by hand.
         quotes, events = _slate(_QW_MIN_EVENTS, 2)
         section = self._events_section(tmp_path, quotes, events)
-        assert "commence_ms" in section.columns
-        assert "commence_iso" in section.columns
-        assert section.rows[0][section.columns.index("commence_ms")] == (
+        for column in (
+            "occurrence_ms",
+            "occurrence_iso",
+            "true_start_ms",
+            "true_start_iso",
+        ):
+            assert column in section.columns, column
+        assert section.rows[0][section.columns.index("occurrence_ms")] == (
             QW_COMMENCE_MS
         )
+
+    def test_the_published_start_is_the_true_start_not_the_stored_stamp(
+        self, tmp_path
+    ):
+        """`commence_ms` holds raw `occurrence_datetime` -- the expected END.
+
+        A column labelled as tip-off carrying it is three hours late, and the
+        first published draft of this query's output was. Mutation seen red:
+        `true_start_ms` emitted without subtracting the offset.
+        """
+        quotes, events = _slate(_QW_MIN_EVENTS, 2)
+        section = self._events_section(tmp_path, quotes, events)
+        raw = section.rows[0][section.columns.index("occurrence_ms")]
+        true_start = section.rows[0][section.columns.index("true_start_ms")]
+        assert raw - true_start == _QW_PREGAME_OFFSET_MS
+        assert true_start == QW_TRUE_START_MS
+        # And the two must not be the same column wearing two names.
+        assert raw != true_start
 
     def test_a_non_linear_cent_market_is_counted_not_silently_included(
         self, tmp_path

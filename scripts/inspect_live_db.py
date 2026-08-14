@@ -31,31 +31,31 @@ string constant; every number a caller can influence -- the tail length, the
 day boundary, the recommendation pin, the row cap -- is a bound parameter.
 There is no table name, column name, or predicate assembled from input.
 
-**THIS SCRIPT IS NOT ON THE DEPLOYED MACHINE, and a deploy alone will not put
-it there.** An earlier version of this paragraph said `scripts/` is copied into
-the image at `Dockerfile:66`, so a new query would be usable "from the next
-deploy onward". That is wrong in a way that matters, and it was repeated in
-`tasks/NEXT.md` and `start.md` where it was used to price a decision.
+**This script reached the deployed machine on 2026-08-13, and not before.**
+Until then it shipped nowhere, and the reason is worth keeping: `Dockerfile:66`
+says `COPY scripts/ ./scripts/`, but `.dockerignore` strips the directory out of
+the build context before the Dockerfile ever sees it, re-including named files
+only. This one was not among them, so **a deploy alone did not put it there** --
+it took an `!scripts/inspect_live_db.py` line as well (`b5419eb`), which is a
+widening of what ships to the machine that holds real money and got its own
+review.
 
-`Dockerfile:66` does say `COPY scripts/ ./scripts/`, but `.dockerignore:59-61`
-strips the directory out of the build context before the Dockerfile ever sees
-it:
+An earlier version of this paragraph said a new query would be usable "from the
+next deploy onward". That was wrong in a way that mattered: it was repeated into
+`tasks/NEXT.md` and `start.md` and used to price a decision, and the fee round's
+Q-W precondition was planned around a deploy that would have shipped an image
+the query still was not in.
 
-    scripts/*
-    !scripts/run_loop.py
-    !scripts/migrate_db.py
+**Cite `.dockerignore` and `Dockerfile:66` together or neither**, and do not
+quote a script count here -- the previous count in this paragraph ("two of
+thirty-four") was stale in both halves. `tests/test_has_callers.py` derives what
+the entrypoint needs and asserts the ssh-invoked set by name; read it there
+rather than trusting a number in prose.
 
-Two of thirty-four scripts ship. This one is not among them, and
-`.dockerignore` has not changed since `17c24f0`, long before the running image
-was built. `tests/test_has_callers.py:299-302` already records the count.
-
-So this script **has never read the production database**, and its test suite
-does not contradict that: the fixture at `tests/test_inspect_live_db.py:85-96`
-is a `tmp_path` file built from the schema. "Exits 0 on a real database" means
-a real *schema*, not real rows. Making it usable on the live machine takes
-**both** an `!scripts/inspect_live_db.py` line in `.dockerignore` -- a widening
-of what ships to the machine that holds real money, and therefore its own
-review -- **and** a deploy. Adding a query without the first ships nothing.
+Before that date this script **had never read the production database**, and its
+test suite still does not contradict that: the fixture in
+`tests/test_inspect_live_db.py` is a `tmp_path` file built from the schema.
+"Exits 0 on a real database" means a real *schema*, not real rows.
 
 What this does not establish
 ----------------------------
@@ -431,7 +431,17 @@ _SQL_QW_EVENTS = (
     # tipping tonight -- on a book that is thin and wide, and that the operator
     # will not find in band on the night. Printed, not filtered: a bound is a
     # registered threshold and this query may not invent one.
-    "MIN(e.commence_ms) AS commence_ms, "
+    #
+    # BOTH stamps are emitted, and the reason is that publishing only the stored
+    # one is wrong by three hours. `commence_ms` holds raw `occurrence_datetime`,
+    # which ADR 0006 (`docs/adr/0006-in-play-evidence.md:78-84`) identifies as
+    # the expected *expiration* -- the end, not the start. A column called
+    # `commence_iso` carrying it reads as tip-off and is three hours late; the
+    # first published draft of this query's output did exactly that. The derived
+    # column is the one to read; the raw one is kept so the offset stays
+    # checkable rather than having to be taken on trust.
+    "MIN(e.commence_ms) AS occurrence_ms, "
+    f"MIN(e.commence_ms) - {_QW_PREGAME_OFFSET_MS} AS true_start_ms, "
     # Half-cent asks inside the band (e.g. 305) satisfy the predicate but round
     # DOWN into the excluded hole at 300 when a limit is placed, so they would
     # be counted reachable and be untakeable. Expected 0 -- `price_grids.json`
@@ -761,7 +771,11 @@ def _q_kalshi_quotes_band(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         verdict_section,
         _derive_iso(instants, "observed_ms", "observed_iso"),
-        _derive_iso(events, "commence_ms", "commence_iso"),
+        _derive_iso(
+            _derive_iso(events, "occurrence_ms", "occurrence_iso"),
+            "true_start_ms",
+            "true_start_iso",
+        ),
     ]
 
 
@@ -1015,6 +1029,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 # hole at 300, the depth column, the 3-hour pre-game offset, both activation
 # bars and the series substitution order behave as registered. They establish
 # NOTHING about WNBA reachability, which is only readable after a deploy.
+#
+# Three things Q-W's own output does not establish, and a reader who takes the
+# percentage at face value has misread all three:
+#
+# 1. **`pregame_instants` measures poller uptime, not time.** An instant is one
+#    pass, and the loop runs every 15s while the odds window is open and every
+#    900s when it is not (`backend/scheduler.py:113-183`), where "open" means
+#    *any* league's odds are fresh -- nothing to do with WNBA. So instants
+#    arrive in bursts, and a share of them is not a share of the clock.
+#    Deduplicate to one look per burst before quoting a percentage.
+# 2. **The denominator is conditional.** It counts only instants at which a
+#    pre-game quote row with a readable event start already existed. A pass at
+#    which the series had no pre-game market on the board contributes neither a
+#    hit nor a miss, so the figure is "of the looks that could have seen one",
+#    not "of the time".
+# 3. **No lower bound on lead time, by design.** A fixture days away counts
+#    toward the share on equal footing with one about to tip, on a book that is
+#    thin, wide, and gone by the night the operator trades. `true_start_ms` is
+#    emitted per event so this is visible; imposing a bound would be inventing a
+#    registered threshold, which this query may not do.
 # ---------------------------------------------------------------------------
 
 
