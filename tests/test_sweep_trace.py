@@ -442,9 +442,19 @@ class TestEveryPassSaysWhatItDidAboutOdds:
 
         assert (sweeps, stored) == (1, 2)
         rows = log_rows(conn)
-        assert [r["outcome"] for r in rows] == [SERVED]
+        # Two decisions, not one, since 2026-08-15: the team sweep, then
+        # whether to buy player props for the fixtures it just paid for. The
+        # second is SKIPPED here because no prop event was discovered, and it is
+        # recorded rather than passed over for the reason this whole class
+        # exists -- "we chose not to buy props" and "props were never
+        # considered" are different states and cost different amounts.
+        assert [r["outcome"] for r in rows] == [SERVED, SKIPPED]
         assert rows[0]["sport_key"] == "baseball_mlb"
         assert rows[0]["quotes_stored"] == 2
+        assert rows[1]["detail"].startswith("props:"), rows[1]["detail"]
+        assert rows[1]["quotes_stored"] is None, (
+            "0 and 'nothing was attempted' must not share a value"
+        )
 
     async def test_an_empty_slate_is_not_recorded_as_a_refusal(
         self, conn, budget, odds_config

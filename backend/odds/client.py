@@ -30,6 +30,7 @@ from typing import Any, Optional, Sequence
 import httpx
 
 from ..config import OddsConfig
+from ..kalshi.props import ALTERNATE_SUFFIX
 from .budget import CreditBudget, sweep_cost
 from .sweeplog import REFUSED, record_sweep_outcome
 
@@ -109,7 +110,7 @@ PROP_BASE_MARKETS = (
     "batter_rbis",
 )
 PROP_MARKETS = frozenset(PROP_BASE_MARKETS) | {
-    f"{m}_alternate" for m in PROP_BASE_MARKETS
+    f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS
 }
 
 PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS

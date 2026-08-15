@@ -38,6 +38,7 @@ from backend.config import RiskConfig, StalenessConfig
 from backend.core.suppression import SuppressionConfig
 from backend.gate import live_ages
 from backend.kalshi.discovery import discover_from_events
+from backend.kalshi.props import ALTERNATE_SUFFIX
 from backend.odds.client import OddsQuote, store_quotes
 from backend.match.linker import EXACT_ALIAS_PAIR, PROP_LINK_METHOD
 from backend.runner import (
@@ -1252,3 +1253,477 @@ class TestOnlyABijectionMayBeInherited:
 
         offered = _linked_fixtures(conn, since_ms=NOW - 86_400_000)
         assert offered[0].odds_commence_ms == NOW - 3 * 3_600_000
+
+
+PROP_FIXTURE_SEGMENT = "26AUG141820CHCSTL"
+
+
+@pytest.fixture(scope="module")
+def prop_odds_capture() -> dict:
+    return json.loads((FIXTURES / "odds_mlb_player_props.json").read_text("utf-8"))
+
+
+@pytest.fixture(scope="module")
+def prop_commence_ms(prop_odds_capture) -> int:
+    """First pitch, read from the capture rather than transcribed.
+
+    A hand-copied epoch was wrong by exactly one day on the first attempt, and
+    the failure it produced was `events_unmatched=2` -- a *linking* symptom,
+    several stages away from the transcription. Deriving it removes the only
+    number in this test nobody could check by eye.
+    """
+    from backend.kalshi.discovery import parse_ms
+
+    return parse_ms(prop_odds_capture["commence_time"])
+
+
+@pytest.fixture(scope="module")
+def prop_now(prop_commence_ms) -> int:
+    """Thirty minutes before first pitch.
+
+    Props are priced pre-game for the reason team markets are, so a clock after
+    kickoff would exercise the in-play drop rather than the pricing.
+    """
+    return prop_commence_ms - 30 * 60 * 1000
+
+
+@pytest.fixture(scope="module")
+def kalshi_prop_capture() -> dict:
+    return json.loads(
+        (FIXTURES / "events_mlb_props_nested.json").read_text("utf-8")
+    )
+
+
+def _prop_market_template(kalshi_prop_capture: dict) -> dict:
+    """A real Kalshi prop market object, used as the shape to copy."""
+    return kalshi_prop_capture["events_by_series"]["KXMLBKS"][0]["markets"][0]
+
+
+def _kalshi_prop_event(kalshi_prop_capture: dict, rungs, commence_ms: int) -> dict:
+    """A real prop event re-pointed at the prop odds fixture's game.
+
+    Only the join keys move -- event ticker, market ticker, `yes_sub_title`,
+    `floor_strike`, `occurrence_datetime`. Every other field and every value
+    format is exactly what Kalshi sent, which is what keeps the wire-format
+    assumptions pinned to real bytes. Aligning a timestamp is not the same as
+    hand-writing a payload.
+    """
+    source = kalshi_prop_capture["events_by_series"]["KXMLBKS"][0]
+    event = copy.deepcopy(source)
+    event["event_ticker"] = f"KXMLBKS-{PROP_FIXTURE_SEGMENT}"
+    template = copy.deepcopy(event["markets"][0])
+
+    markets = []
+    for index, (player, subtitle, floor_strike) in enumerate(rungs):
+        market = copy.deepcopy(template)
+        market["event_ticker"] = event["event_ticker"]
+        market["ticker"] = f"{event['event_ticker']}-R{index}"
+        market["yes_sub_title"] = subtitle
+        market["no_sub_title"] = subtitle
+        market["floor_strike"] = floor_strike
+        market["occurrence_datetime"] = _iso(commence_ms)
+        market["close_time"] = _iso(commence_ms)
+        markets.append(market)
+    event["markets"] = markets
+    return event
+
+
+def _kalshi_game_event(kalshi_events: list[dict], commence_ms: int) -> dict:
+    """The moneyline event whose link the prop event will inherit."""
+    event = copy.deepcopy(_mlb_template(kalshi_events))
+    event["event_ticker"] = f"KXMLBGAME-{PROP_FIXTURE_SEGMENT}"
+    event["title"] = "Chicago vs St. Louis"
+    for market, name in zip(event["markets"], ("Chicago", "St. Louis")):
+        market["event_ticker"] = event["event_ticker"]
+        market["ticker"] = f"{event['event_ticker']}-{name[:3].upper()}"
+        market["yes_sub_title"] = name
+        market["occurrence_datetime"] = _iso(commence_ms)
+        market["close_time"] = _iso(commence_ms)
+    return event
+
+
+PROP_RUNGS = (
+    ("Matthew Liberatore", "Matthew Liberatore: 5+", 4.5),
+    ("Clay Holmes", "Clay Holmes: 4+", 3.5),
+)
+
+
+@pytest.fixture
+def priced_props(
+    conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+    prop_commence_ms, prop_now,
+):
+    """The whole offline chain, run once: store -> discover -> link -> price."""
+    from backend.config import OddsConfig
+    from backend.odds.budget import CreditBudget
+    from backend.odds.client import OddsClient
+
+    client = OddsClient(
+        OddsConfig(
+            api_key="x", base_url="https://example.invalid",
+            daily_credit_budget=16, regions=["us"],
+            markets=["h2h", "spreads", "totals"],
+        ),
+        CreditBudget(conn, daily_budget=16),
+    )
+    store_quotes(
+        conn,
+        client._parse(
+            [prop_odds_capture], sport_key="baseball_mlb", fetched_ms=prop_now
+        ),
+    )
+
+    events = discover_from_events(
+        [
+            _kalshi_game_event(kalshi_events, prop_commence_ms),
+            _kalshi_prop_event(kalshi_prop_capture, PROP_RUNGS, prop_commence_ms),
+        ]
+    )
+    upsert_discovered(conn, events, now=prop_now)
+    store_quotes_from_discovery(conn, events, now=prop_now)
+    return run_pricing_pass(conn, events, now=prop_now)
+
+
+class TestPropsRunThroughTheWholeChainOffline:
+    """Discovery -> link -> devig -> fair price -> recommendation, no network.
+
+    The two rungs used here are the only two in the captured prop payload that
+    any book quotes on **both** sides -- Matthew Liberatore at 4.5 with seven
+    books, Clay Holmes at 3.5 with six. The other eighteen are Over-only and
+    `consensus_devig` cannot use them, which is not an artefact of this test: it
+    is the 174-of-222 drop recorded in `tasks/NEXT.md`, reproduced on captured
+    bytes.
+
+    Kalshi's rungs are therefore `5+` and `4+`. That the Kalshi subtitle is one
+    higher than the book's point is the whole `N+ == Over N-0.5` identity, and
+    if it were ever wrong every assertion below would still pass on a
+    consensus for the wrong rung -- which is why `floor_strike` is what
+    actually joins, and why `tests/test_discovery.py` pins it against 259
+    markets rather than these two.
+    """
+
+    RUNGS = PROP_RUNGS
+
+    def test_the_prop_event_inherits_the_games_link(self, conn, priced_props):
+        rows = {
+            r["kalshi_event_ticker"]: r
+            for r in conn.execute(
+                "SELECT kalshi_event_ticker, odds_event_id, method FROM event_links"
+            )
+        }
+        game = rows[f"KXMLBGAME-{PROP_FIXTURE_SEGMENT}"]
+        prop = rows[f"KXMLBKS-{PROP_FIXTURE_SEGMENT}"]
+        assert game["method"] == EXACT_ALIAS_PAIR
+        assert prop["method"] == PROP_LINK_METHOD
+        assert prop["odds_event_id"] == game["odds_event_id"], (
+            "the prop was linked to a different fixture than its own game"
+        )
+
+    def test_a_fair_price_is_written_per_player_and_line(self, conn, priced_props):
+        rows = conn.execute(
+            "SELECT market, outcome_name, outcome_description, outcome_point, "
+            "book_count, anchored_on_sharp FROM fair_prices "
+            "WHERE market = 'pitcher_strikeouts' ORDER BY outcome_description, "
+            "outcome_name"
+        ).fetchall()
+
+        got = [
+            (r["outcome_description"], r["outcome_point"], r["outcome_name"])
+            for r in rows
+        ]
+        assert got == [
+            ("Clay Holmes", 3.5, "Over"),
+            ("Clay Holmes", 3.5, "Under"),
+            ("Matthew Liberatore", 4.5, "Over"),
+            ("Matthew Liberatore", 4.5, "Under"),
+        ], got
+
+        by_player = {r["outcome_description"]: r for r in rows}
+        assert by_player["Matthew Liberatore"]["book_count"] == 7
+        assert by_player["Clay Holmes"]["book_count"] == 6
+
+    def test_no_prop_row_claims_a_sharp_anchor(self, conn, priced_props):
+        """Eight books quote props and none of them is Pinnacle or Betfair.
+
+        `consensus_devig` falls back to the full set when no sharp book is
+        present, which is correct and silent -- `anchored_on_sharp` is the only
+        thing that says which happened. A prop row claiming an anchor would
+        mean a sharp book had appeared, and the whole reason props were worth
+        probing is that one has not.
+        """
+        rows = conn.execute(
+            "SELECT anchored_on_sharp FROM fair_prices "
+            "WHERE market = 'pitcher_strikeouts'"
+        ).fetchall()
+        assert rows
+        assert all(r["anchored_on_sharp"] == 0 for r in rows)
+
+    def test_both_sides_of_every_rung_are_recorded(self, conn, priced_props):
+        """And each side points at its OWN fair price, not its opposite's.
+
+        Joined through `fair_price_id` rather than read off `recommendations`,
+        which carries no outcome of its own. That is the assertion worth making
+        anyway: buying NO on `"Clay Holmes: 4+"` is buying the book's Under, so
+        a row whose `fair_price_id` resolved to the Over would be comparing an
+        ask against the fair value of the other side -- an error that produces
+        an edge rather than an exception.
+        """
+        rows = conn.execute(
+            "SELECT r.ticker, r.side, f.outcome_name, f.outcome_description, "
+            "f.outcome_point FROM recommendations r "
+            "JOIN fair_prices f ON f.id = r.fair_price_id "
+            "WHERE r.ticker LIKE 'KXMLBKS-%' ORDER BY r.ticker, r.side"
+        ).fetchall()
+        assert len(rows) == 4, "two rungs, two sides each"
+        assert {(r["side"], r["outcome_name"]) for r in rows} == {
+            ("yes", "Over"),
+            ("no", "Under"),
+        }, "Kalshi YES is the book's Over; NO is Under"
+        # Every row carries the player and line it was priced against, so the
+        # evidence record can tell two rungs of one ladder apart.
+        assert {
+            (r["outcome_description"], r["outcome_point"]) for r in rows
+        } == {("Matthew Liberatore", 4.5), ("Clay Holmes", 3.5)}
+
+    def test_the_over_only_rungs_are_dropped_not_devigged(self, conn, priced_props):
+        """Eighteen of twenty rungs have no two-sided book.
+
+        They must produce no `fair_prices` row at all. A one-sided book cannot
+        be devigged -- there is no overround to remove -- and inventing the
+        missing side is the assumption `tasks/NEXT.md` says must be registered
+        before it is made.
+        """
+        players = {
+            r["outcome_description"]
+            for r in conn.execute(
+                "SELECT DISTINCT outcome_description FROM fair_prices "
+                "WHERE market = 'pitcher_strikeouts'"
+            )
+        }
+        assert players == {"Matthew Liberatore", "Clay Holmes"}, players
+
+    def test_the_strategy_version_says_props_are_priced(self, conn, priced_props):
+        """Prop rows and team rows are two populations under one runner.
+
+        The config string is what segments the record. If it still said
+        "moneyline only", every prop row would be filed under a strategy
+        version that predates props existing.
+        """
+        row = conn.execute(
+            "SELECT config_json FROM strategy_configs ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        assert "props" in json.loads(row["config_json"])["prices"]
+
+
+class TestTheDevigKeepsOverAndUnderTheRightWayRound:
+    """The one prop error that produces an edge instead of an exception.
+
+    `consensus_devig` pairs prices to outcomes **positionally**, so a mispairing
+    still writes an `"Over"` row and an `"Under"` row with correct names,
+    correct players and correct lines -- and the two probabilities swapped.
+    Every structural assertion in the class above stays green, the Board renders
+    confidently, and every prop row on the record is priced against the wrong
+    side.
+
+    **Reversing `PROP_SIDES` is not that bug, and the distinction was measured
+    rather than reasoned about.** A mutation reversing it left the whole suite
+    green, because the outcome tuple and each book's price list are both built
+    by iterating that constant and therefore cannot disagree. The mutation is
+    kept in the battery and recorded as semantically equivalent instead of
+    being pruned, and the code comment that used to claim otherwise has been
+    corrected. What this test actually pins is the case where the two lists are
+    built from *different* orders.
+
+    So the check is on the *ordering*, not on any particular number: all four
+    devig methods are monotone in the raw implied probability, so whichever
+    side the books price as more likely must come out more likely. That holds
+    whatever the vig is and whichever method wins the worst-of rule, which is
+    why it can be asserted without re-deriving the arithmetic the code under
+    test performs.
+    """
+
+    def _raw_implied(self, capture, player, point):
+        """Mean raw implied probability per side, straight off the capture."""
+        totals = {"Over": [], "Under": []}
+        for book in capture["bookmakers"]:
+            for market in book["markets"]:
+                sides = {
+                    o["name"]: o["price"]
+                    for o in market["outcomes"]
+                    if o.get("description") == player and o.get("point") == point
+                }
+                if len(sides) == 2:
+                    for name, price in sides.items():
+                        totals[name].append(1.0 / price)
+        assert totals["Over"] and totals["Under"], (player, point)
+        return {k: sum(v) / len(v) for k, v in totals.items()}
+
+    @pytest.mark.parametrize(
+        "player,point",
+        [("Matthew Liberatore", 4.5), ("Clay Holmes", 3.5)],
+    )
+    def test_the_favoured_side_stays_the_favoured_side(
+        self, conn, priced_props, prop_odds_capture, player, point
+    ):
+        raw = self._raw_implied(prop_odds_capture, player, point)
+        fair = {
+            r["outcome_name"]: r["p_conservative"]
+            for r in conn.execute(
+                "SELECT outcome_name, p_conservative FROM fair_prices "
+                "WHERE market = 'pitcher_strikeouts' AND outcome_description = ? "
+                "AND outcome_point = ?",
+                (player, point),
+            )
+        }
+        assert set(fair) == {"Over", "Under"}, fair
+
+        raw_favours_over = raw["Over"] > raw["Under"]
+        fair_favours_over = fair["Over"] > fair["Under"]
+        assert raw_favours_over == fair_favours_over, (
+            f"{player} {point}: the books price Over at {raw['Over']:.4f} and "
+            f"Under at {raw['Under']:.4f}, but the devigged fair values are "
+            f"Over {fair['Over']:.4f} / Under {fair['Under']:.4f}. The two "
+            f"sides are the wrong way round."
+        )
+
+
+class TestIngestActuallyBuysTheProps:
+    """`fetch_props` shipped complete, tested, and called by nothing.
+
+    That is this repo's most-repeated failure -- four modules have reached
+    production as source only -- so the call site gets a test of its own rather
+    than being assumed from the fact that the function exists.
+    """
+
+    class FakePropOdds:
+        """Records what it was asked for. Serves a team sweep, then props."""
+
+        def __init__(self, quotes):
+            self.quotes = quotes
+            self.prop_calls: list[tuple] = []
+
+        async def fetch_odds(self, sport_key: str, *, now_ms: int):
+            return self.quotes
+
+        async def fetch_props(
+            self, sport_key, odds_event_ids, *, now_ms, markets=None, regions=None
+        ):
+            self.prop_calls.append((sport_key, tuple(odds_event_ids), tuple(markets or ())))
+            return []
+
+    async def _ingest(self, conn, events, quotes, *, now, commence_ms):
+        from backend.config import OddsConfig
+        from backend.odds.budget import CreditBudget
+        from backend.runner import run_ingest_pass
+
+        odds = self.FakePropOdds(quotes)
+        await run_ingest_pass(
+            conn,
+            FakeKalshi(events),
+            odds,
+            CreditBudget(conn, daily_budget=10_000),
+            config=OddsConfig(
+                api_key="x", base_url="https://example.invalid",
+                daily_credit_budget=10_000, regions=["us"],
+                markets=["h2h", "spreads", "totals"],
+            ),
+            now=now,
+        )
+        return odds
+
+    def _quotes(self, *, commence_ms, fetched_ms):
+        return [
+            OddsQuote(
+                fetched_ms=fetched_ms, book_updated_ms=fetched_ms,
+                sport_key="baseball_mlb", odds_event_id="odds-1",
+                commence_ms=commence_ms, home_team="Chicago Cubs",
+                away_team="St. Louis Cardinals", bookmaker=book,
+                market="h2h", outcome_name=name, outcome_point=None,
+                price_decimal=2.0,
+            )
+            for book in ("pinnacle", "draftkings")
+            for name in ("Chicago Cubs", "St. Louis Cardinals")
+        ]
+
+    async def test_a_served_sweep_also_buys_the_props(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        now = prop_commence_ms - 30 * 60 * 1000
+        odds = await self._ingest(
+            conn,
+            [
+                _kalshi_game_event(kalshi_events, prop_commence_ms),
+                _kalshi_prop_event(
+                    kalshi_prop_capture,
+                    TestPropsRunThroughTheWholeChainOffline.RUNGS,
+                    prop_commence_ms,
+                ),
+            ],
+            self._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+        )
+
+        assert odds.prop_calls, (
+            "the team sweep was served and no prop call followed it; "
+            "fetch_props is source-only again"
+        )
+        sport_key, event_ids, markets = odds.prop_calls[0]
+        assert sport_key == "baseball_mlb"
+        assert event_ids == ("odds-1",)
+        # Both feeds. Primaries alone matched 48 of 263 Kalshi prop markets.
+        assert any(m.endswith(ALTERNATE_SUFFIX) for m in markets), markets
+        assert any(not m.endswith(ALTERNATE_SUFFIX) for m in markets), markets
+
+    async def test_no_kalshi_ladder_means_no_props_are_bought(
+        self, conn, kalshi_events, prop_commence_ms
+    ):
+        """Credits are not spent on a comparison with only one side.
+
+        A book's prop with no Kalshi market to compare it against is a price we
+        can store and never use, and props cost roughly ten credits a fixture
+        against six for the whole team sweep.
+        """
+        now = prop_commence_ms - 30 * 60 * 1000
+        odds = await self._ingest(
+            conn,
+            [_kalshi_game_event(kalshi_events, prop_commence_ms)],
+            self._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+        )
+        assert odds.prop_calls == []
+
+        skipped = [
+            r["detail"]
+            for r in conn.execute(
+                "SELECT detail FROM odds_sweep_log WHERE detail LIKE 'props:%'"
+            )
+        ]
+        assert skipped, "the decision not to buy props left no row anywhere"
+
+    async def test_an_in_play_fixture_is_not_bought(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        """A prop priced after first pitch can never be scored on CLV.
+
+        The closing line is read before kickoff, so an in-play prop row would
+        enter the evidence record looking like evidence and be unscoreable --
+        the same reason `run_pricing_pass` drops in-play team rows.
+        """
+        now = prop_commence_ms + 60_000
+        odds = await self._ingest(
+            conn,
+            [
+                _kalshi_game_event(kalshi_events, prop_commence_ms),
+                _kalshi_prop_event(
+                    kalshi_prop_capture,
+                    TestPropsRunThroughTheWholeChainOffline.RUNGS,
+                    prop_commence_ms,
+                ),
+            ],
+            self._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+        )
+        assert odds.prop_calls == []

@@ -192,6 +192,21 @@ NOT_A_CALLER_FILES = ("backend/seed_demo.py",)
 # (symbol, why it matters if it goes uncalled again)
 MUST_HAVE_CALLERS = [
     (
+        "fetch_props",
+        "MLB player props are never bought, so the whole prop half of the "
+        "pipeline -- discovery, the inherited link, the per-(player, line) "
+        "devig -- runs against an empty `odds_snapshots` and reports a clean "
+        "zero. It shipped in this exact state on 2026-08-14: complete, tested, "
+        "and referenced only by `tests/test_odds.py`",
+    ),
+    # `prop_quotes_for_event` and `_price_prop_event` deliberately are NOT
+    # listed. Both are defined and called inside `runner.py`, and every check
+    # below requires a referrer *outside* the defining module -- so listing them
+    # would fail for a reason that has nothing to do with reachability. Their
+    # call sites are held by the offline end-to-end test in
+    # `tests/test_runner.py` and by the mutation battery, which is the right
+    # instrument for a same-module edge.
+    (
         "score_recommendations",
         "nothing can be scored, and the gate's 300-game counter stays at zero "
         "however long the system runs",
