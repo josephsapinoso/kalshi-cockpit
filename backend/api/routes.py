@@ -87,7 +87,9 @@ from ..odds.timing import (
     window_status,
 )
 from ..playbook import read_playbook
+from ..runner import book_quotes_for_event
 from ..settlement import daily_realised_pnl_dollars, open_position_dollars
+from ..slate import DRIFT_WINDOW_MS, book_distribution, kalshi_drift
 from ..store import db
 from ..store.orders import (
     DuplicateOrder,
@@ -765,6 +767,194 @@ def create_app(
             "note": (
                 "Most candidates have no edge. An empty board is the normal "
                 "result, not a failure."
+            ),
+        }
+
+    @app.get("/api/slate")
+    def slate(
+        conn=Depends(get_conn),
+        limit: int = Query(100, le=500),
+    ) -> dict:
+        """The whole slate, with the factors the record already holds.
+
+        **Edge is a column here, not a gate.** `/api/board` splits the slate on
+        whether a row cleared the fee against a devigged sharp consensus, and
+        that has been "no" on every row this instance has written. ADR 0021
+        records the refutation; its §7.2 records the most plausible reason,
+        which is that the comparison is anchored on `runner.SHARP_BOOKS` and is
+        therefore Kalshi against the only references plausibly as sharp as
+        Kalshi. A screen showing only that comparison's verdict cannot show
+        that.
+
+        So this returns **one flat list, ordered by kickoff**, with every row
+        carrying the same factors and no bucketing by verdict. The suppression
+        reason travels with each row; it is information about the row rather
+        than a reason to hide it.
+
+        Four groups of factors, all of them **already stored and never
+        rendered** -- see `backend/slate.py` for what each does not establish:
+
+        - `books`: Kalshi's ask placed among per-book devigged fair values, with
+          **no sharp anchoring**, so a reader can see where the anchored
+          consensus sits inside the full distribution.
+        - `kalshi_drift_tenths`: how the price you would pay has moved over the
+          last hour, off `kalshi_quotes`' own history.
+        - `market_width` / `book_count` / `anchored_on_sharp`: joined from
+          `fair_prices`, which only `/api/ledger` has ever selected.
+        - `volume_24h` / `open_interest` / `depth_at_ask`: capacity, which
+          `sharp-bettor` calls the binding constraint on a winning bettor and
+          which no screen in this product has ever shown.
+
+        **Nothing here is an edge and nothing here is scored.** No factor below
+        has been tested against an outcome, none of them enters
+        `suggested_contracts`, and this endpoint computes no composite of them.
+        `POST /api/orders` re-derives sizing, staleness and risk server-side and
+        does not read this route. The honest reading of this screen is *"here is
+        everything the record knows about tonight"*, not *"here is what to
+        bet"*.
+
+        Selection reuses the Board's window and its two-stage basis check
+        verbatim, so the two screens describe the same slate. A row this
+        endpoint shows and the Board does not would be a second definition of
+        "tonight".
+        """
+        now = db.now_ms()
+        anchor_row = conn.execute(
+            f"SELECT MAX({_BASIS_SQL}) AS anchor_ms, COUNT(*) AS total "
+            "FROM recommendations r"
+        ).fetchone()
+        anchor = None if anchor_row["anchor_ms"] is None else int(anchor_row["anchor_ms"])
+        recorded_total = int(anchor_row["total"] or 0)
+        since = None if anchor is None else anchor - SLATE_WINDOW_MS
+
+        rows, in_window = [], 0
+        if since is not None:
+            in_window = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM recommendations r "
+                    f"WHERE {_BASIS_SQL} >= ?",
+                    (since,),
+                ).fetchone()["n"]
+            )
+            rows = conn.execute(
+                "SELECT r.*, m.title AS market_title, m.yes_side_team, "
+                "       m.volume_24h, m.open_interest, "
+                "       e.title AS event_title, e.commence_ms, "
+                "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
+                "       f.p_conservative, "
+                "       f.market_width, f.book_count, f.books_used, "
+                "       f.anchored_on_sharp, f.outcome_name, "
+                "       l.odds_event_id "
+                "FROM recommendations r "
+                "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+                "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+                "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
+                "LEFT JOIN event_links l ON l.id = r.link_id "
+                f"WHERE {_BASIS_SQL} >= ? "
+                f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
+                "LIMIT ?",
+                (since, limit),
+            ).fetchall()
+
+        # One `book_quotes_for_event` read per fixture, not per row. A slate has
+        # roughly two rows per fixture (both sides of a moneyline), so caching
+        # halves the reads -- and, more importantly, guarantees both sides of a
+        # game are placed against the *same* stored sweep. Reading twice could
+        # straddle a sweep boundary and put two rows of one game against two
+        # different book sets, which would look like disagreement between the
+        # sides rather than between the reads.
+        book_cache: dict[str, object] = {}
+        items, off_basis, with_books = [], 0, 0
+        for row in rows:
+            item = _serialise(row, now_ms=now, staleness=staleness)
+            if since is not None and item["freshness_measured_from_ms"] < since:
+                off_basis += 1
+                continue
+
+            item["volume_24h"] = row["volume_24h"]
+            item["open_interest"] = row["open_interest"]
+            item["kalshi_drift_tenths"] = kalshi_drift(
+                conn, row["ticker"], row["side"], now_ms=now
+            )
+            item["books"] = None
+
+            odds_event_id = row["odds_event_id"]
+            outcome_name = row["outcome_name"]
+            ask = row["entry_ask_tenths"]
+            if odds_event_id and outcome_name and ask is not None:
+                if odds_event_id not in book_cache:
+                    book_cache[odds_event_id] = book_quotes_for_event(
+                        conn, odds_event_id, now=now
+                    )
+                books = book_cache[odds_event_id]
+                if books is not None:
+                    dist = book_distribution(
+                        outcomes=books.outcomes,
+                        quotes_by_book=books.quotes_by_book,
+                        outcome_name=outcome_name,
+                        kalshi_ask_tenths=ask,
+                        already_dropped=len(books.books_dropped),
+                    )
+                    if dist is not None:
+                        item["books"] = dist.as_dict()
+                        with_books += 1
+            items.append(item)
+
+        # Kickoff order, because the decision this screen serves is "what is
+        # about to start and what do I know about it". The Board orders by
+        # size then freshness, which is the right order for "what can I bet
+        # right now" and the wrong one for reading a slate end to end.
+        #
+        # `commence_ms` is nullable, so unknown kickoffs sort last rather than
+        # first: a row with no kickoff is the least decidable thing here and
+        # putting it at the top would give it the most attention.
+        items.sort(
+            key=lambda r: (
+                r["commence_ms"] is None,
+                r["commence_ms"] or 0,
+                -(r["edge_tenths"] or 0),
+            )
+        )
+
+        return {
+            "rows": items,
+            "counts": {
+                "returned": len(items),
+                # Rows for which a book distribution could actually be
+                # computed. Its own number because "no book disagreed with
+                # Kalshi" and "no book price was stored" render identically on
+                # a screen and are completely different facts -- the repo's
+                # recurring *zero that means "no measurement"*.
+                "with_book_distribution": with_books,
+                "surfaced": sum(
+                    1 for r in items
+                    if r["suggested_contracts"] > 0 and r["actionable"]
+                ),
+            },
+            "staleness": {
+                "max_kalshi_quote_age_s": staleness.max_kalshi_quote_age_s,
+                "max_odds_age_s": staleness.max_odds_age_s,
+            },
+            "slate": {
+                "anchor_ms": anchor,
+                "age_ms": None if anchor is None else max(0, now - anchor),
+                "since_ms": since,
+                "window_ms": SLATE_WINDOW_MS,
+                "is_current": anchor is not None and now - anchor <= SLATE_WINDOW_MS,
+                "in_window": in_window,
+                "returned": len(items),
+                "off_basis": off_basis,
+                "truncated": in_window > len(items),
+                "recorded_total": recorded_total,
+                "actionable_total": population_counts(conn, 0)["actionable"],
+                "older_than_window": max(0, recorded_total - in_window),
+            },
+            "drift_window_ms": DRIFT_WINDOW_MS,
+            # Read by the screen and printed there. It is the sentence that
+            # stops every column on this page being read as a signal.
+            "note": (
+                "None of these factors has been scored against an outcome. "
+                "They are recorded so they can be, and combined into nothing."
             ),
         }
 

@@ -734,6 +734,77 @@ export type Suppression = { counts: Record<string, number> };
 export const fetchSuppression = (sinceMs = 0) =>
   get<Suppression>(`/api/suppression?since_ms=${sinceMs}`);
 
+/**
+ * Where Kalshi's ask sits among the books' own devigged fair values.
+ *
+ * **Every field can be `null`, and `null` never means zero.** A fixture with no
+ * stored book prices and a fixture where every book was unusable are different
+ * states, and `percentile: 0` would read as "Kalshi is the cheapest venue
+ * here" — the flattering misreading of a measurement that never ran.
+ *
+ * **The comparison is deliberately unfair to Kalshi.** `kalshi_probability`
+ * comes from the *ask*, so it carries half a spread; the book numbers are
+ * devigged fair values with the vig removed. A book therefore looks cheaper
+ * than Kalshi by roughly half a spread even where the two agree exactly, so
+ * `books_below` over-counts. That direction is chosen: the reading this
+ * supports is "Kalshi may be the sharp side", and a bias making Kalshi look
+ * worse cannot manufacture it.
+ */
+export type BookDistribution = {
+  kalshi_probability: number;
+  /** Usable books, i.e. the size of the distribution — not `fair_prices`. */
+  book_count: number;
+  books_below: number;
+  /** Dropped before or during the devig. A distribution over 2 of 21 books
+   *  is a different object from one over 21, so this is never folded away. */
+  books_unusable: number;
+  median_book_probability: number | null;
+  min_book_probability: number | null;
+  max_book_probability: number | null;
+  /** Fraction of usable books priced below Kalshi's ask. `null` if none were. */
+  percentile: number | null;
+};
+
+/**
+ * One row of the Slate: a recommendation plus the factors already on the record.
+ *
+ * **None of these factors has been scored against an outcome**, none of them
+ * enters `suggested_contracts`, and the server combines them into nothing. The
+ * screen must not present any of them as an edge or blend them into a rating —
+ * that would be a model, and it would need its own ADR.
+ */
+export type SlateRowData = Recommendation & {
+  /** 24h contract volume on the Kalshi market. Capacity, not price. */
+  volume_24h: number | null;
+  open_interest: number | null;
+  /**
+   * Change in the derived ask over `drift_window_ms`, in tenths. Positive means
+   * the price you would pay has risen. `null` when fewer than two quotes exist
+   * in the window — never 0, which would assert the price held steady.
+   */
+  kalshi_drift_tenths: number | null;
+  books: BookDistribution | null;
+};
+
+export type Slate = {
+  /** One flat list in kickoff order. No bucketing by verdict — that is the
+   *  point: edge is a column here, not a gate. */
+  rows: SlateRowData[];
+  counts: {
+    returned: number;
+    /** Rows a book distribution could be computed for. Its own number because
+     *  "no book disagreed" and "no book price stored" render identically. */
+    with_book_distribution: number;
+    surfaced: number;
+  };
+  staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
+  slate: Board["slate"];
+  drift_window_ms: number;
+  note: string;
+};
+
+export const fetchSlate = () => get<Slate>("/api/slate");
+
 export const fetchHealth = () =>
   get<{
     instance_mode: string;

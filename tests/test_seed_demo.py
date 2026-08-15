@@ -56,6 +56,54 @@ class TestDeterminism:
         assert board(a) == board(b)
 
 
+class TestReseedingOverAUsedDatabase:
+    """The reset order has to match the foreign-key graph, not read like it.
+
+    `seed_all` deleted `recommendations` before `orders`, and
+    `orders.recommendation_id` references it. Every test here builds a fresh
+    database and `seed_all` writes no orders of its own, so the broken order was
+    unreachable from the suite: the only way to hit it was to run `seed_history`
+    -- which writes 400 orders -- and then re-seed. That is exactly what
+    refreshing a local demo does, and it failed on the first DELETE with
+    `FOREIGN KEY constraint failed`.
+
+    The general shape is this repo's: **a fixture that always starts from empty
+    cannot test teardown.** The precondition that made the bug reachable was the
+    one the fixture removes.
+    """
+
+    def test_it_reseeds_over_a_database_that_already_has_orders(self, tmp_path):
+        from backend.seed_demo import seed_history
+
+        path = tmp_path / "demo.db"
+        seed_all(path)
+        seed_history(path, n=25)
+
+        conn = db.open_db(path)
+        orders_before = conn.execute(
+            "SELECT COUNT(*) AS n FROM orders"
+        ).fetchone()["n"]
+        conn.close()
+        assert orders_before > 0, (
+            "no orders were written, so this test cannot reach the defect it "
+            "is about"
+        )
+
+        # The whole assertion: this call raised before the order was fixed.
+        seed_all(path)
+
+        conn = db.open_db(path)
+        try:
+            assert conn.execute(
+                "SELECT COUNT(*) AS n FROM orders"
+            ).fetchone()["n"] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) AS n FROM recommendations"
+            ).fetchone()["n"] > 0
+        finally:
+            conn.close()
+
+
 class TestHonestShape:
     """A demo showing a screen of profitable bets would misrepresent the tool."""
 

@@ -27,8 +27,9 @@ from typing import Optional
 
 from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .config import RiskConfig
-from .core.devig import devig
+from .core.devig import DevigError, consensus_devig, devig
 from .core.suppression import SuppressionConfig, evaluate_suppression
+from .runner import SHARP_BOOKS, write_fair_price
 from .odds.budget import day_start_ms
 from .engine import (
     Candidate,
@@ -166,6 +167,107 @@ _DEMO_BOOKS = (
 )
 
 
+def _seed_link_and_fair_price(
+    conn, *, scenario, quotes_by_book, computed_ms: int
+) -> tuple[int, Optional[int]]:
+    """An `event_links` row and the `fair_prices` rows it anchors.
+
+    **Seeded because a screen that reads them is now shipped.** Until
+    `/api/slate` existed, `link_id` and `fair_price_id` were passed as `None`
+    here and nothing rendered them, so the omission cost nothing. The Slate
+    screen shows `market_width`, `book_count`, `anchored_on_sharp` and a
+    per-book distribution, and every one of them would have been blank on the
+    demo -- which is the only instance anyone can look at, and the one the
+    `sharp-bettor` reviews are conducted against. A demo that renders a
+    feature's entire content as "--" misrepresents the feature more completely
+    than showing nothing at all would.
+
+    **The consensus is computed from the seeded books rather than invented.**
+    `consensus_devig` is the production function, run over the same quotes
+    `_seed_books` wrote, so `market_width` and `book_count` on the demo are
+    real consequences of the seeded prices. Transcribing plausible values
+    instead would make the demo agree with live by coincidence and drift the
+    moment either changes -- the failure `_LIVE_SUPPRESSION_MIX` above is
+    written to avoid, in a different column.
+
+    Returns `(link_id, fair_price_id_for_the_team_side)`.
+    """
+    cursor = conn.execute(
+        "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, league, "
+        "method, commence_skew_ms, linked_ms) VALUES (?, ?, ?, 'seeded', 0, ?)",
+        (
+            scenario.event_ticker,
+            f"odds-{scenario.event_ticker}",
+            scenario.league,
+            computed_ms,
+        ),
+    )
+    link_id = int(cursor.lastrowid)
+
+    outcomes = [scenario.team, scenario.opponent]
+    try:
+        result, metadata = consensus_devig(
+            outcomes, quotes_by_book, sharp_books=SHARP_BOOKS
+        )
+    except DevigError:
+        # A scenario whose seeded prices cannot be devigged is a real state and
+        # not a reason to abort the seed. The link still exists; the row simply
+        # carries no fair price, which is what a live row in that condition
+        # looks like.
+        return link_id, None
+
+    ids = write_fair_price(
+        conn,
+        link_id=link_id,
+        devig_result=result,
+        metadata=metadata,
+        computed_ms=computed_ms,
+    )
+    return link_id, ids.get(scenario.team)
+
+
+def _seed_quote_history(conn, *, ticker: str, ask_tenths: int, stamp: int, rng) -> int:
+    """A short run of `kalshi_quotes`, so the Slate's drift column has inputs.
+
+    `kalshi_drift` needs at least two observations inside its window and reads
+    the oldest and the newest. The demo previously wrote **no** `kalshi_quotes`
+    rows at all, so every drift cell would have rendered `--` -- and `--` on a
+    demo reads as "this feature does nothing" rather than "this instance has no
+    history yet".
+
+    Quotes are stored as the **NO bid**, and the YES ask is derived from it at
+    read time by `ask_for_side`. Storing a YES ask directly would put a derived
+    number in the column the derivation reads from, which is the one thing
+    `store/schema.sql`'s header forbids: asks are derived, never stored.
+    """
+    stored = 0
+    # Oldest first, walking toward the current ask, so the drift the screen
+    # prints is a real difference between two stored observations rather than a
+    # number the seeder chose. Direction alternates by ticker so the demo shows
+    # both a drifting-up and a drifting-down market.
+    drift = rng.choice((-18, -7, 6, 15))
+    for index, minutes_ago in enumerate((45, 30, 15, 0)):
+        # Walk the ask from `ask - drift` to `ask`, then store the NO bid that
+        # implies it: yes_ask = 1000 - no_bid.
+        step = ask_tenths - drift + int(round(drift * index / 3))
+        step = max(10, min(990, step))
+        conn.execute(
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, source, "
+            "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, 'rest', ?, ?, ?, ?)",
+            (
+                ticker,
+                stamp - minutes_ago * 60_000,
+                max(10, step - 10),
+                float(rng.randint(50, 500)),
+                1000 - step,
+                float(rng.randint(50, 500)),
+            ),
+        )
+        stored += 1
+    return stored
+
+
 def _seed_books(conn, *, scenario, commence_ms: int, fetched_ms: int, rng) -> int:
     """Store the sportsbook quotes the consensus was built from.
 
@@ -181,11 +283,16 @@ def _seed_books(conn, *, scenario, commence_ms: int, fetched_ms: int, rng) -> in
     the number the Board prints beside it.
     """
     stored = 0
+    # Returned alongside the count so the caller can devig exactly what was
+    # written. Re-reading it from the database would work and would also be a
+    # second query answering a question this function already knows.
+    quotes_by_book: dict[str, list[float]] = {}
     for book in _DEMO_BOOKS[: scenario.book_count]:
         jitter = rng.randint(0, 20_000)
         for name, price in zip(
             (scenario.team, scenario.opponent), scenario.odds
         ):
+            jittered = round(price * (1.0 + rng.uniform(-0.01, 0.01)), 3)
             conn.execute(
                 "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, "
                 "sport_key, odds_event_id, commence_ms, home_team, away_team, "
@@ -196,11 +303,16 @@ def _seed_books(conn, *, scenario, commence_ms: int, fetched_ms: int, rng) -> in
                     _SPORT_KEYS.get(scenario.league, "baseball_mlb"),
                     f"odds-{scenario.event_ticker}", commence_ms,
                     scenario.team, scenario.opponent, book, name,
-                    round(price * (1.0 + rng.uniform(-0.01, 0.01)), 3),
+                    jittered,
                 ),
             )
+            # Positional, matching `consensus_devig`'s contract: it pairs prices
+            # to outcomes by index, so a dict keyed on name here would let the
+            # two teams' probabilities swap silently and produce entirely
+            # plausible numbers. Same hazard `book_quotes_for_event` names.
+            quotes_by_book.setdefault(book, []).append(jittered)
             stored += 1
-    return stored
+    return stored, quotes_by_book
 
 
 # How often each *input condition* holds in `seed_history`, chosen so the codes
@@ -267,8 +379,21 @@ def seed_all(
     # counts read 18 for a nine-fixture slate. "Deterministic" has to mean the
     # database ends in the same state, not merely that the generator does.
     # Child tables first -- foreign keys are enforced.
+    #
+    # **The order was wrong and it could only fail on a database that had been
+    # used.** `recommendations` came first, but `orders.recommendation_id`
+    # references it, so re-seeding over a database carrying orders raised
+    # `FOREIGN KEY constraint failed` on the very first DELETE. Every test builds
+    # a fresh database and `seed_all` writes no orders itself, so the only way to
+    # reach it was to run `seed_history` and then re-seed -- which is exactly
+    # what a developer refreshing a local demo does, and nothing else does.
+    #
+    # Ordered by the actual reference graph, deepest child first:
+    #   fills -> orders, settlements -> orders, orders -> recommendations,
+    #   recommendations -> {closing_lines, fair_prices, event_links},
+    #   fair_prices -> event_links, event_links -> kalshi_events.
     for table in (
-        "recommendations", "fills", "orders", "settlements", "closing_lines",
+        "fills", "settlements", "orders", "recommendations", "closing_lines",
         "fair_prices", "event_links", "unmatched_events", "kalshi_quotes",
         "odds_snapshots", "api_credits", "model_ratings", "lessons",
         "kalshi_markets", "kalshi_events", "kalshi_series", "strategy_configs",
@@ -329,12 +454,27 @@ def seed_all(
             ),
         )
         counts["markets"] += 1
-        counts["odds_quotes"] += _seed_books(
+        stored_quotes, quotes_by_book = _seed_books(
             conn,
             scenario=scenario,
             commence_ms=commence,
             fetched_ms=stamp - scenario.odds_age_ms,
             rng=rng,
+        )
+        counts["odds_quotes"] += stored_quotes
+
+        # The link and the fair price the Slate screen reads. Written after the
+        # books because they are computed *from* them.
+        link_id, fair_price_id = _seed_link_and_fair_price(
+            conn,
+            scenario=scenario,
+            quotes_by_book=quotes_by_book,
+            computed_ms=stamp,
+        )
+        counts["kalshi_quotes"] = counts.get("kalshi_quotes", 0) + (
+            _seed_quote_history(
+                conn, ticker=scenario.ticker, ask_tenths=ask, stamp=stamp, rng=rng
+            )
         )
 
         recommendation = build_recommendation(
@@ -345,8 +485,8 @@ def seed_all(
                 ask_tenths=ask,
                 depth_at_ask=scenario.depth,
                 kalshi_quote_age_ms=scenario.quote_age_ms,
-                link_id=None,
-                fair_price_id=None,
+                link_id=link_id,
+                fair_price_id=fair_price_id,
                 devig=fair,
                 book_count=scenario.book_count,
                 market_width=scenario.market_width,

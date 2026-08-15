@@ -16,9 +16,18 @@ import ThemeToggle from "./ThemeToggle";
 // direction. Rejections answers "which check is refusing everything", which on
 // a board showing 0 actionable of ~200 is the only question there is. The page
 // is still served at `/builder` for anyone who wants it.
+//
+// **Slate then took Rejections' slot, 2026-08-15, and the trade is the same
+// shape.** Rejections aggregates the suppression codes across the slate; Slate
+// shows every row with its own reason attached, beside the factors the record
+// already holds and had never rendered. The aggregate is a strict summary of
+// what the per-row screen now shows, so keeping both would spend a link on a
+// projection of the other. `/rejections` is still served, exactly as
+// `/builder` is, and its counts are still the fastest read when one rule is
+// refusing everything.
 const LINKS = [
   { href: "/", label: "Board" },
-  { href: "/rejections", label: "Rejections" },
+  { href: "/slate", label: "Slate" },
   { href: "/dashboards", label: "Data" },
   { href: "/ledger", label: "Ledger" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest

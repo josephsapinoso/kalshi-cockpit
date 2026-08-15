@@ -55,6 +55,7 @@ API_TS = FRONTEND / "lib" / "api.ts"
 SLATE_ROW = FRONTEND / "components" / "SlateRow.tsx"
 BOARD_PAGE = FRONTEND / "app" / "page.tsx"
 LEDGER_PAGE = FRONTEND / "app" / "ledger" / "page.tsx"
+SLATE_PAGE = FRONTEND / "app" / "slate" / "page.tsx"
 
 
 def source(path: Path) -> str:
@@ -270,6 +271,35 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
 
     def test_the_board_slate_row_takes_the_shared_tone(self):
         assert "edgeTone" in source(SLATE_ROW)
+
+    def test_the_slate_screen_takes_the_shared_tone(self):
+        """The third screen that colours an edge, and the widest of them.
+
+        `colouring_screens` above finds a screen by the *literal* strings
+        `text-positive` and `"positive"`, so a screen doing it correctly --
+        through `EDGE_TONE_CLASS` -- is invisible to that inventory and passes
+        it vacuously. That is the right behaviour for a ratchet (hardcoding a
+        tone here turns it red) and it is not a check that this screen is
+        correct today. This is that check, in the same form the Ledger's is:
+        the helper is *called*, and the class map is keyed on what it returned.
+
+        It matters most here. The Slate shows every row in the window including
+        every refused one, so a sign-of-edge colouring would paint each
+        `suspicious_edge` row -- the largest apparent edges the recorder has --
+        in the colour that means take this.
+        """
+        slate = code(SLATE_PAGE)
+
+        call = re.search(r"(?:const|let)\s+(\w+)\s*=\s*edgeTone\(\s*row\s*\)", slate)
+        assert call, (
+            "the Slate screen does not call edgeTone on its row, so any tone "
+            "name it mentions came from somewhere else"
+        )
+        tone = call.group(1)
+        assert f"EDGE_TONE_CLASS[{tone}]" in slate, (
+            "the Slate screen computes the shared tone and colours the edge "
+            "with something else, which renders exactly as the original defect"
+        )
 
     def test_the_ledger_takes_the_shared_tone(self):
         """The Ledger is the *wider* of the two paths, not a lesser one.

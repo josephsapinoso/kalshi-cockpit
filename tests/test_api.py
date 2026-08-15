@@ -905,6 +905,131 @@ class TestActionableWindow:
                 os.environ["ODDS_API_KEY"] = saved
 
 
+class TestSlate:
+    """Edge is a column here, not a gate.
+
+    `/api/board` buckets the slate on whether a row cleared the fee, and that
+    has been "no" on every row this instance ever wrote. This route returns the
+    same window as one flat list with the factors already on the record
+    attached, so the verdict stops being the only thing visible about a night.
+    """
+
+    async def test_it_returns_one_flat_list_and_does_not_bucket_by_verdict(
+        self, demo_app
+    ):
+        body = (await get(demo_app, "/api/slate")).json()
+        assert body["rows"], "the slate came back empty on the seeded demo"
+        # The bucket names the Board uses must not appear: bucketing by verdict
+        # is exactly what this screen exists not to do.
+        for bucket in ("surfaced", "expired", "suppressed", "no_edge"):
+            assert bucket not in body, (
+                f"{bucket!r} is a top-level key, so this route buckets by "
+                f"verdict the way the Board does"
+            )
+
+    async def test_refused_rows_are_present_with_their_reasons(self, demo_app):
+        """They are the content, not the exclusions.
+
+        `/api/board` hides them behind `include_suppressed`. Here there is no
+        flag, because a slate with the refused rows removed is the Board again.
+        """
+        body = (await get(demo_app, "/api/slate")).json()
+        refused = [r for r in body["rows"] if r["suppressed_reason"]]
+        assert refused, "no refused row was returned, so this is the Board"
+        assert all(r["suppressed_reason"] for r in refused)
+
+    async def test_it_describes_the_same_slate_as_the_board(self, demo_app):
+        """Two screens naming one night must not disagree about which night.
+
+        Both windows are `SLATE_WINDOW_MS` back from the most recent freshness
+        basis, and both re-decide on `live_ages`. A row on one and not the other
+        would be a second definition of "tonight".
+        """
+        slate = (await get(demo_app, "/api/slate")).json()
+        board = (await get(demo_app, "/api/board?include_suppressed=true")).json()
+
+        board_ids = {
+            r["id"]
+            for bucket in ("surfaced", "expired", "suppressed", "no_edge")
+            for r in board[bucket]
+        }
+        assert {r["id"] for r in slate["rows"]} == board_ids
+        assert slate["slate"]["since_ms"] == board["slate"]["since_ms"]
+
+    async def test_rows_are_ordered_by_kickoff_and_not_by_edge(self, demo_app):
+        """A ranking is a weighting, and a weighting of unscored factors is a
+        model. Ordering by kickoff is the one order that asserts nothing."""
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        kickoffs = [r["commence_ms"] for r in rows if r["commence_ms"] is not None]
+        assert kickoffs == sorted(kickoffs)
+
+    async def test_the_book_distribution_spans_more_books_than_the_anchor(
+        self, demo_app
+    ):
+        """ADR 0021 §7.2, made visible.
+
+        `fair_prices.book_count` is what survived `SHARP_BOOKS` anchoring; the
+        distribution is every usable book. If those were the same number this
+        screen would be showing the anchored consensus back to itself and could
+        say nothing about the tautology objection.
+        """
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        with_both = [
+            r for r in rows if r["books"] and r["book_count"] is not None
+        ]
+        assert with_both, "no row carried both counts, so nothing is compared"
+        assert any(
+            r["books"]["book_count"] > r["book_count"] for r in with_both
+        ), (
+            "the distribution is no wider than the anchored consensus on any "
+            "row, so the sharp anchoring is being applied twice"
+        )
+
+    async def test_capacity_is_returned_because_no_screen_has_shown_it(
+        self, demo_app
+    ):
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        assert any(r["volume_24h"] is not None for r in rows)
+        assert any(r["open_interest"] is not None for r in rows)
+
+    async def test_an_unmeasurable_factor_is_null_and_never_zero(self, demo_app):
+        """`percentile: 0` reads as "Kalshi is the cheapest venue here"."""
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        for row in rows:
+            if row["books"] is None:
+                continue
+            if row["books"]["book_count"] == 0:
+                assert row["books"]["percentile"] is None
+                assert row["books"]["median_book_probability"] is None
+
+    async def test_it_counts_how_many_rows_could_be_measured_at_all(
+        self, demo_app
+    ):
+        """"No book disagreed" and "no book price stored" render identically."""
+        body = (await get(demo_app, "/api/slate")).json()
+        measured = sum(1 for r in body["rows"] if r["books"])
+        assert body["counts"]["with_book_distribution"] == measured
+
+    async def test_the_payload_carries_the_sentence_that_scopes_it(
+        self, demo_app
+    ):
+        """The screen prints this rather than writing its own, so the server
+        and the page cannot come to disagree about what is being claimed."""
+        note = (await get(demo_app, "/api/slate")).json()["note"]
+        assert "scored" in note
+
+    async def test_no_row_carries_a_composite(self, demo_app):
+        """The tripwire. Blending unscored factors into one number is a model
+        and needs its own ADR and pre-registration (ADR 0021 §9)."""
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        forbidden = {"score", "rating", "confidence", "signal", "rank"}
+        for row in rows:
+            assert not (forbidden & set(row)), (
+                f"a composite appeared on a Slate row: "
+                f"{sorted(forbidden & set(row))}"
+            )
+
+
 class TestLedger:
     async def test_includes_suppressed_rows(self, demo_app):
         """Every recommendation is scored on CLV whether or not it was bet."""

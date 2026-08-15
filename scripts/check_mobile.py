@@ -47,6 +47,10 @@ PAGES = [
     "/playbook",
     "/gate",
     "/rejections",
+    # Off the nav is not off this list: `/builder` and `/rejections` are both
+    # still served and both still have to fit a phone. A page nobody links to
+    # is a page nobody notices has broken.
+    "/slate",
 ]
 
 # The measurement, run inside the page. Reports every element whose right edge
