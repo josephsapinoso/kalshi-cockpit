@@ -1,6 +1,78 @@
 # Next — your checklist
 
-## 2026-08-14 — PROPS THROUGH THE EXISTING PIPELINE. Slice 1 of 4 done. **Start here.**
+## 2026-08-15 — PROPS ARE BUILT, ALL FOUR SLICES. One deploy from Joe and it runs.
+
+`8febd24` (slices 2-3) and `1fb6850` (slice 4). 2,626 tests pass, 10
+`xfail(strict=True)`, ruff clean. 21 mutations run, 20 killed, 1 recorded as
+semantically equivalent.
+
+**The chain is whole:** discovery admits the five MLB prop ladders and writes
+`market_type = 'prop'` with a parsed player; a prop event inherits the link its
+own moneyline event earned; a served team sweep buys the props for the same
+fixtures; and pricing devigs one (player, line) at a time into `fair_prices`
+with `outcome_description` and `outcome_point` populated. An offline end-to-end
+test runs all of it on captured bytes, no network, no credits.
+
+**NOTHING NEW IS SURFACED, and that is the expected result.** At the deployed
+`TAKER_COEFFICIENT = 0.070` the scoping probe found zero prop rows clearing
+against a real consensus. This slice records props so they can be scored on
+**CLV against Kalshi's own close**, which is rule 3 and needs weeks of calendar
+— which is the whole argument for building it before the fee question resolves.
+
+**No config change is needed.** An earlier reading of this session said
+`ODDS_DAILY_CREDIT_BUDGET` had to be raised; it does not. Live is **400/day and
+13,000/month**, and two prop windows a day is ~324 and ~9,700. The free-tier 16
+in `.env.example` *would* refuse every prop event, which is why the note there
+now spells out both numbers. **The figure to watch is the monthly one** once a
+second league's team sweeps return in the autumn.
+
+### Three things the build found that were not in the plan
+
+1. **`floor_strike` retired a computation.** Kalshi publishes an `N+` prop's
+   floor as `N - 0.5`, which is exactly the `point` a sportsbook quotes for the
+   same rung — 259 of 259 on the captured fixture, both series. So the join is
+   an equality between two published numbers, the v8 migration is **one** column
+   (`player_name`) rather than two, and there is no derived threshold for a
+   second representation to disagree with. `tests/test_discovery.py` pins the
+   identity, so a Kalshi change to `floor_strike` goes red instead of shifting
+   every prop comparison by one rung.
+2. **`competition_scope` on a prop is the statistic, not the fixture** —
+   `"Strikeouts"`, `"Total Bases"`, one string per series. That is why the
+   allowlist keys on the series ticker. Admitting props through `FIXTURE_SCOPES`
+   would need one capture per series and would re-admit every other series
+   Kalshi ever gives the same label. `PROP_SCOPES` holds **only the two values
+   read from a payload**; the other three series' spellings are unknown and are
+   not guessed.
+3. **Two existing tests were built on invented series names that turned out to
+   be real.** `KXMLBHIT` and `KXMLBHR` were the examples of an *unrecognised*
+   scope, and seven tests went red the moment the allowlist claimed them. Now
+   `KXMLBDOUBLES`/`KXMLBTRIPLES`, with the constraint written into the fixture's
+   docstring.
+
+### What is left, in order
+
+1. **One deploy from Joe.** Nothing before it needs him.
+2. **Read `odds_sweep_log` after the first live pass.** Every prop decision
+   writes a row prefixed `props:` — served, or skipped with the reason. A budget
+   refusal is the failure mode that looks exactly like success from every other
+   screen.
+3. **The one-sided alternate feeds.** 18 of 20 rungs in the captured payload
+   have no two-sided book, and the live figure was 174 of 222. Recovering them
+   means estimating a book's overround from its own two-sided primary and
+   applying it to that book's one-sided alternates — **~4.6x the comparisons for
+   zero extra credits**, and an assumption that needs `pre-registrar`, not a
+   patch.
+4. **Score the first prop rows on CLV** once a slate has settled, and register
+   the measurement *before* looking. Props are baseball, charged `k = 0.035`,
+   priced here at 0.070 — so every prop edge on the record is understated by up
+   to a factor of two on the fee component, deliberately.
+
+**The fee window is still the gate on all of it.** The second MLB observation
+window, >=3-4 weeks after 2026-08-14, one 1-contract fill. Nothing in this build
+changed `TAKER_COEFFICIENT` and nothing in it should.
+
+
+## 2026-08-14 — PROPS THROUGH THE EXISTING PIPELINE. **SUPERSEDED — all four slices are done; see the section above.** Kept for the constraints it records.
 
 Joe chose to route props through the deployed runner rather than a standalone
 cron, so they inherit devig, suppression, recommendations and **CLV scoring**.
