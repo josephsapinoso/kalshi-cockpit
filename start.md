@@ -1,8 +1,7 @@
 # Start prompt — paste this to open the next session
 
-Rewritten **2026-08-11 ~20:00Z**. The session that **fired the 24-credit
-capture, got CONFIRMED, and then found that the interval the code actually
-ships is the one the instrument cannot decide**.
+Rewritten **2026-08-15 ~19:20Z**. The session that **built all three remaining
+props slices, deployed them, and did not live to see the first prop row land**.
 
 Say *"read start.md and follow it"*, or paste this whole file.
 
@@ -11,489 +10,202 @@ Say *"read start.md and follow it"*, or paste this whole file.
 Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md`. NEXT.md is the
 actionable checklist and **its top supersedes everything here**.
 
-## ⏱ FIRST — THE CAPTURE IS SPENT. There is nothing to fire and nothing to wait for.
+## ⏱ FIRST — one thing is unverified, and it takes one command
 
-**Do not re-arm anything. Do not run `capture_odds_repeat_poll.py`.** The 24
-credits are gone and the slate is closed; a second run buys a different day's
-question at full price.
+**Props are built, pushed and deployed. Nobody has yet seen a prop row appear on
+the live instance.** The deploy finished at ~19:12Z on 2026-08-15 and the next
+MLB sweep was scheduled for ~19:21Z. The previous session's poller was still
+returning `none` when the session ended.
 
-`KalshiRepeatPoll` fired at **18:00:01Z on 2026-08-11**, exit **0**, four polls
-complete at 18:15:02Z, `x_requests_used` 114 → 138. `FIRED.lock` is claimed, so
-the double-fire guard will refuse a repeat — **but the guard is the backstop,
-not the plan.** The scheduled task has no future run time. It can be deleted
-whenever convenient; leaving it costs nothing.
-
-**The result is written up and pushed.** Read
-`docs/measurements/2026-08-11-odds-last-update-repeat-poll-result.md` — not this
-summary — before citing a single number from it.
-
-**Headline: CONFIRMED — `last_update` is NOT a per-line reprice timestamp.**
-`S = 0.9376` at the pre-registered pair 1 → 3 (~300 s), `N_adv = 31`, PC1–PC6
-met, audited **SURVIVES NARROWED**.
-
-**And the part that must travel with it:** at **900 s — the deployed
-`MAX_ODDS_AGE_S`** — `S = 0.8860`, **mid-band, UNRESOLVED**. No rule was broken;
-the primary pair was fixed by index before the data and PC2 passed, so the
-fallback correctly never fired. **The verdict is a statement about the ~300 s
-interval and may never be cited interval-free.**
-
-**This does NOT move `actionable` from 0 to 23.** ADR 0025's inversion stands:
-a scrape clock makes `odds_age_ms` a *lower* bound, so every rejection is still
-correct. What changed is what **ADR 0020 may claim**, not what the gate
-surfaces. **Question 1 is answered, not converted into a runway.**
-
-**Quote §7's mandatory qualifier verbatim from the result file. Do not
-paraphrase it, and do not reach for Amendment B — B1 is licensed only at
-`S_strict >= 0.90`, this capture was 0.2903, and B1's sentence ("no price change
-was observed anywhere") is FALSE here: 22 of 31 books moved a price.** A first
-reading of the result had those two legs backwards.
-
-### Re-running the analyser is free, and the artefacts are now in git
+**This is the first thing to check, and it is the only open thread.**
 
 ```
-.venv\Scripts\python.exe scripts\analyse_odds_repeat_poll.py `
-  docs\measurements\data\repeat_poll_20260811T180001Z_p1.json `
-  docs\measurements\data\repeat_poll_20260811T180001Z_p2.json `
-  docs\measurements\data\repeat_poll_20260811T180001Z_p3.json `
-  docs\measurements\data\repeat_poll_20260811T180001Z_p4.json
+JAR=jar.txt
+TOKEN=$(grep -m1 '^APP_AUTH_TOKEN=' .env | cut -d= -f2-)
+curl -sS -o /dev/null -c "$JAR" -X POST -F "token=$TOKEN" -F "next=/" \
+  https://kalshi-cockpit.fly.dev/session
+curl -sS -b "$JAR" "https://kalshi-cockpit.fly.dev/api/ledger?limit=300"
 ```
 
-Run tag is **`180001Z`**, not `180000Z` — realised `T0` was +1.7 s. The four
-files were **force-added past `.gitignore:33`** because the spend is not
-repeatable; they are in the repo, credential-scanned before staging.
+**Look for tickers starting `KXMLBKS-`, `KXMLBTB-`, `KXMLBHIT-`, `KXMLBHR-` or
+`KXMLBRBI-`.** Before this build the ledger held only `KXMLBGAME` and
+`KXWNBAGAME`.
 
-**Pass each file exactly once**, and **never a wildcard** — a partial
-three-file capture from 2026-08-10 (`20260810T220001Z_p1..p3`) sits in the same
-directory and `repeat_poll_*` sweeps it in. A repeated `poll_index` is `exit 2`;
-it used to compare a poll with itself and print **CONFIRMED off a single poll**
-(`a639591`).
+**Never echo `$TOKEN`, and delete `jar.txt` afterwards** — it is a live session
+cookie for the money instance and the repo is public.
+
+### If no prop rows have appeared
+
+Three candidates, cheapest first. **Do not assume the code is wrong** — two of
+the three are ordinary operating states:
+
+1. **No sweep has fired yet.** `/api/window` reports `next_sweep_ms` and
+   `next_sweep_reason`. Props are bought **only** on the branch where a team
+   sweep is *served*, so no sweep means no props, correctly.
+2. **The credit budget refused.** This is the failure that looks exactly like
+   success from every other screen — health stays green, the Board renders, the
+   record silently does not grow. Every prop decision writes a row to
+   `odds_sweep_log` with a detail prefixed **`props:`**, served or skipped with
+   the reason.
+3. **No two-sided book at any rung.** 18 of 20 rungs in the captured payload had
+   only an Over. A slate where every rung is one-sided produces zero
+   `fair_prices` rows and is *not* a bug.
+
+**Read the `props:` rows before forming a theory.** The previous session's
+biggest single finding came from capturing a payload instead of reasoning about
+one.
+
+## WHAT WAS BUILT, AND WHAT IT DOES NOT CLAIM
+
+Four commits, all pushed, `origin/main` level at **`e2930d7`**:
+
+- **`8febd24`** — slices 2–3. Discovery admits the five MLB prop ladders
+  (`market_type = 'prop'`, parsed player); a prop event inherits the link its own
+  moneyline event earned.
+- **`1fb6850`** — slice 4. A served team sweep buys the props; pricing devigs one
+  (player, line) at a time into `fair_prices`.
+- **`9855ae9` / `e2930d7`** — NEXT.md and lessons.
+
+**2,626 tests pass, 10 `xfail(strict=True)`, ruff clean, 21 mutations run.**
+Verified at the time of writing, not inherited. **Re-verify before trusting it:**
+
+```
+git log --oneline -6
+git rev-list --count origin/main..HEAD
+git status --short
+.venv\Scripts\python.exe -m pytest -q
+```
+
+**NOTHING NEW IS SURFACED, AND THAT IS THE EXPECTED RESULT.** At the deployed
+`TAKER_COEFFICIENT = 0.070` the scoping probe found **zero** prop rows clearing
+against a real consensus. This build records props so they can be scored on
+**CLV against Kalshi's own close** — rule 3 — which needs weeks of calendar. **A
+session that reads "props are live" and starts hunting for prop bets has misread
+it.**
+
+### Three things the build found that were not in the plan
+
+1. **`floor_strike` retired a computation.** Kalshi publishes an `N+` prop's
+   floor as `N - 0.5`, which is exactly the `point` a sportsbook quotes for the
+   same rung — **259 of 259** on the captured fixture, both series. The join is
+   an equality between two published numbers. `tests/test_discovery.py` pins it,
+   so a Kalshi change goes red instead of shifting every prop by one rung.
+2. **`competition_scope` on a prop is the statistic, not the fixture** —
+   `"Strikeouts"`, `"Total Bases"`, one string per series. That is why
+   `kalshi/props.PROP_SERIES` keys on the **series ticker**. `PROP_SCOPES` holds
+   only the two values read from a payload; the other three series' spellings
+   are unknown and **must not be guessed**.
+3. **Two existing tests were built on invented series names that turned out to be
+   real.** See `tasks/lessons.md`, 2026-08-15.
 
 ## THE THREE THINGS THAT DECIDE THIS PROJECT
 
-Joe said on 2026-08-11, and he was right to: *"You seem to do so much testing
-instead of building."* **Write this at the top of every handoff until it stops
-being true.** The honest answer is that the tool surfaces **zero** actionable
-rows, so there is nothing to build *onto* yet, and exactly three questions
-decide whether that changes. Everything else on this file is bookkeeping.
+Joe said on 2026-08-11: *"You seem to do so much testing instead of building."*
+**Keep this at the top of every handoff until it stops being true.** The props
+build was the answer to it. The board is now:
 
 | # | Question | State |
 |---|---|---|
-| 1 | **Is the staleness guard wrong?** `stale_odds` is the **only** suppression code holding back any would-be-actionable row — **23 rows / 9 clusters**. | **ANSWERED 2026-08-11, and it does not open a runway.** The stamp is a scrape clock at ~300 s (CONFIRMED, `S = 0.9376`) and **UNRESOLVED at the deployed 900 s**. ADR 0025's inversion stands, so `actionable` stays **0**. What it licenses is **ADR 0020**, nothing else. |
-| 2 | **Is the fee coefficient 0.070 or 0.035?** At 0.035 the taker bar drops 52.00% → **50.88%**, against **0.38 points** of total headroom. That is the difference between "no edge exists" and "an edge exists". | **Blocked on Joe's phone.** 4 cells, **~$3.66**, any time before **2026-08-31**. **Now the only live question on the board.** |
-| 3 | **Is Kalshi simply the sharp side?** | **DEAD — closed 2026-08-11 on arithmetic.** See §3. |
+| 1 | **Is the staleness guard wrong?** | **ANSWERED 2026-08-11 and it opens no runway.** ADR 0020 / 0025. `actionable` stays 0. |
+| 2 | **Is the fee coefficient 0.070 or 0.035?** At 0.035 the taker bar drops to **50.88%**. | **THE ONLY LIVE QUESTION.** Needs a second MLB observation window, **≥3–4 weeks after 2026-08-14** — so **on or after ~2026-09-04** — and **one 1-contract fill**. Nine baseball fills already pin `k` to `(0.03497, 0.03501]`. |
+| 3 | **Is Kalshi simply the sharp side?** | **DEAD — closed 2026-08-11 on power.** |
 
-**Item 2 has been waiting on Joe since 2026-08-10, is the largest single lever
-on the board, and is now the *only* one of the three still capable of moving.**
-Do not chase him for it — but if he asks, run the watcher *then* and hand him
-the four lines. Never generate the sheet in advance; a pre-generated sheet is
-stale quotes wearing a live board's look.
+**Item 2 is the gate on the whole strategy, props included** — props are
+baseball, so whatever that window says about `k` applies to all of it. Every
+prop row now being recorded is priced at 0.070 and is therefore understated by
+up to a factor of two on the fee component, **deliberately**.
 
-> **Read item 1's new state before proposing work off it.** Answering a question
-> is not the same as unblocking one. The capture retired an *unknown*; it did
-> not produce a row. **A session that reads "question 1 answered" and starts
-> building a surfacing path has misread it** — the number that decides whether
-> anything is surfaceable is item 2, and item 2 needs Joe's phone, not an agent.
+## WHAT IS LEFT, IN ORDER
 
-## FIRST — check this file before you trust it
-
-```
-git log --oneline -25
-git rev-list --count origin/main..HEAD
-git status
-```
-
-**The tip at writing was `26f764d` plus this commit, and by the time you read
-this that is wrong.** At writing: tree clean, **2,494 tests pass**, `ruff check
-.` clean, **and everything is PUSHED** — `origin/main` is level. All verified by
-me, not inherited.
-
-**Joe authorised a push on 2026-08-11 and it ran** — `faa9d43 → 26f764d`, 34
-commits, the repo is public and they are live. **That authorisation was for that
-batch. Ask again before the next push.**
-
-**⚠ USAGE: Joe had ~15% of his allowance left for the four days from
-2026-08-11.** He paused deliberately at a clean point. **Do not open with an
-expensive fan-out.** Nothing in this project has a deadline before
-**2026-08-31** (item 2), so there is no work that justifies burning a reserve.
-
-**Treat every command in this file as a test never seen red** unless it says it
-was run.
-
-## WHAT THE 2026-08-11 EVENING SESSION DID
-
-**Four commits, all pushed.** In order:
-
-1. **`1f9f866`** — derived the 18:00Z command *before* 18:00Z, and in doing so
-   found the one thing nobody had checked: the scheduled task invoked
-   `fire_now.sh` from a **previous session's scratchpad**. It was still there.
-   Had a temp sweep removed it, the capture would have fired into nothing and
-   **looked exactly like a silent success.**
-2. **`322e4c3`** — the four artefacts, force-added past `.gitignore:33`,
-   credential-scanned first (0 hits for the key literal and for
-   `apiKey`/`Authorization`/`PRIVATE KEY` shapes).
-3. **`12ecc03`** — three repairs from the audit. **PC6 was summing a number our
-   own capture script wrote into its own output**, while the module docstring
-   advertised it as reading the server's credit delta — *the exact artefact it
-   named as the reason PC6 exists*. Four copies of one poll would have passed.
-   §2's in-play exclusion had never been implemented. And the **thirteenth**
-   guard-that-could-not-fail: PC4's `cell_d` conjunct was decoration, deletable
-   with all 43 tests green. Tests **43 → 56**, six mutations seen red.
-4. **`26f764d`** — the result file.
-
-**Two errors caught before publishing, both worth copying:**
-
-- **Amendment B's legs were read backwards.** The draft would have published
-  B1's *"no price change was observed anywhere"* — **false**, 22 of 31 books
-  moved a price. §7's `< 0.90` leg is the one that fires and its words are
-  fixed; quote them from the result file.
-- **A ranking was inherited from the audit that the audit's own table
-  contradicted.** Re-derived every §4 and §6 figure through the analyser's own
-  `compare()`/`statistic_s()`: worst book is **`nordicbet` 0.6000, not an
-  exchange**. **`measurement-skeptic` has never been wrong on a verdict here —
-  and its prose is still prose.** Recompute anything load-bearing.
-
-## SUPERSEDED — the pre-capture session's notes, kept for the lessons only
-
-### 1. `a639591` — the instrument that spends 24 credits had never been run by anything
-
-`scripts/analyse_odds_repeat_poll.py`, 481 lines implementing all six
-preconditions, both thresholds, `S_strict` and `movers`, **had no test file and
-was imported by no test.** Verified independently before acting: `ls` returns
-nothing, `grep -rl analyse_odds_repeat_poll tests/` returns nothing.
-
-That is failure #9/#10 repeating verbatim — `capture_fills_fixture.py` had no
-test file and its exit code was unreachable by construction.
-
-**Three real defects were found and fixed before the data exists**, which is the
-only time they could have been fixed honestly:
-
-1. **A repeated `poll_index` silently overwrote** in `{a["poll_index"]: ...}`.
-   Handing the same file twice compared a poll with itself → `S = 1.0` →
-   **CONFIRMED out of a single poll.** Now exit 2.
-2. **A pair with no `last_update` was scored "static & identical"**, putting a
-   reprice-with-no-stamp into the uninformative cell instead of defect cell D —
-   hiding the exact evidence PC4 exists to catch. It is *unreadable*, not
-   *static*: excluded and counted.
-3. **`movers` KeyError'd on a partial capture.** Now `None`; an unmeasured
-   control **fails** PC5 rather than defaulting to 0.
-
-Also: `len(artefacts) != 4` refused both routes §8 admits (polls 1+3 primary,
-1+4 PC2 fallback) — **fixed, not documented away**. PC6 still requires all four
-polls, so a partial capture can only ever reach UNRESOLVED.
-
-**43 new tests, 25 mutations, all in the module docstring, none pruned.** M2 was
-**green on the first pass** (no scenario put `S` in the (0.20, 0.50] band) and a
-test was added to kill it. **M19 stays green and proved nothing** — semantically
-equivalent — and is **recorded rather than pruned**.
-
-`poll_index` is **1-based on both sides** — `capture_odds_repeat_poll.py:588`
-`enumerate(POLL_OFFSETS_S, start=1)`, `:648` writes it; analysis uses
-`PRIMARY_PAIR = (1, 3)`. It matched. It is now *enforced*: a test re-derives
-`start=` from the capture script's **AST**.
-
-**I spot-checked this myself rather than taking the lane's word**: mutating
-`PRIMARY_PAIR` to `(1, 4)` turns **15 tests red**. Restored, tree clean.
-
-### 2. `0e9b310` — Amendment B: §7's good-news branch licensed a phrase defined nowhere
-
-`measurement-skeptic` audited the ADR lane's *"§7 passes"* and returned
-**SURVIVES NARROWED**: **one declaration branch was unpriced, and it was the
-good-news branch.**
-
-§7's mandatory `S_strict` qualifier has two legs; only `S_strict < 0.90` was
-priced. At **`S_strict ≥ 0.90`** the registration licenses *"the strong
-wording"* — **a term defined nowhere**: not in the registration, not in the
-script, not in ADR 0020 (which does not exist). §9 defines it circularly. And
-§10 already says a book-scoped stamp advanced by an unobserved market is
-*"indistinguishable from a scrape clock even at `S_strict`"*.
-
-**Amendment B fixes the permitted paragraph in advance and retires the term.**
-Honour it verbatim when the result is written up; do not paraphrase it from
-this file. It also records, as **§B2**, that `s_strict` binds on **1 → 4
-always** while §6 reads as the deciding pair — a **registered deviation**.
-**Do NOT "fix" that in the script.**
-
-**The amendment lane corrected the auditor's own arithmetic** — the dangerous
-leg becomes reachable at `N_adv ≤ 27`, not 25 — and **recorded the correction
-instead of smoothing it**, against its own argument's direction. That is the
-behaviour to copy.
-
-### 3. `1aa75bd` — ADR 0026: every declaration branch prices the rival before the data
-
-The general defect behind §A8 and §S8: **a registered rule that fires on an
-observation the losing hypothesis predicts just as strongly.** It fires on
-schedule, on the designed data, and establishes nothing — and **a registered
-rule gets *less* scrutiny at the moment of use, because its authority came from
-being fixed in advance.**
-
-**This is now repo law. Apply it to every registration.** For each branch, write
-what the rival predicts at that exact value; where they coincide, label the
-branch **non-discriminating in advance**.
-
-### 4. `b3fd15a` — the twelve-not-fourteen correction is not executable at four of its five sites
-
-`ALL_CHECK_NAMES` has **12** entries (`backend/core/suppression.py:119-131`),
-and five documents say fourteen. **Four of the five are registration bodies**,
-which are never edited. So *"correct them as those files are next touched"*
-**cannot run there**. The one checklist site is fixed; the rest are recorded.
-
-**The design point survives everywhere**: all twelve codes contain underscores,
-so the `instr`-not-`LIKE` predicate stands. **Do not append an amendment to a
-registration to fix a count** — an amendment with no consequence for a threshold
-or a decision rule dilutes the ones that have one.
-
-## THE LEADERSHIP QUESTION IS DEAD. Do not re-open it, and do not re-scope it.
-
-`docs/measurements/2026-08-11-preregistration-outcome-scored-leadership.md`
-(`9e4cbaf`) prices the paired forecast-accuracy test that ADR 0021 §7's escape
-hatch — *"Kalshi may be the sharp side"* — was said to need. **Verdict:
-REFUSED ON POWER, with arithmetic.**
-
-- The estimator is a mean of game-clustered paired Brier differences. In closed
-  form `|t| = σ_d·√G`.
-- At CLAUDE.md's own ~2c premise (`σ_d = 0.02`) it needs **~26,500 game
-  clusters** — about eleven complete MLB seasons. **The record has 59 games
-  across 34 recording instants.** A factor of ~440 in `G`.
-- Even at the `suspicious_edge` ceiling on every game, max reachable
-  `|t| = 0.38`. **The `G = 300` floor does not rescue it** — it was set for a
-  different estimator and is off by two orders of magnitude here.
-
-**Both provisional leads are discarded, not inherited.** The sign test *"needs
-0.893"* is **non-discriminating at any `G`**: with a binary outcome both
-hypotheses predict exactly 0.500. The Brier crossover at `G = 68` implies
-`σ_d = 0.238`, twelve times the venue's stated accuracy.
-
-**And the ADR 0026 finding survives infinite `n`:** `KALSHI-LEADS` coincides
-exactly with the artefact rival — a consensus on 2–3 books of unproven
-freshness, devigged by four methods that disagree by more than the whole
-0.38-point headroom, is predicted to lose the paired Brier **for reasons
-containing no information**. **This instrument can only return the answer nobody
-proposed it to find.**
-
-**Recommendation recorded: kill, not re-scope.** §0.7 prices the three obvious
-re-scopings and none reaches `|t| = 1`. The escape hatch moves from *"neither
-licensed nor refused"* to **refused for this instrument** — which is **not** a
-claim that the escape hatch is false. **No dump is licensed, for this test or
-any other.**
-
-## DO NOT RE-OPEN THESE
-
-**THE ODDS SCARE IS CLOSED.** *"Odds fetching stopped 2026-08-09T23:37:15Z"* led
-two handoffs and is refuted **as a cause**: 22h 47m with zero in-scope fixtures,
-then at 22:34:21Z the sweep **served**. Three attempts, the first two wrong.
-**Prefer the observation that needs the least of your own machinery.**
-
-**THE CLV DUMP IS REFUSED** — for the CLV instrument only. The registration
-forbids declaring below `G = 300`; the record gives ~20 clusters. And the
-question it was proposed for is now **§3 above: dead on power.**
-
-## STILL OPEN
-
-- **An ADR for the per-database / per-account credit gap** (Amendment A §A6).
-  Urgency partly consumed by the P1 clause-3 fix at `39628e0` — the pre-flight
-  now reads the account's live count. Real hole, no clock.
-- ~~**ADR 0020**~~ **CLOSED 2026-08-12.**
-  `docs/adr/0020-odds-age-ms-is-not-a-per-line-freshness-measure.md`. The number
-  is spent; **0020 is no longer reserved.** All three constraints were respected
-  — restricted to the `odds_age_ms` claim, the ~300 s interval travels with
-  every citation of `S = 0.9376`, and §4 states it does not surface rows. The
-  qualifier is verbatim (diffed against the result file, exact). It found one
-  thing on the way: the result file's `analyse_odds_repeat_poll.py:162` has
-  **drifted** — the constant is at `:173` — and ADR 0020 §3 records it.
-- **`core/fees.py` cannot express the observed fee** — needs an **ADR, not a
-  patch**. Six fills fit `k = 0.035` on MLB and `k = 0.070` on ATP with
-  four-decimal rounding; `fees.py` expresses neither the split nor the
-  granularity. **The ADR must decide whether the rate is per-category, and that
-  needs item 2's fills.** Do not patch a coefficient in. **The `max()` hedge
-  stays.**
-- **An ADR for §A8's defect** — superseded by ADR 0026. Close it or fold it in.
-- **ADR 0024 §5.1 / §5.2** — order path looser than suppression on depth.
-  **REACHABLE ONLY**; `orders` is empty. §5.2 warns the one-line fix
-  manufactures false confidence.
-- **`decide_sweeps` reads only the daily ceiling** while `refusal_reason` checks
-  three. Visible as a `refused` row, not closed.
-- **Whether the dbt marts are computed over anything.** `publish()` has one
-  caller — its own `__main__`. `ls /data/lake/recommendations` would settle it
-  and **the ruling bans filesystem browsing**. **Unanswerable this session by
-  any available means. Until then no dbt mart figure may be cited for live.**
-- **Set the Anthropic spend limit.** Held at zero by `surfaced == 0`. **It
-  switches itself on precisely when the project starts working.**
+1. **Confirm prop rows landed** (top of this file).
+2. **The one-sided alternate feeds.** 174 of 222 matched keys dropped for having
+   no two-sided book. Recovering them means estimating a book's overround from
+   its own two-sided primary and applying it to that book's one-sided
+   alternates — **~4.6× the comparisons for zero extra credits**, and an
+   assumption that needs **`pre-registrar`**, not a patch.
+3. **Score the first prop rows on CLV** once a slate settles. **Register the
+   measurement before looking.**
+4. **The settlement `fee_cost` capture** for the five round-three positions —
+   the only direct test of **H4**, which the 0.63-point headroom rests on. The
+   fills endpoint has a measured retention bound of **~3 months from
+   2026-08-14**, so this has a real clock.
 
 ## GOVERNANCE — Joe's ruling, not a convention you may relax
 
 `flyctl ssh console` against `kalshi-cockpit` may **only invoke a committed,
-reviewed script by path**. No inline code, no `python -c`, no base64, no
-filesystem browsing, no interactive session.
+reviewed script by path.** No inline code, no `python -c`, no base64, no
+filesystem browsing, no interactive session. **The allowlist does not enforce
+this** — a permission pattern matches a command prefix and cannot see inside
+`-C "..."`. Three sessions wrote this rule and two drifted from it within the
+hour. Assume you will too.
 
-**The allowlist does NOT enforce this.** A permission pattern matches a command
-*prefix* and cannot see inside `-C "..."`. **Three sessions wrote this rule and
-two drifted from it within the hour.** Assume you will too.
+**Only two of forty-three `scripts/*.py` are in the image.** `.dockerignore`
+decides, not `Dockerfile`. `inspect_live_db.py` is **not** on the machine.
 
-**Deploys are batched and Joe's. Ask before money or a deploy. Do not ask
-permission to continue** — Joe leaves 8-hour unattended stretches.
-
-**The working phone check** (the old bearer-token one returns 401):
+**Deploying is a phone button, not a laptop step:**
 
 ```
-TOKEN=$(grep -m1 '^APP_AUTH_TOKEN=' .env | cut -d= -f2-)
-curl -sS -c jar.txt -X POST -F "token=$TOKEN" -F "next=/" \
-  https://kalshi-cockpit.fly.dev/session
-curl -sS -b jar.txt https://kalshi-cockpit.fly.dev/api/window
+gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
 ```
 
-## DECISIONS ALREADY MADE — do not re-put these to him
+or GitHub app → Actions → Deploy → Run workflow → instance `live` → type
+`kalshi-cockpit`. The typed confirmation is the guard against a mis-tap; it is
+not optional. The v7→v8 migration runs itself at boot, before anything opens the
+database, and aborts the boot on failure.
 
-| Question | Decision |
-|---|---|
-| Round three, 4 cells or 5 | **CONTRADICTED — this row is not a decision.** It read *"(a) four cells, ~$3.66"*. `tasks/NEXT.md:90-93` records that cell `W` stays **UNRESOLVED** because Q-W was never answerable (`NEXT.md:74`), which is **not** §1.3's *"no series passed, `W` is not registered"* — so **§Power's four-cell branch is not licensed**. `scripts/watch_fee_bands.py:39-51` refuses to collapse the same distinction. Per line 12-13, NEXT.md's top supersedes this file: **read NEXT.md, not this row** |
-| Is the $5 still worth spending | **Yes.** `core/fees.py` cannot resolve itself; it needs a fill |
-| When Joe places the orders | **On his clock, any time before 2026-08-31** |
-| When the watcher runs | **At the moment he places, never in advance** |
-| Who fires the 24-credit poll | **Done — a scheduled task, decoupled from any session** |
-| Partner's `stale_odds` finding | **ADR 0025.** The audit shrank it tenfold |
+**Ask before money or a deploy. Do not ask permission to continue** — Joe leaves
+8-hour unattended stretches. **Every push publishes to the world immediately.**
 
-**A governance defect this table caused, and it is the reason row 1 now reads as
-it does.** *"Do not re-put these to him"* outranked fresher evidence sitting in
-the same repo: `NEXT.md:90-93` had already withdrawn the four-cell branch, and
-$3.66 stayed queued against it because this list is read as settled rather than
-as dated. **A decision list is a cache, and this one had no invalidation.**
-Before quoting any row here, check whether NEXT.md's top has overtaken it — line
-12-13 says it wins, and a row that has been overtaken must say so rather than go
-quiet.
+## SETTLED — do not re-derive or re-propose
 
-## THE STANDING SUSPICION — twelve guards that could not fail
-
-**"This check is green" is unproven until the check has been seen to go red.**
-
-**1–7** across earlier sessions. **8**, self-inflicted: a test asserted the
-contested premise as a module constant and mutated only the arithmetic nobody
-disputed. **9 and 10**: `capture_fills_fixture.py` had no return statement and
-no test file; `test_a_stale_book_suppresses` anchored at **4×** its threshold.
-**11 was not code** — Amendment A **§A8**, a *registered decision rule* that
-fired correctly and established nothing.
-
-**12, found 2026-08-11:** `scripts/analyse_odds_repeat_poll.py` — **481 lines,
-no test file, imported by nothing, and about to read a one-shot 24-credit
-capture.** Three real defects, one of which printed **CONFIRMED off a single
-poll**.
-
-## HOW THIS SESSION WAS WRONG
-
-1. **I armed a one-shot money-spending timer inside the session and told Joe to
-   keep the session open for six hours.** That was a bad design and he caught
-   it, not me — *"is 6am pst here, you sure you don't want me to start a new
-   session?"* **Anything with a wall-clock deadline goes to the OS scheduler,
-   not to a Monitor, a background bash job, or a chained wakeup.**
-2. **`TaskStop` reported success and the waiter was still alive.** It kept
-   spawning `sleep` children for minutes afterwards. Two live waiters would have
-   spent **48 credits**. **Verify a stopped background job with `ps`, never with
-   the tool's own success message.**
-3. **I let a subagent's brief carry a stale denominator** — "thirty-four
-   scripts" is **forty-two** `scripts/*.py`. The lane caught it. Two of them
-   ship either way.
-
-### Earlier sessions — still live
-
-1. **A registration's body is not the registration.** Grep any registration for
-   `Amendment` and read the amendment's section titles **first**.
-2. **The power of an instrument is not the power of the question.**
-3. **An unchecked negative was published in the same commit as a lesson about
-   unchecked negatives.**
-4. **A subagent's confident negative was wrong and load-bearing.** **Re-run a
-   delegated negative yourself before acting on it.**
+- **One signal, not two.** `elo.py` has no production caller. **Do NOT wire it up.**
+- **ADR 0025** — the `stale_odds` re-opening is refused. 23 rows / 9 clusters.
+  **Never write "844 of 935" as rows in play.**
+- **`ALL_CHECK_NAMES` has 12 entries, not 14.**
+- **`TAKER_COEFFICIENT` stays at 0.070** until item 2 resolves. `core/fees.py` is
+  untouched by the props work and must stay that way.
+- **The coefficient is not one number across the record** — baseball 0.035,
+  WNBA/ATP/PGA 0.070, disjoint at a ratio floor of 1.999×. **Never write "the fee
+  is 0.035".** Every low observation lies inside five days.
+- **H4 is UNTESTED**, not pending and not confirmed. ADR 0027.
+- **A-versus-F is owned by ADR 0023**, deferral stands, expiry 2026-08-31, default **A**.
+- **`KXMLBGAME` cannot fill a sub-20c pre-game band.** Dead on reachability.
+- **AVAILABILITY IS NOT FILLABILITY.** Every band number is a stored quote.
+- **Kalshi's `occurrence_datetime` runs exactly 3 hours late.**
+- **`?event_ticker=` ignores `limit`** on Kalshi. **Never paginate `/markets`.**
+- **Never run `run_chain.py` or `run_loop.py` without `--no-odds`** locally.
+- **`ruff format --check` reports ~153 files, pre-existing and enforced nowhere —
+  do not "fix" it.**
+- **The five Dependabot alerts are parked deliberately** — build-time only.
 
 ## TRAPS
 
 - **`start.md` is a snapshot; `git log` is the record.**
-- **A background job reported stopped may still be running.** Check `ps`, and
-  check for respawning children, not just the parent.
-- **Mutation testing in a shared working tree makes every concurrent suite run
-  untrustworthy.** A full-suite run from another lane at ~12:30Z reported 2
-  failures that were another lane's mutation battery mid-restore. **Do not chase
-  a failure in a file a concurrent lane owns without asking it first.**
-- **`Dockerfile:66` does not decide what ships. `.dockerignore:59-61` does.**
-  **Two of forty-two `scripts/*.py` are in the image.** Cite both lines or
-  neither.
-- **A status word in a handoff may be a human's summary, not the instrument's
-  output.** `PREMATURE` led two handoffs and appears nowhere in the script.
-  **Grep the named instrument for the literal token.**
-- **A mutation that stays green may be semantically equivalent.** Record it;
-  do not prune it to make the count clean.
-- **Quote the pin beside every count.** `clean == 614` is identical at pin 1549
-  and 1564, which is how a paragraph of pin-1549 figures got quoted against a
-  pin-1564 result.
+- **`git add tasks/next.md` matches nothing and says nothing.** Git tracks it as
+  `tasks/NEXT.md`; Windows resolves both to one file and git does not. A
+  two-file commit landed with one file this way. **Run `git status --short`
+  after any hand-typed `git add`.**
+- **A surviving mutation sometimes means the code is lying about itself, not
+  that a test is missing.** One survived this session and the *comment* was the
+  thing that had to change. Keep equivalent mutations, recorded; do not prune
+  them to make the count clean.
+- **A placeholder drawn from the production namespace is a prediction.**
+  `KXMLBHIT` was an invented example until it wasn't.
+- **`flyctl logs` is lossy** — ~90% of a burst is dropped by Fly's pipeline.
+- **A background job reported stopped may still be running.** Check `ps`.
 - **Two lanes in one working tree fight over git. Add by explicit path, never
   `git add -A`.**
-- **"Routed separately" in a document is an unassigned task, not a handoff.**
-  Route it to the lane that owns the file, explicitly, or it lands nowhere.
-- **Every push publishes to the world immediately.** Push protection is ON.
-- **The five Dependabot alerts are parked deliberately** — build-time only.
-- **`?event_ticker=` ignores `limit` entirely** on Kalshi.
-- **Never run `run_chain.py` or `run_loop.py` without `--no-odds`.**
-- **`ruff format --check` reports ~153 files, pre-existing and enforced nowhere
-  — do not "fix" it.**
-
-## SETTLED — do not re-derive or re-propose
-
-- **ADR 0025 — the `stale_odds` re-opening is refused, and narrowly.** The real
-  number is **23 rows / 9 clusters / 8 odds snapshots**; **836 of 859 (97.3%)**
-  cannot be surfaced by removing the guard. **The mechanism inverts**: a scrape
-  clock makes `odds_age_ms` a **lower bound**, so every rejection is correct
-  under either reading and the defect contaminates the **clean** set. **Never
-  write "844 of 935" as rows in play.**
-- **`ALL_CHECK_NAMES` has 12 entries, not 14.** **Six of the twelve never fired
-  on this record.**
-- **One signal, not two.** `elo.py` has no production caller. **Do NOT wire it
-  up.**
-- **A-versus-F is owned by ADR 0023 and the deferral STANDS.** Expiry
-  2026-08-31 UTC, default **A**.
-- **`KXMLBGAME` cannot fill a sub-20c pre-game band.** 0 of 51,286; cheapest
-  26.0c. Round two is dead **on reachability, not budget**.
-- **AVAILABILITY IS NOT FILLABILITY.** Every band number is a stored quote. **The
-  separating observation is one small order.**
-- **`KXATPDOUBLES` is not in the record at all.**
-- **Option E is closed. Verdict H3 minus.** Model A's **coefficient** is
-  confirmed to seven decimals at the ATP cell — only its cent ceiling is
-  refuted. **Never write "Model A is refuted" bare.**
-- **The coefficient is not one number across the record.** ATP matches
-  `k = 0.070`; the five MLB fills match `k = 0.035`. **That is a hypothesis
-  generator, not a finding** — two cells, one sport, one day, and it is the
-  largest piece of good news anywhere in this record. **The `max()` hedge stays;
-  the verdict stays H3−.** Never write *"the fee is 0.035"*.
-- **H4 is UNTESTED, not pending and not confirmed** — and load-bearing:
-  `settlement_fee()` (`core/fees.py:197`) feeds `core/ev.py:89,140`,
-  `core/parlay.py:213`, **and** `scripts/rescore_fee_models.py:128` and
-  `scripts/run_clean_shortfall.py:157`. §A8's declaration rule must not be
-  applied.
-- **The joint bound is dead on every population. H3b is REFUTED — sign only.**
-- **Say `59 games across 34 recording instants`, never `614 rows`.**
-- **The tautology objection is NARROWED, not withdrawn** — it covers **73.0%**.
-  The other 27.0% returned **6 positive edges across all 423, every one
-  suppressed, max +15.06 tenths** — not "nothing".
-- **`betfair_ex_uk` is ABSENT — 0 rows, whole window.** Do not add the `uk`
-  region. Every *"anchored on the sharps"* means **at most three books**.
-- **Arming real trading is a code change** (ADR 0018), and ADR 0024 adds a
-  precondition — satisfied in the repo, **not deployed**. **There is no minimum
-  order size.** **Kalshi's `occurrence_datetime` runs exactly 3 hours late.**
-- **`data/lake/` holds 847 rows of 2025 demo seed data.** The only safety is
-  that nothing calls `publish()`.
+- **A status word in a handoff may be a human's summary, not an instrument's
+  output.** Grep the named instrument for the literal token.
 
 ## Standing instructions from Joe
 
 1. **Call `partner` first** and let it set the queue. **Delegation is its call.**
-   *Its output is not exempt from rule 3.* On 2026-08-11 it was **right about
-   the biggest thing on the board** — it found the untested instrument — and
-   the day before it produced four errors in one report.
+   Its output is not exempt from rule 3.
 2. **Parallelise by default — two concurrent lanes, never more.**
 3. **`measurement-skeptic` audits anything before it enters the record**,
-   especially good news — and **especially a kill**. On 2026-08-11 it narrowed a
-   *"§7 passes"* verdict to find an unpriced good-news branch hours before the
-   spend. **It has never yet been wrong on this project.** But note this
-   session's twist: **the lane it audited then corrected *its* arithmetic**, and
-   was right. **Nobody is exempt, including the auditor.**
+   especially good news, and especially a kill.
 4. **Deploys are batched and Joe runs them.**
 5. **Don't ask permission to continue. Do ask before money or a deploy.**
-6. **Say unprompted when the session should end.**
-7. **Watch the build-to-measure ratio and say so when it is wrong.** Joe raised
-   it on 2026-08-11. The three questions at the top of this file are the answer;
-   if a session's work is not one of them, say why out loud.
+6. **Say unprompted when the session should end.** Target 300–500K tokens.
+7. **Watch the build-to-measure ratio and say so when it is wrong.**
