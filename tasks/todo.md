@@ -36,8 +36,17 @@ step 8 produces evidence.
       many soccer leagues. Scope decision in `docs/adr/0001`.
 - [x] Bonus: derived-ask identity verified on **2,145 real quotes, 0 violations**.
 - [x] Bonus: matching key is `yes_sub_title` (plain team name), not ticker regex.
-- [ ] Fee model: conservative hedge in place; calibration is task #4 and needs
-      the order path, so it is not blocking.
+- [ ] Fee model: **the conservative hedge described here no longer exists.**
+      `core/fees.py:248` records that `max(fee_candidates(...).values())` was
+      replaced once real fills were measured, because Model B — the model the
+      hedge was protecting against — matches 0 of 11 real taker fills. See
+      `docs/adr/0028`. `fee_candidates` is retained as a reporting harness, not
+      as the charged figure. Calibration is therefore **partly done**, not
+      untouched: `TAKER_COEFFICIENT` stays at 0.07 deliberately
+      (`core/fees.py:207`) while nine baseball fills pin `k` to roughly half
+      that. What remains open is a second MLB observation window of one
+      1-contract fill, ≥3–4 weeks after 2026-08-14, to settle which attribute
+      carries the split. Verified 2026-08-15 against the code, not the note.
 
 ---
 
@@ -63,16 +72,32 @@ step 8 produces evidence.
 
 **Debt from this step:**
 
-- [ ] **Capture a WebSocket fixture.** `tests/fixtures/ws_orderbook_payloads.json`
-      does not exist, so the snapshot/delta field names in `orderbook.py`
-      (`yes`/`no`, `price`/`delta`/`side`) are documentation-derived, not
-      verified. The REST channel uses completely different names
-      (`yes_bid_dollars`, `yes_bid_size_fp`), so assuming the two agree is
-      exactly the previous project's mistake. The parser fails loudly on
-      mismatch, which is correct but is not the same as being verified.
-      `tests/test_orderbook.py::TestWireFormatIsUnverified` skips until it exists.
+- [x] **WebSocket fixture captured** — done, under a different filename than
+      this note planned. The capture is `tests/fixtures/ws_orderbook_stream.json`
+      (171KB, taken verbatim off `wss://api.elections.kalshi.com` before any
+      parsing), and `tests/test_ws_replay.py` replays it. The file this note
+      names, `ws_orderbook_payloads.json`, was never created, and the guard it
+      refers to, `TestWireFormatIsUnverified`, no longer exists — which is why
+      the suite now reports no skips.
+      **The fear recorded here was correct and the capture proved it.** The
+      documentation-derived field names were wrong in three separate ways:
+      prices are dollar strings (`"0.4300"`) rather than whole cents, so
+      `int(price) * 10` raised on every real frame and 0 of 257 parsed; the
+      delta fields are `price_dollars` and `delta_fp`, not `price` and `delta`;
+      and `seq` is per-connection rather than per-market, so gap detection
+      would have resubscribed in a permanent loop. Plus one calibration error,
+      `MAX_PLAUSIBLE_QUANTITY` set below a real WNBA book of 1,174,194
+      contracts. Verified 2026-08-15.
 - [ ] Re-run `capture_fixtures.py` without the page cap to settle whether
       NBA/NHL game series exist (both out of season in August).
+      **Still genuinely open, and still blocked by the same calendar** — it is
+      2026-08-15, so a re-run today would measure the off-season again rather
+      than settle the question. `MAX_PAGES = 40` is still in place at
+      `scripts/capture_fixtures.py:57`. Neither `KXNBA` nor `KXNHL` appears in
+      `kalshi/discovery.py` or `config.py`, so no game series is in scope.
+      Partial evidence exists that the NBA product is real regardless:
+      `kalshi/combos.py` carries `KXMVENBASINGLEGAME` with 8,622 legs. Re-check
+      once the seasons open. Re-verified as open 2026-08-15.
 
 ### 4. Odds ingest ✅ (2026-08-06)
 
@@ -138,10 +163,14 @@ tenths; on an even line ~2.
 - [x] Verified by running it and taking screenshots, which found two bugs the
       tests could not (see `tasks/lessons.md`).
 
-- [ ] **Mobile layout visually unverified.** The window resize reported success
-      but the viewport did not reflow, so the phone rendering has not actually
-      been seen. Stacking uses standard `sm:grid-cols-2`, so low risk — but
-      unconfirmed, and this is a phone-first tool.
+- [x] **Mobile layout verified** — closed by step 13, below. The blocker
+      recorded here was that a window resize reported success without the
+      viewport actually reflowing. `scripts/check_mobile.py` fixed that by
+      driving headless Chrome over CDP and setting the viewport with
+      `Emulation.setDeviceMetricsOverride`, which is the only call that makes
+      the page reflow for real. Clean at 320 / 390 / 430 px — `scrollWidth`
+      equals the viewport on every page — and confirmed visually at 390.
+      Verified 2026-08-15.
 
 ### 8. Recording + CLV + validate.py ✅ (2026-08-06) — the evidence layer
 
@@ -187,10 +216,16 @@ default), and `wait -n` under `#!/bin/sh` — dash rejects it, so the container
 tore itself down milliseconds after starting. That one would have presented on
 Fly as a crash loop with nothing in the logs pointing at the cause.
 
-- [ ] Not deployed to Fly. Needs `fly launch` for each app, a volume for live,
-      and secrets set out of band (including the RSA key, base64-encoded into a
-      secret and materialised to tmpfs — never baked into the image, never on
-      the volume where a snapshot would carry it).
+- [x] **Deployed to Fly, both instances** (first deploys 2026-08-10). Neither
+      `fly launch` nor a laptop is needed: `.github/workflows/deploy.yml` is a
+      `workflow_dispatch` button that creates the app if missing, creates the
+      live volume if missing, deploys, and then verifies `/api/health` reports
+      the expected `instance_mode`. Deploying live requires typing the app name
+      into `confirm_live`, because a dropdown mis-tap on a phone is a plausible
+      way to deploy the money instance by accident. The demo deploy additionally
+      asserts that `POST /api/orders` returns 403. The RSA key arrives as a
+      base64 Fly secret and is materialised to `/dev/shm` — never baked into the
+      image, never on the volume where a snapshot would carry it.
 
 ### 10. Lakehouse ✅ (2026-08-07)
 
@@ -216,7 +251,13 @@ of the time."* Two lessons recorded — that one, and the follow-on where the
 mart computed the right p-value and then wrote its verdict from a different
 calculation.
 
-- [ ] Dashboards screen in the cockpit, reading the marts.
+- [x] **Dashboards screen in the cockpit, reading the marts** — built.
+      `frontend/src/app/dashboards/page.tsx` serves the screen and
+      `backend/api/routes.py:1162` serves `/api/dashboards`, which returns the
+      dbt marts with their verdicts. It answers 503 rather than an empty
+      payload when the warehouse has not been built, because an empty dashboard
+      reads as "nothing to report" and only one of those two states needs
+      somebody to act. Verified 2026-08-15.
 
 ### 11a. The Quant ✅ (2026-08-07)
 
@@ -408,9 +449,23 @@ preseason, so it measures the calendar. Combo fee structure unverified.
 
 ### Older backlog
 
-- [ ] Dry-run path, then confirmed one-click behind the gate
-- [ ] Gate opens on: ≥300 scored recs **and** positive CLV surviving the noise
-      guard **and** `fee_predicted == fee_actual` on every fill **and** fresh data
+- [x] **Dry-run path, then confirmed one-click behind the gate** — built.
+      `ORDERS_ARE_DRY_RUNS` threads through the whole order path in
+      `api/routes.py`: the exposure calculation, the risk checks, and
+      `OrderPlacer` all read the same flag, and the response marks a
+      hypothetical exposure as such. Real fills have since been placed through
+      it, which is where the fee measurements above came from. Verified
+      2026-08-15.
+- [x] **Gate conditions implemented** — this line was a statement of the
+      opening rule rather than a task, and `backend/gate.py` now enforces every
+      clause of it as a named condition: `scored_recommendations` (against
+      `min_scored_recommendations`, default 300 in `config.py:664`),
+      `clv_survives_noise_guard`, `fee_model_verified`, `config_enabled` and
+      `data_fresh`. `/api/gate` calls the same `evaluate_gate` the order
+      endpoint uses, so the screen and the control cannot disagree about
+      whether execution is open. **The conditions being coded is not the same
+      as the gate being open** — it remains shut, which is the correct state.
+      Verified 2026-08-15.
 
 ---
 
