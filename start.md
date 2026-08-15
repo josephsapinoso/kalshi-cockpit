@@ -1,7 +1,8 @@
 # Start prompt — paste this to open the next session
 
-Rewritten **2026-08-15 ~19:20Z**. The session that **built all three remaining
-props slices, deployed them, and did not live to see the first prop row land**.
+Rewritten **2026-08-15 ~20:15Z**. The session that **built all three remaining
+props slices, deployed them, watched the first live pass, and found two defects
+in it** — one fixed and shipped, one still open with a clock on it.
 
 Say *"read start.md and follow it"*, or paste this whole file.
 
@@ -10,65 +11,40 @@ Say *"read start.md and follow it"*, or paste this whole file.
 Read `CLAUDE.md`, `tasks/NEXT.md` and `tasks/lessons.md`. NEXT.md is the
 actionable checklist and **its top supersedes everything here**.
 
-## ⏱ FIRST — one thing is unverified, and it takes one command
+## ⏱ FIRST — props are recording. **One defect is open and it re-fires at 10:00Z.**
 
-**Props are built, pushed and deployed. Nobody has yet seen a prop row appear on
-the live instance.** The deploy finished at ~19:12Z on 2026-08-15 and the next
-MLB sweep was scheduled for ~19:21Z. The previous session's poller was still
-returning `none` when the session ended.
+**Verified on live at 20:10Z on 2026-08-15: 474 prop recommendation rows**, all
+five series, 16,234 prop odds quotes, `events_linked` 79 → 92. The chain works
+end to end. **Every row is suppressed and zero surfaced** — the predicted
+result. Their `stale_odds` is literal (the sweep ran at 19:41:53Z), not evidence
+about props.
 
-**This is the first thing to check, and it is the only open thread.**
+**The open defect: the prop sweep drained the day’s credits in one pass.**
 
 ```
-JAR=jar.txt
-TOKEN=$(grep -m1 '^APP_AUTH_TOKEN=' .env | cut -d= -f2-)
-curl -sS -o /dev/null -c "$JAR" -X POST -F "token=$TOKEN" -F "next=/" \
-  https://kalshi-cockpit.fly.dev/session
-curl -sS -b "$JAR" "https://kalshi-cockpit.fly.dev/api/ledger?limit=300"
+props: 27 pre-game fixtures, 67 Kalshi prop events, 10 market keys  -> 16,234 quotes
+props <event>: 384 of 400 daily credits already spent, and the call costs 20  -> REFUSED
 ```
 
-**Look for tickers starting `KXMLBKS-`, `KXMLBTB-`, `KXMLBHIT-`, `KXMLBHR-` or
-`KXMLBRBI-`.** Before this build the ledger held only `KXMLBGAME` and
-`KXWNBAGAME`.
+Two compounding errors. `fetch_and_store_props` buys for **every pre-game
+fixture in the sweep (27)** rather than the fixtures the sweep was fired for
+(**4**); and an event costs **20** credits, not 10, because live runs **two
+regions**. Every remaining odds sweep that day is refused, team sweeps included,
+so the moneyline record stops growing.
 
-**Never echo `$TOKEN`, and delete `jar.txt` afterwards** — it is a live session
-cookie for the money instance and the repo is public.
+**It re-fires when the budget day rolls at 10:00Z.** Fix it first.
 
-### If no prop rows have appeared
-
-Three candidates, cheapest first. **Do not assume the code is wrong** — two of
-the three are ordinary operating states:
-
-1. **No sweep has fired yet.** `/api/window` reports `next_sweep_ms` and
-   `next_sweep_reason`. Props are bought **only** on the branch where a team
-   sweep is *served*, so no sweep means no props, correctly.
-2. **The credit budget refused.** This is the failure that looks exactly like
-   success from every other screen — health stays green, the Board renders, the
-   record silently does not grow. Every prop decision writes a row to
-   `odds_sweep_log` with a detail prefixed **`props:`**, served or skipped with
-   the reason.
-3. **No two-sided book at any rung.** 18 of 20 rungs in the captured payload had
-   only an Over. A slate where every rung is one-sided produces zero
-   `fair_prices` rows and is *not* a bug.
-
-**Read the `props:` rows before forming a theory** — the command is under
-GOVERNANCE below. The previous session's biggest single finding came from
-capturing a payload instead of reasoning about one.
-
-**State at 19:26Z on 2026-08-15, so you can tell progress from a stall.** The
-deploy landed at ~19:12Z and the new code logged its first pass at **19:13:43Z**
-(`odds_sweep_log` id 296, `skipped`, "next slot is baseball_mlb at 19:21Z–19:51Z").
-**No sweep had been served since the deploy**, so the absence of prop rows at
-that point was candidate 1 and nothing else. The last served sweep, id 291 at
-**17:44:52Z**, predates the deploy and could not have bought props.
-
-So: **the first sweep that can possibly buy props is the 19:21Z–19:51Z MLB
-slot.** If `sweep-log` shows a `served` row after 19:21Z with **no** `props:` row
-beside it, that is a real defect and the call site is `runner.fetch_and_store_props`.
+**Do not reflex-fix.** One region halves the cost and leaves 27-vs-4 in place; a
+hard event cap picks an arbitrary number. `decide_sweeps` already knows which
+fixtures a slot covers — `SweepSlot` carries `anchor_commence_ms` and
+`games_covered`, and `/api/window`’s `slots_planned` shows both. **Then
+re-derive the cost from a real sweep**, because the estimate that shipped
+("~150 a slate") was an assumption restated, and it is wrong in
+`.env.example` too.
 
 ## WHAT WAS BUILT, AND WHAT IT DOES NOT CLAIM
 
-Four commits, all pushed, `origin/main` level at **`e2930d7`**:
+Seven commits, all pushed, `origin/main` level at **`7318c95`** or later:
 
 - **`8febd24`** — slices 2–3. Discovery admits the five MLB prop ladders
   (`market_type = 'prop'`, parsed player); a prop event inherits the link its own
@@ -76,8 +52,12 @@ Four commits, all pushed, `origin/main` level at **`e2930d7`**:
 - **`1fb6850`** — slice 4. A served team sweep buys the props; pricing devigs one
   (player, line) at a time into `fair_prices`.
 - **`9855ae9` / `e2930d7`** — NEXT.md and lessons.
+- **`98b8697`** — gitignore the curl cookie jar. The phone check below writes a
+  **live session cookie** to disk in a public repo, and every runbook only
+  *told* the reader to delete it.
+- **`7318c95`** — the untradeable-rung fix (below).
 
-**2,626 tests pass, 10 `xfail(strict=True)`, ruff clean, 21 mutations run.**
+**2,629 tests pass, 10 `xfail(strict=True)`, ruff clean, 24 mutations run.**
 Verified at the time of writing, not inherited. **Re-verify before trusting it:**
 
 ```
@@ -128,15 +108,19 @@ up to a factor of two on the fee component, **deliberately**.
 
 ## WHAT IS LEFT, IN ORDER
 
-1. **Confirm prop rows landed** (top of this file).
-2. **The one-sided alternate feeds.** 174 of 222 matched keys dropped for having
+1. **The credit defect at the top of this file.** It is the only thing
+   blocking props from recording properly, and it re-fires at 10:00Z.
+2. **Re-read `sweep-log` and `credits-day` after the first clean slate** and
+   write the *measured* per-slate cost into `.env.example`, replacing the
+   estimate that was wrong.
+3. **The one-sided alternate feeds.** 174 of 222 matched keys dropped for having
    no two-sided book. Recovering them means estimating a book's overround from
    its own two-sided primary and applying it to that book's one-sided
    alternates — **~4.6× the comparisons for zero extra credits**, and an
    assumption that needs **`pre-registrar`**, not a patch.
-3. **Score the first prop rows on CLV** once a slate settles. **Register the
+4. **Score the first prop rows on CLV** once a slate settles. **Register the
    measurement before looking.**
-4. **The settlement `fee_cost` capture** for the five round-three positions —
+5. **The settlement `fee_cost` capture** for the five round-three positions —
    the only direct test of **H4**, which the 0.63-point headroom rests on. The
    fills endpoint has a measured retention bound of **~3 months from
    2026-08-14**, so this has a real clock.
@@ -213,6 +197,17 @@ database, and aborts the boot on failure.
 ## TRAPS
 
 - **`start.md` is a snapshot; `git log` is the record.**
+- **A guard copied from a neighbouring path inherits its assumptions, not its
+  safety.** `if ask is None` was enough for moneylines because a game line
+  never reaches 0 or 1000 while pre-game; a prop ladder reaches both every
+  slate. Prefer the codebase's named predicate (`is_valid_price`) over an
+  inline re-expression — the predicate *is* the assumption written down.
+- **A raise inside a per-item loop nested in a per-slate loop fails the
+  slate, not the item.** One untradeable rung aborted every moneyline row on
+  the pass, and a failed full pass is *retried*.
+- **A cost estimated from an assumed input is the assumption restated.**
+  "~150 credits a slate" was 384 in one pass. State where each input was read
+  from, and reconcile against one real run before publishing the number.
 - **`git add tasks/next.md` matches nothing and says nothing.** Git tracks it as
   `tasks/NEXT.md`; Windows resolves both to one file and git does not. A
   two-file commit landed with one file this way. **Run `git status --short`

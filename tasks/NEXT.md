@@ -1,6 +1,113 @@
 # Next — your checklist
 
-## 2026-08-15 — PROPS ARE BUILT, ALL FOUR SLICES. One deploy from Joe and it runs.
+## 2026-08-15 — PROPS ARE RECORDING ON LIVE. One defect fixed, **one still open and it has a clock**.
+
+**474 prop recommendation rows** on the live instance, all five series
+(`KXMLBHIT` 149, `KXMLBRBI` 121, `KXMLBTB` 106, `KXMLBHR` 66, `KXMLBKS` 32),
+against 4,818 rows before. 16,234 prop odds quotes stored, 67 Kalshi prop
+events discovered, `events_linked` 79 → 92.
+
+**Every one is suppressed and zero are surfaced**, which is the predicted
+result, not a disappointment. Read `stale_odds` on them literally: the prop
+sweep ran at 19:41:53Z and the rows were priced against odds older than
+`MAX_ODDS_AGE_S`. It is not evidence about props.
+
+### ⚠ OPEN, AND IT FIRES AGAIN AT 10:00Z — the prop sweep drains the day's credits
+
+**Measured, not estimated.** On the 19:41:53Z pass:
+
+```
+props: 27 pre-game fixtures, 67 Kalshi prop events, 10 market keys  -> 16,234 quotes
+props <event>: 384 of 400 daily credits already spent, and the call costs 20  -> REFUSED
+day total: 384 of 400, in one pass
+```
+
+**Two things are wrong and only one of them is arithmetic.**
+
+1. **`fetch_and_store_props` buys for every pre-game fixture in the sweep, not
+   the fixtures the sweep was fired for.** `decide_sweeps` fired for **4 games
+   from 20:06Z**; `fetch_odds` returns the **whole MLB slate**, and the prop
+   fetch takes every pre-game `odds_event_id` out of it — 27.
+2. **20 credits an event, not 10.** 10 market keys × **2 regions**
+   (`ODDS_REGIONS=us,eu` on live). The commit message that shipped this said
+   "~150 credits a slate" and "two prop windows a day is ~324 against 400".
+   **Both figures were wrong**, and they were wrong because they were derived
+   from an assumed fixture count rather than read off a sweep.
+
+**Consequence:** the budget refused partway through, and every remaining odds
+sweep today — team sweeps included — is refused. The moneyline record stops
+growing, which is the asset the CLV gate depends on. Self-limiting only until
+the budget day rolls at **10:00Z**, when it happens again.
+
+**Do not reflex-fix this.** The obvious patch (drop to one region) halves the
+cost and leaves the 27-vs-4 error in place. The obvious other patch (cap the
+event count) picks an arbitrary number. The defensible fix is to buy props for
+**the fixtures the sweep slot covers**, which `decide_sweeps` already knows —
+`SweepSlot` carries `anchor_commence_ms` and `games_covered`, and
+`/api/window`'s `slots_planned` shows both. Whatever is chosen, **re-derive the
+credit cost from a real sweep afterwards rather than from an assumption.**
+
+### FIXED AND DEPLOYED — an untradeable rung took down the whole pricing pass
+
+`7318c95`. The first live pass to price props raised `ValueError` and aborted at
+**19:42:07Z**, one pass after the feature shipped.
+
+A ladder runs `2+` to `9+`, so its far end is a market nobody trades: the NO bid
+rests at $1.00 and the derived YES ask is **0**. `core/ev.effective_price`
+refuses 0 and 1000 deliberately — a 0 ask yields a zero fee, a $0.00 effective
+price and a fabricated edge. `_price_prop_event` checked only `ask is None`,
+copied from the team path, where that has always sufficed because a game
+moneyline does not reach those prices while pre-game and open.
+
+**The guard already existed** as `core.prices.is_valid_price`. The prop path
+never consulted it.
+
+**What made it serious was the blast radius, not the prop rows.**
+`_price_prop_event` is called from inside `run_pricing_pass`'s loop, so the
+raise took the **whole pass** — moneylines included — and `scheduler.pass_kind`
+retries a failed full pass rather than counting it done. It would have repeated
+every pass until the runner gave up and the container restarted into the same
+rung: the record stops growing while every screen still renders.
+
+Three regression tests, all seen red with the fix reverted, all reproducing the
+live `ValueError`. Deployed 19:51Z; pass 1 `full` at 19:52:34Z completed clean.
+
+### What is left, in order
+
+1. **The credit defect above.** It is the only thing blocking props from
+   recording properly, and it re-fires at 10:00Z.
+2. **Re-read `sweep-log` and `credits-day` after the first clean slate**, and
+   write the real per-slate cost into `.env.example`, replacing the estimate
+   that was wrong.
+3. **The one-sided alternate feeds.** 174 of 222 matched keys dropped for having
+   no two-sided book — **~4.6× the comparisons for zero extra credits**, and an
+   assumption that needs **`pre-registrar`**, not a patch.
+4. **Score the first prop rows on CLV** once a slate settles. **Register the
+   measurement before looking.** Props are baseball, charged `k = 0.035`, priced
+   here at 0.070 — every prop edge on the record is understated by up to a
+   factor of two on the fee component, deliberately.
+5. **The settlement `fee_cost` capture** for the five round-three positions —
+   the only direct test of **H4**. Fills endpoint retention ~3 months from
+   2026-08-14.
+
+**The fee window is still the gate.** Second MLB observation window, on or after
+~2026-09-04, one 1-contract fill. Nothing here changed `TAKER_COEFFICIENT`.
+
+### Reading the live box
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py sweep-log -n 12"
+```
+
+`inspect_live_db.py` **is** in the image (`.dockerignore:77-80` ships three
+scripts, not two). Query names: `sweep-log`, `credits-tail`, `credits-day
+--date YYYYMMDD`, `credits-month`, `series`, `kalshi-quotes-band`. Read-only by
+connection, fixed whitelist, no SQL on the command line — which is what the ssh
+ruling requires.
+
+
+## 2026-08-15 — PROPS ARE BUILT, ALL FOUR SLICES. **SUPERSEDED by the section above — they are now deployed and two defects were found in the first live pass.** Note its credit figures are the ones that turned out wrong.
 
 `8febd24` (slices 2-3) and `1fb6850` (slice 4). 2,626 tests pass, 10
 `xfail(strict=True)`, ruff clean. 21 mutations run, 20 killed, 1 recorded as

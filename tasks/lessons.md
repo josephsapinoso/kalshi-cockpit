@@ -13,6 +13,68 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-15 — A guard copied from a neighbouring path inherits its *assumptions*, not its safety
+
+The prop pricing loop was written beside the moneyline loop and copied its
+shape, including `if ask is None: continue`. That check has been sufficient on
+moneylines for the life of the project, and it is sufficient for a reason that
+is nowhere in the line itself: **a game moneyline does not reach 0 or 1000
+tenths while it is still pre-game and open.**
+
+A prop ladder does, routinely. Kalshi prices every rung from `2+` to `9+`, so
+the far end is a market nobody will trade — the NO bid rests at $1.00 and the
+derived YES ask is 0. `core/ev.effective_price` refuses that deliberately, so
+the first live pass to price props raised and **aborted the whole pricing pass,
+moneyline rows included**. A failed full pass is retried rather than counted
+done, so it would have repeated until the runner gave up.
+
+The guard that was needed already existed — `core.prices.is_valid_price` — and
+three other modules call it. The new path simply did not.
+
+**The pattern:** when a new path is modelled on an existing one, the existing
+one's checks encode assumptions about *its own inputs*, and those assumptions
+are usually unwritten because they have never been violated. Copying the check
+copies the code and drops the precondition. The new inputs are new precisely
+because they differ, so the odds are good that at least one silent assumption
+does not survive the move.
+
+**What to do.** For each check carried across, write down *why the original was
+enough* and then ask whether that reason still holds. Where the codebase already
+has a named predicate for a domain rule (`is_valid_price`), call it rather than
+re-expressing a weaker version inline — a named predicate is the assumption
+written down, which is the thing the copy loses. And check the blast radius: a
+raise inside a per-item loop that sits inside a per-slate loop does not fail one
+item, it fails the slate.
+
+## 2026-08-15 — A cost estimated from an assumed input is not an estimate, it is the assumption restated
+
+The prop fetch shipped with "~150 credits a slate" and "two prop windows a day
+is ~324 against 400" written into a commit message and into `.env.example`. The
+first live sweep spent **384 of 400 in a single pass** and refused partway
+through, taking every remaining odds sweep that day — team sweeps included —
+with it.
+
+Both figures were built the same way: fixtures assumed at 15, cost assumed at 10
+credits each. The real sweep covered **27** pre-game fixtures at **20** credits
+(ten market keys × *two* regions, which the deployed config sets and the
+estimate never read). Neither input was measured, and the two errors compounded
+in the same direction.
+
+**The pattern:** an arithmetic estimate feels like a measurement because it has
+numbers in it. It is only as good as its least-checked input, and the inputs
+that go unchecked are the ones that felt too obvious to look up — a count you
+believe you know, a config value you assume matches the example file. Writing
+the result into a durable place (`.env.example`, a commit message) then converts
+a guess into documentation that the next reader has no reason to doubt.
+
+**What to do.** Any cost projection for a metered resource states its inputs and
+where each was *read from*, or it does not get written down. Where the resource
+is already metered — this repo logs every call to `api_credits` — the projection
+is provisional until one real run has been reconciled against it, and the
+reconciliation is the number that gets published. Same standing rule the
+measurement section applies to findings: the convenient number is usually the
+contaminated one.
+
 ## 2026-08-15 — A test's *invented* example can turn out to be real, and it fails on the axis it was never about
 
 Seven discovery tests used `KXMLBHIT` and `KXMLBHR` as stand-ins for a series
