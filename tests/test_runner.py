@@ -39,9 +39,11 @@ from backend.core.suppression import SuppressionConfig
 from backend.gate import live_ages
 from backend.kalshi.discovery import discover_from_events
 from backend.odds.client import OddsQuote, store_quotes
+from backend.match.linker import EXACT_ALIAS_PAIR, PROP_LINK_METHOD
 from backend.runner import (
     MONEYLINE,
     PassCounts,
+    _linked_fixtures,
     book_quotes_for_event,
     current_exposure_dollars,
     link_discovered_events,
@@ -1162,3 +1164,91 @@ class TestTheSharpSetThatActuallyAnchors:
             "runner defines SHARP_BOOKS but no longer hands it to "
             "consensus_devig; anchoring has silently become unweighted"
         )
+
+
+class TestOnlyABijectionMayBeInherited:
+    """A prop's link must trace back to team-name evidence, always.
+
+    `link_prop_event` hands a prop whatever link its fixture already has. If
+    the pool it draws from included other props, the first prop linked in a
+    slate would become the authority for every prop after it -- a chain with no
+    bijection anywhere underneath. It would be correct today by luck, and
+    self-confirming the moment one wrong prop link is written, because the
+    wrong answer would then be offered back as evidence.
+
+    So `_linked_fixtures` offers `exact_alias_pair` rows only, and this is the
+    test that says so.
+    """
+
+    def _event(self, conn, ticker, commence_ms):
+        """Series then event, because the foreign keys are enforced here."""
+        series = ticker.split("-")[0]
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_series (series_ticker, title, "
+            "league, first_seen_ms, last_seen_ms) VALUES (?, ?, ?, ?, ?)",
+            (series, series, "Pro Baseball", NOW, NOW),
+        )
+        conn.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, title, "
+            "commence_ms, first_seen_ms, last_seen_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ticker, series, "t", commence_ms, NOW, NOW),
+        )
+
+    def _seed(self, conn, *, ticker, method, odds_id, commence_ms):
+        self._event(conn, ticker, commence_ms)
+        conn.execute(
+            "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, "
+            "league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ticker, odds_id, "Pro Baseball", method, 0, NOW),
+        )
+        conn.commit()
+
+    def test_a_game_link_is_offered(self, conn):
+        self._seed(
+            conn,
+            ticker="KXMLBGAME-26AUG151310CWSDET",
+            method=EXACT_ALIAS_PAIR,
+            odds_id="odds_game",
+            commence_ms=NOW,
+        )
+        offered = _linked_fixtures(conn, since_ms=NOW - 86_400_000)
+        assert [f.odds_event_id for f in offered] == ["odds_game"]
+        assert offered[0].fixture == "26AUG151310CWSDET"
+
+    def test_a_prop_link_is_not_offered_back(self, conn):
+        """The guard. Without it a prop inherits from a prop."""
+        self._seed(
+            conn,
+            ticker="KXMLBKS-26AUG151310CWSDET",
+            method=PROP_LINK_METHOD,
+            odds_id="odds_prop",
+            commence_ms=NOW,
+        )
+        offered = _linked_fixtures(conn, since_ms=NOW - 86_400_000)
+        assert offered == [], (
+            "a prop link was offered as something another prop may inherit; "
+            "every inherited link must trace back to a team-name bijection"
+        )
+
+    def test_the_sportsbook_commence_is_recovered_not_the_kalshi_one(self, conn):
+        """`odds_commence_ms` is Kalshi's stamp plus the recorded skew.
+
+        Kalshi's `occurrence_datetime` runs three hours late. If this returned
+        Kalshi's own time, every prop's skew would be measured against the
+        wrong reference and would read as zero -- which is exactly what a
+        correct link looks like, so nothing downstream would object.
+        """
+        self._event(conn, "KXMLBGAME-26AUG151310CWSDET", NOW)
+        conn.execute(
+            "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, "
+            "league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("KXMLBGAME-26AUG151310CWSDET", "odds_game", "Pro Baseball",
+             EXACT_ALIAS_PAIR, -3 * 3_600_000, NOW),
+        )
+        conn.commit()
+
+        offered = _linked_fixtures(conn, since_ms=NOW - 86_400_000)
+        assert offered[0].odds_commence_ms == NOW - 3 * 3_600_000

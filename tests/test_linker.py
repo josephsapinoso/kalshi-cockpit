@@ -20,10 +20,15 @@ import pytest
 
 from backend.match.linker import (
     DEFAULT_COMMENCE_TOLERANCE_MS,
+    EXACT_ALIAS_PAIR,
     OBSERVED_KALSHI_COMMENCE_OFFSET_MS,
+    PROP_LINK_METHOD,
+    LinkedFixture,
     MatchCandidate,
     TeamAliases,
+    fixture_segment,
     link_event,
+    link_prop_event,
     load_aliases,
     normalise,
     record_link,
@@ -389,3 +394,128 @@ class TestKalshiOccurrenceDatetimeRunsLate:
         )
         assert not result.matched
         assert "ambiguous" in result.reason
+
+
+class TestPropEventsInheritTheirGamesLink:
+    """A prop is linked by identity, not by inference.
+
+    `link_event` matches a two-team bijection. A prop event names players, not
+    teams, so it can never pass that test -- and the failure is not "no match",
+    it is twelve hundred `unmatched_events` rows a pass describing a comparison
+    nobody asked for.
+
+    The route below adds no new way to be wrong: a prop's link is exactly the
+    one its own moneyline event already earned by name, and no more trusted
+    than that. The tests that matter here are the refusals, for the reason this
+    module's docstring gives -- a prop attached to the wrong half of a
+    doubleheader produces entirely plausible numbers.
+    """
+
+    def _fixture(self, event_id="odds_1", offset_ms=0, fixture="26AUG151310CWSDET"):
+        return LinkedFixture(
+            fixture=fixture,
+            odds_event_id=event_id,
+            odds_commence_ms=NOW + offset_ms,
+        )
+
+    def test_the_segment_is_captured_not_sliced(self):
+        """Team codes vary in length, so any character count is wrong later.
+
+        `CWSDET` is six characters and `LADAZ` is five. A slice tuned to one is
+        silently wrong on the other, and the wrongness is a *shifted* segment
+        that still looks like a fixture.
+        """
+        assert fixture_segment("KXMLBKS-26AUG151310CWSDET") == "26AUG151310CWSDET"
+        assert fixture_segment("KXMLBGAME-26AUG091610LADAZ") == "26AUG091610LADAZ"
+        assert (
+            fixture_segment("KXMLBKS-26AUG151310CWSDET")
+            == fixture_segment("KXMLBGAME-26AUG151310CWSDET")
+        ), "the prop and its game must name the same fixture"
+
+    def test_an_unreadable_ticker_refuses_rather_than_falling_back(self):
+        for ticker in ("", "KXMLBKS", "KXMLBKS-26AUG151310CWSDET-CWSAKAY18-2"):
+            assert fixture_segment(ticker) is None, ticker
+
+    def test_a_prop_inherits_the_link_its_game_earned(self):
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW,
+            linked_fixtures=[self._fixture()],
+        )
+        assert result.matched
+        assert result.odds_event_id == "odds_1"
+        assert result.method == "prop_fixture_segment"
+
+    def test_the_method_says_the_link_was_inherited(self):
+        """A prop link must never read in the record like a bijection.
+
+        `event_links.method` is the only column that can tell them apart, and
+        every downstream question about how much a link is trusted is asked of
+        it.
+        """
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW,
+            linked_fixtures=[self._fixture()],
+        )
+        assert result.method == PROP_LINK_METHOD
+        assert result.method != EXACT_ALIAS_PAIR
+
+    def test_the_skew_is_measured_against_the_book_not_copied(self):
+        """The prop's own commence, not the game's skew rebadged.
+
+        Kalshi's `occurrence_datetime` runs three hours late, and that offset
+        stays visible as recorded data rather than being subtracted away. A
+        prop stamped differently from its game is a fact worth having.
+        """
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW - 2 * HOUR,
+            linked_fixtures=[self._fixture(offset_ms=0)],
+        )
+        assert result.commence_skew_ms == 2 * HOUR
+
+    def test_no_linked_game_refuses_with_a_reason(self):
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW,
+            linked_fixtures=[self._fixture(fixture="26AUG151420STLCHC")],
+        )
+        assert not result.matched
+        assert "no linked game event" in (result.reason or "")
+
+    def test_two_games_claiming_one_fixture_refuse_rather_than_guess(self):
+        """The doubleheader shape, one level up.
+
+        `link_event` already refuses when two fixtures match a team pair. If
+        this branch guessed instead, a player's whole ladder would be priced
+        off the other game of the double -- a wrong join that produces an edge,
+        which is the failure this module exists to prevent.
+        """
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW,
+            linked_fixtures=[
+                self._fixture(event_id="odds_1"),
+                self._fixture(event_id="odds_2"),
+            ],
+        )
+        assert not result.matched
+        assert "ambiguous" in (result.reason or "")
+
+    def test_one_game_offered_twice_is_not_ambiguous(self):
+        """Duplicate rows for one fixture agree, so there is nothing to guess.
+
+        The refusal above must fire on *disagreement*, not on repetition --
+        `event_links` can legitimately carry a fixture more than once.
+        """
+        result = link_prop_event(
+            kalshi_event_ticker="KXMLBKS-26AUG151310CWSDET",
+            kalshi_commence_ms=NOW,
+            linked_fixtures=[
+                self._fixture(event_id="odds_1"),
+                self._fixture(event_id="odds_1"),
+            ],
+        )
+        assert result.matched
+        assert result.odds_event_id == "odds_1"

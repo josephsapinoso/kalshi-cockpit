@@ -33,6 +33,7 @@ from typing import Any, Iterable, Optional
 
 from ..core.prices import dollars_to_tenths, parse_quantity
 from .grid import PriceGrid, read_price_grid
+from .props import MARKET_TYPE_PROP, is_prop_series, parse_subtitle
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,15 @@ _SUFFIX_TO_MARKET_TYPE = {
     "TOTAL": "total",
     "TEAMTOTAL": "team_total",
 }
+
+# The fifth market type does NOT come from a suffix, and cannot.
+#
+# `KXMLBKS`, `KXMLBTB`, `KXMLBHIT`, `KXMLBHR` and `KXMLBRBI` share no suffix
+# with each other, let alone one that generalises: `_SERIES_RE` matches none of
+# them, and a regex that did would be pattern-matching on five hand-listed
+# strings with extra steps. Prop series are named explicitly in
+# `kalshi/props.py` and looked up by ticker. See that module for why the
+# `competition_scope` axis is not available here.
 
 # `product_metadata.competition_scope` values that mean "resolves on a single
 # fixture". This is NOT just "Game": spreads and totals are per-fixture markets
@@ -351,7 +361,10 @@ class SeriesInfo:
     series_ticker: str
     league: Optional[str]          # Kalshi's `competition`, e.g. "Pro Baseball"
     sport_key: Optional[str]       # The Odds API key, None when out of scope
-    market_type: Optional[str]     # moneyline | spread | total | team_total
+    # moneyline | spread | total | team_total | prop
+    market_type: Optional[str]
+    # "Resolves on exactly one fixture." A prop ladder qualifies -- the name
+    # predates props and describes the *fixture* axis, not the moneyline.
     is_game_level: bool
 
     @property
@@ -374,11 +387,30 @@ def classify_series(event: dict) -> SeriesInfo:
     match = _SERIES_RE.match(series_ticker)
     market_type = _SUFFIX_TO_MARKET_TYPE.get(match.group(2)) if match else None
 
+    is_prop = is_prop_series(series_ticker)
+    if is_prop:
+        market_type = MARKET_TYPE_PROP
+
     # Prefer the metadata. Fall back to the suffix only when metadata is
     # absent, and say so -- a silent fallback is how a classifier drifts from
     # the data it claims to read.
     normalised_scope = scope.lower()
-    if normalised_scope in FIXTURE_SCOPES:
+    if is_prop:
+        # **The allowlist decides, and the scope is not consulted.** A prop
+        # ladder resolves on exactly one fixture -- which is all
+        # `is_game_level` claims -- but Kalshi labels its scope with the
+        # *statistic* (`"Strikeouts"`, `"Total Bases"`), one string per series.
+        # Admitting props through `FIXTURE_SCOPES` would therefore need five
+        # captures and would, worse, re-admit every other series Kalshi ever
+        # gives the same label. See `kalshi/props.py`.
+        #
+        # No unknown-scope entry is recorded here, and that is not the silence
+        # the counter exists to prevent: that counter answers *"what is being
+        # dropped without anyone deciding?"*, and nothing on this branch is
+        # dropped. The three prop series whose scope string has never been
+        # captured are admitted by ticker exactly like the two that have.
+        is_game_level = True
+    elif normalised_scope in FIXTURE_SCOPES:
         is_game_level = True
     elif normalised_scope in EXCLUDED_SCOPES:
         # Known, and decided against -- a future, an award, or a period market.
@@ -455,7 +487,12 @@ class DiscoveredMarket:
     market_type: str
     title: str
     yes_side: Optional[str]      # the team/outcome YES pays on
-    strike: Optional[float]      # spread/total line
+    # The spread/total line -- and, on a prop, the **book's own point**.
+    # `floor_strike` on a `N+` prop is already `N - 0.5`, which is exactly what
+    # a sportsbook publishes as `point` for the same rung, so the prop join is
+    # an equality between two numbers rather than a conversion. Pinned by
+    # `tests/test_discovery.py`; see `kalshi/props.py`.
+    strike: Optional[float]
     close_ms: Optional[int]
     status: Optional[str]
     volume_24h: float
@@ -501,6 +538,18 @@ class DiscoveredMarket:
     # early inside a still-open event is a shape this project has not disproved.
     # `market_results.py` is what actually fills the column.
     result: Optional[str] = None
+
+    # The player a prop resolves on, parsed from `yes_sub_title`
+    # (`"Anthony Kay: 2+"`). `None` on every non-prop market, and `None` on a
+    # prop whose subtitle could not be read -- never a guess pulled out of
+    # `title`, because an unparsed field substituted for is how a missing value
+    # becomes a confident wrong answer.
+    #
+    # Stored raw, as Kalshi spells it. `props.norm()` is applied at match time
+    # by the caller that needs it, so the record keeps what was published and
+    # the normalisation stays one function rather than a column nobody can
+    # un-normalise.
+    player_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -611,6 +660,14 @@ def build_market(
     rather than being required.
     """
     strike = market.get("floor_strike")
+    # Only parsed for prop series. Running it on every market would let a
+    # team-market title that happened to contain a colon and a `N+` mint a
+    # player out of nothing.
+    parsed_player = (
+        parse_subtitle(market.get("yes_sub_title"))
+        if market_type == MARKET_TYPE_PROP
+        else None
+    )
     return DiscoveredMarket(
         ticker=market.get("ticker") or "",
         event_ticker=event_ticker or (market.get("event_ticker") or ""),
@@ -634,6 +691,7 @@ def build_market(
         yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
         no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
         price_grid=read_price_grid(market),
+        player_name=parsed_player[0] if parsed_player else None,
     )
 
 

@@ -102,13 +102,29 @@ CREATE TABLE IF NOT EXISTS kalshi_markets (
     -- the alias table can resolve it. Matching is deterministic and refuses to
     -- guess, so an unresolved side blocks the link rather than fuzzy-matching.
     yes_side_team       TEXT,
-    -- moneyline | spread | total | team_total. Nothing writes `future` or
-    -- `prop`, which this comment used to list: the only producer is
-    -- `discovery._SUFFIX_TO_MARKET_TYPE`, whose whole domain is those four, and
-    -- non-fixture series are excluded upstream rather than labelled here.
-    -- `team_total` was missing from the list and is written.
+    -- moneyline | spread | total | team_total | prop. Nothing writes `future`,
+    -- and non-fixture series are excluded upstream rather than labelled here.
+    --
+    -- This comment used to say nothing writes `prop` either, and that was true
+    -- while `discovery._SUFFIX_TO_MARKET_TYPE` was the only producer -- its
+    -- whole domain is the first four. There is now a second producer:
+    -- `kalshi/props.PROP_SERIES`, an explicit five-series allowlist looked up
+    -- by ticker rather than by suffix, because the five prop series share no
+    -- suffix and Kalshi scopes them by the statistic instead of the fixture.
     market_type         TEXT,
-    strike              REAL,       -- spread/total line where applicable
+    -- The spread/total line where applicable -- and, on a prop, Kalshi's
+    -- `floor_strike`, which for an `N+` market is `N - 0.5`. That is exactly
+    -- the `point` a sportsbook publishes for the same rung, so this column is
+    -- what joins a prop to `odds_snapshots.outcome_point`, by equality and not
+    -- by conversion. 259 of 259 on the captured prop fixture.
+    strike              REAL,
+    -- The player a prop resolves on, parsed from `yes_sub_title`
+    -- ("Anthony Kay: 2+") and stored as Kalshi spells it. NULL on every team
+    -- market, and NULL on a prop whose subtitle could not be read -- never a
+    -- value invented from the title. Normalisation for matching lives in
+    -- `kalshi/props.norm()`, deliberately not in this column, so the record
+    -- keeps what was published.
+    player_name         TEXT,
     -- Kalshi's own `price_level_structure`, stored verbatim. Three values have
     -- been observed, all of them on game markets:
     --

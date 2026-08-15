@@ -76,10 +76,15 @@ from .engine import (
     persist_if_changed,
 )
 from .kalshi.discovery import DiscoveredEvent, discover_from_events
+from .kalshi.props import MARKET_TYPE_PROP
 from .match.linker import (
+    EXACT_ALIAS_PAIR,
+    LinkedFixture,
     MatchCandidate,
     TeamAliases,
+    fixture_segment,
     link_event,
+    link_prop_event,
     load_aliases,
     record_link,
     record_unmatched,
@@ -410,6 +415,50 @@ def _match_candidates(conn, sport_key: str, *, since_ms: int) -> list[MatchCandi
     ]
 
 
+def _linked_fixtures(conn, *, since_ms: int) -> list[LinkedFixture]:
+    """Links a prop event may inherit: one per already-matched game event.
+
+    Read from `event_links` rather than from this pass's results, so a prop
+    still resolves on a pass where its game event was linked earlier and had
+    nothing new to say. The link is `INSERT OR IGNORE`d, so re-reading it costs
+    nothing and misses nothing.
+
+    **Only `exact_alias_pair` rows are offered.** A prop inheriting from another
+    prop would be a link with no team-name evidence anywhere underneath it --
+    correct today by luck, and self-confirming the moment a wrong prop link is
+    written. Every inherited link must trace back to one that passed the
+    bijection.
+
+    `commence_skew_ms` is `odds - kalshi` at the moment the game was linked, so
+    adding it back to the game's own commence recovers the sportsbook's start
+    time without re-reading `odds_snapshots`.
+    """
+    rows = conn.execute(
+        "SELECT el.kalshi_event_ticker AS ticker, el.odds_event_id AS odds_id, "
+        "ke.commence_ms + el.commence_skew_ms AS odds_commence_ms "
+        "FROM event_links el "
+        "JOIN kalshi_events ke ON ke.event_ticker = el.kalshi_event_ticker "
+        "WHERE el.method = ? AND ke.commence_ms >= ?",
+        (EXACT_ALIAS_PAIR, since_ms),
+    ).fetchall()
+
+    fixtures: list[LinkedFixture] = []
+    for row in rows:
+        fixture = fixture_segment(row["ticker"])
+        if fixture is None or row["odds_commence_ms"] is None:
+            # Unreadable resolves to nothing, never to a default. A link whose
+            # ticker or commence cannot be read is one a prop must not inherit.
+            continue
+        fixtures.append(
+            LinkedFixture(
+                fixture=fixture,
+                odds_event_id=row["odds_id"],
+                odds_commence_ms=int(row["odds_commence_ms"]),
+            )
+        )
+    return fixtures
+
+
 def link_discovered_events(
     conn,
     events: Sequence[DiscoveredEvent],
@@ -427,7 +476,15 @@ def link_discovered_events(
     cache = alias_cache if alias_cache is not None else {}
     linked: dict[str, tuple[int, Optional[int]]] = {}
 
-    for event in events:
+    # **Games first, then props, and the order is load-bearing.** A prop event
+    # inherits the link its own game earned, so a single-pass loop would resolve
+    # a prop against whatever happened to be linked before it in the list and
+    # silently refuse the rest. Sorting by market type makes the dependency a
+    # property of the code rather than of the order Kalshi returned events in.
+    games = [e for e in events if e.market_type != MARKET_TYPE_PROP]
+    props = [e for e in events if e.market_type == MARKET_TYPE_PROP]
+
+    for event in games:
         if event.sport_key not in cache:
             cache[event.sport_key] = load_aliases(event.sport_key)
         aliases = cache[event.sport_key]
@@ -456,6 +513,31 @@ def link_discovered_events(
                 detail=" vs ".join(event.teams) or event.title,
                 reason=result.reason or "no_counterpart",
             )
+
+    if props:
+        fixtures = _linked_fixtures(conn, since_ms=now - 86_400_000)
+        for event in props:
+            result = link_prop_event(
+                kalshi_event_ticker=event.event_ticker,
+                kalshi_commence_ms=event.commence_ms,
+                linked_fixtures=fixtures,
+            )
+            if result.matched:
+                link_id = record_link(conn, result, event.league, now)
+                linked[event.event_ticker] = (link_id, result.commence_skew_ms)
+            else:
+                record_unmatched(
+                    conn,
+                    observed_ms=now,
+                    side="kalshi",
+                    identifier=event.event_ticker,
+                    league=event.league,
+                    # The event's title, not `teams` -- a prop's sides are
+                    # player-rung strings, and " vs "-joining twelve of them
+                    # produces a line nobody can read and no alias can fix.
+                    detail=event.title,
+                    reason=result.reason or "no_counterpart",
+                )
 
     return linked
 
@@ -1230,10 +1312,10 @@ def upsert_discovered(conn, events: Sequence[DiscoveredEvent], *, now: int) -> N
                 # is the hardest possible version of that bug to notice.
                 # An outcome is written once and never unwritten from this path.
                 "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
-                "title, yes_side_team, market_type, strike, price_structure, "
-                "close_ms, status, result, volume_24h, open_interest, "
-                "first_seen_ms, last_seen_ms) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "title, yes_side_team, market_type, strike, player_name, "
+                "price_structure, close_ms, status, result, volume_24h, "
+                "open_interest, first_seen_ms, last_seen_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(ticker) DO UPDATE SET "
                 "last_seen_ms = excluded.last_seen_ms, status = excluded.status, "
                 "result = COALESCE(excluded.result, kalshi_markets.result), "
@@ -1242,7 +1324,8 @@ def upsert_discovered(conn, events: Sequence[DiscoveredEvent], *, now: int) -> N
                 (
                     market.ticker, market.event_ticker, market.series_ticker,
                     market.title, market.yes_side, market.market_type,
-                    market.strike, market.price_structure, market.close_ms,
+                    market.strike, market.player_name,
+                    market.price_structure, market.close_ms,
                     market.status, market.result, market.volume_24h,
                     market.open_interest, now, now,
                 ),

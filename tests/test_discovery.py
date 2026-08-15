@@ -23,11 +23,20 @@ from backend.kalshi.discovery import (
     NON_FIXTURE_SCOPES,
     OUT_OF_SCOPE_LEAGUES,
     PERIOD_SCOPES,
+    build_markets,
     classify_series,
     coverage_by_league,
     discover_from_events,
     event_commence_ms,
     parse_ms,
+)
+from backend.kalshi.props import (
+    MARKET_TYPE_PROP,
+    PROP_SCOPES,
+    PROP_SERIES,
+    base_market,
+    norm,
+    parse_subtitle,
 )
 
 
@@ -52,6 +61,33 @@ def preseason_capture():
 @pytest.fixture(scope="module")
 def preseason_events(preseason_capture):
     return preseason_capture["events"]
+
+
+@pytest.fixture(scope="module")
+def prop_capture():
+    """`GET /events?series_ticker=KXMLBKS` and `KXMLBTB`, captured 2026-08-15.
+
+    A third capture, for the third reason the other two exist: the 2026-08-06
+    universe walk contains **no prop ladder at all**, so every classifier
+    decision about the five prop series was being made against a payload nobody
+    had read. See `scripts/capture_prop_fixture.py`, whose docstring names the
+    three fields this fixture was captured to answer.
+
+    Each stored event is verbatim; the event *lists* are truncated to four per
+    series. `answers` in the document counts what is stored -- assert against
+    that, never against `observed_full_response`.
+    """
+    return load_fixture("events_mlb_props_nested.json")
+
+
+@pytest.fixture(scope="module")
+def prop_events(prop_capture):
+    """Every stored prop event, both series, flattened."""
+    return [
+        event
+        for events in prop_capture["events_by_series"].values()
+        for event in events
+    ]
 
 
 def _leagues_in(events):
@@ -141,23 +177,34 @@ class TestMetadataDrift:
     An exclusion must be a decision, never an accident.
     """
 
-    def test_every_scope_in_the_fixture_is_explicitly_classified(self, events):
+    def test_every_scope_in_the_fixture_is_explicitly_classified(
+        self, events, prop_events
+    ):
+        """Runs over the prop capture too, for the reason the league twin does.
+
+        `PROP_SCOPES` is a fourth bucket beside the three below, and it is the
+        only one nothing branches on -- props are admitted by series ticker, so
+        an unclassified prop scope drops nothing. It is listed here anyway so
+        that "every scope in every capture has been looked at" stays true of
+        the whole fixture directory rather than of one file in it.
+        """
         scopes = {
             ((e.get("product_metadata") or {}).get("competition_scope") or "").lower()
-            for e in events
+            for e in [*events, *prop_events]
         }
-        known = FIXTURE_SCOPES | EXCLUDED_SCOPES | {""}
+        known = FIXTURE_SCOPES | EXCLUDED_SCOPES | PROP_SCOPES | {""}
         unknown = scopes - known
         assert not unknown, (
             f"unclassified competition_scope value(s): {sorted(unknown)}. "
             f"Add each to FIXTURE_SCOPES (per-fixture, priceable), "
-            f"NON_FIXTURE_SCOPES (futures/awards) or PERIOD_SCOPES "
-            f"(per-fixture but sub-game). Leaving one unclassified silently "
+            f"NON_FIXTURE_SCOPES (futures/awards), PERIOD_SCOPES "
+            f"(per-fixture but sub-game) or PROP_SCOPES (a player ladder, "
+            f"admitted by series ticker). Leaving one unclassified silently "
             f"drops those markets."
         )
 
     def test_every_league_in_the_captures_is_explicitly_classified(
-        self, events, preseason_events
+        self, events, preseason_events, prop_events
     ):
         """The scope test's twin, on the axis that had no test at all.
 
@@ -173,7 +220,11 @@ class TestMetadataDrift:
         fixture-based test protects against the API changing, not against
         misreading it on day one.
         """
-        leagues = _leagues_in(events) | _leagues_in(preseason_events)
+        leagues = (
+            _leagues_in(events)
+            | _leagues_in(preseason_events)
+            | _leagues_in(prop_events)
+        )
         unknown = leagues - CLASSIFIED_LEAGUES
         assert not unknown, (
             f"unclassified competition value(s): {sorted(unknown)}. Add each to "
@@ -609,7 +660,7 @@ class TestUnclassifiedLeaguesAreAnnouncedOncePerProcess:
             # Unclassified league, recognised scope.
             *self._events("KXKORFGAME", "Korea K League 1", 2),
             # Classified league, unrecognised scope.
-            *self._events("KXMLBHIT", "Pro Baseball", 2, scope="Hits"),
+            *self._events("KXMLBDOUBLES", "Pro Baseball", 2, scope="Doubles"),
         ]
         with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
             discover_from_events(events)
@@ -622,8 +673,8 @@ class TestUnclassifiedLeaguesAreAnnouncedOncePerProcess:
         assert len(scopes) == 1, scopes
         assert "'Korea K League 1'" in leagues[0]
         assert "'Korea K League 1'" not in scopes[0]
-        assert "'Hits'" in scopes[0]
-        assert "'Hits'" not in leagues[0]
+        assert "'Doubles'" in scopes[0]
+        assert "'Doubles'" not in leagues[0]
 
         summary = [
             r.getMessage() for r in caplog.records if "discovery:" in r.getMessage()
@@ -960,6 +1011,20 @@ class TestUnknownScopeWarningsAreDeduplicated:
         warning only names scopes in leagues this project can devig against; a
         test that used "House" would assert against the counted-not-named branch
         without meaning to.
+
+        **The series tickers here must be ones this project does not classify,
+        and that is a live constraint rather than a stylistic one.** These tests
+        originally used `KXMLBHIT` and `KXMLBHR` as invented examples of an
+        unrecognised scope. Both turned out to be real Kalshi prop ladders, and
+        the moment `kalshi/props.PROP_SERIES` admitted them the warning stopped
+        firing and seven tests in this class went red — correctly, but for a
+        reason none of them was about. `KXMLBDOUBLES` and `KXMLBTRIPLES` are
+        stand-ins for the same shape.
+
+        No guard is added for this. If a future session prices one of these,
+        these tests fail loudly with zero warnings rather than passing on a
+        weakened assertion, which is the behaviour we would want a guard to
+        produce anyway.
         """
         return [
             {
@@ -977,13 +1042,13 @@ class TestUnknownScopeWarningsAreDeduplicated:
         ]
 
     def test_one_series_warns_once_not_once_per_event(self, caplog):
-        events = self._events("KXMLBHIT", "Hits", 12)
+        events = self._events("KXMLBDOUBLES", "Doubles", 12)
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
 
         warnings = [r for r in caplog.records if "unrecognised" in r.getMessage()]
         assert len(warnings) == 1, f"{len(warnings)} warnings for one series"
-        assert "KXMLBHIT" in warnings[0].getMessage()
+        assert "KXMLBDOUBLES" in warnings[0].getMessage()
 
     def test_distinct_scopes_are_all_named_in_one_line(self, caplog):
         """Deduplication must not swallow a genuinely new scope.
@@ -994,8 +1059,8 @@ class TestUnknownScopeWarningsAreDeduplicated:
         does not grow.
         """
         events = [
-            *self._events("KXMLBHIT", "Hits", 5),
-            *self._events("KXMLBHR", "Home Runs", 5),
+            *self._events("KXMLBDOUBLES", "Doubles", 5),
+            *self._events("KXMLBTRIPLES", "Triples", 5),
         ]
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
@@ -1004,10 +1069,10 @@ class TestUnknownScopeWarningsAreDeduplicated:
             r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
         ]
         assert len(messages) == 1, messages
-        assert "KXMLBHIT" in messages[0]
-        assert "KXMLBHR" in messages[0]
-        assert "'Hits'" in messages[0]
-        assert "'Home Runs'" in messages[0]
+        assert "KXMLBDOUBLES" in messages[0]
+        assert "KXMLBTRIPLES" in messages[0]
+        assert "'Doubles'" in messages[0]
+        assert "'Triples'" in messages[0]
 
     def test_the_line_count_does_not_grow_with_the_population(self, caplog):
         """The property the old tests could not see, because they used n=2.
@@ -1041,7 +1106,7 @@ class TestUnknownScopeWarningsAreDeduplicated:
         make it unreadable again at one line instead of 962.
         """
         events = [
-            *self._events("KXMLBHIT", "Hits", 2, league="Pro Baseball"),
+            *self._events("KXMLBDOUBLES", "Doubles", 2, league="Pro Baseball"),
             *self._events("KXHOUSE", "Election", 2, league="House"),
         ]
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
@@ -1050,8 +1115,8 @@ class TestUnknownScopeWarningsAreDeduplicated:
         message = [
             r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
         ][0]
-        assert "'Hits'" in message
-        assert "KXMLBHIT" in message
+        assert "'Doubles'" in message
+        assert "KXMLBDOUBLES" in message
         assert "Election" not in message, "an out-of-scope scope was named"
         assert "KXHOUSE" not in message
         assert "1 further scopes" in message, message
@@ -1063,7 +1128,7 @@ class TestUnknownScopeWarningsAreDeduplicated:
         guarantee is per *pair*, not per process-start: a pair nobody has named
         gets named on whichever pass first sees it.
         """
-        first = self._events("KXMLBHIT", "Hits", 3)
+        first = self._events("KXMLBDOUBLES", "Doubles", 3)
         later = [*first, *self._events("KXMLBSB", "Stolen Bases", 3)]
 
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
@@ -1074,11 +1139,11 @@ class TestUnknownScopeWarningsAreDeduplicated:
             r.getMessage() for r in caplog.records if "unrecognised" in r.getMessage()
         ]
         assert len(messages) == 2, messages
-        assert "KXMLBHIT" in messages[0] and "KXMLBSB" not in messages[0]
+        assert "KXMLBDOUBLES" in messages[0] and "KXMLBSB" not in messages[0]
         # The second line carries only what is new. Re-naming the first pair
         # would rebuild the per-pass repeat one aggregation level up.
         assert "KXMLBSB" in messages[1]
-        assert "KXMLBHIT" not in messages[1], messages[1]
+        assert "KXMLBDOUBLES" not in messages[1], messages[1]
 
     def test_a_repeated_scope_is_named_once_for_the_life_of_the_process(
         self, caplog
@@ -1091,7 +1156,7 @@ class TestUnknownScopeWarningsAreDeduplicated:
         lines (`[migrate] ...` and `API starting: ...`) so thoroughly that
         neither could be read from production at all.
         """
-        events = self._events("KXMLBHIT", "Hits", 5)
+        events = self._events("KXMLBDOUBLES", "Doubles", 5)
         with caplog.at_level(logging.WARNING, logger="backend.kalshi.discovery"):
             discover_from_events(events)
             first = len([r for r in caplog.records if "unrecognised" in r.getMessage()])
@@ -1110,7 +1175,7 @@ class TestUnknownScopeWarningsAreDeduplicated:
         being printed, dropping the repeat warnings would genuinely have hidden
         the problem rather than merely quietened it.
         """
-        events = self._events("KXMLBHIT", "Hits", 5)
+        events = self._events("KXMLBDOUBLES", "Doubles", 5)
         with caplog.at_level(logging.INFO, logger="backend.kalshi.discovery"):
             discover_from_events(events)
             discover_from_events(events)
@@ -1372,3 +1437,225 @@ class TestTheSummaryIsQuietOnTheQuoteCadence:
             discover_from_events(events)
 
         assert len(self._summaries(caplog)) == 2
+
+
+class TestPropSeries:
+    """The five prop ladders, against the payload they were captured from.
+
+    Discovery admitted nothing but game-level team markets until 2026-08-15.
+    Props reach it by a different route -- an explicit series allowlist rather
+    than a ticker suffix -- and the tests below pin the three things that route
+    depends on, all of which were unknown before the capture:
+
+    - the league string is one `IN_SCOPE_LEAGUES` already maps,
+    - the scope string is **not** one the existing gate would have admitted,
+      which is the whole reason the allowlist exists,
+    - and `floor_strike` is the sportsbook's `point`, which is what makes the
+      prop join an equality rather than a conversion.
+
+    `tasks/NEXT.md` records that none of this surfaces a bet: at the deployed
+    fee coefficient the prop probe found zero clearing rows against a real
+    consensus. These tests assert that props are *recorded*, not that they pay.
+    """
+
+    def _prop_markets(self, prop_events):
+        markets = []
+        for event in prop_events:
+            markets.extend(build_markets(event, MARKET_TYPE_PROP))
+        return markets
+
+    def test_a_prop_event_is_classified_as_a_priceable_prop(self, prop_events):
+        for event in prop_events:
+            info = classify_series(event)
+            assert info.market_type == MARKET_TYPE_PROP, event["event_ticker"]
+            assert info.is_game_level, event["event_ticker"]
+            assert info.sport_key == "baseball_mlb", event["event_ticker"]
+            assert info.in_scope, event["event_ticker"]
+
+    def test_the_scope_axis_could_not_have_admitted_these(self, prop_events):
+        """The reason `PROP_SERIES` keys on the ticker instead of the scope.
+
+        If Kalshi had scoped a prop ladder "Game", the existing gate would
+        already have let it through and the allowlist would be redundant. It
+        does not: it scopes by the *statistic*, one string per series. This
+        test is what stops that justification from quietly becoming false.
+        """
+        scopes = {
+            ((e.get("product_metadata") or {}).get("competition_scope") or "").lower()
+            for e in prop_events
+        }
+        assert scopes, "the fixture carries no scope at all"
+        assert not (scopes & FIXTURE_SCOPES), (
+            f"{sorted(scopes & FIXTURE_SCOPES)} would have been admitted by "
+            f"FIXTURE_SCOPES, so the prop allowlist is no longer load-bearing "
+            f"for them -- re-read kalshi/props.py before keeping both."
+        )
+        assert not (scopes & EXCLUDED_SCOPES), (
+            f"{sorted(scopes & EXCLUDED_SCOPES)} is both admitted by "
+            f"PROP_SERIES and excluded by name. One of the two is wrong."
+        )
+
+    def test_prop_scopes_records_only_what_was_captured(self, prop_events):
+        """`PROP_SCOPES` must be read, never guessed.
+
+        Three of the five prop series have no captured payload, and inventing
+        their scope spelling is exactly what dropped WNBA and NCAAF from the
+        universe once already. So the set holds the two values that were
+        actually observed, and this asserts it holds *those* -- not a superset
+        somebody extended from memory.
+        """
+        observed = {
+            ((e.get("product_metadata") or {}).get("competition_scope") or "").lower()
+            for e in prop_events
+        }
+        assert PROP_SCOPES == observed, (
+            f"PROP_SCOPES is {sorted(PROP_SCOPES)}, the capture says "
+            f"{sorted(observed)}. Every entry must come from a payload."
+        )
+
+    def test_every_prop_market_names_a_player(self, prop_events):
+        markets = self._prop_markets(prop_events)
+        assert markets, "the fixture carries no prop markets"
+        unnamed = [m.ticker for m in markets if not m.player_name]
+        assert not unnamed, (
+            f"{len(unnamed)} of {len(markets)} prop markets parsed to no "
+            f"player: {unnamed[:5]}"
+        )
+
+    def test_the_floor_strike_is_the_books_point(self, prop_events):
+        """The identity the whole prop join rests on, pinned on real data.
+
+        Kalshi's `N+` is the books' `Over N-0.5`, and Kalshi publishes that
+        `N-0.5` itself as `floor_strike`. So the join is
+        `kalshi_markets.strike == odds_snapshots.outcome_point`, with no
+        arithmetic on either side.
+
+        If Kalshi ever changes what `floor_strike` means on a prop, this goes
+        red. Without it, every prop comparison silently shifts by one rung --
+        which would not look like a bug, it would look like an edge.
+        """
+        markets = self._prop_markets(prop_events)
+        checked = 0
+        for market in markets:
+            parsed = parse_subtitle(market.yes_side)
+            assert parsed is not None, market.ticker
+            _, threshold = parsed
+            assert market.strike is not None, market.ticker
+            assert market.strike == threshold - 0.5, (
+                f"{market.ticker}: floor_strike {market.strike} is not "
+                f"{threshold} - 0.5. The prop join is off by a rung."
+            )
+            checked += 1
+        assert checked == len(markets)
+
+    def test_a_team_market_never_grows_a_player(self, events):
+        """No captured team market parses as a prop. The floor, not the guard.
+
+        Asserted over the real universe walk so that a Kalshi change to team
+        subtitles shows up here. It cannot fail today by construction --
+        `test_only_a_prop_series_is_parsed_for_a_player` below is the test that
+        can, and the two are separate because they check different things: this
+        one that the data is as believed, that one that the code would hold if
+        it stopped being.
+        """
+        for event in events:
+            info = classify_series(event)
+            if info.market_type in (None, MARKET_TYPE_PROP):
+                continue
+            for market in build_markets(event, info.market_type):
+                assert market.player_name is None, market.ticker
+
+    def test_only_a_prop_series_is_parsed_for_a_player(self):
+        """The reason `build_market` gates the parse on `market_type`.
+
+        No team market on today's exchange carries a prop-shaped subtitle, so
+        removing the gate breaks nothing *now* -- which is exactly the
+        condition under which a guard rots into decoration. The shape is not
+        far-fetched either: `KXWNBATOTAL` spells its sides
+        `"Over 180.5 points scored"`, and a team total spelled
+        `"Houston: 5+"` would read as a player called Houston with no warning
+        anywhere.
+
+        So this uses constructed input, deliberately. It is not a claim about
+        the wire format -- the test above makes that one -- it is a claim about
+        what the code does when the wire format changes.
+        """
+        prop_shaped = {
+            "ticker": "KXWNBATEAMTOTAL-26AUG09HOU-5",
+            "yes_sub_title": "Houston: 5+",
+            "floor_strike": 4.5,
+        }
+        assert build_markets(
+            {"event_ticker": "e", "series_ticker": "KXWNBATEAMTOTAL",
+             "markets": [prop_shaped]},
+            "team_total",
+        )[0].player_name is None, (
+            "a team market minted a player from a prop-shaped subtitle"
+        )
+        # The same bytes on a prop series do name a player -- so the assertion
+        # above is about the gate, not about the parser failing everywhere.
+        assert build_markets(
+            {"event_ticker": "e", "series_ticker": "KXMLBKS",
+             "markets": [prop_shaped]},
+            MARKET_TYPE_PROP,
+        )[0].player_name == "Houston"
+
+    def test_an_unreadable_subtitle_resolves_to_none_not_a_guess(self):
+        for subtitle in (
+            "",
+            None,
+            "Houston",
+            "Clay Holmes",
+            "Clay Holmes: 6",
+            "Clay Holmes: +",
+            "6+",
+        ):
+            assert parse_subtitle(subtitle) is None, subtitle
+
+    def test_a_readable_subtitle_yields_the_player_and_the_rung(self):
+        assert parse_subtitle("Clay Holmes: 6+") == ("Clay Holmes", 6)
+        assert parse_subtitle("J.T. Realmuto: 2+") == ("J.T. Realmuto", 2)
+        # Kalshi pads inconsistently across series; both spellings are one rung.
+        assert parse_subtitle("Clay Holmes:6+") == ("Clay Holmes", 6)
+
+    def test_prop_events_survive_the_whole_discovery_pass(self, prop_events):
+        discovered = discover_from_events(prop_events)
+        assert len(discovered) == len(prop_events), (
+            f"{len(prop_events) - len(discovered)} prop events were rejected "
+            f"by discovery"
+        )
+        assert {e.market_type for e in discovered} == {MARKET_TYPE_PROP}
+        assert all(e.markets for e in discovered)
+
+    def test_every_prop_series_in_the_fixture_is_in_the_allowlist(
+        self, prop_capture
+    ):
+        assert set(prop_capture["series"]) <= set(PROP_SERIES)
+
+    def test_player_names_do_not_collide_within_one_slate(self, prop_events):
+        """The claim that lets props key on (player, point) instead of on team.
+
+        A collision is not fatal -- the matcher reports it rather than
+        resolving it -- but the claim that team mapping is unnecessary rests on
+        collisions being rare, so it is asserted rather than assumed.
+        """
+        seen: dict[tuple, str] = {}
+        collisions = []
+        for event in prop_events:
+            series = event["series_ticker"]
+            for market in build_markets(event, MARKET_TYPE_PROP):
+                key = (norm(market.player_name or ""), market.strike, series)
+                if key in seen and seen[key] != event["event_ticker"]:
+                    collisions.append((key, seen[key], event["event_ticker"]))
+                seen[key] = event["event_ticker"]
+        assert not collisions, f"player collisions across games: {collisions[:5]}"
+
+    def test_norm_survives_the_punctuation_the_two_sources_disagree_on(self):
+        assert norm("J.T. Realmuto") == norm("JT Realmuto")
+        assert norm("  Anthony Kay ") == norm("anthony kay")
+        # It must NOT collapse two different players.
+        assert norm("Clay Holmes") != norm("Clay Holme")
+
+    def test_base_market_folds_the_alternate_feed_onto_the_primary(self):
+        assert base_market("pitcher_strikeouts_alternate") == "pitcher_strikeouts"
+        assert base_market("pitcher_strikeouts") == "pitcher_strikeouts"

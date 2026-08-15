@@ -82,6 +82,42 @@ OBSERVED_KALSHI_COMMENCE_OFFSET_MS = 3 * 3600 * 1000
 _PUNCT = re.compile(r"[^a-z0-9 ]+")
 _WS = re.compile(r"\s+")
 
+# The fixture a Kalshi event ticker names, e.g. `26AUG151310CWSDET`.
+#
+# `KXMLBGAME-26AUG151310CWSDET` and `KXMLBKS-26AUG151310CWSDET` are the
+# moneyline and the strikeout ladder for **one game**, and the segment after the
+# series is byte-identical between them. That is what lets a prop event inherit
+# a link the game event already earned, instead of being matched from scratch
+# against team names it does not carry.
+#
+# Anchored at both ends, and it captures rather than slices. `joint_bound.py`
+# records why a fixed character count is the wrong tool here: segment lengths
+# vary with the team codes (`CWSDET` is six, `LADAZ` is five), so anything
+# counting characters is right until the first three-letter matchup.
+_FIXTURE_SEGMENT = re.compile(r"^[A-Z0-9]+-(?P<fixture>[0-9]{2}[A-Z]{3}[0-9]+[A-Z]+)$")
+
+# `event_links.method` for a link inherited this way, so a prop link is never
+# mistaken in the record for one that passed the team-pair bijection.
+PROP_LINK_METHOD = "prop_fixture_segment"
+
+# `event_links.method` for a link that did pass it. Named rather than repeated
+# as a literal, because a prop is only allowed to inherit from this kind and a
+# reader comparing two spellings of one string cannot tell that rule is holding.
+EXACT_ALIAS_PAIR = "exact_alias_pair"
+
+
+def fixture_segment(event_ticker: str) -> Optional[str]:
+    """`KXMLBKS-26AUG151310CWSDET` -> `26AUG151310CWSDET`, else `None`.
+
+    `None` on anything that does not have exactly the two-part shape. A ticker
+    this cannot read must block the link rather than fall back to the whole
+    string, which would compare a prop against a game only when both were
+    equally unreadable -- a join that succeeds precisely when it is least
+    justified.
+    """
+    matched = _FIXTURE_SEGMENT.match(event_ticker or "")
+    return matched.group("fixture") if matched else None
+
 # Dropped when comparing, because one source includes them and the other does
 # not. "FC" and "SC" matter for soccer; the rest are US-league noise.
 _NOISE_TOKENS = frozenset({"fc", "sc", "afc", "cf", "the"})
@@ -289,7 +325,94 @@ def link_event(
         kalshi_event_ticker=kalshi_event_ticker,
         odds_event_id=winner.odds_event_id,
         commence_skew_ms=winner.commence_ms - kalshi_commence_ms,
-        method="exact_alias_pair",
+        method=EXACT_ALIAS_PAIR,
+    )
+
+
+@dataclass(frozen=True)
+class LinkedFixture:
+    """A link some other Kalshi event already earned, offered to a prop.
+
+    `odds_commence_ms` is the **sportsbook's** start time, not Kalshi's. It is
+    carried so a prop's own skew can be measured against the same reference the
+    game's was, rather than the prop inheriting a number computed for a
+    different event.
+    """
+
+    fixture: str
+    odds_event_id: str
+    odds_commence_ms: int
+
+
+def link_prop_event(
+    *,
+    kalshi_event_ticker: str,
+    kalshi_commence_ms: int,
+    linked_fixtures: Iterable[LinkedFixture],
+) -> MatchResult:
+    """Resolve a prop event by inheriting its own game's link.
+
+    **Why props cannot go through `link_event`.** That function matches on a
+    two-team bijection built from `yes_sub_title`. A prop event's subtitles are
+    `"Anthony Kay: 2+"`, `"Anthony Kay: 3+"`, and so on -- twelve player-rung
+    strings, not two team names. Every prop event would fail with
+    `"expected 2 sides, got 12"` and land in `unmatched_events`, roughly twelve
+    hundred rows a pricing pass, describing a failure that was never a failure.
+
+    So a prop is linked by **identity, not by inference**: its ticker names the
+    same fixture segment as the moneyline event for the same game, and that
+    event has already been matched against the sportsbook by name. Inheriting
+    that answer adds no new way to be wrong -- the prop link is exactly as
+    correct as the game link it comes from, and no more.
+
+    Refuses, rather than guesses, in three cases: an unreadable ticker, no
+    linked game for the fixture, and two linked games claiming one fixture
+    segment. The last is the doubleheader shape `link_event` already refuses on,
+    and it must refuse here for the same reason -- attaching a player's ladder
+    to the wrong half of a doubleheader produces entirely plausible numbers.
+    """
+    fixture = fixture_segment(kalshi_event_ticker)
+    if fixture is None:
+        return MatchResult(
+            kalshi_event_ticker, None, None, "none",
+            reason=(
+                f"ticker {kalshi_event_ticker!r} does not name a fixture "
+                f"segment, so there is no game event to inherit a link from"
+            ),
+        )
+
+    matches = [f for f in linked_fixtures if f.fixture == fixture]
+    if not matches:
+        return MatchResult(
+            kalshi_event_ticker, None, None, "none",
+            reason=(
+                f"no linked game event for fixture {fixture}. A prop inherits "
+                f"its game's link; until the moneyline event is matched there "
+                f"is nothing to inherit."
+            ),
+        )
+
+    distinct = {f.odds_event_id for f in matches}
+    if len(distinct) > 1:
+        return MatchResult(
+            kalshi_event_ticker, None, None, "none",
+            reason=(
+                f"ambiguous: fixture {fixture} is linked to {len(distinct)} "
+                f"different sportsbook events ({sorted(distinct)}). Refusing "
+                f"rather than guessing which game this player's ladder is on."
+            ),
+        )
+
+    winner = matches[0]
+    return MatchResult(
+        kalshi_event_ticker=kalshi_event_ticker,
+        odds_event_id=winner.odds_event_id,
+        # Measured against the sportsbook's start time, exactly as
+        # `link_event` does -- not copied from the game's row. The prop event
+        # carries its own `occurrence_datetime`, and a prop stamped differently
+        # from its game is a fact worth recording rather than hiding.
+        commence_skew_ms=winner.odds_commence_ms - kalshi_commence_ms,
+        method=PROP_LINK_METHOD,
     )
 
 

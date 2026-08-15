@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -328,6 +328,25 @@ _MIGRATIONS: dict[int, _Migration] = {
             # Dropping the columns takes everything this step wrote. Stated
             # rather than left blank so a future reader does not think it was
             # forgotten.
+        ),
+    ),
+    # v8 -- the Kalshi side of the same prop. v7 gave the *books'* player a home
+    # (`outcome_description`); this gives Kalshi's.
+    #
+    # **One column, not two.** The obvious second is the threshold, and it is
+    # not needed: Kalshi publishes `floor_strike` on a `N+` prop as `N - 0.5`,
+    # which is exactly the `point` a sportsbook quotes for the same rung, and
+    # `kalshi_markets.strike` already stores it. Measured 259 of 259 on
+    # `tests/fixtures/events_mlb_props_nested.json`. A `threshold` column would
+    # be a second representation of one number, derived by arithmetic, and the
+    # two would be free to disagree.
+    #
+    # Nullable and not backfilled, for v7's reason: every existing row is a team
+    # market and the honest value there is "this row has no player".
+    8: _Migration(
+        columns=(("kalshi_markets", "player_name", "TEXT"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
         ),
     ),
 }
