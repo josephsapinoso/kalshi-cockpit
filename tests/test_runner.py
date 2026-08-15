@@ -1611,10 +1611,23 @@ class TestIngestActuallyBuysTheProps:
             self.prop_calls.append((sport_key, tuple(odds_event_ids), tuple(markets or ())))
             return []
 
-    async def _ingest(self, conn, events, quotes, *, now, commence_ms):
+    async def _ingest(
+        self, conn, events, quotes, *, now, commence_ms, seed_fixtures=True
+    ):
         from backend.config import OddsConfig
         from backend.odds.budget import CreditBudget
+        from backend.odds.client import store_quotes
         from backend.runner import run_ingest_pass
+
+        if seed_fixtures:
+            # **The sweep must fire as `scheduled`, not `bootstrap`.**
+            # `decide_sweeps` plans slots from `odds_snapshots`, so on an empty
+            # database no slot exists, the sweep bootstraps, and a bootstrap
+            # buys no props at all -- which would make every assertion below
+            # pass for a reason other than the one it is testing. Seeding a
+            # stored fixture is what the live instance always looks like: it has
+            # been sweeping MLB for days.
+            store_quotes(conn, quotes)
 
         odds = self.FakePropOdds(quotes)
         await run_ingest_pass(
@@ -1727,6 +1740,130 @@ class TestIngestActuallyBuysTheProps:
             commence_ms=prop_commence_ms,
         )
         assert odds.prop_calls == []
+
+
+class TestPropsAreBoughtForTheSlotNotTheSlate:
+    """The credit drain of 2026-08-15, and the guard against it.
+
+    `fetch_odds` returns the **whole** slate for a sport. The sweep that
+    triggered it was fired for one kickoff cluster. Until this guard existed,
+    `fetch_and_store_props` took every still-pre-game fixture out of the
+    returned slate -- 27 of them, where the slot covered 4 -- and at 20 credits
+    an event (ten market keys x two regions) that spent **384 of a 400-credit
+    day in a single pass**. Every remaining odds sweep that day was refused,
+    team sweeps included, so the moneyline record stopped growing: the asset the
+    whole CLV gate depends on.
+
+    The number to watch here is `len(event_ids)`, and what makes the assertion
+    meaningful is that the slate deliberately contains fixtures the slot does
+    **not** cover.
+    """
+
+    def _slate(self, *, anchor_ms, fetched_ms):
+        """Three fixtures: two in the anchor's cluster, one far outside it.
+
+        The far one is `COVERAGE_MS` plus an hour past the anchor, so it is a
+        real fixture on a real slate that this sweep was simply not fired for.
+        It is exactly what the 27-vs-4 gap was made of.
+        """
+        from backend.odds.timing import COVERAGE_MS
+
+        spec = [
+            ("odds-covered-1", anchor_ms),
+            ("odds-covered-2", anchor_ms + 10 * 60 * 1000),
+            ("odds-far", anchor_ms + COVERAGE_MS + 60 * 60 * 1000),
+        ]
+        return [
+            OddsQuote(
+                fetched_ms=fetched_ms, book_updated_ms=fetched_ms,
+                sport_key="baseball_mlb", odds_event_id=event_id,
+                commence_ms=commence, home_team="Chicago Cubs",
+                away_team="St. Louis Cardinals", bookmaker=book,
+                market="h2h", outcome_name=name, outcome_point=None,
+                price_decimal=2.0,
+            )
+            for event_id, commence in spec
+            for book in ("pinnacle", "draftkings")
+            for name in ("Chicago Cubs", "St. Louis Cardinals")
+        ]
+
+    async def test_only_the_covered_fixtures_are_bought(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        quotes = self._slate(anchor_ms=prop_commence_ms, fetched_ms=now)
+
+        odds = await helper._ingest(
+            conn,
+            [
+                _kalshi_game_event(kalshi_events, prop_commence_ms),
+                _kalshi_prop_event(
+                    kalshi_prop_capture,
+                    TestPropsRunThroughTheWholeChainOffline.RUNGS,
+                    prop_commence_ms,
+                ),
+            ],
+            quotes,
+            now=now,
+            commence_ms=prop_commence_ms,
+        )
+
+        assert odds.prop_calls, "the scheduled sweep bought no props at all"
+        _, event_ids, _ = odds.prop_calls[0]
+        assert set(event_ids) == {"odds-covered-1", "odds-covered-2"}, (
+            "props were bought for a fixture this sweep was not fired for; "
+            "that is the 27-vs-4 defect that spent 384 of 400 credits"
+        )
+
+    async def test_a_bootstrap_buys_no_props_and_says_so(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        """A bootstrap has no cluster to aim at, so it has no fixture set.
+
+        Falling back to "everything in the slate" is precisely the defect. The
+        refusal is **recorded**, because a pass that declined and left no row
+        reads exactly like a pass that never ran -- this repo's inert-but-quiet
+        failure mode.
+
+        **Verified by disabling the branch, and the failure is worse than a
+        cost overrun**: without it `slot.covers` is called on `None` and the
+        `AttributeError` propagates out of `fetch_and_store_props` into
+        `fetch_and_store_odds` and the ingest pass. Same blast radius as the
+        untradeable rung below -- a raise inside a per-item loop fails the pass,
+        not the item, and a failed pass is retried. So this guard is load-bearing
+        for liveness, not only for credits.
+        """
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        odds = await helper._ingest(
+            conn,
+            [
+                _kalshi_game_event(kalshi_events, prop_commence_ms),
+                _kalshi_prop_event(
+                    kalshi_prop_capture,
+                    TestPropsRunThroughTheWholeChainOffline.RUNGS,
+                    prop_commence_ms,
+                ),
+            ],
+            helper._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+            seed_fixtures=False,
+        )
+
+        assert odds.prop_calls == [], (
+            "a bootstrap sweep bought props for a fixture set nothing defined"
+        )
+        details = [
+            r["detail"]
+            for r in conn.execute(
+                "SELECT detail FROM odds_sweep_log WHERE detail LIKE 'props:%'"
+            )
+        ]
+        assert any("bootstrap" in d for d in details), (
+            f"the refusal was not recorded as a bootstrap; got {details}"
+        )
 
 
 class TestAnUntradeableRungIsSkippedNotFatal:

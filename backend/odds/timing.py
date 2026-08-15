@@ -68,7 +68,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Collection, Iterable, Mapping, Optional, Sequence
 
 from .sweeplog import last_sweep_outcome
 
@@ -143,6 +143,33 @@ def day_start_ms(now_ms: int, *, hour: int = DEFAULT_DAY_START_UTC_HOUR) -> int:
     return int(start.timestamp() * 1000)
 
 
+def covers_commence(
+    commence_ms: int,
+    *,
+    fire_until_ms: int,
+    anchor_commence_ms: int,
+    coverage_ms: int = COVERAGE_MS,
+) -> bool:
+    """Does a sweep fired for this cluster make that kickoff bettable?
+
+    **This is the one definition of "covered", and it has two callers on
+    purpose.** `slots_for_sport` counts through it to produce
+    `SweepSlot.games_covered`, and `runner.fetch_and_store_props` filters
+    through `SweepSlot.covers` to decide which fixtures to buy props for. Those
+    two answers must be the same answer: `/api/window` publishes the count as
+    `slots_planned`, and a set that disagreed with its own published count is
+    invisible from either side.
+
+    They were not the same answer until 2026-08-15. The count lived here as an
+    inline comprehension and the prop fetch had no notion of a slot at all, so
+    it bought for every pre-game fixture in the slate -- 27 where the slot
+    covered 4 -- and spent 384 of 400 daily credits in one pass. See
+    `tasks/lessons.md`: prefer the codebase's named predicate over an inline
+    re-expression, because the predicate *is* the assumption written down.
+    """
+    return fire_until_ms <= commence_ms <= anchor_commence_ms + coverage_ms
+
+
 @dataclass(frozen=True)
 class SweepSlot:
     """One planned sweep: a sport, and the kickoff cluster it is aimed at."""
@@ -151,13 +178,26 @@ class SweepSlot:
     # The first kickoff of the cluster. The window closes before this.
     anchor_commence_ms: int
     # Games this slot makes bettable: kicking off after the window closes and
-    # within `COVERAGE_MS` of the anchor.
+    # within `coverage_ms` of the anchor. Counted through `covers`, never
+    # recomputed inline -- see `covers_commence`.
     games_covered: int
     fire_from_ms: int
     fire_until_ms: int
+    # Stored rather than read from the module constant, so a slot planned under
+    # a non-default coverage answers `covers` with the width it was planned at.
+    coverage_ms: int = COVERAGE_MS
 
     def is_due(self, now_ms: int) -> bool:
         return self.fire_from_ms <= now_ms <= self.fire_until_ms
+
+    def covers(self, commence_ms: int) -> bool:
+        """Whether this slot makes a kickoff at `commence_ms` bettable."""
+        return covers_commence(
+            commence_ms,
+            fire_until_ms=self.fire_until_ms,
+            anchor_commence_ms=self.anchor_commence_ms,
+            coverage_ms=self.coverage_ms,
+        )
 
     @property
     def minutes_before_kickoff(self) -> float:
@@ -223,7 +263,14 @@ def slots_for_sport(
             # would open a window that runs into the game.
             continue
         covered = sum(
-            1 for c in future if fire_until <= c <= anchor + coverage_ms
+            1
+            for c in future
+            if covers_commence(
+                c,
+                fire_until_ms=fire_until,
+                anchor_commence_ms=anchor,
+                coverage_ms=coverage_ms,
+            )
         )
         slots.append(
             SweepSlot(
@@ -232,6 +279,7 @@ def slots_for_sport(
                 games_covered=covered,
                 fire_from_ms=fire_from,
                 fire_until_ms=fire_until,
+                coverage_ms=coverage_ms,
             )
         )
     return slots
@@ -574,9 +622,20 @@ class FiringSweep:
     """One sweep this pass will spend credits on."""
 
     sport_key: str
+    # What the `/odds` call itself costs. Deliberately still the *team* sweep
+    # cost and not the projected total: `runner.fetch_and_store_odds` probes
+    # `budget.refusal_reason(firing.cost, ...)` immediately before making that
+    # one call, so this number has to keep corresponding to that one call.
     cost: int
     trigger: str        # "scheduled" | "bootstrap"
     detail: str
+    # The slot this firing was planned for, or None on a bootstrap -- which has
+    # no cluster to aim at, by definition. Carried so the prop fetch can buy
+    # for the fixtures the sweep was fired for rather than for the whole slate.
+    slot: Optional[SweepSlot] = None
+    # Team sweep plus the prop tail this firing is expected to trigger. The
+    # planner reserves against this; nothing spends it directly.
+    projected_total_cost: int = 0
 
 
 @dataclass(frozen=True)
@@ -603,6 +662,8 @@ def decide_sweeps(
     now_ms: int,
     max_odds_age_ms: int,
     horizon_ms: int = DEFAULT_HORIZON_MS,
+    prop_cost_per_event: int = 0,
+    prop_sports: Collection[str] = (),
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -630,6 +691,24 @@ def decide_sweeps(
     "How much is left today" and "has this sport already been swept today" must
     mean the same day, and two implementations of one boundary is how they stop
     meaning that.
+
+    **The planner prices the prop tail it authorises, and that is not
+    decoration.** Until 2026-08-15 this function sized the whole day on the
+    *team* sweep cost alone -- `remaining_today // cost`, with `cost` 6 -- while
+    every scheduled firing also triggered `fetch_and_store_props`, billed
+    per event per market key per region. It authorised a 6-credit call that
+    spent 384. Restricting the prop fetch to the slot's own fixtures fixes the
+    *symptom*; without this reservation the next limit binds in silence, because
+    a three-hour coverage window on a full evening slate covers 12-15 games, not
+    four, and `6 + 20x15` is 306 a firing.
+
+    `prop_cost_per_event` is the caller's `sweep_cost(prop_markets, regions)`;
+    `prop_sports` names the sports a prop ladder was actually discovered for, so
+    a league with no ladder is not charged for one. The reservation uses
+    `slot.games_covered`, which is an **upper bound** on the events the fetch
+    will buy -- some covered fixtures have no Kalshi ladder, and the fetch drops
+    any that started. Over-reserving refuses a sweep that would have fit; the
+    error the other way is the outage this exists to prevent.
     """
     state = budget.state(now_ms)
     remaining = max(0, state.remaining_today // max(1, cost))
@@ -659,6 +738,11 @@ def decide_sweeps(
         )
 
     firing: list[FiringSweep] = []
+    # Credits, not sweeps. `remaining` above counts team calls and is what
+    # `plan_sweep_slots` needs; this is what the day can actually afford once
+    # the prop tail is counted, and the two must not be conflated.
+    credits_left = state.remaining_today
+    refused_for_props: list[str] = []
 
     bootstrap_candidates = sorted(
         (
@@ -671,6 +755,8 @@ def decide_sweeps(
     )
     if bootstrap_candidates:
         _, sport = bootstrap_candidates[0]
+        # No slot, so no props are bought and none is reserved. See
+        # `runner.fetch_and_store_props`, which refuses on the same grounds.
         firing.append(
             FiringSweep(
                 sport_key=sport,
@@ -680,8 +766,11 @@ def decide_sweeps(
                     f"{sport} has no stored sportsbook fixtures, so nothing "
                     f"about it can be priced or scheduled"
                 ),
+                slot=None,
+                projected_total_cost=cost,
             )
         )
+        credits_left -= cost
 
     for slot in slots:
         if len(firing) >= remaining:
@@ -690,12 +779,31 @@ def decide_sweeps(
             continue
         if any(f.sport_key == slot.sport_key for f in firing):
             continue
+        prop_tail = (
+            prop_cost_per_event * slot.games_covered
+            if slot.sport_key in prop_sports
+            else 0
+        )
+        projected = cost + prop_tail
+        if projected > credits_left:
+            # Refused, and named. A firing dropped for cost is a different state
+            # from one that was never due, and the two read identically unless
+            # this says so.
+            refused_for_props.append(
+                f"{slot.sport_key} needs {projected} credits "
+                f"({cost} sweep + {prop_tail} props for "
+                f"{slot.games_covered} covered game(s)) and {credits_left} remain"
+            )
+            continue
+        credits_left -= projected
         firing.append(
             FiringSweep(
                 sport_key=slot.sport_key,
                 cost=cost,
                 trigger="scheduled",
                 detail=slot.reason,
+                slot=slot,
+                projected_total_cost=projected,
             )
         )
 
@@ -703,6 +811,13 @@ def decide_sweeps(
 
     if firing:
         detail = "; ".join(f"{f.sport_key} ({f.trigger}): {f.detail}" for f in firing)
+        if refused_for_props:
+            detail += "; also refused: " + "; ".join(refused_for_props)
+    elif refused_for_props:
+        # Checked before `slots`, because a slot refused for cost IS a planned
+        # slot: reporting "next slot is ..." here would describe a sweep that
+        # was considered and declined as one that has not come round yet.
+        detail = "no sweep: " + "; ".join(refused_for_props)
     elif slots:
         nxt = slots[0]
         detail = (

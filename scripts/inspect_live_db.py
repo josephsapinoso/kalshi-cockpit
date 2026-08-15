@@ -306,6 +306,30 @@ _SQL_SERIES = (
     "SELECT series_ticker, league FROM kalshi_series ORDER BY series_ticker"
 )
 
+# Which bookmakers actually returned a player prop, and how recently.
+#
+# **The question this exists to answer is a cost one.** A prop event is billed
+# per market key per region, and the deployed `ODDS_REGIONS` is `us,eu`. So half
+# of every prop event's credits buy the `eu` region -- and nothing in the repo
+# establishes that any EU book quotes MLB player props at all. The captured
+# fixture carries nine books, all US-facing, but it records no capture params,
+# and `scripts/probe_prop_dispersion.py` hardcodes `regions=us`, so neither can
+# settle it. The live table can: it holds the prop quotes bought under `us,eu`.
+#
+# **It does not settle it alone.** A book absent here may be absent because it
+# quotes no props, or because it quotes props this instance never asked for on a
+# fixture it never swept. Read the bookmaker list against the region each book
+# is known to serve; do not read an absence as a refusal.
+_SQL_PROP_BOOKMAKERS = (
+    "SELECT bookmaker, COUNT(*) AS quotes, "
+    "COUNT(DISTINCT odds_event_id) AS events, "
+    "COUNT(DISTINCT market) AS market_keys, "
+    "MIN(fetched_ms) AS first_fetched_ms, MAX(fetched_ms) AS last_fetched_ms "
+    "FROM odds_snapshots "
+    "WHERE outcome_description IS NOT NULL "
+    "GROUP BY bookmaker ORDER BY quotes DESC"
+)
+
 
 # ---------------------------------------------------------------------------
 # Q-W: the WNBA band-and-depth reachability query.
@@ -618,6 +642,26 @@ def _q_series(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
+    """Which books returned props, keyed off the schema's own discriminator.
+
+    `outcome_description` is NULL on every team market and populated on every
+    prop -- `store/schema.sql` says so in the column's own comment, because a
+    prop's outcome is `(player, side, line)` and the player has nowhere else to
+    live. Selecting on it rather than on a hardcoded list of the ten prop market
+    keys keeps this query from drifting out of step with `PROP_MARKETS`.
+    """
+    return [
+        _fetch(
+            conn,
+            _SQL_PROP_BOOKMAKERS,
+            (),
+            title="odds_snapshots: books that returned a player prop",
+            cap=args.limit,
+        )
+    ]
+
+
 @dataclass(frozen=True)
 class QWVerdict:
     """One series' Q-W counts and whether they activate `W`.
@@ -823,6 +867,13 @@ QUERIES: dict[str, QueryDef] = {
     "series": QueryDef(
         "kalshi_series: series_ticker and league. ~10 rows.",
         _q_series,
+    ),
+    "prop-bookmakers": QueryDef(
+        "odds_snapshots rows carrying outcome_description (i.e. player props), "
+        "grouped by bookmaker with quote/event/market-key counts and the "
+        "fetched_ms range. Answers: does any EU book quote props, or is half "
+        "of every 20-credit prop event buying nothing?",
+        _q_prop_bookmakers,
     ),
     "kalshi-quotes-band": QueryDef(
         "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "

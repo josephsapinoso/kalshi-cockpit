@@ -111,12 +111,14 @@ from .odds.client import (
     PROP_BASE_MARKETS,
     PROP_MARKETS,
     OddsQuote,
+    prop_market_keys,
     store_quotes,
 )
 from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
     DEFAULT_DAY_START_UTC_HOUR,
     SweepDecision,
+    SweepSlot,
     decide_sweeps,
 )
 from .store import db
@@ -1454,6 +1456,15 @@ async def fetch_and_store_odds(
     decision used to be logged and nothing more, so a pass that looked and
     declined left no row anywhere and read exactly like a pass that never ran.
     """
+    # The sports a prop ladder was actually discovered for, so a league with no
+    # ladder is not reserved against for props it will never buy. Passed rather
+    # than assumed: charging every sport would starve WNBA sweeps to protect a
+    # baseball-only cost.
+    prop_sports = {
+        e.sport_key
+        for e in events
+        if e.market_type == MARKET_TYPE_PROP and e.sport_key is not None
+    }
     decision = decide_sweeps(
         conn,
         in_scope=soonest_by_sport(events),
@@ -1461,6 +1472,8 @@ async def fetch_and_store_odds(
         cost=sweep_cost(config.markets, config.regions),
         now_ms=now,
         max_odds_age_ms=max_odds_age_ms,
+        prop_cost_per_event=sweep_cost(prop_market_keys(), config.regions),
+        prop_sports=prop_sports,
     )
     logger.info("sweep decision: %s", decision.detail)
 
@@ -1488,7 +1501,7 @@ async def fetch_and_store_odds(
             )
             stored += await fetch_and_store_props(
                 conn, odds_client, events=events, quotes=quotes,
-                sport_key=firing.sport_key, now=now,
+                sport_key=firing.sport_key, now=now, slot=firing.slot,
             )
         elif affordable:
             # The call went out and the slate came back empty. A normal state,
@@ -1516,6 +1529,7 @@ async def fetch_and_store_props(
     quotes: Sequence[OddsQuote],
     sport_key: str,
     now: int,
+    slot: Optional[SweepSlot] = None,
 ) -> int:
     """Buy player props for the fixtures a team sweep just paid for.
 
@@ -1526,23 +1540,33 @@ async def fetch_and_store_props(
     A timer of its own would be a second answer to a question `odds/timing.py`
     already answers, and the two would drift.
 
-    **Cost.** Props are a per-event endpoint billed per market key per region,
-    and both the primary and `_alternate` feeds are requested: roughly ten
-    credits a fixture against six for the whole team sweep. On a fifteen-game
-    slate that is ~150 credits. `.env.example` ships `ODDS_DAILY_CREDIT_BUDGET`
-    at 16, which refuses every event -- the budget has to be raised deliberately
-    or this is inert, and inert-but-quiet is the failure mode named in
-    `tasks/lessons.md`, so the refusal is recorded rather than swallowed.
+    **Cost, and the estimate that was wrong.** Props are a per-event endpoint
+    billed per market key per region. Both the primary and `_alternate` feeds
+    are requested -- ten keys -- and the deployed config sets two regions, so an
+    event costs **20**, not ten. This docstring previously said "roughly ten
+    credits a fixture ... on a fifteen-game slate that is ~150 credits". Both
+    figures were assumptions restated: the fixture count was assumed at 15 and
+    the region count was never read. The first live pass spent **384 of 400 in a
+    single pass** and refused every remaining sweep that day, team sweeps
+    included. **Do not restate a cost here that has not been reconciled against
+    `api_credits` and the provider's own `x-requests-used`.**
 
-    **Which fixtures, and the imprecision that is being accepted.** Props are
-    bought for every still-pre-game fixture in the sweep, not for the exact set
-    Kalshi runs a ladder on. The exact set needs `event_links`, which is not
-    written until the pricing pass, and inverting that order to save a few
-    credits would make ingest depend on a stage that runs after it. The waste is
-    measured rather than assumed: on 2026-08-15 `KXMLBKS` carried 15 events
-    against a 15-game MLB slate, so the over-buy was zero. It is bounded by the
-    number of games Kalshi lists no ladder for, and it is visible in
-    `odds_sweep_log` because every event's outcome is recorded.
+    **Which fixtures: the ones the slot was fired for.** `slot` carries the
+    kickoff cluster this sweep was scheduled against, and `SweepSlot.covers` is
+    the same predicate that produced its published `games_covered`. Buying for
+    every pre-game fixture in the returned slate instead bought 27 where the
+    slot covered 4.
+
+    `slot` is `None` on a **bootstrap** firing, which by definition has no
+    cluster to aim at. That buys no props, and the refusal is recorded rather
+    than silent -- a pass that skipped and said nothing is indistinguishable
+    from one that never ran.
+
+    A residual over-buy remains and is deliberate: covered fixtures that Kalshi
+    lists no ladder for are still bought. The exact set needs `event_links`,
+    which is not written until the pricing pass, and inverting that order would
+    make ingest depend on a stage that runs after it. It is bounded, and visible
+    in `odds_sweep_log` because every event's outcome is recorded.
 
     Returns the number of prop quotes stored.
     """
@@ -1565,23 +1589,43 @@ async def fetch_and_store_props(
         )
         return 0
 
+    if slot is None:
+        # A bootstrap firing has no kickoff cluster, so there is no set of
+        # fixtures this sweep was *for*. Buying the whole slate is what spent
+        # 384 of 400 in one pass; buying nothing is the conservative reading,
+        # and the next scheduled slot for this sport will buy properly.
+        record_sweep_outcome(
+            conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
+            detail=(
+                f"props: {sport_key} swept without a planned slot (bootstrap), "
+                f"so there is no covered fixture set to buy props for"
+            ),
+        )
+        return 0
+
     # Pre-game only, for the reason `run_pricing_pass` drops in-play rows: a
     # prop priced after first pitch cannot be scored against a closing line that
-    # was read before it.
+    # was read before it. And covered by *this slot* -- `fetch_odds` returns the
+    # whole slate, which is not the same thing as the fixtures this sweep was
+    # fired for.
     pre_game = sorted(
-        {q.odds_event_id for q in quotes if q.commence_ms > now}
+        {
+            q.odds_event_id
+            for q in quotes
+            if q.commence_ms > now and slot.covers(q.commence_ms)
+        }
     )
     if not pre_game:
         record_sweep_outcome(
             conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
-            detail="props: every fixture in the sweep has already started",
+            detail=(
+                "props: no fixture this slot covers is still pre-game "
+                f"({slot.reason})"
+            ),
         )
         return 0
 
-    markets = [
-        *PROP_BASE_MARKETS,
-        *(f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS),
-    ]
+    markets = prop_market_keys()
     prop_quotes = await odds_client.fetch_props(
         sport_key, pre_game, now_ms=now, markets=markets
     )
@@ -1595,8 +1639,12 @@ async def fetch_and_store_props(
     record_sweep_outcome(
         conn, pass_ms=now, sport_key=sport_key, outcome=SERVED,
         detail=(
-            f"props: {len(pre_game)} pre-game fixtures, "
-            f"{len(prop_events)} Kalshi prop events, {len(markets)} market keys"
+            # `slot covers N` beside `bought M` is the pair that makes the
+            # 2026-08-15 defect visible from the log alone: it read "27 pre-game
+            # fixtures" with nothing to compare 27 against.
+            f"props: bought {len(pre_game)} of {slot.games_covered} covered "
+            f"fixture(s) in the slate, {len(prop_events)} Kalshi prop events, "
+            f"{len(markets)} market keys"
         ),
         quotes_stored=n,
     )

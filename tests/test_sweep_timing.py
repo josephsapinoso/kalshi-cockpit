@@ -23,6 +23,7 @@ import pytest
 from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.timing import (
     CLUSTER_MS,
+    COVERAGE_MS,
     DUE_WINDOW_MS,
     MIN_SLOT_SEPARATION_MS,
     ActionableWindow,
@@ -571,6 +572,160 @@ class TestWindowStatus:
         ).to_dict()
         assert payload["is_open"] is True
         assert "does not mean there is anything to bet" in payload["note"]
+
+
+class TestCoveredIsOneDefinition:
+    """`games_covered` and `SweepSlot.covers` must be the same predicate.
+
+    `/api/window` publishes the count as `slots_planned`; the prop fetch buys
+    the set. Two implementations of "covered" would let the published number and
+    the purchased set disagree, which is invisible from either side -- and it is
+    the shape that produced the 2026-08-15 credit drain one level down.
+    """
+
+    def test_the_count_equals_the_predicate_over_the_same_slate(self, conn):
+        anchor = NOW + 40 * MIN
+        kickoffs = [
+            anchor,
+            anchor + 15 * MIN,
+            anchor + COVERAGE_MS,             # last covered instant
+            anchor + COVERAGE_MS + 1,         # first uncovered instant
+            anchor + 12 * HOUR,
+        ]
+        slots = slots_for_sport(
+            "baseball_mlb", kickoffs, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        slot = next(s for s in slots if s.anchor_commence_ms == anchor)
+
+        counted_by_predicate = sum(1 for k in kickoffs if slot.covers(k))
+        assert slot.games_covered == counted_by_predicate, (
+            "the published count and the predicate disagree, so the set of "
+            "fixtures bought will not be the set of fixtures reported"
+        )
+
+    def test_the_boundary_is_inclusive_on_both_ends(self, conn):
+        """Named because an off-by-one here is a silently mis-sized purchase."""
+        anchor = NOW + 40 * MIN
+        slots = slots_for_sport(
+            "baseball_mlb", [anchor], now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        slot = slots[0]
+        assert slot.covers(slot.fire_until_ms)
+        assert not slot.covers(slot.fire_until_ms - 1)
+        assert slot.covers(anchor + COVERAGE_MS)
+        assert not slot.covers(anchor + COVERAGE_MS + 1)
+
+
+class TestThePlannerPricesThePropsItAuthorises:
+    """The defect underneath the 2026-08-15 outage.
+
+    `decide_sweeps` sized the whole budget day on the **team** sweep cost --
+    `remaining_today // 6` -- while every scheduled firing also triggered a
+    per-event prop fetch billed at ten market keys x two regions. It authorised
+    a 6-credit call that spent 384.
+
+    Restricting the prop fetch to the slot's own fixtures fixes the symptom.
+    Without this reservation the next limit binds in silence: a three-hour
+    coverage window on a full evening slate covers a dozen games, and
+    `6 + 20x12` is 246 a firing.
+    """
+
+    def _slate(self, conn, *, anchor, n):
+        for i in range(n):
+            add_fixture(
+                conn,
+                odds_event_id=f"e{i}",
+                commence_ms=anchor + i * MIN,
+            )
+
+    def test_a_sweep_whose_prop_tail_breaches_the_day_is_refused(self, conn):
+        anchor = NOW + 40 * MIN
+        self._slate(conn, anchor=anchor, n=12)
+        budget = CreditBudget(conn, daily_budget=100)
+
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": anchor + 3 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            prop_cost_per_event=20,
+            prop_sports={"baseball_mlb"},
+        )
+
+        # 6 + 20*12 = 246 against 100 remaining.
+        assert decision.fire == (), (
+            "the planner authorised a sweep whose prop tail cannot be paid for"
+        )
+        assert "props" in decision.detail, (
+            f"the refusal did not name the cost that bound: {decision.detail}"
+        )
+
+    def test_the_same_sweep_fires_when_the_day_can_afford_the_tail(self, conn):
+        """The falsifier: the refusal above must be about cost, not coverage."""
+        anchor = NOW + 40 * MIN
+        self._slate(conn, anchor=anchor, n=12)
+        budget = CreditBudget(conn, daily_budget=400)
+
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": anchor + 3 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            prop_cost_per_event=20,
+            prop_sports={"baseball_mlb"},
+        )
+        assert [f.sport_key for f in decision.fire] == ["baseball_mlb"]
+        assert decision.fire[0].projected_total_cost == 6 + 20 * 12
+
+    def test_a_sport_with_no_ladder_is_not_charged_for_props(self, conn):
+        """WNBA has no prop series, so reserving for one would starve it."""
+        anchor = NOW + 40 * MIN
+        self._slate(conn, anchor=anchor, n=12)
+        budget = CreditBudget(conn, daily_budget=100)
+
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": anchor + 3 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            prop_cost_per_event=20,
+            prop_sports=set(),          # no ladder discovered anywhere
+        )
+        assert [f.sport_key for f in decision.fire] == ["baseball_mlb"]
+        assert decision.fire[0].projected_total_cost == 6
+
+    def test_the_firing_carries_the_slot_it_was_planned_for(self, conn):
+        """Without this the prop fetch has no fixture set and falls back to the
+        whole slate, which is the defect itself."""
+        anchor = NOW + 40 * MIN
+        add_fixture(conn, commence_ms=anchor)
+        budget = CreditBudget(conn, daily_budget=400)
+
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": anchor + 3 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        firing = decision.fire[0]
+        assert firing.trigger == "scheduled"
+        assert firing.slot is not None
+        assert firing.slot.anchor_commence_ms == anchor
+
+    def test_a_bootstrap_carries_no_slot(self, conn):
+        """It has no cluster to aim at, which is what makes it a bootstrap."""
+        budget = CreditBudget(conn, daily_budget=400)
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 2 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        firing = decision.fire[0]
+        assert firing.trigger == "bootstrap"
+        assert firing.slot is None
 
 
 class TestCostIsUnchanged:

@@ -113,6 +113,24 @@ PROP_MARKETS = frozenset(PROP_BASE_MARKETS) | {
     f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS
 }
 
+
+def prop_market_keys() -> list[str]:
+    """The keys `fetch_props` requests, in request order.
+
+    **One definition, because the count is a price.** The Odds API bills a prop
+    event at one credit per market key per region, so `len()` of this list is
+    half of what a prop event costs. It has two callers that must agree:
+    `runner.fetch_and_store_props`, which requests them, and
+    `odds.timing.decide_sweeps`, which reserves credits for them before
+    authorising the sweep that triggers the request. A planner reserving for
+    five keys against a fetch requesting ten is the shape of the 2026-08-15
+    outage, one level up.
+    """
+    return [
+        *PROP_BASE_MARKETS,
+        *(f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS),
+    ]
+
 PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS
 
 # Recognised, and deliberately **not** stored, each with the reason. The API
