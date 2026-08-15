@@ -51,9 +51,20 @@ the three are ordinary operating states:
    only an Over. A slate where every rung is one-sided produces zero
    `fair_prices` rows and is *not* a bug.
 
-**Read the `props:` rows before forming a theory.** The previous session's
-biggest single finding came from capturing a payload instead of reasoning about
-one.
+**Read the `props:` rows before forming a theory** — the command is under
+GOVERNANCE below. The previous session's biggest single finding came from
+capturing a payload instead of reasoning about one.
+
+**State at 19:26Z on 2026-08-15, so you can tell progress from a stall.** The
+deploy landed at ~19:12Z and the new code logged its first pass at **19:13:43Z**
+(`odds_sweep_log` id 296, `skipped`, "next slot is baseball_mlb at 19:21Z–19:51Z").
+**No sweep had been served since the deploy**, so the absence of prop rows at
+that point was candidate 1 and nothing else. The last served sweep, id 291 at
+**17:44:52Z**, predates the deploy and could not have bought props.
+
+So: **the first sweep that can possibly buy props is the 19:21Z–19:51Z MLB
+slot.** If `sweep-log` shows a `served` row after 19:21Z with **no** `props:` row
+beside it, that is a real defect and the call site is `runner.fetch_and_store_props`.
 
 ## WHAT WAS BUILT, AND WHAT IT DOES NOT CLAIM
 
@@ -139,8 +150,29 @@ this** — a permission pattern matches a command prefix and cannot see inside
 `-C "..."`. Three sessions wrote this rule and two drifted from it within the
 hour. Assume you will too.
 
-**Only two of forty-three `scripts/*.py` are in the image.** `.dockerignore`
-decides, not `Dockerfile`. `inspect_live_db.py` is **not** on the machine.
+**Three of forty-three `scripts/*.py` are in the image**, and `.dockerignore`
+decides, not `Dockerfile` — `run_loop.py`, `migrate_db.py` and
+**`inspect_live_db.py`** (`.dockerignore:77-80`).
+
+**An earlier draft of this file said `inspect_live_db.py` was not on the
+machine. It was wrong, and it was inherited rather than checked** — the previous
+`start.md` said "two of forty-two" from a time before that script shipped, and
+the number was copied forward. This file's own first trap says a snapshot is not
+the record. Read `.dockerignore` before repeating a count from here.
+
+**That script is the sanctioned way to ask the live database a question**, and
+it is how you read the `props:` rows:
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py sweep-log -n 12"
+```
+
+Read-only is enforced by the connection (`mode=ro`), the query names are a fixed
+whitelist, and no SQL crosses the command line — which is exactly what the ssh
+ruling requires. `sweep-log` prints counts by outcome and then the last N rows
+in full, `detail` included. Other names: `credits-tail`, `credits-day`,
+`credits-month`, `series`, `kalshi-quotes-band`.
 
 **Deploying is a phone button, not a laptop step:**
 
