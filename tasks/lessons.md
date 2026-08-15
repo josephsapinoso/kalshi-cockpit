@@ -13,6 +13,63 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-15 — A test's *invented* example can turn out to be real, and it fails on the axis it was never about
+
+Seven discovery tests used `KXMLBHIT` and `KXMLBHR` as stand-ins for a series
+whose `competition_scope` nobody had classified. They were written as obvious
+placeholders. They are real Kalshi prop ladders, and the moment an allowlist
+claimed them the warning under test stopped firing and all seven went red —
+reporting *"0 warnings for one series"*, which reads as a broken deduplicator
+rather than as a name collision two features away.
+
+**The pattern:** a placeholder drawn from the same namespace as production data
+is not a placeholder, it is a prediction that the namespace will not grow into
+it. When it does, the failure surfaces on the axis the test was written about
+rather than the axis that changed, so the first diagnosis is always of the wrong
+thing.
+
+**What to do.** Fixture values in a test about mechanism should be visibly
+outside the real population, and the constraint should be written down beside
+them — *"these tickers must be ones this project does not classify"* — because
+the next person to reach for a realistic-looking name has no way to know it
+mattered. No guard is needed where the collision already produces a red test;
+what is missing is the sentence explaining which red.
+
+The same shape as the repo's older lesson about guessed scope spellings, run
+backwards: there, an invented string failed to match reality and dropped data
+silently. Here an invented string matched reality and broke a test loudly. Both
+come from writing a value that *looks* like the real thing without checking
+whether it is one.
+
+## 2026-08-15 — A mutation refuted a code comment, and the comment was the thing that had to change
+
+A constant listing the two sides of a prop carried a comment saying its order
+was load-bearing: reversing it "would swap Over and Under and produce entirely
+plausible probabilities for the wrong side." The mutation battery reversed it.
+The whole suite stayed green.
+
+The comment was wrong. Both the outcome tuple and each book's price list are
+built by iterating that constant, so they cannot disagree; the order is
+arbitrary. The genuinely dangerous mutation — pairing the price list against the
+*opposite* order to the outcomes — was not in the battery at all, because the
+comment had already explained why the risk lived somewhere else.
+
+**The pattern:** a surviving mutation has two possible readings, and the
+tempting one is always "write a test that kills it". The other is that the
+mutation has **refuted a claim the code makes about itself**. Prose is not
+exempt from evidence, and a comment asserting that something is dangerous is a
+falsifiable claim — one that, left standing, aims the next reader's tests at the
+wrong line. It also does worse than nothing: it made the real hazard *feel*
+already covered.
+
+**What to do.** When a mutation survives, ask what the code says about that line
+before asking what test is missing. If a comment predicted a failure that did not
+happen, correct the comment in the same change, keep the equivalent mutation in
+the battery with `expected to survive` recorded against it, and then go looking
+for the mutation the corrected understanding implies. Pruning the survivor to
+make the count clean would have deleted the only evidence that the comment was
+false.
+
 ## 2026-08-14 — A cleanup that did not run is invisible; the next run then canonises the damage
 
 A mutation-testing script read the source, applied a sabotage, ran pytest, and
