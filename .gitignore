@@ -108,3 +108,22 @@ Thumbs.db
 # directories, so a separate `.tmp_*/` line never fires and would be decoration.
 # ---------------------------------------------------------------------------
 .tmp_*
+
+# ---------------------------------------------------------------------------
+# curl cookie jars. `start.md`'s phone check authenticates against the LIVE
+# instance and writes its session cookie to a file, and every runbook that does
+# so has told the reader to delete it afterwards -- an instruction, not a guard,
+# on a public repo where every push publishes immediately.
+#
+# A session cookie for the money instance is a credential in every sense that
+# matters: it is bearer-shaped, it is accepted by `/api/orders`, and unlike the
+# Kalshi key it is *generated during ordinary debugging*, so it is created far
+# more often than the things `*.pem` and `.env` cover.
+#
+# Globbed rather than named. `jar.txt` is what the runbooks happen to use today;
+# the next reader writes `cookies.txt` and the specific name protects nothing.
+# ---------------------------------------------------------------------------
+jar.txt
+*.cookies
+cookies.txt
+cookiejar*
