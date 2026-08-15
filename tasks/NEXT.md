@@ -1,6 +1,6 @@
 # Next — your checklist
 
-## 2026-08-15 — PROPS ARE BUILT, ALL FOUR SLICES. One deploy from Joe and it runs.
+## 2026-08-15 — PROPS ARE BUILT AND DEPLOYED, ALL FOUR SLICES. It is running; the next move is to read what it did.
 
 `8febd24` (slices 2-3) and `1fb6850` (slice 4). 2,626 tests pass, 10
 `xfail(strict=True)`, ruff clean. 21 mutations run, 20 killed, 1 recorded as
@@ -51,7 +51,17 @@ second league's team sweeps return in the autumn.
 
 ### What is left, in order
 
-1. **One deploy from Joe.** Nothing before it needs him.
+1. ~~**One deploy from Joe.**~~ **DONE 2026-08-15.** Demo first
+   (run `31900459254`, 2m6s, all checks green including `POST /api/orders` →
+   403), then live (run `31900575709`, 48s). Live health reports
+   `instance_mode: live`, `live_quotes_available: true`. **The v7→v8 migration
+   ran**: `docker/entrypoint.sh` calls `scripts/migrate_db.py` under
+   `set -euo pipefail` before uvicorn binds, so a failed migration would have
+   killed the boot and the workflow's `/api/health` poll would have timed out.
+   uvicorn answering is the proof, not the health payload — that endpoint
+   touches no database by design. **The `player_name` column was not inspected
+   on the live volume**, because reads are auth-gated and this session held no
+   token; that check belongs to step 2 below.
 2. **Read `odds_sweep_log` after the first live pass.** Every prop decision
    writes a row prefixed `props:` — served, or skipped with the reason. A budget
    refusal is the failure mode that looks exactly like success from every other
