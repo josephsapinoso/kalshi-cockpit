@@ -1727,3 +1727,126 @@ class TestIngestActuallyBuysTheProps:
             commence_ms=prop_commence_ms,
         )
         assert odds.prop_calls == []
+
+
+class TestAnUntradeableRungIsSkippedNotFatal:
+    """The defect that took down the first live pass to price props.
+
+    A prop ladder is priced from `2+` to `9+`, so its far end is a market
+    nobody will trade: the NO bid rests at 1000 tenths and the derived YES ask
+    is therefore **0**. `core/ev.effective_price` refuses 0 and 1000 -- they are
+    settled outcomes, not quotes, and an ask of 0 yields a zero fee, a $0.00
+    effective price, a 0% breakeven and a fabricated edge.
+
+    The prop path checked `ask is None` and nothing else, copying the team path,
+    where the guard has never been needed: a game moneyline does not reach 0 or
+    1000 while it is still pre-game and open. **A ladder reaches both on an
+    ordinary slate.**
+
+    What made it serious was not the prop rows. `_price_prop_event` is called
+    from inside `run_pricing_pass`'s main loop, so the `ValueError` aborted the
+    **entire pass** -- moneyline recommendations included -- and a failed full
+    pass is retried rather than counted as done, so it would have repeated every
+    pass until the runner gave up and the container restarted into the same
+    thing. The evidence record stops growing and every screen still renders.
+
+    Live at 19:42:07Z on 2026-08-15, one pass after props first shipped.
+    """
+
+    def _ladder_event(self, kalshi_prop_capture, commence_ms, no_bid_dollars):
+        """One prop event whose single rung carries the given NO bid."""
+        event = _kalshi_prop_event(
+            kalshi_prop_capture,
+            (("Clay Holmes", "Clay Holmes: 4+", 3.5),),
+            commence_ms,
+        )
+        market = event["markets"][0]
+        # A YES ask is 1000 - the NO bid, so a NO bid of $1.00 derives an ask of
+        # 0. Set on the captured payload rather than constructed, so the field
+        # names stay the ones Kalshi actually sends.
+        market["no_bid_dollars"] = no_bid_dollars
+        market["yes_bid_dollars"] = "0.0000"
+        return event
+
+    def _run(self, conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+             prop_commence_ms, prop_now, no_bid_dollars):
+        from backend.config import OddsConfig
+        from backend.odds.budget import CreditBudget
+        from backend.odds.client import OddsClient
+
+        client = OddsClient(
+            OddsConfig(
+                api_key="x", base_url="https://example.invalid",
+                daily_credit_budget=16, regions=["us"],
+                markets=["h2h", "spreads", "totals"],
+            ),
+            CreditBudget(conn, daily_budget=16),
+        )
+        store_quotes(
+            conn,
+            client._parse(
+                [prop_odds_capture], sport_key="baseball_mlb", fetched_ms=prop_now
+            ),
+        )
+        events = discover_from_events(
+            [
+                _kalshi_game_event(kalshi_events, prop_commence_ms),
+                self._ladder_event(
+                    kalshi_prop_capture, prop_commence_ms, no_bid_dollars
+                ),
+            ]
+        )
+        upsert_discovered(conn, events, now=prop_now)
+        store_quotes_from_discovery(conn, events, now=prop_now)
+        return run_pricing_pass(conn, events, now=prop_now)
+
+    def test_a_rung_nobody_will_trade_does_not_abort_the_pass(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+        prop_commence_ms, prop_now,
+    ):
+        """The regression. Before the fix this raised and took the pass with it."""
+        counts = self._run(
+            conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+            prop_commence_ms, prop_now, no_bid_dollars="1.0000",
+        )
+        # The pass completed. That is the whole assertion -- reaching this line
+        # at all is what was broken.
+        assert counts.dropped_no_kalshi_quote >= 1, counts.as_dict()
+
+    def test_the_untradeable_side_is_dropped_and_the_other_is_not(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+        prop_commence_ms, prop_now,
+    ):
+        """Only the bad side goes.
+
+        A NO bid of $1.00 makes the YES ask 0 and leaves the NO ask at
+        1000 - 0 = 1000, which is equally untradeable. Both sides drop here, and
+        the point of asserting it is that the guard is per-side rather than
+        per-market: a ladder rung with one tradeable side must still record it.
+        """
+        counts = self._run(
+            conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+            prop_commence_ms, prop_now, no_bid_dollars="1.0000",
+        )
+        rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM recommendations WHERE ticker LIKE 'KXMLBKS-%'"
+        ).fetchone()
+        assert rows["n"] == 0, "an untradeable rung was priced anyway"
+
+    def test_a_tradeable_rung_on_the_same_ladder_still_prices(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+        prop_commence_ms, prop_now,
+    ):
+        """The guard must not have swallowed the ordinary case.
+
+        Without this, replacing the body of the loop with `continue` would pass
+        both tests above and the prop path would silently record nothing.
+        """
+        counts = self._run(
+            conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
+            prop_commence_ms, prop_now, no_bid_dollars="0.4500",
+        )
+        rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM recommendations WHERE ticker LIKE 'KXMLBKS-%'"
+        ).fetchone()
+        assert rows["n"] > 0, counts.as_dict()

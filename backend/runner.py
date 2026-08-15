@@ -77,6 +77,7 @@ from .config import (
     RiskConfig,
 )
 from .core.devig import DevigError, consensus_devig
+from .core.prices import is_valid_price
 from .core.suppression import ALL_CHECK_NAMES, SuppressionConfig
 from .engine import (
     Candidate,
@@ -867,7 +868,25 @@ def _price_prop_event(
             side_outcome = "Over" if side == "yes" else "Under"
 
             ask = ask_for_side(quote, side)
-            if ask is None:
+            # **`is_valid_price`, not just `is not None`, and a prop ladder is
+            # why.** 0 and 1000 tenths are settled outcomes rather than quotes,
+            # and `core/ev.effective_price` refuses them: an ask of 0 yields a
+            # zero fee and an effective price of $0.00, which reports a
+            # breakeven win rate of 0% and a fabricated edge.
+            #
+            # The team path checks only for `None` and has never tripped this,
+            # because a game moneyline does not reach 0 or 1000 while it is
+            # still pre-game and open. **A prop ladder reaches both routinely.**
+            # Kalshi prices every rung from `2+` to `9+`, so the far end of a
+            # ladder is a market nobody will trade: the NO bid sits at 1000 and
+            # the derived YES ask is therefore 0.
+            #
+            # Measured, not predicted: this raised `ValueError` on the first
+            # live pass that priced props (19:41:53Z, 2026-08-15), which aborted
+            # the **whole** pricing pass -- moneyline rows included -- and would
+            # have repeated every full pass, because a failed full pass is
+            # retried rather than counted as done.
+            if not is_valid_price(ask):
                 counts.dropped_no_kalshi_quote += 1
                 continue
 
