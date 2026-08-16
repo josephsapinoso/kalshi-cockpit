@@ -1,5 +1,170 @@
 # Next — your checklist
 
+## 2026-08-16 (~21:05Z) — LIVE WENT DOWN FOR 54 MIN (VOLUME FULL). FIXED. AND THE FEE IS 2x TOO HIGH.
+
+`origin/main` at **`454eae3`**, live at **machine v51**, schema **v9**.
+**2,859 tests pass, 10 xfailed, ruff clean.** Re-verify; do not inherit.
+
+### ⚠ READ FIRST: the biggest number in the repo is uncorrected
+
+`partner` found it, and it outranks everything else here.
+
+**`backend/core/fees.py:113` still holds `TAKER_COEFFICIENT = 0.07`, and the
+measured `k` is 0.035.** We charge exactly **2x** Kalshi's real fee on
+`KXMLBGAME`/`KXMLBSPREAD`, which is ~90% of the record. At 50c that is **8.75
+tenths of a cent charged against every baseball row that does not exist** —
+against observed edges of 3.5–5.5 tenths and suppression thresholds of
+0.87–1.59 tenths. **The fee error is larger than every threshold in the system
+combined.**
+
+`CLAUDE.md`'s stated reason for holding 0.070 — "*which* attribute carries the
+split is unresolved" — **is a non-reason for the series in our record**:
+H-SERIES and H-SPORT both survived, and for `KXMLBGAME`/`KXMLBSPREAD` *both give
+0.035*. The ambiguity is real and does not bite here.
+
+And the trigger already fired.
+`docs/measurements/2026-08-14-fee-rate-attribution-round-three-result.md`
+returned **FULL, B4 NOT DETECTED**, which is ADR 0023 §7 branch (a) — "the call
+is then made on that verdict, in a new ADR". **No such ADR was ever written.**
+
+**Lane 0 is already done, so this is unblocked.** The ordering constraint was to
+pin the CLV population before the fee moves; that dump is committed at
+`docs/measurements/2026-08-16-decision-dump.json.gz` (10,288 rows, not
+truncated, taken 21:00Z). Go.
+
+### The outage, and what it taught
+
+19:51Z → 20:45Z. The 1GB volume hit 100%; `cockpit.db` was 879 MiB of it. The
+boot died in `migrate_db.py` one second in and crash-looped to Fly's cap.
+
+**Fixed non-destructively**: `fly.live.toml` now auto-extends (80% / +1GB / 5GB
+cap). Volume went 974 MiB → 1.9 GiB, free 0 → 967 MiB. Nothing deleted.
+Full writeup: `docs/measurements/2026-08-16-volume-full-incident.md`.
+
+Three instruments exist now that did not: `scripts/inspect_live_disk.py`,
+`MAINTENANCE_HOLD=1` in the entrypoint, and `inspect_live_db.py db-sizes`.
+The reason all three were needed is the lesson: **ssh needs a running machine,
+and every committed inspector runs through ssh — so the diagnosis tooling was
+locked inside the failure.**
+
+**One thing needs a decision.** `unmatched_events` is **275.6 MB, 31% of the
+database, and nothing anywhere prunes it.** It is the linker's work queue —
+free-text reason per row, `resolved` flag, no retention rule in any module.
+`freelist_count` is 0, so VACUUM reclaims nothing today. This is why the 5GB
+cap is a real ceiling and not a formality.
+
+### `actionable` is 3, and it is NOT news
+
+Audited (`docs/measurements/2026-08-16-actionable-population-audit-result.md`).
+The headline is a correction:
+
+- **The first actionable row was written 2026-08-15T19:52:14Z**, not 08-16. Both
+  explanations in the previous entry required the 17:32Z staleness deploy as
+  cause. Both are dead.
+- **Three ADRs asserted "actionable has been 0 for the life of the record" and
+  each was false when written.** They are now annotated in place. `CLAUDE.md`
+  and `gate.py`'s docstring are corrected.
+- **3 rows = 2 claims = 2 games**, largest contributor 67%.
+- **All three are `anchored_on_sharp = 0`** — soft-book consensus by silent
+  fallback. ADR 0021 measured 423 such rows producing 0 actionable.
+  **Treat 3 as unseparated from zero.**
+
+### THE NEXT MEASUREMENT, and it is powered
+
+The audit named the separating test: split the unsuppressed population by
+`anchored_on_sharp`. From the pinned dump, counts only:
+
+```
+unsuppressed          3,240 rows
+  anchored=0          1,466 rows across  88 games
+  anchored=1          1,774 rows across 139 games
+  scored              1,320 / 1,746
+```
+
+Both arms are large. **This needs `pre-registrar` before anyone computes a
+rate** — it has a decision rule attached and the data is already in hand, which
+is exactly the contamination risk pre-registration exists for.
+
+Note it also refutes a lazy reading: sharp books DO quote, on more than half the
+record. 3-for-3 in the unanchored arm against that base is suggestive.
+
+### Joe's question: "3 of 10,279 is so low, we'll never find anything"
+
+`sharp-bettor` answered at length. Short version:
+
+- **The denominator is wrong.** 10,279 is price *observations*
+  (`persist_if_changed`), not chances to bet. Poll every 90s instead of 900s and
+  the "hit rate" drops 10x with nothing about the market changing. Per *game
+  cluster* it is ~1.4%, which is a normal screen rate.
+- **The real number is worse: against a sharp reference it is zero.** All three
+  are soft-fallback rows.
+- **It was structurally guaranteed.** `SHARP_BOOKS` is Pinnacle/Betfair/
+  Matchbook — the three books on earth most plausibly as sharp as Kalshi. We
+  built a careful machine to ask "do two efficient prices disagree?"
+- **The recommendation: build an opinion.** An in-house MLB prop model —
+  expected plate appearances from the confirmed lineup slot, pricing the whole
+  Kalshi ladder. Zero Odds API credits (Kalshi is unmetered). It is the only
+  proposal that can *add* rows rather than filter them.
+- **NFL preseason expires ~Sept 1** and is the softest board of the year.
+
+**`partner` disagrees on funding it, and the disagreement is precise:** an
+information signal changes `fair_probability` but moves neither validation
+denominator (outcome scoring needs G≈26,500; CLV needs 300 actionable games).
+Its call: **beta gates the information line.** Register the CLV pass-through
+coefficient first; if beta is clearly positive, the signal is real and adding
+information becomes measurable. If beta ≤ 0 at G=186, take ADR 0021 option A
+and stop. Current raw uncontrolled slopes are **−0.046 and −0.064** — not good
+news, and stale.
+
+**`partner` also rules the 300-game gate a fiction as a plan** (2 actionable
+games out of ~143; MLB ends in ~6 weeks). It stays as an interlock. **No roadmap
+may depend on the gate opening.**
+
+### The scratch rule — checked, and the plan survives
+
+`sharp-bettor` flagged it as potentially fatal. Kalshi's `rules_secondary`:
+a scratched player resolves the market **to the fair market price** — not NO,
+not a stake refund. So a pre-lineup prop price is conditional on the player
+starting, same as a voided book prop, and book-derived comparison is not broken
+at the root.
+
+Two catches: it is a mark-to-market exit, not a refund, so adverse movement is
+yours; and nothing defines *how* "fair market price" is set — a discretionary
+term you cannot model. `rules_primary` carries none of this and implies the
+opposite, and **nothing in `backend/kalshi/` reads `rules_secondary`.**
+Three of five series unread.
+`docs/measurements/2026-08-16-prop-scratch-settlement-rule.md`.
+
+### Closed this session
+
+- **Prop one-sided recovery: UNMEASURABLE, permanently.** 41,827 rungs dumped;
+  **0 of 35,448 alternate rungs was ever quoted two-sided**, so there is no
+  held-out set and never will be. Control: the same query yields 3,940
+  two-sided *primaries*, so it is the feed, not a parser.
+  `docs/measurements/2026-08-16-prop-onesided-recovery-result.md`. **Kill it.**
+- The documented dump command carried `--limit 20000` against a 41,827-row
+  record. `load_rungs` refuses truncated dumps, so it could not have produced a
+  wrong number — but it could not have finished the job either.
+
+### Three defects with one cause, still open
+
+`surfaced` (`engine.py:95-96`) keys on `suggested_contracts`, which is 0 at the
+deployed $100 bankroll. Consequences: **the Skeptic agent has never fired and
+structurally cannot**; `ev_net_dollars` is a structural `0.0` on every
+actionable row (never average it); and the Board prints "No edge." on rows the
+gate counts as bets. `partner`'s call: **fix the definition, not the deposit** —
+key `surfaced` on `reference_contracts`, keep the *order path* on
+`suggested_contracts`. Do not deposit.
+
+### Also still owed
+
+- `credits-day --date 20260817` tomorrow. Only a cluster **opening** proves the
+  ADR 0032 saving; today mixes pre- and post-switch spend.
+- 306 tickers pending re-scoring, 135 already started, ~270 candlestick requests
+  per full pass, no retirement rule.
+- **Kill the outcome-scored leadership test.** `partner`: it needs G≈26,535
+  (eleven MLB seasons) and its paired sign test is non-discriminating at any n.
+
 ## 2026-08-16 (~19:20Z) — ⚠ `actionable` IS NO LONGER 0. AUDIT IT BEFORE ANYTHING ELSE.
 
 Read from `clv-coverage` on the **live** instance at 19:17:41Z. Not inferred.
