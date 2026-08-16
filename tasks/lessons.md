@@ -7141,3 +7141,65 @@ reader finds the table anyway, and it cannot be spliced into invalid SQL by a
 `DROP COLUMN` three schema versions from now.
 
 Related: [[a-guard-copied-from-a-neighbouring-path-inherits-its-assumptions]].
+
+---
+
+## A default is not the behaviour, because the caller may override it — and relaying to Joe is publication
+
+**2026-08-16.** Four agents were convened to review the product. I relayed three
+of their findings to Joe before checking any of them. All three were wrong, and
+in the same direction: they made the product sound more broken than it is.
+
+| Relayed | Actual |
+|---|---|
+| "Rejected rows aren't sent — you're seeing a blank screen" | `routes.py` defaults `include_suppressed=False`, but `app/page.tsx:34` sets `showRejected = params.rejected !== "0"` — **true by default**. They are sent. |
+| "The screen hides the distance, it only shows a verdict" | `SlateRow.tsx:96` prints `edge_cents` on every row. The distance is on screen. |
+| "`/api/suppression` has no frontend consumer" | `app/rejections/page.tsx` is a whole page built on it, with prose for every check name. |
+
+**The first two share one shape, and it is the general lesson: a default read at
+one layer is not the behaviour, because the layer above may override it.** The
+agent read the endpoint and reported the endpoint. The endpoint's default is
+genuinely `False`. The page passes `True`. Both readings are correct about their
+own layer and only one of them is about what Joe sees.
+
+This is the mirror of
+[[an-absent-environment-variable-means-the-default-applies]]. There, a *missing*
+value was read as the feature being off when it meant the default applied. Here
+a *present* default was read as the behaviour when a caller overrode it. Same
+error, opposite sign: **a default is a fact about a signature, never about a
+system.** The question is always "who calls this, and with what?" — and the
+answer is one `grep` for the parameter name across the callers.
+
+**The third is not a layer error, it is a transmission error, and it is mine.**
+The agent's actual finding was that `no_edge` is *sorted by freshness*
+(`routes.py:709`), so near-misses are scattered among hopeless rows. I relayed
+that as "the distance isn't shown". Sorting and display are different claims
+with different fixes, and I substituted the more dramatic one. **When compressing
+a finding, the thing most likely to be lost is the qualifier that made it
+narrow.**
+
+**Why it is worth an entry when `a-subagents-confident-negative` already
+exists.** That entry is about *negatives*, and about re-running them *before
+acting*. Two of these were positives about defaults, and I did not act on them —
+I *said* them. Saying them was the harm. A claim spoken to Joe acquires an
+authority it never earned: he cannot re-run it, it arrives without the file:line
+that would let him, and he will reasonably plan around it. **Relaying is
+publication, and the measurement rules apply to it.** `CLAUDE.md` requires an
+audit before a number enters the record; a sentence to the principal enters a
+record too, and a faster-moving one.
+
+**How to apply.** Before repeating a delegated finding to Joe: for every claim
+of the form "X is not shown / not called / not sent", run the one command that
+would refute it — `grep` the caller, not the definition. It costs seconds. And
+when a finding cites a file:line, quote the line rather than the conclusion; a
+line cannot be dramatised and a conclusion can.
+
+**The one that was right is the one I checked.** The prop-schedule change
+(ADR 0032) rested on a claim I verified myself in `gate.py:424-428` before
+building anything, and it survived. That is the whole difference, and it took
+two minutes.
+
+Related: [[a-subagents-confident-negative-is-the-one-result-you-must-re-run-yourself]],
+[[the-rule-about-other-agents-confident-negatives-applies-to-your-own]],
+[[an-absent-environment-variable-means-the-default-applies]],
+[[built-but-never-called]].

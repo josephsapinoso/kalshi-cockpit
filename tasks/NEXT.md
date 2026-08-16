@@ -1,5 +1,92 @@
 # Next — your checklist
 
+## 2026-08-16 (~19:30Z) — PROPS ARE OFF THE SCHEDULE. THE FUNNEL IS SPEC'D. ONE DUMP STILL NEEDS A LAPTOP.
+
+`origin/main` at **`9b68b24`**, live at **machine v43**, schema **v9**.
+**2,825 tests pass, 10 xfailed, ruff clean, `npm run build` clean.** Re-verify.
+
+### What shipped, in order of how much it changes
+
+1. **ADR 0030 + 0031 deployed** (v41, v42) — the rolling refresh, and the
+   on-demand refresh button. Verified firing on the live box: odds go 9.6min ->
+   refresh -> 2.4min, window held open.
+2. **ADR 0032 deployed** (v43) — **scheduled prop buying is OFF**.
+   `ODDS_BUY_PROPS_ON_SCHEDULE=false` in `fly.live.toml`. A cluster costs ~42
+   credits instead of ~302; the day buys ~14 clusters instead of 2.
+3. **ADR 0033 written, no code** — the limit price and the maker question.
+
+### Why props came off, and the one thing that would argue against it
+
+`gate.py:424-428`: *"props collapse onto their game rather than forming clusters
+of their own."* A prop row on a game that already has a moneyline row is not an
+independent observation, so **86% of the bill bought no progress toward the
+300-game floor** — the binding constraint on the whole project.
+
+**Unmeasured, and it is the counter-argument:** a game whose *only* priced row
+is a prop would contribute a cluster the moneyline did not. On the six fixtures
+observed 2026-08-15 that never happened, but n is six. `clv-coverage` section A
+settles it. Read it before calling this closed.
+
+### ⚠ THREE CLAIMS WERE RELAYED TO JOE AND WERE WRONG
+
+Recorded in `tasks/lessons.md` under *"A default is not the behaviour"*. They
+matter here because a future session may find them in the transcript:
+
+- **"Rejected rows are not sent to the screen"** — FALSE. `app/page.tsx:34`
+  defaults `showRejected` to **true**.
+- **"The screen hides the distance"** — FALSE. `SlateRow.tsx:96` prints
+  `edge_cents` on every row.
+- **"`/api/suppression` has no frontend consumer"** — FALSE. `app/rejections/`
+  is a whole page on it. It is out of the nav **deliberately** (`Nav.tsx:20-27`).
+
+**What actually survives:** `routes.py:709` sorts `no_edge` by *freshness*, so
+near-misses scatter among hopeless rows. That is a sorting gap, not a display
+one, and re-sorting by edge would re-open a decision that comment records as
+deliberate — do not just change it.
+
+### The fleet's verdict on the tiered funnel, so it is not re-argued
+
+Four agents, independently: **a funnel cannot find an edge.** Stage 1 is a
+subset selector and the set is already empty; narrowing an empty set leaves it
+empty. The 200 `no_edge` prop rows had fresh odds and produced post-fee edge
+<= 0. `no_edge` is an **outcome** (`gate.py:324`), not a guard, so no threshold
+and no deeper look moves one into a bet.
+
+**And a naive stage-1 screen would be actively harmful.** Shortlisting on
+apparent edge selects rows where devig method choice ran most favourably; the
+method spread is 1-2 points, wider than the whole fee advantage. That is a
+winner's curse, not a coin flip. Any automatic promoter must be pre-registered
+and must select on something that is **not a function of (fair, ask)**.
+
+### ⏳ STILL OWED — needs a laptop
+
+`flyctl ssh console` was refused by the classifier on both attempts, and `!`
+does not execute from Joe's phone. `flyctl status`, `flyctl logs --no-tail`,
+`gh workflow run` and `git push` all work.
+
+1. **The prop-rungs dump, still a ONE-SHOT.** Take it soon — props are no longer
+   accumulating on a schedule, so the record stops growing from here.
+
+   ```
+   flyctl ssh console -a kalshi-cockpit      -C "python /app/scripts/inspect_live_db.py prop-rungs --json --limit 20000" > dump.json
+   .venv\Scripts\python.exe scripts/analyze_prop_onesided.py dump.json
+   ```
+
+2. **The free falsification query, zero credits:** distribution of
+   (`edge_tenths` - required bar), split by `market_type`, over the already
+   scored rows. If nothing sits near the bar, no funnel and no deep dive closes
+   it. If a band does, that band names the prospect definition. **No instrument
+   exists for this yet** — it needs a `clv-coverage`-style query added to
+   `inspect_live_db.py` before it can be run under the governance rule.
+
+3. **`clv-coverage` section A**, for the props-contribute-no-cluster caveat.
+
+### The demo is behind
+
+`kalshi-cockpit-demo` is on an older image and lacks the refresh panel. It is
+the portfolio link. Cosmetic; Joe has not asked for it.
+
+
 ## 2026-08-16 (~18:20Z) — THE REFRESH IS DEPLOYED AND FIRING. TWO THINGS STILL NEED JOE'S HANDS.
 
 `origin/main` at **`96918ea`**, live at **machine v42**, schema migrated
