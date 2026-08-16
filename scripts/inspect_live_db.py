@@ -332,6 +332,76 @@ _SQL_PROP_BOOKMAKERS = (
 
 
 # ---------------------------------------------------------------------------
+# The prop rung dump, for the one-sided recovery registration.
+#
+# Registered at
+# `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
+# §8 of that document is why this emits **rows and not a verdict**: this script
+# is explicitly not a measurement harness, so every quantity the decision rule
+# reads is computed by `scripts/analyze_prop_onesided.py` on a laptop, from
+# this query's `--json`, where the derivation is reviewable beside the rule it
+# feeds.
+#
+# One row per rung -- `(event, bookmaker, base_market, feed, player, point)` --
+# with the two sides pivoted into columns. The pivot is a **reshape, not a
+# statistic**: `MAX(CASE ...)` picks the single price for a side that should
+# have exactly one, and `quote_rows` is carried precisely so the analyzer can
+# see when it did not. A rung with `quote_rows > 2` is a book quoting a side
+# twice in one sweep, which §3 excludes as a finding about the store rather
+# than averaging away here.
+#
+# **`price_decimal <= 1.0` is deliberately NOT filtered.** §3 makes that an
+# exclusion that must be *counted*, and a row this query never emits cannot be
+# counted by the thing that applies the rule.
+#
+# `_alternate` is folded onto its primary the way `kalshi/props.base_market`
+# folds it, by exact suffix rather than `LIKE` -- 10 is `len("_alternate")`.
+# The feed itself is kept as `is_alternate` because §4.2 needs the primary and
+# alternate rungs of one book/player/market told apart, and a fold that lost
+# it would destroy the input to the recovery it is meant to enable.
+#
+# `latest` is computed per fixture, so a slate swept at different times still
+# contributes each fixture's own most recent sweep -- the rule
+# `prop_quotes_for_event` follows, and for the same reason: mixing sweeps pairs
+# a fresh price with an old one and calls the disagreement margin.
+_SQL_PROP_RUNGS = (
+    "WITH prop AS ("
+    "  SELECT odds_event_id, bookmaker, market, outcome_name, "
+    "         outcome_description, outcome_point, price_decimal, fetched_ms "
+    "  FROM odds_snapshots WHERE outcome_description IS NOT NULL"
+    "), "
+    "latest AS ("
+    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM prop "
+    "  GROUP BY odds_event_id"
+    ") "
+    "SELECT p.odds_event_id AS odds_event_id, "
+    "  p.bookmaker AS bookmaker, "
+    "  CASE WHEN substr(p.market, -10) = '_alternate' "
+    "       THEN substr(p.market, 1, length(p.market) - 10) "
+    "       ELSE p.market END AS base_market, "
+    "  CASE WHEN substr(p.market, -10) = '_alternate' "
+    "       THEN 1 ELSE 0 END AS is_alternate, "
+    "  p.outcome_description AS player, "
+    "  p.outcome_point AS point, "
+    "  MAX(CASE WHEN p.outcome_name = 'Over' THEN p.price_decimal END) "
+    "    AS over_price, "
+    "  MAX(CASE WHEN p.outcome_name = 'Under' THEN p.price_decimal END) "
+    "    AS under_price, "
+    "  COUNT(*) AS quote_rows, "
+    "  p.fetched_ms AS fetched_ms "
+    "FROM prop p JOIN latest l "
+    "  ON l.odds_event_id = p.odds_event_id AND l.m = p.fetched_ms "
+    "WHERE p.outcome_name IN ('Over', 'Under') "
+    "  AND p.outcome_point IS NOT NULL "
+    "  AND (:event IS NULL OR p.odds_event_id = :event) "
+    "GROUP BY p.odds_event_id, p.bookmaker, base_market, is_alternate, "
+    "         p.outcome_description, p.outcome_point "
+    "ORDER BY p.odds_event_id, p.bookmaker, base_market, is_alternate, "
+    "         p.outcome_description, p.outcome_point"
+)
+
+
+# ---------------------------------------------------------------------------
 # Q-W: the WNBA band-and-depth reachability query.
 #
 # Registered at
@@ -662,6 +732,35 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+def _q_prop_rungs(conn: sqlite3.Connection, args) -> list[Section]:
+    """Raw prop rungs, two sides pivoted, for the one-sided recovery run.
+
+    **Truncation is the failure mode to watch here, and it is not silent.** The
+    live record held ~16,000 prop quotes on 2026-08-15, several times the
+    default cap, so a whole-record dump WILL truncate and will say so. The
+    registered analysis reads one sweep per fixture and needs every rung of the
+    fixtures it reads, so the intended use is either `--odds-event-id` per
+    fixture or an explicitly raised `--limit`. A truncated dump is not a
+    smaller sample of the population -- `ORDER BY` makes it the alphabetical
+    front of it -- and `analyze_prop_onesided.py` refuses one outright rather
+    than reporting a verdict over a prefix.
+    """
+    event = args.odds_event_id
+    scope = f"odds_event_id = {event}" if event else "all fixtures"
+    return [
+        _fetch(
+            conn,
+            _SQL_PROP_RUNGS,
+            {"event": event},
+            title=(
+                "odds_snapshots: prop rungs at the latest sweep per fixture "
+                f"({scope})"
+            ),
+            cap=args.limit,
+        )
+    ]
+
+
 @dataclass(frozen=True)
 class QWVerdict:
     """One series' Q-W counts and whether they activate `W`.
@@ -875,6 +974,14 @@ QUERIES: dict[str, QueryDef] = {
         "of every 20-credit prop event buying nothing?",
         _q_prop_bookmakers,
     ),
+    "prop-rungs": QueryDef(
+        "Raw player-prop rungs at the latest sweep per fixture, one row per "
+        "(event, book, base_market, feed, player, point) with Over and Under "
+        "pivoted into columns. Emits rows, not a verdict: the registered "
+        "arithmetic lives in scripts/analyze_prop_onesided.py. Narrow with "
+        "--odds-event-id, or raise --limit; the whole record truncates.",
+        _q_prop_rungs,
+    ),
     "kalshi-quotes-band": QueryDef(
         "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "
         "reachable at >= 80% of pre-game polling instants across >= 8 events, "
@@ -1018,6 +1125,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1564,
         help="recommendations.id ceiling for the *-for-pull queries (default 1564)",
+    )
+    parser.add_argument(
+        "--odds-event-id",
+        default=None,
+        help=(
+            "restrict prop-rungs to one Odds API fixture. Default None means "
+            "every fixture, which will truncate on a full slate"
+        ),
     )
     parser.add_argument(
         "--limit",

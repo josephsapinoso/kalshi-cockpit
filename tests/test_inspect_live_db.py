@@ -68,6 +68,7 @@ from scripts.inspect_live_db import (
     _fetch,
     _iso,
     _q_kalshi_quotes_band,
+    _q_prop_rungs,
     _qw_verdict,
     connect_readonly,
     main,
@@ -762,10 +763,17 @@ def _no_bid_for(ask: int) -> int:
 
 
 class _Args:
-    """The one attribute `_q_kalshi_quotes_band` reads off argparse's namespace."""
+    """The argparse attributes the handlers under test read off the namespace.
 
-    def __init__(self, limit: int) -> None:
+    `odds_event_id` defaults to `None` here for the same reason the flag
+    defaults to `None` in the parser: `prop-rungs` unfiltered means every
+    fixture, and a test that had to pass the filter explicitly would never
+    exercise the unfiltered path the live run actually takes.
+    """
+
+    def __init__(self, limit: int, odds_event_id: Any = None) -> None:
         self.limit = limit
+        self.odds_event_id = odds_event_id
 
 
 def _qw_db(tmp_path, quotes, events=(("E1", "KXWNBAGAME", QW_COMMENCE_MS),)):
@@ -1276,3 +1284,419 @@ class TestTheEventSectionReportsWhatQWDoesNotFilterOn:
         )
         idx = section.columns.index("non_linear_cent_quotes")
         assert section.rows[0][idx] == 0
+
+
+# ---------------------------------------------------------------------------
+# `prop-rungs`: the raw dump behind
+# `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
+#
+# Every claim below is about SHAPE, not about any number. The registration puts
+# all arithmetic in `scripts/analyze_prop_onesided.py` precisely so this script
+# stays a reader, and these tests inherit that split: they pin what the rows
+# are, never what they mean.
+# ---------------------------------------------------------------------------
+
+
+def _prop_db(tmp_path, rows: list[tuple]) -> Path:
+    """A schema-built database holding only `odds_snapshots` prop rows.
+
+    `rows` are `(fetched_ms, odds_event_id, bookmaker, market, outcome_name,
+    outcome_description, outcome_point, price_decimal)`. Everything else on the
+    table is NOT NULL filler, held constant so no test here can accidentally be
+    about the team columns.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    conn.executemany(
+        "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
+        "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
+        "outcome_name, outcome_description, outcome_point, price_decimal) "
+        "VALUES (?, ?, 'baseball_mlb', ?, 9, 'H', 'A', ?, ?, ?, ?, ?, ?)",
+        [
+            (fetched, fetched, event, book, market, side, player, point, price)
+            for (fetched, event, book, market, side, player, point, price) in rows
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _rungs(path: Path, event=None, limit: int = 2000) -> Section:
+    conn = connect_readonly(str(path))
+    try:
+        sections = _q_prop_rungs(conn, _Args(limit=limit, odds_event_id=event))
+    finally:
+        conn.close()
+    assert len(sections) == 1
+    return sections[0]
+
+
+def _as_dicts(section: Section) -> list[dict[str, Any]]:
+    return [dict(zip(section.columns, row)) for row in section.rows]
+
+
+class TestTheTwoSidesOfARungBecomeOneRow:
+    """Over and Under of one rung pivot into one row, not two.
+
+    Mutation: drop `is_alternate` or `outcome_point` from `_SQL_PROP_RUNGS`'s
+    `GROUP BY`, or replace the `MAX(CASE ...)` pivot with `p.price_decimal`.
+    """
+
+    def test_one_row_carries_both_prices(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "draftkings", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+                (100, "EV1", "draftkings", "batter_hits", "Under", "A Judge", 1.5, 2.0),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 1
+        assert rows[0]["over_price"] == 1.9
+        assert rows[0]["under_price"] == 2.0
+        assert rows[0]["quote_rows"] == 2
+
+    def test_a_one_sided_rung_carries_a_null_under_not_a_zero(self, tmp_path):
+        """The whole population this registration exists for.
+
+        `None`, never `0.0`: a book that did not quote the Under has not quoted
+        an infinitely long price, and this repo's rule that unreadable resolves
+        to `None` is what keeps the analyzer refusing rather than substituting.
+        """
+        path = _prop_db(
+            tmp_path,
+            [
+                (
+                    100,
+                    "EV1",
+                    "fanduel",
+                    "batter_hits_alternate",
+                    "Over",
+                    "A Judge",
+                    2.5,
+                    3.4,
+                ),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 1
+        assert rows[0]["under_price"] is None
+        assert rows[0]["over_price"] == 3.4
+
+    def test_two_points_are_two_rungs(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 2.5, 3.4),
+            ],
+        )
+        assert len(_rungs(path).rows) == 2
+
+
+class TestTheAlternateFeedFoldsButStaysDistinguishable:
+    """`base_market` folds `_alternate`; `is_alternate` keeps the feeds apart.
+
+    Both halves are load-bearing and they pull in opposite directions. The fold
+    is what lets a book's primary overround be found for the same
+    `(book, player, base_market)` as its alternate rungs -- §4.2 of the
+    registration. The flag is what stops a primary rung and an alternate rung
+    at the same point from merging into one, which would destroy the held-out
+    validation set the whole measurement runs on.
+
+    Mutation: drop the `substr(p.market, -10)` fold, or drop `is_alternate`
+    from the `GROUP BY`.
+    """
+
+    def test_the_alternate_suffix_is_stripped_from_base_market(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (
+                    100,
+                    "EV1",
+                    "fanduel",
+                    "pitcher_strikeouts_alternate",
+                    "Over",
+                    "C Holmes",
+                    7.5,
+                    2.2,
+                ),
+            ],
+        )
+        row = _as_dicts(_rungs(path))[0]
+        assert row["base_market"] == "pitcher_strikeouts"
+        assert row["is_alternate"] == 1
+
+    def test_a_primary_market_is_not_flagged_alternate(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (
+                    100,
+                    "EV1",
+                    "fanduel",
+                    "pitcher_strikeouts",
+                    "Over",
+                    "C Holmes",
+                    5.5,
+                    1.8,
+                ),
+            ],
+        )
+        row = _as_dicts(_rungs(path))[0]
+        assert row["base_market"] == "pitcher_strikeouts"
+        assert row["is_alternate"] == 0
+
+    def test_the_same_point_on_both_feeds_stays_two_rows(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (
+                    100,
+                    "EV1",
+                    "fanduel",
+                    "pitcher_strikeouts",
+                    "Over",
+                    "C Holmes",
+                    5.5,
+                    1.8,
+                ),
+                (
+                    100,
+                    "EV1",
+                    "fanduel",
+                    "pitcher_strikeouts_alternate",
+                    "Over",
+                    "C Holmes",
+                    5.5,
+                    1.9,
+                ),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 2
+        assert {r["is_alternate"] for r in rows} == {0, 1}
+        assert {r["base_market"] for r in rows} == {"pitcher_strikeouts"}
+
+
+class TestOnlyTheLatestSweepPerFixtureIsRead:
+    """Mixing sweeps pairs a fresh price with an old one and calls it margin.
+
+    The same rule `prop_quotes_for_event` follows, for the same reason. The
+    per-fixture `MAX` rather than a global one is the part that matters: two
+    fixtures swept at different times must each contribute their own latest.
+
+    Mutation: change `latest`'s `GROUP BY odds_event_id` to a bare
+    `SELECT MAX(fetched_ms)` over the whole table.
+    """
+
+    def test_an_older_sweep_of_the_same_fixture_is_absent(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.5),
+                (200, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 1
+        assert rows[0]["over_price"] == 1.9
+        assert rows[0]["fetched_ms"] == 200
+
+    def test_each_fixture_keeps_its_own_latest(self, tmp_path):
+        """EV2's only sweep is older than EV1's, and survives anyway."""
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV2", "fanduel", "batter_hits", "Over", "G Torres", 0.5, 1.4),
+                (300, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert {r["odds_event_id"] for r in rows} == {"EV1", "EV2"}
+
+
+class TestTheFixtureFilterNarrowsWithoutMovingTheSweep:
+    """`--odds-event-id` restricts output; unfiltered still means everything.
+
+    Mutations: drop the `p.odds_event_id = :event` half of the predicate (the
+    filtered test goes red) or drop the `:event IS NULL OR` half (the
+    unfiltered test goes red). Both halves are needed and each is pinned by a
+    different test.
+
+    **A mutation this class deliberately does NOT claim to catch:** moving the
+    predicate into the `prop` CTE. It looks dangerous -- `latest` would then be
+    computed over a filtered population -- but `latest` groups by
+    `odds_event_id`, so no surviving fixture's maximum can move. It is a
+    refactor, not a defect, and saying otherwise here would be a mutation
+    nobody could ever see go red.
+    """
+
+    def test_a_filtered_run_returns_only_that_fixture(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+                (100, "EV2", "fanduel", "batter_hits", "Over", "G Torres", 0.5, 1.4),
+            ],
+        )
+        rows = _as_dicts(_rungs(path, event="EV1"))
+        assert [r["odds_event_id"] for r in rows] == ["EV1"]
+
+    def test_the_unfiltered_run_returns_both(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+                (100, "EV2", "fanduel", "batter_hits", "Over", "G Torres", 0.5, 1.4),
+            ],
+        )
+        assert len(_rungs(path).rows) == 2
+
+    def test_a_fixture_that_is_not_there_returns_zero_rows_not_everything(
+        self, tmp_path
+    ):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+            ],
+        )
+        assert _rungs(path, event="NOPE").row_count == 0
+
+    def test_the_title_names_the_scope_it_ran_at(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+            ],
+        )
+        assert "EV1" in _rungs(path, event="EV1").title
+        assert "all fixtures" in _rungs(path).title
+
+
+class TestTheExclusionsAreLeftForTheAnalyzerToCount:
+    """§3 makes these exclusions *counted*. A row never emitted cannot be.
+
+    This is the test most likely to be "fixed" by a future reader who sees that
+    a price of 1.0 is obviously garbage and filters it at the source. It is
+    garbage, and it must still arrive, because the registration requires the
+    count of it to be reported.
+
+    Mutation: add `AND p.price_decimal > 1.0` to `_SQL_PROP_RUNGS`.
+    """
+
+    def test_a_price_at_or_below_one_still_reaches_the_dump(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.0),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 1
+        assert rows[0]["over_price"] == 1.0
+
+    def test_a_duplicated_side_is_visible_rather_than_averaged(self, tmp_path):
+        """`quote_rows` is how §3's "same side twice" exclusion is detectable.
+
+        Two Over rows for one rung give `quote_rows == 3` alongside a single
+        Under, so the analyzer can drop the rung as a finding about the store.
+        Without the column the duplicate is silently absorbed by `MAX`.
+        """
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 1.9),
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", 1.5, 2.1),
+                (100, "EV1", "fanduel", "batter_hits", "Under", "A Judge", 1.5, 2.0),
+            ],
+        )
+        rows = _as_dicts(_rungs(path))
+        assert len(rows) == 1
+        assert rows[0]["quote_rows"] == 3
+
+    def test_a_rung_with_no_point_is_dropped(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", None, 1.9),
+            ],
+        )
+        assert _rungs(path).row_count == 0
+
+    def test_an_outcome_that_is_neither_side_is_dropped(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Yes", "A Judge", 1.5, 1.9),
+            ],
+        )
+        assert _rungs(path).row_count == 0
+
+
+class TestTeamMarketsCannotLeakIntoThePropDump:
+    """`outcome_description IS NOT NULL` is the schema's own discriminator.
+
+    Selecting on it rather than on a hardcoded list of the ten prop market keys
+    is what keeps this query from drifting out of step with `PROP_MARKETS` --
+    the same argument `prop-bookmakers` makes.
+
+    Mutation: drop the `outcome_description IS NOT NULL` predicate.
+    """
+
+    def test_an_h2h_row_is_not_a_rung(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "h2h", "Over", None, 1.5, 1.9),
+            ],
+        )
+        assert _rungs(path).row_count == 0
+
+    def test_a_totals_row_with_a_point_is_still_not_a_rung(self, tmp_path):
+        """`totals` has Over/Under AND a point. Only the player separates it."""
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "totals", "Over", None, 8.5, 1.9),
+                (100, "EV1", "fanduel", "totals", "Under", None, 8.5, 2.0),
+            ],
+        )
+        assert _rungs(path).row_count == 0
+
+
+class TestTheDumpTruncatesLoudly:
+    """A prefix of the record must never read as the record.
+
+    The live prop population is several times the default cap, so this path is
+    the expected one rather than an edge case, and `analyze_prop_onesided.py`
+    refuses a truncated dump on the strength of this flag.
+
+    Mutation: `truncated=False` in `_fetch`'s `Section`.
+    """
+
+    def test_a_capped_dump_says_it_was_capped(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", p, 1.9)
+                for p in (0.5, 1.5, 2.5)
+            ],
+        )
+        section = _rungs(path, limit=2)
+        assert section.row_count == 2
+        assert section.truncated is True
+
+    def test_a_dump_inside_the_cap_does_not_claim_truncation(self, tmp_path):
+        path = _prop_db(
+            tmp_path,
+            [
+                (100, "EV1", "fanduel", "batter_hits", "Over", "A Judge", p, 1.9)
+                for p in (0.5, 1.5, 2.5)
+            ],
+        )
+        assert _rungs(path, limit=3).truncated is False
