@@ -247,3 +247,35 @@ def test_the_guards_are_real():
     # the first fails it is violated.
     assert "bettable" not in code.lower()
     assert "bettable" in source(SCHEDULE).lower()
+
+
+class TestTheRangeEndIsDerivedNotAssumed:
+    """The envelope ends at first pitch today — by arithmetic, not by shortcut.
+
+    `slots_for_sport` sets `fire_until = anchor - max_odds_age_ms`
+    (`backend/odds/timing.py`), so `fire_until + max_odds_age_ms` is *exactly*
+    `anchor_commence_ms` on every slot the planner emits. That is the planner's
+    guarantee that a pick surfaced at the last second of the window is still a
+    pre-game bet.
+
+    **Two ways to render that, and only one survives the planner changing.**
+    Reading `anchor_commence_ms` as the range end is simpler and agrees today —
+    and would silently over-promise the moment the planner took a wider lead,
+    because the odds would go stale before the kickoff it was still advertising.
+    The component derives the end from freshness and *compares* it to the
+    anchor, so a wider lead renders two different facts instead of one wrong
+    one.
+    """
+
+    def test_the_range_end_is_not_the_anchor(self, code):
+        assert not re.search(
+            r"lookUntil\s*=\s*s\.anchor_commence_ms", code
+        ), "deriving from freshness is what makes a wider planner lead safe"
+
+    def test_the_two_are_compared_rather_than_assumed_equal(self, code):
+        assert re.search(r"lookUntil\s*>=\s*s\.anchor_commence_ms", code)
+
+    def test_the_kickoff_time_still_renders_when_they_differ(self, code):
+        """The `false` branch must survive, or the comparison is decoration."""
+        assert "first kickoff" in code
+        assert "closes at first pitch" in code

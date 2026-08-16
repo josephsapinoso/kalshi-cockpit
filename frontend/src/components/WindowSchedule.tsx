@@ -89,6 +89,20 @@ export default function WindowSchedule({
           {slots.map((s) => {
             const lookUntil = s.fire_until_ms + freshnessMs;
             const untilStart = s.fire_from_ms - w.now_ms;
+            /* **Today these are the same instant, and saying so beats printing
+               it twice.** `slots_for_sport` sets `fire_until = anchor -
+               max_odds_age_ms`, so the envelope always ends exactly at the
+               first kickoff — which is the planner's guarantee that a pick
+               surfaced at the last possible second is still a pre-game bet.
+               The first render of this component showed "4:51 PM – 5:36 PM …
+               first kickoff 5:36 PM" and read as a bug.
+
+               It is still *derived*, not assumed. If the planner ever took a
+               wider lead the envelope would close before the kickoff, and then
+               the two are different facts and both are shown. Rendering
+               `anchor_commence_ms` as the range end instead would be the
+               shortcut that silently over-promises in that world. */
+            const closesAtFirstPitch = lookUntil >= s.anchor_commence_ms;
             return (
               <li
                 key={`${s.sport_key}-${s.fire_from_ms}`}
@@ -104,11 +118,13 @@ export default function WindowSchedule({
                   {s.games_covered} game{s.games_covered === 1 ? "" : "s"}
                 </span>
                 <span className="text-sm text-muted">{s.sport_key}</span>
-                {/* First kickoff, because it is the deadline the window exists
-                    to beat. A window that closes after the game starts has
-                    priced nothing worth having. */}
+                {/* The deadline the window exists to beat. A window that
+                    closed after the game started would have priced nothing
+                    worth having. */}
                 <span className="text-sm text-muted">
-                  first kickoff {formatClock(s.anchor_commence_ms)}
+                  {closesAtFirstPitch
+                    ? "closes at first pitch"
+                    : `first kickoff ${formatClock(s.anchor_commence_ms)}`}
                 </span>
               </li>
             );
