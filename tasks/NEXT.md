@@ -1,5 +1,150 @@
 # Next — your checklist
 
+## 2026-08-16 (~22:40Z) — BETA IS MEASURED AND NEGATIVE. WE ARE OFF THE GATE. BUILD AN OPINION.
+
+`origin/main` at **`804e4ba`+**, live at **machine v53**, schema **v9**.
+**2,880 tests pass, 10 xfailed, ruff clean.** Re-verify; do not inherit.
+
+### The decision Joe made, and the number behind it
+
+**We stop waiting on the gate.** Joe's call, and it is correct.
+
+`beta` — the CLV pass-through coefficient, this project's registered
+decision-bearing statistic — was computed for the first time on 2026-08-16.
+Until that day **no code in the repo could compute it**, so every plan bound to
+it was bound to a number that did not exist.
+
+```
+G = 199 (registered key)   rows 3,692   P1 coverage 1.0000  PASSES
+beta_hat  -0.1412   se_cluster 0.0478   interval [-0.3342, +0.0517]
+VERDICT   UNRESOLVED   (registered floor is G = 300)
+```
+
+**Why waiting is not work:** `beta` would have to rise **8.3 standard errors**
+for the G = 300 outcome to be anything other than NO SIGNAL. Held at its current
+value, the projection is explicit:
+
+```
+G=250  interval [-0.3037, +0.0213]  UNRESOLVED
+G=300  interval [-0.2835, +0.0011]  NO SIGNAL
+G=350  interval [-0.2690, -0.0134]  NO SIGNAL
+```
+
+**Two things that are NOT being done, and both matter:**
+
+1. **NO SIGNAL is not declared.** The registration forbids declaring below
+   G = 300 and that look has not been taken. UNRESOLVED is the formal verdict
+   and it is a real answer. The look happens on its own in ~2 weeks; the
+   recorder keeps running because it costs nothing.
+2. **The gate is not touched.** It stays exactly where it is as the
+   live-trading interlock. It is never lowered, never bypassed, and "the gate
+   will open" is not a step in any plan.
+
+`docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
+ADR 0034 is annotated; its decision is unchanged.
+
+### What this frees, and it is the whole point
+
+**`backend/analysis/signal_test.py` is signal-agnostic.** It measures the
+pass-through of whatever `edge_tenths` contains, over the **whole scored
+population including suppressed rows**, with no bet placed and no money at risk.
+
+So a **new** signal is validated by the same harness that just refuted the
+consensus one, on the same clock. The standing objection — *"an information
+signal cannot be validated, so do not fund it"* — is dissolved by
+`scripts/run_signal_test.py` existing.
+
+**Work that produces an opinion is now the critical path.**
+
+### THE NEXT BUILD
+
+`sharp-bettor`'s recommendation, now unblocked:
+
+**An in-house MLB prop model.** Expected plate appearances from the confirmed
+lineup slot, times a per-PA rate, pricing the **whole Kalshi ladder** as one
+coherent distribution — then scored against Kalshi's own close by the harness
+above.
+
+Why this one:
+
+- **It gives the tool an opinion instead of a comparison.** The consensus
+  strategy compares Kalshi to Pinnacle/Betfair/Matchbook — the three books most
+  plausibly *as sharp as Kalshi*. That comparison was near-empty by
+  construction, which is what `beta = -0.141` says.
+- **Kalshi prices a ladder; books price a point.** Structural difference in
+  market shape, which is where mispricing lives. A ladder also carries internal
+  constraints (P(1+) >= P(2+) >= …) checkable with **no sportsbook at all**.
+- **Zero Odds API credits.** Kalshi is unmetered.
+- **Prop ladders are too thin for a syndicate.** At $100/week that is an
+  advantage, and it disappears as the bankroll grows.
+
+**Time pressure:** NFL preseason is the softest board of the year and closes
+~Sept 1.
+
+**Checked and clear:** Kalshi's `rules_secondary` settles a scratched player to
+**fair market price** — not NO, not a stake refund. Book-derived comparison is
+not broken at the root.
+`docs/measurements/2026-08-16-prop-scratch-settlement-rule.md`. Two catches: it
+is a mark-to-market exit, not a refund; and nothing defines *how* fair market
+price is set. Three of five series still unread, and **nothing in
+`backend/kalshi/` reads `rules_secondary`**.
+
+### The defect the beta run surfaced, unasked — chase this first
+
+**1,826 of 3,692 rows (49.5%) have a joined quote whose derived ask disagrees
+with the stored `entry_ask_tenths`**, while **0** rows have no quote at all. So
+P1 passes at 1.0000 coverage while half the controls may be joined off the wrong
+instant.
+
+§A8.2 requires these be counted separately and they now are. **It is counted,
+not established as a defect** — the join takes the last quote at or before
+`created_ms`, and a market that moved in between produces this legitimately.
+Whether it biases `gamma_hat` (−0.741, large) and therefore `beta_hat` is
+**unmeasured**. This is the cheapest thing on the board that could move the
+headline number.
+
+### Still true, still open, in priority order
+
+1. **`TAKER_COEFFICIENT = 0.07` is ~2x the measured baseball rate**
+   (`fees.py:113`). ADR 0023 §6 forbids changing `calculate_fee` on round three
+   alone: two of its six requirements — **maker-path coverage** and **its own
+   registration** — are absent. The overcharge is **not conservative**; it
+   suppresses rows that may be real. **One real fill outside the four-day
+   window settles the durability question** and is the cheapest open item in the
+   repo.
+2. **`surfaced` keys on `suggested_contracts`** (`engine.py:95-96`), which is 0
+   at the deployed $100 bankroll. Three defects, one cause: the Skeptic agent
+   has never fired and structurally cannot; `ev_net_dollars` is a structural
+   `0.0` on every actionable row (**never average it**); the Board prints
+   "No edge." on rows the gate counts as bets. Fix the **definition**, not the
+   deposit — key `surfaced` on `reference_contracts`, keep the *order path* on
+   `suggested_contracts`.
+3. **`unmatched_events` is 31% of the database with no retention rule
+   anywhere.** The volume auto-extends now (80% / +1GB / 5GB cap) so it is not
+   urgent, but the 5GB ceiling is real and this is what will hit it.
+4. `credits-day --date 20260817` — only a cluster **opening** proves the
+   ADR 0032 saving.
+5. **Kill the outcome-scored leadership test.** It needs G≈26,535 (eleven MLB
+   seasons) and its paired sign test is non-discriminating at any n.
+
+### Closed, do not reopen
+
+- **Prop one-sided recovery: UNMEASURABLE, permanently.** 0 of 35,448 alternate
+  rungs was ever quoted two-sided, so there is no held-out set and never will
+  be. Control: 3,940 two-sided *primaries* from the same query, so it is the
+  feed and not a parser.
+- **Waiting for the gate to open.** See above.
+
+### The instruments that now exist
+
+`inspect_live_db.py`: `actionable-audit`, `decision-dump`, `clv-signal-pull`,
+`db-sizes`. Plus `scripts/inspect_live_disk.py`, `MAINTENANCE_HOLD=1` in the
+entrypoint, `backend/analysis/signal_test.py` and `scripts/run_signal_test.py`.
+
+Every one was written because a question could not be answered at the moment it
+mattered. That is the pattern worth carrying: **check what can answer the
+question before believing an answer.**
+
 ## 2026-08-16 (~21:05Z) — LIVE WENT DOWN FOR 54 MIN (VOLUME FULL). FIXED. AND THE FEE IS 2x TOO HIGH.
 
 `origin/main` at **`454eae3`**, live at **machine v51**, schema **v9**.

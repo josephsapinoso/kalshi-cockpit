@@ -62,6 +62,42 @@ consensus-only strategy** that produced zero.
 It runs hosted on Fly.io (not a laptop), is used from a phone, and is intended
 to become a public portfolio repo.
 
+## The consensus-only signal has been measured, and it is negative
+
+**Read this before planning anything.** On 2026-08-16 `beta` — the CLV
+pass-through coefficient, the project's registered decision-bearing statistic —
+was computed for the first time:
+
+```
+beta_hat  -0.1412   se_cluster 0.0478   G = 199
+always-valid interval  [-0.3342, +0.0517]
+VERDICT   UNRESOLVED   (the registered floor is G = 300)
+```
+
+Both arms agree (moneyline −0.082, prop −0.519) and every interval computed lies
+entirely below the registered NO-SIGNAL threshold of 0.40.
+`docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
+
+**UNRESOLVED is the formal verdict and may not be reported as "no signal."** The
+registration forbids declaring below G = 300 and that look has not been taken.
+
+**For planning, treat it as settled.** `beta` would have to rise **8.3 standard
+errors** for the G = 300 outcome to be anything but NO SIGNAL. **Waiting for the
+remaining ~101 clusters is not work.** The recorder keeps running because it
+costs nothing and the look happens on its own; no roadmap may depend on it.
+
+**The gate stays exactly where it is.** It is the live-trading interlock, it is
+never lowered or bypassed, and "the gate will open" is not a step in any plan —
+its 300 counts *actionable* games and the record has 2 in its whole life, both
+soft-book fallbacks.
+
+**What this frees.** `backend/analysis/signal_test.py` is **signal-agnostic**:
+it measures the pass-through of whatever `edge_tenths` contains, over the whole
+scored population including suppressed rows, with no bet placed and no money at
+risk. A *new* signal is therefore validated by the same harness that refuted the
+consensus one, on the same clock. Work that produces an opinion is now the
+critical path; the measurement follows it.
+
 **The premise, stated honestly:** Kalshi's advantage is cost, not information.
 Prices are accurate to ~2c and sports is the most bot-contested corner of the
 venue. The venue lowers the break-even bar from 52.38% to **51.75%** (taker)

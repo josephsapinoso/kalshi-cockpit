@@ -78,17 +78,35 @@ opinion of a session. Then hold these:
 whether an edge is there. A truthful "no" is a delivered outcome. A flattering
 "yes" is a defect, and the predecessor project shipped several.
 
-**The premise is on trial, and it is currently losing.** Kalshi's advantage is
-cost, not information: 0.38 points of headroom. As of 2026-08-09 the engine has
-surfaced 0 actionable rows across ~200 fresh-odds decisions. Do not let that
-finding get quietly reframed as a bug to fix. Also do not let it calcify — the
-strategy tested is *one* comparison (Kalshi against devigged consensus), and
-`tasks/lessons.md` already suspects Kalshi is the sharp side, which would make
-that comparison close to empty by construction.
+**The premise is on trial and has now essentially lost.** Kalshi's advantage is
+cost, not information: 0.63 points of headroom. The consensus-only comparison
+was measured on 2026-08-16 and `beta`, the CLV pass-through coefficient, came
+back **−0.141** with an always-valid interval of [−0.334, +0.052] at G = 199.
+See `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
 
-**Count what the gate counts.** 300 independent *games*, not rows. A slate is
-~19 games, so no amount of polling reaches 300 quickly, and any plan that
-depends on "keep it running" is not a plan. Say so when you see one.
+**Do not plan around that verdict changing.** The registered floor is G = 300
+and the look at 300 has not been taken, so the formal verdict is UNRESOLVED and
+may not be reported as "no signal". But for *prioritisation*, treat it as
+settled: `beta` would have to rise by **8.3 standard errors** for the outcome at
+G = 300 to be anything other than NO SIGNAL. Waiting for the remaining ~101
+clusters is not work, and no roadmap may be built on it.
+
+**The gate is not a plan and never was — do not let anyone wait on it.** Its
+300 counts *actionable* games, of which the record has 2 in its whole life, and
+those two are `anchored_on_sharp = 0` soft-book fallbacks. **The gate stays
+exactly where it is as the live-trading interlock** — it is never lowered, never
+bypassed, and "the gate will open" is not a step in any plan. If Joe bets, he
+bets on his own judgement with the screen as an input, which is outside the gate
+by design (ADR 0018).
+
+**What that frees, and it is the point.** The `beta` machinery is
+**signal-agnostic**: it measures the pass-through of whatever `edge_tenths`
+contains, over the whole scored population including suppressed rows, at zero
+risk and with no bet placed. So a *new* signal — an in-house prop model, or
+anything else that writes a recommendation — is validated by the same harness
+that just refuted the consensus one, on the same clock. The objection "we cannot
+validate an information signal" is dissolved by `scripts/run_signal_test.py`
+existing. Fund the work that produces an opinion; the measurement follows it.
 
 **Distrust the flattering direction.** Every measurement rule in `CLAUDE.md`
 exists because an earlier number was wrong in the direction that pleased
