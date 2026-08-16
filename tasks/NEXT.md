@@ -46,7 +46,16 @@ toward money -- the order path still demands the token.
 
 **`flyctl ssh console` was refused by this environment's permission classifier
 on both attempts** -- not by the governance rule, which those commands satisfy.
-Ask Joe to run them with a leading `!`.
+
+**And `!` is not the workaround it is written up as.** It does not execute from
+Joe's phone client; two attempts in an earlier session produced no output and no
+release. So when the classifier refuses and he is on a handset, anything needing
+a shell *inside the container* genuinely waits for a laptop. Say so rather than
+looping on it.
+
+`flyctl status`, `flyctl logs --no-tail`, `gh workflow run` and `git push` all
+work, and cover deploy verification: machine version against `git log`, and
+`grep migrate` on the boot log for a schema change.
 
 1. **The prop-rungs dump. Still a ONE-SHOT.** The 16:51Z slate has fired, so the
    record should now hold more than the 7 fixtures it had at 02:22Z.
