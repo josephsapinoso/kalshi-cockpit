@@ -114,19 +114,42 @@ primary_region = "ord"
   # Both sit far inside the 20,000/month plan, so the only thing 16 bought was
   # two fewer games a day and a blocked backfill.
   #
-  # **This number's real job is to bound a caller that spends faster than a
-  # sweep.** The historical endpoints cost 10x per call, so a backfill loop can
-  # burn the month between two daily resets -- that is what the daily cap is
-  # for, alongside ODDS_MONTHLY_CREDIT_BUDGET below. It is not a cost control on
-  # the live loop, which cannot reach it.
+  # **This number's real job used to be bounding a caller that spends faster
+  # than a sweep**, and that is no longer the whole of it. The historical
+  # endpoints cost 10x per call, so a backfill loop can burn the month between
+  # two daily resets -- that is what the daily cap is for, alongside
+  # ODDS_MONTHLY_CREDIT_BUDGET below.
+  #
+  # It said "it is not a cost control on the live loop, which cannot reach it".
+  # **That stopped being true on 2026-08-16.** Under the rolling refresh
+  # (`docs/adr/0030`) a kickoff cluster costs 7 calls x 6 = **42 credits**, not
+  # 6, because the slot re-buys every `refresh_interval_ms` for the whole hour
+  # it holds the window open. At 400 that is 9 clusters a day and the cap binds
+  # on a busy evening; at 600 it is 14. This is now a real ceiling on how much
+  # of the slate the screen is usable for.
+  #
+  # **600 is a ceiling, not a forecast.** A realistic MLB + WNBA day has 4-6
+  # kickoff clusters, so expected spend is ~170-250/day. The gap is deliberate:
+  # the cap should not be the thing that decides coverage on an unusually busy
+  # day, and `decide_sweeps` reserves each window's whole tail before opening
+  # it, so an over-tight cap refuses windows rather than truncating them.
+  #
+  # **The interaction with the monthly cap, stated because it is not obvious.**
+  # 600 x 31 = 18,600, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of 13,000. The
+  # daily cap therefore no longer bounds the month by arithmetic. That is fine
+  # and is why the monthly cap exists as a separate guard -- expected spend
+  # (~5,000-7,500/month) sits well inside it -- but if the daily ceiling is ever
+  # actually reached for three weeks running, the month runs out around day 21
+  # and every sweep stops. `api_credits` is where that would show first.
   #
   # An earlier note here claimed 16/day "cost" stale_odds on 256 of 265 rows.
   # That does not survive `docs/adr/0014`: most of those passes had no window
   # because the slate had no games, not because the budget was small.
   #
   # **Unmeasured:** August is two leagues. Re-run the coverage script on a
-  # winter slate once the NBA schedule is published.
-  ODDS_DAILY_CREDIT_BUDGET = "400"
+  # winter slate once the NBA schedule is published -- and re-run it at all,
+  # because it was measured against one-buy-per-cluster.
+  ODDS_DAILY_CREDIT_BUDGET = "600"
 
   # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
   # month only if you multiply it out, and it cannot bound a caller that spends
