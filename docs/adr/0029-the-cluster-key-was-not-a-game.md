@@ -367,3 +367,143 @@ cap, no age cutoff) is confirmed, but three things were nearly overclaimed:
 - 44 is a floor, not a steady state: rows that hit `skipped_entry_after_close`
   never score and join the permanent set, so the bill grows until something
   retires it.
+
+---
+
+## ADDENDUM 2 — sections F/G/H: the 30 is attributed, and the defect is **saturated**
+
+Deploy `31928206611`. §A3's prohibition is discharged: the collapse is
+attributed with **zero residual**, and no over-collapse was observed. **But the
+framing in A1–A3 was wrong in the flattering direction and is corrected here.**
+
+### B0. The three reads are one snapshot — established by numbers, not by a deploy id
+
+F's rows sum to `1828 + 200 = 2028` and `2309 + 1333 = 3642`, matching D's
+per-population totals byte for byte, and H's horizon-0.0 total is **5670**,
+matching D's pooled. Three independent totals agree. (A deploy id is the kind of
+verification this repo files as one that lies.)
+
+H also reports `clv_tenths_null = 0` at horizon 0.0, so D/F/G's extra
+`clv_tenths IS NOT NULL` predicate dropped **zero** rows.
+
+### B1. The attribution, complete
+
+```
+population  market_type  rows   clusters_now  clusters_by_game
+no_edge     moneyline    1828   104           104
+no_edge     prop          200    14             5
+suppressed  moneyline    2309   105           105
+suppressed  prop         1333    30             6
+```
+
+**Moneyline has zero gap in both populations. Every phantom cluster is a prop.**
+
+All 30 are assigned to named prop events with no residual: **14 in `no_edge`**
+(14 prop events, each merging into a moneyline key that already existed); **29
+in `suppressed`** (25 from five games at 6 events → 1, plus 4 from the one game
+with no suppressed moneyline row); **30 pooled** after a 13-game overlap. Under
+the event key the market types genuinely partition — a `KXMLBKS-<seg>` ticker
+can never equal a `KXMLBGAME-<seg>` one — so `104 + 14 = 118` and
+`105 + 30 = 135` are equalities, and both hold.
+
+`orphan_rows = 0` and `unlinked_rows = 0` on every D row. **Those two zeros are
+what make the decomposition unique** rather than merely consistent: without them
+a key holding one event plus *n* orphan rows would contribute `1 + n` to
+`clusters_now` and 1 to `clusters_by_game`, reaching the same totals by another
+route. With them, `143 = 107 + 6×6` and `113 = 107 + 6` is the only reading.
+
+### B2. **Saturated. Do not write 1.27×, and do not write "107 of 113 were clean" either**
+
+Every inflated game is a **2026-08-15 MLB fixture**, and `tasks/NEXT.md:266`
+dates the arrival of prop rows on live to that same day. The counts force the
+rest: suppressed prop `clusters_now = 30 = 6 × 5` ladders against
+`clusters_by_game = 6`, and a seventh prop-carrying game would add a key and
+break `113 = 107 + 6`. It does not break. **All 1,533 prop rows in the
+horizon-0.0 record sit on those six fixtures.**
+
+> **Six of six games that carried prop rows were inflated 6×** — the ceiling of
+> one moneyline plus five ladders. **The other 107 predate props on live and had
+> no opportunity to show the defect at all.**
+
+The 107 are not evidence of a contained problem. Using them as a denominator
+makes a **saturated** defect look sporadic — the flattering direction, on a
+change written in this same commit series. There is no distribution to average:
+six of six hit the ceiling.
+
+`1.27×` is a property of the **record's composition** — one night of props
+against nine days of moneyline — not of the defect, and it climbs toward 6× as
+prop coverage accumulates. **A number that moves with sampling rather than with
+the thing measured is not written down, in either form.**
+
+### B3. §5's premise is **withdrawn**, and not merely as stale
+
+§5 said *"Every prop row on the live instance is suppressed. All 474."* The
+source does not say that. `tasks/NEXT.md:266-271` records one sweep at
+19:41:53Z, attributes the suppression to `stale_odds` because those rows were
+priced against odds older than `MAX_ODDS_AGE_S`, and then states explicitly:
+***"It is not evidence about props."***
+
+§5 promoted a fact about one pass's timing into a standing property of the
+population, **over its own source's written objection**. That is the
+`/markets` → "Kalshi has no combo product" failure, in the same repo, nine days
+later.
+
+The consequence is not cosmetic. §5's preventive argument was that props are
+*structurally* excluded from `actionable`. They are not — 200 prop rows sit in
+`no_edge`. The only thing keeping props out of `actionable` is that `actionable`
+is empty for **every** market type. §5's conclusion survives on a coincidence it
+did not name.
+
+(Do not overread the reverse either: `no_edge` means unsuppressed with
+`reference_contracts` not `> 0` — the absence of a barrier, not progress toward
+a threshold.)
+
+### B4. No over-collapse observed — with scope and caveat
+
+`same_series_extra = 0` on all six rows; G returned only six rows. Three fences:
+
+- **Scope is the 5,670 rows scored at horizon 0.0.** G's CTE cannot see the 569
+  legacy rows or any unscored row.
+- **Section E does not corroborate this and cannot.** E checks one event fanning
+  out to two fixtures — the *permissive* direction. Over-collapse is the
+  reverse. E's zero is a real result about a different failure.
+- **`same_series_extra` was not what carried the conclusion.** It separates only
+  *same-series* merges; two events of *different* series belonging to different
+  games, merged onto one re-minted fixture id, would read 0 and look like a
+  textbook prop collapse. What rules that out is that all six `event_list`s
+  carry one **identical fixture segment** across all six events
+  (`26AUG151915BOSPIT`, `26AUG151910PHIMIN`, `26AUG151840MIACIN`,
+  `26AUG151910SEAHOU`, `26AUG151915MILLAD`, `26AUG151610WSHNYM`). **That was
+  read by eye, on six rows; no query asserts it.** Fine at six. At sixty nobody
+  reads them and the discriminator gets trusted with a job it cannot do.
+
+**A guard with zero opportunities to fire, returning zero, is not evidence that
+it works.** §3's over-collapse mechanism is a doubleheader the book half-lists;
+§7's is a re-minted fixture id. Nothing here establishes the record contained
+either. The discriminator is verified against a *constructed* instance by
+`test_section_g_flags_two_events_of_one_series_on_one_fixture`; the live run
+shows only that it found nothing. **The second must not borrow credit from the
+first.**
+
+### B5. `actionable` is empty — over a narrower population than claimed
+
+The strong form holds: `1828 + 200 + 2309 + 1333 = 5670` exhausts D's pooled row
+count with only two populations present, against a pooled query carrying no
+population predicate — so the group is empty rather than omitted by `GROUP BY`.
+
+**Scope: zero actionable rows among the 5,670 scored at horizon 0.0 with
+non-null CLV.** Not established for the **569 rows tagged horizon 1.0**, nor for
+the **54 pending tickers (22 started)** of section B, which groups by series and
+market type rather than population. An actionable row that never scored is
+invisible to A, D, F, G and H alike. `actionable = 0` is load-bearing in
+`CLAUDE.md`; this gap should not stay open on an inference.
+
+### B6. Three cheap follow-ups, in the order they change what may be written
+
+1. The population CASE over **all** of `recommendations`, no `clv_scored_ms` and
+   no horizon predicate — turns B5 from "never *scored*" into "never *written*".
+2. Section A's `distinct_tickers` split by `market_type` — turns B2's one-night
+   denominator from an inference into a read.
+3. `SELECT event_ticker FROM kalshi_markets GROUP BY event_ticker HAVING
+   COUNT(DISTINCT series_ticker) > 1` — closes the last path by which
+   `same_series_extra` could read 0 spuriously.
