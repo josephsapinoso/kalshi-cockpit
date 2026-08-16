@@ -117,6 +117,7 @@ from .odds.client import (
 from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
     DEFAULT_DAY_START_UTC_HOUR,
+    SCHEDULED,
     SweepDecision,
     SweepSlot,
     decide_sweeps,
@@ -1467,14 +1468,23 @@ async def fetch_and_store_odds(
     config: OddsConfig,
     now: int,
     max_odds_age_ms: int = 900_000,
+    allow_bootstrap: bool = True,
 ) -> tuple[int, int, SweepDecision]:
-    """Sweep only when the window it opens will be worth having.
+    """Sweep only when the window it opens will be worth having, then hold it open.
 
-    On a free tier of ~16 credits a day against a `markets x regions` cost of 6
-    this is two calls, and each one makes the slate bettable for exactly
-    `max_odds_age_ms`. `decide_sweeps` spends them just before a cluster of
-    kickoffs rather than on whichever pass happened to run first; the decision,
-    including the decision *not* to sweep, comes back so the pass can report it.
+    `decide_sweeps` spends credits just before a cluster of kickoffs rather than
+    on whichever pass happened to run first, and *keeps spending* on a
+    `refresh_interval_ms` cadence for as long as that cluster's slot is due. The
+    decision, including the decision *not* to sweep, comes back so the pass can
+    report it.
+
+    **The second half of that sentence is new and is the point.** One buy per
+    cluster made the slate bettable for exactly `max_odds_age_ms` and then left
+    every row suppressed as `stale_odds` with the games still an hour out. The
+    threshold was never the problem; nothing re-bought.
+
+    `allow_bootstrap` is passed `False` by the quote cadence -- see
+    `decide_sweeps`, which owns the reason.
 
     **Every outcome is written to `odds_sweep_log`, including "nothing".** The
     decision used to be logged and nothing more, so a pass that looked and
@@ -1498,6 +1508,7 @@ async def fetch_and_store_odds(
         max_odds_age_ms=max_odds_age_ms,
         prop_cost_per_event=sweep_cost(prop_market_keys(), config.regions),
         prop_sports=prop_sports,
+        allow_bootstrap=allow_bootstrap,
     )
     logger.info("sweep decision: %s", decision.detail)
 
@@ -1526,6 +1537,7 @@ async def fetch_and_store_odds(
             stored += await fetch_and_store_props(
                 conn, odds_client, events=events, quotes=quotes,
                 sport_key=firing.sport_key, now=now, slot=firing.slot,
+                trigger=firing.trigger,
             )
         elif affordable:
             # The call went out and the slate came back empty. A normal state,
@@ -1554,6 +1566,7 @@ async def fetch_and_store_props(
     sport_key: str,
     now: int,
     slot: Optional[SweepSlot] = None,
+    trigger: str = SCHEDULED,
 ) -> int:
     """Buy player props for the fixtures a team sweep just paid for.
 
@@ -1623,6 +1636,26 @@ async def fetch_and_store_props(
             detail=(
                 f"props: {sport_key} swept without a planned slot (bootstrap), "
                 f"so there is no covered fixture set to buy props for"
+            ),
+        )
+        return 0
+
+    if trigger != SCHEDULED:
+        # A refresh re-buys the team lines that keep an open window from
+        # shutting. Props do not go stale on the same clock as a moneyline and,
+        # far more to the point, they are billed per event per market key per
+        # region: re-buying them every `refresh_interval_ms` would multiply the
+        # single largest line item in this file by the number of refreshes in a
+        # slot. The opening call bought them; this one does not buy them again.
+        #
+        # Checked here rather than at the call site so no future caller can
+        # forget it. The same argument as `slot is None` above, one trigger
+        # along.
+        record_sweep_outcome(
+            conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
+            detail=(
+                f"props: {sport_key} was a {trigger} of an already-open window, "
+                f"and props ride the opening call only"
             ),
         )
         return 0
@@ -1830,6 +1863,9 @@ async def run_quote_pass(
     conn,
     kalshi_client,
     *,
+    odds_client=None,
+    budget=None,
+    config: Optional[OddsConfig] = None,
     risk: Optional[RiskConfig] = None,
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
@@ -1851,13 +1887,37 @@ async def run_quote_pass(
     the 30s limit for the entire fifteen minutes the odds are good for, at a
     cost of zero credits.
 
-    What it deliberately does not do: sweep odds, fetch closing lines, or spend
-    anything. `sweep_decision` says so rather than being left blank.
+    What it deliberately does not do: fetch closing lines, run the digest, or
+    bootstrap a sport. `sweep_decision` says which of those applied rather than
+    being left blank.
 
-    **This does not widen the window.** Fifteen minutes twice a day is set by
-    `MAX_ODDS_AGE_S` and the credit budget, and no amount of Kalshi polling
-    changes it. What this fixes is that the fifteen minutes are now usable
-    throughout rather than for the first thirty seconds.
+    **It now carries the odds refresh, and the arithmetic is why.** This pass
+    used to spend nothing at all, and the docstring said so proudly: "this does
+    not widen the window, fifteen minutes is set by `MAX_ODDS_AGE_S` and the
+    credit budget". The budget half of that stopped being true on 2026-08-09
+    (the 20K tier lifted the daily cap to 400 against a 6-credit sweep), which
+    left the window narrow for no remaining reason.
+
+    The refresh cannot ride the *full* pass instead, and this is the whole
+    argument for putting a metered call on the cheap cadence. A refresh is only
+    considered when a pass runs, so the worst-case age of the stored odds is
+    `refresh_interval_ms + one pass interval`. On the 900s full cadence that is
+    `600 + 900 = 1500s` against a 900s limit -- stale for two thirds of every
+    cycle, which is the state we are trying to leave. On this cadence it is
+    `600 + 15 = 615s`, comfortably inside. Running the full pass at 15s instead
+    would fetch candlesticks for every started game 240 times an hour to no
+    purpose, which is what split the cadences in the first place.
+
+    What bounds the spend is `refresh_interval_ms`, not this interval: the pass
+    asks on every tick and `decide_sweeps` answers "not yet" on all but one in
+    forty. `budget.refusal_reason` is still checked before the call, so the
+    ceiling that stops it is the same ceiling as everywhere else.
+
+    **Odds are refreshed only when all three of `odds_client`, `budget` and
+    `config` are supplied.** They are optional so the many callers that only
+    want a Kalshi re-price -- tests, `scripts/`, the demo -- keep working
+    unchanged and, more importantly, keep being unable to spend money by
+    accident. `scripts/run_loop.py` is what passes them.
 
     **`day_start_hour` is an explicit parameter here and is read off `config` in
     `run_once`.** This pass takes no `OddsConfig` -- it spends no credits, which
@@ -1868,11 +1928,27 @@ async def run_quote_pass(
     the default left here has stopped matching what is deployed.
     """
     stamp = now if now is not None else now_ms()
+    suppression = suppression or SuppressionConfig()
     counts = PassCounts(sweep_decision=QUOTE_PASS_SWEEP_DETAIL)
     events = await run_kalshi_pass(
         conn, kalshi_client, now=stamp, counts=counts,
         log_discovery_summary=False,
     )
+
+    if odds_client is not None and budget is not None and config is not None:
+        # Before pricing, not after: a refresh that landed this tick should be
+        # what this tick's rows are priced against. Pricing first would publish
+        # one pass's worth of rows against odds we had already replaced, and
+        # that row would carry a staleness the database could not explain.
+        sweeps, stored, decision = await fetch_and_store_odds(
+            conn, odds_client, budget, events=events, config=config, now=stamp,
+            max_odds_age_ms=suppression.max_odds_age_ms,
+            allow_bootstrap=False,
+        )
+        counts.odds_sweeps = sweeps
+        counts.odds_quotes_stored = stored
+        counts.sweep_decision = decision.detail
+
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,
         day_start_hour=day_start_hour,

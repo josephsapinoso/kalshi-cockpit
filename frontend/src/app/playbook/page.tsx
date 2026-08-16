@@ -1,4 +1,10 @@
-import { fetchPlaybook, type ConfigVersion, type Lesson } from "@/lib/api";
+import {
+  DISPLAY_TIME_ZONE,
+  displayZoneLabel,
+  fetchPlaybook,
+  type ConfigVersion,
+  type Lesson,
+} from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -236,9 +242,26 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** `2026-08-09 06:24Z`. UTC always: the record is stamped in it. */
+/**
+ * `2026-08-08 23:24 PDT`. Pacific, with the zone named.
+ *
+ * This printed UTC on the argument that "the record is stamped in it", which is
+ * true and is not a reason: the record is *stored* in UTC and stays that way,
+ * and this is a label a human reads. Naming the zone is what makes the change
+ * safe -- a bare `2026-08-08 23:24` that used to mean UTC and now means Pacific
+ * would silently re-date every version boundary on this page by seven hours.
+ * With `PDT` on the end, an old screenshot and a new one cannot be confused.
+ */
 function stamp(ms: number): string {
-  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")}Z`;
+  const d = new Date(ms).toLocaleString("sv-SE", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${d} ${displayZoneLabel(ms)}`;
 }
 
 function render(value: unknown): string {

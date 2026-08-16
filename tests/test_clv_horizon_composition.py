@@ -75,9 +75,25 @@ class TestTheHorizonAndTheSweepCanBothHold:
         here means the test is known to be capable of failing — a composition
         check that has only ever seen a passing input has not been shown to
         detect anything.
+
+        **`>=`, not `>`, and the boundary is now exact.** Widening
+        `DUE_WINDOW_MS` from 30 to 60 minutes for the rolling odds refresh moved
+        the earliest possible entry from 45 to 75 minutes before kickoff, and a
+        1.0h horizon observes its closing line at 60 + `WINDOW_MINUTES` = 75. So
+        the two coincide to the minute.
+
+        Equality is still unscoreable, and not by a technicality: `entry` is the
+        *earliest conceivable* moment a row can exist, and every row that is not
+        written in that single instant is entered after the close and skipped.
+        A horizon that can only score a measure-zero row scores nothing.
+
+        It is a boundary rather than a margin, which is worth saying out loud:
+        moving `DUE_WINDOW_MS` up again makes 1.0h scoreable and silently
+        invalidates the pinning this test performs. See
+        `docs/adr/0030-the-odds-refresh-rolls.md`.
         """
         entry = _earliest_entry_ms_before_kickoff()
-        assert _earliest_observation_ms_before_kickoff(1.0) > entry
+        assert _earliest_observation_ms_before_kickoff(1.0) >= entry
 
     def test_the_control_horizon_is_further_out_than_the_primary(self):
         """Otherwise `horizons_agree` compares a horizon with itself.
@@ -95,8 +111,12 @@ class TestTheHorizonAndTheSweepCanBothHold:
         two sets of stored `closing_lines`. It does not need rows scored into
         `clv_tenths`, so it is under no obligation to satisfy the composition
         above — and at 1.0h it does not.
+
+        `>=` for the reason given above: since `DUE_WINDOW_MS` widened, the
+        control horizon's observation and the earliest possible entry are the
+        same instant.
         """
-        assert _earliest_observation_ms_before_kickoff(CONTROL_HORIZON_HOURS) > (
+        assert _earliest_observation_ms_before_kickoff(CONTROL_HORIZON_HOURS) >= (
             _earliest_entry_ms_before_kickoff()
         )
 

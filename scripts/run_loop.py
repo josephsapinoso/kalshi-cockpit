@@ -14,10 +14,18 @@ All in one pass because they share a Kalshi client and because scoring is
 useless without recording and recording is pointless without scoring.
 
 **A quote pass**, every `--fast-interval` seconds *while the window is open*,
-does only the first half of (1): Kalshi discovery, the quotes it carries, and a
-re-price against the odds already stored. It spends no credit, fetches no
-closing lines, and still alerts, because a quote pass is exactly when a new
-opportunity appears.
+does the first half of (1): Kalshi discovery, the quotes it carries, and a
+re-price against stored odds. It fetches no closing lines and runs no digest,
+and it still alerts, because a quote pass is exactly when a new opportunity
+appears.
+
+**It also carries the odds refresh, and no longer "spends no credit".** A slot
+re-buys its odds every `refresh_interval_ms` for as long as it is due, and that
+cannot ride the full pass: a refresh is only considered when a pass runs, so the
+worst-case age is the interval plus one pass gap -- `600 + 900 = 1500s` on the
+slow cadence against a 900s limit, versus `600 + 15 = 615s` here. What bounds the
+spend is the interval, not this one; the pass asks every tick and is told "not
+yet" on all but one in forty. See `docs/adr/0030-the-odds-refresh-rolls.md`.
 
 Choosing the intervals
 ----------------------
@@ -32,7 +40,10 @@ in-scope leagues cannot spend more than ~432 a day however large the budget is.
 
 The budget refuses over-spend rather than failing, so a short interval does not
 overspend -- it just produces passes that record Kalshi quotes and skip the odds
-leg. **900s (15 min) is a sensible default.**
+leg. **900s (15 min) is a sensible default**, and since the rolling refresh moved
+the odds leg onto the fast cadence this interval no longer bounds how fresh the
+consensus is at all. It bounds discovery, closing lines, settlement and the
+digest.
 
 The fast one is bounded by the Kalshi quote limit, which is 30 seconds. That is
 the whole reason this file grew a second cadence: a row is bettable only while
@@ -424,17 +435,28 @@ async def main() -> int:
                     now=stamp,
                 )
             else:
-                # Kalshi only. No credit, no candlesticks -- the point is to
-                # re-confirm the quote behind every row before its 30s runs out,
-                # and neither of those touches that.
+                # Kalshi, plus the odds refresh that keeps an already-open
+                # window from shutting. Still no candlesticks and no digest --
+                # the point is to re-confirm the quote behind every row before
+                # its 30s runs out, and to re-buy the consensus behind it before
+                # its 900s does.
+                #
+                # **This pass can now spend credits, which it could not before.**
+                # It is paced by `refresh_interval_ms` inside `decide_sweeps`,
+                # not by this interval: the pass asks on every tick and is told
+                # "not yet" on all but one in forty. It is bounded above by the
+                # same `budget.refusal_reason` as every other call, and it
+                # cannot bootstrap -- see `run_quote_pass`, which owns both
+                # arguments.
                 counts = await run_quote_pass(
-                    conn, kalshi, risk=risk, suppression=suppression, now=stamp,
-                    # A quote pass takes no `OddsConfig` -- it spends no
-                    # credits -- so unlike `run_once` it cannot derive the risk
-                    # day, and this is the site that would silently fall back to
-                    # the constant. It runs ~96 times a day against the full
-                    # pass's ~1, so it is the majority of the slates the kill
-                    # switch is applied to.
+                    conn, kalshi, odds_client=odds, budget=budget,
+                    config=odds_config,
+                    risk=risk, suppression=suppression, now=stamp,
+                    # Passed explicitly rather than derived, and that is still
+                    # true now the pass takes an `OddsConfig`: this is the site
+                    # that would silently fall back to the constant. It runs ~96
+                    # times a day against the full pass's ~1, so it is the
+                    # majority of the slates the kill switch is applied to.
                     day_start_hour=odds_config.budget_day_start_utc_hour,
                 )
 

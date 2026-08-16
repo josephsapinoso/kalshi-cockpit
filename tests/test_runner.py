@@ -975,6 +975,39 @@ class TestAGameInProgressIsNotACandidate:
         assert counts.recommendations == 0
 
 
+class RecordingFakeOdds:
+    """A fake that bills itself, because the pacing is read back from the bill.
+
+    `FakeOdds` records nothing, which is fine for "was it called". It is *not*
+    fine for the rolling refresh: `firing_for_slot` paces on the sport's last
+    served `/odds` call, and `last_sweep_by_sport` reads that from `api_credits`
+    with `endpoint LIKE '%/odds' AND cost > 0`. A fake that skips the recording
+    is a fake with no clock, and every pass reads "never swept" -- so a test
+    built on it would report the pacing broken when it works, or worse, report
+    it working when it does not.
+
+    The endpoint spelling matters and is the real one. `client.py` records
+    `/sports/{sport_key}/odds`; a literal `/odds` here would match a predicate
+    that production rows do not, which is exactly the demo-vs-live split that
+    made the window panel read "never" on the instance for the project's life.
+    """
+
+    def __init__(self, budget, *, cost: int = 6):
+        self.budget = budget
+        self.cost = cost
+        self.calls: list[str] = []
+
+    async def fetch_odds(self, sport_key: str, *, now_ms: int):
+        self.calls.append(sport_key)
+        self.budget.record(
+            called_ms=now_ms,
+            endpoint=f"/sports/{sport_key}/odds",
+            cost=self.cost,
+            sport_key=sport_key,
+        )
+        return []
+
+
 class TestTheQuotePassKeepsARowBettable:
     """The fast cadence: Kalshi only, no credit, and a row that stays fresh.
 
@@ -996,14 +1029,23 @@ class TestTheQuotePassKeepsARowBettable:
         )
         return await run_quote_pass(conn, FakeKalshi([raw]), now=now)
 
-    async def test_it_spends_no_odds_credit(self, conn, joined, kalshi_events):
-        """Structurally, not by policy: it is handed no odds client at all.
+    async def test_it_spends_no_odds_credit_when_given_no_odds_client(
+        self, conn, joined, kalshi_events
+    ):
+        """Structurally, not by policy: with no odds client it cannot spend.
 
-        A pass that *could* sweep and decides not to is one config change away
-        from draining a day's credits in an hour at a 15-second cadence. This
-        one cannot, and `sweep_decision` says which kind of pass it was rather
-        than leaving the field blank -- a quote pass and a full pass that
-        declined to sweep need opposite responses.
+        **This claim narrowed on 2026-08-16 and the narrowing is the point.** It
+        used to read "a quote pass spends no credit", full stop, and the pass
+        took no odds client at all. It now carries the rolling refresh, so the
+        honest statement is that a pass *handed no client* cannot spend -- which
+        is what keeps every test, script and demo caller unable to spend by
+        accident. What stops the deployed caller from draining the day at a 15s
+        cadence is `refresh_interval_ms`, tested separately in
+        `test_sweep_timing.py`, not the absence of a client.
+
+        `sweep_decision` still says which kind of pass it was rather than
+        leaving the field blank -- a quote pass and a full pass that declined to
+        sweep need opposite responses.
         """
         _, odds_event = joined
         counts = await self._quote_pass(
@@ -1016,6 +1058,145 @@ class TestTheQuotePassKeepsARowBettable:
 
         spent = conn.execute("SELECT COUNT(*) n FROM api_credits").fetchone()
         assert spent["n"] == 0
+
+    def _refreshing_odds(self, conn):
+        """One budget and one fake, shared across the passes of a test.
+
+        The budget's state lives in `api_credits`, so a fresh object per pass
+        would behave identically -- but the fake needs *a* budget to bill, and
+        sharing one keeps the two halves of the chain obviously the same chain.
+        """
+        from backend.odds.budget import CreditBudget
+
+        budget = CreditBudget(conn, daily_budget=400)
+        return budget, RecordingFakeOdds(budget)
+
+    async def _refreshing_quote_pass(
+        self, conn, kalshi_events, odds_event, *, now, odds, budget
+    ):
+        from backend.config import OddsConfig
+        from backend.runner import run_quote_pass
+
+        raw = aligned_kalshi_event(
+            _mlb_template(kalshi_events),
+            odds_event=odds_event,
+            kalshi_names=("Pittsburgh", "New York M"),
+        )
+        return await run_quote_pass(
+            conn,
+            FakeKalshi([raw]),
+            odds_client=odds,
+            budget=budget,
+            config=OddsConfig(
+                api_key="x", base_url="https://example.invalid",
+                daily_credit_budget=400, regions=["us", "eu"],
+                markets=["h2h", "spreads", "totals"],
+            ),
+            now=now,
+        )
+
+    async def test_it_refreshes_odds_when_the_loop_hands_it_the_three(
+        self, conn, joined, kalshi_events
+    ):
+        """The wiring, tested at the call site rather than assumed.
+
+        Four modules in this repo have reached production as source with no
+        caller, so "the parameter exists" is not evidence that anything uses it.
+        This asserts the odds client is reached *from a quote pass*, which is
+        the whole of what makes the refresh cadence fast enough to beat the
+        staleness limit.
+        """
+        now = NOW + 60_000
+        # A kickoff 30 minutes out puts `now` inside the slot: the window runs
+        # from 45 min before to 15 min before, and nothing has been swept.
+        _store_fixture(conn, commence_ms=now + 30 * 60_000, fetched_ms=now)
+        budget, odds = self._refreshing_odds(conn)
+
+        counts = await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=now, odds=odds, budget=budget
+        )
+
+        assert odds.calls == ["baseball_mlb"], (
+            "a quote pass handed an odds client did not reach it, so the "
+            "rolling refresh never runs on the only cadence fast enough for it"
+        )
+        assert "quote refresh only" not in counts.sweep_decision, (
+            "the pass reported itself as spending nothing while sweeping"
+        )
+
+    async def test_a_second_quote_pass_seconds_later_does_not_buy_again(
+        self, conn, joined, kalshi_events
+    ):
+        """What bounds the spend on a 15s cadence, stated as the falsifier.
+
+        The pass asks on every tick. If `refresh_interval_ms` did not answer
+        "not yet", this would spend 6 credits every 15 seconds -- 2,300 a day
+        against a 400 cap -- which is a far worse failure than the staleness it
+        was written to fix.
+        """
+        now = NOW + 60_000
+        _store_fixture(conn, commence_ms=now + 30 * 60_000, fetched_ms=now)
+        budget, odds = self._refreshing_odds(conn)
+
+        await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=now, odds=odds, budget=budget
+        )
+        assert odds.calls == ["baseball_mlb"]
+
+        await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=now + 15_000, odds=odds,
+            budget=budget,
+        )
+        assert odds.calls == ["baseball_mlb"], (
+            "the refresh interval did not pace the fast cadence"
+        )
+
+    async def test_the_same_slot_does_buy_again_once_the_interval_passes(
+        self, conn, joined, kalshi_events
+    ):
+        """The other half. Without this the test above passes on a pass that
+        never sweeps at all, which is the state being fixed."""
+        from backend.odds.timing import refresh_interval_ms
+        from backend.core.suppression import SuppressionConfig
+
+        now = NOW + 60_000
+        _store_fixture(conn, commence_ms=now + 30 * 60_000, fetched_ms=now)
+        budget, odds = self._refreshing_odds(conn)
+
+        await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=now, odds=odds, budget=budget
+        )
+        later = now + refresh_interval_ms(SuppressionConfig().max_odds_age_ms)
+        await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=later, odds=odds, budget=budget
+        )
+
+        assert odds.calls == ["baseball_mlb", "baseball_mlb"], (
+            "the window shut instead of being held open, which is the whole "
+            "defect: one buy per cluster and stale_odds for the rest of it"
+        )
+
+    async def test_a_quote_pass_never_bootstraps(self, conn, joined, kalshi_events):
+        """A bootstrap has no slot, so nothing paces it but one-per-day.
+
+        On a 15s cadence that fires once per pass for every sport the
+        sportsbook does not cover, exhausting them within a couple of minutes
+        of a restart. The full pass every 900s is where bootstrap belongs, and
+        it is not time-critical: a sport with no stored fixtures has nothing to
+        be timely about.
+
+        No fixture is stored here, so a slot is impossible and a bootstrap is
+        the only firing that could occur. Any call at all is that bootstrap.
+        """
+        budget, odds = self._refreshing_odds(conn)
+        await self._refreshing_quote_pass(
+            conn, kalshi_events, joined[1], now=NOW + 60_000, odds=odds,
+            budget=budget,
+        )
+        assert odds.calls == [], (
+            "a quote pass bootstrapped a sport, which on the fast cadence "
+            "spends once per pass with nothing to pace it"
+        )
 
     async def test_it_re_reads_kalshi_and_re_prices(self, conn, joined, kalshi_events):
         _, odds_event = joined

@@ -719,7 +719,18 @@ export type ActionableWindow = {
   last_look_ms: number | null;
   last_look_outcome: string | null;
   last_look_detail: string | null;
+  /**
+   * When the next `/odds` call is wanted — **not** when the next slot opens.
+   *
+   * Since the rolling refresh a slot buys odds every `refresh_interval_s` for
+   * as long as it is due, so a slot mid-window has an opening time in the past.
+   * Publishing that would put a stale time on the one readout a human uses to
+   * decide when to look. The server computes this through the same predicate
+   * the loop fires on, so the page cannot disagree with it.
+   */
   next_sweep_ms: number | null;
+  /** How often an open window re-buys its odds. Derived from `max_odds_age_s`. */
+  refresh_interval_s: number;
   next_sweep_sport: string | null;
   next_sweep_games: number | null;
   next_sweep_reason: string | null;
@@ -968,10 +979,45 @@ export function formatDuration(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)}h`;
 }
 
+/**
+ * The one timezone every human-facing clock on this product renders in.
+ *
+ * **Pinned to a zone, not left to the device, and that is the point.** These
+ * used to pass `undefined` as the locale, which renders in whatever the browser
+ * says -- so the same slot read 16:51 on the phone, 19:51 on a laptop borrowed
+ * in another zone, and something else again in a screenshot pasted into a chat.
+ * A schedule whose times depend on which screen is reading it cannot be quoted,
+ * compared against a previous session, or acted on with any confidence.
+ *
+ * `America/Los_Angeles`, not a fixed -8 offset, so the switch to and from
+ * daylight saving is handled by the platform rather than by us being wrong for
+ * eight months of the year. In August this renders PDT; the label is drawn from
+ * the same formatter, so it says PDT rather than claiming PST.
+ *
+ * **The record stays UTC.** Every millisecond on the wire, in the database and
+ * in `docs/measurements` is UTC, and none of that changes -- this is a display
+ * decision at the last possible moment. The mixing that let a three-hour offset
+ * hide for eleven build steps was in *stored* and *compared* values, not in
+ * what a phone prints.
+ */
+export const DISPLAY_TIME_ZONE = "America/Los_Angeles";
+
+/** `PDT` / `PST`, drawn from the formatter so it cannot claim the wrong one. */
+export function displayZoneLabel(ms: number = Date.now()): string {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    timeZoneName: "short",
+  })
+    .formatToParts(new Date(ms))
+    .find((p) => p.type === "timeZoneName");
+  return part?.value ?? "PT";
+}
+
 /** A clock time, for a moment the user has to act at rather than react to. */
 export function formatClock(ms: number | null): string {
   if (!ms) return "";
-  return new Date(ms).toLocaleTimeString(undefined, {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
     hour: "numeric",
     minute: "2-digit",
   });
@@ -989,7 +1035,8 @@ export function formatUntil(ms: number): string {
 
 export function formatKickoff(ms: number | null): string {
   if (!ms) return "";
-  return new Date(ms).toLocaleString(undefined, {
+  return new Date(ms).toLocaleString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
     weekday: "short",
     hour: "numeric",
     minute: "2-digit",

@@ -1,4 +1,4 @@
-import { fetchSlate } from "@/lib/api";
+import { DISPLAY_TIME_ZONE, fetchSlate } from "@/lib/api";
 import type { Slate, SlateRowData } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import CrewBubble from "@/components/CrewBubble";
@@ -272,14 +272,30 @@ function Capacity({ row }: { row: SlateRowData }) {
   );
 }
 
-/** UTC, because every other clock on this product is UTC and mixing them is
- *  how a three-hour offset went unnoticed for eleven build steps. */
+/**
+ * Pacific, like every other human-facing clock here. See `DISPLAY_TIME_ZONE`.
+ *
+ * This rendered UTC until 2026-08-16, on the argument that "every other clock
+ * on this product is UTC and mixing them is how a three-hour offset went
+ * unnoticed for eleven build steps". The lesson was real and the conclusion was
+ * too broad: that offset hid in *stored and compared* values -- Kalshi's
+ * `occurrence_datetime` against the sportsbook's `commence_ms` -- and no
+ * display format could have caused or prevented it. What the UTC rendering did
+ * cause was a first pitch printed as 22:41 to a reader in California, who has
+ * to subtract seven in his head every time.
+ *
+ * 24-hour, unlike `formatClock`, because this sits in a dense table where a
+ * fixed-width column is worth more than an am/pm that a kickoff list does not
+ * need.
+ */
 function kickoff(ms: number | null): string {
   if (ms === null) return "--:--";
-  const d = new Date(ms);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+  return new Date(ms).toLocaleTimeString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

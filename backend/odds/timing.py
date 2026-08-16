@@ -16,9 +16,20 @@ something else keeps the other one satisfied.** A row also needs a Kalshi quote
 under thirty seconds, and on a single 900s cadence that made the real window
 thirty seconds rather than fifteen minutes -- this module scheduled a window
 nobody could use for 97% of its length. `runner.run_quote_pass` on the fast
-cadence is what closes that; see `docs/adr/0004-two-polling-cadences.md`. This
-module still decides *when* the fifteen minutes happen and has no opinion about
-the quote.
+cadence is what closes that; see `docs/adr/0004-two-polling-cadences.md`.
+
+**And since 2026-08-16 the fifteen minutes is no longer the length of anything.**
+The two paragraphs above describe a slot that bought odds *once*. A slot now
+re-buys every `refresh_interval_ms` for as long as it is due, so the window it
+opens is `DUE_WINDOW_MS` long -- sixty minutes, continuous -- rather than fifteen
+minutes wherever the pass happened to land. `stale_odds` was 256 of 265
+suppressions in 24h, and the cause was never the threshold: nothing re-bought.
+The history above is kept because it is why the scheduling exists at all, but
+read it as the state that was fixed, not as how this module now behaves. See
+`docs/adr/0030-the-odds-refresh-rolls.md`.
+
+This module decides *when* the window happens and how long it is held. It has no
+opinion about the Kalshi quote.
 
 What this module decides
 ------------------------
@@ -60,7 +71,11 @@ What this does not establish
 That the window is *useful*. It says odds are fresh enough for a pick to survive
 `stale_odds`, nothing more. Most windows will open onto an empty Board, which is
 the expected result of the whole premise — Kalshi prices sports to about two
-cents and the fee advantage is 0.38 points.
+cents and the cost headroom is 0.63 points, itself an upper bound pending H4.
+
+What the rolling refresh changes is only which of two readings an empty Board
+has. It used to mean either "the consensus said no" or "nobody looked", and
+those need opposite responses. Now it means the first.
 """
 
 from __future__ import annotations
@@ -84,7 +99,47 @@ CLUSTER_MS = 20 * _MS_PER_MIN
 
 # How long a slot stays due. Must exceed the loop's worst-case gap between
 # passes or the slot is missed; see `sweep_window_survives_interval`.
-DUE_WINDOW_MS = 30 * _MS_PER_MIN
+#
+# **Sixty minutes, and it is now a duration rather than a deadline.** It was
+# thirty, back when a slot fired once and the sweep it bought was good for
+# `max_odds_age_ms` afterwards -- so the window a slot opened was fifteen
+# minutes wherever inside those thirty the pass happened to land, and the rest
+# of the due window bought nothing. Under `refresh_interval_ms` the slot re-buys
+# odds for as long as it is due, so this constant now *is* the length of the
+# open window, and widening it widens what the screen is actually usable for.
+#
+# Sixty rather than more, for two reasons that bound it from opposite sides.
+# `MIN_SLOT_SEPARATION_MS` is two hours, so a wider window than that would let
+# one sport's slots overlap and double-buy the same cluster. And the day is
+# metered: a sixty-minute window at a ten-minute refresh is six calls, so a
+# cluster costs `6 x sweep_cost` rather than `sweep_cost`. That multiplier is
+# reserved for explicitly in `decide_sweeps` -- see `projected_total_cost` --
+# because a rolling refresh that is planned as if it were a single call is the
+# same defect the prop tail already caused once.
+DUE_WINDOW_MS = 60 * _MS_PER_MIN
+
+
+def refresh_interval_ms(max_odds_age_ms: int) -> int:
+    """How long to let stored odds age before re-buying them, while a slot is due.
+
+    **Derived from the staleness limit, never written down beside it.** The
+    limit and the refresh cadence are one quantity seen from two ends: odds
+    bought at `t` stop being bettable at `t + max_odds_age_ms`, so a refresh
+    that fires at `t + max_odds_age_ms` re-opens the window exactly as it shuts
+    and the Board blinks once a cycle. Two independent constants would drift,
+    and the tighter one wins in silence -- which is the failure this module's
+    docstring already records for `MAX_ODDS_AGE_S` against the Kalshi limit.
+
+    Two thirds, so the refresh lands with a third of the window still unspent.
+    That headroom absorbs the gap between passes: a refresh is only *considered*
+    when a pass runs, so the true worst-case age is this plus one pass interval.
+    At the deployed 900s limit that is 600s of refresh plus a 15s quote cadence
+    = 615s, comfortably inside 900s. It would **not** be comfortable on the
+    900s full-pass cadence alone (600 + 900 = 1500s, stale for two thirds of
+    every cycle), which is precisely why `run_quote_pass` carries the odds leg
+    and the full pass is not simply run more often.
+    """
+    return max_odds_age_ms * 2 // 3
 
 # How far back "the current slate" reaches, measured from the most recent
 # decision this instance recorded. `/api/board` selects on this; a row older
@@ -105,7 +160,31 @@ DUE_WINDOW_MS = 30 * _MS_PER_MIN
 # `actionable` — and answering it twice, once as a filter, would delete the
 # rejected rows that are the only evidence the page has on a slate with zero
 # actionable.
-SLATE_WINDOW_MS = DUE_WINDOW_MS
+#
+# **Written down rather than aliased to `DUE_WINDOW_MS`, which it was until the
+# rolling refresh.** The alias was sound while the two happened to want the same
+# number, and it silently stopped being sound the moment `DUE_WINDOW_MS` became
+# the length of the open window: widening the sweep schedule would have widened
+# how far back the Board calls a row "current", so the page would have shown
+# hour-old rows as this slate without anybody choosing that. The two quantities
+# answer different questions and only ever agreed by coincidence.
+#
+# The floor argued for above is still the loop's worst-case gap, and it is still
+# inherited rather than re-checked: `_SLATE_WINDOW_INHERITS_THE_STARTUP_CHECK`
+# below ties this to the constant `run_loop` already proves at startup.
+SLATE_WINDOW_MS = 30 * _MS_PER_MIN
+
+# The startup check `run_loop` runs is `sweep_window_survives_interval`, and it
+# proves `DUE_WINDOW_MS` exceeds the loop's worst-case gap between passes.
+# `SLATE_WINDOW_MS` needs exactly that same floor and has no check of its own,
+# so it borrows this one by staying inside the window that was proved. Asserted
+# at import rather than in a test, because the failure it prevents is a Board
+# that drops rows between passes -- which reads as a quiet slate, not as a bug.
+_SLATE_WINDOW_INHERITS_THE_STARTUP_CHECK = SLATE_WINDOW_MS <= DUE_WINDOW_MS
+assert _SLATE_WINDOW_INHERITS_THE_STARTUP_CHECK, (
+    "SLATE_WINDOW_MS must stay inside DUE_WINDOW_MS so it inherits the "
+    "worst-case-gap check that run_loop already runs at startup"
+)
 
 # Games kicking off within this far of the anchor are counted as covered by the
 # slot. Three hours: a line that far out is a real price a human would bet, and
@@ -204,6 +283,31 @@ class SweepSlot:
         """Lead time at the *end* of the due window -- the tightest case."""
         return (self.anchor_commence_ms - self.fire_until_ms) / _MS_PER_MIN
 
+    def calls_remaining(self, now_ms: int, refresh_interval_ms: int) -> int:
+        """How many `/odds` calls this slot still wants before it closes.
+
+        **The number `decide_sweeps` reserves against, and the reason it must.**
+        A slot used to cost one call, so planning could size the day as
+        `remaining_today // cost` and be right. Under the rolling refresh a slot
+        costs one call now plus one every `refresh_interval_ms` until
+        `fire_until_ms`, and a planner that still charges it one authorises a
+        window it cannot keep open -- opening the screen, spending the day's
+        credits keeping it open for two clusters, and going dark for the third
+        with no row anywhere saying why.
+
+        This is the same defect the prop tail caused on 2026-08-15, in the same
+        place, which is why the remedy is the same one: price the tail at
+        planning time rather than discovering it at spend time.
+
+        Counted from `now_ms` rather than from `fire_from_ms`, so a slot half
+        spent reserves only what it still needs. Never below one: a slot that is
+        due at all wants at least the call that opens it.
+        """
+        if refresh_interval_ms <= 0:
+            return 1
+        left = max(0, self.fire_until_ms - max(now_ms, self.fire_from_ms))
+        return 1 + left // refresh_interval_ms
+
     @property
     def reason(self) -> str:
         return (
@@ -216,6 +320,53 @@ class SweepSlot:
 
 def _hhmm(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%H:%M")
+
+
+# What a firing is for. `SCHEDULED` opens a slot's window and is the only
+# trigger that buys player props; `REFRESH` keeps an already-open window from
+# shutting and buys nothing but the team sweep. `BOOTSTRAP` has no slot at all.
+#
+# **The props distinction is load-bearing, not tidiness.** Props are billed per
+# event per market key per region -- 20 credits an event on the deployed config
+# -- so re-buying them on every refresh would cost `20 x games x 6` a cluster
+# where the team sweep costs 36. The live config sets no prop markets today, so
+# this changes nothing that currently runs; it is written down because the day
+# it does set them is not the day to discover this.
+SCHEDULED = "scheduled"
+REFRESH = "refresh"
+BOOTSTRAP = "bootstrap"
+
+
+def firing_for_slot(
+    slot: SweepSlot,
+    *,
+    now_ms: int,
+    last_sweep_ms: Optional[int],
+    refresh_interval_ms: int,
+) -> Optional[str]:
+    """What this slot wants right now: `SCHEDULED`, `REFRESH`, or nothing.
+
+    **One predicate, two callers, on purpose.** `decide_sweeps` fires through
+    it and `window_status` displays through it. Those two answers must be the
+    same answer -- the window panel tells a human when to look, and a panel that
+    computed "next sweep" by its own reasoning would eventually disagree with
+    the loop, with no way to tell from the page which of them was wrong. This
+    module's own `covers_commence` exists for exactly that reason, and this is
+    the second instance of the same rule.
+
+    `last_sweep_ms` is the sport's most recent served `/odds` call, or `None` if
+    it has had none today. A sweep from *before* this slot opened does not count
+    as having opened it: an earlier cluster's window, or a bootstrap, leaves a
+    stamp that is hours old and says nothing about whether these kickoffs have
+    been priced.
+    """
+    if not slot.is_due(now_ms):
+        return None
+    if last_sweep_ms is None or last_sweep_ms < slot.fire_from_ms:
+        return SCHEDULED
+    if now_ms - last_sweep_ms >= refresh_interval_ms:
+        return REFRESH
+    return None
 
 
 def cluster_kickoffs(
@@ -291,7 +442,6 @@ def plan_sweep_slots(
     now_ms: int,
     slots_available: int,
     max_odds_age_ms: int,
-    last_sweep_ms_by_sport: Optional[Mapping[str, Optional[int]]] = None,
     due_window_ms: int = DUE_WINDOW_MS,
     horizon_ms: int = DEFAULT_HORIZON_MS,
     min_separation_ms: int = MIN_SLOT_SEPARATION_MS,
@@ -307,30 +457,43 @@ def plan_sweep_slots(
     earlier sweep leaves the later cluster still schedulable, and the reverse
     does not.
 
-    A slot already served — an `/odds` call for that sport at or after its
-    `fire_from_ms` — is dropped, so a pass twelve minutes after a successful
-    sweep does not spend a second credit on the same cluster. That check reads
-    from recorded spend rather than process memory, so a restart mid-window
-    cannot double-spend.
-    """
-    served = last_sweep_ms_by_sport or {}
+    **A slot already served is no longer dropped, and that is the whole rolling
+    refresh.** It used to be: an `/odds` call for that sport at or after
+    `fire_from_ms` removed the slot for good, so a cluster got exactly one buy
+    and the window it opened shut `max_odds_age_ms` later with the games still
+    an hour away. Whether the slot now wants another call is a question about
+    *when it was last served*, not about *whether it ever was, so it belongs to
+    `firing_for_slot` and is asked by `decide_sweeps` at spend time. Planning
+    answers only "is this cluster worth a window".
 
+    That leaves this function with no use for `last_sweep_ms_by_sport`, which is
+    why the parameter is gone rather than kept and ignored. The double-spend it
+    used to prevent is prevented by `refresh_interval_ms` instead, and still
+    from recorded spend rather than process memory, so a restart mid-window
+    still cannot double-buy.
+
+    **A slot that is already due outranks one that is not**, ahead of the games
+    covered. Without that, a live window competing for the last affordable slot
+    could lose to a bigger future cluster and go dark mid-flight -- spending
+    credits to open a screen and then abandoning it, which is worse than either
+    never opening it or keeping it open.
+    """
     candidates: list[SweepSlot] = []
     for sport_key, commences in fixtures_by_sport.items():
-        for slot in slots_for_sport(
-            sport_key,
-            commences,
-            now_ms=now_ms,
-            max_odds_age_ms=max_odds_age_ms,
-            due_window_ms=due_window_ms,
-            horizon_ms=horizon_ms,
-        ):
-            last = served.get(sport_key)
-            if last is not None and last >= slot.fire_from_ms:
-                continue
-            candidates.append(slot)
+        candidates.extend(
+            slots_for_sport(
+                sport_key,
+                commences,
+                now_ms=now_ms,
+                max_odds_age_ms=max_odds_age_ms,
+                due_window_ms=due_window_ms,
+                horizon_ms=horizon_ms,
+            )
+        )
 
-    candidates.sort(key=lambda s: (-s.games_covered, s.anchor_commence_ms))
+    candidates.sort(
+        key=lambda s: (not s.is_due(now_ms), -s.games_covered, s.anchor_commence_ms)
+    )
 
     chosen: list[SweepSlot] = []
     for slot in candidates:
@@ -479,6 +642,14 @@ class ActionableWindow:
     last_sweep_sport: Optional[str]
     next_slot: Optional[SweepSlot]
     slots_planned: tuple[SweepSlot, ...]
+    # When the next `/odds` call is actually wanted, which since the rolling
+    # refresh is no longer `next_slot.fire_from_ms`. A slot mid-window has a
+    # `fire_from_ms` in the past, and publishing that as "next sweep" would put
+    # a time on the page that has already been and gone -- the one readout a
+    # human uses to decide when to look. Computed through `firing_for_slot`, the
+    # same predicate the loop fires on, so the page cannot disagree with it.
+    next_call_ms: Optional[int]
+    refresh_interval_ms: int
     sweeps_remaining_today: int
     spent_today: int
     daily_budget: int
@@ -515,9 +686,8 @@ class ActionableWindow:
             "max_odds_age_s": self.max_odds_age_ms // 1000,
             "last_sweep_ms": self.last_sweep_ms,
             "last_sweep_sport": self.last_sweep_sport,
-            "next_sweep_ms": (
-                self.next_slot.fire_from_ms if self.next_slot else None
-            ),
+            "next_sweep_ms": self.next_call_ms,
+            "refresh_interval_s": self.refresh_interval_ms // 1000,
             "next_sweep_sport": (
                 self.next_slot.sport_key if self.next_slot else None
             ),
@@ -581,9 +751,32 @@ def window_status(
         now_ms=now_ms,
         slots_available=remaining_sweeps,
         max_odds_age_ms=max_odds_age_ms,
-        last_sweep_ms_by_sport=last_sweep_by_sport(conn, since_ms=start_ms),
         horizon_ms=horizon_ms,
     )
+    refresh_ms = refresh_interval_ms(max_odds_age_ms)
+    served = last_sweep_by_sport(conn, since_ms=start_ms)
+    next_slot = slots[0] if slots else None
+    next_call_ms: Optional[int] = None
+    if next_slot is not None:
+        last = served.get(next_slot.sport_key)
+        if (
+            firing_for_slot(
+                next_slot,
+                now_ms=now_ms,
+                last_sweep_ms=last,
+                refresh_interval_ms=refresh_ms,
+            )
+            is not None
+        ):
+            # Wanted right now. The next pass will serve it, so the honest
+            # answer is "now" rather than a time in either direction.
+            next_call_ms = now_ms
+        elif last is not None and last >= next_slot.fire_from_ms:
+            # Mid-window: the slot is open and simply not yet due to re-buy.
+            next_call_ms = last + refresh_ms
+        else:
+            next_call_ms = next_slot.fire_from_ms
+
     latest = _latest_sweep_row(conn)
     # Not the same question as `latest`, and the difference is the whole point:
     # `latest` is the last sweep that was *served*, this is the last time a pass
@@ -600,8 +793,10 @@ def window_status(
         open_until_ms=open_until,
         last_sweep_ms=int(latest["called_ms"]) if latest else None,
         last_sweep_sport=latest["sport_key"] if latest else None,
-        next_slot=slots[0] if slots else None,
+        next_slot=next_slot,
         slots_planned=tuple(slots),
+        next_call_ms=next_call_ms,
+        refresh_interval_ms=refresh_ms,
         sweeps_remaining_today=remaining_sweeps,
         spent_today=state.spent_today,
         daily_budget=state.daily_budget,
@@ -664,6 +859,7 @@ def decide_sweeps(
     horizon_ms: int = DEFAULT_HORIZON_MS,
     prop_cost_per_event: int = 0,
     prop_sports: Collection[str] = (),
+    allow_bootstrap: bool = True,
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -674,10 +870,19 @@ def decide_sweeps(
     `tasks/lessons.md`. Every *timing* decision below anchors on the
     sportsbook's own kickoff instead.
 
-    Two triggers, and they answer different questions:
+    Three triggers, and they answer different questions:
 
-    **Scheduled** — the pass has landed inside a planned slot, so the window it
-    opens will sit just before a cluster of kickoffs. This is the normal path.
+    **Scheduled** — the pass has landed inside a planned slot and that slot has
+    not been bought yet, so this call *opens* its window. The normal path, and
+    the only trigger that buys player props.
+
+    **Refresh** — the slot is still due and its odds are older than
+    `refresh_interval_ms`, so this call *keeps the window open*. This is the
+    whole of option A: without it a cluster got one buy, the screen was usable
+    for `max_odds_age_ms`, and every row priced afterwards was suppressed as
+    `stale_odds` with the games still an hour away. `stale_odds` was 256 of 265
+    suppressions in 24h on the live instance, and the cause was never the
+    threshold -- it was that nothing re-bought.
 
     **Bootstrap** — a sport Kalshi lists has *no stored sportsbook fixtures at
     all*, so there is nothing to schedule against and nothing can be priced for
@@ -709,19 +914,35 @@ def decide_sweeps(
     will buy -- some covered fixtures have no Kalshi ladder, and the fetch drops
     any that started. Over-reserving refuses a sweep that would have fit; the
     error the other way is the outage this exists to prevent.
+
+    **The refresh tail is reserved on the same principle as the prop tail**, via
+    `SweepSlot.calls_remaining`. A slot no longer costs one call, and a planner
+    that priced it at one would authorise windows it could not sustain: it would
+    open the screen for the evening's first cluster, spend the day keeping it
+    open, and leave the later clusters dark with nothing recording that the
+    earlier ones had eaten them. Reserving the tail means a slot is either
+    opened and held or not opened, never opened and abandoned.
+
+    `allow_bootstrap` is `False` on the quote cadence. A bootstrap has no slot
+    and therefore no refresh interval to pace it -- its only cap is one attempt
+    per sport per budget day -- so on a 15s cadence it would fire once per pass
+    for every uncovered sport until the day's sports were exhausted, within a
+    couple of minutes of a restart. The full pass every 900s is where bootstrap
+    belongs, and it is not time-critical by construction: a sport with no stored
+    fixtures has nothing to be timely about.
     """
     state = budget.state(now_ms)
     remaining = max(0, state.remaining_today // max(1, cost))
     start_ms = budget.day_start_ms(now_ms)
     last_sweeps = last_sweep_by_sport(conn, since_ms=start_ms)
     fixtures = upcoming_fixtures_by_sport(conn, now_ms=now_ms, horizon_ms=horizon_ms)
+    refresh_ms = refresh_interval_ms(max_odds_age_ms)
 
     slots = plan_sweep_slots(
         fixtures,
         now_ms=now_ms,
         slots_available=remaining,
         max_odds_age_ms=max_odds_age_ms,
-        last_sweep_ms_by_sport=last_sweeps,
         horizon_ms=horizon_ms,
     )
 
@@ -742,7 +963,7 @@ def decide_sweeps(
     # `plan_sweep_slots` needs; this is what the day can actually afford once
     # the prop tail is counted, and the two must not be conflated.
     credits_left = state.remaining_today
-    refused_for_props: list[str] = []
+    refused_for_cost: list[str] = []
 
     bootstrap_candidates = sorted(
         (
@@ -752,7 +973,7 @@ def decide_sweeps(
             and sport not in last_sweeps
             and commence - now_ms <= horizon_ms
         )
-    )
+    ) if allow_bootstrap else []
     if bootstrap_candidates:
         _, sport = bootstrap_candidates[0]
         # No slot, so no props are bought and none is reserved. See
@@ -761,7 +982,7 @@ def decide_sweeps(
             FiringSweep(
                 sport_key=sport,
                 cost=cost,
-                trigger="bootstrap",
+                trigger=BOOTSTRAP,
                 detail=(
                     f"{sport} has no stored sportsbook fixtures, so nothing "
                     f"about it can be priced or scheduled"
@@ -775,33 +996,80 @@ def decide_sweeps(
     for slot in slots:
         if len(firing) >= remaining:
             break
-        if not slot.is_due(now_ms):
-            continue
         if any(f.sport_key == slot.sport_key for f in firing):
             continue
+        trigger = firing_for_slot(
+            slot,
+            now_ms=now_ms,
+            last_sweep_ms=last_sweeps.get(slot.sport_key),
+            refresh_interval_ms=refresh_ms,
+        )
+        if trigger is None:
+            continue
+        # Props ride the *opening* call only. A refresh re-buys the team lines
+        # that keep the window alive and nothing else; see `SCHEDULED`.
         prop_tail = (
             prop_cost_per_event * slot.games_covered
-            if slot.sport_key in prop_sports
+            if trigger == SCHEDULED and slot.sport_key in prop_sports
             else 0
         )
-        projected = cost + prop_tail
-        if projected > credits_left:
+        calls = slot.calls_remaining(now_ms, refresh_ms)
+        projected = cost * calls + prop_tail
+        # What *this* call spends, as against what the whole window will.
+        opening = cost + prop_tail
+        if opening > credits_left:
             # Refused, and named. A firing dropped for cost is a different state
             # from one that was never due, and the two read identically unless
-            # this says so.
-            refused_for_props.append(
-                f"{slot.sport_key} needs {projected} credits "
-                f"({cost} sweep + {prop_tail} props for "
-                f"{slot.games_covered} covered game(s)) and {credits_left} remain"
+            # this says so. The call count is named too: "needs 36 credits" on a
+            # 6-credit sweep is otherwise unreadable, and the reader's next
+            # question is always which of the two tails was responsible.
+            refused_for_cost.append(
+                f"{slot.sport_key} cannot afford even to open: {opening} credits "
+                f"({cost} sweep"
+                + (
+                    f" + {prop_tail} props for {slot.games_covered} covered game(s)"
+                    if prop_tail
+                    else ""
+                )
+                + f") and {credits_left} remain"
             )
             continue
-        credits_left -= projected
+        # **The gate is one call, not the whole tail, and that asymmetry is
+        # deliberate.** Reserving the tail is right; *refusing* on it is not.
+        # Each call independently buys a usable `max_odds_age_ms` of window, so
+        # a slot that can be held for twenty of its sixty minutes is strictly
+        # better than a slot not opened -- and "not opened" is exactly the
+        # all-day state this change exists to end. The prop tail refuses instead
+        # because it is a 20x multiplier discovered at spend time that can empty
+        # the day in one pass; a refresh tail is 6 credits paced ten minutes
+        # apart and drains gradually, which `remaining == 0` already catches.
+        #
+        # So: hold the tail against other sports on this pass, spend one call,
+        # and say plainly when the window is being opened short.
+        held = min(projected, credits_left)
+        credits_left -= held
+        short_by = projected - held
         firing.append(
             FiringSweep(
                 sport_key=slot.sport_key,
                 cost=cost,
-                trigger="scheduled",
-                detail=slot.reason,
+                trigger=trigger,
+                detail=(
+                    (
+                        slot.reason
+                        if trigger == SCHEDULED
+                        else f"{slot.reason}; holding the window open"
+                    )
+                    + (
+                        ""
+                        if not short_by
+                        else (
+                            f"; NOTE the day is {short_by} credits short of "
+                            f"holding this window to {_hhmm(slot.fire_until_ms)}Z, "
+                            f"so it will shut early"
+                        )
+                    )
+                ),
                 slot=slot,
                 projected_total_cost=projected,
             )
@@ -811,20 +1079,35 @@ def decide_sweeps(
 
     if firing:
         detail = "; ".join(f"{f.sport_key} ({f.trigger}): {f.detail}" for f in firing)
-        if refused_for_props:
-            detail += "; also refused: " + "; ".join(refused_for_props)
-    elif refused_for_props:
+        if refused_for_cost:
+            detail += "; also refused: " + "; ".join(refused_for_cost)
+    elif refused_for_cost:
         # Checked before `slots`, because a slot refused for cost IS a planned
         # slot: reporting "next slot is ..." here would describe a sweep that
         # was considered and declined as one that has not come round yet.
-        detail = "no sweep: " + "; ".join(refused_for_props)
+        detail = "no sweep: " + "; ".join(refused_for_cost)
     elif slots:
         nxt = slots[0]
-        detail = (
-            f"no sweep: next slot is {nxt.sport_key} at "
-            f"{_hhmm(nxt.fire_from_ms)}Z-{_hhmm(nxt.fire_until_ms)}Z for "
-            f"{nxt.reason}"
-        )
+        if nxt.is_due(now_ms):
+            # Due but not fired, which under the rolling refresh means exactly
+            # one thing: its odds are still inside `refresh_interval_ms`. Saying
+            # "next slot is 18:00Z-19:00Z" at 18:30Z would describe an open
+            # window as one that has not started, and that is the reading that
+            # makes a working refresh look like a stalled scheduler.
+            last = last_sweeps.get(nxt.sport_key)
+            due_at = (last or now_ms) + refresh_ms
+            detail = (
+                f"no sweep: {nxt.sport_key}'s window is open and its odds are "
+                f"{((now_ms - last) / 60000) if last else 0:.1f}min old; next "
+                f"refresh at {_hhmm(due_at)}Z (every {refresh_ms // 60000}min "
+                f"until {_hhmm(nxt.fire_until_ms)}Z)"
+            )
+        else:
+            detail = (
+                f"no sweep: next slot is {nxt.sport_key} at "
+                f"{_hhmm(nxt.fire_from_ms)}Z-{_hhmm(nxt.fire_until_ms)}Z for "
+                f"{nxt.reason}"
+            )
     elif not fixtures:
         detail = (
             "no sweep: no stored sportsbook fixtures inside the horizon, and "

@@ -91,6 +91,8 @@ def window_payload() -> dict:
         last_sweep_sport=None,
         next_slot=None,
         slots_planned=(),
+        next_call_ms=None,
+        refresh_interval_ms=600_000,
         sweeps_remaining_today=0,
         spent_today=0,
         daily_budget=16,

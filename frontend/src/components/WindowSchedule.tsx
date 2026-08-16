@@ -1,5 +1,5 @@
 import type { ActionableWindow } from "@/lib/api";
-import { formatClock, formatUntil } from "@/lib/api";
+import { displayZoneLabel, formatClock, formatUntil } from "@/lib/api";
 
 /**
  * When to actually look, for the rest of the budget day.
@@ -47,9 +47,11 @@ import { formatClock, formatUntil } from "@/lib/api";
  * can move, the loop can be down. `sweeps_remaining_today` is shown beside the
  * list because a schedule with no credits behind it is a wish.
  *
- * Times render in the reader's own timezone via `formatClock`. The rest of this
- * app speaks UTC because the venue does; a human deciding when to pick up a
- * phone does not.
+ * Times render in Pacific via `formatClock`, and the header names the zone. The
+ * record still speaks UTC because the venue does; a human deciding when to pick
+ * up a phone does not, and "the reader's own timezone" -- which this used to
+ * mean -- made the same slot print differently on a phone, a laptop and a
+ * screenshot. See `DISPLAY_TIME_ZONE`.
  */
 export default function WindowSchedule({
   window: w,
@@ -62,8 +64,16 @@ export default function WindowSchedule({
   return (
     <section className="mb-8 rounded-2xl border border-[color:var(--border)] bg-card">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 pt-4">
+        {/* The zone is named once, here, rather than beside each time: a
+            schedule is read as a block, and repeating "PDT" on six rows costs
+            more width than it buys clarity. Naming it *somewhere* is not
+            optional -- an unlabelled clock is what makes a screenshot
+            unquotable. */}
         <h2 className="text-sm font-semibold uppercase tracking-wide">
-          When to look today
+          When to look today{" "}
+          <span className="font-normal text-muted">
+            ({displayZoneLabel()})
+          </span>
         </h2>
         <span className="text-sm text-muted">
           {w.sweeps_remaining_today} sweep

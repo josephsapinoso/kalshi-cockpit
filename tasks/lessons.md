@@ -13,6 +13,52 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — An alias between two constants is a bet that they answer the same question
+
+`SLATE_WINDOW_MS = DUE_WINDOW_MS` was written with a real derivation attached:
+the Board's "current slate" needs a floor of the loop's worst-case gap between
+passes, `DUE_WINDOW_MS` is already proved to exceed that at startup, so borrowing
+it inherits a check instead of introducing a second unchecked one. Sound
+reasoning, and the two numbers genuinely wanted the same value.
+
+Then `DUE_WINDOW_MS` changed meaning. It had been a *deadline* — how long a slot
+stays eligible to fire once — and the rolling refresh made it a *duration*: the
+length of the window the slot holds open. Widening it from 30 to 60 minutes was
+correct for the schedule and would have silently widened how far back the Board
+called a row "current", putting hour-old rows on the page as this slate with
+nobody choosing that.
+
+**The pattern.** An alias survives a change in the *value* of what it borrows.
+It does not survive a change in the *meaning*. The bet you are making is not
+"these are equal today", it is "every future reason to move that constant is
+also a reason to move this one" — and nothing checks that bet, because the alias
+is exactly what removes the place where it would be written down.
+
+**How to apply.** When one constant is defined as another, write the shared
+*question* in the comment, not just the shared number. If you cannot state a
+question both answer, it is a coincidence: write the value down separately and
+tie it to the check it needs. Here that is `SLATE_WINDOW_MS = 30 * _MS_PER_MIN`
+plus an import-time assertion that it stays inside `DUE_WINDOW_MS`, which keeps
+the inherited startup check without inheriting the meaning.
+
+**The tell that this had happened**, and it is worth recognising because it
+arrived before the reasoning did: three unrelated test files failed on one
+constant change — a CLV horizon composition check, a jitter boundary, and a
+sweep-planning test. A constant whose movement breaks tests in unrelated
+subsystems is load-bearing in more places than its name admits.
+
+**Second, smaller lesson from the same change.** The jitter tests failed because
+they held their own copies of the window — `assert not
+sweep_window_survives_interval(1800.0, ...)` with a comment reading "a
+30-minute window". A test with a literal copy of the constant it is testing
+fails when the constant moves, for the one reason a test must never fail. Derive
+the bound from the constant: `(DUE_WINDOW_MS / 1000) * 0.95`.
+
+Related: [[two-identifiers-equal-by-construction-render-as-a-bug]],
+[[prefer-the-codebases-named-predicate-over-an-inline-re-expression]].
+
+---
+
 ## 2026-08-16 — Two identifiers that are equal by construction render as a bug
 
 A schedule component computed the end of its window as

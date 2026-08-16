@@ -26,12 +26,16 @@ from backend.odds.timing import (
     COVERAGE_MS,
     DUE_WINDOW_MS,
     MIN_SLOT_SEPARATION_MS,
+    REFRESH,
+    SCHEDULED,
     ActionableWindow,
     cluster_kickoffs,
     day_start_ms,
     decide_sweeps,
+    firing_for_slot,
     fixture_freshness,
     plan_sweep_slots,
+    refresh_interval_ms,
     slots_for_sport,
     sweep_window_survives_interval,
     upcoming_fixtures_by_sport,
@@ -53,6 +57,10 @@ def ms(iso: str) -> int:
 # 18:00Z on a summer Friday: mid-afternoon ET, hours before the evening slate.
 NOW = ms("2026-08-07T18:00:00")
 MAX_ODDS_AGE_MS = 900_000  # matches SuppressionConfig.max_odds_age_ms
+# Derived, never written down as 600_000. Pinning the number here would be a
+# second definition of the quantity `refresh_interval_ms` owns, and this file
+# would then keep passing while the two disagreed.
+REFRESH_MS = refresh_interval_ms(MAX_ODDS_AGE_MS)
 
 
 @pytest.fixture
@@ -266,38 +274,125 @@ class TestSelectionPrefersTheBiggestCluster:
         )
 
 
-class TestAServedSlotIsNotSweptTwice:
-    """Read back from recorded spend, so a restart mid-window cannot double-pay."""
+class TestAServedSlotIsSweptAgainOnTheRefreshInterval:
+    """The rolling refresh, stated as the rule it replaced.
 
-    def test_a_sweep_inside_the_window_retires_the_slot(self):
+    Until 2026-08-16 a served slot was retired: one buy per cluster, a window
+    good for `max_odds_age_ms`, and every row priced afterwards suppressed as
+    `stale_odds` with the games still an hour away. `firing_for_slot` now
+    answers *when it was last served* rather than *whether it ever was*.
+
+    Read back from recorded spend, so a restart mid-window still cannot
+    double-pay: the interval is measured against `api_credits`, not memory.
+    """
+
+    def _slot(self):
         kickoff = NOW + 3 * HOUR
         [slot] = plan_sweep_slots(
             {"baseball_mlb": [kickoff]},
             now_ms=NOW, slots_available=1, max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
-        assert plan_sweep_slots(
-            {"baseball_mlb": [kickoff]},
-            now_ms=NOW,
-            slots_available=1,
-            max_odds_age_ms=MAX_ODDS_AGE_MS,
-            last_sweep_ms_by_sport={"baseball_mlb": slot.fire_from_ms + MIN},
-        ) == []
+        return slot
 
-    def test_an_earlier_sweep_does_not_retire_a_later_slot(self):
-        """Otherwise the morning's bootstrap would cancel the evening's window."""
+    def test_a_slot_wants_its_first_call_when_nothing_has_been_served(self):
+        slot = self._slot()
+        assert firing_for_slot(
+            slot, now_ms=slot.fire_from_ms + MIN, last_sweep_ms=None,
+            refresh_interval_ms=REFRESH_MS,
+        ) == SCHEDULED
+
+    def test_a_sweep_just_served_does_not_buy_again(self):
+        """The double-pay this replaces. One minute in, the odds are fresh."""
+        slot = self._slot()
+        served = slot.fire_from_ms + MIN
+        assert firing_for_slot(
+            slot, now_ms=served + MIN, last_sweep_ms=served,
+            refresh_interval_ms=REFRESH_MS,
+        ) is None
+
+    def test_the_same_slot_buys_again_once_the_interval_has_passed(self):
+        """The whole change. The old rule returned nothing here, for ever."""
+        slot = self._slot()
+        served = slot.fire_from_ms + MIN
+        assert firing_for_slot(
+            slot, now_ms=served + REFRESH_MS, last_sweep_ms=served,
+            refresh_interval_ms=REFRESH_MS,
+        ) == REFRESH
+
+    def test_the_refresh_stops_when_the_slot_closes(self):
+        """`fire_until_ms` is one whole freshness window before first pitch, so
+        a refresh after it would price a game that has effectively started."""
+        slot = self._slot()
+        assert firing_for_slot(
+            slot, now_ms=slot.fire_until_ms + MIN,
+            last_sweep_ms=slot.fire_until_ms - REFRESH_MS,
+            refresh_interval_ms=REFRESH_MS,
+        ) is None
+
+    def test_an_earlier_sweep_does_not_count_as_opening_this_slot(self):
+        """Otherwise the morning's bootstrap would read as the evening's window
+        already being open, and the cluster would never be priced at all."""
+        slot = self._slot()
+        assert firing_for_slot(
+            slot, now_ms=slot.fire_from_ms + MIN,
+            last_sweep_ms=slot.fire_from_ms - MIN,
+            refresh_interval_ms=REFRESH_MS,
+        ) == SCHEDULED
+
+    def test_planning_no_longer_retires_a_served_slot(self):
+        """The planner answers "is this cluster worth a window" and nothing else.
+        Whether it wants a call *now* moved to `firing_for_slot`."""
+        kickoff = NOW + 3 * HOUR
+        twice = plan_sweep_slots(
+            {"baseball_mlb": [kickoff]},
+            now_ms=NOW, slots_available=1, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [s.anchor_commence_ms for s in twice] == [kickoff]
+
+
+class TestTheRefreshCadenceIsDerivedFromTheStalenessLimit:
+    """Two constants for one quantity drift, and the tighter wins in silence."""
+
+    def test_the_refresh_lands_before_the_odds_expire(self):
+        assert refresh_interval_ms(MAX_ODDS_AGE_MS) < MAX_ODDS_AGE_MS
+
+    def test_it_leaves_room_for_a_pass_to_notice(self):
+        """A refresh only fires when a pass runs, so the true worst-case age is
+        the interval plus one pass gap. The quote cadence is 15s; the headroom
+        has to cover it and does, with a wide margin."""
+        headroom_ms = MAX_ODDS_AGE_MS - refresh_interval_ms(MAX_ODDS_AGE_MS)
+        assert headroom_ms > 15_000 * (1 + JITTER)
+
+    def test_it_moves_with_the_limit_rather_than_being_pinned(self):
+        assert refresh_interval_ms(2 * MAX_ODDS_AGE_MS) == 2 * refresh_interval_ms(
+            MAX_ODDS_AGE_MS
+        )
+
+
+class TestThePlannerReservesTheWindowItOpens:
+    """A slot costs one call plus one per interval, not one call."""
+
+    def test_a_slot_counts_the_calls_left_before_it_closes(self):
         kickoff = NOW + 3 * HOUR
         [slot] = plan_sweep_slots(
             {"baseball_mlb": [kickoff]},
             now_ms=NOW, slots_available=1, max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
-        still = plan_sweep_slots(
-            {"baseball_mlb": [kickoff]},
-            now_ms=NOW,
-            slots_available=1,
-            max_odds_age_ms=MAX_ODDS_AGE_MS,
-            last_sweep_ms_by_sport={"baseball_mlb": slot.fire_from_ms - MIN},
+        span = slot.fire_until_ms - slot.fire_from_ms
+        assert slot.calls_remaining(slot.fire_from_ms, REFRESH_MS) == (
+            1 + span // REFRESH_MS
         )
-        assert [s.anchor_commence_ms for s in still] == [kickoff]
+
+    def test_a_slot_half_spent_reserves_only_what_it_still_needs(self):
+        kickoff = NOW + 3 * HOUR
+        [slot] = plan_sweep_slots(
+            {"baseball_mlb": [kickoff]},
+            now_ms=NOW, slots_available=1, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        early = slot.calls_remaining(slot.fire_from_ms, REFRESH_MS)
+        late = slot.calls_remaining(slot.fire_until_ms, REFRESH_MS)
+        assert late < early
+        assert late == 1        # a due slot always wants at least the call now
 
 
 class TestTheBudgetDayIsASportsDay:
@@ -336,22 +431,29 @@ class TestTheBudgetDayIsASportsDay:
 class TestTheDueWindowSurvivesTheLoopInterval:
     """Two limits on one quantity, in modules that do not import each other.
 
-    A slot due for thirty minutes on a loop that wakes every forty is missed
+    A slot due for `DUE_WINDOW_MS` on a loop that wakes less often is missed
     most days -- and a missed sweep is indistinguishable from a quiet slate,
     which is the failure this whole module exists to remove.
+
+    **Every bound here is derived from `DUE_WINDOW_MS`, not written down.** They
+    were literals against the old thirty-minute window, so widening it to sixty
+    failed these tests for the one reason a test must never fail: the constant
+    moved and the test had its own copy of it.
     """
 
     def test_the_shipped_default_interval_lands_inside_a_slot(self):
         assert sweep_window_survives_interval(900.0, jitter=JITTER)
 
     def test_an_interval_wider_than_the_window_is_rejected(self):
-        assert not sweep_window_survives_interval(1800.0, jitter=JITTER)
+        too_slow = (DUE_WINDOW_MS / 1000) * 2
+        assert not sweep_window_survives_interval(too_slow, jitter=JITTER)
 
     def test_the_boundary_accounts_for_jitter_not_just_the_nominal_interval(self):
-        """At 27 minutes the nominal interval fits in a 30-minute window and the
-        jittered worst case does not. A check that forgot jitter passes here."""
-        interval = 27 * 60.0
-        assert interval * 1000 < DUE_WINDOW_MS
+        """An interval whose nominal value fits the window and whose jittered
+        worst case does not. A check that forgot jitter passes here."""
+        interval = (DUE_WINDOW_MS / 1000) * 0.95
+        assert interval * 1000 < DUE_WINDOW_MS          # nominal fits
+        assert interval * (1 + JITTER) * 1000 > DUE_WINDOW_MS   # jittered does not
         assert not sweep_window_survives_interval(interval, jitter=JITTER)
 
 
@@ -677,7 +779,14 @@ class TestThePlannerPricesThePropsItAuthorises:
             prop_sports={"baseball_mlb"},
         )
         assert [f.sport_key for f in decision.fire] == ["baseball_mlb"]
-        assert decision.fire[0].projected_total_cost == 6 + 20 * 12
+        # Two tails now, not one: the props, and the calls that hold the window
+        # open for the rest of the slot. Derived from the slot rather than
+        # written as a literal -- a literal here is a second definition of
+        # `calls_remaining` and would go stale the next time the window moved.
+        slot = decision.fire[0].slot
+        calls = slot.calls_remaining(NOW, REFRESH_MS)
+        assert calls > 1, "a sixty-minute window that wants one call is not one"
+        assert decision.fire[0].projected_total_cost == 6 * calls + 20 * 12
 
     def test_a_sport_with_no_ladder_is_not_charged_for_props(self, conn):
         """WNBA has no prop series, so reserving for one would starve it."""
@@ -694,7 +803,10 @@ class TestThePlannerPricesThePropsItAuthorises:
             prop_sports=set(),          # no ladder discovered anywhere
         )
         assert [f.sport_key for f in decision.fire] == ["baseball_mlb"]
-        assert decision.fire[0].projected_total_cost == 6
+        slot = decision.fire[0].slot
+        assert decision.fire[0].projected_total_cost == 6 * slot.calls_remaining(
+            NOW, REFRESH_MS
+        ), "a sport with no ladder was charged for props it will never buy"
 
     def test_the_firing_carries_the_slot_it_was_planned_for(self, conn):
         """Without this the prop fetch has no fixture set and falls back to the
