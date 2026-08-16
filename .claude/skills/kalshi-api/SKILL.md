@@ -185,9 +185,27 @@ series      event id   outcome
 event_ticker = KXNFLGAME-26SEP14DENKC   (everything before the final dash)
 ```
 
-Event id is `{YY}{MON}{DD}[{HHMM}]{AWAY}{HOME}`. The `{HHMM}` appears only when
-a league plays two games between the same pair on one date (MLB doubleheaders):
+Event id is `{YY}{MON}{DD}[{HHMM}]{AWAY}{HOME}`, e.g.
 `KXMLBGAME-26AUG092020HOUSD-HOU`.
+
+**`{HHMM}` is per *league*, not per doubleheader.** This file previously said it
+"appears only when a league plays two games between the same pair on one date
+(MLB doubleheaders)". Measured over the captured payloads: **9 of 9 MLB events
+carry it and 53 of 53 non-MLB events do not** (NFL, WNBA, NCAAF, MLS, CFL),
+with **no doubleheader anywhere in the sample** — so the doubleheader
+explanation is not what produces it. MLB is simply the one league whose tickers
+are timestamped, which is convenient, since it is also the one that plays
+doubleheaders.
+
+Read the practical consequence rather than the rule: **the fixture segment
+identifies a game, and for non-MLB leagues it does so only because those leagues
+do not play the same pair twice on one date.** Anything keying on the segment
+(`match.linker.link_prop_event` does) inherits that assumption. Prefer
+`event_links.odds_event_id` where a per-game key is needed and a database is
+reachable — see ADR 0029.
+
+The measurement is a small sample and contains no doubleheader. It refutes the
+stated *reason*; it does not establish what Kalshi would emit for one.
 
 Confirmed series: `KXMLBGAME` / `KXMLBSPREAD` / `KXMLBTOTAL` / `KXMLBRFI` /
 `KXMLBKS`, `KXNFLGAME`, `KXNCAAFGAME`, `KXWNBAGAME` / `KXWNBASPREAD` /

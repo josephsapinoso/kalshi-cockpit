@@ -43,6 +43,7 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sqlite3
@@ -52,6 +53,7 @@ from typing import Any
 import pytest
 
 from scripts.inspect_live_db import (
+    DEFAULT_ROW_CAP,
     QUERIES,
     Section,
     UnknownQuery,
@@ -1700,3 +1702,144 @@ class TestTheDumpTruncatesLoudly:
             ],
         )
         assert _rungs(path, limit=3).truncated is False
+
+
+def _clv_db(tmp_path, rows):
+    """A database shaped like one ball game priced across several Kalshi series.
+
+    `rows` is a list of `(series, event_ticker, odds_event_id, market_type)`.
+    Everything else -- the recommendation's horizon, its scored stamp, its
+    population -- is fixed, because this fixture exists to vary exactly one
+    thing: how many Kalshi events sit on how many sportsbook fixtures.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    conn.execute(
+        "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
+        "config_json, rationale) VALUES (1, 1, 1, '{}', 'seed')"
+    )
+    for i, (series, event, odds_event, market_type) in enumerate(rows):
+        ticker = f"{event}-M{i}"
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
+            "first_seen_ms, last_seen_ms) VALUES (?, 'mlb', 1, 1)",
+            (series,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_events (event_ticker, series_ticker, "
+            "commence_ms, close_ms, status, first_seen_ms, last_seen_ms) "
+            "VALUES (?, ?, 1000, 2000, 'open', 1, 1)",
+            (event, series),
+        )
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+            "market_type, status, first_seen_ms, last_seen_ms) "
+            "VALUES (?, ?, ?, ?, 'active', 1, 1)",
+            (ticker, event, series, market_type),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
+            "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, 'mlb', 'test', 0, 1)",
+            (event, odds_event),
+        )
+        link_id = conn.execute(
+            "SELECT id FROM event_links WHERE kalshi_event_ticker = ?", (event,)
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, ticker, "
+            "strategy_config_version, side, entry_ask_tenths, fair_probability, "
+            "edge_tenths, fee_predicted, ev_net_dollars, suggested_contracts, "
+            "reference_contracts, kelly_fraction, kalshi_quote_age_ms, "
+            "odds_age_ms, reason_text, link_id, clv_tenths, clv_scored_ms, "
+            "clv_horizon_hours) VALUES (?, ?, 1, 'yes', 500, 0.5, 1.0, 0.01, "
+            "0.01, 20, 20, 0.02, 100, 100, 'test', ?, 15.0, 999, 0.0)",
+            (i, ticker, link_id),
+        )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _clv_section_d(path):
+    """Section D, by-population, as a dict of column -> value for its one row."""
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        sections = QUERIES["clv-coverage"].run(
+            conn, argparse.Namespace(limit=DEFAULT_ROW_CAP)
+        )
+    finally:
+        conn.close()
+    section = next(s for s in sections if s.title.startswith("D. the gate"))
+    assert section.row_count == 1, section.rows
+    return dict(zip(section.columns, section.rows[0]))
+
+
+class TestClvCoverageCanDetectTheClusterInflationItExistsToMeasure:
+    """An instrument that cannot report the defect is decoration.
+
+    `TestEveryWhitelistedQueryRunsAgainstTheRealSchema` already proves this
+    query executes. Executing is not detecting: a section D that returned
+    `clusters_now == clusters_by_game` on every input would pass that test and
+    measure nothing. These vary the input and require the two columns to move
+    apart, which is the whole reason the query was written (ADR 0029).
+    """
+
+    def test_one_game_across_four_series_reports_four_clusters_and_one_game(
+        self, tmp_path
+    ):
+        """The shape Kalshi actually returns for a fully-priced ball game."""
+        path = _clv_db(
+            tmp_path,
+            [
+                ("KXMLBGAME", "KXMLBGAME-COLSTL", "ODDS-COLSTL", "moneyline"),
+                ("KXMLBSPREAD", "KXMLBSPREAD-COLSTL", "ODDS-COLSTL", "spread"),
+                ("KXMLBTOTAL", "KXMLBTOTAL-COLSTL", "ODDS-COLSTL", "total"),
+                ("KXMLBKS", "KXMLBKS-COLSTL", "ODDS-COLSTL", "prop"),
+            ],
+        )
+        row = _clv_section_d(path)
+        assert row["rows_counted"] == 4
+        assert row["clusters_now"] == 4, "the key the gate used until ADR 0029"
+        assert row["clusters_by_game"] == 1, "and there is one ball game"
+        assert row["unlinked_rows"] == 0
+
+    def test_genuinely_separate_games_do_not_report_inflation(self, tmp_path):
+        """The other side of the anchor.
+
+        A section D that always showed a gap would be as useless as one that
+        never did -- it would make every record look defective. Two real games
+        must report the two columns equal.
+        """
+        path = _clv_db(
+            tmp_path,
+            [
+                ("KXMLBGAME", "KXMLBGAME-A", "ODDS-A", "moneyline"),
+                ("KXMLBGAME", "KXMLBGAME-B", "ODDS-B", "moneyline"),
+            ],
+        )
+        row = _clv_section_d(path)
+        assert row["clusters_now"] == row["clusters_by_game"] == 2
+
+    def test_a_row_with_no_link_is_reported_rather_than_dropped(self, tmp_path):
+        """An unlinked row must be visible, not silently absent.
+
+        Section D's `clusters_by_game` falls back to a namespaced ticker, so an
+        unlinked row still forms a cluster and is counted in `unlinked_rows`.
+        Dropping it would understate the record and flatter the comparison.
+        """
+        path = _clv_db(
+            tmp_path,
+            [("KXMLBGAME", "KXMLBGAME-A", "ODDS-A", "moneyline")],
+        )
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE recommendations SET link_id = NULL")
+        conn.commit()
+        conn.close()
+
+        row = _clv_section_d(path)
+        assert row["rows_counted"] == 1, "still counted"
+        assert row["unlinked_rows"] == 1, "and flagged as unlinked"

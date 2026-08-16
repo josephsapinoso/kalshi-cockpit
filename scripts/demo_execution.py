@@ -62,7 +62,7 @@ def fresh_db(root: Path, name: str) -> sqlite3.Connection:
     return conn
 
 
-def _market(conn, ticker: str, event_ticker: str) -> None:
+def _market(conn, ticker: str, event_ticker: str) -> int:
     """Register one market, loudly.
 
     Plain `INSERT`, and `first_seen_ms`/`last_seen_ms` supplied. This was
@@ -74,12 +74,26 @@ def _market(conn, ticker: str, event_ticker: str) -> None:
     visible symptom was the gate's own footnote, "400 row(s) had no event ticker
     and were clustered by market instead". `tasks/lessons.md` carries this under
     `INSERT OR IGNORE will happily ignore your fixture`.
+
+    **It also mints the `event_links` row and returns its id**, because since
+    2026-08-16 the gate clusters on `event_links.odds_event_id` rather than on
+    `kalshi_markets.event_ticker` (ADR 0029). Without the link every demo row
+    lands on the fallback and that same footnote returns -- in a script whose
+    whole purpose is to show the gate behaving as it does in production. One
+    sportsbook fixture per demo game, which is what the demo means by a game.
     """
+    now = int(time.time() * 1000)
     conn.execute(
         "INSERT INTO kalshi_markets (ticker, event_ticker, series_ticker, "
         "first_seen_ms, last_seen_ms) VALUES (?, ?, 'S', ?, ?)",
-        (ticker, event_ticker, int(time.time() * 1000), int(time.time() * 1000)),
+        (ticker, event_ticker, now, now),
     )
+    conn.execute(
+        "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, league, "
+        "method, commence_skew_ms, linked_ms) VALUES (?, ?, 'demo', 'demo', 0, ?)",
+        (event_ticker, f"ODDS-{event_ticker}", now),
+    )
+    return int(conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
 
 
 def add(
@@ -99,11 +113,18 @@ def add(
     comment warning about exactly this; it had been applied to `seed_history` and
     not here.
 
-    `game` — the floor counts **independent games**, clustered on
-    `kalshi_markets.event_ticker`. Four hundred rows on one ticker is one
-    cluster, so even with the horizon written the counter would have read
-    "1 of 300". Each game gets its own market and event so 400 rows are 400 data
-    points, which is what "400 scored bets" in the section title claims.
+    `game` — the floor counts **independent games**, clustered since 2026-08-16
+    on `event_links.odds_event_id` (ADR 0029; it was `kalshi_markets.event_ticker`,
+    which is one per *series* per game, not one per game). Four hundred rows on
+    one ticker is one cluster, so even with the horizon written the counter would
+    have read "1 of 300". Each game gets its own market, event **and sportsbook
+    fixture**, so 400 rows are 400 data points — which is what "400 scored bets"
+    in the section title claims.
+
+    `link_id` is resolved by subquery from the ticker rather than threaded in,
+    so a demo row cannot end up unlinked by a caller forgetting to pass it. An
+    unlinked row would still be *counted*, on the fallback key, which is exactly
+    the kind of silent degradation this script exists to make visible.
     """
     ticker = DEMO_TICKER if game is None else f"KXNFLGAME-26AUG{game:04d}-A"
     if game is not None:
@@ -116,13 +137,17 @@ def add(
             suggested_contracts, reference_contracts, kelly_fraction,
             kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
-            clv_scored_ms, clv_horizon_hours
+            clv_scored_ms, clv_horizon_hours, link_id
         ) VALUES (?, ?, 1, 'yes', 503, 0.55, 20.0, 0.1,
-                  0.5, 20, 20, 0.02, ?, ?, NULL, 'demo', ?, ?, ?)
+                  0.5, 20, 20, 0.02, ?, ?, NULL, 'demo', ?, ?, ?,
+                  (SELECT l.id FROM event_links l
+                     JOIN kalshi_markets m
+                       ON m.event_ticker = l.kalshi_event_ticker
+                    WHERE m.ticker = ?))
         """,
         (
             created_ms or int(time.time() * 1000), ticker, quote_age, odds_age,
-            clv_tenths, int(time.time() * 1000), DEFAULT_HORIZON_HOURS,
+            clv_tenths, int(time.time() * 1000), DEFAULT_HORIZON_HOURS, ticker,
         ),
     )
     return conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]

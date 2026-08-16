@@ -13,6 +13,55 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — A defect written down beside a guard is not written down in it
+
+`gate.clustered_clv`'s docstring said a game's moneyline, spread and total must
+not count as three independent observations. It clustered on
+`kalshi_markets.event_ticker`, and Kalshi issues a **separate event per
+series** — so the code did the exact opposite of its own sentence, on the guard
+that decides when real money is allowed to flow, in the permissive direction,
+for as long as the guard had existed.
+
+Three separate things should have caught it, and each failed in a way worth
+naming on its own:
+
+- **A test named after the property passed on an input the venue never
+  produces.** `test_one_games_moneyline_spread_and_total_are_a_single_cluster`
+  handed all three markets one hand-written `event="EVT-GAME-X"`. Real Kalshi
+  returns three different event tickers. **A fixture is a claim about the world,
+  and a hand-written one asserts whatever its author already believed** — which
+  is why this repo's rule is that wire-format tests load captured payloads. The
+  rule was written for parsing; it applies to *any* test whose subject is a
+  shape the venue chooses.
+- **No test in the suite wrote the table the fix turns on.** Every gate test
+  omitted `event_links`, so all of them ran the fallback branch while reading as
+  though they covered the join. **A whole class of tests can share one blind
+  spot, and a green suite cannot show you which branch it took.** The tell is
+  cheap and nobody looks for it: grep the tests for the table.
+- **The defect was documented — in the neighbour.**
+  `analysis/joint_bound.cluster_key`'s docstring lists "spread and total rows on
+  one game would become up to three clusters" as a known cost, "printed, not
+  corrected". That harness mirrors the gate and was written *from* it. Writing a
+  limitation into the mirror discharges the feeling of having disclosed it while
+  leaving the original silent.
+
+**The compounding failure, and the one to look for first.** The gate carries
+`unclustered_rows` precisely so an approximation is disclosed — *"an unreported
+approximation in a money guard is indistinguishable from a correct one"*. Keyed
+to the wrong thing, it reported **0** on records it had split. **A disclosure
+channel is only as honest as the predicate that fires it, and a channel reading
+zero is the strongest possible statement that nothing is wrong.** Whenever a
+key changes, the counter that reports failures to hit that key must move with
+it, or the fix silently converts a loud approximation into a quiet one.
+
+**What to do.** When a docstring names an invariant, test the invariant against
+a *captured* payload rather than a constructed one — the constructed input is
+built from the same belief as the code. And when a guard groups by an
+identifier, verify the identifier means what the prose says it means, at the
+source that issues it. "Event", "game", "match" and "fixture" are four words the
+venue does not use interchangeably, and the schema does not enforce their
+distinctions.
+
 ## 2026-08-16 — A probe's request parameters are part of its finding, and they do not travel with the sentence
 
 A scoping probe reported *"8 books quote MLB props — DraftKings, FanDuel,

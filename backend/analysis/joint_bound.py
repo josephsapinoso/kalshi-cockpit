@@ -359,13 +359,32 @@ def nesting_violations(pops: dict[str, list[Row]]) -> list[str]:
 #: but it can be **checked**, and it is, at import time, so that re-choosing the
 #: key in `gate.py` breaks this harness loudly instead of silently splitting it
 #: from the gate it is supposed to match.
-_GATE_CLUSTER_KEY_SQL = "COALESCE(m.event_ticker, r.ticker)"
+#:
+#: **The two are now deliberately different, and this constant records that
+#: rather than hiding it.** On 2026-08-16 the gate moved to
+#: `event_links.odds_event_id`, the only one-per-game identifier in the schema,
+#: because Kalshi issues a separate event per series and the old key therefore
+#: counted one game up to four times (ADR 0029). **This harness cannot follow
+#: it.** It runs over HTTP with no database, so `odds_event_id` is unreachable,
+#: and §3 of its registration fixes its clustering variable in advance -- the
+#: one thing a pre-registration exists to stop anyone re-choosing after seeing
+#: the data.
+#:
+#: The consequence is stated rather than corrected, and it has a direction:
+#: `cluster_key` below still splits one game across its series, so this
+#: harness's cluster count is an **over**-count and its bound is correspondingly
+#: **optimistic**. Read any number it produces as an upper bound on `G`. Closing
+#: the gap needs a new registration, not an edit here.
+_GATE_CLUSTER_KEY_SQL = "COALESCE('game:' || l.odds_event_id,"
 
 if _GATE_CLUSTER_KEY_SQL not in inspect.getsource(gate.clustered_clv):
     raise ImportError(
         "gate.clustered_clv no longer clusters on "
         f"{_GATE_CLUSTER_KEY_SQL!r}. Registration §3 fixes the joint bound's "
-        "cluster key to the one the gate uses; they have diverged."
+        "cluster key, and this check exists so a change of the gate's key is "
+        "read by a human rather than absorbed. If the gate has moved again, "
+        "decide what this harness's bound now means before updating this "
+        "string -- see ADR 0029."
     )
 
 
@@ -387,6 +406,15 @@ def cluster_key(ticker: str, event_ticker: Optional[str] = None) -> Optional[str
     event ticker carries the series prefix, so spread and total rows on one game
     would become up to three clusters; and the fallback cannot see a market
     whose stored `event_ticker` differs from its ticker prefix.
+
+    **The first of those was not only carried over — it was live in the money
+    gate for the whole time this docstring described it as a known cost.**
+    `gate.clustered_clv` used the same key and counted a four-series game as
+    four independent games, `unclustered_rows` reporting none of it. The gate
+    was fixed on 2026-08-16 (ADR 0029); this function was not, because §3 of
+    the registration fixes its key and HTTP does not carry `odds_event_id`.
+    A defect written down in the harness that mirrors a guard is not written
+    down in the guard.
     """
     if event_ticker:
         return event_ticker

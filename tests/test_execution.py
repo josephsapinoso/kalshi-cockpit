@@ -505,7 +505,7 @@ _DEFAULT_EVENT = object()
 def _add_recommendation(
     conn, *, clv_tenths=None, scored=True, quote_age=1000, odds_age=60_000,
     suppressed=None, created_ms=None, ask=503, ticker="T", event=_DEFAULT_EVENT,
-    contracts=20, horizon=DEFAULT_HORIZON_HOURS,
+    contracts=20, horizon=DEFAULT_HORIZON_HOURS, game=_DEFAULT_EVENT,
 ):
     """Insert one recommendation, and the market row it hangs off.
 
@@ -522,14 +522,44 @@ def _add_recommendation(
     nothing, and the tests exercised the no-event fallback while reading as
     though they covered the join. `OR IGNORE` suppresses constraint failures,
     which is exactly what makes it able to hide this.
+
+    `game` is the **sportsbook fixture** -- `event_links.odds_event_id`, the key
+    the gate has clustered on since 2026-08-16 (ADR 0029). It defaults to one
+    fixture per `event`, which leaves every existing caller's cluster count
+    unchanged. Pass the *same* `game` with different `event`s to model what
+    Kalshi actually returns: `KXMLBGAME-...`, `KXMLBSPREAD-...`,
+    `KXMLBTOTAL-...` and each `KXMLBKS-...` ladder are separate Kalshi events on
+    **one** ball game. Pass `game=None` to model a row with no link, which lands
+    on the fallback and is counted in `unclustered_rows`.
+
+    Before this parameter existed no gate test wrote an `event_links` row, so
+    every one of them exercised the fallback while reading as though it covered
+    the join -- the same shape of gap the `OR IGNORE` note above describes, one
+    table further along.
     """
     event = f"EVT-{ticker}" if event is _DEFAULT_EVENT else event
+    game = (f"ODDS-{event}" if event else None) if game is _DEFAULT_EVENT else game
     conn.execute(
         "INSERT OR IGNORE INTO kalshi_markets "
         "(ticker, event_ticker, series_ticker, first_seen_ms, last_seen_ms) "
         "VALUES (?, ?, 'S', 0, 0)",
         (ticker, event),
     )
+    link_id = None
+    if game is not None:
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
+            "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+            "VALUES (?, ?, 'test', 'test', 0, 0)",
+            (event or ticker, game),
+        )
+        link_id = int(
+            conn.execute(
+                "SELECT id FROM event_links WHERE kalshi_event_ticker = ? "
+                "AND odds_event_id = ?",
+                (event or ticker, game),
+            ).fetchone()["id"]
+        )
     conn.execute(
         """
         INSERT INTO recommendations (
@@ -538,9 +568,9 @@ def _add_recommendation(
             suggested_contracts, reference_contracts, kelly_fraction,
             kalshi_quote_age_ms,
             odds_age_ms, suppressed_reason, reason_text, clv_tenths,
-            clv_scored_ms, clv_horizon_hours
+            clv_scored_ms, clv_horizon_hours, link_id
         ) VALUES (?, ?, 1, 'yes', ?, 0.55, 20.0, 0.1, 0.5, ?, ?, 0.02, ?, ?, ?,
-                  'test', ?, ?, ?)
+                  'test', ?, ?, ?, ?)
         """,
         (
             created_ms or int(time.time() * 1000), ticker, ask, contracts,
@@ -550,6 +580,7 @@ def _add_recommendation(
             # See the note in test_quote_refresh's builder: without this the
             # gate cannot see the row and every test below reads 423.
             horizon if scored else None,
+            link_id,
         ),
     )
     conn.commit()
@@ -786,31 +817,104 @@ class TestObservationsAreClusteredByGame:
         )
 
     def test_one_games_moneyline_spread_and_total_are_a_single_cluster(self, gate_db):
-        """Three markets, three tickers, one final score.
+        """Three markets, three tickers, three Kalshi events, one final score.
 
-        Clustering on ticker rather than event would count these as three
-        independent observations. They resolve from one game, and their closing
-        lines move together.
+        **The event tickers here are deliberately different, and that is the
+        whole test.** Until 2026-08-16 this passed only because it handed all
+        three markets one hand-written `event="EVT-GAME-X"` -- a shape Kalshi
+        does not produce. The venue issues a separate event *per series*:
+        `KXMLBGAME-26AUG072015COLSTL`, `KXMLBSPREAD-26AUG072015COLSTL` and
+        `KXMLBTOTAL-26AUG072015COLSTL` are one baseball game, verified on the
+        captured payload `tests/fixtures/events_sports_nested.json`.
+
+        So the test asserted the intended behaviour on an input that never
+        occurs. ADR 0029. What binds them is the sportsbook fixture, which is
+        one per game and which a prop event inherits from its game.
+
+        **This shape has never reached the deployed gate, and the test must not
+        be read as saying it did.** `link_event` refuses any event whose sides
+        are not exactly two (`match/linker.py:283`) and a spread event's sides
+        are phrases like *"St. Louis wins by over 3.5 runs"*, so spread and
+        total events never link and never price. The reachable inflation is
+        moneyline + prop ladders, covered by the next test. This one guards the
+        key against the venue's actual shape, ahead of that shape arriving.
         """
         conn = _conn(gate_db)
-        for market in ("KXMLBGAME-X", "KXMLBSPREAD-X", "KXMLBTOTAL-X"):
-            _add_recommendation(conn, clv_tenths=15.0, ticker=market, event="EVT-GAME-X")
+        for series in ("KXMLBGAME", "KXMLBSPREAD", "KXMLBTOTAL"):
+            _add_recommendation(
+                conn,
+                clv_tenths=15.0,
+                ticker=f"{series}-26AUG072015COLSTL-A",
+                event=f"{series}-26AUG072015COLSTL",
+                game="ODDS-COLSTL",
+            )
 
         stats = clustered_clv(conn)
         assert stats.n_rows == 3
         assert stats.n_clusters == 1
+        assert stats.unclustered_rows == 0
 
-    def test_a_market_with_no_event_ticker_is_reported_not_silently_approximated(
+    def test_a_prop_ladder_does_not_add_a_game_to_its_own_game(self, gate_db):
+        """A strikeout ladder resolves from the same final score as the game.
+
+        `match.linker.link_prop_event` gives a prop event its *game's*
+        `odds_event_id` by construction, so the two collapse. Before ADR 0029
+        this game counted as two, and each further ladder added another.
+        """
+        conn = _conn(gate_db)
+        _add_recommendation(
+            conn, clv_tenths=15.0, ticker="KXMLBGAME-CWSDET-A",
+            event="KXMLBGAME-26AUG151310CWSDET", game="ODDS-CWSDET",
+        )
+        for point in (2, 3, 4):
+            _add_recommendation(
+                conn, clv_tenths=15.0, ticker=f"KXMLBKS-CWSDET-AKAY{point}",
+                event="KXMLBKS-26AUG151310CWSDET", game="ODDS-CWSDET",
+            )
+
+        stats = clustered_clv(conn)
+        assert stats.n_rows == 4
+        assert stats.n_clusters == 1, (
+            "one ball game, whatever Kalshi calls the events priced on it"
+        )
+
+    def test_two_different_games_are_still_two_clusters(self, gate_db):
+        """The fix must collapse siblings, not everything.
+
+        A key that over-collapsed would look conservative and be useless: the
+        gate would never reach its floor. This is the other side of the anchor.
+        """
+        conn = _conn(gate_db)
+        _add_recommendation(
+            conn, clv_tenths=15.0, ticker="KXMLBGAME-A-A",
+            event="KXMLBGAME-A", game="ODDS-A",
+        )
+        _add_recommendation(
+            conn, clv_tenths=25.0, ticker="KXMLBGAME-B-B",
+            event="KXMLBGAME-B", game="ODDS-B",
+        )
+
+        stats = clustered_clv(conn)
+        assert stats.n_clusters == 2
+        assert stats.unclustered_rows == 0
+
+    def test_a_row_with_no_linked_fixture_is_reported_not_silently_approximated(
         self, gate_db
     ):
-        """Falling back to the ticker is an approximation, so it must be visible.
+        """Falling back off the per-game key is an approximation, so it shows.
 
         An unreported approximation inside a money guard is indistinguishable
-        from a correct calculation.
+        from a correct calculation. `unclustered_rows` counts rows that missed
+        the **per-game** key -- which is what it always claimed to count, and
+        what it did not count before ADR 0029: on the old key a row with an
+        `event_ticker` was treated as fully clustered even though that ticker
+        was one per series, so the footnote read 0 on a record it had split.
         """
         conn = _conn(gate_db)
         for _ in range(3):
-            _add_recommendation(conn, clv_tenths=15.0, ticker="ORPHAN", event=None)
+            _add_recommendation(
+                conn, clv_tenths=15.0, ticker="ORPHAN", event=None, game=None
+            )
         _add_recommendation(conn, clv_tenths=15.0, ticker="T2")
 
         stats = clustered_clv(conn)
@@ -819,12 +923,39 @@ class TestObservationsAreClusteredByGame:
         # market are caught. What is lost is correlation with its siblings.
         assert stats.n_clusters == 2
 
+    def test_an_unlinked_row_keeps_its_kalshi_event_before_falling_to_its_ticker(
+        self, gate_db
+    ):
+        """The fallback is a ladder, not a cliff.
+
+        A row with no `link_id` but a real `event_ticker` still collapses with
+        its same-event siblings -- worse than per-game, better than per-market.
+        It is counted in `unclustered_rows` either way, because the gate reports
+        the approximation it made rather than the best one it managed.
+        """
+        conn = _conn(gate_db)
+        for side in ("A", "B"):
+            _add_recommendation(
+                conn, clv_tenths=15.0, ticker=f"KXMLBGAME-Z-{side}",
+                event="KXMLBGAME-Z", game=None,
+            )
+
+        stats = clustered_clv(conn)
+        assert stats.n_rows == 2
+        assert stats.n_clusters == 1, "both sides share one Kalshi event"
+        assert stats.unclustered_rows == 2, "and both missed the per-game key"
+
         sample = next(
             c
             for c in evaluate_gate(conn, GateConfig()).conditions
             if c.name == "scored_recommendations"
         )
-        assert "no event ticker" in sample.detail
+        # The footnote names the key that was missed, not the one that was used.
+        # It said "no event ticker" until ADR 0029, which was doubly wrong: the
+        # rows it described often *had* an event ticker, and having one was not
+        # enough to be clustered by game.
+        assert "no linked sportsbook fixture" in sample.detail
+        assert "2 row(s)" in sample.detail
 
 
 class TestTheGateCountsTheRightPopulation:

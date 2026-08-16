@@ -332,6 +332,184 @@ _SQL_PROP_BOOKMAKERS = (
 
 
 # ---------------------------------------------------------------------------
+# CLV coverage, and the gate's cluster count.
+# ---------------------------------------------------------------------------
+#
+# **Three questions, one read, and none of them is answerable from this repo.**
+#
+# 1. Do prop rows score CLV at all? Nothing here has ever asked Kalshi for a
+#    candlestick on a prop series -- `measure_candlestick_retention.py` defaults
+#    to `KXMLBGAME` and both candlestick fixtures are `KXMLBGAME`. If the venue
+#    serves no candles for `KXMLBKS`, every prop row sits unscored forever.
+# 2. What does that cost? `scoring.markets_awaiting_scoring` selects on
+#    `clv_scored_ms IS NULL` with **no retry cap and no age cutoff**, and
+#    `run_loop.py` passes `max_markets=None` on every full pass. A ticker that
+#    can never score is therefore re-requested at two horizons, every full pass,
+#    indefinitely. Section B counts that set; `started x 2` is the per-pass bill.
+# 3. Does the gate's cluster count still mean "one game"? Section D is the
+#    measurement, not the argument -- see its own comment.
+#
+# **What this does not establish.** A zero in section C for a prop series is
+# consistent with the venue serving no candles *and* with no prop row having
+# reached its true commence time yet. Read section B's `started` column beside
+# it: a prop series with `started > 0` and no `closing_lines` row has been asked
+# and answered nothing.
+
+# The horizon `gate.clustered_clv` filters on. `analysis/clv.py` sets
+# `DEFAULT_HORIZON_HOURS = 0.0`, with no env override anywhere -- not in
+# `fly.live.toml`, `.env.example` or `backend/config.py`. Restated rather than
+# imported because this script must not import the application to read its
+# database; section D's title prints it so a drift is visible rather than
+# assumed.
+_CLV_GATE_HORIZON_HOURS = 0.0
+
+# Section A -- every recommendation row, by what kind of market it is.
+_SQL_CLV_ROWS_BY_TYPE = (
+    "SELECT COALESCE(m.market_type, '(no market row)') AS market_type, "
+    "  COALESCE(m.series_ticker, '(none)') AS series_ticker, "
+    "  COUNT(*) AS rows_total, "
+    "  COUNT(DISTINCT r.ticker) AS distinct_tickers, "
+    "  SUM(CASE WHEN r.clv_scored_ms IS NOT NULL THEN 1 ELSE 0 END) AS scored, "
+    "  SUM(CASE WHEN r.clv_scored_ms IS NOT NULL "
+    "           AND r.clv_tenths IS NOT NULL THEN 1 ELSE 0 END) AS scored_with_clv, "
+    "  SUM(CASE WHEN r.clv_scored_ms IS NULL THEN 1 ELSE 0 END) AS pending "
+    "FROM recommendations r "
+    "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "GROUP BY market_type, series_ticker "
+    "ORDER BY rows_total DESC"
+)
+
+# Section B -- `scoring.markets_awaiting_scoring`'s population, restated.
+#
+# The CTE mirrors that function's SELECT exactly: same joins, same
+# `MIN(commence_ms)` per odds event, same two predicates. It is restated rather
+# than imported for the reason above, and any divergence shows up as a count
+# that disagrees with the `scoring pass:` log line's `markets_considered`.
+_SQL_CLV_PENDING_RETRY = (
+    "WITH pending AS ("
+    "  SELECT DISTINCT r.ticker AS ticker, "
+    "         m.series_ticker AS series_ticker, "
+    "         m.market_type AS market_type, "
+    "         o.commence_ms AS commence_ms "
+    "  FROM recommendations r "
+    "  JOIN event_links l ON l.id = r.link_id "
+    "  JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "  JOIN (SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+    "        FROM odds_snapshots GROUP BY odds_event_id) o "
+    "       ON o.odds_event_id = l.odds_event_id "
+    "  WHERE r.clv_scored_ms IS NULL AND m.series_ticker IS NOT NULL"
+    ") "
+    "SELECT series_ticker, "
+    "  COALESCE(market_type, '(no market row)') AS market_type, "
+    "  COUNT(*) AS tickers_pending, "
+    "  SUM(CASE WHEN commence_ms <= :now THEN 1 ELSE 0 END) AS started, "
+    "  SUM(CASE WHEN commence_ms > :now THEN 1 ELSE 0 END) AS not_started_yet, "
+    "  MIN(commence_ms) AS oldest_commence_ms "
+    "FROM pending GROUP BY series_ticker, market_type "
+    "ORDER BY started DESC, tickers_pending DESC"
+)
+
+# Section C -- did a candle ever come back, and for which series?
+_SQL_CLV_LINES_BY_SERIES = (
+    "SELECT COALESCE(m.series_ticker, '(none)') AS series_ticker, "
+    "  COALESCE(m.market_type, '(no market row)') AS market_type, "
+    "  cl.horizon_hours AS horizon_hours, "
+    "  COUNT(*) AS lines_stored, "
+    "  SUM(CASE WHEN cl.yes_bid_tenths IS NULL "
+    "           OR cl.yes_ask_tenths IS NULL THEN 1 ELSE 0 END) AS one_side_null, "
+    "  MIN(cl.observed_ms) AS first_observed_ms, "
+    "  MAX(cl.observed_ms) AS last_observed_ms "
+    "FROM closing_lines cl "
+    "JOIN kalshi_markets m ON m.ticker = cl.ticker "
+    "GROUP BY series_ticker, market_type, horizon_hours "
+    "ORDER BY series_ticker, horizon_hours"
+)
+
+# Section D -- the gate's cluster count, beside the count it is meant to be.
+#
+# `gate.clustered_clv`'s docstring gives the requirement: a game's moneyline,
+# spread and total resolve from one final score, so they must not count as three
+# independent observations. `_clv_evidence` restates it -- *"Both count
+# **independent games**, not rows."*
+#
+# A player prop resolves from that same final score but carries its **own**
+# Kalshi event ticker (`KXMLBKS-26AUG151310CWSDET`, not
+# `KXMLBGAME-26AUG151310CWSDET`), so on the event key each prop ladder on a game
+# forms a cluster of its own.
+#
+# **Read the two columns in the right tense.** `clusters_now` is the key the gate
+# used **until 2026-08-16** -- `COALESCE(m.event_ticker, r.ticker)` -- kept here
+# as the *before* number. `clusters_by_game` is the key the gate uses **now**,
+# `event_links.odds_event_id`, which the prop link deliberately inherits from its
+# game (`match/linker.py` `link_prop_event`). The gap between them is the size of
+# the defect ADR 0029 closed, on this record. It is not a live discrepancy: after
+# that change the gate's own `n_clusters` equals `clusters_by_game`, and this
+# section exists to say by how much that differs from what it used to report.
+#
+# **Do not read a gap as a bug in the gate's arithmetic** -- the arithmetic was
+# always right and the key is what was in question.
+#
+# The population CASE mirrors `gate.POPULATIONS` and is exhaustive in the same
+# order: `suppressed` first, then `reference_contracts > 0`, else `no_edge`
+# (NULL fails `> 0` and falls through, as it does there).
+_CLV_CLUSTER_SELECT = (
+    "  COUNT(*) AS rows_counted, "
+    "  COUNT(DISTINCT COALESCE(m.event_ticker, r.ticker)) AS clusters_now, "
+    # The gate's key is a three-tier ladder and this must be all three, not
+    # two. Skipping the `event:` tier would make `clusters_by_game` read
+    # *higher* than the gate's own `n_clusters` for any unlinked row that still
+    # has an event ticker -- an instrument that does not reproduce its subject.
+    "  COUNT(DISTINCT COALESCE('game:' || l.odds_event_id, "
+    "                          'event:' || m.event_ticker, "
+    "                          'ticker:' || r.ticker)) AS clusters_by_game, "
+    "  SUM(CASE WHEN m.event_ticker IS NULL THEN 1 ELSE 0 END) AS orphan_rows, "
+    "  SUM(CASE WHEN l.odds_event_id IS NULL THEN 1 ELSE 0 END) AS unlinked_rows "
+    "FROM recommendations r "
+    "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "LEFT JOIN event_links l ON l.id = r.link_id "
+    "WHERE r.clv_scored_ms IS NOT NULL AND r.clv_tenths IS NOT NULL "
+    "  AND r.clv_horizon_hours = :horizon "
+)
+
+_SQL_CLV_CLUSTERS_BY_POPULATION = (
+    "SELECT CASE "
+    "    WHEN r.suppressed_reason IS NOT NULL THEN 'suppressed' "
+    "    WHEN r.reference_contracts > 0 THEN 'actionable' "
+    "    ELSE 'no_edge' END AS population, " + _CLV_CLUSTER_SELECT + "GROUP BY population "
+    "ORDER BY rows_counted DESC"
+)
+
+# Pooled separately, and not by summing the rows above. `clv_by_population`
+# says why: the groups do not partition the *games*, only the rows, so one game
+# contributing an actionable row and a suppressed row is counted in both groups.
+_SQL_CLV_CLUSTERS_POOLED = (
+    "SELECT 'pooled' AS population, " + _CLV_CLUSTER_SELECT
+)
+
+# Section E -- the way the per-game key could put the bug back.
+#
+# `event_links` is `UNIQUE (kalshi_event_ticker, odds_event_id)`, which
+# deliberately lets many Kalshi events point at one fixture -- that is what
+# makes the key work. It also permits the reverse: if The Odds API ever
+# re-mints a fixture id, `record_link` inserts a **second** row for the same
+# Kalshi event, older recommendations keep pointing at the old link, and one
+# game becomes two clusters again. `link_prop_event` refuses when a fixture
+# segment maps to two ids; nothing protects the gate.
+#
+# The direction of that failure is **permissive** -- the same direction as the
+# defect ADR 0029 fixed -- so it is worth a standing check rather than a
+# one-off. Zero rows here is the expected and correct answer.
+_SQL_CLV_LINK_FANOUT = (
+    "SELECT kalshi_event_ticker, "
+    "  COUNT(DISTINCT odds_event_id) AS distinct_odds_event_ids, "
+    "  MIN(linked_ms) AS first_linked_ms, MAX(linked_ms) AS last_linked_ms "
+    "FROM event_links GROUP BY kalshi_event_ticker "
+    "HAVING distinct_odds_event_ids > 1 "
+    "ORDER BY distinct_odds_event_ids DESC, kalshi_event_ticker"
+)
+
+
+# ---------------------------------------------------------------------------
 # The prop rung dump, for the one-sided recovery registration.
 #
 # Registered at
@@ -732,6 +910,100 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
+    """Does CLV scoring reach every market type, what does it retry, and what
+    does the gate count as one game?
+
+    Six sections, and section B is the one with a running cost attached: its
+    `started` column, doubled, is how many candlestick requests each full pass
+    spends on tickers that have not scored -- forever, because
+    `markets_awaiting_scoring` has no retry cap and no age cutoff.
+
+    `now` is stamped once, here, and printed in section B's title. A `started`
+    count is a claim about a moment, and a moment that is not written down is
+    the kind of input this repo has been bitten by losing.
+    """
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    horizon = {"horizon": _CLV_GATE_HORIZON_HOURS}
+
+    by_type = _fetch(
+        conn,
+        _SQL_CLV_ROWS_BY_TYPE,
+        (),
+        title="A. recommendations by market type: scored, pending, distinct tickers",
+        cap=args.limit,
+    )
+    pending = _derive_iso(
+        _fetch(
+            conn,
+            _SQL_CLV_PENDING_RETRY,
+            {"now": now_ms},
+            title=(
+                "B. the re-request set (scoring.markets_awaiting_scoring), as at "
+                f"{_iso(now_ms)}. Each `started` ticker costs TWO candlestick "
+                "requests per full pass, and is never retired"
+            ),
+            cap=args.limit,
+        ),
+        "oldest_commence_ms",
+        "oldest_commence_iso",
+    )
+    lines = _derive_iso(
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_CLV_LINES_BY_SERIES,
+                (),
+                title=(
+                    "C. closing_lines by series and horizon. A prop series absent "
+                    "here, with started > 0 in B, was asked and answered nothing"
+                ),
+                cap=args.limit,
+            ),
+            "first_observed_ms",
+            "first_observed_iso",
+        ),
+        "last_observed_ms",
+        "last_observed_iso",
+    )
+    by_population = _fetch(
+        conn,
+        _SQL_CLV_CLUSTERS_BY_POPULATION,
+        dict(horizon),
+        title=(
+            "D. the gate's cluster count vs one-cluster-per-game, by population, "
+            f"at horizon {_CLV_GATE_HORIZON_HOURS}h"
+        ),
+        cap=args.limit,
+    )
+    pooled = _fetch(
+        conn,
+        _SQL_CLV_CLUSTERS_POOLED,
+        dict(horizon),
+        title=(
+            "D. pooled -- computed separately, because the populations partition "
+            "the rows but NOT the games"
+        ),
+        cap=args.limit,
+    )
+    fanout = _derive_iso(
+        _fetch(
+            conn,
+            _SQL_CLV_LINK_FANOUT,
+            (),
+            title=(
+                "E. Kalshi events linked to MORE than one sportsbook fixture. "
+                "ZERO ROWS IS THE CORRECT ANSWER -- any row here splits one "
+                "game back into several clusters, permissively"
+            ),
+            cap=args.limit,
+        ),
+        "first_linked_ms",
+        "first_linked_iso",
+    )
+    return [by_type, pending, lines, by_population, pooled, fanout]
+
+
 def _q_prop_rungs(conn: sqlite3.Connection, args) -> list[Section]:
     """Raw prop rungs, two sides pivoted, for the one-sided recovery run.
 
@@ -981,6 +1253,16 @@ QUERIES: dict[str, QueryDef] = {
         "arithmetic lives in scripts/analyze_prop_onesided.py. Narrow with "
         "--odds-event-id, or raise --limit; the whole record truncates.",
         _q_prop_rungs,
+    ),
+    "clv-coverage": QueryDef(
+        "Does CLV scoring reach props? Six sections: recommendations by "
+        "market type (scored/pending), the re-request set with its per-pass "
+        "candlestick bill, closing_lines by series and horizon, the gate's "
+        "cluster count beside one-cluster-per-game (by population, then "
+        "pooled), and any Kalshi event linked to two sportsbook fixtures. "
+        "Answers: are the prop rows unscorable, and is the 300-game floor "
+        "counting one game more than once?",
+        _q_clv_coverage,
     ),
     "kalshi-quotes-band": QueryDef(
         "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "

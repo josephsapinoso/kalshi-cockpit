@@ -402,18 +402,43 @@ def log_gate_progress(conn, *, since_ms: int, required: int) -> dict[str, int]:
 def clustered_clv(conn, population: Optional[str] = None) -> ClusteredMean:
     """Scored CLV, grouped into one cluster per game.
 
-    The cluster key is the Kalshi **event** rather than the market ticker. A
+    The cluster key is the **sportsbook fixture** — `event_links.odds_event_id`
+    — because that is the only identifier in this schema that is one-per-game. A
     game's moneyline, spread and total all resolve from one final score and
     their closing lines move together, so counting them as three independent
     observations repeats the same mistake one level up. Both sides of a market
     likewise score against a single close.
 
-    A market with no `event_ticker` falls back to its own ticker, which still
-    collapses repeated polls of that market but cannot detect its correlation
-    with siblings. That is a partial understatement rather than a silent one:
-    the row count is carried on `unclustered_rows` and reported in the gate's
-    detail string, because an unreported approximation in a money guard is
-    indistinguishable from a correct one.
+    **This clustered on `kalshi_markets.event_ticker` until 2026-08-16, and that
+    key does not mean "game".** Kalshi issues a *separate event per series*:
+    `KXMLBGAME-26AUG072015COLSTL`, `KXMLBSPREAD-26AUG072015COLSTL` and
+    `KXMLBTOTAL-26AUG072015COLSTL` are one baseball game, and each prop ladder
+    adds another (`KXMLBKS-…`). The docstring above described the intended
+    behaviour and the code delivered the opposite of it: on a four-series game
+    the count was **4**, with `unclustered_rows` reporting **0** — so the
+    approximation this function promises to disclose was not disclosed either.
+    Both errors ran toward permissiveness, inflating the count against the
+    300-game floor and shrinking the cluster-robust standard error that decides
+    significance. See `docs/adr/0029-the-cluster-key-was-not-a-game.md`.
+
+    `odds_event_id` is one per sportsbook fixture, and a prop event inherits its
+    game's value by construction — `match.linker.link_prop_event` returns the
+    linked *game* fixture's id and refuses outright when two games claim one
+    ladder. So props collapse onto their game rather than forming clusters of
+    their own.
+
+    A row with no `link_id` falls back to `event_ticker`, then to its own
+    ticker. The fallback still collapses repeated polls of that market but
+    cannot detect its correlation with siblings. That is a partial
+    understatement rather than a silent one: the row count is carried on
+    `unclustered_rows` and reported in the gate's detail string, because an
+    unreported approximation in a money guard is indistinguishable from a
+    correct one. **`unclustered_rows` now counts rows that missed the
+    per-game key**, which is what it always claimed to count.
+
+    The three key spaces are prefixed (`game:`, `event:`, `ticker:`) so a
+    fallback key can never collide with a real fixture id, and so a key read out
+    of a debug dump says which tier produced it.
 
     `population` selects one of `POPULATIONS`; `None` pools all three, which is
     what this function did unconditionally and what made the gate's headline
@@ -437,12 +462,15 @@ def clustered_clv(conn, population: Optional[str] = None) -> ClusteredMean:
 
     rows = conn.execute(
         f"""
-        SELECT COALESCE(m.event_ticker, r.ticker) AS cluster_key,
+        SELECT COALESCE('game:' || l.odds_event_id,
+                        'event:' || m.event_ticker,
+                        'ticker:' || r.ticker) AS cluster_key,
                COUNT(*)             AS k,
                SUM(r.clv_tenths)    AS sum_y,
-               SUM(CASE WHEN m.event_ticker IS NULL THEN 1 ELSE 0 END) AS orphans
+               SUM(CASE WHEN l.odds_event_id IS NULL THEN 1 ELSE 0 END) AS orphans
         FROM recommendations r
         LEFT JOIN kalshi_markets m ON m.ticker = r.ticker
+        LEFT JOIN event_links l ON l.id = r.link_id
         WHERE r.clv_scored_ms IS NOT NULL AND r.clv_tenths IS NOT NULL
           -- **Only the current primary horizon.** `clv_tenths` says what the
           -- value is and nothing else says what it was measured against, so
@@ -535,10 +563,16 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
     stats = groups["actionable"]
     pooled = groups["pooled"]
 
+    # The wording tracks what the fallback actually is. Until 2026-08-16 this
+    # said "had no event ticker ... clustered by market instead, which cannot
+    # see correlation between a game's moneyline, spread and total" -- and the
+    # *primary* key could not see that correlation either, because Kalshi issues
+    # a separate event per series. The sentence described the fallback's
+    # weakness while the main path shared it. ADR 0029.
     approximation = (
-        f"; {stats.unclustered_rows} row(s) had no event ticker and were "
-        f"clustered by market instead, which cannot see correlation between "
-        f"a game's moneyline, spread and total"
+        f"; {stats.unclustered_rows} row(s) had no linked sportsbook fixture "
+        f"and were clustered by Kalshi event or market instead, which cannot "
+        f"see correlation between a game's moneyline, spread, total and props"
         if stats.unclustered_rows
         else ""
     )
