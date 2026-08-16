@@ -117,7 +117,9 @@ from .odds.client import (
 from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
     DEFAULT_DAY_START_UTC_HOUR,
+    MANUAL,
     SCHEDULED,
+    ManualRefresh,
     SweepDecision,
     SweepSlot,
     decide_sweeps,
@@ -1469,6 +1471,7 @@ async def fetch_and_store_odds(
     now: int,
     max_odds_age_ms: int = 900_000,
     allow_bootstrap: bool = True,
+    manual: Sequence[ManualRefresh] = (),
 ) -> tuple[int, int, SweepDecision]:
     """Sweep only when the window it opens will be worth having, then hold it open.
 
@@ -1485,6 +1488,12 @@ async def fetch_and_store_odds(
 
     `allow_bootstrap` is passed `False` by the quote cadence -- see
     `decide_sweeps`, which owns the reason.
+
+    `manual` is the taps this pass should serve, already filtered for age by
+    `ondemand.take`. They are handed to `decide_sweeps` rather than served
+    around it, so a tap is charged against the same `credits_left` the planner
+    spends from and refused by the same ceiling. A second spend path beside the
+    planner is the shape of every credit accident in this file's history.
 
     **Every outcome is written to `odds_sweep_log`, including "nothing".** The
     decision used to be logged and nothing more, so a pass that looked and
@@ -1509,6 +1518,7 @@ async def fetch_and_store_odds(
         prop_cost_per_event=sweep_cost(prop_market_keys(), config.regions),
         prop_sports=prop_sports,
         allow_bootstrap=allow_bootstrap,
+        manual=manual,
     )
     logger.info("sweep decision: %s", decision.detail)
 
@@ -1525,7 +1535,16 @@ async def fetch_and_store_odds(
         # here, because it would explain away a real outage.
         affordable = budget.refusal_reason(firing.cost, now) is None
 
-        quotes = await odds_client.fetch_odds(firing.sport_key, now_ms=now)
+        # `trigger` reaches `api_credits` only for a tap. Everything else stays
+        # NULL, which is what every row written before schema v9 is, and what
+        # `_SERVED_SWEEP` counts as a sweep. Stamping `'scheduled'` on the
+        # planner's rows instead would be the same behaviour with a migration
+        # attached, and would make the exclusion depend on every future caller
+        # remembering to label itself.
+        stamp = MANUAL if firing.trigger == MANUAL else None
+        quotes = await odds_client.fetch_odds(
+            firing.sport_key, now_ms=now, trigger=stamp
+        )
         if quotes:
             sweeps += 1
             n = store_quotes(conn, quotes)
@@ -1537,7 +1556,7 @@ async def fetch_and_store_odds(
             stored += await fetch_and_store_props(
                 conn, odds_client, events=events, quotes=quotes,
                 sport_key=firing.sport_key, now=now, slot=firing.slot,
-                trigger=firing.trigger,
+                trigger=firing.trigger, only_events=firing.prop_event_ids,
             )
         elif affordable:
             # The call went out and the slate came back empty. A normal state,
@@ -1567,6 +1586,7 @@ async def fetch_and_store_props(
     now: int,
     slot: Optional[SweepSlot] = None,
     trigger: str = SCHEDULED,
+    only_events: Sequence[str] = (),
 ) -> int:
     """Buy player props for the fixtures a team sweep just paid for.
 
@@ -1605,6 +1625,19 @@ async def fetch_and_store_props(
     make ingest depend on a stage that runs after it. It is bounded, and visible
     in `odds_sweep_log` because every event's outcome is recorded.
 
+    **`only_events` is the second way to name a fixture set, and it exists
+    because a tap has no slot.** An on-demand prop refresh is for one game the
+    person is looking at, so the caller states it outright instead of deriving
+    it from a kickoff cluster that was never planned. When given, it *replaces*
+    the slot-derived set and both guards below step aside -- neither is about
+    slots as such, they are both about never buying props for a fixture set
+    nobody named. A named set is exactly what they were holding out for.
+
+    It is still intersected with what the slate returned and still filtered to
+    pre-game, because those two facts come from the books and the clock rather
+    than from the caller, and a caller cannot make a started game pre-game by
+    naming it.
+
     Returns the number of prop quotes stored.
     """
     prop_events = [
@@ -1626,7 +1659,9 @@ async def fetch_and_store_props(
         )
         return 0
 
-    if slot is None:
+    named = [e for e in dict.fromkeys(only_events) if e]
+
+    if slot is None and not named:
         # A bootstrap firing has no kickoff cluster, so there is no set of
         # fixtures this sweep was *for*. Buying the whole slate is what spent
         # 384 of 400 in one pass; buying nothing is the conservative reading,
@@ -1640,7 +1675,7 @@ async def fetch_and_store_props(
         )
         return 0
 
-    if trigger != SCHEDULED:
+    if trigger != SCHEDULED and not named:
         # A refresh re-buys the team lines that keep an open window from
         # shutting. Props do not go stale on the same clock as a moneyline and,
         # far more to the point, they are billed per event per market key per
@@ -1665,26 +1700,42 @@ async def fetch_and_store_props(
     # was read before it. And covered by *this slot* -- `fetch_odds` returns the
     # whole slate, which is not the same thing as the fixtures this sweep was
     # fired for.
+    wanted = set(named)
     pre_game = sorted(
         {
             q.odds_event_id
             for q in quotes
-            if q.commence_ms > now and slot.covers(q.commence_ms)
+            if q.commence_ms > now
+            and (
+                q.odds_event_id in wanted
+                if named
+                # `slot` is not None here: the guard above returns unless one of
+                # the two ways of naming a fixture set was supplied.
+                else slot.covers(q.commence_ms)
+            )
         }
     )
     if not pre_game:
         record_sweep_outcome(
             conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
             detail=(
-                "props: no fixture this slot covers is still pre-game "
-                f"({slot.reason})"
+                (
+                    f"props: fixture {', '.join(named)} is not in the slate the "
+                    f"sweep returned, or has already started"
+                )
+                if named
+                else (
+                    "props: no fixture this slot covers is still pre-game "
+                    f"({slot.reason})"
+                )
             ),
         )
         return 0
 
     markets = prop_market_keys()
     prop_quotes = await odds_client.fetch_props(
-        sport_key, pre_game, now_ms=now, markets=markets
+        sport_key, pre_game, now_ms=now, markets=markets,
+        trigger=MANUAL if trigger == MANUAL else None,
     )
     if not prop_quotes:
         # `fetch_props` records its own refusal naming the ceiling that bound,
@@ -1698,10 +1749,12 @@ async def fetch_and_store_props(
         detail=(
             # `slot covers N` beside `bought M` is the pair that makes the
             # 2026-08-15 defect visible from the log alone: it read "27 pre-game
-            # fixtures" with nothing to compare 27 against.
-            f"props: bought {len(pre_game)} of {slot.games_covered} covered "
-            f"fixture(s) in the slate, {len(prop_events)} Kalshi prop events, "
-            f"{len(markets)} market keys"
+            # fixtures" with nothing to compare 27 against. A tap gets the same
+            # pair against the set it named.
+            f"props: bought {len(pre_game)} of "
+            f"{len(named) if named else slot.games_covered} "
+            f"{'requested' if named else 'covered'} fixture(s) in the slate, "
+            f"{len(prop_events)} Kalshi prop events, {len(markets)} market keys"
         ),
         quotes_stored=n,
     )
@@ -1870,6 +1923,7 @@ async def run_quote_pass(
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+    manual: Sequence[ManualRefresh] = (),
 ) -> PassCounts:
     """Re-read Kalshi and re-price against the odds already stored.
 
@@ -1913,6 +1967,15 @@ async def run_quote_pass(
     forty. `budget.refusal_reason` is still checked before the call, so the
     ceiling that stops it is the same ceiling as everywhere else.
 
+    **`manual` rides this cadence for the same reason the refresh does.** A tap
+    is a person waiting on a screen, so serving it on the 900s full pass would
+    mean up to fifteen minutes between the tap and the price. On this cadence it
+    is at most one tick. It is passed straight through to `decide_sweeps`, which
+    charges it against the same credits as everything else -- this pass does not
+    read the inbox itself, because that would give the runner a second way to
+    spend that no test of `fetch_and_store_odds` could see. `scripts/run_loop.py`
+    reads it and holds the watermark.
+
     **Odds are refreshed only when all three of `odds_client`, `budget` and
     `config` are supplied.** They are optional so the many callers that only
     want a Kalshi re-price -- tests, `scripts/`, the demo -- keep working
@@ -1944,6 +2007,7 @@ async def run_quote_pass(
             conn, odds_client, budget, events=events, config=config, now=stamp,
             max_odds_age_ms=suppression.max_odds_age_ms,
             allow_bootstrap=False,
+            manual=manual,
         )
         counts.odds_sweeps = sweeps
         counts.odds_quotes_stored = stored

@@ -2,6 +2,7 @@ import { DISPLAY_TIME_ZONE, fetchSlate } from "@/lib/api";
 import type { Slate, SlateRowData } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import CrewBubble from "@/components/CrewBubble";
+import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,11 @@ export default async function SlatePage() {
           accent={slate.actionable_total > 0}
         />
       </dl>
+
+      {/* Placed above the rows, not below them. A slate greyed out by the
+          clock is unreadable until this is used, so it has to be visible
+          without scrolling past the thing it fixes. */}
+      <RefreshOddsPanel />
 
       {!slate.is_current && slate.anchor_ms !== null && (
         <p className="mt-6 rounded-lg border border-accent-2/50 bg-card p-3 text-sm text-accent-2">

@@ -335,6 +335,12 @@ def _hhmm(ms: int) -> str:
 SCHEDULED = "scheduled"
 REFRESH = "refresh"
 BOOTSTRAP = "bootstrap"
+# A person tapped refresh. Not a fourth way of scheduling -- the planner does
+# not produce these and cannot predict them; `decide_sweeps` is handed them and
+# charges the day for them. The string is also what lands in
+# `api_credits.trigger`, and `_SERVED_SWEEP` excludes exactly this value, so the
+# two must stay the same literal.
+MANUAL = "manual"
 
 
 def firing_for_slot(
@@ -573,7 +579,20 @@ def upcoming_fixtures_by_sport(
 # panel read "never" on the instance and correct on the demo, for the project's
 # life. That is the readout that would have shown odds fetching had stopped.
 # `%` matches the empty string, so this predicate covers both spellings.
-_SERVED_SWEEP = "endpoint LIKE '%/odds' AND cost > 0"
+# `trigger != 'manual'` -- an on-demand refresh makes the identical request at
+# the identical cost, so endpoint and cost cannot separate them. It has to be
+# separated, and the direction is not symmetric: a tap counted as a sweep moves
+# `last_sweep_by_sport` past `slot.fire_from_ms`, which turns the slot's opening
+# `SCHEDULED` firing into a `REFRESH` -- and props ride the opening call only.
+# One tap in the fifteen seconds before a window opened would cost that cluster
+# its whole prop purchase, silently, for the day.
+#
+# `COALESCE` because the column is v9 and every row before it is a planner call.
+# NULL means "nobody recorded", which for those rows is true and reads as a
+# sweep, which is what they are. See migration v9.
+_SERVED_SWEEP = (
+    "endpoint LIKE '%/odds' AND cost > 0 AND COALESCE(trigger, '') != 'manual'"
+)
 
 
 def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
@@ -831,6 +850,46 @@ class FiringSweep:
     # Team sweep plus the prop tail this firing is expected to trigger. The
     # planner reserves against this; nothing spends it directly.
     projected_total_cost: int = 0
+    # Fixtures whose player props this firing should buy, named explicitly.
+    #
+    # Empty on every planned firing, where the fixture set is derived from
+    # `slot.covers` -- the predicate that produced the slot's published
+    # `games_covered`, so the buy and the reservation cannot disagree. A MANUAL
+    # firing has no slot to derive from and names its one fixture here instead.
+    #
+    # **Naming them is what makes the prop buy safe.** `fetch_and_store_props`
+    # refuses a firing with neither a slot nor a named set, because the
+    # remaining option -- buy props for whatever the slate returned -- is what
+    # spent 384 of 400 credits in a single pass on 2026-08-15.
+    prop_event_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ManualRefresh:
+    """One tap, as `decide_sweeps` needs to see it.
+
+    Deliberately not `ondemand.RefreshRequest`, which is what the API writes and
+    the runner reads. That type knows about files, TTLs and cooldowns; this
+    module knows about credits and kickoffs, and it imports nothing from there.
+    The runner converts between them, which is also the layer that can decide a
+    request is too old to serve.
+    """
+
+    sport_key: str
+    # `None` buys team lines only. Set additionally buys that one fixture's
+    # player props, which is the expensive half.
+    odds_event_id: Optional[str] = None
+
+
+def _prop_ids(request: ManualRefresh) -> tuple[str, ...]:
+    """The fixture set a tap authorises props for: exactly one, or none.
+
+    Written once rather than inlined at its three call sites, because those
+    three are a dedupe key, a cost decision and a spend instruction -- and the
+    2026-08-15 outage is what happens when the set that is *reserved for* and
+    the set that is *bought* stop being the same expression.
+    """
+    return (request.odds_event_id,) if request.odds_event_id else ()
 
 
 @dataclass(frozen=True)
@@ -860,6 +919,7 @@ def decide_sweeps(
     prop_cost_per_event: int = 0,
     prop_sports: Collection[str] = (),
     allow_bootstrap: bool = True,
+    manual: Sequence[ManualRefresh] = (),
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -883,6 +943,20 @@ def decide_sweeps(
     `stale_odds` with the games still an hour away. `stale_odds` was 256 of 265
     suppressions in 24h on the live instance, and the cause was never the
     threshold -- it was that nothing re-bought.
+
+    **Manual** — a person tapped refresh. Passed in via `manual`; this function
+    never produces one and cannot predict one. It fires whatever the schedule
+    thinks, because the schedule's answer is exactly what the tap disagrees
+    with: a slate two hours from first pitch is correctly outside every planned
+    slot and correctly struck through, and the person looking at it still wants
+    a price.
+
+    **What a tap must never do is take a window's opening call.** A manual
+    firing gets `slot=None` and stamps `api_credits.trigger = 'manual'`, which
+    `_SERVED_SWEEP` excludes -- so `last_sweep_by_sport` does not move and
+    `firing_for_slot` still returns `SCHEDULED` when the slot opens. Without
+    that, one tap in the seconds before a window opened would demote the
+    opening call to a `REFRESH`, and **props ride the opening call only**.
 
     **Bootstrap** — a sport Kalshi lists has *no stored sportsbook fixtures at
     all*, so there is nothing to schedule against and nothing can be priced for
@@ -965,12 +1039,73 @@ def decide_sweeps(
     credits_left = state.remaining_today
     refused_for_cost: list[str] = []
 
+    # Taps first, and **held out of the `remaining` truncation below**. That
+    # truncation is a cap on how many *planned* sweeps one pass may open; a tap
+    # is not planned, is already charged against `credits_left` here, and has a
+    # person waiting on it. Dropping one silently to stay under a slot count
+    # would be a refusal with no reader.
+    manual_firing: list[FiringSweep] = []
+    for request in manual:
+        if any(
+            f.sport_key == request.sport_key
+            and f.prop_event_ids == _prop_ids(request)
+            for f in manual_firing
+        ):
+            # The same tap twice in one pass. The cooldown in `ondemand.submit`
+            # is what normally prevents this; deduping here as well means a
+            # future caller that assembles the list differently cannot bill the
+            # same request twice.
+            continue
+        prop_tail = (
+            prop_cost_per_event
+            if request.odds_event_id and request.sport_key in prop_sports
+            else 0
+        )
+        total = cost + prop_tail
+        if total > credits_left:
+            refused_for_cost.append(
+                f"{request.sport_key} refresh requested by hand cannot be "
+                f"served: {total} credits"
+                + (f" ({cost} sweep + {prop_tail} props)" if prop_tail else "")
+                + f" and {credits_left} remain"
+            )
+            continue
+        credits_left -= total
+        manual_firing.append(
+            FiringSweep(
+                sport_key=request.sport_key,
+                cost=cost,
+                trigger=MANUAL,
+                detail=(
+                    f"refresh requested by hand"
+                    + (
+                        f", including player props for fixture "
+                        f"{request.odds_event_id}"
+                        if request.odds_event_id
+                        else ""
+                    )
+                ),
+                # No slot, deliberately. A tap is not an opening call and must
+                # not be recorded as one -- see this function's docstring, and
+                # `_SERVED_SWEEP`, which is the half that actually enforces it.
+                slot=None,
+                projected_total_cost=total,
+                prop_event_ids=_prop_ids(request),
+            )
+        )
+
     bootstrap_candidates = sorted(
         (
             (commence, sport)
             for sport, commence in in_scope.items()
             if sport not in fixtures
             and sport not in last_sweeps
+            # A tap on this pass is already buying this sport's slate, and a
+            # bootstrap right behind it would buy the same thing again. The
+            # `sport not in last_sweeps` clause cannot catch it: the tap's
+            # credit row is `trigger = 'manual'`, which `_SERVED_SWEEP`
+            # excludes by design.
+            and not any(f.sport_key == sport for f in manual_firing)
             and commence - now_ms <= horizon_ms
         )
     ) if allow_bootstrap else []
@@ -996,7 +1131,12 @@ def decide_sweeps(
     for slot in slots:
         if len(firing) >= remaining:
             break
-        if any(f.sport_key == slot.sport_key for f in firing):
+        # `manual_firing` included, so a slot is not bought a second time on a
+        # pass a tap already bought it. What that costs is a 15-second delay to
+        # the window's opening `SCHEDULED` call -- not its loss, because the
+        # tap left `last_sweeps` untouched and `firing_for_slot` will still say
+        # `SCHEDULED` on the next pass.
+        if any(f.sport_key == slot.sport_key for f in (*manual_firing, *firing)):
             continue
         trigger = firing_for_slot(
             slot,
@@ -1075,7 +1215,18 @@ def decide_sweeps(
             )
         )
 
-    firing = firing[:remaining]
+    # Taps are prepended after the cap, not before it: `remaining` bounds how
+    # many planned sweeps a pass opens, and a tap is not one of those.
+    #
+    # **Belt-and-braces, and the record should say so rather than imply a guard
+    # that fires.** `remaining` is `remaining_today // cost` and every manual
+    # firing spends at least `cost` from that same pool, so
+    # `len(manual_firing) <= remaining` holds by arithmetic and this slice could
+    # never have truncated a tap. Capping them here as well was mutated in
+    # deliberately and no test moved. Written this way because it states the
+    # intent at the point a future reader changes the cap -- not because the cap
+    # is currently capable of eating a tap.
+    firing = [*manual_firing, *firing[:remaining]]
 
     if firing:
         detail = "; ".join(f"{f.sport_key} ({f.trigger}): {f.detail}" for f in firing)

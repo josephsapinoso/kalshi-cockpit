@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -345,6 +345,33 @@ _MIGRATIONS: dict[int, _Migration] = {
     # market and the honest value there is "this row has no player".
     8: _Migration(
         columns=(("kalshi_markets", "player_name", "TEXT"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
+        ),
+    ),
+    # v9 -- what asked for this call, so a tap cannot be read as a schedule.
+    #
+    # **This column exists to be excluded, not to be reported.** The on-demand
+    # refresh (`backend/odds/ondemand.py`) makes exactly the same
+    # `/sports/{sport}/odds` request the planner makes, at the same cost, and
+    # `_SERVED_SWEEP` in `odds/timing.py` identifies a served sweep by endpoint
+    # and cost alone. Without a way to tell them apart, a tap five seconds
+    # before a slot opened would move `last_sweep_by_sport` past
+    # `slot.fire_from_ms`, `firing_for_slot` would return `REFRESH` instead of
+    # `SCHEDULED` for the rest of that window, and **props ride the opening
+    # call only** -- so one tap would silently cost that cluster its entire
+    # prop purchase, for the day, with no row anywhere saying so.
+    #
+    # That is `odds_sweep_log`'s founding defect one table along: a state with
+    # no representation is a state nothing can refuse.
+    #
+    # Nullable and not backfilled. Every row written before this was a planner
+    # call, and the honest value for it is "nobody recorded"; `_SERVED_SWEEP`
+    # reads `COALESCE(trigger, '')` so a NULL keeps counting as a sweep, which
+    # is what those rows are. Backfilling `'scheduled'` would assert a fact
+    # about history that this column was not there to observe.
+    9: _Migration(
+        columns=(("api_credits", "trigger", "TEXT"),),
         undo_statements=(
             # Dropping the column takes everything this step wrote.
         ),

@@ -4,6 +4,7 @@ import LiveBoard from "@/components/LiveBoard";
 import SlateRow, { type SlateState } from "@/components/SlateRow";
 import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
+import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import WindowSchedule from "@/components/WindowSchedule";
 import { fetchBoard, fetchHealth, fetchWindow, formatAge, formatDuration } from "@/lib/api";
 import type { ActionableWindow } from "@/lib/api";
@@ -132,6 +133,12 @@ export default async function BoardPage({
             scrolling for the second, which is the one that tells them when to
             come back. */}
         {actionable && <WindowSchedule window={actionable} />}
+
+        {/* Third in the same sequence, and it is the one that can change the
+            answer. The banner says whether now is usable and the schedule says
+            which instants today are; this says what to do when the answer to
+            both is "not now" and the games are still hours away. */}
+        <RefreshOddsPanel />
 
         {/* **When this slate was recorded, whenever that is not now.**
             The rows below carry no date of their own, so without this a slate

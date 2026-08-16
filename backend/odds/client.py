@@ -264,8 +264,15 @@ class OddsClient:
         now_ms: int,
         markets: Optional[Sequence[str]] = None,
         regions: Optional[Sequence[str]] = None,
+        trigger: Optional[str] = None,
     ) -> list[OddsQuote]:
         """Fetch odds for one sport. Returns raw per-book quotes.
+
+        `trigger` is stamped on the `api_credits` row and is `'manual'` for an
+        on-demand refresh. It exists so the planner can *exclude* those rows --
+        see `_SERVED_SWEEP` in `odds/timing.py`, which owns the reason and what
+        it costs to get wrong. Defaulting to `None` keeps every existing caller
+        recording a planner call, which is what they all are.
 
         Refuses and returns `[]` when the call would breach the budget --
         deliberately not an exception, because "we chose not to spend a credit"
@@ -323,6 +330,7 @@ class OddsClient:
             regions=regions,
             remaining_reported=_int_header(response, "x-requests-remaining"),
             used_reported=_int_header(response, "x-requests-used"),
+            trigger=trigger,
         )
 
         if response.status_code == 429:
@@ -340,6 +348,7 @@ class OddsClient:
         now_ms: int,
         markets: Optional[Sequence[str]] = None,
         regions: Optional[Sequence[str]] = None,
+        trigger: Optional[str] = None,
     ) -> list[OddsQuote]:
         """Fetch player props, which are a **per-event** endpoint.
 
@@ -401,6 +410,7 @@ class OddsClient:
                 regions=regions,
                 remaining_reported=_int_header(response, "x-requests-remaining"),
                 used_reported=_int_header(response, "x-requests-used"),
+                trigger=trigger,
             )
 
             if response.status_code == 429:

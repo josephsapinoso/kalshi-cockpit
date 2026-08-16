@@ -7057,3 +7057,87 @@ Related: [[one-observation-recorded-thirty-times-is-one-observation]],
 [[a-pooled-number-is-not-a-finding-until-the-parts-agree]],
 [[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]],
 [[before-quoting-n-of-n]], [[two-populations-in-one-record]].
+
+---
+
+## A new caller that makes an existing call is indistinguishable from the existing caller
+
+**2026-08-16.** The on-demand odds refresh issues exactly the request the
+planner issues: same endpoint `/sports/{sport}/odds`, same
+`markets x regions` cost, same table. `odds/timing.py` identified a served
+sweep by *endpoint and cost*:
+
+```sql
+endpoint LIKE '%/odds' AND cost > 0
+```
+
+That predicate was correct for as long as there was only one caller. The moment
+a second one existed it silently answered a different question — "has this sport
+been swept" became "has anything called that endpoint" — and the consequence was
+not a wrong display. `last_sweep_by_sport` feeds `firing_for_slot`, which
+returns `SCHEDULED` only while the slot's stamp predates `fire_from_ms`. **Props
+ride the `SCHEDULED` opening call only.** So one tap in the seconds before a
+window opened would demote the opening call to a `REFRESH` and cost that cluster
+its entire prop purchase — for the day, with the tap appearing to have worked
+and no row anywhere recording the loss.
+
+**Why it is worth a lesson rather than a fix.** The failure needs no mistake in
+the new code. The new caller can be completely correct, and the *old* predicate
+becomes wrong underneath it, in a file nobody edited, for a reason that is only
+visible if you already know both callers exist. Every check written as "rows
+that look like X" inherits this the day a second producer of X-looking rows
+appears.
+
+The remedy is a **producer** column, not a smarter shape test: schema v9 adds
+`api_credits.trigger`, and the predicate excludes one exact literal. The column
+is **written to be excluded, never reported** — nothing renders it — and that is
+worth saying in the schema, because a column with no reader looks like dead
+weight to the next person tidying up.
+
+**How to apply.** Before adding a caller to any metered or logged path, grep for
+every predicate that selects rows *of the kind this caller will now produce* —
+`LIKE`, `cost > 0`, endpoint matches, `IS NOT NULL` on a column the new caller
+also fills. Ask of each: *would this have been written differently if both
+callers had existed?* If yes, the new caller needs a discriminator, and the
+discriminator belongs on the row rather than in the reader's head. **The old
+readers are the work; the new writer is the easy part.**
+
+**And the direction is not symmetric.** Here, over-counting a tap as a sweep
+*suppressed* spend that should have happened, silently. The mirror error —
+under-counting — would have caused a double buy, which shows up in
+`api_credits` immediately. When choosing which way to be wrong, prefer the error
+that leaves a row.
+
+Related: [[built-but-never-called]],
+[[two-identifiers-equal-by-construction-render-as-a-bug]],
+[[an-absent-environment-variable-means-the-default-applies]].
+
+---
+
+## SQLite rewrites your CREATE TABLE text, so a comment above the last column can break the table
+
+**2026-08-16.** Adding `trigger TEXT` as the final column of `api_credits`, with
+a five-line `--` block explaining it directly above, turned nine migration tests
+red with:
+
+```
+sqlite3.OperationalError: error in table api_credits after drop column: incomplete input
+```
+
+`ALTER TABLE ... DROP COLUMN` is implemented by **editing the stored DDL text**.
+It removes the column's own line and leaves everything around it — so the
+comment block survived, attached to a now-dangling comma, and the table would
+not reparse. Nothing was wrong with the column, the migration, or the tests.
+
+It surfaced only because `tests/test_store.py` drops columns to build "old"
+databases for the migration tests. **That is luck, not design**: nothing in the
+production path drops a column today, and if that ever changes the same edit
+would fail on the volume holding the evidence record instead of in CI.
+
+**How to apply.** Column-level commentary in `schema.sql` goes **above the
+`CREATE TABLE`**, not between the columns. Beside a column, keep it to a short
+trailing `-- like this` on the same line. The explanation is worth more where a
+reader finds the table anyway, and it cannot be spliced into invalid SQL by a
+`DROP COLUMN` three schema versions from now.
+
+Related: [[a-guard-copied-from-a-neighbouring-path-inherits-its-assumptions]].

@@ -1099,3 +1099,120 @@ export type Playbook = {
 };
 
 export const fetchPlaybook = () => get<Playbook>("/api/playbook");
+
+/** What `POST /api/odds/refresh` answers with. */
+export type OddsRefreshResult = {
+  accepted: boolean;
+  detail: string;
+  estimated_credits: number;
+  retry_after_ms: number;
+};
+
+/**
+ * Ask the runner to buy fresh sportsbook odds now.
+ *
+ * **The answer is `accepted`, never `refreshed`.** The API process opens the
+ * database read-only and is not the process holding the odds client, so it
+ * writes a request the chain runner picks up on its ~15s cadence. A button that
+ * said "refreshed" on a 202 would be reporting a call that has not been made
+ * and may still be refused on budget.
+ *
+ * A refusal — cooldown, the day's slice for taps, the odds budget — comes back
+ * as HTTP 200 with `accepted: false` and the reason in words. That is
+ * deliberate: those are normal answers to a reasonable tap, and a 4xx would
+ * have the UI render one as a fault.
+ *
+ * `oddsEventId` is what makes it expensive. Omitted, this buys the sport's team
+ * lines. Supplied, it also buys that one fixture's player props, which is
+ * billed per market key per region.
+ *
+ * **No token parameter, unlike `placeOrder`.** The browser cannot have one, and
+ * the request goes through a Next route handler that holds it. Relative URL
+ * rather than `BASE` for the same reason: this path exists only on the Next
+ * origin, and `BASE` points at the Python backend when rendered server-side.
+ */
+export async function refreshOdds(
+  sportKey: string,
+  oddsEventId: string | null,
+): Promise<OddsRefreshResult> {
+  let response: Response;
+  try {
+    // `/refresh-odds`, not `/api/odds/refresh`. The browser has no bearer token
+    // -- by design, see `lib/session.ts` -- so the Next route handler at that
+    // path adds it server-side. It also explains what that widens.
+    response = await fetch(`/refresh-odds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        sport_key: sportKey,
+        odds_event_id: oddsEventId,
+      }),
+    });
+  } catch (error) {
+    return {
+      accepted: false,
+      detail: `The request did not reach the cockpit (${
+        error instanceof Error ? error.message : "network error"
+      }). No credits were spent.`,
+      estimated_credits: 0,
+      retry_after_ms: 0,
+    };
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (
+    response.ok &&
+    body &&
+    typeof body === "object" &&
+    "accepted" in body
+  ) {
+    return body as OddsRefreshResult;
+  }
+  // 401, 403, or a proxy page. Not a refusal from the endpoint, so it must not
+  // be rendered as one -- and above all it must not read as "no odds available".
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}, and the body was not readable as JSON.`;
+  return {
+    accepted: false,
+    detail,
+    estimated_credits: 0,
+    retry_after_ms: 0,
+  };
+}
+
+/** One upcoming fixture a refresh may name, as the books see it. */
+export type RefreshableFixture = {
+  odds_event_id: string;
+  commence_ms: number;
+  /** `Away at Home`, from the books' own team names. */
+  title: string;
+};
+
+export type RefreshableSport = {
+  sport_key: string;
+  /** Credits one team-lines refresh costs, from the deployed config. */
+  team_credits: number;
+  /** Credits one fixture's props cost — including the team call that finds it. */
+  prop_credits: number;
+  fixtures: RefreshableFixture[];
+};
+
+export type Refreshable = {
+  sports: RefreshableSport[];
+  manual_daily_credits: number;
+  cooldown_ms: number;
+  note: string;
+};
+
+/**
+ * What the refresh button may buy, and what each purchase costs.
+ *
+ * Its own route rather than fields on the Slate or the Board. Those payloads
+ * are pinned by four tests that stop anything on them becoming a composite, and
+ * a fixture list keyed for *spending* has no business travelling beside rows
+ * keyed for *reading*.
+ */
+export const fetchRefreshable = () => get<Refreshable>("/api/odds/refreshable");

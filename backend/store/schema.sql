@@ -232,6 +232,22 @@ CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 -- so an unmetered poll loop drains the month in a day. Every call is recorded
 -- with what the API said remained, so the budget is reconciled against the
 -- server's count rather than our own optimistic tally.
+--
+-- `trigger` is 'manual' for an on-demand refresh and NULL for a planner call.
+-- **Written to be EXCLUDED, not reported** -- see `_SERVED_SWEEP` in
+-- `odds/timing.py` and migration v9 in `store/db.py`. A tap makes the same
+-- request the planner makes at the same cost, so without a way to tell them
+-- apart the planner reads a tap as having opened a window, and the cluster
+-- loses its whole prop purchase.
+--
+-- **The commentary lives here and not beside the column, and that is a
+-- constraint rather than a preference.** SQLite implements `ALTER TABLE DROP
+-- COLUMN` by editing this stored DDL text: it removes the column's own line and
+-- leaves everything around it, so a `--` block sitting above the *last* column
+-- survives the drop attached to a now-dangling comma, and the table will not
+-- reparse. `tests/test_store.py` drops columns to build old databases, so the
+-- failure surfaces there rather than in production -- which is luck, not
+-- design.
 CREATE TABLE IF NOT EXISTS api_credits (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     called_ms           INTEGER NOT NULL,
@@ -241,7 +257,8 @@ CREATE TABLE IF NOT EXISTS api_credits (
     regions             TEXT,
     cost                INTEGER NOT NULL,   -- what we predicted: markets x regions
     remaining_reported  INTEGER,            -- x-requests-remaining header
-    used_reported       INTEGER             -- x-requests-used header
+    used_reported       INTEGER,            -- x-requests-used header
+    trigger             TEXT                -- 'manual' or NULL; see above
 );
 CREATE INDEX IF NOT EXISTS idx_credits_time ON api_credits(called_ms DESC);
 

@@ -94,9 +94,11 @@ from backend.notify.alerts import Alerter  # noqa: E402
 from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.odds.client import OddsClient  # noqa: E402
+from backend.odds import ondemand  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
     DEFAULT_DAY_START_UTC_HOUR,
     DUE_WINDOW_MS,
+    ManualRefresh,
     sweep_window_survives_interval,
     window_status,
 )
@@ -283,6 +285,43 @@ async def main() -> int:
     market_result_config = MarketResultConfig.load()
     suppression = SuppressionConfig()
 
+    # The on-demand refresh inbox, and this process's watermark into it.
+    #
+    # **Initialised to now, not to zero.** A restart therefore ignores every tap
+    # that predates it rather than replaying the file's whole retained tail as
+    # new work -- which on a crash loop would re-buy the same fixtures once per
+    # restart. A tap lost to a restart costs the person another tap; a tap
+    # replayed costs credits nobody asked for, and only the first is
+    # recoverable by the person holding the phone.
+    refresh_inbox = ondemand.inbox_path(args.db)
+    served_after = [db.now_ms()]
+
+    def take_refresh_requests(stamp: int) -> list[ManualRefresh]:
+        """Taps this pass should serve, and move the watermark past them.
+
+        `ondemand.take` does not modify the file -- the API is its only writer
+        -- so nothing but this watermark stops a request being served on every
+        pass until it ages out. It is moved *before* the pass spends, so a pass
+        that dies mid-sweep does not leave the request to be bought again.
+        """
+        due = ondemand.take(refresh_inbox, now_ms=stamp, after_ms=served_after[0])
+        if not due:
+            return []
+        served_after[0] = max(r.requested_ms for r in due)
+        log.info(
+            "serving %d on-demand odds refresh(es): %s",
+            len(due),
+            ", ".join(
+                f"{r.sport_key}"
+                + (f"/props:{r.odds_event_id}" if r.odds_event_id else "")
+                for r in due
+            ),
+        )
+        return [
+            ManualRefresh(sport_key=r.sport_key, odds_event_id=r.odds_event_id)
+            for r in due
+        ]
+
     # Two limits on one quantity. ADR 0019 section 6. Raises rather than warns:
     # the loop is the process that spends odds credits against this window, and
     # a divergence here is invisible from outside -- the phone would show one
@@ -452,6 +491,13 @@ async def main() -> int:
                     conn, kalshi, odds_client=odds, budget=budget,
                     config=odds_config,
                     risk=risk, suppression=suppression, now=stamp,
+                    # Taps, read here rather than inside the pass so the pass
+                    # keeps exactly one way to be told to spend. `served_after`
+                    # is this process's watermark and moves only forward, which
+                    # is what makes a request served once: the inbox file is
+                    # written by the API and never by us -- see
+                    # `backend/odds/ondemand.py` for why it is single-writer.
+                    manual=take_refresh_requests(stamp),
                     # Passed explicitly rather than derived, and that is still
                     # true now the pass takes an `OddsConfig`: this is the site
                     # that would silently fall back to the constant. It runs ~96

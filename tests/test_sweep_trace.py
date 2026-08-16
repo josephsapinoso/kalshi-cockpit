@@ -302,9 +302,11 @@ class FakeOdds:
     def __init__(self, quotes=()):
         self.quotes = list(quotes)
         self.calls: list[str] = []
+        self.triggers: list = []
 
-    async def fetch_odds(self, sport_key: str, *, now_ms: int):
+    async def fetch_odds(self, sport_key: str, *, now_ms: int, trigger=None):
         self.calls.append(sport_key)
+        self.triggers.append(trigger)
         return list(self.quotes)
 
 

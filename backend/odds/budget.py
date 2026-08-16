@@ -246,17 +246,25 @@ class CreditBudget:
         regions: Optional[Sequence[str]] = None,
         remaining_reported: Optional[int] = None,
         used_reported: Optional[int] = None,
+        trigger: Optional[str] = None,
     ) -> None:
         """Record a call. Called for every request, successful or not.
 
         A failed call still costs credits on some error classes, so recording
         only successes would understate spend in exactly the situation where
         the count matters most.
+
+        **`trigger` is written to be excluded.** `'manual'` marks an on-demand
+        refresh, which makes the identical request at the identical cost as a
+        planned sweep and must not be read as one -- `_SERVED_SWEEP` in
+        `odds/timing.py` owns that exclusion and states what it costs to get it
+        wrong. `None` for a planner call, which is what every row before schema
+        v9 is.
         """
         self.conn.execute(
             "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
-            "regions, cost, remaining_reported, used_reported) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "regions, cost, remaining_reported, used_reported, trigger) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 called_ms,
                 endpoint,
@@ -266,6 +274,7 @@ class CreditBudget:
                 cost,
                 remaining_reported,
                 used_reported,
+                trigger,
             ),
         )
         self.conn.commit()

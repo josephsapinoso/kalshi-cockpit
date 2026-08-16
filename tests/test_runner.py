@@ -788,9 +788,11 @@ class FakeOdds:
 
     def __init__(self):
         self.calls: list[str] = []
+        self.triggers: list = []
 
-    async def fetch_odds(self, sport_key: str, *, now_ms: int):
+    async def fetch_odds(self, sport_key: str, *, now_ms: int, trigger=None):
         self.calls.append(sport_key)
+        self.triggers.append(trigger)
         return []
 
 
@@ -996,10 +998,13 @@ class RecordingFakeOdds:
         self.budget = budget
         self.cost = cost
         self.calls: list[str] = []
+        self.triggers: list = []
 
-    async def fetch_odds(self, sport_key: str, *, now_ms: int):
+    async def fetch_odds(self, sport_key: str, *, now_ms: int, trigger=None):
         self.calls.append(sport_key)
+        self.triggers.append(trigger)
         self.budget.record(
+            trigger=trigger,
             called_ms=now_ms,
             endpoint=f"/sports/{sport_key}/odds",
             cost=self.cost,
@@ -1783,11 +1788,12 @@ class TestIngestActuallyBuysTheProps:
             self.quotes = quotes
             self.prop_calls: list[tuple] = []
 
-        async def fetch_odds(self, sport_key: str, *, now_ms: int):
+        async def fetch_odds(self, sport_key: str, *, now_ms: int, trigger=None):
             return self.quotes
 
         async def fetch_props(
-            self, sport_key, odds_event_ids, *, now_ms, markets=None, regions=None
+            self, sport_key, odds_event_ids, *, now_ms, markets=None,
+            regions=None, trigger=None,
         ):
             self.prop_calls.append((sport_key, tuple(odds_event_ids), tuple(markets or ())))
             return []

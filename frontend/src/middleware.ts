@@ -33,6 +33,15 @@ const PUBLIC_PATHS = new Set([
   "/robots.txt",
 ]);
 
+/**
+ * Gated paths that are called by `fetch` and answer JSON.
+ *
+ * These are Next route handlers, so they are not under `/api/` -- that prefix
+ * belongs to the rewrite -- but a redirect to the login page would reach them
+ * as an HTML body behind a 200, which every JSON client reads as success.
+ */
+const JSON_ROUTE_HANDLERS = new Set(["/refresh-odds"]);
+
 export async function middleware(request: NextRequest) {
   const secret = sessionSecret();
   // No shared secret configured -- this is the demo. Nothing to protect.
@@ -47,7 +56,12 @@ export async function middleware(request: NextRequest) {
 
   // An API caller gets a status code it can act on. Redirecting these would
   // hand a JSON client an HTML login page and a 200, which reads as success.
-  if (pathname.startsWith("/api/")) {
+  //
+  // `/refresh-odds` is a route handler rather than a rewritten backend path --
+  // it lives outside `/api/` so it cannot race the rewrite in `next.config.ts`
+  // -- but it is called by `fetch` and answers JSON, so it needs this branch
+  // and not the redirect below.
+  if (pathname.startsWith("/api/") || JSON_ROUTE_HANDLERS.has(pathname)) {
     return NextResponse.json(
       { detail: "Not authenticated. Sign in at /login." },
       { status: 401 },
