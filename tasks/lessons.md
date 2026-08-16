@@ -13,6 +13,44 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — Two identifiers that are equal by construction render as a bug
+
+A schedule component computed the end of its window as
+`fire_until_ms + max_odds_age_ms` and printed the cluster's first kickoff
+beside it. Both correct. On the live page the row read:
+
+```
+4:51 PM – 5:36 PM   in 11h 13m   13 games   baseball_mlb   first kickoff 5:36 PM
+```
+
+The two are the *same instant*, always: `slots_for_sport` sets
+`fire_until = anchor - max_odds_age_ms`, so the sum is `anchor` by
+construction. Nothing was wrong. It read as a rendering bug, and a reader who
+trusted it would conclude the clock was broken and stop trusting the rest.
+
+**The pattern.** Two derived quantities can be individually correct, separately
+justified, and *identical* — and a screen that shows both is worse than one
+that shows either. The invariant that makes them equal is usually the
+interesting fact (here: the planner guarantees a whole freshness window of lead
+time, so a pick surfaced at the last second is still pre-game). **State the
+invariant; do not print its two sides.**
+
+**And the trap in the obvious fix.** The tidy repair is to render the anchor as
+the range end and drop the arithmetic. That is a *shortcut through an
+invariant*: it agrees exactly today and silently over-promises the moment the
+planner takes a wider lead, because the odds would go stale before the kickoff
+the screen was still advertising — an error running against the user. Keep the
+derivation, **compare** it to the other quantity, and let the display collapse
+only while they agree. A comparison survives the invariant changing; a
+substitution does not.
+
+**The wider point, which cost nothing and found two defects.** Both UI-level
+defects this session were found by *opening the running page*, not by reading
+code or running tests. The other was `unclustered_rows` printing 0 as a
+footnote on a record it had split. Source review and a green suite both
+answered "correct" for each. **A page a human will act on is evidence, and it
+is the cheapest evidence available — look at it.**
+
 ## 2026-08-16 — A defect written down beside a guard is not written down in it
 
 `gate.clustered_clv`'s docstring said a game's moneyline, spread and total must
