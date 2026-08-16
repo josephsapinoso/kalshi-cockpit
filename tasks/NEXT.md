@@ -19,26 +19,45 @@ flyctl ssh console -a kalshi-cockpit \
 ~266 → the fix held; write it into `.env.example` and `runner.py:1529-1535`
 **after reconciling against `BudgetState.drift`**. ~390+ → read `sweep-log`.
 
-### ⚠ `prop-bookmakers` is UNRUN and it is not my hands that are tied
+### ✅ `prop-bookmakers` HAS RUN. **The `eu` saving does not exist — do not chase it.**
 
-`flyctl ssh console` is **blocked by the permission classifier in this
-environment** — not by the governance rule, which this command satisfies (a
-committed script, invoked by path). It needs Joe to run it, or a Bash
-permission rule. Until then the question "does any EU book quote an MLB player
-prop?" is open, and half of every 20-credit prop event may be buying nothing.
+**Ten** books quote MLB props on the live record, and one is **`pinnacle`** —
+406 quotes, 7 events, 3 market keys, one sweep. `pinnacle` is in `SHARP_BOOKS`,
+and The Odds API serves it under **`eu` only**.
 
-```
-flyctl ssh console -a kalshi-cockpit \
-  -C "python /app/scripts/inspect_live_db.py prop-bookmakers"
-```
+So the `eu` half of the prop call is not buying nothing. **It is buying the only
+sharp book on the prop record.** Dropping it would delete that book — the exact
+ADR 0021 option B substitution, reached *because* of the cost argument. The
+20-credit prop event stays 20 credits. **Closed. Do not re-open it for a better
+number; re-opening means paying for Pinnacle's absence.**
 
-**Do not drop `eu` globally to fix it.** `SHARP_BOOKS` holds
-`betfair_ex_eu`/`betfair_ex_uk`; that silently converts the deployed strategy
-into ADR 0021 option B. Regions are per-endpoint — change the prop call alone
-(`runner.py:1629`, which currently passes no `regions=` and so inherits
-`config.regions`).
+This also **refuted a documented claim** (`837b40d`). `runner.py` said "none of
+[the books] is Pinnacle or Betfair, so `anchored_on_sharp` is 0 on every row
+here by construction". False on the deployed system: the probe it came from
+sends `"regions": "us"` (`probe_prop_dispersion.py:149`) while production runs
+`us,eu`. Corrected in `runner.py`, the probe's result document and
+`CrewBubble.tsx`; the pattern is in `tasks/lessons.md`.
 
-### `400d712` — the one-sided prop recovery is REGISTERED, and needs a deploy
+**⚠ Do not now write the opposite either.** `consensus_devig` anchors only where
+the sharp book is in `quotes_by_book` for that rung, and `prop_quotes_for_event`
+admits a book only when it quotes **both** sides. **Pinnacle's two-sidedness on
+prop rungs is UNMEASURED.** `prop-rungs` answers it as a by-product of the
+registered recovery run. Until then, neither "props are anchored" nor "props are
+unanchored" may be written.
+
+**If Pinnacle turns out to be two-sided on any rung, note the consequence
+before celebrating it:** `consensus_devig` does `selected = sharp or usable`, so
+such a rung's consensus becomes **Pinnacle alone** and the other nine books are
+discarded — which makes `market_width` `None` and is a *different* row from a
+ten-book consensus, not a better one.
+
+### ✅ DEPLOYED — live, run `31921306708`, 2026-08-16, `instance_mode: live` verified
+
+Joe ran it. Willy and `prop-rungs` are both on the machine. Two commits landed
+*after* the deploy (`7718657`, `837b40d`) and both are **docstrings and tests
+only** — no behavioural drift, no redeploy owed.
+
+### `400d712` — the one-sided prop recovery is REGISTERED, and the query is live
 
 `docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
 Changes no money path. Two new artefacts:
@@ -54,13 +73,20 @@ recoverable if the same book quotes a two-sided **primary** for that player and
 market, and nobody has counted how often that holds. **Gate A counts it first
 and can kill the change on size alone.** Do not quote 4.6× as the prize again.
 
-After the deploy:
+**Take the dump AFTER tonight's slate, not now.** The record currently holds
+**7** prop fixtures from one sweep; the 16:51Z slot covers **13**. §9 allows one
+run, and an `n < 30` UNRESOLVED would burn it on a thin record for no reason.
 
 ```
 flyctl ssh console -a kalshi-cockpit \
   -C "python /app/scripts/inspect_live_db.py prop-rungs --json --limit 20000" > dump.json
 .venv\Scripts\python.exe scripts/analyze_prop_onesided.py dump.json
 ```
+
+**Run the registered analyzer on that dump BEFORE reading the dump for anything
+else** — including the Pinnacle two-sidedness question above. The rules are
+already committed and pushed, so they cannot move; running the scorer first
+preserves the ordering guarantee rather than relying on that.
 
 ### `b0c2fab` — Willy Balters, and the crew have faces
 
