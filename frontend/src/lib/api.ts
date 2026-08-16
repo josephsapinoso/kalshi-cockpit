@@ -668,6 +668,24 @@ export async function priceParlay(
  * something to bet — most windows open onto an empty Board, which is the
  * expected result of the whole premise.
  */
+/**
+ * One planned odds sweep, exactly as `odds.timing.SweepSlot` serialises it.
+ *
+ * `fire_from_ms`/`fire_until_ms` bound when the sweep may fire;
+ * `anchor_commence_ms` is the first kickoff of the cluster it is aimed at, and
+ * the window is planned to close before it. `games_covered` is how many
+ * fixtures that one sweep makes priceable — the reason the planner picks this
+ * slot over another, since a sweep costs the same whether it covers one game or
+ * thirteen.
+ */
+export type PlannedSlot = {
+  sport_key: string;
+  fire_from_ms: number;
+  fire_until_ms: number;
+  anchor_commence_ms: number;
+  games_covered: number;
+};
+
 export type ActionableWindow = {
   now_ms: number;
   is_open: boolean;
@@ -705,6 +723,25 @@ export type ActionableWindow = {
   next_sweep_sport: string | null;
   next_sweep_games: number | null;
   next_sweep_reason: string | null;
+  /**
+   * Every sweep the planner intends for the rest of the budget day.
+   *
+   * `next_sweep_*` above is this list's first entry, flattened. The array has
+   * been on the wire since `ActionableWindow.to_dict` was written and was
+   * undeclared here until 2026-08-16, so the UI could show the next chance and
+   * nothing beyond it — which is the wrong shape for the question a human
+   * actually asks, which is "when should I open this today".
+   *
+   * Chronological. Bounded by `sweeps_remaining_today`, so it shortens as the
+   * budget is spent and is **empty** both when the credits are gone and when no
+   * fixture is near enough to schedule against. Those are different states and
+   * the list alone cannot tell them apart; read `sweeps_remaining_today` beside
+   * it.
+   *
+   * A slot is a permission to fire within `[fire_from_ms, fire_until_ms]`, not
+   * a firing. Nothing here promises the sweep happens.
+   */
+  slots_planned: PlannedSlot[];
   sweeps_remaining_today: number;
   spent_today: number;
   daily_budget: number;

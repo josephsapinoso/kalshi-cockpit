@@ -4,6 +4,7 @@ import LiveBoard from "@/components/LiveBoard";
 import SlateRow, { type SlateState } from "@/components/SlateRow";
 import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
+import WindowSchedule from "@/components/WindowSchedule";
 import { fetchBoard, fetchHealth, fetchWindow, formatAge, formatDuration } from "@/lib/api";
 import type { ActionableWindow } from "@/lib/api";
 
@@ -123,6 +124,14 @@ export default async function BoardPage({
             expired={board.counts.expired}
           />
         )}
+
+        {/* **Directly beneath the banner, because they answer consecutive
+            questions.** The banner says whether this instant is usable; the
+            schedule says which instants today are. Split apart on the page, a
+            reader who learns "closed" from the first has no reason to keep
+            scrolling for the second, which is the one that tells them when to
+            come back. */}
+        {actionable && <WindowSchedule window={actionable} />}
 
         {/* **When this slate was recorded, whenever that is not now.**
             The rows below carry no date of their own, so without this a slate
