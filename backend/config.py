@@ -205,6 +205,34 @@ class OddsConfig:
     # midnight is 5pm PT, the middle of the US evening slate, so it splits one
     # night's games across two budget days. See `odds/timing.py`.
     budget_day_start_utc_hour: int = 10
+    # Whether a *scheduled* sweep also buys player props for every fixture it
+    # covers. **Default False, and the default is the decision.**
+    #
+    # Props are 20 credits per fixture against a 6-credit team sweep, so they
+    # were 260 of a 13-game cluster's 266 -- 86% of the bill. What that bought
+    # toward the project's only open question is **nothing**: `gate.clustered_clv`
+    # keys on `event_links.odds_event_id`, and `gate.py:424-428` states that a
+    # prop event inherits its game's fixture id by construction, so "props
+    # collapse onto their game rather than forming clusters of their own". A
+    # prop row on a game that already has a moneyline row adds no cluster to the
+    # 300-game floor.
+    #
+    # Off, a cluster costs ~42 credits instead of ~302, and the 600-credit day
+    # buys roughly 14 clusters instead of 2. Games are the binding constraint on
+    # the gate; props were consuming the budget that buys them.
+    #
+    # **This does not remove props.** `POST /api/odds/refresh` buys one
+    # fixture's ladder on demand for 26 credits (ADR 0031), which is the tier-2
+    # half of the funnel and is deliberately where the expensive purchase now
+    # lives -- bought for a game someone is looking at, rather than for all
+    # thirteen in advance.
+    #
+    # **Named explicitly in `fly.live.toml` even though it equals this default.**
+    # `tasks/lessons.md` records the inverse error costing a session: props came
+    # from a code default with no environment variable, and the absence was read
+    # as the feature being off when it meant the default applied. A money switch
+    # should be readable in the deploy file rather than inferred from here.
+    buy_props_on_schedule: bool = False
 
     @classmethod
     def load(cls) -> "OddsConfig":
@@ -219,6 +247,7 @@ class OddsConfig:
                 m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
             ],
             budget_day_start_utc_hour=hour,
+            buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
         )
 
     @classmethod
@@ -247,6 +276,7 @@ class OddsConfig:
             # `hour=99` and cut its day at a `datetime.replace` that raises far
             # from here.
             budget_day_start_utc_hour=configured_day_start_utc_hour(),
+            buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
         )
 
     @property

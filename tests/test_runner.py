@@ -1534,6 +1534,24 @@ PROP_RUNGS = (
 )
 
 
+def _prop_slate(
+    kalshi_events: list[dict], kalshi_prop_capture: dict, commence_ms: int
+) -> list[dict]:
+    """A game and its Kalshi prop ladder, which is what a real slate looks like.
+
+    Named because three tests need it and one of them was written without it.
+    That version passed against code that would still have bought props: with no
+    prop event in the payload, `fetch_and_store_props` returns on its "no prop
+    series discovered" branch and the switch under test is never reached. A
+    fixture that makes the guard unreachable is the quietest way to write a
+    green test of nothing.
+    """
+    return [
+        _kalshi_game_event(kalshi_events, commence_ms),
+        _kalshi_prop_event(kalshi_prop_capture, PROP_RUNGS, commence_ms),
+    ]
+
+
 @pytest.fixture
 def priced_props(
     conn, kalshi_events, kalshi_prop_capture, prop_odds_capture,
@@ -1799,7 +1817,8 @@ class TestIngestActuallyBuysTheProps:
             return []
 
     async def _ingest(
-        self, conn, events, quotes, *, now, commence_ms, seed_fixtures=True
+        self, conn, events, quotes, *, now, commence_ms, seed_fixtures=True,
+        buy_props_on_schedule=True,
     ):
         from backend.config import OddsConfig
         from backend.odds.budget import CreditBudget
@@ -1826,6 +1845,15 @@ class TestIngestActuallyBuysTheProps:
                 api_key="x", base_url="https://example.invalid",
                 daily_credit_budget=10_000, regions=["us"],
                 markets=["h2h", "spreads", "totals"],
+                # **Opted in explicitly, and the default is the opposite.**
+                # Scheduled prop buying is off on a deployed instance since
+                # 2026-08-16 (ADR 0032) because props are 86% of the bill and
+                # add no cluster to the 300-game floor. The behaviour these
+                # tests pin is still the behaviour when it is switched on, and
+                # it must keep working -- so they turn it on rather than being
+                # weakened. `test_the_default_buys_no_props_on_a_schedule`
+                # below pins the default itself.
+                buy_props_on_schedule=buy_props_on_schedule,
             ),
             now=now,
         )
@@ -2174,3 +2202,148 @@ class TestAnUntradeableRungIsSkippedNotFatal:
             "SELECT COUNT(*) AS n FROM recommendations WHERE ticker LIKE 'KXMLBKS-%'"
         ).fetchone()
         assert rows["n"] > 0, counts.as_dict()
+
+
+class TestScheduledPropBuyingIsOffByDefault:
+    """The switch that took 86% off a cluster's bill. ADR 0032.
+
+    Props are 20 credits per fixture against a 6-credit team sweep, and
+    `gate.py:424-428` collapses a prop event onto its game's `odds_event_id` by
+    construction -- so a prop row on a game that already has a moneyline row
+    adds **no cluster** to the 300-game floor it is competing for budget with.
+
+    Two separate claims, kept separate because they fail for different reasons:
+    that the *default* is off, and that *off* buys nothing. The behaviour when
+    it is switched on is pinned by `TestIngestActuallyBuysTheProps`, which now
+    opts in explicitly rather than relying on a default that has moved.
+    """
+
+    def test_the_dataclass_default_is_off(self):
+        """A deployment that says nothing buys no props.
+
+        `tasks/lessons.md` records the inverse error costing a session: props
+        came from a code default with no environment variable, and the absence
+        was read as the feature being off when it meant the default applied.
+        This is that default, asserted rather than assumed -- and it now points
+        the safe way, so the same misreading would be harmless.
+        """
+        from backend.config import OddsConfig
+
+        config = OddsConfig(
+            api_key="x", base_url="https://example.invalid",
+            daily_credit_budget=600, regions=["us"], markets=["h2h"],
+        )
+        assert config.buy_props_on_schedule is False
+
+    def test_an_absent_environment_variable_leaves_it_off(self, monkeypatch):
+        """`load()` and the dataclass must agree, or the deploy file lies.
+
+        `load_without_credentials` is checked too: it is the constructor the
+        demo and every read-only screen use, and it has drifted from `load`
+        before -- it read `ODDS_BUDGET_DAY_START_UTC_HOUR` raw while `load`
+        validated it.
+        """
+        from backend.config import OddsConfig
+
+        monkeypatch.delenv("ODDS_BUY_PROPS_ON_SCHEDULE", raising=False)
+        monkeypatch.setenv("ODDS_API_KEY", "x")
+        assert OddsConfig.load().buy_props_on_schedule is False
+        assert OddsConfig.load_without_credentials().buy_props_on_schedule is False
+
+    async def test_off_means_a_scheduled_sweep_buys_no_props(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        odds = await helper._ingest(
+            conn,
+            # **A real Kalshi prop ladder, or this passes for the wrong
+            # reason.** With no prop event the function returns on its "no prop
+            # series discovered" branch and never reaches the switch -- which is
+            # exactly how the first draft of this test passed against code that
+            # would still have bought.
+            _prop_slate(kalshi_events, kalshi_prop_capture, prop_commence_ms),
+            helper._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+            buy_props_on_schedule=False,
+        )
+        assert odds.prop_calls == [], (
+            f"a scheduled sweep bought props with the switch off; "
+            f"got {odds.prop_calls}"
+        )
+
+    async def test_the_skip_is_recorded_rather_than_silent(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        """A pass that declined and left no row reads like a pass that never ran.
+
+        `odds_sweep_log` exists for exactly this, and a *new* way of buying
+        nothing needs its own row or it inherits the silence the table was
+        created to end.
+        """
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        await helper._ingest(
+            conn,
+            _prop_slate(kalshi_events, kalshi_prop_capture, prop_commence_ms),
+            helper._quotes(commence_ms=prop_commence_ms, fetched_ms=now),
+            now=now,
+            commence_ms=prop_commence_ms,
+            buy_props_on_schedule=False,
+        )
+        details = [
+            r["detail"]
+            for r in conn.execute(
+                "SELECT detail FROM odds_sweep_log WHERE detail LIKE 'props:%'"
+            )
+        ]
+        assert any("scheduled prop buying is off" in d for d in details), (
+            f"the skip was not recorded; got {details}"
+        )
+
+    async def test_a_named_fixture_is_still_bought_with_the_switch_off(
+        self, conn, kalshi_events, kalshi_prop_capture, prop_commence_ms
+    ):
+        """The tap must survive the switch, or the two-tier design is one tier.
+
+        `fetch_and_store_props` honours an explicitly named fixture set
+        regardless of the schedule switch. That asymmetry is the whole point:
+        the guards exist to stop props being bought for a set **nobody named**,
+        and a tap names one. Without this, turning the schedule off would
+        silently disable the on-demand button shipped the same day.
+
+        Driven at `fetch_and_store_props` rather than through the pass, because
+        the claim is about this function's guard ordering; a pass-level test
+        would route it through `decide_sweeps` and prove something else.
+        """
+        from backend.kalshi.discovery import discover_from_events
+        from backend.odds.client import store_quotes
+        from backend.odds.timing import MANUAL
+        from backend.runner import fetch_and_store_props
+
+        helper = TestIngestActuallyBuysTheProps()
+        now = prop_commence_ms - 30 * 60 * 1000
+        quotes = helper._quotes(commence_ms=prop_commence_ms, fetched_ms=now)
+        store_quotes(conn, quotes)
+        discovered = discover_from_events(
+            _prop_slate(kalshi_events, kalshi_prop_capture, prop_commence_ms)
+        )
+
+        odds = helper.FakePropOdds(quotes)
+        await fetch_and_store_props(
+            conn,
+            odds,
+            events=discovered,
+            quotes=quotes,
+            sport_key="baseball_mlb",
+            now=now,
+            slot=None,
+            trigger=MANUAL,
+            only_events=("odds-1",),
+            # The switch at its default: no sport is scheduled for props.
+            scheduled_prop_sports=set(),
+        )
+        assert [c[1] for c in odds.prop_calls] == [("odds-1",)], (
+            f"the tap did not buy its named fixture; got {odds.prop_calls}"
+        )

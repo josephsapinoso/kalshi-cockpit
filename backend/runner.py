@@ -65,7 +65,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Collection, Iterable, Optional, Sequence
 
 from .agents.review import ReviewCandidate, review_surfaced
 from .config import (
@@ -1503,11 +1503,30 @@ async def fetch_and_store_odds(
     # ladder is not reserved against for props it will never buy. Passed rather
     # than assumed: charging every sport would starve WNBA sweeps to protect a
     # baseball-only cost.
-    prop_sports = {
-        e.sport_key
-        for e in events
-        if e.market_type == MARKET_TYPE_PROP and e.sport_key is not None
-    }
+    # **Empty unless the deployment opts in**, which turns off the scheduled
+    # prop purchase in the one place that matters: `decide_sweeps` reserves
+    # against this set, and `fetch_and_store_props` refuses a firing whose sport
+    # is not in it. One switch, both halves, so the reservation and the spend
+    # cannot disagree -- which is the 2026-08-15 outage in miniature.
+    #
+    # Why off: props were 260 of a 13-game cluster's 266 credits and contribute
+    # **no cluster** to the 300-game floor, because `gate.py:424-428` collapses a
+    # prop event onto its game's `odds_event_id` by construction. See
+    # `OddsConfig.buy_props_on_schedule`, which carries the full argument.
+    #
+    # A *tap* is unaffected. `FiringSweep.prop_event_ids` names its one fixture
+    # explicitly and `fetch_and_store_props` honours a named set regardless of
+    # this switch -- that is the whole point of the two-tier design, and it is
+    # why the named-set path bypasses the guards rather than sharing them.
+    prop_sports = (
+        {
+            e.sport_key
+            for e in events
+            if e.market_type == MARKET_TYPE_PROP and e.sport_key is not None
+        }
+        if config.buy_props_on_schedule
+        else set()
+    )
     decision = decide_sweeps(
         conn,
         in_scope=soonest_by_sport(events),
@@ -1557,6 +1576,10 @@ async def fetch_and_store_odds(
                 conn, odds_client, events=events, quotes=quotes,
                 sport_key=firing.sport_key, now=now, slot=firing.slot,
                 trigger=firing.trigger, only_events=firing.prop_event_ids,
+                # The same set `decide_sweeps` reserved against, handed to the
+                # code that spends. Passing it rather than re-deriving it is
+                # what makes "reserved for" and "bought" one expression.
+                scheduled_prop_sports=prop_sports,
             )
         elif affordable:
             # The call went out and the slate came back empty. A normal state,
@@ -1587,6 +1610,7 @@ async def fetch_and_store_props(
     slot: Optional[SweepSlot] = None,
     trigger: str = SCHEDULED,
     only_events: Sequence[str] = (),
+    scheduled_prop_sports: Optional[Collection[str]] = None,
 ) -> int:
     """Buy player props for the fixtures a team sweep just paid for.
 
@@ -1640,6 +1664,32 @@ async def fetch_and_store_props(
 
     Returns the number of prop quotes stored.
     """
+    named = [e for e in dict.fromkeys(only_events) if e]
+
+    if not named and scheduled_prop_sports is not None:
+        if sport_key not in scheduled_prop_sports:
+            # The scheduled prop purchase is off for this sport, which since
+            # 2026-08-16 is the default for every sport (ADR 0032). Checked
+            # against **the same set `decide_sweeps` reserved against**, not
+            # against the config flag directly: a spend that read one value
+            # while the reservation read another is the shape of the
+            # 2026-08-15 outage, where the planner authorised 6 credits and the
+            # fetch spent 384.
+            #
+            # Recorded rather than silent. A pass that skipped and said nothing
+            # is indistinguishable from one that never ran -- the founding
+            # defect of `odds_sweep_log`.
+            record_sweep_outcome(
+                conn, pass_ms=now, sport_key=sport_key, outcome=SKIPPED,
+                detail=(
+                    f"props: scheduled prop buying is off for {sport_key}, so "
+                    f"this window buys team lines only. A single fixture's "
+                    f"ladder is still available on demand for the cost of one "
+                    f"fixture rather than the whole slate."
+                ),
+            )
+            return 0
+
     prop_events = [
         e
         for e in events
@@ -1658,8 +1708,6 @@ async def fetch_and_store_props(
             ),
         )
         return 0
-
-    named = [e for e in dict.fromkeys(only_events) if e]
 
     if slot is None and not named:
         # A bootstrap firing has no kickoff cluster, so there is no set of

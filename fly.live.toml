@@ -215,6 +215,40 @@ primary_region = "ord"
   ODDS_REGIONS = "us,eu"
   ODDS_MARKETS = "h2h,spreads,totals"
 
+  # **Scheduled prop buying, and it is OFF.** ADR 0032.
+  #
+  # This equals the code default (`OddsConfig.buy_props_on_schedule`), and is
+  # stated here anyway because it is a money switch and the deploy file is where
+  # a money switch should be readable. The previous line above this one is the
+  # reason: props came from a code default with no environment variable, the
+  # absence was read as the feature being off, and it meant the default applied
+  # -- 260 credits a cluster nobody had budgeted. An explicit `false` cannot be
+  # misread in either direction.
+  #
+  # What it saves and what it costs, both measured rather than argued:
+  #
+  #   on   6 + 20x13 = 266 opening, ~302 with the refresh tail  -> 2 clusters/day
+  #   off  6 + ~36 refresh tail    = ~42                        -> ~14 clusters/day
+  #
+  # The 86% of the bill this removes bought **no cluster** toward the 300-game
+  # floor. `gate.clustered_clv` keys on `event_links.odds_event_id` and
+  # `gate.py:424-428` states that a prop event inherits its game's fixture id by
+  # construction, so a prop row on a game that already has a moneyline row is
+  # not an independent observation and never was one. Games are the binding
+  # constraint on the gate; props were consuming the budget that buys them.
+  #
+  # **Props are not gone.** `POST /api/odds/refresh` buys one fixture's ladder
+  # for 26 credits (ADR 0031), which is where the expensive purchase now lives:
+  # bought for a game somebody is looking at, rather than for all thirteen in
+  # advance. Turning this back on is a deliberate act, not a default.
+  #
+  # **Unmeasured, and it is the one thing that would argue against this:** a game
+  # whose *only* priced row is a prop would contribute a cluster the moneyline
+  # did not. On the six fixtures observed on 2026-08-15 that never happened --
+  # every prop event sat on a game that already had rows -- but n is six.
+  # `clv-coverage` section A would settle it.
+  ODDS_BUY_PROPS_ON_SCHEDULE = "false"
+
   # An opportunity outside either bound is not bettable, enforced server-side.
   MAX_ODDS_AGE_S = "900"
   MAX_KALSHI_QUOTE_AGE_S = "30"
