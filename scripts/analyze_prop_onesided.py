@@ -40,6 +40,7 @@ WHAT THIS DOES NOT ESTABLISH
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import statistics
 import sys
@@ -164,6 +165,19 @@ class Exclusions:
         )
 
 
+def _read(path: Path) -> str:
+    """The dump's text, whether it is stored gzipped or plain.
+
+    Keyed off the suffix rather than sniffing the magic bytes: a
+    mis-named file should fail loudly at the decoder rather than be
+    silently rescued, because the name is what a future reader cites.
+    """
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            return fh.read()
+    return path.read_text(encoding="utf-8")
+
+
 def load_rungs(paths: Iterable[Path]) -> tuple[list[Rung], Exclusions]:
     """Parse one or more `prop-rungs --json` dumps into rungs.
 
@@ -171,11 +185,19 @@ def load_rungs(paths: Iterable[Path]) -> tuple[list[Rung], Exclusions]:
     dump the alphabetical front of the record, not a sample of it, so a verdict
     computed over one would be a verdict about bookmakers whose names sort
     early. The inspector sets the flag; this is what acts on it.
+
+    **`.json.gz` is read transparently**, because this dump does not compress
+    like a log -- 41,827 rungs are 10MB raw and 261KB gzipped, a 38x ratio off
+    the repeated bookmaker and player strings. A one-shot that can never be
+    re-taken has to live in the repo to be re-checkable, and 10MB of it in a
+    repo that is going public is a cost with no benefit. The suffix decides,
+    not a flag, so the same command works on either form and a future session
+    cannot pass the wrong one.
     """
     rungs: list[Rung] = []
     excluded = Exclusions()
     for path in paths:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(_read(path))
         if payload.get("query") != "prop-rungs":
             raise RefusedInput(
                 f"{path}: this is a {payload.get('query')!r} dump, not prop-rungs"

@@ -1,0 +1,52 @@
+# One-sided prop recovery
+# Registered: docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md
+
+§3 population and exclusions
+----------------------------------------
+rungs admitted                 41646
+excluded: no side priced       0
+excluded: price <= 1.0         0
+excluded: a side quoted twice  181
+two-sided primary estimates    3930
+
+§4.1 feasibility -- READ THIS BEFORE ANY ACCURACY NUMBER
+----------------------------------------
+alternate rungs kept today     0
+alternate rungs dropped        35448
+  of which recoverable         12270
+  of which unrecoverable       23178
+recoverable / kept             n/a (no kept rungs)
+
+by bookmaker:
+  betmgm             kept 0     dropped 5764  recoverable 5067  ratio n/a
+  betonlineag        kept 0     dropped 4068  recoverable 3324  ratio n/a
+  betrivers          kept 0     dropped 3213  recoverable 242   ratio n/a
+  bovada             kept 0     dropped 2356  recoverable 215   ratio n/a
+  draftkings         kept 0     dropped 4263  recoverable 2811  ratio n/a
+  fanatics           kept 0     dropped 5286  recoverable 393   ratio n/a
+  fanduel            kept 0     dropped 4546  recoverable 218   ratio n/a
+  mybookieag         kept 0     dropped 4099  recoverable 0     ratio n/a
+  williamhill_us     kept 0     dropped 1853  recoverable 0     ratio n/a
+by base market:
+  batter_hits                kept 0     dropped 9494  recoverable 3695  ratio n/a
+  batter_home_runs           kept 0     dropped 4910  recoverable 0     ratio n/a
+  batter_rbis                kept 0     dropped 6921  recoverable 2563  ratio n/a
+  batter_total_bases         kept 0     dropped 11882 recoverable 4429  ratio n/a
+  pitcher_strikeouts         kept 0     dropped 2241  recoverable 1583  ratio n/a
+
+§4.3 Level 1 -- per-book mechanism error, percentage points
+----------------------------------------
+rungs where the recovery refused (implied under <= 0): 0
+
+§4.4 Level 2 -- consensus error, percentage points. THE RULE READS THIS
+----------------------------------------
+rungs dropped (recovery refused or undevigable): 0
+  pooled            n = 0  INSUFFICIENT (floor is 5)
+
+§5 verdict
+----------------------------------------
+Gate A (feasibility): UNMEASURABLE
+Gate B (accuracy):    NOT REACHED
+no two-sided alternate rung exists, so there is no denominator and no held-out set. This is an absence of data, not a result.
+
+§7 stands over every line above: the error is measured only where a book chose to quote both sides, and applied where it did not.
