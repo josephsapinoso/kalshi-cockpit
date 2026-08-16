@@ -1,6 +1,117 @@
 # Next — your checklist
 
-## 2026-08-16 — THE CREDIT DEFECT IS FIXED IN THE REPO AND **NOT YET DEPLOYED**. Deploy is the first thing.
+## 2026-08-16 (~03:00Z) — A DEPLOY IS OWED, AND ONE MEASUREMENT IS STILL DUE AT ~17:30Z
+
+Two commits, `400d712` and `b0c2fab`. **2,728 tests pass, 10 xfailed, ruff
+clean, `npm run build` clean.** Verified at the time of writing — re-verify.
+
+### ⚠ FIRST — the credit number, and it cannot be taken before ~17:30Z
+
+Unchanged from `start.md` and still the top item. The live planner holds a slot
+at **16:51Z–17:21Z covering 13 games**, which should cost **6 + 20×13 = 266** of
+400. After it lands:
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py credits-day --date 20260816"
+```
+
+~266 → the fix held; write it into `.env.example` and `runner.py:1529-1535`
+**after reconciling against `BudgetState.drift`**. ~390+ → read `sweep-log`.
+
+### ⚠ `prop-bookmakers` is UNRUN and it is not my hands that are tied
+
+`flyctl ssh console` is **blocked by the permission classifier in this
+environment** — not by the governance rule, which this command satisfies (a
+committed script, invoked by path). It needs Joe to run it, or a Bash
+permission rule. Until then the question "does any EU book quote an MLB player
+prop?" is open, and half of every 20-credit prop event may be buying nothing.
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py prop-bookmakers"
+```
+
+**Do not drop `eu` globally to fix it.** `SHARP_BOOKS` holds
+`betfair_ex_eu`/`betfair_ex_uk`; that silently converts the deployed strategy
+into ADR 0021 option B. Regions are per-endpoint — change the prop call alone
+(`runner.py:1629`, which currently passes no `regions=` and so inherits
+`config.regions`).
+
+### `400d712` — the one-sided prop recovery is REGISTERED, and needs a deploy
+
+`docs/measurements/2026-08-16-preregistration-prop-onesided-recovery.md`.
+Changes no money path. Two new artefacts:
+
+- **`prop-rungs`** on `inspect_live_db.py` — raw rungs at the latest sweep per
+  fixture, two sides pivoted. **Not on the machine until the next deploy.**
+- **`scripts/analyze_prop_onesided.py`** — laptop Tool, holds every registered
+  constant, refuses a truncated dump.
+
+**The registration's own suspicion is of the "4.6×".** That is dropped keys over
+kept keys, not *recoverable* over kept — a one-sided alternate rung is only
+recoverable if the same book quotes a two-sided **primary** for that player and
+market, and nobody has counted how often that holds. **Gate A counts it first
+and can kill the change on size alone.** Do not quote 4.6× as the prize again.
+
+After the deploy:
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py prop-rungs --json --limit 20000" > dump.json
+.venv\Scripts\python.exe scripts/analyze_prop_onesided.py dump.json
+```
+
+### `b0c2fab` — Willy Balters, and the crew have faces
+
+Joe: *"all I see is the Skeptic and he denies everything."* The row already
+carried the book distribution and nobody spoke for it. Willy reads it and
+nothing else.
+
+**One voice, one data source, and that is structural.** Willy is handed a
+`BookDistribution` and never sees the row, so drift/volume/edge are unreachable
+rather than merely unused. No line can weigh two factors, so no line can become
+a rating. `tests/test_crew_bubble.py` pins it; 11 mutations run, all red.
+
+Avatars are inline SVG in `currentColor` — no asset pipeline, no remote fetch.
+**Joe called the style a placeholder and will revisit it.**
+
+### Joe's Scout question, answered — and it changes the plan
+
+> *"What if we reduce the Scout to professional sports and not everything?"*
+
+**Scope is not the lever, and narrowing it saves nothing**, because the Scout is
+already sports-only *and* game-scoped: one call per flagged game, and the tool
+only prices `KXMLBGAME` and `KXWNBAGAME`, both professional. There is no
+non-professional work to remove.
+
+**Calls per day is the lever.** The `$0.35–$2.01` a saturated day is 24 calls at
+the deployed ceiling, on `.env.example`'s own **[ASSUMED, uncited]** price — so
+roughly **$0.015–$0.084 a call**, and that per-call figure inherits the
+assumption. An **on-demand trigger** — Scout runs when Joe taps a row, never on
+every surfaced row — takes a realistic night to 2–3 calls, i.e. **~$0.05–$0.25 a
+day**. Second lever: `WEB_SEARCH_TOOL["max_uses"]` is **6**; dropping it to 2–3
+cuts the largest per-call term.
+
+That does not unblock it on its own. Wiring Scout still turns two tests red, and
+`BILLED_PATH_CALL_SITES` **cannot be satisfied by editing a list** — it needs a
+**batch budget** like `review_surfaced`'s, because the meter is per-caller by
+design. Plus an ADR citing 0022. **Still tabled by Joe. Do not start it unasked.**
+
+### What is left, in order
+
+1. **The credit number at ~17:30Z.** Then `prop-bookmakers` (needs Joe or a
+   permission rule).
+2. **Deploy**, so `prop-rungs` exists on the machine, then run the recovery.
+3. **Score the first prop rows on CLV** once a slate settles. Register first.
+4. **The settlement `fee_cost` capture** — the only direct test of **H4**.
+5. **Scout — tabled.** The cost answer above is recorded so nobody re-derives it.
+
+**The fee window is still the gate.** Second MLB observation window on or after
+~2026-09-04, one 1-contract fill. **ADR 0023 expires 2026-08-31, default A.**
+
+
+## 2026-08-16 — THE CREDIT DEFECT IS FIXED IN THE REPO AND **NOT YET DEPLOYED**. Deploy is the first thing. *(SUPERSEDED: it was deployed and verified ~00:35Z.)*
 
 Three commits, all pushed to `main`: `7b6cc2e`, `e790ac3`, `9a4f15c`.
 **2,689 tests pass, 10 xfailed, ruff clean, `npm run build` clean.**
