@@ -66,6 +66,14 @@ primary_region = "ord"
   dockerfile = "Dockerfile"
 
 [env]
+  # TEMPORARY -- 2026-08-16 incident. The volume filled and the boot dies in
+  # `migrate_db.py` one second in, so ssh has no window and the committed disk
+  # inspector cannot be reached. This holds the container before any write so
+  # the volume can be read. It starts nothing and records nothing: while this
+  # line is present the instance is DOWN by choice, not by failure.
+  # REMOVE IT and redeploy once the volume has room.
+  MAINTENANCE_HOLD = "1"
+
   INSTANCE_MODE = "live"
   DB_PATH = "/data/cockpit.db"
   PORT = "3000"

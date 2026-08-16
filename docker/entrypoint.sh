@@ -21,6 +21,51 @@ DB_PATH="${DB_PATH:-/data/cockpit.db}"
 
 echo "[entrypoint] instance_mode=${INSTANCE_MODE} db=${DB_PATH}"
 
+# ---------------------------------------------------------------------------
+# Maintenance hold: keep the container alive when the normal boot cannot run.
+#
+# **Why this exists.** On 2026-08-16 the live volume filled. `migrate_db.py` is
+# the first thing this script runs and it opens the database for write, so the
+# boot died one second in, every time, until Fly gave up at its restart cap.
+# `flyctl ssh console` needs a running machine, so the one-second window was not
+# usable -- and the committed inspectors that could have said what filled the
+# volume are invoked *through* that shell. The diagnosis tooling was locked
+# inside the thing that was broken.
+#
+# Holding here, before any write, breaks that circularity: ssh comes up with the
+# volume mounted and `scripts/inspect_live_disk.py` can run. It is the sickbay
+# door, and it must stay ahead of the migration for the same reason a sickbay
+# door is not inside the ward.
+#
+# **It is deliberately not a recovery mode.** It starts nothing, migrates
+# nothing, deletes nothing, and reaches no network. The container simply stays
+# up so a human -- or an agent under the ssh governance rule -- can run a
+# read-only script against a volume the normal boot cannot survive. Every
+# repair stays an explicit, separately reviewed act.
+#
+# **Set it in `fly.*.toml` and deploy, never as an ad-hoc secret.** The point is
+# that the machine's state is readable from git: a volume in maintenance is a
+# committed line someone can find, not an invisible override. Revert the line
+# and deploy again to leave.
+#
+# `sleep infinity` rather than a bounded wait: a hold that silently expires
+# would drop the machine back into the crash loop mid-diagnosis, and the health
+# check is already failing -- there is nothing left for a timeout to protect.
+if [ "${MAINTENANCE_HOLD:-}" = "1" ]; then
+  echo "[entrypoint] MAINTENANCE_HOLD=1 -- NOT starting the app."
+  echo "[entrypoint] Nothing is migrated, served, recorded or deleted."
+  # The bare filename, deliberately, with no directory. `test_has_callers.py`
+  # derives which scripts the entrypoint RUNS by regexing `scripts/*.py` out of
+  # its non-comment lines, and an echoed path is indistinguishable from an
+  # executed one to that scanner -- so writing the full path here would make
+  # the derived guard believe this hold runs a script, when it runs nothing.
+  # Keeping the guard honest is worth more than the four characters.
+  echo "[entrypoint] The volume is mounted and ssh is up."
+  echo "[entrypoint] Read it with inspect_live_disk.py (under /app/scripts) over ssh."
+  echo "[entrypoint] Remove MAINTENANCE_HOLD from fly.live.toml and redeploy to exit."
+  sleep infinity
+fi
+
 # The demo instance regenerates its database on every boot. It holds no
 # credentials and reaches no network, so there is nothing to preserve -- and a
 # fresh seed means the deployed demo always matches the screenshots.
