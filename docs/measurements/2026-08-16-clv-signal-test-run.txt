@@ -1,0 +1,54 @@
+# CLV signal test
+# Registered: docs/measurements/2026-08-09-preregistration-clv-signal-test.md
+
+1. population
+----------------------------------------
+  rows in dump                 3692
+  rows analysed                3692
+  G (clusters, registered key) 199
+  unclustered rows             0
+  P1 half-spread coverage      1.0000  (floor 0.9)
+  rows with no quote at all    0
+  rows whose quote DISAGREES   1826
+  strategy_config_version      {1: 359, 2: 56, 3: 1672, 4: 1605}
+
+2. the C2 confound, measured
+----------------------------------------
+  sd(half_spread_tenths)       9.5761
+  sd(edge_tenths)              32.0166
+  sd(clv_tenths)               39.6038
+  implied spurious slope       0.089460   Var(half)/Var(edge)
+
+3. resolving power at this G, printed before the estimate
+----------------------------------------
+  always-valid multiplier      4.0373
+  smallest resolvable beta     0.1929
+
+4. the estimate
+----------------------------------------
+  beta_hat                     -0.1412
+  gamma_hat (half-spread)      -0.7407
+  se_cluster                   0.0478
+  se_classical                 0.0202   (NOT the one used)
+  always-valid interval        [-0.3342, +0.0517]
+
+5. verdict
+----------------------------------------
+  UNRESOLVED
+  G = 199 is below the registered floor of 300.
+  A look below the floor MAY NOT declare SIGNAL, BUG or NO SIGNAL.
+  UNRESOLVED is a real answer and is not 'no signal'.
+
+6. per-group view -- DIAGNOSTIC, CANNOT PRODUCE A FINDING
+----------------------------------------
+  moneyline    n= 2440 G= 118 share=66.1%  beta=-0.0819
+  prop         n= 1252 G=  81 share=33.9%  beta=-0.5192
+  largest contributor: moneyline at 66.1% of rows
+
+7. what this does not establish
+----------------------------------------
+  A positive beta says the edge number predicts closing-line movement.
+  It does not say the movement is tradeable, survives fees, or was fillable.
+  market_type is NOT a registered cut; section 6 is a diagnostic only.
+  G is on the registration's cluster key COALESCE(event_ticker, ticker),
+    which is NOT the gate's ADR 0029 key. The two differ materially.

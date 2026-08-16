@@ -28,6 +28,32 @@
 >
 > **This does not authorise any change to `calculate_fee`.** See §6.
 
+> **Annotation, 2026-08-16 (same day, after the first look).** Three things this
+> ADR listed as owed are now done, and one of its numbers is superseded.
+>
+> **The estimator exists** (`backend/analysis/signal_test.py`), with all four
+> registered invariants as mutation-checked tests, and **P1 passes at 1.0000
+> coverage** — §5's "un-runnable, not merely un-run" no longer holds.
+>
+> **The sign disagreement in §3 is resolved.** Both earlier slopes were computed
+> without the half-spread control, because the dump carried no quote columns.
+> `gamma_hat = −0.741`, so the control is load-bearing. On the registered
+> population with the registered control, **`beta_hat = −0.141`**, se_cluster
+> 0.0478, always-valid interval **[−0.334, +0.052]**.
+>
+> **`G` is 199 on the registered key, not the ~186 this ADR guessed** — so the
+> provisional figure in §1 and §5 is superseded by a measurement, and the floor
+> that governs is the registration's own **300**, exactly as §1 already bound
+> it. Nothing in the decision changes.
+>
+> **The direction is adverse to F and is recorded as a forecast, not a
+> declaration.** The interval's upper limit already sits below the registered
+> NO-SIGNAL threshold of 0.40. If it holds to `G = 300`, the registered verdict
+> is NO SIGNAL and §1 takes option A. Today's verdict is **UNRESOLVED**, which
+> is a real answer and is not "no signal".
+>
+> See `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
+
 ## 2. Why F, stated honestly as a choice
 
 **The registered rule does not elect F, and an earlier draft of this ADR claimed
