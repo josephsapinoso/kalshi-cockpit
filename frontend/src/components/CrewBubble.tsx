@@ -111,11 +111,18 @@ function skepticLine(row: SlateRowData): string {
  * join — same shape, same care.
  *
  * **He never says the books are right.** The Slate's distribution is
- * deliberately unanchored — no sharp book is preferred inside it, and on props
- * `anchored_on_sharp` is 0 by construction because none of the eight books
- * quoting MLB props is Pinnacle or Betfair. A gap against a soft consensus is a
- * gap, not an edge, and his last clause says so rather than leaving the reader
- * to supply it.
+ * deliberately unanchored: it is built from per-book devigged fair values with
+ * no sharp preference applied, whatever the books happen to be. A gap against
+ * that consensus is a gap, not an edge, and his last clause says so rather
+ * than leaving the reader to supply it.
+ *
+ * **His wording is deliberately about anchoring inside THIS distribution, not
+ * about the books being soft**, and that distinction was nearly got wrong. An
+ * earlier draft of this comment said props carry no sharp book at all. On the
+ * live record they do — `pinnacle` is there, and it is in `SHARP_BOOKS`. The
+ * claim came from a probe that requested `regions: "us"` while the deployed
+ * system runs `us,eu`, and Pinnacle is EU-only. Willy's line does not depend
+ * on which books they are, which is why it needed no change.
  *
  * **`null` is not zero, in three separate places.** No distribution at all, a
  * distribution over too few books to be one, and a `percentile` that could not

@@ -1,5 +1,30 @@
 # Scoping probe — MLB player props vs a multi-book consensus
 
+> **CORRECTION, 2026-08-16. The "8 books, no Pinnacle, no Betfair" line below
+> is a fact about THIS PROBE'S REQUEST, not about the prop market.**
+>
+> `scripts/probe_prop_dispersion.py:149` sends **`"regions": "us"`**. Pinnacle
+> is served by The Odds API under **`eu` only**. The deployed instance runs
+> `ODDS_REGIONS=us,eu`, and `prop-bookmakers` on the live database returns
+> **ten** books including **`pinnacle`** — 406 prop quotes, 7 events, 3 market
+> keys on a single sweep.
+>
+> So *"the reference set is genuinely soft, which is the point of the
+> exercise"* describes the probe's own configuration. It was quoted into
+> `backend/runner.py` as a property of the deployed system, where it is false.
+> Both have been corrected.
+>
+> **What this correction does NOT do.** It does not establish that any prop row
+> is sharp-anchored. `consensus_devig` anchors only where the sharp book is in
+> `quotes_by_book` for that rung, and `prop_quotes_for_event` admits a book
+> only when it quotes both sides. Pinnacle's two-sidedness on prop rungs is
+> **unmeasured**; `prop-rungs` answers it.
+>
+> It also does not touch the probe's headline result. Every number in the table
+> below was computed from the books the probe actually pulled and is unchanged.
+> A *wider* book set is a reason to re-run, not a reason to restate — and
+> re-running is a new registration.
+
 **2026-08-14. EXPLORATORY. NOT PRE-REGISTERED. Not a finding, and nothing here
 may be cited as one.**
 

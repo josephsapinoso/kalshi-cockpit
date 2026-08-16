@@ -13,6 +13,45 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — A probe's request parameters are part of its finding, and they do not travel with the sentence
+
+A scoping probe reported *"8 books quote MLB props — DraftKings, FanDuel,
+BetMGM, ... **No Pinnacle, no Betfair.** The reference set is genuinely soft,
+which is the point of the exercise."* That sentence was quoted into
+`backend/runner.py` as **"none of them is Pinnacle or Betfair, so
+`anchored_on_sharp` is 0 on every row here by construction"** — a claim about
+the deployed system — and from there into a UI component and a handoff.
+
+The probe sent **`"regions": "us"`**. Pinnacle is served under **`eu` only**.
+The deployed instance runs `ODDS_REGIONS=us,eu` and its live database holds
+**406 Pinnacle prop quotes**. The finding was never wrong; it was never about
+the thing it got quoted as being about.
+
+**The pattern.** A measurement's *inputs* are as much a part of its claim as
+its outputs, and only the outputs survive being summarised. "No sharp book
+quotes props" and "no sharp book appeared in a us-only pull" are the same
+English sentence minus four words, and the four words are the entire content.
+The failure is not carelessness at the moment of quoting — the probe's own
+write-up did not restate its region parameter beside the conclusion, so the
+sentence was *already* separated from its scope at the source.
+
+The damage compounds in a specific direction: this one licensed a plan to
+**drop `eu` from the prop call to halve its cost**, which would have deleted
+the only sharp book on the entire prop record — the exact `ADR 0021 option B`
+substitution the handoff warned against, arrived at *because* of the safety
+argument rather than in spite of it.
+
+**What to do.** When a probe's configuration is narrower than production's on
+any axis — regions, market keys, date window, series, book set — **state the
+narrowing in the same sentence as the conclusion**, not in a methods section
+above it. And before quoting any measurement into production code, re-read the
+request it made, not the paragraph about what it found. The check is one grep
+and it is the cheapest step in the chain.
+
+**The corollary that closes the loop.** A claim of the form "X is absent" is
+only ever as strong as the query that looked for X. Absence is the one finding
+that a narrowed input reproduces perfectly and silently.
+
 ## 2026-08-16 — A ratio against a control assumes the control is one number
 
 A spread census divided every candidate series by a control: the median of the

@@ -774,11 +774,35 @@ def _price_prop_event(
     stated here because getting it backwards would produce entirely plausible
     probabilities for the opposite side.
 
-    **What this does not claim.** Eight books quote MLB props and none of them
-    is Pinnacle or Betfair, so `anchored_on_sharp` is 0 on every row here by
-    construction. A gap against a soft consensus is a gap, not an edge; only
-    CLV against Kalshi's own close can say which side was right, and that is
-    what recording these rows is for.
+    **What this does not claim.** A gap against a consensus is a gap, not an
+    edge; only CLV against Kalshi's own close can say which side was right, and
+    that is what recording these rows is for.
+
+    **CORRECTED 2026-08-16 — this docstring used to say "eight books quote MLB
+    props and none of them is Pinnacle or Betfair, so `anchored_on_sharp` is 0
+    on every row here by construction". That is false on the deployed system.**
+    `prop-bookmakers` on the live database returns **ten** books including
+    **`pinnacle`** -- 406 prop quotes, 7 events, 3 market keys on one sweep --
+    and `pinnacle` is in `SHARP_BOOKS`.
+
+    The original claim came from `scripts/probe_prop_dispersion.py`, which
+    requests **`"regions": "us"`** (line 149). Pinnacle is served by The Odds
+    API under **`eu` only**. So "no sharp book quotes props" was a true
+    statement about a us-only pull that was generalised into a claim about a
+    deployed system running `ODDS_REGIONS=us,eu`. The probe never asked the
+    question its finding was quoted as answering.
+
+    **What is still open, and it is not a hedge.** `consensus_devig` anchors on
+    a sharp book only where that book is in `quotes_by_book` for the rung, and
+    `prop_quotes_for_event` admits a book only when it quotes **both** sides.
+    Nothing yet establishes that Pinnacle is two-sided on any prop rung, so
+    `anchored_on_sharp` may still be 0 in practice. The `prop-rungs` query
+    answers it. **Do not write either "props are anchored" or "props are
+    unanchored" until it has been run.**
+
+    **The operational consequence is settled regardless.** Dropping `eu` from
+    the prop call to halve its cost -- the saving `tasks/NEXT.md` was chasing
+    -- would delete the only sharp book on the prop record. It is refused.
     """
     market_key = PROP_SERIES.get(event.series_ticker)
     if market_key is None:
