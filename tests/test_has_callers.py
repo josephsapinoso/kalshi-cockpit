@@ -1591,7 +1591,10 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
     # This list is hand-kept BY NECESSITY, so it is asserted by name and the
     # reason is written next to it. A derived guard here would be a guard that
     # cannot fail.
-    SSH_INVOKED_SCRIPTS = ("scripts/inspect_live_db.py",)
+    SSH_INVOKED_SCRIPTS = (
+        "scripts/inspect_live_db.py",
+        "scripts/inspect_live_disk.py",
+    )
 
     def test_every_script_the_ssh_ruling_invokes_survives_dockerignore(self):
         patterns = _dockerignore_patterns()

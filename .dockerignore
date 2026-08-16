@@ -78,6 +78,7 @@ scripts/*
 !scripts/run_loop.py
 !scripts/migrate_db.py
 !scripts/inspect_live_db.py
+!scripts/inspect_live_disk.py
 
 *.md
 !README.md
