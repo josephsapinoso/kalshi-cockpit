@@ -832,6 +832,17 @@ class Quarantined:
 # wired up or deleted tonight.
 DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Tools ---------------------------------------------------------------
+    "backend/analysis/signal_test.py": Tool(
+        run_by=("scripts/run_signal_test.py",),
+        purpose="The CLV pass-through coefficient `beta` and its cluster-robust "
+                "standard error, per the registration of 2026-08-09. Off the "
+                "deployed machine deliberately: the estimator carries the "
+                "registered decision rule, and a rule that runs automatically "
+                "on every pass is a rule that gets re-read thousands of times "
+                "-- which is what the always-valid multiplier inside it exists "
+                "to defend against. It is run once, by a human, at a look. "
+                "ADR 0034 binds the A-versus-F re-read to its verdict.",
+    ),
     "backend/main.py": Tool(
         run_by=("python -m backend.main --seed-demo",),
         purpose="Local dev server. Superseded on the instance by entrypoint.sh, "

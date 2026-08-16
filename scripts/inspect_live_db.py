@@ -389,6 +389,126 @@ _SQL_ACTIONABLE_FAIR = (
 
 
 # ---------------------------------------------------------------------------
+# The CLV signal test's registered extraction.
+# ---------------------------------------------------------------------------
+#
+# **This is §S1 of `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`,
+# as amended, and it is a transcription rather than a design.** Every clause
+# below is fixed in that file. Nothing here chooses a population, a horizon or
+# a cluster key; changing any of them is an amendment to the registration, made
+# in the registration, dated, before the next look.
+#
+# Four amendments are folded in and each is load-bearing:
+#
+# **§A1 — the delimited `instr` predicate.** `suppressed_reason` is a
+# comma-joined composite of *every* check that failed, so the registered
+# `NOT IN ('stale_odds', ...)` matched neither literal on
+# `'stale_odds,wide_market'` and **retained** the row it existed to drop.
+# `instr` and not `LIKE`, because SQLite's `LIKE` treats `_` as a
+# single-character wildcard and every code in this vocabulary contains one --
+# `,staleXodds,` would match. The wrapping commas are required in both
+# directions: without them a future `stale_odds_upstream` is silently excluded.
+#
+# **§A2 — only four codes are excluded**, not "the suppressed ones":
+# `stale_odds`, `stale_kalshi_quote`, `no_commence_time`, `commence_skew`.
+# Every other code is RETAINED, including `too_few_books`, `wide_market`,
+# `edge_within_method_noise` and the `skeptic_*` family. Dropping the rows where
+# the edge estimate is least reliable is a hypothesis about the answer, and
+# `edge_within_method_noise` in particular removes a price-dependent interval
+# from the *interior* of the regressor, which moves leverage to the tails in the
+# flattering direction.
+#
+# **§A2.2 — the price bound `BETWEEN 10 AND 989`.** Without it a row outside
+# Grid A/B's range enters the pooled `beta` and appears in no bucket, so the
+# pooled number and the per-group view are computed on different populations,
+# silently.
+#
+# **§F3 — horizon 0.0 only.** ADR 0011 left two horizons in the record and
+# blending them averages two regimes.
+#
+# **The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
+# gate's key.** ADR 0029 clusters on `odds_event_id` so a prop ladder collapses
+# onto its game; this registration predates that and clusters on the Kalshi
+# event. On the current record the two give **210 and 125** -- a 68% difference
+# -- so a `G` quoted without its key is meaningless. The registered one governs
+# here because it is what the power check was computed against.
+#
+# **`half_spread_tenths` is the C2 confound, not a nicety.** `edge` and `clv`
+# are both measured against the ask, so the half-spread enters both and induces
+# a slope with no signal present. It is a *control*, and the mid is used only to
+# recover it -- never as an entry price. Rows where it is NULL are dropped by
+# the harness and counted, never imputed: that count is P1's numerator, and P1
+# refuses the primary analysis below 0.90 coverage.
+_SQL_CLV_SIGNAL_PULL = (
+    "SELECT COALESCE(m.event_ticker, r.ticker) AS cluster_key, "
+    "r.id, r.ticker, r.side, r.created_ms, m.market_type, "
+    "r.entry_ask_tenths, r.edge_tenths, r.clv_tenths, "
+    "r.suppressed_reason, r.reference_contracts, r.strategy_config_version, "
+    "q.yes_bid_tenths, q.no_bid_tenths, q.observed_ms AS quote_observed_ms, "
+    "((1000 - q.no_bid_tenths) - q.yes_bid_tenths) / 2.0 AS half_spread_tenths, "
+    "(m.event_ticker IS NULL) AS unclustered "
+    "FROM recommendations r "
+    "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "LEFT JOIN kalshi_quotes q ON q.id = ("
+    "  SELECT q2.id FROM kalshi_quotes q2 "
+    "  WHERE q2.ticker = r.ticker AND q2.observed_ms <= r.created_ms "
+    "    AND q2.yes_bid_tenths IS NOT NULL AND q2.no_bid_tenths IS NOT NULL "
+    "  ORDER BY q2.observed_ms DESC LIMIT 1) "
+    "WHERE r.clv_scored_ms IS NOT NULL "
+    "  AND r.clv_tenths IS NOT NULL "
+    "  AND r.clv_horizon_hours = 0.0 "
+    "  AND r.entry_ask_tenths BETWEEN 10 AND 989 "
+    "  AND (r.suppressed_reason IS NULL "
+    "       OR (instr(',' || r.suppressed_reason || ',', ',stale_odds,') = 0 "
+    "       AND instr(',' || r.suppressed_reason || ',', ',stale_kalshi_quote,') = 0 "
+    "       AND instr(',' || r.suppressed_reason || ',', ',no_commence_time,') = 0 "
+    "       AND instr(',' || r.suppressed_reason || ',', ',commence_skew,') = 0)) "
+    "ORDER BY r.id"
+)
+
+
+def _q_clv_signal_pull(conn: sqlite3.Connection, args) -> list[Section]:
+    """The registered §2 population for the CLV signal test, one row each.
+
+    Emits rows and **no statistic**. `beta`, its cluster-robust standard error,
+    the always-valid boundary and the verdict are computed in
+    `scripts/run_signal_test.py`, against the rule registered in
+    `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`. That
+    split is not ceremony: the registration's decision rule has four branches
+    and an amendment history, and SQL is the wrong place to encode any of it.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing on its own.** It is the input to a pre-registered test.
+    - **A NULL `half_spread_tenths` is a missing quote, not a zero spread.**
+      The harness drops and counts those rows; P1 refuses the analysis below
+      0.90 coverage. Reading NULL as 0 would delete the C2 confound by
+      arithmetic.
+    - **The joined quote is the last one at or before `created_ms`**, which is
+      not necessarily the quote the recommendation was priced from. §A8.2
+      requires the rows whose quote *disagrees* with `entry_ask_tenths` to be
+      counted separately from the rows with no quote at all; this query emits
+      `yes_bid_tenths`/`no_bid_tenths` so the harness can do that, and does not
+      do it here.
+    - **`strategy_config_version` is emitted, not filtered.** §7's modal-version
+      rule is the harness's to apply, and the record carries several versions.
+    """
+    return [
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_CLV_SIGNAL_PULL,
+                (),
+                title="registered §2 population, horizon 0.0 (rows only, no statistic)",
+                cap=args.limit,
+            ),
+            "created_ms",
+            "created_iso",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Where the bytes went.
 # ---------------------------------------------------------------------------
 #
@@ -1701,6 +1821,15 @@ QUERIES: dict[str, QueryDef] = {
         "readings, book_count, anchored_on_sharp, market_width). Prints rows "
         "and no verdict. Answers: did these clear a real bar, or land in a gap?",
         _q_actionable_audit,
+    ),
+    "clv-signal-pull": QueryDef(
+        "The CLV signal test's registered §2 population (horizon 0.0), one row "
+        "per recommendation with its half-spread control joined from "
+        "kalshi_quotes. A transcription of §S1 as amended by §A1/§A2/§A2.2 -- "
+        "four suppression codes excluded by delimited instr, price bounded to "
+        "[10,989], cluster key COALESCE(event_ticker, ticker). Emits rows and "
+        "NO statistic; scripts/run_signal_test.py computes beta.",
+        _q_clv_signal_pull,
     ),
     "db-sizes": QueryDef(
         "Where the bytes went: file-level page counts with the amount a VACUUM "
