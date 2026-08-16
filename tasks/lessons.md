@@ -13,6 +13,55 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — "X requires Y" is a necessary condition, and meeting it does not elect X
+
+ADR 0023 deferred a decision and wrote the revival test as *"F's liveness
+requires **both**: (i) … and (ii) …"*. Round three met both. I wrote an ADR
+saying the registered rule therefore **elected** F, and that "A is not taken
+because the rule says so".
+
+The rule said no such thing. "Requires both" is necessary, not sufficient —
+failing either kills F; meeting both makes F *admissible*. And the same ADR
+carried a committed annotation reading *"every branch of the trigger points at
+A, differing only in confidence"* — the only ranking in the document, pointing
+the other way, and my draft never cited it.
+
+**A precondition that is satisfied feels like a verdict, and it is not.** When a
+deferral's trigger fires, the honest sentence is "the call may now be made",
+followed by an argument. If the decision goes against the document's own
+ranking, say so in the first line and carry the burden — do not launder a
+choice as a rule.
+
+Related failure in the same draft: quoting the half of an observation that
+supports the case. `W` refuted `H-NOTIONAL` (helps F) **and** showed WNBA at the
+un-halved coefficient (hurts F). One observation, two implications, and only one
+of them made it in.
+
+---
+
+## 2026-08-16 — A stopping rule may only be amended in the file that registered it
+
+The same draft ADR invented three rules — stop at `beta <= 0`, at `G = 186`,
+against a threshold of `0.64`. Every one conflicted with the pre-registration it
+claimed to be implementing: that file forbids declaring SIGNAL or NO SIGNAL
+below `G = 300`, fixes the threshold at `0.40` and marks it as standing, and
+requires the decision be an always-valid boundary rather than a point estimate
+against zero.
+
+It also says, in terms: *"An amendment made after a look and not recorded voids
+the registration."* The draft reported slopes computed off the record and **then**
+changed the rule, in a different file.
+
+**An ADR is the wrong instrument for changing a measurement rule.** Amendments
+go into the registration, dated, with a reason, **before** the next look. An ADR
+may decide what work happens; it may not quietly redefine the test that work
+will be judged by — and a new threshold that appears in no registration is an
+invented one however principled it feels.
+
+Corollary on sourcing: `0.64` was justified as `6.3 / 9.81`. The numerator was
+real; the denominator appears nowhere in the repo and did not reproduce on the
+record. **A ratio is not sourced because one of its halves is.**
+
 ## 2026-08-16 — A negative claim inherits its instrument's WHERE clause
 
 `actionable` had been reported as 0 "for the life of the record" in three ADRs
@@ -69,13 +118,15 @@ anyway by editing `docker/entrypoint.sh` with a direct file write during an
 incident: git kept storing LF, `git status` was clean, and the *working tree*
 carried CRLF — which is what `fly deploy` sends as the build context.
 
-Result: `env: 'bash': No such file or directory`, exit 127, during an outage,
+Result: `env: 'bash
+': No such file or directory`, exit 127, during an outage,
 on the fix for the outage.
 
 **`.gitattributes` normalises what git stores, not what is on disk.** Anything
 that ships from the working tree — Docker build context, a mounted volume, a
 tarball — sees the bytes you actually wrote. After any scripted edit to a file
-an interpreter reads by its first line, check the bytes (`read_bytes().count(b"
+an interpreter reads by its first line, check the bytes (`read_bytes().count(b"
+
 ")`)
 rather than trusting `git status`, which compares against the normalised blob
 and reports clean.
