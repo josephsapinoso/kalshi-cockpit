@@ -88,6 +88,46 @@ is unbounded work with no retirement rule, and the oldest is
 `KXMLBGAME` from **2026-08-07**, nine days stale. Worth a look once the
 actionable audit is done.
 
+### The day's bill, measured — and it corrects a number written today
+
+`credits-day --date 20260816`: **338 credits, 26 calls.**
+
+```
+17:06:36Z  1 team sweep + 13 prop events   6 + 260 = 266   <- one cluster OPENING
+17:16Z -> 19:19Z   12 team-only refreshes       12 x 6 =  72
+                                                         --- 338
+```
+
+- **266 is confirmed exactly.** `6 + 20x13`, on a real cluster, reconciled
+  against the provider's own `used_reported`.
+- **The refresh tail is 72, not the 36 this repo predicted today.** `fly.live.toml`
+  is corrected. The estimate priced one 60-minute window; the measured tail ran
+  **123 minutes**, because `DUE_WINDOW_MS` bounds a *slot* and on a rolling
+  slate the next cluster's slot is due before the previous one's closes. The
+  refresh runs for as long as **some** slot is due — ~36 credits an hour, most
+  of the night. With props off, that is now the whole bill.
+- **Only ONE cluster opened all day, at 17:06:36Z — before the prop switch
+  deployed at 19:02Z.** So ADR 0032 still has not been exercised on an opening
+  call, and the 260-credit saving remains unproven. `--date 20260817` is the
+  clean read.
+
+### ⚠ A timing fact that bears directly on the actionable audit
+
+The 13 prop events bought at **17:06:36Z** include
+`3da21002f25375898c7d03328e5a64b2` and `3a2403381633c75a1079d5ba12656cac` —
+**the exact two games carrying the three actionable rows.**
+
+ADR 0030 (the staleness fix) went live at **17:32Z**, twenty-six minutes later.
+Props were never refreshed after 17:06 — only team lines were — so a prop row
+priced after roughly 17:21Z would carry `stale_odds`. That constrains the
+actionable **prop** row to a window that closed *before* the staleness fix
+existed.
+
+**If that holds, the staleness fix did not create these rows**, and both
+explanations offered above are wrong. **Do not write that down yet** — it is an
+inference from a credit log, and the evidence is `recommendations.created_ms` on
+the three rows. Read it, then decide.
+
 ### Still owed
 
 - **The prop-rungs dump — still a ONE-SHOT, still not taken.** Props stopped

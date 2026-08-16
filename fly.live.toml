@@ -129,10 +129,32 @@ primary_region = "ord"
   #     /sports/baseball_mlb/events/<13 fixtures>  13 calls  260 credits
   #                                                          266 total
   #
-  # The rolling refresh (`docs/adr/0030`) adds 6 credits per 10 minutes for the
-  # hour it holds the window open -- **+36, taking a cluster to ~302**. That is
-  # a 13% increase on a bill that is 86% props. **Props are the binding
-  # constraint, not the refresh**, and they were before this change too.
+  # The rolling refresh (`docs/adr/0030`) adds 6 credits per 10 minutes.
+  #
+  # **The +36 figure that stood here was 2x low, and the error is instructive.**
+  # It priced ONE 60-minute window: 6 calls x 6 credits. Measured on this
+  # instance for the 2026-08-16 budget day, the tail was **12 calls / 72
+  # credits**, running 17:16Z to 19:19Z -- **123 minutes**, not 60.
+  #
+  # The reason is that `DUE_WINDOW_MS` bounds a *slot*, not the evening. On a
+  # rolling slate the next cluster's slot is already due before the previous
+  # one's closes (19:11Z and 19:41Z kickoffs both had windows open this
+  # evening), so the refresh runs continuously for as long as *some* slot is
+  # due. On a full slate that is most of the night: **~36 credits an hour, for
+  # as long as games keep starting.**
+  #
+  # So the measured day was **338 = 266 opening + 72 refresh**, one cluster.
+  # Budget accordingly: a five-hour evening of refresh alone is ~180 credits
+  # before a single opening call.
+  #
+  # This is the same shape as the note four paragraphs down -- a cost model that
+  # prices one call but not the call it triggers. Here it priced one window but
+  # not the window that opens behind it.
+  #
+  # Props were still the larger line item on that day (260 of 338, 77%), and
+  # they are now off by default -- see ODDS_BUY_PROPS_ON_SCHEDULE below. With
+  # them off, **the refresh becomes the whole bill**, so this number stops being
+  # a footnote and starts being the budget.
   #
   # At 600 that is 2 clusters a day. It was also 2 at the old one-buy-per-cluster
   # cost; what bought the second one is raising this from 400, not the refresh.
