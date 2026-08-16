@@ -253,3 +253,117 @@ harness that mirrors the guard and not in the guard. A defect recorded next to
 the code is not recorded in it.
 
 The lesson is in `tasks/lessons.md`.
+
+---
+
+## ADDENDUM 2026-08-16T04:33:53Z — the first live read, and why no ratio is written here yet
+
+§4 forbade writing a number for the live inflation until `clv-coverage` ran. It
+has run once, against `kalshi-cockpit` immediately after deploy `31926838742`
+(`instance_mode: live` read back from `/api/health`, not from the workflow's
+exit status). **The result is recorded; the conclusion is not, and the reason is
+in §A3.**
+
+### A1. What the run says
+
+Section D, restricted to the **5,670 rows scored at horizon 0.0**:
+
+```
+population  rows_counted  clusters_now  clusters_by_game  orphan_rows  unlinked_rows
+suppressed  3642          135           106               0            0
+no_edge     2028          118           104               0            0
+pooled      5670          143           113               0            0
+```
+
+`clusters_now` is the retired key, verified against `git show 81408fe^` as a
+faithful reconstruction; `clusters_by_game` is the current one. **143 against
+113 on the same rows.**
+
+Three secondary results, all clean:
+
+- **Props score.** 1,533 of 1,533 prop rows scored, 0 pending, no prop series in
+  the re-request set, `closing_lines` present at both horizons with
+  `one_side_null` 0. **Kalshi serves candlesticks for prop series** — which
+  refutes the working hypothesis that props might be unscorable and burning
+  requests forever.
+- **Section E: 0 rows.** No Kalshi event is linked to two sportsbook fixtures.
+- **`actionable` is empty, not hidden.** `3642 + 2028 = 5670`, and pooled is
+  computed by a *separate* query carrying no population predicate — so the two
+  present groups exhaust the pooled rows and `actionable` has exactly zero. This
+  is the strong form; "no actionable row appeared" would not have been, because
+  `GROUP BY` omits empty groups rather than printing a zero.
+
+### A2. What it settles
+
+**The prediction that the live effect was "plausibly zero" is refuted.** The two
+keys disagree on the same rows, so the defect was live rather than latent.
+
+**And §5's split holds.** The 300-game floor reads `groups["actionable"]`, which
+is empty, so the floor was **not** inflated — it read 0 before and reads 0 now.
+The consequence was on a *display*: the pooled count is served as `clv_scored`
+beside `clv_required` on the API and in the Discord digest, so a phone screen
+read 143 of 300 where the per-game count is 113 of 300. **A progress number, not
+a money-arming input.**
+
+### A3. Why "1.27×" is NOT written down as a finding
+
+The 30 is **arithmetically consistent but causally unattributed**, and one of
+the live explanations would mean the fix is wrong.
+
+Inclusion–exclusion closes exactly — `143 = 135 + 118 − 110`, `113 = 106 + 104 −
+97`, drops `30 = 29 + 14 − 13` — so the populations overlapping on games is not
+an error. **But 14 of the collapse sits in `no_edge`, and under this ADR's own
+§5 premise `no_edge` contains no prop rows at all.** Spread and total rows
+cannot exist (§5), and `unlinked_rows = 0` everywhere confirms nothing fell to a
+lower tier. So the prop-ladder mechanism this ADR describes **does not explain
+14 of the 30**. Exactly one of these is true and the run cannot say which:
+
+1. the §5 premise is stale — props are no longer all `stale_odds`-suppressed, in
+   which case props have moved one step closer to `actionable` and that is its
+   own finding; or
+2. fourteen games carry two Kalshi events *of the same series* on one fixture —
+   a relist or retime (a correct collapse this ADR does not describe), **or a
+   mislink that merged two genuinely different games**, which is an
+   **over**-collapse and a defect in the new key.
+
+**Section E cannot see case 2.** It checks one event fanning out to two
+fixtures, the permissive direction. The conservative direction — two events
+collapsing onto one fixture — is exactly what the fix relies on and exactly what
+a mislink looks like.
+
+Sections **F** (the split by market type), **G** (every multi-event game, with a
+`same_series_extra` discriminator and the event tickers) and **H** (scored rows
+by horizon) were added to separate them, with `test_section_g_flags_two_events_of
+_one_series_on_one_fixture` pinning the discriminator. **They require a deploy
+and have not run.**
+
+Until they do, the supported sentence is: **"30 clusters collapsed on the
+horizon-0.0 record at 04:33Z; 16 are consistent with prop ladders and 14 are
+unattributed."** Not "30 phantom games".
+
+### A4. Three further fences on the run itself
+
+- **Tense.** 143 is not a number the gate ever printed. It is what the retired
+  key yields *on today's record* — a counterfactual on a fixed snapshot.
+- **Scope.** Section D is horizon-0.0 only. Section A's scored rows total 6,239,
+  so **569 scored rows sit outside it** (legacy 1.0h tags from the v5 migration,
+  which will never be re-scored at 0.0 and never count toward the gate). Every
+  number above describes ~91% of the scored record, not "the record".
+- **`unclustered_rows = 0` is not evidence**, for the reason already given in
+  §6: an unlinked event produces no rows at all, so the counter reads 0 by the
+  shape of the pipeline rather than by verification.
+
+### A5. The retry set, corrected
+
+Section B at 04:33Z: 54 tickers pending, **22 `started`** — 44 candlestick
+requests per full pass, moneyline only, no prop series. The mechanism (no retry
+cap, no age cutoff) is confirmed, but three things were nearly overclaimed:
+
+- Section B prints only `MIN(commence_ms)`, so *"stuck since 2026-08-07"* is
+  true of **at least one** ticker, not of 22.
+- **04:33Z is mid-slate and biases `started` upward**, counting games that began
+  minutes ago and will score next pass. A pre-slate read isolates the genuinely
+  unscoreable set; this one does not.
+- 44 is a floor, not a steady state: rows that hit `skipped_entry_after_close`
+  never score and join the permanent set, so the bill grows until something
+  retires it.

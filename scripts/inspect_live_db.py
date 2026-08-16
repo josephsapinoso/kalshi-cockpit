@@ -77,10 +77,22 @@ What this does not establish
   to `docs/measurements/2026-08-10-clean-shortfall-pull.json`. Rows created
   after that pin exist and are deliberately excluded; the counts here are not
   "how many games there are".
-- **It is not a measurement harness.** It prints no aggregates that a finding
-  should be built on without re-deriving them: no rates, no per-bucket splits,
-  no significance. `SUM(cost)` and `MIN`/`MAX` are the only arithmetic, and
-  they exist to bound a search, not to support a conclusion.
+- **It is not a measurement harness**, with one stated exemption below. It
+  prints no aggregates that a finding should be built on without re-deriving
+  them: no rates, no per-bucket splits, no significance. `SUM(cost)` and
+  `MIN`/`MAX` are otherwise the only arithmetic, and they exist to bound a
+  search, not to support a conclusion.
+- **The exemption: `clv-coverage` sections D and F are a census, not an
+  estimate.** They are per-bucket splits, and the rule above would forbid them.
+  They are allowed because `clusters_now` and `clusters_by_game` are exhaustive
+  `COUNT(DISTINCT ...)` over a fixed snapshot under two keys -- there is no
+  population being sampled, no null, and no standard error, so none of the
+  failures the rule protects against are reachable. **A ratio of the two is
+  still a derived quantity and is not printed here**; if one is written down it
+  must carry the snapshot instant, the horizon, and the attribution from
+  section G. `prop-rungs` handles the same tension the other way, by deferring
+  every derived quantity to `scripts/analyze_prop_onesided.py`, and that
+  remains the default for anything with a decision rule attached.
 """
 
 from __future__ import annotations
@@ -499,6 +511,81 @@ _SQL_CLV_CLUSTERS_POOLED = (
 # The direction of that failure is **permissive** -- the same direction as the
 # defect ADR 0029 fixed -- so it is worth a standing check rather than a
 # one-off. Zero rows here is the expected and correct answer.
+_SQL_CLV_CLUSTERS_BY_TYPE = (
+    "SELECT CASE "
+    "    WHEN r.suppressed_reason IS NOT NULL THEN 'suppressed' "
+    "    WHEN r.reference_contracts > 0 THEN 'actionable' "
+    "    ELSE 'no_edge' END AS population, "
+    "  COALESCE(m.market_type, '(no market row)') AS market_type, "
+    + _CLV_CLUSTER_SELECT
+    + "GROUP BY population, market_type "
+    "ORDER BY population, rows_counted DESC"
+)
+
+# Section G -- WHICH clusters collapsed, and whether each collapse is the one
+# ADR 0029 describes.
+#
+# **This is the section that can refute the fix rather than confirm it.** A
+# collapse is *correct* when the extra Kalshi events are different series on one
+# game -- a prop ladder, or a spread/total -- because those genuinely resolve
+# from one final score. A collapse is *suspect* when two events of the **same
+# series** land on one sportsbook fixture, because `KXMLBGAME-A` and
+# `KXMLBGAME-B` are normally two different ball games. That shape is either a
+# relisted/retimed game (a correct collapse this ADR does not describe) or a
+# **mislink that merged two real games** (an over-collapse, i.e. a defect in the
+# new key, in the conservative direction).
+#
+# `same_series_extra` is the discriminator: `COUNT(DISTINCT event_ticker) -
+# COUNT(DISTINCT series_ticker)`. Zero means every extra event came from a
+# different series and the collapse is the documented one. Anything above zero
+# needs a human to read `event_list`.
+#
+# Section E cannot see this. It checks one Kalshi event fanning out to two
+# fixtures -- the *permissive* direction. This checks the conservative one,
+# which is the direction the fix itself could be wrong in.
+_SQL_CLV_COLLAPSES = (
+    "WITH scored AS ("
+    "  SELECT COALESCE('game:' || l.odds_event_id, "
+    "                  'event:' || m.event_ticker, "
+    "                  'ticker:' || r.ticker) AS game_key, "
+    "         m.event_ticker AS event_ticker, "
+    "         m.series_ticker AS series_ticker, "
+    "         CASE WHEN r.suppressed_reason IS NOT NULL THEN 'suppressed' "
+    "              WHEN r.reference_contracts > 0 THEN 'actionable' "
+    "              ELSE 'no_edge' END AS population "
+    "  FROM recommendations r "
+    "  LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "  LEFT JOIN event_links l ON l.id = r.link_id "
+    "  WHERE r.clv_scored_ms IS NOT NULL AND r.clv_tenths IS NOT NULL "
+    "    AND r.clv_horizon_hours = :horizon"
+    ") "
+    "SELECT game_key, "
+    "  COUNT(DISTINCT event_ticker) AS kalshi_events, "
+    "  COUNT(DISTINCT series_ticker) AS distinct_series, "
+    "  COUNT(DISTINCT event_ticker) - COUNT(DISTINCT series_ticker) "
+    "    AS same_series_extra, "
+    "  SUM(CASE WHEN population = 'suppressed' THEN 1 ELSE 0 END) AS suppressed_rows, "
+    "  SUM(CASE WHEN population = 'no_edge' THEN 1 ELSE 0 END) AS no_edge_rows, "
+    "  SUM(CASE WHEN population = 'actionable' THEN 1 ELSE 0 END) AS actionable_rows, "
+    "  GROUP_CONCAT(DISTINCT event_ticker) AS event_list "
+    "FROM scored GROUP BY game_key HAVING kalshi_events > 1 "
+    "ORDER BY same_series_extra DESC, kalshi_events DESC, game_key"
+)
+
+# Section H -- the rows section D does NOT count, so 5,670 is not read as "the
+# record". `clustered_clv` filters `clv_horizon_hours = :horizon`, and the v5
+# migration left legacy rows tagged 1.0h that will never be re-scored at 0.0
+# and never count toward the gate. Printing the split stops a future reader
+# reconciling section A's totals against section D's and finding a silent gap.
+_SQL_CLV_SCORED_BY_HORIZON = (
+    "SELECT COALESCE(r.clv_horizon_hours, -1.0) AS clv_horizon_hours, "
+    "  COUNT(*) AS scored_rows, "
+    "  SUM(CASE WHEN r.clv_tenths IS NULL THEN 1 ELSE 0 END) AS clv_tenths_null, "
+    "  COUNT(DISTINCT r.ticker) AS distinct_tickers "
+    "FROM recommendations r WHERE r.clv_scored_ms IS NOT NULL "
+    "GROUP BY clv_horizon_hours ORDER BY clv_horizon_hours"
+)
+
 _SQL_CLV_LINK_FANOUT = (
     "SELECT kalshi_event_ticker, "
     "  COUNT(DISTINCT odds_event_id) AS distinct_odds_event_ids, "
@@ -926,7 +1013,7 @@ def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     horizon = {"horizon": _CLV_GATE_HORIZON_HOURS}
 
-    by_type = _fetch(
+    rows_by_type = _fetch(
         conn,
         _SQL_CLV_ROWS_BY_TYPE,
         (),
@@ -986,6 +1073,38 @@ def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
         ),
         cap=args.limit,
     )
+    by_type = _fetch(
+        conn,
+        _SQL_CLV_CLUSTERS_BY_TYPE,
+        dict(horizon),
+        title=(
+            "F. the same split, by market type -- which market types actually "
+            "carry the gap between clusters_now and clusters_by_game"
+        ),
+        cap=args.limit,
+    )
+    collapses = _fetch(
+        conn,
+        _SQL_CLV_COLLAPSES,
+        dict(horizon),
+        title=(
+            "G. every game whose rows span more than one Kalshi event. "
+            "same_series_extra = 0 is the collapse ADR 0029 describes; ANY "
+            "NON-ZERO needs reading -- it is two events of one series on one "
+            "fixture, i.e. a relist or a MERGE OF TWO REAL GAMES"
+        ),
+        cap=args.limit,
+    )
+    horizons = _fetch(
+        conn,
+        _SQL_CLV_SCORED_BY_HORIZON,
+        (),
+        title=(
+            "H. scored rows by horizon. Only the section D horizon is counted "
+            "by the gate; the rest are legacy tags that never will be"
+        ),
+        cap=args.limit,
+    )
     fanout = _derive_iso(
         _fetch(
             conn,
@@ -1001,7 +1120,17 @@ def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
         "first_linked_ms",
         "first_linked_iso",
     )
-    return [by_type, pending, lines, by_population, pooled, fanout]
+    return [
+        rows_by_type,
+        pending,
+        lines,
+        by_population,
+        pooled,
+        by_type,
+        collapses,
+        horizons,
+        fanout,
+    ]
 
 
 def _q_prop_rungs(conn: sqlite3.Connection, args) -> list[Section]:

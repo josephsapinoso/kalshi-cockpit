@@ -1843,3 +1843,106 @@ class TestClvCoverageCanDetectTheClusterInflationItExistsToMeasure:
         row = _clv_section_d(path)
         assert row["rows_counted"] == 1, "still counted"
         assert row["unlinked_rows"] == 1, "and flagged as unlinked"
+
+
+class TestSectionDReproducesTheGateRatherThanResemblingIt:
+    """`clusters_by_game` must equal what the gate itself computes.
+
+    Section D is the instrument ADR 0029 §4 names as the only thing licensed to
+    quantify the live effect. Until this test existed, its fidelity to
+    `gate.clustered_clv` rested on someone reading two SQL strings side by side
+    and agreeing they matched -- including a horizon constant that is
+    **restated** here (`_CLV_GATE_HORIZON_HOURS`) rather than imported from
+    `analysis.clv`. A restated constant is a guard only if something compares
+    the two.
+
+    Mutation: drop the `'event:'` tier from `_CLV_CLUSTER_SELECT`, or change
+    `_CLV_GATE_HORIZON_HOURS`.
+    """
+
+    def _both(self, path):
+        from backend import gate
+
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            sections = QUERIES["clv-coverage"].run(
+                conn, argparse.Namespace(limit=DEFAULT_ROW_CAP)
+            )
+            pooled = next(s for s in sections if s.title.startswith("D. pooled"))
+            row = dict(zip(pooled.columns, pooled.rows[0]))
+            return row, gate.clustered_clv(conn)
+        finally:
+            conn.close()
+
+    def test_the_pooled_cluster_count_equals_the_gates_own(self, tmp_path):
+        path = _clv_db(
+            tmp_path,
+            [
+                ("KXMLBGAME", "KXMLBGAME-COLSTL", "ODDS-COLSTL", "moneyline"),
+                ("KXMLBKS", "KXMLBKS-COLSTL", "ODDS-COLSTL", "prop"),
+                ("KXMLBGAME", "KXMLBGAME-NYYBOS", "ODDS-NYYBOS", "moneyline"),
+            ],
+        )
+        row, stats = self._both(path)
+        assert row["clusters_by_game"] == stats.n_clusters == 2
+        assert row["rows_counted"] == stats.n_rows == 3
+
+    def test_it_still_matches_when_rows_fall_to_the_event_tier(self, tmp_path):
+        """The tier most likely to drift, because only the gate has three.
+
+        An unlinked row with a live `event_ticker` groups under `event:` in the
+        gate. A diagnostic that skipped that tier would split those rows by
+        market ticker and report MORE clusters than the gate has -- reading as
+        though the record were more inflated than it is.
+        """
+        path = _clv_db(
+            tmp_path,
+            [
+                ("KXMLBGAME", "KXMLBGAME-Z", "ODDS-Z", "moneyline"),
+                ("KXMLBGAME", "KXMLBGAME-Z", "ODDS-Z", "moneyline"),
+            ],
+        )
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE recommendations SET link_id = NULL")
+        conn.commit()
+        conn.close()
+
+        row, stats = self._both(path)
+        assert row["clusters_by_game"] == stats.n_clusters == 1
+        assert row["unlinked_rows"] == stats.unclustered_rows == 2
+
+    def test_section_g_flags_two_events_of_one_series_on_one_fixture(self, tmp_path):
+        """The shape that would mean the fix merged two real games.
+
+        `same_series_extra` must be 0 for a prop ladder and non-zero for two
+        `KXMLBGAME` events sharing a fixture. Without this the instrument
+        cannot tell a correct collapse from an over-collapse, which is the one
+        direction section E does not check.
+        """
+        path = _clv_db(
+            tmp_path,
+            [
+                ("KXMLBGAME", "KXMLBGAME-A", "ODDS-A", "moneyline"),
+                ("KXMLBKS", "KXMLBKS-A", "ODDS-A", "prop"),
+                ("KXMLBGAME", "KXMLBGAME-B1", "ODDS-B", "moneyline"),
+                ("KXMLBGAME", "KXMLBGAME-B2", "ODDS-B", "moneyline"),
+            ],
+        )
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        try:
+            sections = QUERIES["clv-coverage"].run(
+                conn, argparse.Namespace(limit=DEFAULT_ROW_CAP)
+            )
+        finally:
+            conn.close()
+        section = next(s for s in sections if s.title.startswith("G."))
+        by_key = {
+            dict(zip(section.columns, r))["game_key"]: dict(zip(section.columns, r))
+            for r in section.rows
+        }
+        assert by_key["game:ODDS-A"]["same_series_extra"] == 0, "a prop ladder is fine"
+        assert by_key["game:ODDS-B"]["same_series_extra"] == 1, (
+            "two KXMLBGAME events on one fixture must be flagged"
+        )
