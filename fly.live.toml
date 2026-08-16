@@ -66,14 +66,6 @@ primary_region = "ord"
   dockerfile = "Dockerfile"
 
 [env]
-  # TEMPORARY -- 2026-08-16 incident. The volume filled and the boot dies in
-  # `migrate_db.py` one second in, so ssh has no window and the committed disk
-  # inspector cannot be reached. This holds the container before any write so
-  # the volume can be read. It starts nothing and records nothing: while this
-  # line is present the instance is DOWN by choice, not by failure.
-  # REMOVE IT and redeploy once the volume has room.
-  MAINTENANCE_HOLD = "1"
-
   INSTANCE_MODE = "live"
   DB_PATH = "/data/cockpit.db"
   PORT = "3000"
@@ -329,6 +321,33 @@ primary_region = "ord"
 [mounts]
   source = "cockpit_data"
   destination = "/data"
+
+  # Auto-extend, added during the 2026-08-16 volume-full incident.
+  #
+  # The volume was created at 1GB and the record grows monotonically, so this
+  # was always going to happen -- the only question was when, and the answer
+  # turned out to be mid-slate with no warning. `cockpit.db` reached 879 MiB of
+  # a 974 MiB volume, `freelist_count` was 0 (so a VACUUM would reclaim
+  # nothing), the migration died on its first write, and the machine crash
+  # looped until Fly hit its restart cap.
+  #
+  # **Extending is the non-destructive fix and that is why it is first.** The
+  # alternative -- deleting rows to make room -- is irreversible, and two thirds
+  # of the file is `kalshi_quotes`, which IS the record. Buying disk costs about
+  # 15 cents per GB per month. Deleting the wrong rows costs the measurement.
+  #
+  # The threshold is 80% rather than 90% because SQLite needs headroom it does
+  # not appear to be using: a write extends the WAL first, and `VACUUM` needs
+  # roughly the whole file free on the same filesystem. A volume that only
+  # extends at 90% can still be unable to run the repair.
+  #
+  # The limit is a real ceiling, not a formality. If this reaches 5GB then
+  # something is growing that should have a retention rule -- see
+  # `unmatched_events` below -- and the right response is to find it, not to
+  # raise the number.
+  auto_extend_size_threshold = 80
+  auto_extend_size_increment = "1GB"
+  auto_extend_size_limit = "5GB"
 
 [http_service]
   internal_port = 3000
