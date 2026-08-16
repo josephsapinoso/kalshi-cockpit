@@ -13,6 +13,71 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — A ratio against a control assumes the control is one number
+
+A spread census divided every candidate series by a control: the median of the
+per-series median half-spreads of the sports markets this project already
+prices. The construction was chosen deliberately and written into the
+pre-registration, on the argument that a ratio *cancels* a venue-wide effect —
+a spread that is wide because Kalshi is wide cancels, leaving only what is
+specific to the candidate.
+
+The control was **10.0 tenths, and 9 of its 19 contributing series were MLB.**
+Per league it ran 5.0 (baseball), 12.5 (WNBA), 55.0 (NFL), 175.0 (NCAAF) — a
+**35× spread**. Dropping one league moved it to 35.0 and flipped several hundred
+verdicts. Nothing cancels against a reference with that much internal
+dispersion; every candidate was being divided by one arbitrary point of it, and
+which point depended on what was in season.
+
+**The pattern:** a ratio is only a normalisation if the denominator is a
+*property* rather than a *sample*. The moment the denominator is itself an
+aggregate over a heterogeneous population, the ratio inherits every bit of that
+heterogeneity and hides it inside a single tidy number — more completely than a
+raw figure would, because a ratio *looks* like it has already been controlled
+for. The result document reported the control's range honestly in one paragraph
+and then reasoned as if the range did not exist, which is the readable form of
+the same mistake.
+
+**What to do.** Before dividing by a control, report its **dispersion and its
+composition**, not just its central value — and jackknife it by whatever natural
+groups it contains. If one group's removal moves it materially, the ratio cannot
+carry a verdict and the design needs an absolute threshold that somebody argues
+for in the open, rather than a relative one that hides the same choice inside a
+median. State the direction of the residual bias where it is knowable; here the
+pooled control sat near the tightest league, so it ran *against* the conclusion
+drawn, which is the only reason the conclusion survived at all.
+
+## 2026-08-16 — "Unreadable" and "empty" are different, and the wire decides which one you get
+
+The same census excluded markets whose price could not be read. It had two
+counters: `unreadable` for a missing field, and `settled_price` for a derived
+ask of 0 or 1000. On the live exchange the first was **0 across all 81,420
+markets** and the second was **28,677 — 35% of the population.**
+
+Kalshi never omits `yes_bid_dollars`; it sends `"0.0000"` for a side nobody
+bids. So the "unreadable" branch was unreachable, and the "settled" bucket was
+99.5% **live markets with one empty side**. A whole third of the data was
+discarded under a name that was wrong for nearly all of it, and the exclusion
+was heaviest exactly where books are thinnest — so every surviving median was
+biased toward tight by an amount the artifact could not reveal.
+
+**The pattern:** this repo's rule is *unreadable resolves to `None`, never `0`*.
+It assumes the wire distinguishes the two. When the wire has **already** done
+the coercion the rule forbids — upstream, before any code sees it — the guard is
+decoration, and the test written to enforce it passes on an input that cannot
+occur. The category that then absorbs the real cases is whichever one happens to
+match, and its *name* is what a later reader believes.
+
+**What to do.** For any exclusion counter, ask what the wire actually sends and
+check the counter against a captured payload: **a counter that is provably zero
+on real data is either dead or mis-routed, and both are findings.** Keep it —
+zero today is how a format change announces itself tomorrow — but never let it
+be the bucket a live case falls into. And choose the test anchor where the
+candidate readings *disagree*: the pair `(yes_bid 0, no_bid $1.00)` is
+simultaneously a settlement and an empty side, so it cannot tell them apart. The
+discriminating anchor is `(yes_bid 0, no_bid 42c)`, and it was the one not
+written.
+
 ## 2026-08-15 — A guard copied from a neighbouring path inherits its *assumptions*, not its safety
 
 The prop pricing loop was written beside the moneyline loop and copied its
