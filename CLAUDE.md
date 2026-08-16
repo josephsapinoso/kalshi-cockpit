@@ -35,9 +35,28 @@ the missing half **cannot** explain `actionable = 0` away. A different design
 shift rows either way, but that is a new decision, not the completion of an
 existing one, and it would need its own ADR.
 
-What the correction changes is the *description*: the record must not be written
-up as "the documented strategy produced zero actionable rows", because that
-sentence credits a two-signal system that never existed. It is **the
+**`actionable` is no longer 0.** It genuinely was on 2026-08-10, which is the
+last whole-table measurement; it stopped being 0 five days later. Audited
+2026-08-16: exactly **three** rows in the whole live table satisfy the gate's
+predicate, the first written **2026-08-15T19:52:14Z**. They are two distinct
+claims across two games — one baseball moneyline observed twice, plus one prop
+— and **all three are `anchored_on_sharp = 0`**, meaning no sharp book quoted
+and the devig silently fell back to the full soft-book set. ADR 0021 measured
+423 such fallback rows producing 0 actionable, and the actionable predicate
+carries no multiplicity correction, so the competing explanation predicts these
+three exactly. Treat "3" as *unseparated from zero*, not as a result.
+
+Anything above or below claiming the count is 0 is **repetition of a
+2026-08-10 measurement, not a measurement**. The intervening reads used
+`clv-coverage`, which filters on `clv_scored_ms IS NOT NULL` while an
+actionable row is written before commence — the class was outside the
+denominator. `/api/gate` had the right number the whole time. See
+`docs/measurements/2026-08-16-actionable-population-audit-result.md`.
+
+What the 2026-08-10 correction changes is the *description*: the record must not
+be written up as "the documented strategy produced zero actionable rows",
+because that sentence credits a two-signal system that never existed. It is
+**the
 consensus-only strategy** that produced zero.
 
 It runs hosted on Fly.io (not a laptop), is used from a phone, and is intended

@@ -338,9 +338,20 @@ def population_counts(conn, since_ms: int = 0) -> dict[str, int]:
     sized to zero can never contribute to the 300-game floor, however well the
     CLV machinery works downstream of it.
 
-    That number has been zero for the project's life and was readable only
-    through an authenticated endpoint, so the one counter that decides whether
-    the gate can *ever* open was the one nobody could see from the log stream.
+    **That number was not zero, and this docstring said it was.** It became
+    non-zero on 2026-08-15T19:52:14Z and this function published the fact over
+    `/api/gate` and into the log stream on every pass from that moment. What was
+    zero was the count under `clv-coverage`, which filters on
+    `clv_scored_ms IS NOT NULL` -- and an actionable row is written *before*
+    commence, so the entire class sat outside that denominator until its game
+    finished. Three ADRs and this docstring repeated the wrong instrument's
+    answer for a day while the right one printed the other every 900 seconds.
+
+    Kept as a correction rather than deleted: the sentence was load-bearing in
+    four places, and a reader arriving from any of them needs to find the
+    contradiction here rather than silence. See
+    `docs/measurements/2026-08-16-actionable-population-audit-result.md` and the
+    lesson on a negative claim inheriting its instrument's `WHERE` clause.
 
     It reads `POPULATIONS` rather than restating the predicates. Two SQL
     fragments encoding one definition is the failure `tasks/lessons.md` records

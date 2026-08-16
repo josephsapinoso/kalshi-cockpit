@@ -185,6 +185,27 @@ premise, and `actionable` has been zero for the life of the project. What change
 is that a zero Board now means *the consensus said no*, rather than *nobody
 looked*. Those need opposite responses and were indistinguishable until now.
 
+> **Annotation, 2026-08-16 (added after the fact; the line above is left as
+> written).** The claim that `actionable` has been zero for the life of the
+> record **was false when this was committed.** It became non-zero on
+> **2026-08-15T19:52:14Z**, and `gate.population_counts` published that over
+> `/api/gate` on every pass from that moment.
+>
+> The claim came from `clv-coverage`, whose cluster query filters on
+> `clv_scored_ms IS NOT NULL`. An actionable row is written *before* commence
+> by construction, so the whole class sat outside that denominator until its
+> game finished — the instrument could not see the thing being asserted about.
+> The last valid whole-table measurement of 0 is ADR 0021's pin, 2026-08-10.
+>
+> **The decision this ADR makes is unaffected**, which is why this is an
+> annotation and not a supersession: the audit found three rows, two distinct
+> claims across two games, all three `anchored_on_sharp = 0` and therefore
+> unseparated from the soft-book-fallback explanation. Nothing here would have
+> been decided differently. Only the supporting sentence was wrong.
+>
+> See `docs/measurements/2026-08-16-actionable-population-audit-result.md`.
+
+
 **That the fee headroom is real.** Untouched. See ADR 0027 and H4.
 
 **That `stale_odds` is semantically correct.** Untouched. See ADR 0025 — this

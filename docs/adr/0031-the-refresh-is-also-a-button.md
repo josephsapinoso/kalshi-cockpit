@@ -35,6 +35,27 @@ as `stale_odds` and they are not structurally excluded from `actionable`.
 `actionable` is simply empty, for every market type, as it has been for the life
 of this record.
 
+> **Annotation, 2026-08-16 (added after the fact; the line above is left as
+> written).** The claim that `actionable` has been zero for the life of the
+> record **was false when this was committed.** It became non-zero on
+> **2026-08-15T19:52:14Z**, and `gate.population_counts` published that over
+> `/api/gate` on every pass from that moment.
+>
+> The claim came from `clv-coverage`, whose cluster query filters on
+> `clv_scored_ms IS NOT NULL`. An actionable row is written *before* commence
+> by construction, so the whole class sat outside that denominator until its
+> game finished — the instrument could not see the thing being asserted about.
+> The last valid whole-table measurement of 0 is ADR 0021's pin, 2026-08-10.
+>
+> **The decision this ADR makes is unaffected**, which is why this is an
+> annotation and not a supersession: the audit found three rows, two distinct
+> claims across two games, all three `anchored_on_sharp = 0` and therefore
+> unseparated from the soft-book-fallback explanation. Nothing here would have
+> been decided differently. Only the supporting sentence was wrong.
+>
+> See `docs/measurements/2026-08-16-actionable-population-audit-result.md`.
+
+
 This matters because the natural reading of "make the odds fresher and the props
 will show up" is a **prediction**, and it is one this change will appear to have
 tested. It has not. Nothing in this ADR is evidence about edge, and no future

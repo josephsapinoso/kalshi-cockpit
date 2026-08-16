@@ -13,6 +13,73 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — A negative claim inherits its instrument's WHERE clause
+
+`actionable` had been reported as 0 "for the life of the record" in three ADRs
+and in `CLAUDE.md`. It had been ≥1 since 2026-08-15T19:52Z. The cited
+instrument was `clv-coverage`, whose cluster query filters on
+`clv_scored_ms IS NOT NULL` — and an actionable row is written *before*
+commence by construction, so the entire class of interest sat outside the
+denominator. The 0 → 3 "transition" was a transition in the scoring population,
+not in the strategy's output.
+
+Meanwhile `gate.population_counts` had no such filter and `/api/gate` published
+the right number over the whole table every 900 seconds. Two instruments, and
+the one that was consulted structurally could not see the thing being claimed
+about.
+
+**Before writing "X has never happened," name the instrument, quote its filter,
+and state whether X *could* have appeared in it.** An absence is only evidence
+if the thing was reachable. The failure repeats easily because the false
+sentence and the true one are word-for-word identical — only the denominator
+differs, and the denominator is not in the sentence.
+
+Corollary: a claim repeated is not a claim measured. Three ADRs restating one
+2026-08-10 measurement is one measurement, and the interval since is where the
+counterexample lived.
+
+---
+
+## 2026-08-16 — A diagnostic reachable only through the healthy path cannot diagnose the unhealthy one
+
+The live volume filled. `migrate_db.py` is the first thing the entrypoint runs
+and it opens the database for write, so the boot died one second in, every
+time, until Fly stopped retrying. `flyctl ssh console` requires a *running*
+machine — and every committed inspector that could have said what filled the
+disk is invoked through that shell. The tooling for diagnosing the failure was
+only reachable when the failure was absent.
+
+The fix was a `MAINTENANCE_HOLD` branch that parks the container **before any
+write**, so ssh comes up with the volume mounted and nothing else running.
+
+**Any diagnostic gated behind the thing it diagnoses is decoration.** When
+adding an instrument, ask which failures leave it reachable — and put the
+sickbay door outside the ward. The same shape appeared twice in one day: the
+actionable population had no query at all, and the disk had no query at all,
+both discovered at the moment the answer was needed.
+
+---
+
+## 2026-08-16 — Docker builds from the working tree, so a byte-level write bypasses .gitattributes
+
+This repo already carried `.gitattributes` forcing `eol=lf` on `docker/*`, and
+already carried a lesson about a CRLF shebang presenting as a crash loop with
+nothing in the logs pointing at the cause. Both guards held. I defeated them
+anyway by editing `docker/entrypoint.sh` with a direct file write during an
+incident: git kept storing LF, `git status` was clean, and the *working tree*
+carried CRLF — which is what `fly deploy` sends as the build context.
+
+Result: `env: 'bash': No such file or directory`, exit 127, during an outage,
+on the fix for the outage.
+
+**`.gitattributes` normalises what git stores, not what is on disk.** Anything
+that ships from the working tree — Docker build context, a mounted volume, a
+tarball — sees the bytes you actually wrote. After any scripted edit to a file
+an interpreter reads by its first line, check the bytes (`read_bytes().count(b"
+")`)
+rather than trusting `git status`, which compares against the normalised blob
+and reports clean.
+
 ## 2026-08-16 — An absent environment variable means the default applies, not that the feature is off
 
 Building the rolling odds refresh, I needed to know whether player props were

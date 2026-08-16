@@ -94,6 +94,27 @@ every market type. Narrowing an empty set leaves it empty. This is the same
 argument `CLAUDE.md` makes against the absent second signal, and it applies here
 unchanged.
 
+> **Annotation, 2026-08-16 (added after the fact; the line above is left as
+> written).** The claim that `actionable` has been zero for the life of the
+> record **was false when this was committed.** It became non-zero on
+> **2026-08-15T19:52:14Z**, and `gate.population_counts` published that over
+> `/api/gate` on every pass from that moment.
+>
+> The claim came from `clv-coverage`, whose cluster query filters on
+> `clv_scored_ms IS NOT NULL`. An actionable row is written *before* commence
+> by construction, so the whole class sat outside that denominator until its
+> game finished — the instrument could not see the thing being asserted about.
+> The last valid whole-table measurement of 0 is ADR 0021's pin, 2026-08-10.
+>
+> **The decision this ADR makes is unaffected**, which is why this is an
+> annotation and not a supersession: the audit found three rows, two distinct
+> claims across two games, all three `anchored_on_sharp = 0` and therefore
+> unseparated from the soft-book-fallback explanation. Nothing here would have
+> been decided differently. Only the supporting sentence was wrong.
+>
+> See `docs/measurements/2026-08-16-actionable-population-audit-result.md`.
+
+
 The 200 prop rows in `no_edge` were priced against fresh odds and produced a
 post-fee edge ≤ 0. `no_edge` is an *outcome*, not a guard — `gate.py:324`
 defines it as `suppressed_reason IS NULL AND reference_contracts <= 0` — so no
