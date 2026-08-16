@@ -7321,3 +7321,126 @@ Related: [[a-subagents-confident-negative-is-the-one-result-you-must-re-run-your
 [[the-rule-about-other-agents-confident-negatives-applies-to-your-own]],
 [[an-absent-environment-variable-means-the-default-applies]],
 [[built-but-never-called]].
+
+## A count that exactly equals a natural subpopulation is a bug in the counter, not a finding about the data
+
+A diagnostic reported "1,826 of 3,692 rows (49.5%) have a joined quote whose
+derived ask disagrees with the stored `entry_ask_tenths`". It was written up as a
+possible defect worth chasing. The record has exactly **1,826 `side='no'` rows**,
+and they were the same 1,826.
+
+The comparison was `(1000 - no_bid) != entry_ask`. That is the YES-side derived
+ask. `entry_ask_tenths` is the price for the side actually taken, so a NO row's
+ask comes from the *yes* bid. **A side-blind check flags every NO row by
+construction** — always, not occasionally, and the flagged fraction is therefore
+whatever the NO share happens to be. Any number near 50% looks like a defect
+rate; this one *was* a population share.
+
+**The tell is arithmetic and it is checkable in one query.** Before investigating
+why ~half the rows are broken, ask what else in the table is ~half. If a
+candidate subpopulation matches the count *exactly* — not approximately — the
+count is measuring membership, not breakage. Two integers agreeing to the unit
+across thousands of rows is not a coincidence and never needs a mechanism.
+
+**The generalisation past sides.** Any check that compares a stored value against
+one it re-derives must re-derive it **under the same discriminant the writer
+used**. Where the writer branches — on side, on market type, on units, on
+version — a checker that does not branch produces a clean, plausible, entirely
+wrong population split. The failure is invisible in the passing half.
+
+**How to apply.** When writing a comparison against a stored field, find the
+writer first and copy its branch structure, not its formula. Then test the branch
+you did *not* think about: here, every YES-row test passed under the bug, and only
+NO-row tests moved. A test suite that covers the case you had in mind while
+writing the code cannot catch this class at all.
+
+Related: [[unreadable-resolves-to-none-never-zero]],
+[[a-subagents-confident-negative-is-the-one-result-you-must-re-run-yourself]].
+
+## Calling a registered precondition "just a diagnostic" is how the precondition gets skipped
+
+The counter above is not decoration. Amendment §A8.2 of the CLV registration made
+`matched / total` the **P1 statistic** and called it "a strictly tighter gate than
+the one registered". Under the broken side-blind check that fraction was
+**0.5054**, below the 0.90 floor — so the interim look should have printed
+`P1 FAILED. The primary analysis does not run.` and reported no `beta_hat` at all.
+
+It printed a `beta_hat`, because the harness was still computing the *superseded*
+P1: the fraction of rows with a non-NULL half-spread, which was **1.0000**. Both
+statistics were in the codebase. The looser one had the name, the docstring
+calling it "P1's statistic", and the constant `MIN_HALF_SPREAD_COVERAGE`. The
+tighter one existed only as SQL inside an amendment nobody had implemented.
+
+**Three failures compound here and each is ordinary on its own.**
+
+1. **An amendment that tightens a gate is not self-executing.** §A8.2 was written
+   correctly, three weeks before the run, and specified the exact side-aware
+   expression. The implementation simply never followed. *A registration is not a
+   guard; the code implementing it is the guard, and only a test proves which one
+   is deployed.*
+2. **The superseded statistic kept the name.** `coverage()` still said "P1's
+   statistic" in its own docstring. When two definitions of a gate coexist, the
+   one that gets read is the one with the ergonomic name — not the one that is
+   correct.
+3. **The gate was observed failing to fire and that read as health.** P1 passing
+   at 1.0000 while 49.5% of controls were flagged is a contradiction stated
+   plainly in the write-up ("P1 passes at 1.0000 coverage while half the controls
+   may be joined off the wrong instant") and nobody stopped. **A precondition and
+   a diagnostic disagreeing about the same population is the precondition being
+   wrong, not a curiosity.**
+
+**And the direction matters.** Fixing the counter moved P1 from FAIL to PASS —
+i.e. the correction *rescued* a number that had already been published. That is
+the class of correction to distrust most and disclose loudest. It was disclosed.
+
+**How to apply.** When an amendment tightens a precondition, the amendment is not
+done until (a) a test asserts the *new* denominator, observed red against the old
+one, and (b) the superseded statistic is renamed or annotated at its definition
+so it cannot be read as the gate. Grep the registration for every "now applies
+to" and "is tightened by" and check each against the code that claims to
+implement it.
+
+Related: [[a-registered-decision-rule-can-be-logically-defective]],
+[[a-mutation-that-cannot-change-behaviour-is-a-green-light-you-awarded-yourself]],
+[[an-amended-registrations-body-is-not-the-registration]],
+[[a-satisfied-precondition-is-not-a-verdict]].
+
+## An agreement forced by the writer looks exactly like a clean measurement
+
+The same investigation reported "every joined quote is stamped at exactly
+`created_ms` — a single distinct staleness value across 3,692 rows, zero", and
+offered it as evidence that the control came from the pricing instant.
+
+It is not evidence of anything. `run_once` computes `stamp = now_ms()` once, uses
+it as `kalshi_quotes.observed_ms` on insert, then passes **the same variable** as
+`recommendations.created_ms`. The two columns are one number. Staleness could not
+have been non-zero, and indeed `kalshi_quote_age_ms` is 0 on all **10,288** rows
+ever written while the `stale_kalshi_quote` suppression has **never fired once**.
+
+Likewise the "perfect" 3692/3692 ask agreement: both sides of that comparison are
+`1000 - opposite_bid` computed off the *same stored row*, so the identity is
+`1000 - b == 1000 - b`.
+
+**The pattern: a check whose two inputs share a provenance measures the
+provenance, not the quantity.** It returns a perfect score, that score is
+reported as a strong pass, and its discriminating power is near zero. Clean
+numbers are the symptom — a distribution with one distinct value, an exact
+100%, a correlation of precisely 1.
+
+**How to apply.** For any agreement statistic, write down the single sentence
+*"this could have come out differently if ___"* before reporting it. If the blank
+can only be filled with something that never happens, say so in the result rather
+than printing the percentage. Two concrete habits: trace both operands back to
+their writer and check they are not the same variable; and print the count of
+*available wrong answers* beside the agreement rate — a join that had no
+alternative row to choose cannot be praised for choosing right.
+
+**The corollary for sensitivity analyses.** An "alternative control" that is
+algebraically identical to the registered one whenever the tested condition holds
+reproduces the baseline **because it must**. Printing it in a table beside two
+genuine fits turns three results into five and reads as corroboration. Label
+tautologies as tautologies, in the table, not only in the prose.
+
+Related: [[two-artefacts-that-agree-on-the-number-you-check]],
+[[the-anchor-where-the-error-vanishes-keeps-getting-chosen]],
+[[a-repeated-row-is-not-an-independent-observation]].

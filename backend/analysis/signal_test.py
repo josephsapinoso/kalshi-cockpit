@@ -73,8 +73,10 @@ MIN_CLUSTERS_TO_DECLARE = 300
 NO_SIGNAL_UPPER_LIMIT = 0.40
 FULL_PASS_THROUGH = 1.0
 
-# §P1: below this fraction of rows carrying a half-spread, the primary analysis
-# does not run.
+# §P1's floor. The value is unchanged by §A8.2; what changed is the statistic it
+# is applied to -- `matched / total`, not the fraction of rows carrying a
+# half-spread. The name predates the amendment and is kept because it is
+# imported by name elsewhere; read `coverage`'s docstring before using it.
 MIN_HALF_SPREAD_COVERAGE = 0.90
 
 ALPHA = 0.05
@@ -121,7 +123,25 @@ class Fit:
 
 
 def coverage(rows: Sequence[Observation]) -> float:
-    """Fraction carrying a half-spread. P1's statistic.
+    """Fraction carrying a half-spread. **NOT P1 — superseded by §A8.2.**
+
+    This was P1's statistic as originally registered. §A8.2 replaced it:
+
+        "P1's 0.90 floor now applies to `matched / total`, not to non-NULL
+        half-spread coverage. That is a strictly tighter gate than the one
+        registered."
+
+    The difference is not cosmetic and it has already bitten once. This function
+    cannot distinguish a control recovered from the *right* quote from one
+    recovered from the wrong one -- both are non-NULL. On the 2026-08-16 record
+    the two statistics read **1.0000 and 0.5054**, and the harness gated on this
+    one, so a look that §A8.2 would have refused reported a `beta_hat`. See
+    `docs/measurements/2026-08-16-quote-join-bias-result.md`.
+
+    **P1 lives in `scripts/run_signal_test.py:a82_counts`**, which needs `side`
+    and `entry_ask_tenths` -- columns an `Observation` deliberately does not
+    carry, because the fit has no business seeing them. This function is
+    retained as the `no_quote` sub-statistic, which is still worth printing.
 
     Returns 0.0 on an empty input rather than raising or returning 1.0. An
     empty population has no coverage; reporting perfect coverage for it would

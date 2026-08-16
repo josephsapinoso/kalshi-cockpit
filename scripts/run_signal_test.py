@@ -53,6 +53,13 @@ from backend.analysis.signal_test import (  # noqa: E402
 )
 
 
+#: §A8.2: above this `quote_mismatch / total` the write-up **must state, in
+#: those words**, that the control is attenuated and the residual bias in
+#: `beta` runs positive. The harness prints the sentence itself rather than
+#: trusting an author to remember it.
+A82_MISMATCH_DISCLOSURE_THRESHOLD = 0.05
+
+
 class RefusedInput(Exception):
     """A dump this harness will not analyse."""
 
@@ -111,10 +118,56 @@ def _quote_disagrees(row: dict[str, Any]) -> bool:
     disagrees is not missing data -- it is a row whose control was recovered
     from a different observation than the one the recommendation was priced
     from, which is a different problem with a different remedy.
+
+    **The comparison is side-dependent, and the first version of this function
+    was not.** `entry_ask_tenths` is the price paid for the side actually taken
+    (`backend/analysis/clv.py:151`), so the ask to compare it against is
+    `1000 - no_bid` on a YES row and `1000 - yes_bid` on a NO row. Comparing
+    every row against the YES-side ask flags **every NO row by construction**,
+    and on the 2026-08-16 record it reported 1,826 disagreements that were
+    exactly the 1,826 NO rows. The true count on that record is 0. See
+    `docs/measurements/2026-08-16-quote-join-bias-result.md`.
+
+    This is a diagnostic counter, not a branch of the decision rule: it does not
+    touch the population, the model, the cluster key, the multiplier or any
+    verdict branch, so correcting it is a bug fix and not an amendment.
     """
-    if row.get("no_bid_tenths") is None:
+    side = (row.get("side") or "").lower()
+    opposite_bid = row.get("yes_bid_tenths") if side == "no" else row.get("no_bid_tenths")
+    if opposite_bid is None:
         return False
-    return (1000 - row["no_bid_tenths"]) != row["entry_ask_tenths"]
+    return (1000 - opposite_bid) != row["entry_ask_tenths"]
+
+
+def a82_counts(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
+    """§A8.2's three counts. Never two.
+
+    | count | meaning | treatment |
+    |---|---|---|
+    | `matched` | a quote joined **and** the identity holds | the analysis population |
+    | `quote_mismatch` | a quote joined and the identity **fails** | RETAINED, counted separately |
+    | `no_quote` | the join returned nothing | dropped, never imputed |
+
+    **`matched / total` is P1**, and the amendment calls that "a strictly tighter
+    gate than the one registered". `backend.analysis.signal_test.coverage` is the
+    superseded statistic -- it measures non-NULL half-spread, which cannot
+    distinguish a control recovered from the wrong quote from one recovered from
+    the right one. On the 2026-08-16 record the two disagreed by 0.4946 and the
+    looser one is what the harness read.
+
+    `quote_mismatch` rows are retained deliberately: excluding them would create
+    an exclusion rate correlated with book activity, which is worse than the
+    attenuation it removes.
+    """
+    matched = mismatch = no_quote = 0
+    for row in rows:
+        if row.get("half_spread_tenths") is None:
+            no_quote += 1
+        elif _quote_disagrees(row):
+            mismatch += 1
+        else:
+            matched += 1
+    return {"matched": matched, "quote_mismatch": mismatch, "no_quote": no_quote}
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -144,23 +197,49 @@ def main(argv: Optional[list[str]] = None) -> int:
     unclustered = sum(1 for r in rows if r.get("unclustered"))
     cov = coverage(obs)
 
+    # §A8.2's three counts. Never two -- the amendment says so in those words,
+    # and the reason is that "no quote at all" and "a quote that disagrees" are
+    # different failures with different remedies, and P1 as originally
+    # registered refused only the second.
+    counts = a82_counts(rows)
+    total = len(rows)
+    matched_fraction = (counts["matched"] / total) if total else 0.0
+    mismatch_fraction = (counts["quote_mismatch"] / total) if total else 0.0
+
     # 1. n before effect size. Always.
     print("1. population")
     print("-" * 40)
     print(f"  rows in dump                 {n_raw}")
-    print(f"  rows analysed                {len(rows)}")
+    print(f"  rows analysed                {total}")
     print(f"  G (clusters, registered key) {len(clusters)}")
     print(f"  unclustered rows             {unclustered}")
-    print(f"  P1 half-spread coverage      {cov:.4f}  (floor {MIN_HALF_SPREAD_COVERAGE})")
-    print(f"  rows with no quote at all    {sum(1 for r in rows if r['half_spread_tenths'] is None)}")
-    print(f"  rows whose quote DISAGREES   {sum(1 for r in rows if _quote_disagrees(r))}")
+    print(f"  §A8.2 matched                {counts['matched']}")
+    print(f"  §A8.2 quote_mismatch         {counts['quote_mismatch']}   (RETAINED, not dropped)")
+    print(f"  §A8.2 no_quote               {counts['no_quote']}")
+    print(f"  P1 = matched / total         {matched_fraction:.4f}  (floor {MIN_HALF_SPREAD_COVERAGE})")
+    print(f"  non-NULL half-spread cov     {cov:.4f}  <- SUPERSEDED by §A8.2, not the gate")
     print(f"  strategy_config_version      {dict(sorted(versions.items()))}")
     print()
 
-    if cov < MIN_HALF_SPREAD_COVERAGE:
+    # §A8.2's mandated disclosure, printed by the harness so it cannot be
+    # forgotten by a write-up. The wording is the amendment's, not a paraphrase.
+    if mismatch_fraction > A82_MISMATCH_DISCLOSURE_THRESHOLD:
+        print("§A8.2 DISCLOSURE REQUIRED -- this text must appear in the write-up")
+        print("-" * 40)
+        print(f"  quote_mismatch / total = {mismatch_fraction:.4f}, above "
+              f"{A82_MISMATCH_DISCLOSURE_THRESHOLD}.")
+        print("  The half-spread control is ATTENUATED on that fraction, and the")
+        print("  residual bias in `beta` runs POSITIVE -- the flattering direction.")
+        print()
+
+    if matched_fraction < MIN_HALF_SPREAD_COVERAGE:
         print("P1 FAILED. The primary analysis does not run.")
-        print(f"  coverage {cov:.4f} is below the registered floor "
-              f"{MIN_HALF_SPREAD_COVERAGE}.")
+        print(f"  matched / total = {matched_fraction:.4f} is below the registered "
+              f"floor {MIN_HALF_SPREAD_COVERAGE}.")
+        print("  §A8.2 applies P1 to `matched / total`, NOT to non-NULL half-spread")
+        print("  coverage; it calls that 'a strictly tighter gate than the one")
+        print("  registered'. Reading the looser statistic here is how a run with")
+        print("  half its controls joined off the wrong quote reports a beta.")
         print("  This is the registration's own precondition, not a judgement call:")
         print("  without the half-spread control the C2 confound is left in place")
         print("  and the slope is biased in the INFLATING direction.")
