@@ -389,6 +389,105 @@ _SQL_ACTIONABLE_FAIR = (
 
 
 # ---------------------------------------------------------------------------
+# Where the bytes went.
+# ---------------------------------------------------------------------------
+#
+# **Written during the 2026-08-16 volume-full incident.** The disk report said
+# `/data` was 100% used and that `cockpit.db` was 879 MiB of the 974 MiB
+# volume -- three files, no stray artefacts, nothing to sweep up. That answers
+# "what filled the disk" and leaves the question that decides the fix: prune a
+# table, or buy a bigger volume?
+#
+# `dbstat` is a virtual table giving the real page count per btree, so it
+# measures **stored bytes including indexes and overflow**, which is the
+# quantity the volume actually charges for. Row counts cannot substitute: one
+# table with 40,000 wide rows and another with 400,000 narrow ones sort in
+# opposite orders under the two measures, and only one of them is the disk.
+#
+# It is compiled in on most builds and is **not guaranteed**, so the caller
+# gets row counts as a labelled fallback rather than an error -- during an
+# incident a partial answer beats a stack trace. The two are reported as
+# separate sections so nobody reads a row count as a byte count.
+#
+# Read `page_count * page_size` against the file size as a completeness check:
+# a large gap is free pages inside the file, which means a `VACUUM` would
+# reclaim space without deleting a single row. That distinction is the whole
+# decision, and it is why `freelist_count` is here.
+_SQL_DB_PAGE_SUMMARY = (
+    "SELECT (SELECT * FROM pragma_page_count()) AS page_count, "
+    "(SELECT * FROM pragma_page_size()) AS page_size, "
+    "(SELECT * FROM pragma_freelist_count()) AS freelist_count, "
+    "(SELECT * FROM pragma_page_count()) * (SELECT * FROM pragma_page_size()) "
+    "  AS total_bytes, "
+    "(SELECT * FROM pragma_freelist_count()) * (SELECT * FROM pragma_page_size())"
+    "  AS reclaimable_by_vacuum_bytes"
+)
+
+_SQL_DBSTAT = (
+    "SELECT name, SUM(pgsize) AS bytes, COUNT(*) AS pages "
+    "FROM dbstat GROUP BY name ORDER BY bytes DESC"
+)
+
+
+def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
+    """Stored bytes per table and index, largest first.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about what may be deleted.** Size is not expendability. The
+      largest table is usually the highest-frequency observation, which may
+      also be the only record of a price at an instant.
+    - **`reclaimable_by_vacuum_bytes` is not free disk.** `VACUUM` rebuilds
+      into a temporary copy, so it needs roughly the file size *free* on the
+      same filesystem before it can give any back. On a volume at 100% it is
+      not runnable at all, which is exactly the trap this was written in.
+    - **A dbstat row named for an index is charged to that index**, not folded
+      into its table. Sum the table and its indexes before concluding what a
+      table costs.
+    """
+    sections = [
+        _fetch(
+            conn,
+            _SQL_DB_PAGE_SUMMARY,
+            (),
+            title="A. file-level pages (compare total_bytes against the file on disk)",
+            cap=args.limit,
+        )
+    ]
+    try:
+        sections.append(
+            _fetch(
+                conn,
+                _SQL_DBSTAT,
+                (),
+                title="B. stored bytes per btree, via dbstat (indexes listed separately)",
+                cap=args.limit,
+            )
+        )
+    except sqlite3.OperationalError:
+        # dbstat is optional at compile time. Say so in the title rather than
+        # returning row counts under a heading that implies bytes.
+        names = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
+        rows = [(n, conn.execute(f"SELECT COUNT(*) FROM {n}").fetchone()[0]) for n in names]  # noqa: S608
+        rows.sort(key=lambda r: r[1], reverse=True)
+        sections.append(
+            Section(
+                title="B. dbstat UNAVAILABLE -- row counts only, NOT bytes",
+                columns=("name", "rows"),
+                rows=rows,
+                cap=args.limit,
+            )
+        )
+    return sections
+
+
+# ---------------------------------------------------------------------------
 # The whole decision record, raw.
 # ---------------------------------------------------------------------------
 #
@@ -1602,6 +1701,13 @@ QUERIES: dict[str, QueryDef] = {
         "readings, book_count, anchored_on_sharp, market_width). Prints rows "
         "and no verdict. Answers: did these clear a real bar, or land in a gap?",
         _q_actionable_audit,
+    ),
+    "db-sizes": QueryDef(
+        "Where the bytes went: file-level page counts with the amount a VACUUM "
+        "could reclaim, then stored bytes per table and index via dbstat "
+        "(row counts as a labelled fallback if dbstat is not compiled in). "
+        "Answers: prune a table, or buy a bigger volume?",
+        _q_db_sizes,
     ),
     "decision-dump": QueryDef(
         "Every recommendation ever written, one row each, with its four devig "
