@@ -51,6 +51,16 @@ Kalshi's side already is live — websocket, 30s limit, `run_quote_pass` every
 | Window open per cluster | `max_odds_age_ms` = 15 min | `DUE_WINDOW_MS` = 60 min, continuous |
 | Bound by | the scheduler | the credit budget, as it should be |
 
+**What a cluster costs, measured rather than projected.** A 13-game MLB cluster
+on the live instance: 6 for the team sweep, 260 for props (13 x 20, once), and 6
+per refresh for the rest of the window — **302 credits**, against 266 before.
+The refresh is **+36, a 13% increase**; props are 86% of the bill and were
+already the binding constraint. At the 600/day cap that is 2 clusters a day,
+which is what it was before this change; raising the cap from 400 to 600 is what
+bought the second one. **The screen is now open for 60 minutes per cluster
+instead of 15, at a 13% higher price** — and if more clusters a day are wanted,
+the lever is props, not this.
+
 `stale_odds` was **256 of 265 suppressions in 24h** on the live instance. The
 cause was that nothing re-bought. A cluster got one call, the window shut fifteen
 minutes later, and every row priced afterwards was suppressed with the games
@@ -95,9 +105,28 @@ Not the cadence. The pass asks on every 15s tick and `decide_sweeps` answers
    Bootstrap belongs on the full pass and is not time-critical by construction.
 3. **Props ride the opening call only.** They are billed per event per market key
    per region — 20 credits an event — so re-buying them each refresh would
-   multiply the largest line item in the file by the refresh count. The live
-   config sets no prop markets today; this is written down because the day it
-   does is not the day to discover it.
+   multiply the largest line item in the file by the refresh count.
+
+   **This guard is load-bearing today, not hypothetical, and the first draft of
+   this ADR said the opposite.** It read "the live config sets no prop markets
+   today, so this changes nothing that currently runs". That was inferred from
+   `fly.live.toml` carrying no `PROP` variable, and it is wrong: the prop market
+   keys come from `prop_market_keys()` in code, not from the environment, so
+   props are on by default and always have been. Measured on the live instance
+   immediately after this deployed (2026-08-16, budget day 10:00Z):
+
+   ```
+   /sports/baseball_mlb/odds                  1 call     6 credits
+   /sports/baseball_mlb/events/<13 fixtures>  13 calls  260 credits
+   TODAY TOTAL                                          266 of 600
+   ```
+
+   Without this guard, each of the six refreshes in a sixty-minute window would
+   have re-bought that 260 — **1,560 extra credits in one window**, against a
+   600/day cap and a 13,000/month one. The change would have drained the month
+   in a day. The lesson is the repo's own: *grep for the caller before believing
+   a config value describes behaviour.* An absent environment variable means the
+   default applies, not that the feature is off.
 
 ### 5.1 The reservation refuses to *start*, not to *continue*
 

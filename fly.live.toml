@@ -121,18 +121,29 @@ primary_region = "ord"
   # ODDS_MONTHLY_CREDIT_BUDGET below.
   #
   # It said "it is not a cost control on the live loop, which cannot reach it".
-  # **That stopped being true on 2026-08-16.** Under the rolling refresh
-  # (`docs/adr/0030`) a kickoff cluster costs 7 calls x 6 = **42 credits**, not
-  # 6, because the slot re-buys every `refresh_interval_ms` for the whole hour
-  # it holds the window open. At 400 that is 9 clusters a day and the cap binds
-  # on a busy evening; at 600 it is 14. This is now a real ceiling on how much
-  # of the slate the screen is usable for.
+  # **That stopped being true well before 2026-08-16, and props are why.**
+  # Measured on this instance on the 2026-08-16 budget day, one 13-game MLB
+  # cluster:
   #
-  # **600 is a ceiling, not a forecast.** A realistic MLB + WNBA day has 4-6
-  # kickoff clusters, so expected spend is ~170-250/day. The gap is deliberate:
-  # the cap should not be the thing that decides coverage on an unusually busy
-  # day, and `decide_sweeps` reserves each window's whole tail before opening
-  # it, so an over-tight cap refuses windows rather than truncating them.
+  #     /sports/baseball_mlb/odds                  1 call     6 credits
+  #     /sports/baseball_mlb/events/<13 fixtures>  13 calls  260 credits
+  #                                                          266 total
+  #
+  # The rolling refresh (`docs/adr/0030`) adds 6 credits per 10 minutes for the
+  # hour it holds the window open -- **+36, taking a cluster to ~302**. That is
+  # a 13% increase on a bill that is 86% props. **Props are the binding
+  # constraint, not the refresh**, and they were before this change too.
+  #
+  # At 600 that is 2 clusters a day. It was also 2 at the old one-buy-per-cluster
+  # cost; what bought the second one is raising this from 400, not the refresh.
+  # If more clusters a day are wanted, the lever is `prop_market_keys()` and
+  # whether that ladder is earning -- nothing in the odds schedule.
+  #
+  # **Do not restate a cost here that has not been reconciled against
+  # `api_credits`.** The line above this one previously claimed 42 credits a
+  # cluster and 14 clusters a day, inferred from this file carrying no `PROP`
+  # variable. Props come from code defaults, not the environment; an absent
+  # variable means the default applies, not that the feature is off.
   #
   # **The interaction with the monthly cap, stated because it is not obvious.**
   # 600 x 31 = 18,600, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of 13,000. The
