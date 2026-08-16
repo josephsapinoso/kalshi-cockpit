@@ -186,9 +186,12 @@ this** — a permission pattern matches a command prefix and cannot see inside
 `-C "..."`. Four sessions have now written this rule and two drifted from it
 within the hour. Assume you will too.
 
-**Three of forty-four `scripts/*.py` are in the image**, and `.dockerignore`
+**Three of forty-seven `scripts/*.py` are in the image**, and `.dockerignore`
 decides, not `Dockerfile` — `run_loop.py`, `migrate_db.py`, `inspect_live_db.py`
-(`.dockerignore:77-80`). `census_non_sports_spread.py` is **not** in the image and
+(`.dockerignore:77-80`). *(47 counted 2026-08-16, not carried forward. A previous
+draft of this file inherited "two of forty-two" from a time before
+`inspect_live_db.py` shipped and was wrong for two sessions. **Count it; do not
+copy it.**)* `census_non_sports_spread.py` is **not** in the image and
 must not be; it is a laptop `Tool`.
 
 `inspect_live_db.py` query names: `sweep-log`, `credits-tail`,
