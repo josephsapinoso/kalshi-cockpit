@@ -344,6 +344,51 @@ _SQL_PROP_BOOKMAKERS = (
 
 
 # ---------------------------------------------------------------------------
+# The actionable population, row by row.
+# ---------------------------------------------------------------------------
+#
+# **The predicate is copied from `gate.POPULATIONS["actionable"]`, and the copy
+# is held in place by a test rather than by care.** This script imports nothing
+# from `backend` on purpose -- it runs as `python /app/scripts/...`, which puts
+# `/app/scripts` on `sys.path` and not `/app`, so an import would work in the
+# test suite and fail on the machine it exists to interrogate. That leaves two
+# copies of one definition, which is the drift `tasks/lessons.md` records, so
+# `tests/test_inspect_live_db.py` asserts this string is byte-identical to the
+# gate's. If the gate's admission criteria move and this does not, the suite
+# goes red before the query can report a population the gate no longer uses.
+#
+# The `r.` alias is part of that identity: it is what the gate's fragment
+# carries, so the two strings compare directly.
+_ACTIONABLE_PREDICATE = "r.suppressed_reason IS NULL AND r.reference_contracts > 0"
+
+_SQL_ACTIONABLE_ROWS = (
+    "SELECT r.id, r.created_ms, r.ticker, m.series_ticker, m.event_ticker, "
+    "m.market_type, m.status, r.side, r.entry_ask_tenths, r.depth_at_ask, "
+    "r.fair_probability, r.edge_tenths, r.fee_predicted, r.ev_net_dollars, "
+    "r.kelly_fraction, r.suggested_contracts, r.reference_contracts, "
+    "r.kalshi_quote_age_ms, r.odds_age_ms, r.last_confirmed_ms, "
+    "r.last_confirmed_quote_age_ms, r.last_confirmed_odds_age_ms, "
+    "r.strategy_config_version, r.reason_text "
+    "FROM recommendations r "
+    "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    f"WHERE {_ACTIONABLE_PREDICATE} "
+    "ORDER BY r.created_ms DESC, r.id DESC"
+)
+
+_SQL_ACTIONABLE_FAIR = (
+    "SELECT r.id, r.ticker, f.id AS fair_price_id, f.computed_ms, f.market, "
+    "f.outcome_name, f.outcome_description, f.outcome_point, "
+    "f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, f.p_conservative, "
+    "f.overround, f.market_width, f.book_count, f.anchored_on_sharp, "
+    "f.books_used "
+    "FROM recommendations r "
+    "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
+    f"WHERE {_ACTIONABLE_PREDICATE} "
+    "ORDER BY r.created_ms DESC, r.id DESC"
+)
+
+
+# ---------------------------------------------------------------------------
 # CLV coverage, and the gate's cluster count.
 # ---------------------------------------------------------------------------
 #
@@ -997,6 +1042,74 @@ def _q_prop_bookmakers(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+def _q_actionable_audit(conn: sqlite3.Connection, args) -> list[Section]:
+    """Every row the strategy would have bet, with its whole provenance.
+
+    **This exists because `actionable` stopped being zero on 2026-08-16 and no
+    instrument could show the rows.** `clv-coverage` section D counts the
+    population; nothing printed a member of it. The only other route was
+    `/api/ledger` in an authenticated browser, which is a screenshot, not a
+    record, and cannot be re-run against a later snapshot.
+
+    Rule 1 of this repo is that a large apparent edge is a bug until proven
+    otherwise, so the sections are split by *who computed the number*:
+
+    - **A** is what the engine decided: the price it would pay, the edge it
+      claimed, the sizes at both bankrolls, and the four clocks.
+    - **B** is where the fair value came from: all four devig methods
+      side by side, the book count, the sharp anchor, and the market width.
+
+    Reading A without B is how a method-choice artefact gets written down as an
+    edge. The four `p_*` columns are printed unaggregated and un-spread, on
+    purpose -- the spread between them is the noise floor the edge has to clear,
+    and this script does not compute it, because a printed difference invites
+    being quoted without the per-row context that makes it meaningful.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about whether the rows are right.** It prints the inputs to that
+      judgement and no verdict. `suppression.py` holds the thresholds; compare
+      by hand or send the rows to `measurement-skeptic`.
+    - **Nothing about causation.** `created_ms` beside `last_confirmed_ms` lets
+      a reader ask whether a row predates a deploy. It does not say what the
+      deploy did, and a row confirmed after one may have been sound before it.
+    - **Nothing about buyability.** `reference_contracts` is the fixed
+      $1,000 profile (ADR 0015). `suggested_contracts` is the deployed
+      bankroll. A row can be evidence at the first and unbuyable at the second;
+      both columns are printed so the two questions stay apart.
+    - **It is a census of the actionable set at one instant.** Rows are written
+      only when the ask or the fair value changes (`persist_if_changed`), so an
+      absent row is not a market that never qualified.
+    """
+    rows = _derive_iso(
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_ACTIONABLE_ROWS,
+                (),
+                title="A. actionable rows: the decision (newest first)",
+                cap=args.limit,
+            ),
+            "created_ms",
+            "created_iso",
+        ),
+        "last_confirmed_ms",
+        "last_confirmed_iso",
+    )
+    provenance = _derive_iso(
+        _fetch(
+            conn,
+            _SQL_ACTIONABLE_FAIR,
+            (),
+            title="B. the same rows: where the fair value came from",
+            cap=args.limit,
+        ),
+        "computed_ms",
+        "computed_iso",
+    )
+    return [rows, provenance]
+
+
 def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
     """Does CLV scoring reach every market type, what does it retry, and what
     does the gate count as one game?
@@ -1382,6 +1495,14 @@ QUERIES: dict[str, QueryDef] = {
         "arithmetic lives in scripts/analyze_prop_onesided.py. Narrow with "
         "--odds-event-id, or raise --limit; the whole record truncates.",
         _q_prop_rungs,
+    ),
+    "actionable-audit": QueryDef(
+        "Every row in the gate's `actionable` population -- the ones the "
+        "strategy would have bet -- in two sections: A the decision (ask, "
+        "edge, both sizes, all four clocks), B the provenance (all four devig "
+        "readings, book_count, anchored_on_sharp, market_width). Prints rows "
+        "and no verdict. Answers: did these clear a real bar, or land in a gap?",
+        _q_actionable_audit,
     ),
     "clv-coverage": QueryDef(
         "Does CLV scoring reach props? Six sections: recommendations by "

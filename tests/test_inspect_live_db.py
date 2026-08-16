@@ -55,6 +55,9 @@ import pytest
 from scripts.inspect_live_db import (
     DEFAULT_ROW_CAP,
     QUERIES,
+    _ACTIONABLE_PREDICATE,
+    _SQL_ACTIONABLE_FAIR,
+    _SQL_ACTIONABLE_ROWS,
     Section,
     UnknownQuery,
     _QW_BAND_HI,
@@ -1946,3 +1949,176 @@ class TestSectionDReproducesTheGateRatherThanResemblingIt:
         assert by_key["game:ODDS-B"]["same_series_extra"] == 1, (
             "two KXMLBGAME events on one fixture must be flagged"
         )
+
+
+# ---------------------------------------------------------------------------
+# actionable-audit
+# ---------------------------------------------------------------------------
+
+
+def _actionable_db(tmp_path, recs: list[tuple]) -> Path:
+    """A database holding one fair price and a caller-shaped set of rows.
+
+    `recs` is `(id, suppressed_reason, reference_contracts, suggested_contracts)`
+    so a test can vary only the two columns the population predicate reads and
+    leave every other value fixed.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    conn.executescript(
+        """
+        INSERT INTO kalshi_series (series_ticker, league, first_seen_ms, last_seen_ms)
+        VALUES ('KXMLBGAME', 'mlb', 1, 1);
+
+        INSERT INTO kalshi_events
+            (event_ticker, series_ticker, commence_ms, close_ms, status,
+             first_seen_ms, last_seen_ms)
+        VALUES ('E1', 'KXMLBGAME', 1000, 2000, 'open', 1, 1);
+
+        INSERT INTO kalshi_markets
+            (ticker, event_ticker, series_ticker, yes_side_team, market_type,
+             status, first_seen_ms, last_seen_ms)
+        VALUES ('T1', 'E1', 'KXMLBGAME', 'NYM', 'moneyline', 'active', 1, 1);
+
+        INSERT INTO strategy_configs
+            (version, created_ms, effective_from_ms, config_json, rationale)
+        VALUES (1, 1, 1, '{}', 'seed');
+
+        INSERT INTO event_links
+            (id, kalshi_event_ticker, odds_event_id, league, method,
+             commence_skew_ms, linked_ms)
+        VALUES (1, 'E1', 'OE1', 'mlb', 'exact_alias_pair', 0, 1);
+
+        INSERT INTO fair_prices
+            (id, computed_ms, link_id, market, outcome_name, p_multiplicative,
+             p_additive, p_power, p_shin, p_conservative, overround,
+             market_width, book_count, books_used, anchored_on_sharp)
+        VALUES (7, 1234, 1, 'h2h', 'New York Mets', 0.61, 0.60, 0.605, 0.598,
+                0.598, 1.04, 0.02, 5, '["pinnacle"]', 1);
+        """
+    )
+    conn.executemany(
+        "INSERT INTO recommendations "
+        "(id, created_ms, strategy_config_version, ticker, fair_price_id, side, "
+        " entry_ask_tenths, fair_probability, edge_tenths, fee_predicted, "
+        " ev_net_dollars, kelly_fraction, suggested_contracts, "
+        " reference_contracts, kalshi_quote_age_ms, odds_age_ms, "
+        " suppressed_reason, reason_text) "
+        "VALUES (?, ?, 1, 'T1', 7, 'yes', 550, 0.598, 12.0, 0.02, 0.3, 0.01, "
+        "        ?, ?, 5000, 60000, ?, 'r')",
+        [(rid, rid, sug, ref, reason) for rid, reason, ref, sug in recs],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _audit(path: Path) -> list[Section]:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return QUERIES["actionable-audit"].run(
+            conn, argparse.Namespace(limit=DEFAULT_ROW_CAP)
+        )
+    finally:
+        conn.close()
+
+
+class TestTheAuditPopulationIsTheGatesOwn:
+    """The predicate is a copy, so a test has to hold it in place.
+
+    Mutation: change either string alone. This script cannot import `gate` --
+    it runs by path on the live box with only its own directory on `sys.path`
+    -- so nothing but this assertion stops the inspector from reporting a
+    population the gate has stopped using.
+    """
+
+    def test_the_predicate_is_byte_identical_to_the_gates(self):
+        from backend.gate import POPULATIONS
+
+        assert _ACTIONABLE_PREDICATE == POPULATIONS["actionable"]
+
+    def test_both_sections_use_it(self):
+        assert _ACTIONABLE_PREDICATE in _SQL_ACTIONABLE_ROWS
+        assert _ACTIONABLE_PREDICATE in _SQL_ACTIONABLE_FAIR
+
+
+class TestOnlyRowsTheStrategyWouldHaveBetAppear:
+    """A suppressed row and a zero-sized row are not evidence of a bet.
+
+    Mutation: drop either half of the predicate. Dropping the suppression half
+    admits 91; dropping the size half admits 92 and 93 -- and 93 is the one
+    that matters, because a NULL `reference_contracts` must fall out rather
+    than compare true.
+    """
+
+    def test_the_three_non_bets_are_excluded(self, tmp_path):
+        path = _actionable_db(
+            tmp_path,
+            [
+                (90, None, 4, 4),  # the only bet
+                (91, "stale_odds", 4, 4),  # suppressed
+                (92, None, 0, 0),  # sized to zero
+                (93, None, None, 0),  # unreadable size
+            ],
+        )
+        decision, provenance = _audit(path)
+        assert [r[0] for r in decision.rows] == [90]
+        assert [r[0] for r in provenance.rows] == [90]
+
+    def test_the_size_at_both_bankrolls_is_printed_separately(self, tmp_path):
+        """A row can be evidence at the reference bankroll and unbuyable now.
+
+        Mutation: print only one of the columns. `reference_contracts = 3`
+        with `suggested_contracts = 0` is exactly the live shape at the $100
+        deposit, and collapsing them reads as a bet the operator could place.
+        """
+        path = _actionable_db(tmp_path, [(90, None, 3, 0)])
+        decision, _ = _audit(path)
+        row = dict(zip(decision.columns, decision.rows[0]))
+        assert row["reference_contracts"] == 3
+        assert row["suggested_contracts"] == 0
+
+    def test_all_four_devig_readings_survive_to_the_output(self, tmp_path):
+        """The spread between the methods is the noise floor the edge clears.
+
+        Mutation: drop any `p_*` column. With only `p_conservative` printed
+        there is no way to tell a real edge from method disagreement, which is
+        rule 2 of this repo.
+        """
+        path = _actionable_db(tmp_path, [(90, None, 4, 4)])
+        _, provenance = _audit(path)
+        row = dict(zip(provenance.columns, provenance.rows[0]))
+        assert row["p_multiplicative"] == 0.61
+        assert row["p_additive"] == 0.60
+        assert row["p_power"] == 0.605
+        assert row["p_shin"] == 0.598
+        assert row["book_count"] == 5
+        assert row["anchored_on_sharp"] == 1
+        assert row["market_width"] == 0.02
+
+    def test_a_never_confirmed_row_reports_none_not_the_epoch(self, tmp_path):
+        """`last_confirmed_ms` is NULL until a row is re-derived.
+
+        Mutation: render it as 0. The audit's whole timing question is whether
+        a row was confirmed after a deploy, and `1970-01-01` reads as "long
+        before" rather than "never".
+        """
+        path = _actionable_db(tmp_path, [(90, None, 4, 4)])
+        decision, _ = _audit(path)
+        row = dict(zip(decision.columns, decision.rows[0]))
+        assert row["last_confirmed_ms"] is None
+        assert row["last_confirmed_iso"] is None
+        assert row["created_iso"] == _iso(90)
+
+    def test_an_empty_population_is_two_empty_sections_not_one(self, tmp_path):
+        """Zero actionable rows is the expected state and must still print B.
+
+        Mutation: return early when A is empty. A reader who sees one section
+        cannot tell "no rows" from "the provenance join failed".
+        """
+        path = _actionable_db(tmp_path, [(91, "stale_odds", 4, 4)])
+        sections = _audit(path)
+        assert len(sections) == 2
+        assert [s.row_count for s in sections] == [0, 0]
