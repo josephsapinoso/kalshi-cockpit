@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { SlateRowData } from "@/lib/api";
+import CrewAvatar, { type CrewFace } from "@/components/CrewAvatar";
+import type { BookDistribution, SlateRowData } from "@/lib/api";
 
 /**
  * The dispatch bubble: a crew portrait and what that member actually found.
@@ -10,17 +11,40 @@ import type { SlateRowData } from "@/lib/api";
  * for Billy Walters and his team. `.claude/agents/sharp-bettor.md` is explicit
  * that the persona "does not speak as any of them, does not put invented quotes
  * in a real person's mouth"; Walters is a living person and a portrait of him
- * saying something he never said is not a thing this product ships. The house
- * crew already exists in `backend/agents/` — the Skeptic, the Scout, the
- * Historian — and they are the ones on screen.
+ * saying something he never said is not a thing this product ships. **Willy
+ * Balters is a fiction with a fiction's name** — Joe's own suggestion, and it
+ * is the whole reason he can be on screen at all. The rest of the house crew
+ * already exists in `backend/agents/` — the Skeptic, the Scout.
+ *
+ * **These personas are code, not agents, and that distinction is the point.**
+ * Every line below is a pure function of the row: no network call, no model,
+ * no Anthropic spend, nothing running on the Kalshi box. The `backend/agents/`
+ * modules of the same names are a different thing entirely — they cost money
+ * because they fetch and reason about facts the record does not hold (a
+ * scratched pitcher, a lineup, weather). **A code persona can voice any fact
+ * already on the row, forever, for nothing. It cannot produce a new one.**
+ * That boundary is why the Scout's line is an admission rather than a report.
  *
  * **Every line is derived from the row, never written for flavour.** A bubble
  * that invented plausible-sounding commentary would be an unfalsifiable opinion
  * rendered in the same weight as measured numbers, which is exactly what the
  * agents package refuses to do: "anything producing a number is deterministic
- * code; LLM agents do research, triage and learning." So the Skeptic reads back
- * the suppression codes the server computed, and the Scout reports that it has
- * not looked — because it has not.
+ * code; LLM agents do research, triage and learning."
+ *
+ * **One voice, one data source — and that is a structural guarantee, not a
+ * style.** The Skeptic reads suppression codes and nothing else. Willy reads
+ * the book distribution and nothing else. The Scout reads nothing at all and
+ * says so. Because no line may combine two factors, **no line can become a
+ * composite** — which is the prohibition `test_slate.py` and `test_api.py`
+ * enforce on the payload, held here by construction rather than by a checker.
+ * The moment a persona weighs drift *against* book position, it is a rating
+ * and it needs its own ADR (ADR 0021 §9).
+ *
+ * **Willy exists because the Skeptic was the only voice, and his job is to
+ * refuse.** Joe: *"all I see is the Skeptic and he denies everything."* That
+ * was a real gap rather than a mood — the row already carried the book
+ * distribution and nobody spoke for it. Willy is not a counter-opinion; he is
+ * the other half of the record being read aloud.
  *
  * **Silence and a disconnected wire are different states.** The Scout is
  * quarantined by ADR 0022 and has never been called by anything that runs. Its
@@ -33,22 +57,28 @@ import type { SlateRowData } from "@/lib/api";
 
 type CrewMember = {
   name: string;
-  /** Monogram rather than an image: no asset pipeline, no likeness. */
-  initial: string;
+  face: CrewFace;
   role: string;
   className: string;
 };
 
 const SKEPTIC: CrewMember = {
   name: "The Skeptic",
-  initial: "S",
+  face: "skeptic",
   role: "argues a flagged edge is a bug",
   className: "bg-accent-soft text-accent border-accent/40",
 };
 
+const WILLY: CrewMember = {
+  name: "Willy Balters",
+  face: "willy",
+  role: "reads the book distribution",
+  className: "border-border bg-card text-foreground",
+};
+
 const SCOUT: CrewMember = {
   name: "The Scout",
-  initial: "R",
+  face: "scout",
   role: "injuries, lineups, weather, travel",
   className: "border-border bg-card text-muted",
 };
@@ -71,11 +101,62 @@ function skepticLine(row: SlateRowData): string {
 }
 
 /**
+ * Willy's line, read off the book distribution and nothing else.
+ *
+ * **`books_below` counts books priced BELOW Kalshi's ask**, so a low count
+ * means Kalshi is cheap against the books and a high one means it is dear.
+ * Getting that direction backwards would produce an entirely plausible
+ * sentence pointing the wrong way, which is the failure mode
+ * `runner.py`'s "Kalshi YES is Over" comment exists to prevent on the prop
+ * join — same shape, same care.
+ *
+ * **He never says the books are right.** The Slate's distribution is
+ * deliberately unanchored — no sharp book is preferred inside it, and on props
+ * `anchored_on_sharp` is 0 by construction because none of the eight books
+ * quoting MLB props is Pinnacle or Betfair. A gap against a soft consensus is a
+ * gap, not an edge, and his last clause says so rather than leaving the reader
+ * to supply it.
+ *
+ * **`null` is not zero, in three separate places.** No distribution at all, a
+ * distribution over too few books to be one, and a `percentile` that could not
+ * be computed are three different states and get three different sentences.
+ */
+function willyLine(books: BookDistribution | null): string {
+  if (!books) {
+    return "No book distribution on this row. I have nothing to read, which is not the same as reading nothing.";
+  }
+  const { book_count: count, books_below: below, books_unusable: unusable } = books;
+  const dropped =
+    unusable > 0 ? ` ${unusable} more were dropped before the devig.` : "";
+
+  if (count < 2) {
+    return `One usable book.${dropped} That is a price, not a market — I do not read a distribution off a single quote.`;
+  }
+  if (books.percentile === null) {
+    return `Not one of the ${count} usable books prices this below Kalshi's ask.${dropped} None of them is anchored sharp, so read it as agreement, not as confirmation.`;
+  }
+
+  const pct = Math.round(books.percentile * 100);
+  const where =
+    pct <= 25
+      ? `Only ${below} of ${count} usable books price this below Kalshi's ask — you would be paying under most of the market's number`
+      : pct >= 75
+        ? `${below} of ${count} usable books price this below Kalshi's ask — you would be paying over most of the market's number`
+        : `Kalshi's ask sits mid-pack: ${below} of ${count} usable books below it`;
+
+  return `${where} (${pct}th percentile).${dropped} None of these books is anchored sharp, so this is where the soft market sits, not where the truth is.`;
+}
+
+/**
  * The Scout's line, which is an admission rather than a report.
  *
  * `backend/agents/scout.py` researches exactly the things Joe asked for and is
  * called by nothing — ADR 0022 quarantines it, and `tests/test_has_callers.py`
  * turns red if anything wires it up without the spend being budgeted first.
+ *
+ * Takes no argument, deliberately: a Scout line that read the row could drift
+ * into inventing context from a price, which is the one thing a scout must not
+ * do.
  */
 function scoutLine(): string {
   return "I have not looked at this game. I am not switched on yet — nobody has budgeted the calls.";
@@ -114,14 +195,14 @@ export default function CrewBubble({ row }: { row: SlateRowData }) {
         >
           {[
             { who: SKEPTIC, says: skepticLine(row) },
+            { who: WILLY, says: willyLine(row.books) },
             { who: SCOUT, says: scoutLine() },
           ].map(({ who, says }) => (
             <span key={who.name} className="mb-3 flex gap-2 last:mb-0">
               <span
-                aria-hidden
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-mono text-xs font-bold ${who.className}`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${who.className}`}
               >
-                {who.initial}
+                <CrewAvatar kind={who.face} className="h-5 w-5" />
               </span>
               <span className="min-w-0">
                 <span className="block text-xs font-semibold tracking-tight">
