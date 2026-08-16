@@ -1,5 +1,104 @@
 # Next — your checklist
 
+## 2026-08-16 (~19:20Z) — ⚠ `actionable` IS NO LONGER 0. AUDIT IT BEFORE ANYTHING ELSE.
+
+Read from `clv-coverage` on the **live** instance at 19:17:41Z. Not inferred.
+
+```
+population   rows_counted  clusters_by_game
+actionable              3                 2
+  moneyline             2                 1
+  prop                  1                 1
+```
+
+`gate.py:323` defines the population as
+`r.suppressed_reason IS NULL AND r.reference_contracts > 0` — **the strategy
+would have bet these**, sized at the fixed reference bankroll. It is not a
+display label.
+
+### This contradicts the repo's own spine, and the correction is NOT yet safe to make
+
+`CLAUDE.md` asserts `actionable = 0`, ADR 0031 §2 repeats it, and the four-agent
+review of 2026-08-16 built every argument on it. **Do not go and edit those
+files yet.** Rule 1 of this project is that a large apparent edge is a bug until
+proven otherwise, and this is good news arriving on the same day the staleness
+path changed (ADR 0030 at 17:32Z, ADR 0031, ADR 0032 at 19:02Z).
+
+Two explanations, opposite in value, and nothing so far separates them:
+
+1. **Real.** These rows were always sound and `stale_odds` was suppressing their
+   whole cohort — 256 of 265 suppressions in 24h before the fix. Removing a
+   staleness artefact is exactly what should let a genuine row through.
+2. **A defect.** The rolling refresh or the on-demand tap let a row past a guard
+   that was correctly catching it.
+
+Both games are 2026-08-16 fixtures (section G): `game:3a24…` = `WSHNYM`,
+1 actionable row; `game:3da2…` = `BOSPIT`, 2 actionable rows. Both are six-event
+games, so both carry props.
+
+### THE FIRST TASK OF THE NEXT SESSION
+
+**Audit those three rows before writing a word about them anywhere.** Send it to
+`measurement-skeptic`, and get, per row: ticker, side, ask, fair, all four devig
+readings, `book_count`, `anchored_on_sharp`, `market_width`, `edge_tenths`,
+`odds_age_ms`, `created_ms`, and whether `last_confirmed_ms` moved. The
+questions that decide it:
+
+- Is `edge_tenths` inside the `suspicious_edge` ceiling (40 tenths) but *also*
+  above the devig-method spread — i.e. did it clear a real bar, or land in a
+  gap?
+- What is `book_count`, and did `anchored_on_sharp` hold? A consensus of one
+  book is not a consensus.
+- Were they written **before or after** 17:32Z? A row that predates the
+  staleness deploy cannot have been caused by it, and that single timestamp
+  splits explanation 1 from explanation 2.
+- `reference_contracts > 0` at the $1,000 reference bankroll — ADR 0015 — so
+  check `suggested_contracts` separately. A row can count as evidence while
+  being unbuyable at the deployed $100.
+
+**No instrument emits these rows.** `inspect_live_db.py` has no query for the
+actionable population. Either add one (committed script, governance rule) or
+read them from `/api/ledger` in a browser, which is authenticated and works.
+
+### What ELSE this run settled
+
+**The props-add-no-clusters caveat is RESOLVED, and ADR 0032 survives it.**
+Section G lists all 13 prop-carrying games, and **every one includes a
+`KXMLBGAME-*` event** beside its five prop series. No game's only priced row is
+a prop, so turning scheduled prop buying off costs no cluster. n=13, read from
+the event lists rather than inferred.
+
+**But one of the three actionable rows is a prop.** That is not evidence props
+are where the edge is — it is one row — and it *is* a reason not to treat the
+prop tap as decoration.
+
+**Props do score CLV, at both horizons, on every series** (sections A and C).
+878 KXMLBRBI, 740 KXMLBHIT, 564 KXMLBTB, 300 KXMLBHR, 112 KXMLBKS.
+
+**Section E is 0 rows and every `same_series_extra` in G is 0.** ADR 0029's
+cluster fix is working and is not over-collapsing.
+
+### A cost nobody has priced, from section B
+
+306 tickers are pending re-scoring and **135 of them have already started**.
+Section B's own heading: *"Each `started` ticker costs TWO candlestick requests
+per full pass, and is never retired."* That is ~270 Kalshi requests every full
+pass, growing, forever. Kalshi is unmetered so it is not a credit cost — but it
+is unbounded work with no retirement rule, and the oldest is
+`KXMLBGAME` from **2026-08-07**, nine days stale. Worth a look once the
+actionable audit is done.
+
+### Still owed
+
+- **The prop-rungs dump — still a ONE-SHOT, still not taken.** Props stopped
+  accumulating on a schedule at v43, so this record is now static.
+- **`credits-day --date 20260817`** tomorrow. Today mixes pre- and post-switch
+  spend. The switch is confirmed *reached* (sweep-log id 459) but the saving is
+  unproven: every served sweep since v43 was a `refresh`, and refreshes never
+  bought props anyway. Only a cluster **opening** proves it.
+- The free falsification query still has **no instrument**.
+
+
 ## 2026-08-16 (~19:30Z) — PROPS ARE OFF THE SCHEDULE. THE FUNNEL IS SPEC'D. ONE DUMP STILL NEEDS A LAPTOP.
 
 `origin/main` at **`9b68b24`**, live at **machine v43**, schema **v9**.
