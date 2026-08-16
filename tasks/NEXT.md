@@ -1,6 +1,130 @@
 # Next — your checklist
 
-## 2026-08-15 — PROPS ARE RECORDING ON LIVE. One defect fixed, **one still open and it has a clock**.
+## 2026-08-16 — THE CREDIT DEFECT IS FIXED IN THE REPO AND **NOT YET DEPLOYED**. Deploy is the first thing.
+
+Three commits, all pushed to `main`: `7b6cc2e`, `e790ac3`, `9a4f15c`.
+**2,689 tests pass, 10 xfailed, ruff clean, `npm run build` clean.**
+
+### ⚠ FIRST — deploy, because the fix is not live and the defect re-fires at 10:00Z
+
+```
+gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+```
+
+Joe runs deploys. Until this lands, the prop sweep still drains the day.
+
+### 1. `7b6cc2e` — the credit drain, and it was **two** defects
+
+The handoff described one: props bought for all 27 pre-game fixtures instead of
+the 4 the slot covered, at 20 credits each. That is fixed —
+`covers_commence` is now the single definition of "covered", `games_covered` is
+counted *through* it, and `FiringSweep` carries the slot.
+
+**The one underneath it mattered more.** `decide_sweeps` sized the whole budget
+day on the *team* sweep cost (`remaining_today // 6`) with no representation of
+the per-event prop fetch that fires off the back of every firing it authorises.
+It authorised a 6-credit call that spent 384. **Fixing only 27→4 would have left
+the next limit binding in silence:** a three-hour coverage window on a full
+evening slate covers a dozen games, and `6 + 20x12` is 246 a firing. The planner
+now reserves `cost + prop_cost_per_event * games_covered` and names the refusal.
+
+**After the first clean slate, do this and write the number down:**
+
+```
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py credits-day"
+flyctl ssh console -a kalshi-cockpit \
+  -C "python /app/scripts/inspect_live_db.py prop-bookmakers"
+```
+
+`.env.example` deliberately carries **no** per-slate figure now. The old "~150 a
+slate" was two guessed inputs compounding; the replacement goes in only after it
+is reconciled against the provider's own `x-requests-used` (`BudgetState.drift`).
+
+**`prop-bookmakers` may halve the prop bill.** Props are billed per key *per
+region* and live runs `us,eu`. Nothing in this repo establishes that any EU book
+quotes an MLB player prop. If that list comes back all-US, half of every
+20-credit event buys nothing. **Do not just drop `eu` globally** — `SHARP_BOOKS`
+holds `betfair_ex_eu`/`betfair_ex_uk`, so that silently converts the deployed
+strategy into ADR 0021 option B and voids comparability with the whole record.
+Regions are per-endpoint; change the prop call only.
+
+### 2. `e790ac3` — the Slate screen. Edge is a column, not a gate
+
+New `/slate`, which **took Rejections' nav slot** (Joe's call; `/rejections` is
+still served, exactly as `/builder` is). One flat list in kickoff order, every
+row carrying factors the record already held and had never rendered: where
+Kalshi's ask sits among per-book devigged fair values **with no sharp
+anchoring**, Kalshi's own drift off `kalshi_quotes`' history, book disagreement,
+and capacity.
+
+This closes an unactioned recommendation from **2026-08-09**, not a new idea:
+the `sharp-bettor` review led with *"edge versus fee is being used as a filter
+where it should be a sort"* and recorded Joe saying the same thing that day.
+
+**The prohibitions are load-bearing and tested.** No composite — no score,
+rating or confidence; weighting unscored factors is a model needing its own ADR
+(ADR 0021 §9), and both `test_slate.py` and `test_api.py` are tripwires for one
+appearing. Nothing reaches `suggested_contracts`, suppression or the order path;
+a test parses the money path's imports. Rows sort by kickoff because a ranking
+*is* a weighting.
+
+**Book-side line movement is deliberately absent.** A fixture is swept once or
+twice a day; two samples cannot tell a move from the absence of one, and finer
+resolution is 60 credits a call. Dead on arithmetic, not oversight.
+
+The crew bubble is desktop hover, house characters only (**the Skeptic and the
+Scout**, from `backend/agents/`), every line derived from the row. Walters is a
+living person and `.claude/agents/sharp-bettor.md` forbids invented quotes.
+
+**The Scout is still quarantined and that is the next real decision.** Its ADR
+0022 revival condition — *"a strategy is adopted that needs qualitative context,
+and the Anthropic spend it implies is budgeted"* — is now **met**. Wiring it
+turns two tests red by design, and the second cannot be satisfied by editing a
+list: it needs a **batch budget** like `review_surfaced`'s, because the meter is
+per-caller. Plus an ADR and an on-demand trigger. Half a session.
+
+### 3. `9a4f15c` — non-sports is **dead on cost**, and the first run said otherwise
+
+424 DEAD to 129 WORTH across 620 genuinely-non-sport series priced where the
+control is priced. The registered falsifier fired.
+
+**Read this one for the process, not the answer.** The first run reported the
+opposite. `measurement-skeptic` caught two instrument defects before
+publication:
+
+- **One-sided books were counted as settled outcomes.** Kalshi sends `"0.0000"`
+  for a side nobody bids, so the `unreadable` counter was dead code (0 of
+  81,420) while 28,579 live markets — 35% — were dropped under a label wrong for
+  99.5% of them, and dropped hardest where books are thinnest.
+- **No price was recorded**, so *tight* and *cheap* were one measurement.
+  Control series price at 50.5c; WORTH series at 12.0c.
+
+**And the control is not a denominator:** 9 of 19 series are MLB, per league it
+runs 5.0 / 12.5 / 55.0 / 175.0, and dropping baseball moves it 10.0 → 35.0.
+
+**Do not re-run this to get a better number.** Run 2 is the run; a further look
+is a **new registration**. What would overturn it is listed in §9 of the result.
+
+### What is left, in order
+
+1. **Deploy.** Then read `credits-day` and `prop-bookmakers` and write the
+   measured per-slate cost into `.env.example` and `runner.py`.
+2. **The one-sided alternate feeds.** 174 of 222 matched keys dropped for having
+   no two-sided book — ~4.6x the comparisons for zero extra credits, and an
+   assumption that needs **`pre-registrar`**, not a patch.
+3. **Score the first prop rows on CLV** once a slate settles. **Register before
+   looking.** Props are baseball, charged `k = 0.035`, priced at 0.070.
+4. **The settlement `fee_cost` capture** for the five round-three positions —
+   the only direct test of **H4**. Fills retention ~3 months from 2026-08-14.
+5. **Scout, if Joe wants it.** See §2.
+
+**The fee window is still the gate**, unchanged by anything above: second MLB
+observation window on or after ~2026-09-04, one 1-contract fill.
+**ADR 0023 expires 2026-08-31 with default A** — 15 days.
+
+
+## 2026-08-15 — PROPS ARE RECORDING ON LIVE. One defect fixed, **one still open and it has a clock**. *(SUPERSEDED by the section above: the credit defect is fixed in the repo, pending deploy.)*
 
 **474 prop recommendation rows** on the live instance, all five series
 (`KXMLBHIT` 149, `KXMLBRBI` 121, `KXMLBTB` 106, `KXMLBHR` 66, `KXMLBKS` 32),
