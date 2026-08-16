@@ -244,7 +244,13 @@ class OddsConfig:
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
-                m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
+                # `h2h` alone. `spreads`/`totals` were fetched until 2026-08-16
+                # and consumed by nothing -- the pricing path reads
+                # `market=MONEYLINE` from its only call site (`runner.py:1218`),
+                # and `linker.py:281` refuses every non-two-sided Kalshi event,
+                # so neither has ever priced for any sport. Each extra key
+                # multiplies `sweep_cost` for every sport on every refresh.
+                m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],
             budget_day_start_utc_hour=hour,
             buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
@@ -268,7 +274,13 @@ class OddsConfig:
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
-                m for m in _optional("ODDS_MARKETS", "h2h,spreads,totals").split(",") if m
+                # `h2h` alone. `spreads`/`totals` were fetched until 2026-08-16
+                # and consumed by nothing -- the pricing path reads
+                # `market=MONEYLINE` from its only call site (`runner.py:1218`),
+                # and `linker.py:281` refuses every non-two-sided Kalshi event,
+                # so neither has ever priced for any sport. Each extra key
+                # multiplies `sweep_cost` for every sport on every refresh.
+                m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],
             # Validated here too. Until 2026-08-11 this constructor read the
             # variable raw while `load` validated it, so the demo instance --

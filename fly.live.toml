@@ -235,7 +235,43 @@ primary_region = "ord"
   AGENT_MAX_CALLS_PER_DAY = "24"
 
   ODDS_REGIONS = "us,eu"
-  ODDS_MARKETS = "h2h,spreads,totals"
+
+  # **`h2h` only, and this is a 3x cost cut that loses nothing.** Changed
+  # 2026-08-16 from `h2h,spreads,totals`.
+  #
+  # A team sweep costs `len(markets) * len(regions)` -- `odds/budget.py:66-68`
+  # -- so three keys across two regions was 6 credits per sport per refresh.
+  # **Two of those three keys were consumed by nothing.** The pricing path is
+  # `book_quotes_for_event(conn, odds_event_id, *, now, market=MONEYLINE)` with
+  # `MONEYLINE = "h2h"` (`runner.py:136, 252`), and its ONLY call site
+  # (`runner.py:1218`) passes no `market` and therefore takes the default.
+  # Outside tests, `"spreads"` and `"totals"` appear in exactly one place in the
+  # tree: `TEAM_MARKETS` in `odds/client.py:95`, which is the *fetch* allowlist.
+  # No suppression rule, devig, EV computation, sizing calculation, gate
+  # condition or API response reads either one.
+  #
+  # **Nor could they be used if something wanted to.** `match/linker.py:281`
+  # refuses any Kalshi event whose side-set is not exactly 2, so KXNFLSPREAD
+  # (25 sides), KXNFLTOTAL (19) and KXMLBTOTAL (11) are rejected on every pass
+  # and always have been. Spread and total have never priced for ANY sport.
+  # Buying their odds is buying the input to a feature that does not exist.
+  #
+  # **What it buys back.** 6 credits/call -> 2. The measured collision was an
+  # NCAAF Saturday (12.5 open hours) landing on an MLB evening: 630-700 credits
+  # against this file's 600 daily cap. When the cap binds, `decide_sweeps`
+  # returns `remaining == 0` and **every sport stops** (`timing.py:1023-1033`),
+  # so NCAAF would have spent the day and taken MLB's evening down with it --
+  # and MLB is the population the CLV record is accumulated on. At 2 credits
+  # that collision is 210-233 and fits with room.
+  #
+  # **What it costs, stated because it is not zero and is not recoverable.**
+  # Spread/total odds history stops accumulating in `odds_snapshots`. Re-enabling
+  # is this one line; the days in between cannot be bought back. Accepted
+  # deliberately: it is history for a feature that would need `linker.py:281`
+  # rewritten first, and that is a separate decision with its own ADR.
+  #
+  # `docs/measurements/2026-08-16-nfl-ncaaf-scope-and-cost.md`.
+  ODDS_MARKETS = "h2h"
 
   # **Scheduled prop buying, and it is OFF.** ADR 0032.
   #

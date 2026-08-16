@@ -1,5 +1,186 @@
 # Next — your checklist
 
+## 2026-08-17 (~00:30Z) — P1 WAS READING THE WRONG STATISTIC. NFL IS A SKIP. MLB PROPS REORDER TO PITCHER-K.
+
+`origin/main` at **`0999f76`+**, live at **machine v52**, schema **v9**.
+**2,891 tests pass, 10 xfailed, ruff clean.** Re-verify; do not inherit.
+
+Direction is unchanged: off the gate, building an opinion. `beta = -0.141`.
+Nothing below re-litigates that.
+
+### 1. The 49.5% quote disagreement was the NO rows — and the real find is what it broke
+
+`entry_ask_tenths` is the price for the side actually taken (verified in BOTH
+writers: `runner.py:899` props, `runner.py:1290` moneyline, via `ask_for_side` →
+`db.py:620-631`). A NO row's ask derives from the YES bid. `_quote_disagrees`
+compared every row against `1000 - no_bid` — the YES-side ask — so it flagged
+**every NO row by construction**. The 1,826 "disagreements" are exactly the
+1,826 `side='no'` rows. Side-aware the count is **0 of 3,692**.
+
+**`beta_hat = -0.1412` is arithmetically unchanged.** The counter is not a
+regressor.
+
+**But §A8.2 makes that counter the P1 gate**, and this is the part that matters:
+
+```
+side-blind :  matched/total = 1866/3692 = 0.5054   -> BELOW the 0.90 floor
+```
+
+So the 2026-08-16 interim look **should have printed `P1 FAILED` and reported no
+`beta_hat` at all**. It didn't, because `run_signal_test.py` was still computing
+the *superseded* P1 — non-NULL half-spread coverage, which reads 1.0000. Both
+definitions were in the tree; the looser one had the name, the docstring calling
+it "P1's statistic", and the constant.
+
+**The correction therefore moves P1 from FAIL to PASS — it rescues a number that
+was already published.** Disclosed loudly in the write-up, not buried.
+
+Fixed: `a82_counts()` emits all THREE §A8.2 counts, P1 gates on `matched/total`,
+the harness prints §A8.2's mandated >0.05 disclosure sentence itself, and
+`signal_test.coverage()` is annotated as NOT-P1 at its definition.
+`tests/test_quote_join_disagreement.py` — **19 tests where none existed**,
+mutation-verified twice.
+
+**Audited before landing, and the audit struck three things I had overstated:**
+staleness-of-0 is forced by the writer (`observed_ms` and `created_ms` are the
+same Python variable — true on all 10,288 rows ever written, and
+`stale_kalshi_quote` has never fired once); ALT CONTROL and FRESH were algebraic
+tautologies printed as if they were corroboration (three distinct fits, not
+five); and the excluded `stale_odds` population is **4,971 of 8,658** scored
+rows, not the 3,127 quoted elsewhere — that figure is the *sole-reason* count.
+
+`docs/measurements/2026-08-16-quote-join-bias-result.md`.
+
+### 2. NFL/NCAAF — scoped, priced, and one config change made
+
+`docs/measurements/2026-08-16-nfl-ncaaf-scope-and-cost.md`.
+
+**Spread and total can never price, for ANY sport.** `linker.py:281` refuses any
+Kalshi event whose side-set is not exactly 2. KXNFLSPREAD (25 sides), KXNFLTOTAL
+(19), KXMLBTOTAL (11) — all rejected on every pass, always have been. 708 NFL
+spread/total markets are being recorded and cannot become a recommendation.
+
+**So `ODDS_MARKETS` is now `h2h`** (was `h2h,spreads,totals`). The pricing path
+reads `market=MONEYLINE` from its **only** call site (`runner.py:1218`); outside
+tests `"spreads"`/`"totals"` appear once in the whole tree, in the fetch
+allowlist. **4 of every 6 team-sweep credits were buying data with no consumer.**
+6 credits/call → 2. Joe approved; deployed.
+
+What it buys: the NCAAF-Saturday-plus-MLB-evening collision was 630–700 against
+a 600 daily cap, and when the cap binds **every sport stops**
+(`timing.py:1023-1033`) — NCAAF would have taken MLB's evening down with it. At
+2 credits it is 210–233.
+What it costs, and it is not recoverable: spread/total odds history stops
+accumulating. Re-enabling is one line; the missing days stay missing.
+
+**Cost does not scale with game count** — one call per sport returns the whole
+slate, so `open hours × cadence` is the entire model. A spiky NFL Sunday is the
+*best* case, not the worst.
+
+**Depth, measured live (1,179 orderbooks, 0 errors):** KXNFLGAME/SPREAD/TOTAL and
+KXNCAAFGAME all tradeable; **KXNCAAFSPREAD thin (3 of 219), KXNCAAFTOTAL no depth
+(0 of 152)** — but measured at 13 days out with nothing nearer to compare
+against, so **re-probe Aug 27–28** before treating it as a claim about game day.
+
+**Preseason: SKIP, decided.** Kalshi lists **zero** NFL preseason player props
+(10 series probed, all empty) — preseason is moneyline only. Median preseason
+spread **21c** against **1c** for regular season a month further out. 16 games
+total, so G=16 against a floor of 300: not a result. Plus `discovery.py:298`
+would need a schema migration first.
+*Softness shows up as WIDTH, not as a mispriced tight quote, and width cannot be
+taken.*
+
+**Two dated things that will break on their own:**
+- **NCAAF enters the 48h pricing horizon ~2026-08-27 with NO alias file.** Only
+  NFL and MLB have one. College names ("Ole Miss"/"Mississippi",
+  "USC"/"Southern California") will hit prefix matching alone, in production,
+  untested.
+- NFL's alias file gets its first live exercise ~2026-09-08 and **has never
+  resolved a single name** — both refusals return before `_bijection`.
+
+**Hand-read, not a feature:** `KXNFLWEEKCOMPETE-26W1` (14 markets, 1c wide,
+~$611 at the ask, closes 09-15) is a regular-season instrument priced by
+preseason information. G=14 means it can never enter the record. Look at it by
+eye ~Aug 27; keep it out of the measured population.
+
+### 3. THE BUILD — reordered to PITCHER STRIKEOUTS, and here is why
+
+**The MLB data all exists, free, no key, and arrives in time.** Lineups complete
+**at least 3.2h** before first pitch, **0 of 30 changed** before first pitch;
+expected PA by slot derives cleanly (4.641 → 3.737, perfectly monotonic, 270
+team-games); probable starters land **1–3 days** ahead.
+
+**But the liquidity inverts the plan.** Independent check against
+`kalshi_markets.open_interest` over the full recorded population (NOT the
+subagent's candlestick sample, and it agrees):
+
+| series | markets | dead (OI=0) | avg OI/market |
+|---|---:|---:|---:|
+| **KXMLBKS** (pitcher K) | 436 | **0.9%** | **7,342** |
+| **KXMLBHR** | 1,026 | 13.6% | 6,290 |
+| KXMLBHIT | 1,713 | 21.4% | 565 |
+| KXMLBTB | 2,090 | 36.0% | 242 |
+| KXMLBRBI | 1,139 | **48.3%** | 129 |
+
+**The lineup-slot machinery serves the dead markets.** TB and RBI are a third to
+half dead. **The one healthy series needs no lineup at all** — KXMLBKS is the
+probable starter plus a per-batter-faced rate, known 1–3 days ahead, no timing
+race.
+
+**So: pitcher strikeouts first.** Smaller build, no lineup polling, no
+confirmed-lineup failure mode, and the only prop ladder with real two-sided
+depth. Score it on `scripts/run_signal_test.py` — signal-agnostic, no money at
+risk. **If pitcher-K shows nothing at ~1.05c spreads, the thinner ladders will
+not save it and the lineup machinery is never worth writing.** HR is the natural
+second: it IS lineup-dependent, but it is the one batter ladder that is liquid.
+
+**74% of a day's KXMLBKS volume trades in the final 3 hours** — i.e. after
+lineups are out. A model holding at H−3 is not late. But the spread is already
+~1.1c by then and does not widen, so the market is not visibly surprised.
+
+### 4. Data licence — decided, ADR 0035
+
+MLBAM terms, fetched verbatim: *"Only individual, non-commercial, non-bulk use of
+the Materials is permitted"*. Three collisions, of very different sizes.
+
+**The hard one:** this repo is public and CLAUDE.md:177 mandates committing
+captured payloads to `tests/fixtures/`. That would redistribute MLBAM Materials.
+**No MLBAM payload is ever committed** — explicit, narrow exception now written
+into CLAUDE.md so it does not get "corrected" back. MLB tests use synthetic
+payloads with a shape assertion.
+
+**The split:** everything historical/derived (PA-by-slot, baseline rates,
+handedness splits, any backfill) comes from **Retrosheet**, which explicitly
+permits commercial use and redistribution and asks only for a notice — *"The
+information used here was obtained free of charge from and is copyrighted by
+Retrosheet."* **That notice is mandatory** and goes in `README.md` before any
+Retrosheet-derived number is published. Only the thin live layer (today's
+probable starter, today's lineup) comes from MLBAM: **one call per slate**, a
+handful of polls per day, cached, and a 429 is a stop rather than a backoff.
+
+The source sits behind an interface so going commercial is a config change
+(SportsDataIO ~$25/mo has a commercial licence). **Trigger written down: the
+first time this handles money that is not Joe's own, the MLBAM path goes off.**
+
+Sharpening context: MLB granted **Sportradar an 8-year exclusive licence as
+global distributor of MLB betting data** from 2025. Using MLBAM's free feed to
+price bets is squarely the use licensed exclusively elsewhere.
+
+**Not done, and free:** the notice says the way to be certain is *prior written
+authorization from MLBAM*. Asking costs nothing and is outward-facing, so it
+needs Joe.
+
+### Carried forward, unchanged
+
+1. **`TAKER_COEFFICIENT = 0.07` is ~2x the measured baseball rate**
+   (`fees.py:113`). One real fill outside the four-day window settles the
+   durability question and is still the cheapest open item in the repo.
+2. **`surfaced` keys on `suggested_contracts`** (`engine.py:95-96`), which is 0
+   at the deployed $100 bankroll. Fix the definition, not the deposit.
+3. **`credits-day --date 20260817`** is the first complete post-ADR-0032 MLB day
+   and converts the 5–7 open-hour MLB estimate into a measurement. Worth taking
+   before acting on any monthly projection.
+
 ## 2026-08-16 (~22:40Z) — BETA IS MEASURED AND NEGATIVE. WE ARE OFF THE GATE. BUILD AN OPINION.
 
 `origin/main` at **`804e4ba`+**, live at **machine v53**, schema **v9**.

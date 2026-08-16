@@ -175,7 +175,11 @@ measurement was wrong in a way that flattered the result.
 - **Config via `.env`**, never hardcoded. `.env.example` is the contract.
 - **Async** for all I/O. One shared `httpx.AsyncClient`, not one per call.
 - **Wire-format tests load captured payloads** from `tests/fixtures/`, never
-  hand-constructed ones.
+  hand-constructed ones. **One exception, and it is deliberate: MLBAM
+  (`statsapi.mlb.com`) payloads are never committed**, because this repo is
+  public and their terms permit "only individual, non-commercial, non-bulk use."
+  MLB tests use synthetic payloads with a shape assertion. See ADR 0035 — the
+  inconsistency is the decision, not a bug to fix.
 
 ## Testing
 
