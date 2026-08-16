@@ -13,6 +13,46 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-16 — An absent environment variable means the default applies, not that the feature is off
+
+Building the rolling odds refresh, I needed to know whether player props were
+being bought, because props are billed per event per market key per region and
+would multiply by the refresh count. I grepped `fly.live.toml` for `PROP`, found
+nothing, and wrote in an ADR that "the live config sets no prop markets today,
+so this changes nothing that currently runs."
+
+Props were on, and had always been. The market keys come from
+`prop_market_keys()` in code; there is no environment variable to find. The
+first measurement after deploying showed **260 of that day's 266 credits were
+props** — 86% of the bill, and the actual binding constraint on everything I had
+just spent the session reasoning about. Every cost figure I had published was
+wrong by a factor of seven.
+
+**The pattern.** Searching a config file answers "is this *overridden*", never
+"is this *on*". A feature whose default is enabled is invisible to that search,
+and the absence of a hit reads exactly like the absence of the feature. The
+error is silent and it always points the same way: toward believing you are
+spending less, doing less, and risking less than you are.
+
+**How to apply.** To find out whether something runs, read the code path that
+consumes it, or measure the artefact it leaves behind — `api_credits` here. If a
+claim about live behaviour rests on a config file not containing something, that
+claim is unsupported. `runtime-realist` exists for exactly this question and
+would have answered it in one pass.
+
+**The near miss is the point.** The guard that saved this was written for a
+reason I stated wrongly — I argued props should ride the opening call only
+"because the day the config sets them is not the day to discover this", i.e. as
+a hypothetical. It was live the whole time, and without it six refreshes an hour
+would have re-bought 260 credits six times: **1,560 extra credits an hour**
+against a 600/day cap, draining the month in a day. A correct guard justified by
+a false premise is not a success; it is a coin landing the right way.
+
+Related: [[built-but-never-called]],
+[[a-number-quoted-from-your-own-projects-prose-is-an-assumed-number]].
+
+---
+
 ## 2026-08-16 — An alias between two constants is a bet that they answer the same question
 
 `SLATE_WINDOW_MS = DUE_WINDOW_MS` was written with a real derivation attached:
