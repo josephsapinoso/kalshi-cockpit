@@ -1604,6 +1604,56 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
                 f"simply absent on the live box. Add `!{script}`."
             )
 
+    # -- the inverse guard: scripts that must NOT reach the money box --------
+    #
+    # Every assertion above is "this script must ship". The opposite claim is
+    # made in prose in two places and checked nowhere:
+    # `2026-08-16-preregistration-prop-onesided-recovery.md` §8 says
+    # `analyze_prop_onesided.py` "must **not** be added to the image", and
+    # `2026-08-15-preregistration-non-sports-spread-reachability.md` §8 says
+    # the same of `census_non_sports_spread.py`.
+    #
+    # A requirement stated in a registration and enforced by nothing is
+    # decoration. These are laptop Tools: they carry analysis, apply registered
+    # decision rules, and have no business on a machine holding real money
+    # where `flyctl ssh console` could invoke them by path -- which is exactly
+    # what the ssh ruling makes possible for anything in the image.
+    #
+    # The realistic way this breaks is a widening rather than a targeted edit:
+    # somebody re-includes `!scripts/*.py` to fix one missing file and ships
+    # forty-odd others with it. Today's exclusion is incidental (they simply
+    # were never allowlisted); this makes it deliberate.
+    LAPTOP_ONLY_SCRIPTS = (
+        "scripts/analyze_prop_onesided.py",
+        "scripts/census_non_sports_spread.py",
+    )
+
+    def test_no_laptop_only_tool_reaches_the_image(self):
+        patterns = _dockerignore_patterns()
+        for script in self.LAPTOP_ONLY_SCRIPTS:
+            assert (ROOT / script).exists(), (
+                f"{script} is named as laptop-only but is not in the repo. "
+                f"Delete the entry rather than leaving an assertion about a "
+                f"file that cannot fail it."
+            )
+            assert _is_ignored(script, patterns), (
+                f"{script} is a laptop Tool and .dockerignore now SHIPS it. "
+                f"Its registration says it must not reach the image: it "
+                f"applies a registered decision rule, and the ssh ruling lets "
+                f"anything in the image be invoked by path against the live "
+                f"database. Remove whatever re-includes it."
+            )
+
+    def test_the_two_lists_do_not_overlap(self):
+        """A script cannot be both required and forbidden.
+
+        Without this, adding a name to both lists would make one of the two
+        assertions above unreachable -- and the suite would still be green,
+        which is the shape of failure this file exists to catch.
+        """
+        overlap = set(self.SSH_INVOKED_SCRIPTS) & set(self.LAPTOP_ONLY_SCRIPTS)
+        assert not overlap, overlap
+
     def test_the_two_classes_are_guarded_separately(self):
         """The guard on this guard.
 
