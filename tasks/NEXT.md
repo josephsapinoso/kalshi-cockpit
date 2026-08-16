@@ -1,5 +1,77 @@
 # Next — your checklist
 
+## 2026-08-16 (~18:20Z) — THE REFRESH IS DEPLOYED AND FIRING. TWO THINGS STILL NEED JOE'S HANDS.
+
+`origin/main` at **`96918ea`**, live at **machine v42**, schema migrated
+**v8 -> v9 on the volume** (read from the boot log, not inferred). **2,820 tests
+pass, 10 xfailed, ruff clean, `npm run build` clean.** Re-verify; do not inherit.
+
+### The rolling refresh is working, and this is the instrument reading
+
+```
+18:12:25Z  no sweep: baseball_mlb's window is open and its odds are 9.6min old
+18:14:34Z  baseball_mlb (refresh): 7 game(s) from 18:41Z ... holding the window open
+18:16:44Z  no sweep: ... odds are 2.4min old; next refresh at 18:24Z
+```
+
+Two deploys landed this session. **v41 carried ADR 0030, which had been
+committed at 16:50Z and was still not on the machine at 17:27Z** -- the fix for
+the exact complaint was sitting in the repo while live ran the old
+blinking-window code. Check `flyctl status` against `git log` before believing a
+fix is in effect.
+
+### NEW: the refresh is also a button (ADR 0031)
+
+`POST /api/odds/refresh` + a panel on the Board and the Slate. 6 credits for a
+sport's team lines, 26 for one fixture's props. Cooldown 2min per
+`sport|fixture`, 150 of the 600-credit day reserved for taps, and the real
+budget on top.
+
+**Read ADR 0031 §5 before touching `_SERVED_SWEEP` or `api_credits.trigger`.**
+A tap makes the identical request the planner makes, so without the `trigger`
+exclusion one tap in the seconds before a window opened would demote the
+opening `SCHEDULED` call to a `REFRESH` -- and props ride the opening call only.
+The column is **written to be excluded, never reported**.
+
+**⚠ Do NOT write that this made props actionable.** ADR 0031 §2 says why in
+terms: 200 prop rows sit in `no_edge`, priced against fresh odds and found not
+to clear the fee. The button fixes a *clock*. It is not evidence about edge in
+either direction, and the surfaced count must not be attributed to it.
+
+**The security trade is real and is recorded in §8.** The session cookie now
+authorises up to 150 credits a day where it authorised none. It does not widen
+toward money -- the order path still demands the token.
+
+### ⏳ STILL OWED, AND BOTH NEED JOE TO RUN THEM
+
+**`flyctl ssh console` was refused by this environment's permission classifier
+on both attempts** -- not by the governance rule, which those commands satisfy.
+Ask Joe to run them with a leading `!`.
+
+1. **The prop-rungs dump. Still a ONE-SHOT.** The 16:51Z slate has fired, so the
+   record should now hold more than the 7 fixtures it had at 02:22Z.
+
+   ```
+   flyctl ssh console -a kalshi-cockpit      -C "python /app/scripts/inspect_live_db.py prop-rungs --json --limit 20000" > dump.json
+   .venv\Scripts\python.exe scripts/analyze_prop_onesided.py dump.json
+   ```
+
+   **Run the registered analyzer on that dump BEFORE reading it for anything
+   else**, including the Pinnacle two-sidedness question.
+
+2. **The credit number is DONE and is already written up.** `fly.live.toml`
+   carries the reconciled figure: 6 + 20x13 = **266** for one 13-game MLB
+   cluster, measured on this instance, props 86% of it. Do not re-derive it.
+   The rolling refresh adds ~36, taking a cluster to ~302.
+
+### Unmeasured, and named so nobody assumes it
+
+**The 2-minute cooldown is sized on an unmeasured belief** -- that The Odds
+API's `last_update` does not move faster than that. Testing it needs consecutive
+`last_update` stamps for one book/event pair. The record now makes that
+possible and nobody has taken it. ADR 0031 §9.
+
+
 ## 2026-08-16 (~06:30Z) — THE TWO TOP ITEMS ARE UNCHANGED AND STILL WAIT ON THE 16:51Z SLATE
 
 **Nothing below supersedes them.** The credit number and the prop-rungs dump
