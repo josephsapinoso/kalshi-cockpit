@@ -1,5 +1,117 @@
 # Next — your checklist
 
+## 2026-08-16 (~06:30Z) — THE TWO TOP ITEMS ARE UNCHANGED AND STILL WAIT ON THE 16:51Z SLATE
+
+**Nothing below supersedes them.** The credit number and the prop-rungs dump
+are still the top of the queue, still blocked, still described in `start.md`.
+Three deploys landed this session (`31926838742`, `31928206611`,
+`31929393759`), all verified `instance_mode: live` from `/api/health` rather
+than from a workflow's exit status.
+
+`origin/main` at **`d4576bc`**. **2,760 tests pass, 10 xfailed, ruff clean,
+`npm run build` clean.** Re-verify; do not inherit.
+
+**One deploy is owed** — `d4576bc` (the schedule's duplicate-time fix) is not on
+the machine. Cosmetic only.
+
+### ⚠ THE GATE'S CLUSTER KEY WAS WRONG, AND THE FIX IS MOSTLY PREVENTIVE
+
+`gate.clustered_clv` clustered on `kalshi_markets.event_ticker`. **Kalshi
+issues a separate event per series**, so one ball game counted as several. Now
+clusters on `event_links.odds_event_id`. ADR 0029, two addenda.
+
+**Read addendum 2 before quoting any number.** The first framing was wrong in
+the flattering direction and is corrected there:
+
+- **The defect was live**: 143 clusters where the truth is 113, on the 5,670
+  rows scored at horizon 0.0. Verified end to end — the live Gate page now
+  reads *"none of the 113 scored game(s) is actionable"*.
+- **All 30 phantom clusters are attributed with zero residual** to prop events
+  on **six 2026-08-15 MLB fixtures**. Moneyline has zero gap in both
+  populations.
+- **The defect is SATURATED, not sporadic.** All 1,533 prop rows in that record
+  sit on those six fixtures, and **six of six were inflated 6×**. The other 107
+  games predate props on live and had *no opportunity* to show it. **Do not
+  write "1.27×" and do not write "107 of 113 were clean"** — the first measures
+  the record's composition and climbs toward 6× as props accumulate; the second
+  makes a saturated defect look contained.
+- **The 300-game floor was never inflated.** `actionable` is provably empty
+  (`1828 + 200 + 2309 + 1333 = 5670` against a pooled query with no population
+  predicate). The wrong count was on a *display*: the API and the Discord digest
+  read 143 of 300.
+
+**ADR 0029 §5 is WITHDRAWN.** It said *"every prop row on the live instance is
+suppressed"*, citing `NEXT.md:266-271` — which describes **one sweep** and says
+in terms *"It is not evidence about props."* A fact about one pass's timing was
+promoted to a property of the population, over its own source's written
+objection. **200 prop rows now sit in `no_edge`.** Props are not structurally
+excluded from `actionable`; `actionable` is simply empty for every market type.
+
+**No over-collapse was observed, and that is weaker than it sounds.** Only six
+game-keys had more than one event, so the doubleheader and fixture-re-mint
+mechanisms **may have had zero opportunities to appear**. A guard with no
+chance to fire returning zero is not evidence it works. Section E does *not*
+corroborate this — E checks the permissive direction.
+
+### `clv-coverage` — the new instrument, eight sections
+
+`inspect_live_db.py clv-coverage`. Answers whether CLV scoring reaches props,
+what the unscored set costs per pass, the gate's old cluster count beside the
+new one, which market types carry the gap, which games collapsed, the horizon
+split, and any Kalshi event linked to two fixtures.
+
+**Props DO score CLV** — 1,533 of 1,533, closing lines at both horizons.
+**Kalshi serves candlesticks for prop series.** That refutes the working
+hypothesis that props were unscorable and burning requests for ever.
+
+### Three cheap follow-ups the skeptic named, in the order they change what may be written
+
+1. The population CASE over **all** of `recommendations`, no `clv_scored_ms`
+   and no horizon predicate. Turns *"no actionable row has ever been scored"*
+   into *"never written"*. **`actionable = 0` is load-bearing in `CLAUDE.md`
+   and currently rests on an inference** — the 569 legacy 1.0h rows and the 54
+   pending tickers are unclassified by population.
+2. Section A's `distinct_tickers` split by `market_type` — turns the one-night
+   denominator above from an inference into a read.
+3. `SELECT event_ticker FROM kalshi_markets GROUP BY event_ticker HAVING
+   COUNT(DISTINCT series_ticker) > 1` — closes the last path by which
+   `same_series_extra` could read 0 spuriously.
+
+### The Board now says WHEN to look
+
+Joe asked for it. `WindowSchedule.tsx`, under `WindowBanner`. The data was
+already on the wire and read by nothing: `ActionableWindow.slots_planned` is
+the planner's own list and the frontend type never declared it, so the UI
+showed the next window and nothing beyond it.
+
+Renders the outer envelope `fire_from → fire_until + max_odds_age`, in **local
+time**, with games covered and a countdown. Says *priceable*, never
+*bettable* — `actionable` has been 0 for the project's life and a schedule
+reading "be here and there will be a bet" would be the most misleading element
+on the page.
+
+**Two UI defects this session were found by opening the page, not by reading
+code.** The schedule's first render printed one instant twice (`fire_until +
+freshness` is *exactly* `anchor_commence_ms`, by construction at
+`odds/timing.py:261`); and `unclustered_rows` reported 0 on a record it had
+split. **Look at the running page.**
+
+### A correction to the record that is NOT about the Scout
+
+`start.md` and this file both say *"the tool prices only `KXMLBGAME` and
+`KXWNBAGAME` — both professional. There is no non-professional work to
+remove."* **The second sentence is false.** `discovery.py:237` has
+`"NCAA Football": "americanfootball_ncaaf"`, and the live instance has already
+discovered `KXNCAAFGAME`/`KXNCAAFSPREAD`/`KXNCAAFTOTAL`. What is *in season*
+was read as what is *in scope* — the same shape as the Pinnacle error.
+
+NFL is discovered and **not priced**: zero NFL rows in `recommendations`. The
+reason is unestablished.
+
+**The Scout itself is still TABLED. Do not start it unasked.**
+
+
+
 ## 2026-08-16 (~03:00Z) — A DEPLOY IS OWED, AND ONE MEASUREMENT IS STILL DUE AT ~17:30Z
 
 Two commits, `400d712` and `b0c2fab`. **2,728 tests pass, 10 xfailed, ruff
