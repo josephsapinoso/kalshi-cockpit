@@ -389,6 +389,105 @@ _SQL_ACTIONABLE_FAIR = (
 
 
 # ---------------------------------------------------------------------------
+# The whole decision record, raw.
+# ---------------------------------------------------------------------------
+#
+# **This is a dump, not a measurement, and the distinction is the whole design.**
+# Two open questions need the same rows and disagree about how to slice them:
+#
+# 1. `tasks/NEXT.md`'s free falsification query -- the distribution of
+#    (`edge_tenths` minus the bar it had to clear), split by `market_type`. If
+#    nothing sits near the bar, no funnel change and no deep dive can close the
+#    gap; if a band does, that band names the prospect definition.
+# 2. The separating measurement from
+#    `docs/measurements/2026-08-16-actionable-population-audit-result.md`: split
+#    the unsuppressed population by `anchored_on_sharp` and compare. All three
+#    actionable rows ever written are unanchored, and ADR 0021 measured 423
+#    unanchored rows producing 0 actionable. If unanchored rows are enriched for
+#    positive edge, the "edge" is a fact about which books were admitted.
+#
+# Both have a decision rule attached, so **neither is computed here**. This
+# emits one row per recommendation with the columns each needs and no
+# aggregate at all -- not a rate, not a bucket, not a count beyond the section's
+# own row count. `prop-rungs` set that precedent deliberately (see this module's
+# docstring) and it is the default for anything a verdict will be built on: the
+# registered arithmetic lives in a laptop script, where it is reviewable as
+# arithmetic rather than as SQL.
+#
+# **No population is chosen here either.** `suppressed_reason` is emitted as a
+# column rather than applied as a predicate, so the analyst picks the population
+# and the instrument cannot quietly pre-select one that flatters. That is the
+# opposite choice from `actionable-audit`, which exists to show one named
+# population in full, and the two are meant to disagree in that way.
+#
+# The four `p_*` methods are emitted rather than their spread, because the bar
+# in question IS a function of them (`suppression.py:351`) and a dump that
+# pre-computed it would be smuggling in the definition under test.
+_SQL_DECISION_DUMP = (
+    "SELECT r.id, r.created_ms, r.ticker, m.market_type, m.event_ticker, "
+    "m.series_ticker, m.status AS market_status, m.result AS market_result, "
+    "l.odds_event_id, e.commence_ms, r.side, r.entry_ask_tenths, "
+    "r.depth_at_ask, r.fair_probability, r.edge_tenths, r.fee_predicted, "
+    "r.suggested_contracts, r.reference_contracts, r.kalshi_quote_age_ms, "
+    "r.odds_age_ms, r.last_confirmed_ms, r.suppressed_reason, "
+    "r.strategy_config_version, f.p_multiplicative, f.p_additive, f.p_power, "
+    "f.p_shin, f.p_conservative, f.overround, f.market_width, f.book_count, "
+    "f.anchored_on_sharp, r.clv_tenths, r.clv_horizon_hours, r.clv_scored_ms "
+    "FROM recommendations r "
+    "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+    "LEFT JOIN event_links l ON l.id = r.link_id "
+    "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+    "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
+    "ORDER BY r.id"
+)
+
+
+def _q_decision_dump(conn: sqlite3.Connection, args) -> list[Section]:
+    """Every recommendation ever written, with its provenance, and no verdict.
+
+    One section on purpose. A second summary section would be an aggregate, and
+    the point of this query is that it contains none -- a reader who wants a
+    rate computes it in `scripts/`, against a registered rule, where the
+    arithmetic can be reviewed as arithmetic.
+
+    **Expect this to truncate and check the flag.** The record is >10,000 rows
+    and `DEFAULT_ROW_CAP` is 2,000, so the default invocation returns a prefix
+    ordered by `id` -- which is the oldest rows, not a sample. Pass `--limit`
+    above the record size and confirm `truncated` is false before analysing.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing at all on its own.** It is rows. Every question worth asking of
+      them has a decision rule that belongs in a pre-registration.
+    - **`suppressed_reason` names the FIRST reason only.** All checks run
+      without short-circuit, but one string is stored, so this cannot support
+      "how many rows would N alone have caught".
+    - **The record is not a sample of decisions.** `persist_if_changed` writes
+      only when the ask or the fair value moves, so a market quoted unchanged
+      for an hour contributes one row and a volatile one contributes many. Any
+      per-row rate is a rate per *write*, not per opportunity or per unit time.
+    - **`edge_tenths` is priced at one contract** on every row the deployed
+      sizer zeroed, which is nearly all of them (`engine.py:177`). Two rows with
+      different sizes are not on the same scale.
+    - **A NULL `odds_event_id` or `commence_ms` is a failed join**, not a
+      missing fixture. Read the orphan count before clustering by game.
+    """
+    return [
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_DECISION_DUMP,
+                (),
+                title="recommendations: every decision, with fair-price provenance",
+                cap=args.limit,
+            ),
+            "created_ms",
+            "created_iso",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
 # CLV coverage, and the gate's cluster count.
 # ---------------------------------------------------------------------------
 #
@@ -1503,6 +1602,15 @@ QUERIES: dict[str, QueryDef] = {
         "readings, book_count, anchored_on_sharp, market_width). Prints rows "
         "and no verdict. Answers: did these clear a real bar, or land in a gap?",
         _q_actionable_audit,
+    ),
+    "decision-dump": QueryDef(
+        "Every recommendation ever written, one row each, with its four devig "
+        "readings, book_count, anchored_on_sharp, market_width, both sizes, "
+        "suppressed_reason and its CLV score. Emits rows and NO aggregate: the "
+        "registered arithmetic belongs in scripts/. Feeds the free "
+        "falsification query and the anchored-vs-unanchored split. Raise "
+        "--limit above the record size and check `truncated` before analysing.",
+        _q_decision_dump,
     ),
     "clv-coverage": QueryDef(
         "Does CLV scoring reach props? Six sections: recommendations by "

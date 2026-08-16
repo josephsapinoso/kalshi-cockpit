@@ -2122,3 +2122,106 @@ class TestOnlyRowsTheStrategyWouldHaveBetAppear:
         sections = _audit(path)
         assert len(sections) == 2
         assert [s.row_count for s in sections] == [0, 0]
+
+
+# ---------------------------------------------------------------------------
+# decision-dump
+# ---------------------------------------------------------------------------
+
+
+def _dump(path: Path, limit: int = DEFAULT_ROW_CAP) -> list[Section]:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return QUERIES["decision-dump"].run(conn, argparse.Namespace(limit=limit))
+    finally:
+        conn.close()
+
+
+class TestTheDumpChoosesNoPopulation:
+    """`suppressed_reason` is a column here, never a predicate.
+
+    The two questions this feeds disagree about which rows belong -- the
+    falsification query wants scored rows across every population, the
+    anchoring split wants the unsuppressed ones. An instrument that picked
+    would decide the answer, and the population that flatters is always the
+    one it is easiest to justify picking.
+
+    Mutation: add `WHERE r.suppressed_reason IS NULL`. Row 91 vanishes and the
+    dump silently becomes an argument for one of the two readings.
+    """
+
+    def test_suppressed_and_unsuppressed_rows_both_appear(self, tmp_path):
+        path = _actionable_db(
+            tmp_path,
+            [
+                (90, None, 4, 4),
+                (91, "stale_odds", 4, 4),
+                (92, None, 0, 0),
+            ],
+        )
+        (section,) = _dump(path)
+        by_id = {r[0]: dict(zip(section.columns, r)) for r in section.rows}
+        assert sorted(by_id) == [90, 91, 92]
+        assert by_id[91]["suppressed_reason"] == "stale_odds"
+        assert by_id[90]["suppressed_reason"] is None
+
+    def test_it_emits_exactly_one_section_and_no_aggregate(self, tmp_path):
+        """A summary section would be a derived quantity with a rule attached.
+
+        Mutation: add a `GROUP BY anchored_on_sharp` section. It would be the
+        finding, computed in SQL, outside any pre-registration -- which is the
+        failure `prop-rungs` was shaped to avoid.
+        """
+        path = _actionable_db(tmp_path, [(90, None, 4, 4)])
+        sections = _dump(path)
+        assert len(sections) == 1
+        forbidden = {"n", "rate", "pct", "mean", "median", "share", "ratio"}
+        assert not forbidden & {c.lower() for c in sections[0].columns}
+
+    def test_the_bar_inputs_survive_rather_than_the_bar(self, tmp_path):
+        """The spread is what the edge must clear, so it must not be precomputed.
+
+        Mutation: emit `p_power - p_shin` as a `spread` column. That bakes the
+        definition under test into the instrument, and a later change to which
+        methods count would silently change the dump's meaning.
+        """
+        path = _actionable_db(tmp_path, [(90, None, 4, 4)])
+        (section,) = _dump(path)
+        row = dict(zip(section.columns, section.rows[0]))
+        for column in (
+            "p_multiplicative",
+            "p_additive",
+            "p_power",
+            "p_shin",
+            "anchored_on_sharp",
+            "book_count",
+            "market_width",
+        ):
+            assert column in row, column
+        assert "spread" not in row
+
+
+class TestTheDumpTruncatesLoudlyBecauseItIsOrderedById:
+    """A capped dump is the OLDEST rows, not a sample of the record.
+
+    The live record is >10,000 rows against a 2,000 default cap, so the
+    default invocation truncates -- and `ORDER BY r.id` makes the prefix the
+    project's earliest decisions, written under superseded strategy configs.
+
+    Mutation: drop the `+ 1` probe in `_fetch`. The dump then returns exactly
+    the cap with `truncated = False`, and an analysis of the first 2,000 rows
+    reads as an analysis of the record.
+    """
+
+    def test_a_capped_dump_says_it_was_capped(self, tmp_path):
+        path = _actionable_db(tmp_path, [(i, None, 4, 4) for i in range(90, 96)])
+        (section,) = _dump(path, limit=3)
+        assert section.truncated is True
+        assert section.row_count == 3
+
+    def test_a_limit_above_the_record_does_not_claim_truncation(self, tmp_path):
+        path = _actionable_db(tmp_path, [(i, None, 4, 4) for i in range(90, 96)])
+        (section,) = _dump(path, limit=DEFAULT_ROW_CAP)
+        assert section.truncated is False
+        assert section.row_count == 6
