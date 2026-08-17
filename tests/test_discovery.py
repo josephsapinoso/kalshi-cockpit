@@ -1656,6 +1656,51 @@ class TestPropSeries:
         # It must NOT collapse two different players.
         assert norm("Clay Holmes") != norm("Clay Holme")
 
+    @pytest.mark.parametrize(
+        "kalshi,odds",
+        [
+            ("José Ramírez", "Jose Ramirez"),
+            ("Ronald Acuña Jr.", "Ronald Acuna Jr."),
+            ("Julio Rodríguez", "Julio Rodriguez"),
+            ("Eugenio Suárez", "Eugenio Suarez"),
+            ("Jeremy Peña", "Jeremy Pena"),
+            ("Teoscar Hernández", "Teoscar Hernandez"),
+            ("Carlos Narváez", "Carlos Narvaez"),
+            ("Pedro Pagés", "Pedro Pages"),
+        ],
+    )
+    def test_norm_folds_the_diacritics_the_two_sources_disagree_on(
+        self, kalshi, odds
+    ):
+        """The third disagreement, and it was silently dropping the best rows.
+
+        Measured on the live record 2026-08-17: Kalshi carries diacritics on 28
+        of 411 prop players, the Odds API on 2 of 335. Folding rather than
+        deleting recovers **18 players**, 297 joined names to 315 -- and they
+        are the high-liquidity hitters prop volume concentrates on.
+        """
+        assert norm(kalshi) == norm(odds)
+
+    def test_norm_does_not_delete_an_accented_character(self):
+        """The specific defect, pinned at the character.
+
+        `[^a-z0-9 ]` does not match `á`, so the pre-fix implementation deleted
+        it: `José` became `jos`. That is a spelling neither source uses, so it
+        matched nothing and left no trace. Asserting the *positive* form here --
+        the letter survives as its unaccented self -- because an equality test
+        alone would also pass if both sides deleted.
+        """
+        assert norm("José") == "jose"
+        assert norm("Acuña") == "acuna"
+        assert norm("Díaz") == "diaz"
+
+    def test_norm_still_refuses_to_collapse_two_different_players(self):
+        """Folding widens what matches, so the guard against over-merging has
+        to be re-asserted on the folded form rather than inherited."""
+        assert norm("José Ramírez") != norm("Jose Ramires")
+        assert norm("Jeremy Peña") != norm("Jeremy Penn")
+        assert norm("Elias Díaz") != norm("Elias Diez")
+
     def test_base_market_folds_the_alternate_feed_onto_the_primary(self):
         assert base_market("pitcher_strikeouts_alternate") == "pitcher_strikeouts"
         assert base_market("pitcher_strikeouts") == "pitcher_strikeouts"

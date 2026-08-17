@@ -47,6 +47,7 @@ WHAT THIS MODULE DOES NOT DECIDE
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -118,15 +119,43 @@ def parse_subtitle(subtitle: Optional[str]) -> Optional[tuple[str, int]]:
 
 
 def norm(name: str) -> str:
-    """Casefold and strip punctuation, so `J.T. Realmuto` matches `JT Realmuto`.
+    """Casefold, fold diacritics, strip punctuation. `José` matches `Jose`.
 
-    Deliberately narrow. It removes punctuation and case, which are the two
-    things the two sources genuinely disagree about, and nothing else -- no
-    nickname table, no fuzzy distance, no dropping of suffixes like `Jr`. A
+    Deliberately narrow. It removes case, diacritics and punctuation -- the
+    three things the two sources genuinely disagree about -- and nothing else:
+    no nickname table, no fuzzy distance, no dropping of suffixes like `Jr`. A
     matcher that guesses is a matcher that pairs two different players and
     produces an entirely plausible edge.
+
+    THE DIACRITIC FOLD IS NOT COSMETIC, AND IT WAS SILENTLY DROPPING STARS
+    ---------------------------------------------------------------------
+    Until 2026-08-17 this stripped diacritics by **deleting** them, because
+    `[^a-z0-9 ]` does not match `á` -- so `José Ramírez` normalised to
+    `jos ramrez`. That is not a spelling either source uses, so it matched
+    nothing and the player fell out of the join in silence.
+
+    The two sources genuinely disagree here, measured on the live record:
+
+        Kalshi     411 prop players,  28 carry diacritics  (6.8%)
+        Odds API   335 prop players,   2 carry diacritics  (0.6%)
+
+    The Odds API strips them; Kalshi keeps them. Folding rather than deleting
+    recovers **18 players** -- 297 joined names becomes 315 -- and they are not
+    marginal names: Ronald Acuña Jr., José Ramírez, Julio Rodríguez, Eugenio
+    Suárez, Teoscar Hernández, Jeremy Peña. Prop liquidity concentrates on
+    exactly these hitters, so the defect was removing the most tradeable rows in
+    the series and leaving no trace that it had.
+
+    **Folding can in principle merge two distinct players** (`Peña` and `Pena`
+    as different people). That is the correct failure mode for this module and
+    is unchanged by the fix: the module's rule is that a collision is
+    *reported*, never silently resolved, and callers key on `(player, point)`
+    and check uniqueness. Deleting the character had the same collision risk
+    while also matching nobody.
     """
-    return re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
+    decomposed = unicodedata.normalize("NFKD", name)
+    folded = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9 ]", "", folded.lower()).strip()
 
 
 def base_market(key: str) -> str:
