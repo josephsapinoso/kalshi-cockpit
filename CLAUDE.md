@@ -1,8 +1,21 @@
 # CLAUDE.md
 
 Spine for this repo. Deliberately short — detail lives in `.claude/skills/`,
-loaded only when working in that area. Read `tasks/todo.md` and
-`tasks/lessons.md` at session start.
+loaded only when working in that area. At session start read, in this order:
+`tasks/NEXT.md` (current state), `tasks/todo.md` (build log), then
+`tasks/lessons.md`.
+
+**All three are now small enough to read in full, and that is a guard, not a
+promise.** As of 2026-08-17 `NEXT.md` and `lessons.md` were 456KB and 427KB —
+both past the 262,144-byte ceiling at which the Read tool refuses a file
+outright, so the instruction above had been impossible to obey and sessions
+were silently reading only the head. The history was moved, **verbatim and
+byte-for-byte**, into `tasks/archive/{next,lessons}-YYYY-MM-DD.md`; nothing was
+summarised or deleted. `tasks/lessons.md` is now the newest lessons plus a
+**pattern index** naming every lesson and its archive file — open the archive
+file when a line sounds relevant. `tests/test_session_files_are_readable.py`
+fails if either file crosses back over the limit. Add to the top; move the
+bottom into the dated archive file rather than shortening it.
 
 ## What this is
 
