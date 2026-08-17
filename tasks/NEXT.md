@@ -88,10 +88,43 @@ is the one unverified thing in this entry.
   in its transcript on disk. Not the Kalshi key. By this repo's own standing
   rule that counts as compromised.
 
-### Open — directive #2, not started
+### Done — directive #2, and its premise was wrong
 
-**Nav audit**, low priority. `/rejections` and `/builder` are served and
-reachable only by typing a URL.
+**The nav audit found a decision, not a defect — and then a real bug inside
+it.** Committed, not yet deployed.
+
+Directive #2 read: *"a screen that is served but unreachable is this repo's
+named defect in UI form."* `Nav.tsx:8-27` says otherwise, in writing and with
+reasons. **Six links is a budget**: a seventh pushes the Gate — the screen that
+says whether money can move — off the row at 390px. `/builder` lost its slot
+because it prices sportsbook parlays, cannot change a bet on this venue, and
+for a beginner can change one in the wrong direction. `/rejections` lost its
+slot on 2026-08-15 because Slate is a strict superset of it. Two recorded
+trades, not two oversights.
+
+**The bug is one layer in.** That comment says *twice* that the pages are
+"still served for anyone who wants it" — and there was **no inbound link
+anywhere in the application.** Not the nav, not a footer, not contextually. The
+escape hatch it promised was never built, and on a phone "type the URL" is not
+a route a real person takes. A served page with no link is unreachable in
+practice however true it is that the server answers.
+
+Fixed with a **footer**, not a seventh nav link — the budget argument is right
+and the Gate keeps its slot. Each entry carries a one-line blurb, because a
+bare link named "Builder" invites a beginner to open a parlay calculator
+expecting a Kalshi feature.
+
+**`tests/test_every_screen_is_reachable.py`** now fails if any page with a
+`page.tsx` is named in neither link list, if the nav budget stops being six, or
+if the footer grows larger than the nav. Observed red by deleting a footer
+entry. **The remedy it does not enforce: a page worth neither slot belongs in a
+delete commit, and the footer must not become the place decisions go to be
+avoided.**
+
+The lesson is the recurring one — `tasks/lessons.md`, *"a collective noun is not
+a measurement"*. The directive named a set (`/rejections` and `/builder`) and
+predicated a defect over all of it in one breath. Opening the file took a
+minute and falsified the predicate while leaving a smaller true finding behind.
 
 ### Still undecided, do not build it
 

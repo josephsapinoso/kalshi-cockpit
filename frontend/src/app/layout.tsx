@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Footer from "@/components/Footer";
 import Nav from "@/components/Nav";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -46,6 +47,12 @@ export default function RootLayout({
         </a>
         <Nav />
         <main id="main">{children}</main>
+        {/* Below the content, not in the nav row: `Nav.tsx` spends its six
+            links deliberately and a seventh pushes the Gate off-screen at
+            390px. These two pages were traded away on their merits and were
+            then reachable only by typing a URL, which on a phone is not a
+            route anyone takes. */}
+        <Footer />
       </body>
     </html>
   );

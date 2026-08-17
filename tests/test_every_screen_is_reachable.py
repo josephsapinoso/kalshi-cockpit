@@ -1,0 +1,94 @@
+"""A screen the server answers and nothing links to is not shipped.
+
+This repo's named defect is code that is complete, tested, and invoked by
+nothing. `tests/test_has_callers.py` catches that for Python modules. This file
+catches the same shape one layer up, where it is easier to miss because the
+route *works*: visit the URL and the page renders perfectly, so nothing looks
+broken. What is missing is the only thing that matters — a way to arrive.
+
+**It was real, and it was hidden by a comment that read like a decision.**
+`Nav.tsx` spends six links deliberately, and its own text says twice that
+`/builder` and `/rejections` are "still served for anyone who wants it". They
+were: with no inbound link anywhere in the application. The trade-off was
+recorded honestly and the escape hatch it promised was never built. On a tool
+operated from a phone, "type the URL" is not a route a real person takes.
+
+So the rule is not "every screen is in the nav" — the nav is a budget, and a
+seventh link pushes the Gate off the row at 390px. The rule is that every
+screen is reachable from *somewhere*, and that where it lives is a choice
+someone made rather than a slot nobody noticed.
+
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+- **Nothing about whether a page is worth keeping.** The remedy for a screen
+  nobody wants is a delete commit, and this test is happy to be satisfied by a
+  footer link on a page that should have gone. Watch for that.
+- **Nothing about whether the link works.** It reads the source for an `href`.
+  A route that 500s on load passes here.
+- **Nothing about the rest of the app's navigation.** Only that each served
+  page is named in one of the two link lists.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+APP = REPO_ROOT / "frontend" / "src" / "app"
+NAV = REPO_ROOT / "frontend" / "src" / "components" / "Nav.tsx"
+FOOTER = REPO_ROOT / "frontend" / "src" / "components" / "Footer.tsx"
+
+#: Reached by a mechanism no `href` can express, so requiring one would be
+#: noise rather than a check.
+#:
+#: - `/` is the nav's own logo link and every screen's home.
+#: - `/login` is arrived at by being redirected there, unauthenticated, by
+#:   `frontend/src/middleware.ts`. A link to it from a signed-in page is a
+#:   link to a form the reader has already filled in.
+EXEMPT = {"/", "/login"}
+
+
+def served_routes() -> set[str]:
+    """Every route with a `page.tsx`, as the path a browser would ask for."""
+    routes = set()
+    for page in APP.rglob("page.tsx"):
+        rel = page.parent.relative_to(APP).as_posix()
+        routes.add("/" if rel == "." else f"/{rel}")
+    return routes
+
+
+def linked_routes(source: Path) -> set[str]:
+    return set(re.findall(r'href:\s*"([^"]+)"', source.read_text(encoding="utf-8")))
+
+
+class TestEveryScreenCanBeArrivedAt:
+    def test_no_served_page_is_reachable_only_by_typing_its_url(self):
+        """The whole point. Mutation observed red: delete either entry from
+        `Footer.tsx`'s `SECONDARY` -- that route reappears here by name."""
+        reachable = linked_routes(NAV) | linked_routes(FOOTER) | EXEMPT
+        orphaned = sorted(served_routes() - reachable)
+        assert not orphaned, (
+            f"{orphaned} render fine and nothing in the application links to "
+            f"them, so the only way to arrive is to type the URL -- which on a "
+            f"phone is not a route anyone takes. Add each to Nav.tsx (spending "
+            f"a link from a six-link budget, so something else comes out) or to "
+            f"Footer.tsx, or delete the page. Leaving it served and unlinked is "
+            f"the one option that is not a decision."
+        )
+
+    def test_the_nav_budget_is_still_six(self):
+        """`Nav.tsx` argues the count is load-bearing: a seventh link pushes the
+        Gate -- the screen that says whether money can move -- off the row at
+        390px. If that stops being true it should stop being true on purpose.
+
+        Mutation observed red: add a seventh entry to `LINKS`.
+        """
+        assert len(linked_routes(NAV)) == 6
+
+    def test_the_footer_does_not_quietly_absorb_the_whole_app(self):
+        """A footer is where a screen goes when it is worth keeping and not
+        worth a nav slot. If it ever holds more than the nav does, the nav is no
+        longer the answer to "what is this tool for" -- and a page nobody wants
+        belongs in a delete commit, not in a list at the bottom."""
+        assert len(linked_routes(FOOTER)) < len(linked_routes(NAV))
