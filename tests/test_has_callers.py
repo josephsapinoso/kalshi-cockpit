@@ -870,6 +870,21 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
                 "13,806 legs), and not on the chain -- the cockpit prices "
                 "single markets. Reachable only from a demo script.",
     ),
+    "backend/model/strikeouts.py": Tool(
+        run_by=("scripts/price_pitcher_k_ladder.py",),
+        purpose="Slice 1 of the pitcher-strikeout build: the compound "
+                "distribution that prices a whole `KXMLBKS` ladder from one "
+                "opinion. Off the chain **because it has no parameters yet** -- "
+                "it is pure arithmetic on `(expected_bf, sd_bf, k_per_bf)`, and "
+                "where those come from is licence-constrained (ADR 0035) and is "
+                "slice 2. Wiring it in before then would put a model priced off "
+                "typed-in constants on the money path. It becomes LIVE with a "
+                "MUST_HAVE_CALLERS entry when slice 3 writes model rows under "
+                "their own strategy_config_version -- **and not before**: this "
+                "entry going stale is the signal that the build finished, so a "
+                "future session should expect to delete it rather than extend "
+                "it.",
+    ),
     "backend/model/synthetic.py": Tool(
         run_by=("scripts/demo_builder.py",),
         purpose="Synthetic margin generator, documented as not-evidence. It "
