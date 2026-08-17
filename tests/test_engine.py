@@ -122,6 +122,37 @@ class TestSurfacing:
         assert rec.suggested_contracts == 0
         assert not rec.surfaced
 
+    def test_the_reason_reports_a_size_and_does_not_instruct(self):
+        """Indicative, not imperative -- ADR 0038.
+
+        `beta = -0.141` refuted that `edge_tenths` predicts Kalshi's close. The
+        comparison in the head survives that; the instruction does not. A tool
+        whose registered statistic says its edge number carries no information
+        may report a size, but may not tell anyone to take it.
+
+        This is pinned because the offending string was one word and read as
+        natural product copy for the life of the project -- exactly the kind of
+        edit a future session restores without noticing it is a claim.
+        """
+        rec = build(candidate())
+        assert rec.surfaced, rec.reason_text
+        assert f"Sized at {rec.suggested_contracts}." in rec.reason_text
+        for imperative in ("Buy ", "Bet ", "Take ", "Back "):
+            assert imperative not in rec.reason_text, (
+                f"reason_text instructs the reader: {rec.reason_text!r}"
+            )
+
+    def test_the_size_is_still_reported(self):
+        """The count stays even though the verb went.
+
+        `reference_contracts` is what the gate's `actionable` predicate counts,
+        so dropping the number to make the sentence read better would change
+        what is measured in order to reach a target. Record the number; drop
+        the verb -- both halves are load-bearing.
+        """
+        rec = build(candidate())
+        assert str(rec.suggested_contracts) in rec.reason_text
+
 
 class TestSuppressionIsRecordedNotDropped:
     def test_a_stale_quote_suppresses_but_still_produces_a_row(self):

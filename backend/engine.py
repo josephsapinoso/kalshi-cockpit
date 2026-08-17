@@ -285,10 +285,12 @@ def with_added_suppression(
     written.
 
     The decision clause is replaced rather than appended. This is only ever
-    called on a surfaced row, whose `reason_text` ends in `". Buy {n}."`, so
-    the last `". "` is the boundary between the head and the decision --
-    including on a team whose own name contains one ("St. Louis Cardinals"),
-    which is why the split is from the right.
+    called on a surfaced row, whose `reason_text` ends in `". Sized at {n}."`
+    (`". Buy {n}."` before 2026-08-17 -- see `_explain`), so the last `". "` is
+    the boundary between the head and the decision -- including on a team whose
+    own name contains one ("St. Louis Cardinals"), which is why the split is
+    from the right. **The split does not depend on the wording**, only on that
+    final `". "`, which is why changing the verb did not touch this function.
     """
     head = rec.reason_text.rsplit(". ", 1)[0]
     return replace(
@@ -331,7 +333,19 @@ def _explain(
         return f"{head}. Not actionable -- {'; '.join(problems)}."
     if contracts == 0:
         return f"{head}. No edge."
-    return f"{head}. Buy {contracts}."
+    # **Indicative, not imperative, and the mood is the whole edit.** This
+    # returned `Buy {contracts}` until 2026-08-17. Everything in `head` survives
+    # ADR 0038 -- `beta` refuted that `edge_tenths` predicts Kalshi's close, not
+    # that the devig is wrong or the ask is misread, and those are facts already
+    # bought and stored. The instruction did not survive: a tool whose own
+    # registered statistic says its edge number carries no information may
+    # report a size, but it may not tell anyone to take it.
+    #
+    # The count itself stays, deliberately. `reference_contracts` is what the
+    # gate's `actionable` predicate counts (`backend/gate.py`), so dropping it
+    # from the sentence to make the screen read better would be changing what is
+    # measured in order to reach a target. Record the number; drop the verb.
+    return f"{head}. Sized at {contracts}."
 
 
 # ---------------------------------------------------------------------------
