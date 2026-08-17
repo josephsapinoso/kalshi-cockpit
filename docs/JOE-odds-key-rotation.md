@@ -68,10 +68,40 @@ APP_AUTH_TOKEN   DISCORD_WEBHOOK_URL   ANTHROPIC_API_KEY
 
 Only `ODDS_API_KEY` changes. **Do not touch the other five.**
 
-**4. Expect a restart.** Saving a Fly secret restarts the machine, which
-restarts the odds loop (`docker/entrypoint.sh` → `scripts/run_loop.py`). That is
-normal and is what picks the new value up. There is **no `.env` in the image** —
-the Fly secret is the only source, so nothing else needs editing.
+**4. THE DASHBOARD ONLY STAGES IT. THIS IS THE STEP THAT BITES.**
+
+Saving in the web UI does **not** restart anything. The secret sits as
+**`Staged`** and the running loop keeps using the **old key** — indefinitely.
+Confirmed live on 2026-08-17: after a dashboard save, `flyctl secrets list`
+showed
+
+```
+* ODDS_API_KEY   c62a5156744f4b7a   Staged
+```
+
+— new digest, old key still in the process.
+
+**Why this is the dangerous step and not a footnote:** the loop keeps sweeping
+successfully on the old key, so *every* check below passes while nothing has
+been rotated. A verification that cannot fail is worse than none, because it
+retires the task. **Check for `Deployed`, never just for a working sweep.**
+
+Apply it one of two ways:
+
+- Ask the agent, which runs `flyctl secrets deploy -a kalshi-cockpit`; or
+- In the dashboard, look for the pending-secrets banner and confirm the
+  rollout.
+
+Then confirm the status word has changed:
+
+```
+flyctl secrets list -a kalshi-cockpit
+```
+
+`ODDS_API_KEY` must read **`Deployed`**, not `Staged`. The machine restarts on
+apply, which is what restarts the odds loop (`docker/entrypoint.sh` →
+`scripts/run_loop.py`). There is **no `.env` in the image** — the Fly secret is
+the only source, so nothing else needs editing.
 
 **5. Tell the agent you've done it.** Do not say what the value is.
 
