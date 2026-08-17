@@ -27,12 +27,17 @@ carries a commit -- `FLY_IMAGE_REF` ends in a deployment ULID and
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
 from backend.api.routes import create_app
 from backend.config import AppConfig, BuildInfo
 from backend.seed_demo import seed_all
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 FLY_VARS = [
@@ -242,3 +247,39 @@ class TestHealthCarriesIt:
         body = (await get(demo_app, "/api/health")).text
 
         assert "9xQ2v9LmT4pR7wYzB" not in body
+
+
+class TestTheDeployPathActuallySetsIt:
+    """The field is worth nothing if the only deploy path never populates it.
+
+    This is the repo's own named defect -- built, tested, and invoked by
+    nothing. `/api/health` grew a `git_sha` and `.github/workflows/deploy.yml`
+    was left deploying without `-e GIT_SHA`, so every deploy through the one
+    path that exists would have served `git_sha: null` while a green suite
+    reported the feature present. `deploy.yml` is the only way either instance
+    is deployed -- `flyctl` has no mobile client and the owner works from a
+    phone -- so a passing `BuildInfo` unit test says nothing about production.
+    """
+
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
+
+    def test_the_deploy_step_passes_git_sha(self):
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+
+        assert '-e GIT_SHA="${{ github.sha }}"' in text, (
+            "deploy.yml must pass -e GIT_SHA, or /api/health reports null on "
+            "every deployed machine. `-e` sets a runtime variable and busts no "
+            "Docker layer; a build arg would."
+        )
+
+    def test_the_verify_step_refuses_a_mismatched_sha(self):
+        """A deploy that goes green while serving a different commit is the
+        failure this exists to prevent, not a cosmetic one: the 52.00% fee copy
+        served live for three days after the correction landed in git."""
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+
+        assert '"git_sha":' in text, "the Verify step must read git_sha back"
+        assert 'if [ "$sha" != "${{ github.sha }}" ]; then' in text, (
+            "the Verify step must fail the deploy when the served commit is "
+            "not the dispatched one"
+        )

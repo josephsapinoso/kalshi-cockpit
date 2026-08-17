@@ -1,4 +1,4 @@
-# ADR 0040 — The public demo runs the deployed caps, and the bankroll is the fourth one
+# ADR 0041 — The public demo runs the deployed caps, and the bankroll is the fourth one
 
 **Date:** 2026-08-17
 **Status:** Accepted

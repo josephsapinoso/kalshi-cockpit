@@ -103,6 +103,12 @@ jobs:
               --app "$app" --region ord --size 1 --yes
           fi
 
+      # `-e GIT_SHA=...` sets a *runtime* machine variable. It touches no Docker
+      # layer, so unlike a build arg it does not bust the image cache on every
+      # commit. Without it `/api/health` reports `git_sha: null` -- which is the
+      # safe direction (`-e` is not inherited by the next deploy, so a forgotten
+      # flag can never report the *previous* deploy's commit as this one's).
+      # `github.sha` is the commit this dispatch checked out; no `git` needed.
       - name: Deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -110,6 +116,7 @@ jobs:
           flyctl deploy \
             --config "${{ steps.target.outputs.config }}" \
             --app "${{ steps.target.outputs.app }}" \
+            -e GIT_SHA="${{ github.sha }}" \
             --remote-only --ha=false
 
       # A deploy that reports success while the app serves errors is worse than
@@ -137,6 +144,19 @@ jobs:
             echo "::error::expected ${{ inputs.instance }}"
             exit 1
           fi
+
+          # The point of the build identity: "we deployed X" is now falsifiable
+          # in one GET instead of by diffing served HTML. A green deploy that
+          # serves a different commit than the one dispatched is the exact
+          # failure this repo has already shipped once -- the 52.00% fee copy
+          # was served live for three days after the correction landed in git.
+          sha=$(echo "$body" | grep -o '"git_sha":"[^"]*"' | cut -d'"' -f4)
+          if [ "$sha" != "${{ github.sha }}" ]; then
+            echo "::error::deployed app reports git_sha=${sha:-null},"
+            echo "::error::expected ${{ github.sha }}"
+            exit 1
+          fi
+          echo "serving ${sha}"
 
       # The property that must hold for a public URL: no reachable order path.
       - name: Assert the demo has no execution path
