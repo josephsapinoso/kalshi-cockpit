@@ -172,17 +172,24 @@ the new configuration is read rather than deduced.
 
 ### STILL OPEN, AND THE ORDER MATTERS
 
-1. **Joe rotates `ODDS_API_KEY`** — and **not before tonight's 20:50Z window
-   has been read.** `partner`'s call: if a rotation and the first clean
-   run-rate observation land together, a refusal has two candidate causes and
-   **both readings are lost.** Read the window, then rotate.
-2. **Read the first post-cutover credit rows.** `markets`, `regions`, `cost`,
-   `remaining_reported`, `used_reported`, `trigger` — the last should be NULL,
-   and non-NULL means the manual tap fired for the first time in its life.
-   The **2026-08-18T10:00Z** boundary closes the first full day under the new
-   configuration.
-3. **The tier renewal is Joe's, on the invoice.** He has the run rate he can
-   have and the ceiling claim that does not depend on it.
+1. ~~**Read the first post-cutover credit rows.**~~ **DONE 2026-08-17T20:57Z,
+   and it is unambiguous.** First call `20:56:15.067Z`: `markets = h2h`,
+   `cost = 2`, and the provider's own counter moved `1104 → 1106` — **a delta
+   of exactly 2.** So the 3× reduction is the vendor's billing and not merely
+   our estimate, which is the version that would have been worthless. `trigger`
+   NULL; the manual tap still has never fired. Props confirmed off in the
+   scheduler's own words. Addendum §6a of
+   `docs/measurements/2026-08-17-odds-credit-run-rate.md`.
+   **No daily rate published** — one window is not a day. The first honest
+   figure arrives when the budget day closes at **2026-08-18T10:00:00Z**, and
+   reading it is a ten-minute job, not a session.
+2. **Joe rotates `ODDS_API_KEY`.** **The sequencing constraint is now
+   discharged** — the window has been read, so a rotation can no longer confound
+   it. `docs/JOE-odds-key-rotation.md`. Verification after rotation is a served
+   `api_credits` row, **never** a 200 from `/api/health`.
+3. **The tier renewal is Joe's, on the invoice.** He has the ceiling claim that
+   does not depend on a run rate (cannot be exhausted before 2026-09-17), and
+   the run rate itself is now measurable rather than projected.
 
 ### DROPPED — still a drop list, not a backlog
 

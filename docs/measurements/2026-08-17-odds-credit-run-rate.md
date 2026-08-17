@@ -160,6 +160,50 @@ here, not a finding.
 
 ---
 
+## 6a. ADDENDUM, 2026-08-17T20:57Z — the first row under the running configuration
+
+The window opened at 20:50Z as the scheduler had been saying all day. The first
+call landed **20:56:15.067Z** and it settles §2 by observation rather than by
+formula:
+
+```
+called_iso                   endpoint                   markets  regions  cost  remaining  used   trigger
+2026-08-17T20:56:15.067000Z  /sports/baseball_mlb/odds  h2h      us,eu    2     18894      1106   NULL
+2026-08-16T22:59:23.694000Z  /sports/baseball_mlb/odds  h2h,spreads,totals us,eu 6  18896  1104   NULL
+```
+
+**Three independent confirmations that the sweep now costs 2, not 6:**
+
+1. **The row says so directly.** `markets = h2h` — read off the row, not
+   inferred from the cost and not read from the machine's environment. This is
+   why `markets`/`regions` were added to `_CREDIT_COLUMNS` before the window;
+   the line above it is the last three-market call ever recorded.
+2. **Our recorded `cost` is 2**, i.e. `sweep_cost` computed what the config
+   implies.
+3. **The provider's own counter moved `1104 → 1106`, a delta of exactly 2.**
+   This is the one that matters: `cost` is our estimate and `used_reported` is
+   the vendor's charge, and they agree. A 3× reduction in what we *believe* we
+   spend would be worthless if the vendor still billed 6.
+
+**Props are off, confirmed in the machine's own words** — `odds_sweep_log` row
+682, same timestamp: *"props: scheduled prop buying is off for baseball_mlb, so
+this window buys team lines only. A single fixture's ladder is still available
+on demand for the cost of one fixture rather than the whole slate."* No cost-20
+row was written.
+
+**`trigger` is NULL**, so the manual tap still has never fired in production —
+now 112 rows all-time, unchanged in kind.
+
+**Window shape, from the scheduler's own log:** *"next refresh at 21:06Z (every
+10min until 21:50Z)"*, so this window is ~6 calls ≈ **12 credits** against the
+~302 an equivalent cluster cost under the old configuration.
+
+**No daily rate is published from this.** One window is not a day, and the
+first honest figure arrives when the budget day closes at
+**2026-08-18T10:00:00Z**. What is established here is narrower and was the open
+question: **the deployed configuration is in force and the vendor is billing
+it.**
+
 ## 7. What this does not establish
 
 - **Nothing about the forward rate.** `n = 0` under the running configuration.
