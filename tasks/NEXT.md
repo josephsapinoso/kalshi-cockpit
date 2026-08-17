@@ -14,7 +14,119 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-17 (latest) — JOE'S THREE ITEMS, AND THE LANE THAT WAS BRIEFED WAS THE ONE THAT DID NOT EXIST
+## 2026-08-17 21:55Z (latest) — THE MEASUREMENT IS NOT DUE YET, AND THAT IS THE WHOLE SESSION
+
+**`main` at `d867677`. State re-verified, not inherited: 3,100 passed, 10
+xfailed, `ruff check` clean, `tsc --noEmit` clean.** The hunt is still closed
+(ADR 0038). Nothing here reopens it and nothing here searches for an edge.
+
+### THE ONE JOB WAS NOT DUE. THE HANDOFF'S TENSE WAS WRONG
+
+The session prompt (`d867677`) said *"The budget day closed at
+2026-08-18T10:00:00Z."* At session start it was **2026-08-17T21:49Z**. The
+window `[2026-08-17T10:00Z, 2026-08-18T10:00Z)` — confirmed from the tool's own
+header, and `_day_bounds` at `scripts/inspect_live_db.py:1198-1210` — **had
+twelve hours left to run.**
+
+`tasks/NEXT.md` itself was right; only the prompt derived from it was wrong. The
+tell was one `date -u`, and it cost nothing to check. **Check the tense on a
+claim that a deadline has passed, the same way you check a claim that something
+is broken.**
+
+### WHAT THE PARTIAL DAY LOOKS LIKE — NOT A RATE, DO NOT QUOTE IT AS ONE
+
+Read-only, `credits-day --date 20260817`, no credits spent. All 5 rows:
+
+```
+20:56:15.067Z  h2h  us,eu  cost 2  remaining 18894  used 1106  trigger NULL
+21:06:40.800Z  h2h  us,eu  cost 2  remaining NULL   used NULL  trigger NULL
+21:27:55.988Z  h2h  us,eu  cost 2  remaining 18892  used 1108  trigger NULL
+21:38:07.636Z  h2h  us,eu  cost 2  remaining 18890  used 1110  trigger NULL
+21:48:14.802Z  h2h  us,eu  cost 2  remaining 18888  used 1112  trigger NULL
+```
+
+**The day will be clean, and that was not guaranteed.** There are **zero** rows
+in the window before 20:56Z — the last three-market call (2026-08-16T22:59:23Z)
+falls in budget day 20260816. So every row in budget day 20260817 is under the
+running configuration. **No mixed-config caveat will be owed.**
+
+**Our ledger over-counts, deliberately, and the invoice must use the vendor's
+counter.** Our `SUM(cost)` is 10; the provider's `used_reported` moved
+1104 → 1112, i.e. **8**. The difference is the 21:06 row — the 401 during the
+rotation — which we recorded at `cost = 2` and the vendor charged 0.
+`backend/odds/client.py:322-324` says why in writing: *"Record before raising:
+some error classes still consume credits, and under-counting spend is worse than
+over-counting it."* **This is a decision, not a defect; do not open a lane on
+it.** It is checked here because a claim that something is broken buys its author
+a task, and this one did not survive opening the file.
+
+### THE CADENCE IS PINNED, SO TOMORROW'S FIGURE HAS SOMETHING TO BE CHECKED AGAINST
+
+`runtime-realist`, read off the live process rather than a default:
+
+- **600 s (10 min) per sport while a slot is due.** Printed from the live
+  process: `REF 600000`. It is *not* `fast_interval_s` — the loop tick and the
+  odds spend are different clocks. `refresh_interval_ms = max_odds_age_ms * 2 // 3`
+  (`backend/odds/timing.py:122-142`), and `900_000 * 2 // 3 = 600_000`.
+- **One HTTP call per sport per fire**, `/sports/{sport_key}/odds`, at
+  `len(markets) * len(regions)` = 1 × 2 = **2 credits**.
+- **The window is derived from kickoff times, not a clock.** 60 minutes per
+  kickoff cluster, ending 15 min before that cluster's first pitch
+  (`timing.py:395-442`, `DUE_WINDOW_MS`, `timing.py:119`). Tonight: MLB
+  20:56Z→00:26Z continuous (3 h 30 m) plus WNBA 00:45–01:45Z. Sports meter
+  independently.
+- **Scheduled props off, confirmed two ways** — env reads `false`, and the last
+  12 rows contain no `/events/` endpoint at all.
+- **No drift.** All eight odds settings on the live machine match
+  `fly.live.toml` exactly.
+
+**`MAX_ODDS_AGE_S` cannot be changed in `fly.live.toml` alone.**
+`backend/core/suppression.py:48` hardcodes `900_000` and feeds the cadence;
+`fly.live.toml:321` feeds `StalenessConfig`. `assert_odds_age_limits_agree`
+(`backend/config.py:467`, called from `scripts/run_loop.py:329`) **refuses to
+boot** if they diverge. Both move together or the instance crash-loops. The
+guard is correct; this is a note on how to change the value, not a defect.
+
+**A projection follows and it is arithmetic, not a measurement.** ~21–26 MLB
+calls + ~6–7 WNBA → **~54–66 credits for 2026-08-17**. This repo's own rule is
+that a formula is not a spend. **It is written down only so tomorrow's measured
+figure can be checked against something stated in advance.** If the measured
+number lands outside this band, the band is not the thing to trust — find out
+why. **The measured figure supersedes this line entirely.**
+
+### STILL OPEN — ONE ITEM, TEN MINUTES, NOT DUE UNTIL 2026-08-18T10:00:00Z
+
+1. **Read the closed budget day.** After **2026-08-18T10:00:00Z**:
+
+   ```
+   flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/inspect_live_db.py credits-day --date 20260817"
+   ```
+
+   Read-only, `mode=ro`. `--day-start-hour` defaults to the correct 10:00Z
+   boundary — **do not re-bucket by calendar date.** Append it to
+   `docs/measurements/2026-08-17-odds-credit-run-rate.md` as §6b; §7 already
+   states what it does not establish. **Report `used_reported` delta as the
+   spend and `SUM(cost)` as our over-count**, per above. Note the ~31-minute
+   outage (21:06–21:27Z, the key rotation) suppresses the total slightly — say
+   so rather than quoting it clean. **Run it past `measurement-skeptic` before
+   it enters the record;** it killed the last draft of this document and was
+   right on every count.
+
+2. **Then the tier decision is Joe's, on the invoice.** At the projected band
+   the tier is roughly an order of magnitude larger than the demand. Give him
+   the measured day, the monthly projection, and what the recorder buys for it,
+   sized for a phone. **Do not decide it for him.**
+
+### DEFECTS CARRIED FORWARD, NEITHER FIXED, NEITHER A REASON TO OPEN A SESSION
+
+Both still stand exactly as written in the entry below: the failed odds call
+that resets the freshness clock, and the restart mid-window that sleeps 900 s
+inside an open window (`backend/scheduler.py:183` — the previous entry says
+`:182`; same line, the file moved by one).
+
+---
+
+## 2026-08-17 — JOE'S THREE ITEMS, AND THE LANE THAT WAS BRIEFED WAS THE ONE THAT DID NOT EXIST
 
 **`main` at `679e1b9`, pushed. 3,100 tests pass (+20), 10 xfailed, ruff clean,
 `tsc --noEmit` clean — run on `main`, not inherited.** The hunt is still closed
