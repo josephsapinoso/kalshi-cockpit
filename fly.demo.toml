@@ -1,6 +1,11 @@
 # Public demo instance.
 #
-#   fly deploy -c fly.demo.toml
+#   fly deploy -c fly.demo.toml -e GIT_SHA="$(git rev-parse HEAD)"
+#
+# **Deploy with the -e flag**, for the reason given at the top of
+# `fly.live.toml`: it is what lets `/api/health` name its own commit, and it
+# costs the Docker layer cache nothing. Omitting it reports null, never a stale
+# SHA.
 #
 # This is the portfolio link. It runs the same image as the live instance but
 # holds NO credentials, reaches NO network, and has NO execution path -- the
@@ -25,6 +30,55 @@ primary_region = "ord"
   # Belt and braces: the gate is already locked by default, and the demo has no
   # credentials to trade with even if it were not.
   LIVE_TRADING_ENABLED = "false"
+
+  # --- risk caps ------------------------------------------------------------
+  #
+  # These were absent until 2026-08-17 and the demo fell through to the code
+  # defaults in `backend/config.py` -- 1000 / 0.25 / 50 / 100 / 400 / 100, which
+  # is TEN TIMES looser than the live instance on every dollar figure. A card
+  # here reading `Buy 17` was one contract at the roll actually deployed. See
+  # `docs/adr/0040`.
+  #
+  # They are set even though this instance cannot trade. The demo holds no
+  # credentials and `POST /api/orders` returns 403 whenever INSTANCE_MODE=demo,
+  # so nothing here bounds any money -- these bound the *sizes on the screen*,
+  # and the screen is the entire product on this instance. A public URL that
+  # displays a position its operator could not take is the flattering number
+  # this project exists to refuse, and it is the one strangers see.
+  #
+  # **The values match `fly.live.toml` deliberately, and that is a decision
+  # rather than a default.** The alternative considered was a rounder demo
+  # bankroll -- $1,000 shows a wider spread of position sizes and photographs
+  # better, and at $100 most cards read `Buy 1`. That is the case *for* copying
+  # live: `Buy 1` is what this system actually produces, and a portfolio piece
+  # whose thesis is "the record is the product" cannot open by overstating its
+  # own size. The demo is a window onto the deployed system, not a brochure.
+  #
+  # They are stated separately rather than shared with `fly.live.toml` because
+  # Fly gives no include mechanism, and are asserted equal-or-tighter by
+  # `tests/test_deployed_risk_caps_are_explicit.py`. Divergence is allowed --
+  # divergence upward is not.
+  #
+  # **There are four dollar caps and BANKROLL_DOLLARS is one of them**, not a
+  # display setting. `size_position` computes `stake = kelly_used * bankroll`
+  # and then trims it, so the bankroll is the outermost cap and the three
+  # `MAX_*` values are cuts taken out of it. The record's habit of counting
+  # "three caps" is what let this file omit the bankroll without anyone
+  # noticing.
+  BANKROLL_DOLLARS = "100"
+  KELLY_FRACTION = "0.25"
+  # Unset here and in `fly.live.toml` until now, so both ran on the code
+  # default. Written out at the same value it already had: this changes no
+  # behaviour, it removes an inheritance. A cap nobody chose is not a cap.
+  MAX_ORDER_CONTRACTS = "50"
+  # 10% of the roll in one market, 40% at risk at once, 10% lost in a day.
+  # MAX_POSITION_DOLLARS is the one that binds an opening order -- reaching $40
+  # in a single fill would need a staked Kelly fraction above 0.40, i.e. a full
+  # Kelly above 1.6, which is not reachable. MAX_EXPOSURE_DOLLARS binds by
+  # accumulation instead, at the fifth concurrent market.
+  MAX_POSITION_DOLLARS = "10"
+  MAX_EXPOSURE_DOLLARS = "40"
+  MAX_DAILY_LOSS_DOLLARS = "10"
 
 [http_service]
   internal_port = 3000

@@ -1,6 +1,16 @@
 # Private live instance.
 #
-#   fly deploy -c fly.live.toml
+#   fly deploy -c fly.live.toml -e GIT_SHA="$(git rev-parse HEAD)"
+#
+# **Deploy with the -e flag.** It is what makes `/api/health` able to name the
+# commit it is running, and establishing that by inference instead cost a
+# subagent 32 tool calls of behavioural HTML diffing on 2026-08-17. `-e` sets a
+# runtime machine variable, so unlike a Docker build arg it does not invalidate
+# a single image layer. Forgetting it is safe rather than misleading: `-e`
+# applies only to the deploy that passes it, so the field reports null instead
+# of last deploy's commit. Fly's own environment carries no commit at all --
+# `FLY_IMAGE_REF` ends in a deployment ULID and `fly releases --json` reports
+# `"Metadata": null`. See `backend/config.py`, section "build identity".
 #
 # Holds real credentials and, eventually, real money. Same image as the demo;
 # everything that differs is here.
@@ -316,6 +326,14 @@ primary_region = "ord"
   # times looser than it reads by the end of a month. Update this as the balance
   # moves.
   #
+  # **And it is itself a cap -- the fourth, and the outermost.** `size_position`
+  # computes `stake = kelly_used * bankroll_dollars` and only then trims it, so
+  # the three `MAX_*` values below are cuts taken out of this one rather than a
+  # complete set. The record habitually counts three; counting three is what let
+  # `fly.demo.toml` omit this line for the demo's whole life without anyone
+  # noticing the public screen was sizing off a $1,000 roll. See
+  # `docs/adr/0040`.
+  #
   # This does NOT change what the evidence record counts. The gate's
   # `actionable` counter is scored against a reference bankroll fixed in code
   # (`config.REFERENCE_*`), for the reason in `docs/adr/0015`: defining it here
@@ -347,9 +365,22 @@ primary_region = "ord"
   # exposure cap of 400%, and a daily loss limit that could only fire after the
   # whole week was gone. A safety system that cannot bind is worse than none,
   # because it reassures.
+  #
+  # Of the two, MAX_POSITION_DOLLARS is the one that binds an opening order:
+  # reaching $40 in a single fill would need a staked Kelly fraction above 0.40,
+  # i.e. a full Kelly above 1.6, which is not reachable. MAX_EXPOSURE_DOLLARS
+  # binds by accumulation instead, at the fifth concurrent market. Both are
+  # real; they bind in different situations.
   MAX_POSITION_DOLLARS = "10"
   MAX_EXPOSURE_DOLLARS = "40"
   MAX_DAILY_LOSS_DOLLARS = "10"
+
+  # Unset until 2026-08-17, so both instances ran on the code default. Written
+  # out at the value it already had: this changes no behaviour, it removes an
+  # inheritance. Every other cap on this instance was stated and this one was
+  # not, which is the same gap -- one file short -- that left the whole set
+  # missing from `fly.demo.toml`. A cap nobody chose is not a cap.
+  MAX_ORDER_CONTRACTS = "50"
 
 # SQLite and the Parquet lake live here. This is why the app cannot be
 # serverless: it needs a disk and a process that stays up to hold the
