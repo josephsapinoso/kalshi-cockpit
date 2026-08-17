@@ -41,9 +41,19 @@ wait. That ordering error is the most transferable thing here.
    markets dropped for no usable 2025 baseline — debuts, call-ups, and names
    `props.norm()` cannot match. It is the half the market is least sure about.
    Whether that is opportunity or just hard is **not established**.
-2. **`props.norm()` has a real, cheap bug.** It strips accents asymmetrically —
-   `Narváez` → `narvez` against a source's `Narvaez` — so it drops live markets
-   from the record. **Worth fixing on its own merits, independent of any model.**
+2. ~~**`props.norm()` has a real, cheap bug.**~~ **FIXED, `2893d8c`.** It was
+   *deleting* accents rather than folding them (`[^a-z0-9 ]` does not match `á`,
+   so `José Ramírez` → `jos ramrez`, a spelling neither source uses).
+   Measured on the live record: **Kalshi carries diacritics on 28 of 411 prop
+   players, the Odds API on 2 of 335** — they genuinely disagree. Folding takes
+   joined names **297 → 315: 18 players recovered**, and they are the liquid
+   ones — Acuña, José Ramírez, Julio Rodríguez, Suárez, Teoscar Hernández, Peña,
+   Báez, Vázquez. The defect was removing the *most tradeable rows in the
+   series* and leaving no trace.
+   10 tests, mutation-verified (9 of 11 red on revert). Over-merging checked on
+   the real name sets, not assumed: 411→411 and 335→335 keys, **zero
+   collisions**.
+   **NOT DEPLOYED — this changes which props the live runner joins.**
 
 ### Also established, free, from the live pull
 - `KXMLBHR 1+` **exists and is tradeable**: 547 markets, median spread **1.00c**,
