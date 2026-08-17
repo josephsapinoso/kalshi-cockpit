@@ -65,6 +65,7 @@ from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..analysis.clv import DEFAULT_HORIZON_HOURS
+from ..analysis.clv_signal import SignalReport, report_from_connection
 from ..gate import (
     POPULATIONS,
     clustered_clv,
@@ -1322,6 +1323,52 @@ def create_app(
         )
         return payload
 
+    @app.get("/api/signal")
+    def signal_status(conn=Depends(get_conn)) -> dict:
+        """`beta` -- what the product's own conclusion is worth, measured.
+
+        The defect this closes: the cockpit stated a conclusion about whether
+        the consensus signal works, and stated its measured worth **nowhere**.
+        `beta` appeared zero times in `frontend/src` and could be produced only
+        by a human running `scripts/run_signal_test.py` against a dump taken
+        over `flyctl ssh` -- a laptop job, on a tool operated from a phone. Same
+        shape as `/api/gate` and `/api/results` before them.
+
+        **This computes nothing of its own.** It calls
+        `backend.analysis.clv_signal.report_from_connection`, which is the same
+        function `scripts/run_signal_test.py` prints, over the same registered
+        §S1 extraction. A route that assembled the population itself would be a
+        third implementation of the registration, and the whole reason that
+        module exists is that there were already two.
+
+        **Wiring the estimator into the deployed image reverses a quarantine,
+        and that decision is ADR 0039**, not a side effect of this endpoint.
+        `backend/analysis/signal_test.py` was classified off the machine on the
+        reasoning that an automatically-running rule "gets re-read thousands of
+        times". The always-valid multiplier is exactly the construction that
+        makes unlimited re-reading valid, so the interval is unharmed; what the
+        ADR decides is that the declaring branches may fire without a human in
+        the room, which is the behaviour ADR 0038 wants -- the `G = 300` look
+        arriving by construction rather than by anyone remembering to take it.
+
+        **Unauthenticated, on the same three grounds as `/api/gate`:** the live
+        deployment already 401s an unauthenticated `/api/*` at
+        `frontend/src/middleware.ts`, a bearer token is not openable in a phone
+        browser, and `require_auth` 403s on demo -- the one instance whose
+        purpose is to be looked at. It reveals less than `/api/gate` already
+        does; `/api/gate` publishes the population counts this is computed over.
+
+        **A refusal is rendered, never rounded down to a small number.** On the
+        demo instance the seeded history carries no `event_ticker` and no
+        quotes, so every row joins to a NULL half-spread and the registered
+        precondition P1 fails. The honest response there is `available: false`
+        with the reason -- not `G = 420`, which is what a caller reading the
+        cluster count off a refused report would put on the public screen, and
+        which is a *larger* number than the live record's.
+        """
+        report, computed_ms = _cached_signal_report(conn)
+        return _signal_payload(report, computed_ms)
+
     @app.get("/api/results")
     def market_results(conn=Depends(get_conn)) -> dict:
         """Is `kalshi_markets.result` being written, and is anything being lost?
@@ -2372,6 +2419,135 @@ def create_app(
         return body
 
     return app
+
+
+# ---------------------------------------------------------------------------
+# `beta`, cached.
+# ---------------------------------------------------------------------------
+#
+# **The cache is a cost control, not a correctness one.** The registered §S1
+# extraction scans `recommendations` and runs one correlated subquery into
+# `kalshi_quotes` per surviving row. `kalshi_quotes` is roughly two thirds of an
+# 879 MiB file on the live volume, and Board and Slate are `force-dynamic`
+# server components, so an uncached call would run that join on **every page
+# load of the two most-visited screens** -- neither of which does any full-table
+# work today (`/api/board` and `/api/slate` are a windowed `LIMIT` plus a
+# `COUNT(*)`).
+#
+# 300 seconds, and the number is not arbitrary: `beta` moves only when the
+# recorder scores a new CLV, which happens at most once per market close. A TTL
+# far shorter than the interval between the inputs changing buys nothing and
+# pays the join for it.
+#
+# **`computed_ms` ships in the payload and the screen must render its age.** A
+# cached statistic that presents itself as current is the exact failure
+# `tasks/lessons.md` records under verification methods that lie -- the number
+# looks live, so nobody asks when it was taken.
+SIGNAL_CACHE_TTL_MS = 300_000
+
+_signal_cache: dict[str, object] = {}
+
+
+def _cached_signal_report(conn) -> tuple[SignalReport, int]:
+    """The registered report, recomputed at most every `SIGNAL_CACHE_TTL_MS`.
+
+    Keyed on nothing: there is one population and one registered cut, so there
+    is one answer. A refusal is cached on the same terms as a result -- on the
+    demo instance the reason it refuses is structural (no `event_ticker`, no
+    quotes) and will not resolve itself in five minutes, so re-running the join
+    to be told the same thing is the worst of both.
+    """
+    now = db.now_ms()
+    cached = _signal_cache.get("report")
+    computed_ms = _signal_cache.get("computed_ms")
+    if (
+        isinstance(cached, SignalReport)
+        and isinstance(computed_ms, int)
+        and now - computed_ms < SIGNAL_CACHE_TTL_MS
+    ):
+        return cached, computed_ms
+    report = report_from_connection(conn)
+    _signal_cache["report"] = report
+    _signal_cache["computed_ms"] = now
+    return report, now
+
+
+def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
+    """Serialise a `SignalReport` so a caller cannot read the effect first.
+
+    Three rules are enforced by the *shape* rather than by the consumer's
+    manners, because a consumer's manners are not testable:
+
+    - **`estimate` is `None` unless a fit happened.** There is no key holding a
+      bare `beta_hat` that a refused run could still populate.
+    - **Nothing inside `estimate` is optional.** `se_cluster`, `n_clusters` and
+      both interval limits travel with `beta_hat` or none of them do, so a
+      screen physically cannot render the point estimate alone -- the one-number
+      habit the always-valid multiplier exists to defeat.
+    - **`verdict` is the registered string**, never a paraphrase. `UNRESOLVED`
+      is a real answer and may not be presented as "no signal"; the payload
+      carries `may_declare` so a renderer knows the difference without having to
+      re-derive the floor.
+    """
+    f = report.fit
+    return {
+        "computed_ms": computed_ms,
+        "cache_ttl_ms": SIGNAL_CACHE_TTL_MS,
+        "available": f is not None,
+        "refusal": report.refusal,
+        "verdict": report.verdict,
+        "may_declare": report.n_clusters >= report.clusters_to_declare,
+        # Population before effect size. Always, and in this order.
+        "population": {
+            "rows": report.n_analysed,
+            "clusters": report.n_clusters,
+            "clusters_to_declare": report.clusters_to_declare,
+            "clusters_remaining": report.clusters_remaining,
+            "p1": report.p1,
+            "p1_floor": report.p1_floor,
+            "p1_passed": report.p1_passed,
+            "matched": report.matched,
+            "quote_mismatch": report.quote_mismatch,
+            "no_quote": report.no_quote,
+            "disclosure_required": report.disclosure_required,
+        },
+        "estimate": None if f is None else {
+            # The smallest resolvable effect comes before the effect, because
+            # reading the effect first is how a small cell gets believed.
+            "smallest_resolvable_beta": report.smallest_resolvable_beta,
+            "beta_hat": f.beta_hat,
+            "se_cluster": f.se_cluster,
+            "n_clusters": f.n_clusters,
+            "n_rows": f.n_rows,
+            "interval_lower": f.lower,
+            "interval_upper": f.upper,
+            "multiplier": f.multiplier,
+        },
+        # §A4: the per-group view can downgrade a verdict and can never create
+        # one. `market_type` is not a registered cut; it is here because the
+        # repo rule requires the parts beside any aggregate, and this pooled
+        # figure is not homogeneous -- the two arms are -0.08 and -0.52.
+        "by_market_type": [
+            {
+                "name": g.name,
+                "rows": g.n_rows,
+                "share": g.share,
+                "clusters": g.n_clusters,
+                "beta_hat": g.beta_hat,
+                "refusal": g.refusal,
+            }
+            for g in report.by_market_type
+        ],
+        "registration": (
+            "docs/measurements/2026-08-09-preregistration-clv-signal-test.md"
+        ),
+        "note": (
+            "beta is tenths of realised closing-line value per tenth of claimed "
+            "edge. UNRESOLVED below 300 clusters is a real answer and is NOT "
+            "'no signal'. The cluster key is COALESCE(event_ticker, ticker), "
+            "which is not the gate's ADR 0029 key; the two differ materially."
+        ),
+    }
 
 
 def _replay(row) -> dict:

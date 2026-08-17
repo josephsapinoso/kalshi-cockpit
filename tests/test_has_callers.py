@@ -212,6 +212,15 @@ MUST_HAVE_CALLERS = [
         "however long the system runs",
     ),
     (
+        "report_from_connection",
+        "`GET /api/signal` goes back to having nothing to serve, and `beta` -- "
+        "the project's registered decision-bearing statistic -- returns to "
+        "being producible only by a human running a script on a laptop against "
+        "an ssh dump. That was the state ADR 0039 ended: the product stated a "
+        "conclusion about whether the signal works and stated its measured "
+        "worth nowhere, on a tool operated from a phone",
+    ),
+    (
         "persist_if_changed",
         "the evidence record stops growing while every screen keeps rendering",
     ),
@@ -832,17 +841,15 @@ class Quarantined:
 # wired up or deleted tonight.
 DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Tools ---------------------------------------------------------------
-    "backend/analysis/signal_test.py": Tool(
-        run_by=("scripts/run_signal_test.py",),
-        purpose="The CLV pass-through coefficient `beta` and its cluster-robust "
-                "standard error, per the registration of 2026-08-09. Off the "
-                "deployed machine deliberately: the estimator carries the "
-                "registered decision rule, and a rule that runs automatically "
-                "on every pass is a rule that gets re-read thousands of times "
-                "-- which is what the always-valid multiplier inside it exists "
-                "to defend against. It is run once, by a human, at a look. "
-                "ADR 0034 binds the A-versus-F re-read to its verdict.",
-    ),
+    # `backend/analysis/signal_test.py` was here, as a Tool, and ADR 0039 moved
+    # it out. It is now reached from `GET /api/signal` via
+    # `backend/analysis/clv_signal.py`, and its entry lives in
+    # `MUST_HAVE_CALLERS` below. The reasoning it was quarantined under --
+    # "a rule that runs automatically on every pass is a rule that gets re-read
+    # thousands of times" -- named the always-valid multiplier as the thing it
+    # was protecting, and the multiplier is precisely the construction that
+    # makes unlimited re-reading valid. The row is kept as a comment because the
+    # deletion is the decision.
     "backend/main.py": Tool(
         run_by=("python -m backend.main --seed-demo",),
         purpose="Local dev server. Superseded on the instance by entrypoint.sh, "

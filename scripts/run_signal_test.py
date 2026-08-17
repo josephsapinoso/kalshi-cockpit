@@ -5,10 +5,16 @@
     .venv\\Scripts\\python.exe scripts/run_signal_test.py pull.json
 
 Registered in `docs/measurements/2026-08-09-preregistration-clv-signal-test.md`.
-**This harness decides nothing.** The population, the model, the cluster key,
-the multiplier, the floor and all four verdict branches are fixed in that file;
-`backend/analysis/signal_test.py` implements them and this prints them in the
-order §S1 requires.
+**This harness decides nothing, and as of ADR 0039 it no longer computes
+anything either.** The population, the model, the cluster key, the multiplier,
+the floor and all four verdict branches are fixed in the registration;
+`backend/analysis/signal_test.py` implements the estimator,
+`backend/analysis/clv_signal.py` implements the extraction and assembles a
+`SignalReport`, and this file prints that report in the order §S1 requires.
+
+**The whole point of that split is that `GET /api/signal` serves the same
+object.** The number on the screen and the number this harness prints are one
+computation, not two implementations that agree today.
 
 Output order is itself registered, and the order is the point: `n`, `G` and the
 P1 coverage come **before** any effect size, and the smallest resolvable `beta`
@@ -36,28 +42,20 @@ import argparse
 import gzip
 import json
 import sys
-from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from backend.analysis.clv_signal import (  # noqa: E402
+    A82_MISMATCH_DISCLOSURE_THRESHOLD,
+    SignalReport,
+    build_report,
+)
 from backend.analysis.signal_test import (  # noqa: E402
     MIN_CLUSTERS_TO_DECLARE,
     MIN_HALF_SPREAD_COVERAGE,
-    Observation,
-    SignalTestRefused,
-    coverage,
-    fit,
-    verdict,
 )
-
-
-#: §A8.2: above this `quote_mismatch / total` the write-up **must state, in
-#: those words**, that the control is attenuated and the residual bias in
-#: `beta` runs positive. The harness prints the sentence itself rather than
-#: trusting an author to remember it.
-A82_MISMATCH_DISCLOSURE_THRESHOLD = 0.05
 
 
 class RefusedInput(Exception):
@@ -96,134 +94,45 @@ def load(path: Path) -> tuple[list[dict[str, Any]], int]:
     return rows, len(rows)
 
 
-def _observations(rows: Sequence[dict[str, Any]]) -> list[Observation]:
-    return [
-        Observation(
-            cluster_key=str(r["cluster_key"]),
-            edge_tenths=float(r["edge_tenths"]),
-            clv_tenths=float(r["clv_tenths"]),
-            half_spread_tenths=(
-                None if r["half_spread_tenths"] is None
-                else float(r["half_spread_tenths"])
-            ),
-        )
-        for r in rows
-    ]
+def render(report: SignalReport) -> int:
+    """Print a `SignalReport` in the registered §S1 order. Returns an exit code.
 
-
-def _quote_disagrees(row: dict[str, Any]) -> bool:
-    """§A8.2: the joined quote's derived ask differs from the stored entry ask.
-
-    Counted separately from "no quote at all". A row with a quote that
-    disagrees is not missing data -- it is a row whose control was recovered
-    from a different observation than the one the recommendation was priced
-    from, which is a different problem with a different remedy.
-
-    **The comparison is side-dependent, and the first version of this function
-    was not.** `entry_ask_tenths` is the price paid for the side actually taken
-    (`backend/analysis/clv.py:151`), so the ask to compare it against is
-    `1000 - no_bid` on a YES row and `1000 - yes_bid` on a NO row. Comparing
-    every row against the YES-side ask flags **every NO row by construction**,
-    and on the 2026-08-16 record it reported 1,826 disagreements that were
-    exactly the 1,826 NO rows. The true count on that record is 0. See
-    `docs/measurements/2026-08-16-quote-join-bias-result.md`.
-
-    This is a diagnostic counter, not a branch of the decision rule: it does not
-    touch the population, the model, the cluster key, the multiplier or any
-    verdict branch, so correcting it is a bug fix and not an amendment.
+    Formatting only. Every number here was computed in `clv_signal`; if this
+    function ever needs to do arithmetic to print something, the field belongs
+    on the report instead -- otherwise the screen and the harness drift apart
+    one derived quantity at a time, which is the failure this split exists to
+    prevent.
     """
-    side = (row.get("side") or "").lower()
-    opposite_bid = row.get("yes_bid_tenths") if side == "no" else row.get("no_bid_tenths")
-    if opposite_bid is None:
-        return False
-    return (1000 - opposite_bid) != row["entry_ask_tenths"]
-
-
-def a82_counts(rows: Sequence[dict[str, Any]]) -> dict[str, int]:
-    """§A8.2's three counts. Never two.
-
-    | count | meaning | treatment |
-    |---|---|---|
-    | `matched` | a quote joined **and** the identity holds | the analysis population |
-    | `quote_mismatch` | a quote joined and the identity **fails** | RETAINED, counted separately |
-    | `no_quote` | the join returned nothing | dropped, never imputed |
-
-    **`matched / total` is P1**, and the amendment calls that "a strictly tighter
-    gate than the one registered". `backend.analysis.signal_test.coverage` is the
-    superseded statistic -- it measures non-NULL half-spread, which cannot
-    distinguish a control recovered from the wrong quote from one recovered from
-    the right one. On the 2026-08-16 record the two disagreed by 0.4946 and the
-    looser one is what the harness read.
-
-    `quote_mismatch` rows are retained deliberately: excluding them would create
-    an exclusion rate correlated with book activity, which is worse than the
-    attenuation it removes.
-    """
-    matched = mismatch = no_quote = 0
-    for row in rows:
-        if row.get("half_spread_tenths") is None:
-            no_quote += 1
-        elif _quote_disagrees(row):
-            mismatch += 1
-        else:
-            matched += 1
-    return {"matched": matched, "quote_mismatch": mismatch, "no_quote": no_quote}
-
-
-def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("dump", type=Path)
-    parser.add_argument(
-        "--modal-config-only",
-        action="store_true",
-        help="§7: restrict to the modal strategy_config_version",
-    )
-    args = parser.parse_args(argv)
-
-    rows, n_raw = load(args.dump)
     print("# CLV signal test")
     print("# Registered: docs/measurements/2026-08-09-preregistration-clv-signal-test.md")
     print()
 
-    versions = Counter(r["strategy_config_version"] for r in rows)
-    if args.modal_config_only and versions:
-        modal = versions.most_common(1)[0][0]
-        rows = [r for r in rows if r["strategy_config_version"] == modal]
+    if report.modal_config_only and report.strategy_config_versions:
+        modal = max(report.strategy_config_versions.items(), key=lambda kv: kv[1])[0]
         print(f"§7 modal-config filter ON: keeping version {modal} only")
         print()
-
-    obs = _observations(rows)
-    clusters = {o.cluster_key for o in obs}
-    unclustered = sum(1 for r in rows if r.get("unclustered"))
-    cov = coverage(obs)
-
-    # §A8.2's three counts. Never two -- the amendment says so in those words,
-    # and the reason is that "no quote at all" and "a quote that disagrees" are
-    # different failures with different remedies, and P1 as originally
-    # registered refused only the second.
-    counts = a82_counts(rows)
-    total = len(rows)
-    matched_fraction = (counts["matched"] / total) if total else 0.0
-    mismatch_fraction = (counts["quote_mismatch"] / total) if total else 0.0
 
     # 1. n before effect size. Always.
     print("1. population")
     print("-" * 40)
-    print(f"  rows in dump                 {n_raw}")
-    print(f"  rows analysed                {total}")
-    print(f"  G (clusters, registered key) {len(clusters)}")
-    print(f"  unclustered rows             {unclustered}")
-    print(f"  §A8.2 matched                {counts['matched']}")
-    print(f"  §A8.2 quote_mismatch         {counts['quote_mismatch']}   (RETAINED, not dropped)")
-    print(f"  §A8.2 no_quote               {counts['no_quote']}")
-    print(f"  P1 = matched / total         {matched_fraction:.4f}  (floor {MIN_HALF_SPREAD_COVERAGE})")
-    print(f"  non-NULL half-spread cov     {cov:.4f}  <- SUPERSEDED by §A8.2, not the gate")
-    print(f"  strategy_config_version      {dict(sorted(versions.items()))}")
+    print(f"  rows in dump                 {report.n_raw}")
+    print(f"  rows analysed                {report.n_analysed}")
+    print(f"  G (clusters, registered key) {report.n_clusters}")
+    print(f"  unclustered rows             {report.unclustered}")
+    print(f"  §A8.2 matched                {report.matched}")
+    print(f"  §A8.2 quote_mismatch         {report.quote_mismatch}   (RETAINED, not dropped)")
+    print(f"  §A8.2 no_quote               {report.no_quote}")
+    print(f"  P1 = matched / total         {report.p1:.4f}  (floor {MIN_HALF_SPREAD_COVERAGE})")
+    print(f"  non-NULL half-spread cov     {report.non_null_coverage:.4f}  <- SUPERSEDED by §A8.2, not the gate")
+    print(f"  strategy_config_version      {report.strategy_config_versions}")
     print()
 
     # §A8.2's mandated disclosure, printed by the harness so it cannot be
     # forgotten by a write-up. The wording is the amendment's, not a paraphrase.
-    if mismatch_fraction > A82_MISMATCH_DISCLOSURE_THRESHOLD:
+    if report.disclosure_required:
+        mismatch_fraction = (
+            report.quote_mismatch / report.n_analysed if report.n_analysed else 0.0
+        )
         print("§A8.2 DISCLOSURE REQUIRED -- this text must appear in the write-up")
         print("-" * 40)
         print(f"  quote_mismatch / total = {mismatch_fraction:.4f}, above "
@@ -232,9 +141,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("  residual bias in `beta` runs POSITIVE -- the flattering direction.")
         print()
 
-    if matched_fraction < MIN_HALF_SPREAD_COVERAGE:
+    if not report.p1_passed:
         print("P1 FAILED. The primary analysis does not run.")
-        print(f"  matched / total = {matched_fraction:.4f} is below the registered "
+        print(f"  matched / total = {report.p1:.4f} is below the registered "
               f"floor {MIN_HALF_SPREAD_COVERAGE}.")
         print("  §A8.2 applies P1 to `matched / total`, NOT to non-NULL half-spread")
         print("  coverage; it calls that 'a strictly tighter gate than the one")
@@ -245,33 +154,26 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("  and the slope is biased in the INFLATING direction.")
         return 1
 
-    try:
-        f = fit(obs)
-    except SignalTestRefused as exc:
-        print(f"REFUSED: {exc}")
+    if report.fit is None:
+        print(f"REFUSED: {report.refusal}")
         return 1
 
-    # 2. the contamination, as a printed number rather than an argument
-    import statistics
+    f = report.fit
 
-    usable = [o for o in obs if o.half_spread_tenths is not None]
-    sd_half = statistics.pstdev([o.half_spread_tenths for o in usable])
-    sd_edge = statistics.pstdev([o.edge_tenths for o in usable])
-    sd_clv = statistics.pstdev([o.clv_tenths for o in usable])
+    # 2. the contamination, as a printed number rather than an argument
     print("2. the C2 confound, measured")
     print("-" * 40)
-    print(f"  sd(half_spread_tenths)       {sd_half:.4f}")
-    print(f"  sd(edge_tenths)              {sd_edge:.4f}")
-    print(f"  sd(clv_tenths)               {sd_clv:.4f}")
-    spurious = (sd_half**2 / sd_edge**2) if sd_edge else float("nan")
-    print(f"  implied spurious slope       {spurious:.6f}   Var(half)/Var(edge)")
+    print(f"  sd(half_spread_tenths)       {report.sd_half_spread:.4f}")
+    print(f"  sd(edge_tenths)              {report.sd_edge:.4f}")
+    print(f"  sd(clv_tenths)               {report.sd_clv:.4f}")
+    print(f"  implied spurious slope       {report.implied_spurious_slope:.6f}   Var(half)/Var(edge)")
     print()
 
     # 4. the smallest resolvable beta, BEFORE beta_hat
     print("3. resolving power at this G, printed before the estimate")
     print("-" * 40)
     print(f"  always-valid multiplier      {f.multiplier:.4f}")
-    print(f"  smallest resolvable beta     {f.multiplier * f.se_cluster:.4f}")
+    print(f"  smallest resolvable beta     {report.smallest_resolvable_beta:.4f}")
     print()
 
     print("4. the estimate")
@@ -283,10 +185,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"  always-valid interval        [{f.lower:+.4f}, {f.upper:+.4f}]")
     print()
 
-    v = verdict(f)
     print("5. verdict")
     print("-" * 40)
-    print(f"  {v}")
+    print(f"  {report.verdict}")
     if f.n_clusters < MIN_CLUSTERS_TO_DECLARE:
         print(f"  G = {f.n_clusters} is below the registered floor of "
               f"{MIN_CLUSTERS_TO_DECLARE}.")
@@ -297,21 +198,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     # 6. the per-group view. Downgrades only; never creates a finding.
     print("6. per-group view -- DIAGNOSTIC, CANNOT PRODUCE A FINDING")
     print("-" * 40)
-    by_type: dict[str, list[Observation]] = defaultdict(list)
-    for row, o in zip(rows, obs):
-        by_type[row.get("market_type") or "(none)"].append(o)
-    for name, group in sorted(by_type.items(), key=lambda kv: -len(kv[1])):
-        share = len(group) / len(obs)
-        try:
-            gf = fit(group)
-            print(f"  {name:<12} n={len(group):5d} G={gf.n_clusters:4d} "
-                  f"share={share:5.1%}  beta={gf.beta_hat:+.4f}")
-        except SignalTestRefused as exc:
-            print(f"  {name:<12} n={len(group):5d} share={share:5.1%}  "
-                  f"REFUSED: {exc}")
-    largest = max(by_type.items(), key=lambda kv: len(kv[1]))
-    print(f"  largest contributor: {largest[0]} at "
-          f"{len(largest[1]) / len(obs):.1%} of rows")
+    for group in report.by_market_type:
+        if group.refusal is not None:
+            print(f"  {group.name:<12} n={group.n_rows:5d} share={group.share:5.1%}  "
+                  f"REFUSED: {group.refusal}")
+        else:
+            print(f"  {group.name:<12} n={group.n_rows:5d} G={group.n_clusters:4d} "
+                  f"share={group.share:5.1%}  beta={group.beta_hat:+.4f}")
+    if report.by_market_type:
+        largest = max(report.by_market_type, key=lambda g: g.n_rows)
+        print(f"  largest contributor: {largest.name} at {largest.share:.1%} of rows")
     print()
 
     print("7. what this does not establish")
@@ -325,6 +221,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     ):
         print(f"  {line}")
     return 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("dump", type=Path)
+    parser.add_argument(
+        "--modal-config-only",
+        action="store_true",
+        help="§7: restrict to the modal strategy_config_version",
+    )
+    args = parser.parse_args(argv)
+
+    rows, n_raw = load(args.dump)
+    report = build_report(
+        rows, n_raw=n_raw, modal_config_only=args.modal_config_only
+    )
+    return render(report)
 
 
 if __name__ == "__main__":

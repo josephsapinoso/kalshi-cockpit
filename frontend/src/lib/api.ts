@@ -770,6 +770,84 @@ export const fetchLedger = () => get<Ledger>("/api/ledger");
 export const fetchGate = () => get<Gate>("/api/gate");
 
 /**
+ * What the product's own conclusion is worth, measured.
+ *
+ * `beta` is tenths of realised closing-line value per tenth of claimed edge --
+ * the registered decision-bearing statistic of the whole project. Until ADR
+ * 0039 it appeared **zero times in this directory**: the cockpit stated a
+ * conclusion about whether the consensus signal works and stated its measured
+ * worth nowhere, because the only way to produce the number was a laptop
+ * running a script against an ssh dump.
+ *
+ * **The shape is deliberately hostile to reading the effect alone.** There is
+ * no top-level `beta_hat`. It lives inside `estimate`, which is `null` unless a
+ * fit actually happened, and which carries `se_cluster`, `n_clusters` and both
+ * interval limits or none of them. A renderer physically cannot show the point
+ * estimate on its own, which is the one-number habit the always-valid
+ * multiplier exists to defeat.
+ */
+export type Signal = {
+  /** When the backend computed this. It is cached; render the age. */
+  computed_ms: number;
+  cache_ttl_ms: number;
+  /** `false` on the demo instance, whose seeded history has no quotes to join. */
+  available: boolean;
+  /** Why there is no estimate. Present exactly when `estimate` is null. */
+  refusal: string | null;
+  /**
+   * The registered string, never a paraphrase. `UNRESOLVED` is a real answer
+   * and **may not be rendered as "no signal"** -- the registration forbids
+   * declaring below 300 clusters. `REFUSED` is different again: it means no
+   * look happened at all.
+   */
+  verdict: "SIGNAL" | "BUG, NOT SIGNAL" | "NO SIGNAL" | "UNRESOLVED" | "REFUSED";
+  /** Whether the cluster floor permits a declaring verdict at all. */
+  may_declare: boolean;
+  population: {
+    rows: number;
+    clusters: number;
+    clusters_to_declare: number;
+    clusters_remaining: number;
+    p1: number;
+    p1_floor: number;
+    p1_passed: boolean;
+    matched: number;
+    quote_mismatch: number;
+    no_quote: number;
+    disclosure_required: boolean;
+  };
+  estimate: {
+    /** Comes first because reading the effect first is how a small cell gets believed. */
+    smallest_resolvable_beta: number;
+    beta_hat: number;
+    se_cluster: number;
+    n_clusters: number;
+    n_rows: number;
+    interval_lower: number;
+    interval_upper: number;
+    multiplier: number;
+  } | null;
+  /**
+   * Diagnostic only. The per-group view can downgrade a verdict and can never
+   * create one, and `market_type` is not a registered cut -- it is here because
+   * the repo rule requires the parts beside any aggregate, and this pooled
+   * figure is not homogeneous.
+   */
+  by_market_type: {
+    name: string;
+    rows: number;
+    share: number;
+    clusters: number | null;
+    beta_hat: number | null;
+    refusal: string | null;
+  }[];
+  registration: string;
+  note: string;
+};
+
+export const fetchSignal = () => get<Signal>("/api/signal");
+
+/**
  * How often each suppression rule fired.
  *
  * The shape is the route's, read before it was typed: `{"counts": {reason: n}}`,

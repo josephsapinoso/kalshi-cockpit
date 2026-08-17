@@ -43,10 +43,14 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.run_signal_test import (
+# Moved out of `scripts/run_signal_test.py` into `backend/analysis/` by
+# ADR 0039, so that `GET /api/signal` and the operator harness share one
+# implementation of §A8.2 rather than two. The functions are unchanged; only
+# the leading underscore went, because the name is no longer module-private.
+from backend.analysis.clv_signal import (
     A82_MISMATCH_DISCLOSURE_THRESHOLD,
-    _quote_disagrees,
     a82_counts,
+    quote_disagrees,
 )
 
 
@@ -71,11 +75,11 @@ class TestTheComparisonIsSideDependent:
 
     def test_a_yes_row_whose_ask_matches_the_no_bid_agrees(self):
         # yes ask = 1000 - no_bid = 1000 - 400 = 600
-        assert not _quote_disagrees(_row("yes", 600, yes_bid=380, no_bid=400))
+        assert not quote_disagrees(_row("yes", 600, yes_bid=380, no_bid=400))
 
     def test_a_no_row_whose_ask_matches_the_yes_bid_agrees(self):
         # no ask = 1000 - yes_bid = 1000 - 380 = 620
-        assert not _quote_disagrees(_row("no", 620, yes_bid=380, no_bid=400))
+        assert not quote_disagrees(_row("no", 620, yes_bid=380, no_bid=400))
 
     def test_a_no_row_is_not_judged_against_the_yes_side_ask(self):
         """The two sides' asks differ by the market width, so a side-blind check
@@ -84,7 +88,7 @@ class TestTheComparisonIsSideDependent:
         """
         row = _row("no", 620, yes_bid=380, no_bid=400)
         assert (1000 - row["no_bid_tenths"]) != row["entry_ask_tenths"]
-        assert not _quote_disagrees(row)
+        assert not quote_disagrees(row)
 
 
 class TestARealDisagreementIsStillCaught:
@@ -95,17 +99,17 @@ class TestARealDisagreementIsStillCaught:
     """
 
     def test_a_yes_row_priced_off_a_different_instant_disagrees(self):
-        assert _quote_disagrees(_row("yes", 590, yes_bid=380, no_bid=400))
+        assert quote_disagrees(_row("yes", 590, yes_bid=380, no_bid=400))
 
     def test_a_no_row_priced_off_a_different_instant_disagrees(self):
-        assert _quote_disagrees(_row("no", 615, yes_bid=380, no_bid=400))
+        assert quote_disagrees(_row("no", 615, yes_bid=380, no_bid=400))
 
     def test_a_one_tenth_difference_is_a_disagreement(self):
         """Money is integer tenths of a cent and the comparison is exact. A
         tolerance here would silently absorb the deci-cent tick the repo exists
         to respect.
         """
-        assert _quote_disagrees(_row("yes", 601, yes_bid=380, no_bid=400))
+        assert quote_disagrees(_row("yes", 601, yes_bid=380, no_bid=400))
 
 
 class TestAMissingQuoteIsNotADisagreement:
@@ -117,10 +121,10 @@ class TestAMissingQuoteIsNotADisagreement:
     """
 
     def test_a_yes_row_with_no_opposite_bid_is_not_counted(self):
-        assert not _quote_disagrees(_row("yes", 600, yes_bid=380, no_bid=None))
+        assert not quote_disagrees(_row("yes", 600, yes_bid=380, no_bid=None))
 
     def test_a_no_row_with_no_opposite_bid_is_not_counted(self):
-        assert not _quote_disagrees(_row("no", 620, yes_bid=None, no_bid=400))
+        assert not quote_disagrees(_row("no", 620, yes_bid=None, no_bid=400))
 
     def test_the_side_that_matters_is_the_opposite_one(self):
         """A NO row missing only `no_bid` still has everything the check needs,
@@ -128,7 +132,7 @@ class TestAMissingQuoteIsNotADisagreement:
         on `no_bid_tenths` regardless of side -- this row is then dropped from
         the count and a real disagreement goes unreported.
         """
-        assert _quote_disagrees(_row("no", 615, yes_bid=380, no_bid=None))
+        assert quote_disagrees(_row("no", 615, yes_bid=380, no_bid=None))
 
 
 class TestSideIsReadCaseInsensitively:
@@ -140,7 +144,7 @@ class TestSideIsReadCaseInsensitively:
     """
 
     def test_upper_case_no_is_still_a_no_row(self):
-        assert not _quote_disagrees(_row("NO", 620, yes_bid=380, no_bid=400))
+        assert not quote_disagrees(_row("NO", 620, yes_bid=380, no_bid=400))
 
     def test_a_missing_side_falls_back_to_the_yes_comparison(self):
         """Not a judgement call: the fallback must be *some* fixed side, and YES
@@ -154,7 +158,7 @@ class TestSideIsReadCaseInsensitively:
             "yes_bid_tenths": 380,
             "no_bid_tenths": 400,
         }
-        assert not _quote_disagrees(row)
+        assert not quote_disagrees(row)
 
 
 class TestA82SplitsThreeWaysNotTwo:
@@ -186,7 +190,7 @@ class TestA82SplitsThreeWaysNotTwo:
 
     def test_no_quote_outranks_mismatch_so_a_row_is_counted_once(self):
         """A row with no half-spread is `no_quote` even if its bids would also
-        fail the identity. Mutation: test `_quote_disagrees` first -- the counts
+        fail the identity. Mutation: test `quote_disagrees` first -- the counts
         then sum to more than the population and P1's denominator is wrong.
         """
         rows = [_row("no", 615, yes_bid=380, no_bid=400) | {"half_spread_tenths": None}]

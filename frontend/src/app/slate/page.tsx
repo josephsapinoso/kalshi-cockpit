@@ -1,8 +1,9 @@
-import { DISPLAY_TIME_ZONE, fetchSlate } from "@/lib/api";
-import type { Slate, SlateRowData } from "@/lib/api";
+import { DISPLAY_TIME_ZONE, fetchSignal, fetchSlate } from "@/lib/api";
+import type { Signal, Slate, SlateRowData } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import CrewBubble from "@/components/CrewBubble";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
+import SignalStrip from "@/components/SignalStrip";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,13 @@ export const dynamic = "force-dynamic";
 
 export default async function SlatePage() {
   let data: Slate;
+  // Allowed to fail on its own, as on the Board. `beta` is context for the
+  // rows and not a precondition of them, and `SignalStrip` renders nothing
+  // rather than a placeholder that could be misread as a measured zero.
+  let signal: Signal | null = null;
   try {
     data = await fetchSlate();
+    signal = await fetchSignal().catch(() => null);
   } catch {
     return (
       <Shell>
@@ -88,6 +94,14 @@ export default async function SlatePage() {
           {Math.round((slate.age_ms ?? 0) / 60_000)} minutes.
         </p>
       )}
+
+      {/* Above the rows, because it is what the edge column is worth. The
+          header sentence already stops the other columns reading as signals;
+          this one says what happened when the edge column itself was measured
+          against Kalshi's own close. */}
+      <div className="mt-6">
+        <SignalStrip signal={signal} now={Date.now()} />
+      </div>
 
       {rows.length === 0 ? (
         <p className="mt-8 text-muted">
