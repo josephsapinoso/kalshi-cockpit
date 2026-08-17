@@ -2,9 +2,16 @@
 
 Every condition here exists because the premise of this project is that the edge
 is **unproven**. Kalshi's advantage is cost, not information; the venue lowers
-the break-even bar from 52.38% to 52.00% and does not clear it for you. So the
+the break-even bar from 52.38% to 51.75% and does not clear it for you. So the
 gate does not ask "is this bet good?" — it asks "has this system demonstrated it
 can tell?", and the answer is no until the record says otherwise.
+
+**The record has since said otherwise, and the answer was no** (ADR 0038,
+`beta = -0.141`). Nothing in this module changes on that account: the gate is
+the interlock, it is never lowered or bypassed, and a closed hunt is exactly the
+state it was written to hold. The 52.38 → 51.75 figure above is the *cost*
+advantage, which ADR 0027/0028 confirm is a discount rather than a signal — it
+was never the thing the gate was waiting on.
 
 Five conditions, and all must hold:
 

@@ -135,7 +135,7 @@ export default function OpportunityCard({
               the fee move below it into the small print.
               `COST` used to be the stake alone with `FEE` beside it and no
               total anywhere on the card -- an understatement of 3.6% at 50c
-              and 10% at 10c, against 0.38 points of total headroom. Both
+              and 10% at 10c, against 0.63 points of total headroom. Both
               numbers come off the payload; nothing here adds them. */}
           <Figure
             label="Total cost"

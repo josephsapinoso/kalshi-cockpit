@@ -25,9 +25,20 @@ export default function HowToRead() {
           </span>{" "}
           A coin flip loses money on this venue, because the exchange takes a
           fee on the winning side. Kalshi&rsquo;s fee is lower than a
-          sportsbook&rsquo;s — 52.00% against 52.38% — and that 0.38-point gap
-          is the entire advantage this tool is hunting. Every edge on this page
-          is already net of the fee.
+          sportsbook&rsquo;s — 51.75% against 52.38% — and that 0.63-point gap
+          is the entire advantage this tool was built to hunt. Every edge on
+          this page is already net of the fee.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">
+            That hunt is finished, and it found nothing.
+          </span>{" "}
+          The 0.63 points are real but they are a <em>discount, not a signal</em>
+          — a cheaper venue multiplies an edge, it cannot create one. This tool
+          spent its life looking for the edge to multiply and measured every
+          place it could reach. The answer was no. The rows below are what the
+          engine proposes; the record says the engine&rsquo;s proposals do not
+          predict where Kalshi closes.
         </li>
         <li>
           <span className="font-semibold text-foreground">

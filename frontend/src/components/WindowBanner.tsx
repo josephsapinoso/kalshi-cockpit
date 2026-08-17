@@ -337,8 +337,8 @@ function explain(
     return (
       "The books are fresh and nothing cleared the bar. That is the expected " +
       "result: Kalshi prices sports to about two cents, and the venue's fee " +
-      "advantage is 0.38 points. An open window is a chance to look, not a " +
-      "signal to bet."
+      "advantage is 0.63 points -- a discount, not a signal. An open window " +
+      "is a chance to look, not a signal to bet."
     );
   }
   // Third version of this sentence, and the first that does not assert

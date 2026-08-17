@@ -148,22 +148,34 @@ def breakeven_win_rate(ask_tenths: int, contracts: int, *, maker: bool = False) 
 
     At 50c, measured from this code rather than quoted from a source:
 
-        taker, any size   0.5200
+        taker, any size   0.5175
         maker, 100        0.5044
-        maker, 10         0.5050
-        maker, 1          0.5100
+        maker, 10         0.5044
+        maker, 1          0.5044
 
-    against 0.5238 at a -110 sportsbook. **The docs said 51.75% for the taker
-    and the real number is 52.00%** -- 51.75% is what the *published* 7%
-    coefficient gives, while `calculate_fee` deliberately charges the
-    conservative maximum across candidate models, so the bar this code actually
-    applies is a quarter-point higher. Quoting the source instead of the
-    implementation overstated the venue's advantage by roughly 40% of the
-    advantage itself (0.38 points of headroom against 0.63 claimed).
+    against 0.5238 at a -110 sportsbook.
 
-    The maker figure varies with size because the fee is amortised per order, so
-    "50.44%" is specifically the large-order limit. Kalshi lowers the bar; it
-    does not clear it.
+    **Both columns above changed when ADR 0028 retired the fee hedge, and this
+    docstring asserted the old ones for three days.** It used to read "the docs
+    said 51.75% and the real number is 52.00%", because `calculate_fee` charged
+    the conservative maximum across candidate models and Model B's per-order
+    roundup pushed the applied bar a quarter-point above what the published 7%
+    coefficient gives. Model B matched 0 of 11 real taker fills and was retired,
+    so the implementation now agrees with the source: **51.75%, and headroom of
+    0.63 points rather than 0.38.**
+
+    The second change is quieter and is the reason these numbers are recomputed
+    here rather than copied. The maker figure *used* to vary visibly with size
+    -- 0.5044 / 0.5050 / 0.5100 at 100 / 10 / 1 contracts -- because a per-order
+    roundup is amortised across the order. With that model gone the fee is
+    effectively per-contract, and the spread collapses to about a ten-thousandth
+    (0.00437 vs 0.00440 per contract), which does not survive rounding to four
+    places. So "50.44%" is no longer specifically the large-order limit; it is
+    the maker bar at any size a retail account will place.
+
+    Kalshi lowers the bar; it does not clear it. And per ADR 0027 the 0.63 is an
+    upper bound: it is computed through `settlement_fee()`, whose "settlement is
+    not a trade, so there is exactly one fee" assertion (H4) is still untested.
     """
     return effective_price(ask_tenths, contracts, maker=maker)
 
