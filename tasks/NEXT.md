@@ -53,13 +53,37 @@ consuming a tier. It does not make ADR 0038's "costs nothing" true — ~24% of a
 paid tier is a real bill, and **the renewal is still Joe's decision, on the
 invoice.** But it is no longer an argument for stopping the recorder.
 
+### Deployed — both instances, on Joe's explicit go
+
+**live at machine v56, demo redeployed, both verified by probing rather than by
+reading a green check.**
+
+| check | live | demo |
+|---|---|---|
+| `/api/health` | 200 | 200 |
+| `/api/signal` | **401** — the route exists, behind the session | 200 |
+| parity with `/api/gate`, `/api/board` | identical 401 | — |
+| the strip renders on Board **and** Slate | not verifiable from here | yes, in its refusal state |
+
+Live carried the retracted 52.00% / 0.38-point copy and `Buy N` until this
+deploy; both are now gone from the money instance.
+
+**One prediction did not come true, and the honest version matters.** The demo
+was expected to publish `G = 420` if a caller read the cluster count off a
+refused report. On the deployed demo the registered §2 population is **empty —
+0 rows** — so it refuses on P1 at 0/0, not at 420/420. The seeded history does
+not reach the population at all. The refusal path protects either way, and the
+guard earned its place, but "it would have shown 420" was a projection from the
+seed code and not a measurement of the deployed database.
+
+**Live will fit rather than refuse.** `clv-coverage` on the box reports 9,437
+scored rows carrying CLV across 7 series, so the §2 subset is populated and `G`
+is now above the 199 of 2026-08-16. **Nobody has yet seen the live strip
+rendered** — it sits behind the session cookie and no agent can hold one. That
+is the one unverified thing in this entry.
+
 ### Open — Joe's call
 
-- **The live redeploy is approved and not yet done.** Joe said yes; it is
-  waiting on the typed app name (`kalshi-cockpit`), which is his own rule for
-  the money instance. Live still carries the retracted 52.00% / 0.38-point copy
-  and `Buy N`. **Note this would now deploy the signal work too, not just the
-  copy fix** — a bigger change than the one approved, and worth re-confirming.
 - **Rotate `ODDS_API_KEY`.** A subagent read `.env` and the plaintext key landed
   in its transcript on disk. Not the Kalshi key. By this repo's own standing
   rule that counts as compromised.
