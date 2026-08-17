@@ -2,7 +2,13 @@
 
 ## 2026-08-17 — THE WHOLE PROP-MODEL LINE IS CLOSED. ADR 0037. READ THIS FIRST.
 
-`main` pushed. **2,949 tests pass, 10 xfailed, ruff clean.** Re-verify.
+`main` at **`3ea5d34`+**, live at **machine v54**, schema **v9**.
+**2,959 tests pass, 10 xfailed, ruff clean.** Re-verify; do not inherit.
+
+**There is currently no signal on the board.** The consensus signal is measured
+negative (`beta = -0.141`) and the in-house prop line is closed (ADR 0037).
+Choosing what comes next is a priorities call, not a coding one — start with
+`partner`.
 
 Four registered measurements in one day, each written before its data was seen.
 The fourth closes the line, and for a different reason than the first three.
@@ -53,7 +59,12 @@ wait. That ordering error is the most transferable thing here.
    10 tests, mutation-verified (9 of 11 red on revert). Over-merging checked on
    the real name sets, not assumed: 411→411 and 335→335 keys, **zero
    collisions**.
-   **NOT DEPLOYED — this changes which props the live runner joins.**
+   **DEPLOYED, machine v54, 2026-08-17T02:43Z.** Via the `deploy.yml`
+   workflow (builds from the repo, not a working directory — `tasks/lessons.md`).
+   Verified *behaviourally* on the instance, not by a green health check:
+   `norm('José Ramírez')` returns `'jose ramirez'` on the live machine.
+   The 18 players join from the next sweep on, so **prop row counts step up on
+   2026-08-17 for a reason that is not a market change.**
 
 ### Also established, free, from the live pull
 - `KXMLBHR 1+` **exists and is tradeable**: 547 markets, median spread **1.00c**,
