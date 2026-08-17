@@ -155,11 +155,45 @@ brief named the wrong set; lane A found `CLAUDE.md`/`AGENTS.md` already drifted;
 the build-id feature shipped with its own deploy path not calling it. That is
 now **four sessions running.** Open the set before predicating over it.
 
-### Still unverified — the one thing only Joe can check
+### VERIFIED — the live `beta` strip renders, and every guard held
 
-**Nobody has seen the live `beta` strip rendered.** It is behind the session
-cookie and no agent can hold one. `/api/signal` answers 401 on live (correct)
-and 200 REFUSED on demo. Unchanged from last session.
+**Seen, on live, in Joe's own logged-in Chrome** (browser automation against his
+session, 2026-08-17 ~10:15 PDT). This had stood unverified for two sessions
+because the strip is behind the session cookie and no agent can hold one. It is
+no longer an open claim.
+
+```
+SIGNAL TEST   UNRESOLVED   201 of 300 games              measured 5m ago
+Not yet resolved — and that is not the same as no signal. ... 99 to go.
+smallest resolvable +0.1911   beta -0.1403   se 0.0475
+interval [-0.3314, +0.0509]   rows 3,780
+by market type, diagnostic only:  moneyline -0.0809 · 120g · 67%
+                                  prop      -0.5192 ·  81g · 33%
+```
+
+Every constraint the component's docstring names is honoured on the live screen:
+`UNRESOLVED` is not rendered as "no signal" and carries the explicit sentence
+saying so; `smallest_resolvable_beta` prints **before** the estimate; `beta`
+never appears without `se` and the interval; the per-arm split is labelled
+*diagnostic only* with each arm's share. And **`201`, not `420`** — it is
+reading the live record, not the seeded demo database, which was the specific
+failure `REFUSED` was invented to prevent.
+
+**The numbers moved since the handoff, which is the recorder working:** `G`
+199 → **201**, `beta_hat` −0.1412 → **−0.1403**, `se` 0.0478 → **0.0475**. The
+G = 300 look still arrives on its own and nothing may depend on it.
+
+The footer from `999857f` also renders — **ALSO SERVED · Rejections · Parlay
+builder** — confirming the pages `Nav.tsx` called "still served" are now
+reachable from the app.
+
+**A note for the next session on where it is.** The strip is **not** at the top
+of the page; it sits immediately above the cards (`frontend/src/app/page.tsx:219-228`),
+deliberately — as a header it reads as a disclaimer nobody finishes, above the
+cards it reads as a caption on them. Anyone told to "check the top of the Board"
+will report it missing. It is also fetched with `.catch(() => null)` and
+`SignalStrip` returns `null` for a null signal, so a genuine failure and a
+mis-aimed look are the same picture from the top of the page.
 
 ---
 
