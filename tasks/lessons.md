@@ -25,6 +25,52 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — An acceptance criterion carries implicit scope, and the person who sets it owns that scope
+
+A lane was capped at a named deliverable list: backend field, banner predicate,
+two fixtures, one ADR, one lessons line. The acceptance criterion attached to it
+was stricter than the list — *"the fixtures must render opposite verdicts, and a
+disabling mutation must go red; if the predicate cannot separate them it is not a
+fix and the lane is abandoned."*
+
+**That criterion was unsatisfiable within the deliverable list.** Every existing
+frontend guard in this repo asserts on **source text**, because there is no
+JavaScript test runner here. A substring assertion passes unchanged against a
+predicate that has been exactly inverted, so it cannot render a verdict at all.
+Meeting the criterion required extracting the predicate into a plain-TypeScript
+module a test could execute — a file nobody had listed.
+
+The implementer flagged it as possible scope they had taken. The director's
+answer was that it was scope they had **set**: a criterion phrased as a test is a
+build instruction in disguise, and under-specifying it does not transfer
+ownership to whoever discovers what it costs.
+
+**Why this is worth a lesson and not a shrug.** The failure mode it prevents is
+the *quiet* one. An implementer who notices an unlisted requirement has two
+cheap, wrong options — build it silently and be accused of scope creep later, or
+satisfy the criterion's letter with a source-text assertion that is worthless
+here. Both end with a green suite over an unverified claim, which is this repo's
+most-repeated shape.
+
+**How to apply.**
+
+- **When you set an acceptance criterion, cost it against the tools that
+  actually exist in the repo.** "Watch the test go red" presumes a runner that
+  can express the assertion. Check that it can before making it the gate.
+- **When you meet one and it forces unlisted work, name it and hand the
+  ownership question back** rather than either absorbing it silently or
+  weakening the criterion. It is one message and it settles the record.
+- **A criterion is a stricter instrument than a deliverable list**, so where the
+  two disagree the criterion wins — and that is exactly why the list is not a
+  budget for it.
+
+Related: [[a-feature-and-the-one-path-that-invokes-it-are-two-deliverables]],
+[[the-file-ownership-map-between-parallel-lanes-is-a-design-artefact]],
+[[a-mutation-that-cannot-change-behaviour-is-a-green-light-you-awarded-yourself]],
+[[a-command-in-a-handoff-has-the-status-of-a-test-never-seen-red]].
+
+---
+
 ## 2026-08-17 — A boundary borrowed from another subsystem answers a question it was never about, and the reasoning for borrowing it reads well
 
 The Board's sweep strip warned *"the loop is alive and declining: nothing has
@@ -272,6 +318,7 @@ each is in the linked archive file, unchanged.
 
 ### 2026-08-17 — in this file, above
 
+- An acceptance criterion carries implicit scope, and the person who sets it owns that scope
 - A boundary borrowed from another subsystem answers a question it was never about, and the reasoning for borrowing it reads well
 - An instrument that does not select the column its predicate turns on reports the absence of what it cannot see
 - A feature and the one path that invokes it are two deliverables, and only the second one ships

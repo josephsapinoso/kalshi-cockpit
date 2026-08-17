@@ -136,8 +136,43 @@ retraction — **say which way a blind spot points, always.**
 
 `partner` capped this at one lane and closed the banner line permanently on
 merge. No restyling, no new tones, no settings knob, no `trigger` backfill, no
-second screen. **The blank gap between the last card and the footer is still
-undiagnosed and is still cosmetic.**
+second screen.
+
+### THE DIRECTIVE IS STOP, AND IT WAS CHECKED RATHER THAN REMEMBERED
+
+Asked at the end of this session what was next, `partner` answered **stop** —
+not "stop for now", not "stop pending". It verified its own list before saying
+so, on the grounds that saying *stop* from memory is the same failure as saying
+*go* from memory: its one undischarged pre-commitment was the `scout.py` /
+Historian quarantine, and that was already closed by ADR 0040 (reinforced by ADR
+0022, and stated in `backend/playbook.py`'s module docstring where a session
+actually hits it). Five items named across two sessions, five discharged. **It
+declined to name a sixth.**
+
+**Explicitly dropped — this is a drop list, not a wish list.** Do not pick these
+up as "small wins":
+
+- **The blank gap between the last Board card and the footer.** Cosmetic,
+  undiagnosed, on a hard-closed line. *Undiagnosed is not a reason to diagnose
+  it.*
+- **Exercising the manual-refresh path** to retire its zero-live-firings status.
+  It spends credits, on a tier whose renewal is Joe's undecided call. The guard
+  is test-covered; that is enough.
+- **The ~99 clusters to `G = 300`.** Waiting is not work. **Do not schedule a
+  session for it.** When it crosses, the look is a twenty-minute read against a
+  pre-registered rule.
+- **Anything reopening the hunt.** ADR 0038 requires naming which quadrant row is
+  overturned and with what measurement. Nothing here does.
+
+Every remaining open item is Joe's and every one touches money or credentials —
+the cost-of-execution meter, the Odds tier renewal, the `ODDS_API_KEY` rotation.
+Those are his by design. **A future session must not convert one into a lane to
+give itself something to do.**
+
+If more is wanted from this project the honest answer is that it needs a **new
+signal**, not more work on this one. `backend/analysis/signal_test.py` is
+signal-agnostic and would validate one on the same clock that refuted the last.
+That is Joe's decision to fund, not a task to assign.
 
 ---
 

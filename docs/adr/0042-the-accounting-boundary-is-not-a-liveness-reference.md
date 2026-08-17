@@ -138,6 +138,25 @@ This is recorded because a plausible-sounding claim about ordering, backed by a
 test that was never observed red, is exactly the kind of thing a future session
 would preserve while refactoring around it.
 
+**It is deliberately not softened.** The sequencing claim originated in the
+directing brief for this lane and was carried into the source comment unchecked;
+the mutation refused to confirm it, and the record says so in those terms rather
+than restating the original phrasing as nearly-right. The surviving requirement —
+*never gated behind* — is narrower than what was asserted, and the difference is
+the whole content.
+
+## Who owned the extraction into `sweepTone.ts`
+
+Splitting the verdict out of `WindowBanner.tsx` was **not** on this lane's
+deliverable list, and it was raised as possible scope creep before merge. It is
+recorded here as the **director's omission, not the implementer's expansion**:
+the lane's acceptance criterion required fixtures that render opposite verdicts
+under a disabling mutation, and that criterion was unsatisfiable with the
+repo's existing source-text guards, which pass unchanged against an inverted
+predicate. A criterion phrased as a test is a build instruction in disguise, and
+under-specifying it does not move ownership to whoever discovers its cost. See
+`tasks/lessons.md`, *"An acceptance criterion carries implicit scope"*.
+
 ## The manual-refresh exclusion stays, and it has never fired
 
 `_SERVED_SWEEP` (`backend/odds/timing.py`) is, verbatim:
