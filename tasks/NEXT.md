@@ -14,7 +14,134 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-17 (latest) — THE INSTRUMENTS NOW DISAGREE WITH THE MACHINE OUT LOUD
+## 2026-08-17 (latest) — THE MORNING WARNING WAS ARITHMETIC, AND IT IS GONE FROM THE LIVE SCREEN
+
+**`main` at `b0bd2ec`, pushed. 3,080 tests pass (+26), 10 xfailed, ruff clean,
+`tsc --noEmit` clean — run on merged `main`, not inherited. Both instances
+deployed and both report `git_sha b0bd2ec238dd310f0f2dcf00f9f9925d9e489aa0` from
+`/api/health`, which equals HEAD.** The hunt is still closed (ADR 0038); nothing
+here reopens it.
+
+One lane, directed by `partner`, which explicitly did **not** walk back last
+session's "stop" — its distinction was that this item arrived *measured* rather
+than *found*, and refusing measured evidence to protect yesterday's stance is the
+flattering-direction failure wearing discipline as a costume.
+
+### The defect, and it was 6 of 6 days
+
+The Board's amber strip — *"the loop is alive and declining: nothing has swept in
+18.1h"* — compared `last_sweep_ms` against `budget_day_start_ms`. **Those are
+different clocks.** The boundary is credits-accounting (10:00Z, so a West Coast
+extra-innings game settles in the right day); a sweep window is kickoff-derived,
+opening 75 minutes before a cluster's first pitch. Between them there is no
+window in which to spend, so "nothing has swept" is arithmetic there, not an
+observation.
+
+Measured on live rows **before** anything was built, gap from the boundary to the
+first row satisfying the full served-sweep predicate:
+
+```
+2026-08-12  17:00:11Z  7.00h      2026-08-15  16:27:03Z  6.45h
+2026-08-13  16:47:55Z  6.80h      2026-08-16  17:06:36Z  7.11h
+2026-08-14  17:39:58Z  7.67h      2026-08-17  no sweep at all as of 17:45Z
+```
+
+**Two quantities live in this record and must not be conflated.** That table is
+the gap to the first *served row*. The predicate keys on gap to *window open*,
+which is larger: on 2026-08-17 the first window opened at 20:50Z against a 10:00Z
+boundary — **10.83 hours of amber**. My own interim brief "corrected" the
+handoff's ~11h guess down to 6.5–7.7h and the correction was wrong, because it
+measured the other quantity. The handoff was right.
+
+**The machine already knew.** `odds_sweep_log` was writing *"no sweep: next slot
+is baseball_mlb at 20:50Z-21:50Z ... sweeping 75-15 min before first kickoff"*
+every ~15 minutes throughout. The scheduler's log was calm and correct while the
+screen a human reads was amber.
+
+### VERIFIED on live, seen not asserted
+
+Live Board in Joe's own logged-in Chrome, 2026-08-17 ~18:10Z, in the exact state
+that used to be amber:
+
+```
+looked 2m ago  ——  gap 19.1h  ——  swept 19.2h ago
+No sweep window has opened yet today — the first is at 1:50 PM. The loop
+looked 2m ago. Windows open 75 minutes before the first pitch of a cluster,
+not when the budget day does, so nothing has swept yet and nothing is owed yet.
+SKIPPED · no sweep: next slot is baseball_mlb at 20:50Z-21:50Z ...
+```
+
+Rendered **muted grey, not amber** — confirmed on the pixels, not only the copy.
+**Every fact is still on screen**; the gap chip still says 19.1h. It stopped
+shouting without hiding anything. `first_window_open_ms` on the public
+`/api/window` is `2026-08-17T18:52:57Z` against a `budget_day_start_ms` of
+10:00:00Z, i.e. the two numbers are demonstrably not the same clock.
+
+### `refused` is in the predicate and it is not optional
+
+The obvious fix — *no window open yet, therefore calm* — is **worse than the
+bug**. `slots_for_sport` is unfiltered by budget (its own docstring says so), so
+a day whose credits died at 14:00Z still computes a 20:50Z window; the naive
+predicate renders that calm over a recorder that is dead until tomorrow. That
+trades a false positive for a **false negative on the failure the strip exists to
+catch**. A liveness guard may be noisy; it may not be silent. `refused` is live,
+not theoretical — two such rows exist.
+
+### The predicate is now executed by a test, not read by one
+
+Every other frontend guard here asserts on **source text**, which passes
+unchanged on a predicate that has been exactly inverted — and a wrong verdict is
+precisely what this defect was. The verdict moved to
+`frontend/src/lib/sweepTone.ts` as a pure function; `tests/test_sweep_tone_predicate.py`
+runs it under `node` against real recorded states, including three mutations
+observed red. Wiring guards pin that `WindowBanner.tsx` actually calls it, so the
+extraction cannot orphan itself.
+
+### One claim of mine was wrong, and the mutation test is what said so
+
+I asserted in `sweepTone.ts` that the `refused` clause **must precede** the
+window clause and wrote a mutation to prove the ordering load-bearing. **It
+refused to go red.** Both branches return `"warn"`; it is a disjunction, so
+swapping them changes nothing. The real requirement is narrower — `refused` must
+never be *gated behind* the window test, i.e. no early `return "calm"`. Comment
+corrected, mutation rewritten to the shape that actually breaks. Recorded in ADR
+0042 because a plausible ordering claim backed by a never-red test is exactly
+what a future session preserves while refactoring around it.
+
+### Found in passing: the manual exclusion has never fired
+
+All-time, every `/odds` row with `cost > 0` has a NULL `trigger` — one group,
+**n = 111**, 2026-08-07 to 2026-08-16. **Zero manual taps have ever been
+recorded.** The exclusion stays (a hand tap proves the spend path, not the
+scheduler) but it is test-covered only — this repo's "built but never called"
+shape, now written down so it is not rediscovered as a finding. The copy change
+explaining it to a reader was authorised and then **dropped**: a sentence about a
+button nobody has pressed.
+
+**Quote the predicate verbatim.** It is
+`COALESCE(trigger, '') != 'manual'`, not `trigger != 'manual'`. My brief used the
+paraphrase; under it, all 111 NULL rows fail and the banner would read "swept
+never" for its whole life. The measurements used the real predicate and stand.
+
+### The instrument was blind to its own predicate
+
+`scripts/inspect_live_db.py`'s `_CREDIT_COLUMNS` did not select `trigger` — the
+one clause deciding a served sweep. Fixed **first**, and the six-day table above
+was re-run with it visible before the design was frozen. Same shape as the
+`clv-coverage` failure that cost six days. The blind spot pointed the safe way (a
+miscounted tap lengthens the gap), which is why this was a repair and not a
+retraction — **say which way a blind spot points, always.**
+
+### Not done, deliberately
+
+`partner` capped this at one lane and closed the banner line permanently on
+merge. No restyling, no new tones, no settings knob, no `trigger` backfill, no
+second screen. **The blank gap between the last card and the footer is still
+undiagnosed and is still cosmetic.**
+
+---
+
+## 2026-08-17 — THE INSTRUMENTS NOW DISAGREE WITH THE MACHINE OUT LOUD
 
 **`main` at `bdcd1fb`, pushed. 3,054 tests pass, 10 xfailed, ruff clean, `tsc
 --noEmit` clean — run on merged `main`, not inherited. Both instances deployed
