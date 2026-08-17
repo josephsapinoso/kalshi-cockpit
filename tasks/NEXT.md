@@ -1,5 +1,58 @@
 # Next — your checklist
 
+## 2026-08-17 — THE WHOLE PROP-MODEL LINE IS CLOSED. ADR 0037. READ THIS FIRST.
+
+`main` pushed. **2,949 tests pass, 10 xfailed, ruff clean.** Re-verify.
+
+Four registered measurements in one day, each written before its data was seen.
+The fourth closes the line, and for a different reason than the first three.
+
+| # | question | verdict |
+|---|---|---|
+| 1 | Does a season-old strikeout baseline carry? | **TOO STALE ALONE** — 8.47 pts vs 1.75 |
+| 2 | Does current-season data rescue it? | **NO FEED RESCUES IT** — floor 6.09 |
+| 3 | Is the HR ladder easier? | **MARGINAL** — 2.89. I predicted "harder". Wrong. |
+| 4 | Is Kalshi's own HR price detectably wrong? | **NOTHING TO TRADE** |
+
+### #4 is the one that matters, and it is the cheapest test we never ran
+
+255 settled `KXMLBHR 1+` markets, pre-first-pitch **derived ask** (never a mid):
+
+```
+d = model - ask        sd 3.72 points     mean +0.31
+sigma_model            4.04 points        (measured in #3, an INPUT here)
+sigma_kalshi = sqrt(Var(d) - sigma_model^2)  ->  0.00 at 4.04, 4.50 AND 5.00
+```
+
+**The disagreement between our model and Kalshi is smaller than our own model's
+error.** It floors at zero across the whole registered sensitivity band.
+
+The supported claim is precise and it is *not* "Kalshi is right":
+**whatever error Kalshi has, our model cannot see it.** Every edge this tool
+would surface on that ladder is our own noise in a costume.
+
+**Ask the price question FIRST next time.** #1–#3 cost a day; #4 would have
+short-circuited all of them, and it needs **no settlements** — so no 300-cluster
+wait. That ordering error is the most transferable thing here.
+
+### The two live gaps, and neither is closed
+
+1. **48% of the board is unpriceable by this approach.** 238 of 493 settled
+   markets dropped for no usable 2025 baseline — debuts, call-ups, and names
+   `props.norm()` cannot match. It is the half the market is least sure about.
+   Whether that is opportunity or just hard is **not established**.
+2. **`props.norm()` has a real, cheap bug.** It strips accents asymmetrically —
+   `Narváez` → `narvez` against a source's `Narvaez` — so it drops live markets
+   from the record. **Worth fixing on its own merits, independent of any model.**
+
+### Also established, free, from the live pull
+- `KXMLBHR 1+` **exists and is tradeable**: 547 markets, median spread **1.00c**,
+  ask p10/p50/p90 = **7 / 12 / 19c**. Kalshi makes real per-batter distinctions.
+- The whole HR record is **29 games over 3 dates**. Any calibration run is
+  hopeless (95% interval ±3.6 pts vs a 1.75 bar) and was **refused** in
+  registration rather than run and caveated.
+- Retrosheet ingestion is proven and complete; `README.md` carries the notice.
+
 ## 2026-08-17 — PITCHER-K IS REFUTED. THE MODEL WORKS; THE PARAMETERS CANNOT.
 
 **Read ADR 0036 before planning anything in this section.** Slice 1 shipped and
