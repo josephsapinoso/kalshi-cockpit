@@ -35,6 +35,7 @@ from ..analysis.marts import (
 )
 from ..config import (
     AppConfig,
+    BuildInfo,
     ConfigError,
     GateConfig,
     OddsConfig,
@@ -486,6 +487,29 @@ def create_app(
             # the secret I just unset take effect", which a value captured at
             # construction cannot answer.
             "retired_settings_set": sorted(retired_settings_present()),
+            # Which build is answering. Every sub-field is null when the
+            # platform did not supply it -- never `"unknown"`, because two
+            # machines both reporting `"unknown"` compare equal and that is the
+            # exact wrong answer.
+            #
+            # This exists because the alternative is inference, and the
+            # inference has been wrong twice in the direction that flatters:
+            # proving commit `999857f` was absent from both deployed images
+            # took 32 tool calls of behavioural HTML diffing, and the 52.00%
+            # fee copy served live for three days after the correction landed
+            # in git, while the record said "deployed and verified".
+            #
+            # `git_sha` is null unless the deploy passed
+            # `-e GIT_SHA="$(git rev-parse HEAD)"`. Fly's own environment
+            # carries no commit -- verified on a live machine, see
+            # `config.BuildInfo` -- so `image_ref` is the field that pins the
+            # deploy when the SHA is absent: its ULID is the `ImageRef` in
+            # `fly releases --json`.
+            #
+            # Read per request, like `agent_fleet_configured` above and for the
+            # same reason: the question is "is what I just deployed what is
+            # running", which a value captured in `create_app` cannot answer.
+            "build": BuildInfo.from_env().as_dict(),
         }
 
     @app.get("/api/stream/quotes")
