@@ -1,5 +1,59 @@
 # Next — your checklist
 
+## 2026-08-17 — PITCHER-K SLICE 1 IS IN. THE LADDER SHAPE ALREADY MATCHES.
+
+`main` at **`e2840f6`**. **2,949 tests pass, 10 xfailed, ruff clean.** Not
+pushed. Re-verify; do not inherit.
+
+`backend/model/strikeouts.py` prices a whole `KXMLBKS` ladder from one compound
+distribution — BF (how long he lasts) × K|BF (how good he is). Fourteen markets,
+one opinion, monotone by construction.
+
+**The result worth knowing, and it is not a measurement.** Run against the four
+ladders Kalshi published 2026-08-15 with *league-average constants typed in*
+(`scripts/price_pitcher_k_ladder.py`):
+
+| pitcher | worst rung disagreement |
+|---|---:|
+| Logan Webb | **3.4 points**, across all 8 rungs |
+| Matthew Boyd | +12.6 |
+| Anthony Kay | +18.8 |
+| Cam Schlittler | −21.4 |
+
+Webb tracking a league-average constant within 3.4 points across an entire
+ladder says **the shape is right** — the distribution family reproduces what
+Kalshi charges. The other three diverge in the direction their strikeout ability
+differs from average, which is what a placeholder should do. **So the residual
+is the per-pitcher parameter, and that is exactly slice 2.** No fee is
+subtracted from any of those gaps and no rate was fitted to anything; nothing in
+that table may be quoted as an edge.
+
+**Mutation battery, and one guard did not fire.** Six disabled, five red. The
+claim that log-space `_binomial_pmf` prevents an overflow was **wrong** — the
+direct form first raises at `n = 1030` against a support capped at 70. Two
+docstrings corrected; no test added, because asserting `lgamma` pins a technique
+rather than a behaviour. Also: collapsing the compound to a single Binomial
+leaves **every** mass, monotonicity, ladder and refusal test green. Only the
+three identity tests see it.
+
+**Registered as a laptop `Tool`, not wired to the chain** — a model priced off
+typed-in constants has no business on the money path. The DISPOSITIONS entry
+says to *delete* it when slice 3 lands, not extend it.
+
+### Slice 2 — the parameters. NEXT, and it is where the licence bites.
+Per pitcher: `k_per_bf`, `expected_bf`, `sd_bf`. ADR 0035 already fixed the
+split — Retrosheet for anything historical or derived (and its notice goes in
+`README.md` before any derived number is published), MLBAM for today's probable
+starter only, one call per slate, cached, a 429 is a stop.
+**Unverified and on the critical path: whether Retrosheet actually carries
+batters-faced per start.** ADR 0035 says so itself.
+
+### Slice 3 — write model rows under their own `strategy_config_version`, then
+score on `scripts/run_signal_test.py`. **Hazard to design around:** the harness's
+§7 `--modal-version` picks the *modal* strategy version, so enough model rows
+would silently capture the consensus population's own extraction. Needs a
+pre-registration before any row is looked at.
+
 ## 2026-08-17 (~00:30Z) — P1 WAS READING THE WRONG STATISTIC. NFL IS A SKIP. MLB PROPS REORDER TO PITCHER-K.
 
 `origin/main` at **`0999f76`+**, live at **machine v52**, schema **v9**.
