@@ -73,12 +73,50 @@ ask whether *you* picked it. This one read as a romantic opportunity for a day.
 
 ### Remaining, and it is hygiene not discovery
 
-- **`backend/agents/` orphans (ADR 0022).** Quarantined is a declared state and
-  fine internally; to a stranger reading a public repo it is dead code. Wire or
-  delete before calling the repo finished. This repo's most-repeated defect is
-  "built but never called" — recorded four separate times.
+- ~~**Wire or delete the `backend/agents/` orphans.**~~ **DO NEITHER. This item
+  was wrong twice over and is struck.** See below.
 - README / portfolio framing: the asset is 38 ADRs and four pre-registered
   measurements, two of which refuted a prediction their author had written down.
+
+### The `backend/agents/` item was wrong twice, and both halves matter
+
+It was carried into this session as *"quarantined is fine internally but reads
+as dead code to a stranger — wire or delete before calling the repo finished."*
+Checked, and neither verb is available:
+
+**1. "Wire or delete" is already refused by a standing decision.** ADR 0022 §4
+is titled, in terms, **"The decision: quarantine — do not wire, do not delete"**,
+and it has *teeth*:
+`test_a_quarantined_module_has_not_been_wired_up_by_the_back_door` was verified
+by adding a single `import backend.agents.scout` line to `backend/runner.py` and
+watching it go **red** (ADR 0022 §"Direction 2"). Every quarantined entry also
+carries a `revive_if` and a live ADR path, enforced by
+`test_a_quarantined_module_says_what_would_bring_it_back`. **Doing this item
+would have broken CI on an invariant designed to stop exactly it.**
+
+**2. Most of the directory is not orphaned at all — it is live money-adjacent
+code.** `backend/agents/` holds six modules and only **two** are quarantined:
+
+| module | status | evidence |
+|---|---|---|
+| `review.py` | **LIVE** | `backend/runner.py:70`, default `review=review_surfaced` at `:1027` |
+| `base.py` | **LIVE** | `backend/api/routes.py:81`, and imported by `review.py` |
+| `budget.py` | **LIVE** | imported by `review.py:105` |
+| `skeptic.py` | **LIVE** | imported by `review.py:103` |
+| `scout.py` | quarantined | only importer `scripts/measure_agent_cache_prefix.py`, **not in the image** |
+| `historian.py` | quarantined | same; `review` called by nothing, anywhere |
+
+Deleting `backend/agents/` wholesale would have removed the review path from the
+live pricing pass. And per ADR 0018 that path is the one whose **Anthropic spend
+switches itself on when `surfaced > 0`** — a bill gated by a measurement outcome
+rather than by config.
+
+**The pattern, and it is the third instance today.** *"The `backend/agents/`
+orphans"* is a phrase that names a directory and asserts a property of all of
+it. The property held for 2 of 6 files. **A collective noun is not a
+measurement** — the same shape as the 48% exclusion count and the ADR 0018
+mis-citation, both corrected earlier in this session. All three arrived as
+confident inherited sentences that nobody had re-opened the source on.
 
 ## 2026-08-17 — THE WHOLE PROP-MODEL LINE IS CLOSED. ADR 0037.
 

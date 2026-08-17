@@ -13,6 +13,41 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-17 — A collective noun is not a measurement
+
+Three claims were inherited into one session, each phrased with total
+confidence, each sourced from a real document, and **all three were wrong in the
+same way**: a label had been attached to a group, and nobody had re-opened the
+group to see whether the label fit every member.
+
+| the phrase | what it asserted | what was true |
+|---|---|---|
+| "the 48% unpriceable" | half the board has no history | 143 of 238 failed a `MIN_PA = 300` **we chose** |
+| "ADR 0018 puts betting outside the gate by design" | that ADR decided it | it decides arming is a code change; it says nothing about discretion |
+| "the `backend/agents/` orphans" | the directory is dead code | **2 of 6** files; the other 4 are on the live pricing path |
+
+The third would have been the expensive one. Acting on it meant deleting a
+directory containing `review.py`, which `backend/runner.py:70` imports and wires
+as a default — and whose Anthropic spend switches itself on when `surfaced > 0`.
+It would also have gone red against
+`test_a_quarantined_module_has_not_been_wired_up_by_the_back_door`, an invariant
+built for precisely that mistake, because ADR 0022 §4 is *titled* **"do not
+wire, do not delete"**.
+
+**The tell is grammatical.** "The X orphans", "the 48%", "ADR N says" — each
+names a set or a source and predicates over all of it in one breath. That
+compression is what makes the sentence quotable and is exactly what strips the
+per-member check. **Before acting on a sentence of that shape, enumerate the
+members and mark each one.** Three greps here; each falsified the sentence in
+under a minute.
+
+**And the reason it recurs is that these sentences look already-checked.** They
+arrive from a subagent, an ADR, or a previous session's handoff — all
+high-trust channels. A citation that looks verified is the least likely thing
+anyone re-opens. Trust the channel for *pointing*; verify the *predicate*.
+
+---
+
 ## 2026-08-17 — An exclusion count describes the filter, not the world
 
 A harness dropped 238 of 493 markets. Three documents — ADR 0037, the
