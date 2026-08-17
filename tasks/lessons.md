@@ -25,6 +25,56 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — A feature and the one path that invokes it are two deliverables, and only the second one ships
+
+`/api/health` was given a `build` object so a single GET could answer *"which
+commit is this machine running?"* — the field was designed against a real Fly
+environment enumerated over ssh, validated (`GIT_SHA` refused unless 7–40 hex),
+made to fail to `None` rather than `"unknown"`, and covered by tests observed
+red under four named mutations. It was, by every check available in the repo,
+finished.
+
+`.github/workflows/deploy.yml` was still running `flyctl deploy` with no
+`-e GIT_SHA`. That workflow is the **only** way either instance is deployed —
+flyctl has no mobile client and the owner works from a phone. Every deploy would
+have served `git_sha: null` while a green suite reported the feature present.
+
+**The failure is not that the wiring was forgotten. It is that nothing could
+have noticed.** Every test asked *"does `BuildInfo` read the environment
+correctly?"* and none asked *"does anything set that environment?"* A unit test
+of a config object is a statement about a function; it is silent about whether
+the deployed process ever calls it, and the two questions read identically in a
+green summary. This is `test_has_callers.py`'s premise applied to configuration
+instead of code: **an env var with no writer is the same defect as a module with
+no importer**, and only one of the two had a guard.
+
+Two things make this worth writing down rather than just fixing:
+
+- **It landed inside the fix for a verification gap.** The whole point of the
+  build id was that "deployed and verified" had been asserted and been wrong
+  before. Shipping it in a state where it reports `null` forever would have
+  produced a *second* instrument that agrees with the record instead of with the
+  machine — the failure it was built to detect, reproduced by its own delivery.
+- **The safe direction was available and was taken.** `-e` is not inherited
+  between deploys, so a forgotten flag yields `null`, never the *previous*
+  deploy's commit presented as this one's. Design the degraded state before you
+  need it: `null` says "I don't know", a stale sha says something false
+  confidently.
+
+**So: when a feature's value depends on a caller, the caller is part of the
+feature, and the guard belongs on the caller.** Concretely — if the deliverable
+is only meaningful in production, write the test against the *deployment
+artefact* (the workflow file, the toml, the entrypoint), not only against the
+function. `tests/test_build_identity.py::TestTheDeployPathActuallySetsIt` and
+`tests/test_deployed_risk_caps_are_explicit.py` are both that shape, and the
+second one exists because the same failure had already happened once with
+`fly.demo.toml` silently inheriting six code defaults. Related:
+`[[built-but-never-called]]`, and the `.env.example` lesson below — a file that
+cannot disagree with reality cannot be evidence about it, and a test that never
+looks at the deploy path is the same thing wearing a green tick.
+
+---
+
 ## 2026-08-17 — A document that has outgrown its reader is unread, and it reads as compliance
 
 `CLAUDE.md` opens by telling every session to read `tasks/todo.md` and

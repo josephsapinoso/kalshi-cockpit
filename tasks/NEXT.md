@@ -14,7 +14,156 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-17 (latest) — THE PRODUCT NOW STATES WHAT ITS CONCLUSION IS WORTH
+## 2026-08-17 (latest) — THE INSTRUMENTS NOW DISAGREE WITH THE MACHINE OUT LOUD
+
+**`main` at `bdcd1fb`, pushed. 3,054 tests pass, 10 xfailed, ruff clean, `tsc
+--noEmit` clean — run on merged `main`, not inherited. Both instances deployed
+and both now report `git_sha bdcd1fbc2811b54784083fcdd29ea000d8cc77bf` from
+`/api/health`.** The hunt is still closed (ADR 0038); nothing here reopens it.
+
+A finishing session, run as one. No feature was added to the betting product.
+Three of the project's own *instruments* were broken in the same direction —
+**the record said one thing and the machine did another** — and all three are
+now guarded by a test that was observed red first.
+
+### Deployed first — `999857f` (the footer)
+
+It was committed and pushed but on neither instance. **Proved by probe before
+deploying:** the served HTML had `<nav>` (1 hit, the control, from the same
+`layout.tsx`) and `<footer>` (0 hits). After deploy: footer 1, `/rejections`
+and `/builder` 5 hits each, on both. This is the diffing technique that item 1
+below exists to retire.
+
+### 1. `/api/health` can name the commit it is running — ADR 0039's gap closed
+
+Establishing that `999857f` was absent from both images cost a subagent **32
+tool calls** of behavioural HTML diffing. `/api/health` now carries a `build`
+object: `git_sha`, `image_ref`, `machine_version`, `machine_id`, `region`.
+
+- **The Fly environment was enumerated on a real machine, not assumed** —
+  `fly ssh console -a kalshi-cockpit-demo -C "env | grep ^FLY_"`.
+  `FLY_RELEASE_VERSION` **does not exist**, and *no* Fly variable carries a
+  commit: `FLY_IMAGE_REF` ends in a deployment ULID and `fly releases --json`
+  reports `"Metadata": null` on every release.
+- **The build-arg cache cost was never paid.** `fly deploy -e GIT_SHA=…` sets a
+  *runtime* machine variable and touches zero Docker layers. It also fails in
+  the safe direction: `-e` is not inherited, so a forgotten flag yields `null`,
+  never the *previous* deploy's commit reported as this one's.
+- Unreadable → `None`, never `"unknown"` — two machines both reporting
+  `"unknown"` compare equal, which is the exact wrong answer.
+
+**A defect survived the merge and it is this repo's own named one.** The field
+was built, tested, and `.github/workflows/deploy.yml` — the *only* way either
+instance is deployed, because flyctl has no mobile client — was left deploying
+without the flag. Every deploy would have served `git_sha: null` under a green
+suite. Fixed, plus the Verify step now reads the sha back and **fails the
+deploy on a mismatch**, so "we deployed X" is falsifiable in one GET.
+`tests/test_build_identity.py::TestTheDeployPathActuallySetsIt`, red against
+the pre-fix workflow (2 failed), green after.
+
+### 2. The public demo was sizing off a $1,000 bankroll nobody chose — ADR 0041
+
+`fly.demo.toml` set **none** of the risk caps. It fell through to the dataclass
+defaults at `backend/config.py:400-405` — **1000 / 100 / 400 / 100**, ten times
+looser than live's 100 / 10 / 40 / 10, **on the public URL**, and no test
+noticed. A previous session found this, wrote it into the record, and never put
+it into the config.
+
+All six are now explicit in both files. **Verified by probe, not by reading the
+toml:** the public `/api/gate` now publishes `bankroll_dollars: 100.0`. Live
+gained one line (`MAX_ORDER_CONTRACTS`, which it was also inheriting) at the
+value it already had — an inheritance removed, not a behaviour changed. **No
+live risk value changed.**
+
+- **Matching live was argued, not copied.** A rounder $1,000 photographs
+  better and at $100 most demo cards read `Buy 1` — which is exactly the
+  argument *for*: `Buy 1` is what the system actually produces, and a portfolio
+  piece whose thesis is "the record is the product" cannot open by overstating
+  its own size.
+- **The bankroll is the fourth cap and the outermost one.** `size_position`
+  computes `stake = kelly_used * bankroll` and only *then* trims. Counting three
+  is precisely what let `fly.demo.toml` omit it unnoticed.
+  `MAX_POSITION_DOLLARS` binds an **opening** order; `MAX_EXPOSURE_DOLLARS`
+  binds by **accumulation** at the fifth concurrent market. Both are real, in
+  different situations.
+- The guard derives its required list from `RiskConfig`'s own fields, so a
+  seventh cap fails the suite until both tomls state it — a hand-written list is
+  how the first six got to six. A companion test forbids the demo being
+  *looser* than live; deliberate divergence downward is still allowed.
+
+### 3. The two files every session is ordered to read could not be opened
+
+`tasks/NEXT.md` was **456,641 bytes**, `tasks/lessons.md` **418,992**. The Read
+tool refuses above **262,144**. CLAUDE.md's opening line has instructed every
+session to read both, and that has been impossible; sessions coped by reading
+the head. ~875KB ≈ **219,000 tokens** — roughly half a session budget before any
+work started. **A lessons file nobody can read is indistinguishable from not
+having one**: this repo's "built but never called" defect, pointed at its own
+memory.
+
+Split into 22 dated shards under `tasks/archive/`. **Nothing was distilled,
+reworded or dropped** — the shards reconstruct both originals to an identical
+sha256, and independently re-checked here: **179 lesson headings in the archive,
+179 in `git show 999857f:tasks/lessons.md`**. `NEXT.md` → 17KB, `lessons.md` →
+19KB, both now a pattern index over the archive.
+`tests/test_session_files_are_readable.py` observed red on both files first.
+
+Found in passing: `CLAUDE.md` and `AGENTS.md` had **already drifted** about
+which files to read, and `AGENTS.md` claimed to be quoting `CLAUDE.md`
+"exactly". Both corrected. A reading instruction gets audited for content and
+never for feasibility.
+
+### 4. ADR 0038's open pre-commitment is discharged — ADR 0040
+
+0038 is Accepted and committed in writing that *"the quarantined
+`backend/agents/` orphans (ADR 0022) are now either wired or deleted"*. It had
+not happened.
+
+**The sentence naming the set was wrong, and executing it literally would have
+deleted live production code.** `backend/agents/` holds seven files, not two:
+
+| module | status | edge |
+|---|---|---|
+| `base.py` | **live** | `backend/api/routes.py:82` |
+| `review.py` | **live** | `backend/runner.py:70` |
+| `budget.py`, `skeptic.py` | **live** | via `review.py` |
+| `__init__.py` | **live** | parent package of `base` |
+| `scout.py`, `historian.py` | orphan | only a dockerignored script + tests |
+
+Re-grepped independently before merging. `agent_fleet_configured` in
+`/api/health` reads `AgentConfig.from_env()` — i.e. the `ANTHROPIC_API_KEY`
+env var, `backend/agents/base.py:128` — and never touches the directory; it is
+why `base.py` can never be deleted, and is *not* evidence about scout.
+
+**Decision: amend, not delete.** Deletion was tested on a scratch commit and
+`test_the_unmetered_callers_are_exactly_the_quarantined_ones` collapses to
+`assert unmetered == set()` — vacuous in both directions. Scout and Historian
+are the only members that mechanism has ever had, so deleting them turns a real
+guard into decoration. Also: *"they spend credits per pass"* is false — nothing
+calls them, so they spend zero. Quarantine is **why** the bill is zero.
+
+**Found unlooked-for: the Historian's revival condition already fired and no
+test noticed.** It cited ADR 0021 §8 Option F; ADR 0034 took Option F; the
+check only verifies `revive_if` is a non-empty string. Both revival conditions
+rewritten to conditions that are unfired and still reachable post-0038.
+
+### The pattern this session kept hitting
+
+**Three of the four items were briefed with a sentence that turned out to be
+false**, each in the direction of *the record flattering the machine*: lane C's
+brief named the wrong set; lane A found `CLAUDE.md`/`AGENTS.md` already drifted;
+the build-id feature shipped with its own deploy path not calling it. That is
+now **four sessions running.** Open the set before predicating over it.
+
+### Still unverified — the one thing only Joe can check
+
+**Nobody has seen the live `beta` strip rendered.** It is behind the session
+cookie and no agent can hold one. `/api/signal` answers 401 on live (correct)
+and 200 REFUSED on demo. Unchanged from last session.
+
+---
+
+## 2026-08-17 — THE PRODUCT NOW STATES WHAT ITS CONCLUSION IS WORTH
 
 **`main` at `d5bd3fb`+, 2,992 tests pass, 10 xfailed, ruff clean, `tsc
 --noEmit` clean — re-verified this session, not inherited. Demo at machine v18,
@@ -167,6 +316,10 @@ named beside it.
 - **The Odds API renewal is Joe's decision, on the invoice.** ~24% of the 20,000
   tier in seven days is a real bill even though it is not the 90% this file used
   to claim. Above.
+- **`ODDS_API_KEY` rotation is open, and it is a security item.** A subagent
+  read `.env` and the plaintext key landed in a transcript. Tabled by Joe, not
+  closed by anyone. It was recorded above but missing from this summary list,
+  which is the list a future session actually reads — the omission is the bug.
 
 **The build checklist that used to live at the bottom of this file** — *"1.
 Blocked on you"*, *"2. Fix before any real money"*, *"3. Ready to build"*, *"4.
