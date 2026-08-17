@@ -821,6 +821,18 @@ class Quarantined:
     be taken again in the open. For `scout` and `historian` that decision spends
     real money on every pass, which is not something that should arrive as a
     side effect of an import.
+
+    **`revive_if` is prose, and the only thing checked is that it is non-empty.**
+    That is a known hole rather than an oversight, and it has cost something
+    already: the Historian's condition was "ADR 0021 §8 Option B or F is taken
+    up", ADR 0034 took Option F, and nothing went red -- the module was never
+    reconsidered, and ADR 0038 later expired the condition entirely. ADR 0022
+    §4.1 worried that quarantine would decay into deletion; what actually
+    happened is the mirror, quarantine decaying into permanence because the
+    prompt to re-read stopped being readable. No cheap machine-readable trigger
+    was available (no ADR here carries a `Superseded` status, so a test for one
+    would pass by finding nothing), so the hole is recorded rather than closed
+    with a guard that cannot fail. See ADR 0040 §3.
     """
 
     kind = "QUARANTINED"
@@ -837,8 +849,13 @@ class Quarantined:
 # the previous version of this file could only check symbols someone had
 # thought to name, and nine orphans went unnamed for the project's life.
 #
-# ADR 0022 records how this list was arrived at and why nothing here is being
-# wired up or deleted tonight.
+# ADR 0022 records how this list was arrived at and why nothing here was being
+# wired up or deleted that night. For `scout.py` and `historian.py` that
+# provisional "not tonight" is now a settled "not at all": **ADR 0040** closes
+# ADR 0038's pre-commitment that the quarantined agents be "either wired or
+# deleted", and takes neither. Read it before proposing to delete one -- the
+# deletion was measured, and it costs the only exercise the fail-closed
+# billed-path mechanism at the bottom of this file has ever had.
 DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Tools ---------------------------------------------------------------
     # `backend/analysis/signal_test.py` was here, as a Tool, and ADR 0039 moved
@@ -904,24 +921,57 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     ),
 
     # -- Quarantined ---------------------------------------------------------
+    # ADR 0040 declares quarantine the *settled* state for these two, closing
+    # ADR 0038's pre-commitment that they be "either wired or deleted". Deletion
+    # was measured rather than argued: removing both empties the left-hand side
+    # of `test_the_unmetered_callers_are_exactly_the_quarantined_ones`, whose
+    # only repair is `== set()` -- vacuous in both directions, on the one
+    # mechanism in this file that fails closed. They are also the only members
+    # `_unmetered_but_unreachable()` has ever had.
     "backend/agents/scout.py": Quarantined(
         reason="The information-gathering half of the agent fleet. Complete and "
                "tested; no caller anywhere. The only file that imports it is "
                "`scripts/measure_agent_cache_prefix.py`, which reads its prompt "
-               "constants to measure cache prefixes and never calls `research`.",
-        revive_if="a strategy is adopted that needs qualitative context, and "
-                  "the Anthropic spend it implies is budgeted. Today the bill "
-                  "is held at zero by `surfaced == 0`, so wiring it up would "
-                  "start paying to decorate a line ADR 0021 refuted.",
-        adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
+               "constants to measure cache prefixes and never calls `research`. "
+               "It does not read as dead code to a stranger: the product says "
+               "so on screen. `frontend/src/components/CrewBubble.tsx` renders "
+               "a Scout on every board row whose whole line is an admission -- "
+               "'I have not looked at this game. I am not switched on yet' -- "
+               "because silence and a disconnected wire are different states. "
+               "Pinned by `test_the_scout_says_it_has_not_looked`.",
+        revive_if="a *new* signal clears `backend/analysis/signal_test.py` on "
+                  "the registered clock, and the Anthropic spend of decorating "
+                  "it is budgeted. Stated this way on purpose: the previous "
+                  "condition was 'a strategy is adopted that needs qualitative "
+                  "context', which ADR 0038 closed the door to when it closed "
+                  "the hunt -- so it had quietly become a condition that could "
+                  "not fire. Today the bill is held at zero by `surfaced == 0`, "
+                  "and there is no line to decorate.",
+        adr="docs/adr/0040-quarantine-is-the-settled-state-for-scout-and-historian.md",
     ),
     "backend/agents/historian.py": Quarantined(
         reason="The weekly post-mortem. Same state as Scout, same importer, and "
-               "`review` is called by nothing.",
-        revive_if="ADR 0021 §8 Option B or F is taken up -- both need a "
-                  "post-mortem loop, which is the strongest argument against "
-                  "deleting this rather than parking it.",
-        adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
+               "`review` is called by nothing. It is the ONE writer of the "
+               "`lessons` table, which is why deleting it is not a no-op: "
+               "`backend/playbook.py` is live and reports "
+               "`historian_has_run: false` precisely to keep 'the agent is "
+               "unwired' distinct from 'the record holds no lessons', and "
+               "`frontend/src/app/playbook/page.tsx` renders 'The Historian has "
+               "never run'. Delete the module and the table has no writer at "
+               "all, so that distinction collapses. Pinned by "
+               "`test_no_lessons_says_the_historian_has_not_run`.",
+        revive_if="a post-mortem loop is wanted over the *record* rather than "
+                  "over a strategy -- ADR 0038 makes the record the product, "
+                  "and summarising it is the one Historian job the closure did "
+                  "not retire -- with the spend budgeted first. The previous "
+                  "condition, 'ADR 0021 §8 Option B or F is taken up', is "
+                  "retired because it FIRED and nothing noticed: ADR 0034 took "
+                  "Option F, this module was not reconsidered, and no test went "
+                  "red because `revive_if` is only ever checked for being a "
+                  "non-empty string. ADR 0038 then expired B and F together. "
+                  "See ADR 0040 §3 -- quarantine becoming permanent by decay is "
+                  "the mirror of the failure ADR 0022 §4.1 guarded against.",
+        adr="docs/adr/0040-quarantine-is-the-settled-state-for-scout-and-historian.md",
     ),
     "backend/model/elo.py": Quarantined(
         reason="The in-house power-ratings model. CLAUDE.md's opening section "
