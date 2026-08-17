@@ -22,10 +22,12 @@ string, and a token in a URL path.
 from __future__ import annotations
 
 import logging
+import sys
 
 from backend.logging_setup import (
     REDACTED,
     CredentialRedactingFilter,
+    CredentialRedactingFormatter,
     configure_logging,
     redact,
 )
@@ -310,3 +312,83 @@ class TestTheApiProcessConfiguresLoggingAtAll:
                 root.removeHandler(handler)
             for handler in previous:
                 root.addHandler(handler)
+
+
+class TestATracebackBodyIsRedactedToo:
+    """The filter rewrites `record.msg` and `record.args`. A traceback is
+    neither.
+
+    `logging.Formatter.format` renders the exception *after* every filter has
+    run, by calling `formatException(record.exc_info)` and caching the result on
+    `record.exc_text`. So a credential that appears only inside an exception's
+    own text -- `str(exc)` on an httpx error that carries the request URL, for
+    instance -- reaches the stream untouched by `redact()`.
+
+    `backend/odds/client.py:319` is the live site: `logger.exception(...)` on
+    the one code path that has just made a request with the key in its query
+    string. Whether any httpx exception subclass actually embeds the URL in its
+    own message is not established here, and this guard deliberately does not
+    depend on it: the hole is closed by class rather than by enumerating which
+    exceptions leak.
+    """
+
+    def _raise_with_url_in_the_message(self):
+        try:
+            raise RuntimeError(
+                "connection failed for https://api.the-odds-api.com/v4/sports/"
+                "baseball_mlb/odds?apiKey=1f4a9c0e2b7d8a6f5e3c1b0d9a8f7e6c"
+            )
+        except RuntimeError:
+            return sys.exc_info()
+
+    def _formatted(self, formatter):
+        record = logging.LogRecord(
+            "backend.odds.client",
+            logging.ERROR,
+            __file__,
+            1,
+            "odds fetch failed for %s",
+            ("baseball_mlb",),
+            self._raise_with_url_in_the_message(),
+        )
+        CredentialRedactingFilter().filter(record)
+        return formatter.format(record)
+
+    def test_the_key_does_not_survive_into_the_formatted_traceback(self):
+        rendered = self._formatted(CredentialRedactingFormatter())
+        assert "1f4a9c0e2b7d8a6f5e3c1b0d9a8f7e6c" not in rendered
+
+    def test_the_traceback_is_still_there_it_is_redacted_not_swallowed(self):
+        """A formatter that dropped the exception entirely would pass the test
+        above and destroy every traceback in production."""
+        rendered = self._formatted(CredentialRedactingFormatter())
+        assert "RuntimeError" in rendered
+        assert "Traceback" in rendered
+        assert "connection failed for" in rendered
+        assert REDACTED in rendered
+
+    def test_a_cached_exc_text_is_redacted_by_the_filter_as_well(self):
+        """`exc_text` can already be populated when a record reaches a second
+        handler -- `Formatter.format` caches it on the record. The filter must
+        cover that path too, or the first handler's cache defeats the second
+        handler's formatter."""
+        record = logging.LogRecord(
+            "backend.odds.client", logging.ERROR, __file__, 1, "boom", None, None
+        )
+        record.exc_text = (
+            "RuntimeError: https://api.the-odds-api.com/v4/sports/baseball_mlb/"
+            "odds?apiKey=1f4a9c0e2b7d8a6f5e3c1b0d9a8f7e6c"
+        )
+        CredentialRedactingFilter().filter(record)
+        assert "1f4a9c0e2b7d8a6f5e3c1b0d9a8f7e6c" not in record.exc_text
+        assert REDACTED in record.exc_text
+
+    def test_configure_logging_installs_the_redacting_formatter(self):
+        """The guard belongs on the caller, not only in the class. A formatter
+        nothing installs is decoration."""
+        configure_logging(force=True)
+        handlers = logging.getLogger().handlers
+        assert handlers, "root has no handlers to format anything"
+        assert all(
+            isinstance(h.formatter, CredentialRedactingFormatter) for h in handlers
+        )

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import OpportunityCard from "@/components/OpportunityCard";
 import { TicketTrigger } from "@/components/TicketProvider";
 import type { Recommendation } from "@/lib/api";
+import { liveSizing } from "@/lib/liveSizing";
 
 /**
  * The ticker: the bettable rows, with Kalshi's prices pushed in live.
@@ -237,24 +238,40 @@ export default function LiveBoard({
           were pixel-identical. */}
       <FeedStatus status={status} reason={reason} />
       <div className="grid gap-4 sm:grid-cols-2">
-        {merged.map(({ row, move }) => (
+        {merged.map(({ row, move }) => {
+          const isLive = streaming && quotes.has(row.id);
+          // The feed re-sizes rows with the same `size_position` the order
+          // endpoint uses, so it can legitimately reach zero when the price
+          // moves. A card at zero must stop being tappable in the same frame
+          // it stops being sized -- otherwise the sheet opens on a size the
+          // server has already decided to refuse. Server-side re-validation
+          // would reject it, which is why this is a correctness fix on the
+          // screen and not a hole in the order path.
+          const card = (
+            <OpportunityCard
+              rec={row}
+              live={isLive}
+              direction={move}
+              quoteLimitMs={quoteLimitMs}
+              oddsLimitMs={oddsLimitMs}
+            />
+          );
+          return (
           <div key={row.id} className={move ? `tick-${move}` : undefined}>
             {/* The ticket opens on the *merged* row, so the sheet shows the
                 price the ticker is showing rather than the recorded one it
                 replaced. The sheet still calls the endpoint with nothing but an
                 id and a size, so a live price on screen cannot become a live
                 price the server was asked to honour. */}
-            <TicketTrigger rec={row}>
-              <OpportunityCard
-                rec={row}
-                live={streaming && quotes.has(row.id)}
-                direction={move}
-                quoteLimitMs={quoteLimitMs}
-                oddsLimitMs={oddsLimitMs}
-              />
-            </TicketTrigger>
+            {liveSizing({ suggested_contracts: row.suggested_contracts, live: isLive })
+              .offerable ? (
+              <TicketTrigger rec={row}>{card}</TicketTrigger>
+            ) : (
+              card
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );

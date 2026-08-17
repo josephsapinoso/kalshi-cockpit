@@ -174,6 +174,25 @@ def build_recommendation(
     # contracts and exactly 0.00c at 50c. So the record's actionability is
     # judged on an edge computed for a possibly smaller order, which can only
     # make a marginal row *less* likely to count -- the safe direction.
+    #
+    # **`fee_predicted` therefore means three different things and the column
+    # name says none of them.** The `max(1, ...)` is correct here -- an edge
+    # needs *some* size to be computed at -- but it leaves the persisted field
+    # ambiguous to every later reader:
+    #
+    #   sizing.contracts == N > 0   ->  the whole order's fee
+    #   sizing.contracts == 0       ->  one contract's fee
+    #   suppressed after sizing     ->  the fee for the order that was then
+    #                                   refused, because `with_added_suppression`
+    #                                   zeroes the size without touching the fee
+    #
+    # Observed on the seeded database: a row with `suggested_contracts = 0` and
+    # `fee_predicted = 0.7877`, which is neither per-contract nor payable.
+    # `OpportunityCard` reads it correctly today only because it renders it
+    # inside a `suggested_contracts > 0` guard. **Anything that reads this
+    # field outside that guard must divide by nothing and assume nothing** --
+    # compute the per-contract figure from the ask instead. Not renamed or
+    # split here because the column is persisted and that is a migration.
     sizing_contracts = max(1, sizing.contracts)
     edge_tenths = edge_after_fees_tenths(
         ask_tenths=candidate.ask_tenths,

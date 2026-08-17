@@ -1,5 +1,6 @@
 import type { Recommendation } from "@/lib/api";
 import { formatAge, formatDuration, formatKickoff, freshness } from "@/lib/api";
+import { liveSizing } from "@/lib/liveSizing";
 
 const MAX_QUOTE_AGE_MS = 30_000;
 const MAX_ODDS_AGE_MS = 900_000;
@@ -45,6 +46,10 @@ export default function OpportunityCard({
   // is that the ask, size and cost below are a memory -- and the order will be
   // priced and sized against whatever comes back instead.
   const priceStale = rec.price_is_current === false;
+  // One verdict, computed once, used by both the cost block below and the
+  // sentence under it. Two independent `suggested_contracts > 0` checks are how
+  // the card came to hide its cost while still claiming a size.
+  const sizing = liveSizing({ suggested_contracts: rec.suggested_contracts, live });
 
   return (
     <article
@@ -177,7 +182,15 @@ export default function OpportunityCard({
         </p>
       )}
 
-      <p className="mt-4 text-sm leading-relaxed text-muted">{rec.reason_text}</p>
+      {/* `reason_text` is written by the server against the size the row had
+          when it was recorded. The live merge overwrites `suggested_contracts`
+          and nothing else, so on a row the feed has re-sized to zero the
+          recorded reason still reads "Sized at 14." beside a card showing no
+          size at all. `liveSizing` owns that verdict; when it supplies a note,
+          the note replaces the stale sentence rather than sitting beside it. */}
+      <p className="mt-4 text-sm leading-relaxed text-muted">
+        {sizing.note ?? rec.reason_text}
+      </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 font-mono text-xs text-muted">
         {/* "re-checked" rather than "quote" once a quote pass has re-derived

@@ -25,6 +25,63 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — A guard that is structurally always true reads exactly like a guard that fires, and "this condition is checked" is not evidence the condition varies
+
+A whole work item was scoped from this observation: *every cost figure on the
+Board card sits inside `rec.suggested_contracts > 0`, so on rows sized to zero
+the card shows an edge and no cost.* The guard is real, at two places in the
+file, and the reading is the obvious one.
+
+**There are no such cards.** `routes.py` builds the `surfaced` bucket under `if
+row["suggested_contracts"] > 0`, `page.tsx` feeds `LiveBoard` nothing but
+`board.surfaced`, and `LiveBoard` is `OpportunityCard`'s only call site. The
+guard is **structurally true on every card the component renders**. Zero-sized
+rows never become cards at all — they render as a one-line `SlateRow` that
+already says *"no edge after fees"* in English. The proposed fix was a no-op on
+the only screen it could reach.
+
+**Two agents and I all read the guard correctly and all drew the wrong
+conclusion**, because we answered *"does the component check this?"* and never
+asked *"can anything that reaches the component fail the check?"* Those are
+different questions, and only the second one is about behaviour. A defensive
+guard on an invariant looks identical, in the file, to a guard on a live
+distinction.
+
+**The direction it points matters and it was the flattering one.** Believing
+the guard fires invents a defect, and an invented defect justifies a build. It
+manufactures work that will pass its own tests and change nothing on screen —
+this repo's "built but never called" shape, arrived at from the opposite
+end: not code with no caller, but a *fix* with no case.
+
+**Two real things were underneath it, and neither was findable from the guard.**
+Tracing the call path instead turned up a live defect — the streamed re-size
+zeroes `suggested_contracts` and nothing else, so the card kept a stale *"Sized
+at 14."* and stayed tappable — and a dual-meaning field, `fee_predicted`, that
+is per-contract on a refused row and whole-order on a sized one.
+
+**How to apply.**
+
+- **Before scoping work from a conditional, enumerate what reaches it.** Walk
+  from the component to its call sites to the payload that builds them. One
+  grep for the field name in the serialiser usually settles it.
+- **Ask "when is this false?" and answer with a row, not an argument.** If you
+  cannot name a real input that fails the check, the check is an invariant and
+  there is no behaviour to fix.
+- **A guard's existence is evidence about its author's caution, not about the
+  data.** Defensive code is written precisely where the author was unsure, which
+  is often where the case cannot occur.
+- **`runtime-realist` answers the question you ask it.** Asked *"does the Board
+  render a fee number"* it correctly answered *"yes, inside these guards"* —
+  accurate, and it did not settle whether the guards fire, because that was not
+  the question. When the answer will scope a build, ask the reachability
+  question explicitly.
+
+Related: [[open-the-set-before-predicating-over-it]],
+[[built-but-never-called]],
+[[a-feature-and-the-path-that-invokes-it-are-two-deliverables]].
+
+---
+
 ## 2026-08-17 — A decision justified by a statistic computed under a *different definition* than the one the decision affects, and the codebase already had the difference written down
 
 ADR 0032 turned scheduled prop buying off. Its whole case was that props "cannot
