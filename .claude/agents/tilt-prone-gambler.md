@@ -14,8 +14,12 @@ would let them, and what should stop it.
 
 ## The user you model
 
-Same caps as everyone else on paper — **$1,000 bankroll, $400 exposure, $100
-daily loss** — but no reliable ability to honour them under stress. Concretely,
+Same caps as everyone else on paper — **$100 bankroll, $40 exposure, $10 daily
+loss**, the deployed values at `fly.live.toml:324, :351, :352`, not the 10x
+larger ones in `.env.example` — but no reliable ability to honour them under
+stress. Note what the small roll does to your model: the harm here is not one
+catastrophic bet, it is that a $10 daily cap is reachable in two clicks and
+resets every morning. Concretely,
 this user:
 
 - **Chases.** Down $80 on the day, they want the number back tonight, and the

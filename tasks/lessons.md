@@ -13,6 +13,42 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-17 — `.env.example` is a contract, not a configuration
+
+A reviewer panel was briefed to critique the cockpit "at the owner's real
+budget". The brief was sourced from `.env.example:167-172` — `BANKROLL_DOLLARS=1000`,
+`MAX_EXPOSURE_DOLLARS=400`, `MAX_DAILY_LOSS_DOLLARS=100` — and cited in the brief
+as "the deployed values". They are not. The live machine runs
+**100 / 40 / 10** (`fly.live.toml:324, :351, :352`). Every persona was calibrated
+**10x too rich**, and the error survived being written into three committed agent
+files because the number *looked* sourced: it came from a real file, at a real
+line, that really is the project's config contract.
+
+**The tell is that `.env.example` cannot be wrong.** It is a template. Nothing
+validates it against a deploy, no test compares it to `fly.*.toml`, and it stays
+green forever whatever the machines actually run. A file that cannot disagree
+with reality cannot be evidence about reality.
+
+What it changed, concretely: the demo card that reads `Buy 17` is
+**1 contract** at the deployed roll — confirmed by calling `size_position` with
+both configs rather than by reasoning about Kelly. So a reviewer asking "is this
+worth 90 seconds at $8.85?" was asking about a bet that does not exist; the real
+question is whether it is worth 90 seconds at fifty cents.
+
+**Before quoting any operational number, name the file that would change if the
+deploy changed.** For this repo that is `fly.live.toml` / `fly.demo.toml`, or a
+Fly secret, or a live endpoint — never `.env.example`, never a code default,
+never a docstring. `runtime-realist` exists for exactly this question and was not
+consulted, which is the second half of the lesson: **the agent built to catch a
+mistake only helps if it is run before the mistake ships**, not after.
+
+Related and already recorded: `[[verification-methods-that-lie]]`, and the
+2026-08-10 CLAUDE.md correction where `model_probability` was believed live
+because the column existed. Same shape — the artifact was real, the inference
+from it was not.
+
+---
+
 ## 2026-08-17 — A collective noun is not a measurement
 
 Three claims were inherited into one session, each phrased with total
