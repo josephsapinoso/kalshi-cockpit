@@ -257,9 +257,19 @@ def _derive_iso(section: Section, ms_column: str, iso_column: str) -> Section:
 # rows were taps reads exactly like a day that swept -- an instrument blind to
 # the one clause under investigation. See `tasks/lessons.md`.
 _CREDIT_COLUMNS = (
-    'called_ms, endpoint, sport_key, cost, remaining_reported, used_reported, '
-    '"trigger"'
+    'called_ms, endpoint, sport_key, markets, regions, cost, '
+    'remaining_reported, used_reported, "trigger"'
 )
+# `markets` and `regions` are here for the same reason `trigger` is, and the
+# omission had the same shape. `cost` is `len(markets) * len(regions)`, so a row
+# recording 6 credits was bought under three markets and one recording 2 under
+# one -- but reading the *cost* to infer the *config* is an inference, and the
+# row carries both directly. When `ODDS_MARKETS` changed from three markets to
+# `h2h` on 2026-08-16, the only available confirmation that the deployed image
+# had picked it up was the machine's environment, which says what the process
+# was started with rather than what it sent. These two columns say what was
+# sent. `"trigger"` stays quoted because it is a SQL keyword; the other two are
+# not.
 
 _SQL_CREDITS_TAIL = (
     f"SELECT {_CREDIT_COLUMNS} FROM api_credits ORDER BY called_ms DESC"

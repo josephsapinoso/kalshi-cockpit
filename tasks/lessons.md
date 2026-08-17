@@ -25,6 +25,49 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — Scrutiny was spent asymmetrically, and the unguarded direction was the one that created work
+
+In one session a director agent produced three checkable claims. It verified
+the one that **flattered its own thesis** — that props supplied 81 of 199
+clusters, which made its headline finding real — and did not open the two that
+**created work**: a claimed `credits-day` boundary defect (the tool was
+correct, and defaults to the right boundary) and a claimed contradiction
+between a recorded "338" and a measured 416 (the sentence says *"one cluster"*;
+338 + 78 = 416 exactly). Both were wrong. Both would have spent a session.
+
+**The standard framing of this failure is the wrong way round here.** The
+warning everyone carries is *"be extra sceptical of good news"*, and it was
+obeyed — the flattering number was the one that got checked. What went
+unguarded was the opposite direction: a claim that something is *broken* is
+also a claim, it also arrives with a motive, and its motive is that finding
+defects feels like diligence. **A false positive that manufactures a lane is
+not the safe direction; it is the expensive one**, and it wears the costume of
+rigour so it draws no scrutiny at all.
+
+The same session then did it a third time on the same axis: a lane was scoped
+from a guard that turned out to be structurally unreachable — the entry below
+this one.
+
+**How to apply.**
+
+- **Check the claims that create work as hard as the ones that flatter you.**
+  Before opening a lane on "X is broken", open X. It is usually one command.
+- **Ask what a claim buys its author.** "This is a defect" buys a task. That is
+  a motive, and motives are what scepticism is for, whichever direction they
+  point.
+- **When you hand someone a brief, name which sentences you verified and which
+  you inferred.** A director reasoning from an implementer's unverified
+  sentence produces confident, wrong direction — and the implementer is the
+  only one who knows which were which.
+- **Two agents agreeing is not verification if one briefed the other.** The
+  correlation is the brief, not the world.
+
+Related: [[open-the-set-before-predicating-over-it]],
+[[a-guard-that-is-structurally-always-true-reads-exactly-like-a-guard-that-fires]],
+[[say-which-way-a-blind-spot-points]].
+
+---
+
 ## 2026-08-17 — A guard that is structurally always true reads exactly like a guard that fires, and "this condition is checked" is not evidence the condition varies
 
 A whole work item was scoped from this observation: *every cost figure on the
@@ -75,6 +118,28 @@ is per-contract on a refused row and whole-order on a sized one.
   accurate, and it did not settle whether the guards fire, because that was not
   the question. When the answer will scope a build, ask the reachability
   question explicitly.
+- **The standing lesson is "grep for callers before believing a feature
+  exists". Its inverse is now proven: grep for callers before believing a
+  guard hides anything.** Same command, opposite belief, and both errors were
+  found in this repo within a fortnight.
+
+**A postscript, from the same session and the same shape.** A guard written
+*for* this lesson then failed its own disabling check twice, and neither failure
+was the code's:
+
+- The first mutation injected `sum(fee_predicted)` in front of the first
+  `from ` in a dbt model, which happened to be **inside a comment** — so the
+  comment-stripper removed the mutation along with its host line and the test
+  stayed green. A mutation that lands somewhere the guard deliberately ignores
+  proves nothing, and it looks exactly like a guard that does not work.
+- Before that, the guard itself reported a *correct, exempt* model as an
+  offender, because that model names `stg_recommendations` once — in a comment
+  reading *"See `stg_recommendations` for why `/` is wrong here."*
+
+**In a repo whose files are more prose than code, any source scan that does not
+strip comments is reading the documentation.** That cuts both ways: it produces
+false positives against correct code, and it silently absorbs your mutations so
+a real guard reports itself as decoration.
 
 Related: [[open-the-set-before-predicating-over-it]],
 [[built-but-never-called]],
