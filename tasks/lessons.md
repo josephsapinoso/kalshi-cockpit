@@ -13,6 +13,46 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-17 — A ceiling is not a spend
+
+`NEXT.md` and ADR 0038 were about to be corrected on the grounds that the Odds
+API recorder costs "~18,000 of 20,000 credits a month — roughly 90% of a paid
+tier". The number was arithmetic on the deployed cap:
+`ODDS_DAILY_CREDIT_BUDGET = 600` at `fly.live.toml:185`, times 31 days.
+
+**The provider's own counter says 1,104 used and 18,896 remaining** since the
+tier was bought on 2026-08-09 — seven days, ~158/day, on pace for **~24% of the
+tier**, not 90%. `inspect_live_db.py credits-tail` on the live box, from the
+`x-requests-remaining` header the client records at `backend/odds/client.py:331`.
+The cap is never approached: 158 against 600.
+
+**The tell is the same one as `.env.example`, one level along.** That lesson was
+"a file that cannot disagree with reality cannot be evidence about reality", and
+the fix was to quote deployed config instead. This is deployed config — real
+file, real line, really applied — and it is *still* not evidence, because a
+**limit is a statement about what is forbidden, not about what happened**.
+Multiplying a ceiling by a number of days produces the worst case and reads like
+a forecast.
+
+Two details worth carrying:
+
+- **The per-call cost was also wrong, in the same direction as the config.**
+  `sweep_cost = len(markets) * len(regions)` with `ODDS_MARKETS = "h2h"` and
+  `ODDS_REGIONS = "us,eu"` predicts 2 credits. Every one of the last 111 rows in
+  `api_credits` shows **6**. Config arithmetic lost to the invoice, and the
+  invoice is a column in our own database.
+- **The measurement was cheaper than the argument.** Two read-only ssh calls,
+  under a minute. The paragraph proposing to rewrite an ADR had already been
+  drafted twice.
+
+**So: for a spend, a rate, or a volume, name the row that recorded it — not the
+setting that bounds it.** For this repo that is `api_credits`,
+`odds_sweep_log`, or the provider header; a `fly.*.toml` value is the right
+source for *"what is this machine configured to allow"* and the wrong one for
+*"what did it do"*. Related: `[[verification-methods-that-lie]]`.
+
+---
+
 ## 2026-08-17 — `.env.example` is a contract, not a configuration
 
 A reviewer panel was briefed to critique the cockpit "at the owner's real

@@ -1,5 +1,81 @@
 # Next — your checklist
 
+## 2026-08-17 (latest) — THE PRODUCT NOW STATES WHAT ITS CONCLUSION IS WORTH
+
+**`main` at `d5bd3fb`+, 2,992 tests pass, 10 xfailed, ruff clean, `tsc
+--noEmit` clean — re-verified this session, not inherited. Demo at machine v18,
+live still at v55 (the PRE-FIX image).** The hunt is still closed (ADR 0038) and
+nothing here reopens it.
+
+### Done — partner directive #1
+
+**`GET /api/signal`, rendered above the cards on Board and Slate.** ADR 0039.
+
+The extraction moved into `backend/analysis/clv_signal.py`; every expression was
+lifted, not rewritten. **The reproduction was run before anything was built on
+it**, which was the hard constraint: `git show HEAD:scripts/run_signal_test.py`
+against the moved version, same dump, `diff` → nothing. `beta_hat -0.1412`,
+`se_cluster 0.0478`, `G 199`. Then proved end to end by rebuilding a SQLite
+database from the dump and asking the route — it returns the registered look.
+
+- **`scripts/run_signal_test.py` is now a printer** over `build_report`. The
+  harness an operator runs and the number the screen serves are one computation,
+  not two that agree today.
+- **The quarantine was reversed in the open.**
+  `test_a_quarantined_module_has_not_been_wired_up_by_the_back_door` went red on
+  the first import, which is what it is for. ADR 0039 records why: the
+  quarantine's stated reason named the always-valid multiplier as the thing it
+  protected, and the multiplier is what makes unlimited re-reading valid. **The
+  `G = 300` look now arrives by construction rather than by discipline.**
+- **31 new tests, both new guards observed red under a named mutation.** Nothing
+  in the suite read `beta` before this. It could have drifted silently, which is
+  exactly how `ev.py` was wrong for three days.
+- **REFUSED is deliberately not UNRESOLVED**, and demo is why: its seeded
+  history has no quotes to join, so a caller reading the cluster count off a
+  refused report would publish **`G = 420`** on the public screen — a larger
+  number than the live record's 199, off a database with no signal in it.
+
+### Measured — the Odds API spend, and it was not what NEXT.md said
+
+**1,104 credits used, 18,896 remaining**, since the tier was bought 2026-08-09.
+Seven days, ~158/day, on pace for **~24% of the 20,000 tier — not 90%.** Source:
+`inspect_live_db.py credits-tail` / `credits-month` on the live box, i.e. the
+provider's own `x-requests-remaining`.
+
+The 90% figure was `ODDS_DAILY_CREDIT_BUDGET = 600` (`fly.live.toml:185`) × 31.
+**A ceiling is not a spend** — see `tasks/lessons.md`; the cap is never
+approached (158 against 600). The per-call cost was wrong the same way: config
+arithmetic predicts 2 credits, every one of the last 111 `api_credits` rows says
+**6**.
+
+**What this does and does not settle.** It settles that the recorder is not
+consuming a tier. It does not make ADR 0038's "costs nothing" true — ~24% of a
+paid tier is a real bill, and **the renewal is still Joe's decision, on the
+invoice.** But it is no longer an argument for stopping the recorder.
+
+### Open — Joe's call
+
+- **The live redeploy is approved and not yet done.** Joe said yes; it is
+  waiting on the typed app name (`kalshi-cockpit`), which is his own rule for
+  the money instance. Live still carries the retracted 52.00% / 0.38-point copy
+  and `Buy N`. **Note this would now deploy the signal work too, not just the
+  copy fix** — a bigger change than the one approved, and worth re-confirming.
+- **Rotate `ODDS_API_KEY`.** A subagent read `.env` and the plaintext key landed
+  in its transcript on disk. Not the Kalshi key. By this repo's own standing
+  rule that counts as compromised.
+
+### Open — directive #2, not started
+
+**Nav audit**, low priority. `/rejections` and `/builder` are served and
+reachable only by typing a URL.
+
+### Still undecided, do not build it
+
+`sharp-bettor`'s cost-of-execution meter — re-pointing the Board from "is this
+mispriced?" to "is this cheaper on Kalshi or at a book?". Joe's call, unmade.
+
+---
+
 ## 2026-08-17 (later) — THE SCREEN WAS A VERSION BEHIND THE RECORD
 
 **`main` at `899d8a9`, demo redeployed and verified, 2,961 tests pass, 10
