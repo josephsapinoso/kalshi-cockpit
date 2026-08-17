@@ -147,13 +147,59 @@ this series. They are also a *harder* problem — the difficulty is that there i
 no history to fit — and it needs its own registration and its own honest prior
 about how few such starts exist. Recorded so it is not inherited as an oversight.
 
-### What is actually next
-`KXMLBHR` is the natural candidate (the one liquid batter ladder) but it
-inherits a **harder** parameter problem, not an easier one, plus ADR 0035's
-lineup dependency. **Scope it against ADR 0036 before starting it, not after.**
-The lesson that generalises: both verdicts turned on comparing parameter error
-to the *fee advantage* rather than to zero. A build asking "is the model any
-good?" instead of "is it good enough to clear the cost?" would have shipped.
+### `KXMLBHR` IS SCOPED. MARGINAL, NOT REFUTED — AND I PREDICTED WRONG.
+
+`docs/measurements/2026-08-17-home-run-ladder-scope-result.md`. 1,443 pairs,
+521,372 batter-games, **0 unreadable**.
+
+| forecaster | HR 1+ price error | pitcher-K, same cut |
+|---|---:|---:|
+| A prior season | 3.60 pts | 8.27 |
+| **B season-to-date** | **2.89** | 6.69 |
+| **C in-sample blend (upper bound)** | **2.27** | 6.09 |
+
+**Home runs are 2.3× EASIER than pitcher strikeouts, not harder.** ADR 0036's
+closing bullet said the opposite; it is corrected in place. The reason is
+mechanical: `B`'s error is essentially its own binomial sampling noise, so a
+batter's HR rate barely drifts. **The thing being estimated moves around less.**
+
+**But it still does not clear the bar.** `C` = 2.27 against a 1.75-point fee
+advantage, so no combination of public rate data gets inside the edge here
+either — by 1.3× instead of 3.5×. That is why it is MARGINAL: the decision stops
+being arithmetic and becomes judgement.
+
+**Read the numbers one row up.** The run used `mean_pa = 3.654` (all
+batter-games). A batter actually in the ladder gets ~4.2, where **B = 3.25 and
+C = 2.55**. The published figures are mildly flattering; the verdict is not
+sensitive to it.
+
+**What I predicted, in writing, before the run:** *"KXMLBHR is refuted more
+decisively than pitcher-K."* The **arithmetic** was right — I predicted the
+precision would miss the budget by ~1.6× and it missed by 1.66×. The
+**conclusion** was wrong: I read "fails the fee bar" as "refuted", when the
+registered table has a MARGINAL band and HR lands in it.
+
+### DO NOT BUILD IT. Two cheap questions decide it, and neither is a model.
+1. **Does the `1+` rung actually exist and carry volume?** One query against
+   `kalshi_markets` on the instance. No `KXMLBHR` market exists in any local DB
+   or fixture — the rung set is **inferred**, not observed. `2+` errors at 0.27–
+   0.44 pts, i.e. untradeable on a deci-cent grid, so if `1+` is not listed
+   there is no ladder at all and this is moot.
+2. **Is Kalshi's own `1+` price worse than 3.25 points?** *This is the only
+   question that can produce an edge*, and nothing measured so far touches it —
+   every forecaster above is scored against the batter's own future, not against
+   a market. Answerable from the recorded ladder against settled outcomes: no
+   model, no feed, no licence, no lineup. **Register and run it before building
+   anything.**
+
+**Also still true:** lineup slot is worth ~2.9 points on its own (leadoff to
+bottom of the order is ~0.9 PA), comparable to the whole rate error. Any build
+needs it right, and that is ADR 0035's licence surface returning.
+
+### The lesson that generalises from all three measurements
+Every verdict turned on comparing parameter error to the **fee advantage**
+rather than to zero. A build asking "is the model any good?" instead of "is it
+good enough to clear the cost?" would have shipped twice.
 
 **2. Kalshi names the starter itself, so pitcher-K may need no MLBAM at all.**
 The fixture carries **7 pitchers across 4 games** — both sides of a game once

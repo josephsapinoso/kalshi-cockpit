@@ -874,6 +874,7 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
         run_by=(
             "scripts/price_pitcher_k_ladder.py",
             "scripts/measure_pitcher_k_decay.py",
+            "scripts/measure_home_run_ladder_scope.py",
         ),
         purpose="The compound distribution that prices a whole `KXMLBKS` ladder "
                 "from one opinion. Correct, tested, mutation-verified -- and "

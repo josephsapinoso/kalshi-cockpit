@@ -99,10 +99,28 @@ It is recorded here as an open question, not as a plan.
 
 - **`tasks/NEXT.md`'s "THE BUILD" is spent.** Work that produces an opinion is
   still the critical path (CLAUDE.md); *this* opinion is not the one.
-- **The natural next candidate is `KXMLBHR`**, the one liquid batter ladder —
-  but it inherits a harder parameter problem, not an easier one, and ADR 0035's
-  lineup dependency comes back with it. It should be scoped against this result
-  before it is started, not after.
+- **The natural next candidate is `KXMLBHR`**, the one liquid batter ladder. It
+  should be scoped against this result before it is started, not after.
+
+  > **CORRECTED 2026-08-17, same day.** This bullet originally continued: *"but
+  > it inherits a harder parameter problem, not an easier one"*. **That was
+  > wrong.** The scope was run
+  > (`docs/measurements/2026-08-17-home-run-ladder-scope-result.md`) and home
+  > runs are **2.3× easier**, not harder: `B` 2.89 points against pitcher-K's
+  > 6.69 at the same cut, verdict **MARGINAL** rather than refuted. A batter's
+  > home-run rate is a more stable attribute than a pitcher's strikeout rate,
+  > and that stability is the whole gap between the two builds.
+  >
+  > The claim was an inference from the rate being smaller and the price more
+  > sensitive per unit of rate error — both true, and both outweighed by the
+  > stability. It is corrected here rather than deleted because the reasoning
+  > was plausible, was stated without measurement, and was wrong: the pattern is
+  > worth more than the sentence. ADR 0035's lineup dependency **does** come
+  > back with it, and that half stands.
+  >
+  > `KXMLBHR` is still not a build order. Its in-sample floor is 2.27 points
+  > against a 1.75-point bar, so no combination of public rate data gets inside
+  > the fee advantage there either — only by 1.3× rather than 3.5×.
 - **The 1.75-point bar did the work.** Both verdicts turned on comparing a
   parameter error to the fee advantage rather than to zero. A version of this
   build that had asked "is the model any good?" instead of "is the model good
