@@ -9,24 +9,35 @@ pushed. Re-verify; do not inherit.
 distribution — BF (how long he lasts) × K|BF (how good he is). Fourteen markets,
 one opinion, monotone by construction.
 
-**The result worth knowing, and it is not a measurement.** Run against the four
-ladders Kalshi published 2026-08-15 with *league-average constants typed in*
-(`scripts/price_pitcher_k_ladder.py`):
+**The result worth knowing, and it is not a measurement.** Run against **all 7
+ladders (48 rungs, 4 games)** Kalshi published 2026-08-15 with *league-average
+constants typed in* (`scripts/price_pitcher_k_ladder.py`):
 
-| pitcher | worst rung disagreement |
-|---|---:|
-| Logan Webb | **3.4 points**, across all 8 rungs |
-| Matthew Boyd | +12.6 |
-| Anthony Kay | +18.8 |
-| Cam Schlittler | −21.4 |
+| pitcher | rungs | worst disagreement |
+|---|---:|---:|
+| Logan Webb | 8 | **−3.4 points** |
+| Troy Melton | 7 | **−4.2** |
+| Matthew Boyd | 7 | +12.6 |
+| Anthony Kay | 7 | +18.8 |
+| Cam Schlittler | 7 | −21.4 |
+| Michael McGreevy | 6 | +32.8 |
+| Michael Lorenzen | 6 | +35.8 |
 
-Webb tracking a league-average constant within 3.4 points across an entire
-ladder says **the shape is right** — the distribution family reproduces what
-Kalshi charges. The other three diverge in the direction their strikeout ability
+Two pitchers tracking a league-average constant within ~4 points across an
+entire ladder says **the shape is right** — the distribution family reproduces
+what Kalshi charges. The rest diverge in the direction their strikeout ability
 differs from average, which is what a placeholder should do. **So the residual
 is the per-pitcher parameter, and that is exactly slice 2.** No fee is
 subtracted from any of those gaps and no rate was fitted to anything; nothing in
 that table may be quoted as an edge.
+
+**The first version of this entry said "four ladders" and listed four pitchers.
+That was wrong and the error is instructive:** the demo was read through
+`head -60`, which cut the last three pitchers — including **both** of the two
+largest disagreements in the file. The truncated view made the model look
+uniformly closer to Kalshi than it is. **The commit message on `e2840f6` still
+carries the wrong figure** — it is pushed and is not being rewritten; this entry
+and the script docstring are the correction.
 
 **Mutation battery, and one guard did not fire.** Six disabled, five red. The
 claim that log-space `_binomial_pmf` prevents an overflow was **wrong** — the
@@ -40,13 +51,38 @@ three identity tests see it.
 typed-in constants has no business on the money path. The DISPOSITIONS entry
 says to *delete* it when slice 3 lands, not extend it.
 
-### Slice 2 — the parameters. NEXT, and it is where the licence bites.
-Per pitcher: `k_per_bf`, `expected_bf`, `sd_bf`. ADR 0035 already fixed the
-split — Retrosheet for anything historical or derived (and its notice goes in
-`README.md` before any derived number is published), MLBAM for today's probable
-starter only, one call per slate, cached, a 429 is a stop.
-**Unverified and on the critical path: whether Retrosheet actually carries
-batters-faced per start.** ADR 0035 says so itself.
+### Slice 2 — the parameters. Two findings already, and both shrink it.
+
+**1. Retrosheet carries batters-faced per start. Verified, not assumed.**
+`https://retrosheet.org/downloads/pitching.zip` — 21MB, one row per pitcher per
+game, **1,274,253 rows**, columns `p_bfp` (batters faced), `p_k` (strikeouts),
+`p_gs` (game started), `date`, `opp`, `id`. That was ADR 0035's own stated
+unknown and it is now closed. Every parameter slice 2 needs is derivable from
+this one file.
+
+**Coverage ends at 2025 — there is no 2026 in it.** ~21,000 pitcher-games per
+recent season. So the *baseline* is Retrosheet and the current season is not.
+That is the open question, and it is now the only one: how much does a pitcher's
+`K/BF` move year to year, and is a 2025 baseline good enough on its own? **That
+is measurable from this file alone** (fit on season N, score on season N+1,
+repeatedly) with no live feed involved. Do that before building any adapter.
+
+**2. Kalshi names the starter itself, so pitcher-K may need no MLBAM at all.**
+The fixture carries **7 pitchers across 4 games** — both sides of a game once
+both are announced, one side when only one is. Kalshi lists a ladder per
+*announced starter*, which is the one fact ADR 0035 routed through the thin
+MLBAM live layer. **If that holds on a full slate, the MLBAM dependency for
+pitcher-K disappears** and with it the whole live-licence surface: Retrosheet
+alone is explicitly commercial-use-permitted. It would not remove the Retrosheet
+notice obligation in `README.md`.
+**Not yet established** — one 4-game capture. Check it against a full recorded
+slate in `kalshi_markets` before designing the adapter around it.
+
+What remains genuinely open: matching a Kalshi player name to a Retrosheet `id`
+(`props.norm()` is the tool, and it is deliberately not fuzzy), and what to do
+about a starter with **no** Retrosheet history at all — Melton and Schlittler
+are plausibly in that class, and a rookie is exactly the pitcher a market is
+least sure about.
 
 ### Slice 3 — write model rows under their own `strategy_config_version`, then
 score on `scripts/run_signal_test.py`. **Hazard to design around:** the harness's

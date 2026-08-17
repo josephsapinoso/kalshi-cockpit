@@ -8,11 +8,22 @@ distribution therefore prices the whole ladder coherently. That claim is easy to
 assert in a docstring and easy to believe from passing unit tests, because unit
 tests supply their own parameters and their own rungs.
 
-This runs it against the ladders Kalshi actually published -- 4 pitchers, 56
-markets, captured 2026-08-15 in `tests/fixtures/events_mlb_props_nested.json` --
-and prints the model beside the price you would actually pay. It is the
-demonstration that slice 1 of the pitcher-strikeout build is real rather than
-merely tested.
+This runs it against the ladders Kalshi actually published -- **7 pitchers, 48
+rungs, 4 games**, captured 2026-08-15 in
+`tests/fixtures/events_mlb_props_nested.json` -- and prints the model beside the
+price you would actually pay. It is the demonstration that slice 1 of the
+pitcher-strikeout build is real rather than merely tested.
+
+**Read the whole output, not the head of it.** The first write-up of this script
+said "4 pitchers, 56 markets" because it was run through `head -60`, which cut
+three pitchers off the bottom -- and the three it cut included the two *largest*
+disagreements in the file. A truncated view of a sorted-by-name listing is not a
+sample of anything.
+
+Kalshi lists one ladder per **announced starter**, both sides of a game once
+both are named (`NYYTOR` carries only one, at capture time). That is worth
+knowing structurally: the venue is telling us who is starting, so the pitcher's
+identity needs no external feed at all.
 
 WHAT IT IS NOT
 --------------
