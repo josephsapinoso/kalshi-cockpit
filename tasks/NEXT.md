@@ -1,5 +1,94 @@
 # Next — your checklist
 
+## 2026-08-17 (later) — THE SCREEN WAS A VERSION BEHIND THE RECORD
+
+**`main` at `899d8a9`, demo redeployed and verified, 2,961 tests pass, 10
+xfailed, ruff clean, `tsc --noEmit` clean.** The hunt entry below still governs
+everything; this entry is about the gap between what the record concluded and
+what the product said.
+
+A five-agent panel reviewed the cockpit — `retail-bettor`, `disciplined-gambler`
+and `tilt-prone-gambler` (all three written this session), plus `sharp-bettor`
+and `partner`. **The finding they converged on independently: the backend is
+honest and the frontend was a version behind on every correction.**
+
+### Done and deployed
+
+- **The ADR 0028 fee correction had never reached a screen.** 52.00% / 0.38
+  points was serving live on the public demo, in the paragraph aimed at a
+  beginner, three days after the correction. Fixed in five places — including
+  `agents/base.py:190`, which is the *prompt handed to the live review agents*,
+  so they were reasoning from a retired number and from a hunt that had closed.
+- **`ev.py`'s measured table was wrong on a second, unnoticed count.** Caught by
+  calling the function rather than reading it. Retiring Model B collapsed the
+  maker figure's size-sensitivity from ~0.6 points to a ten-thousandth, so
+  "50.44% is the large-order limit" had become false. **Docstrings that publish
+  measured numbers need re-running, not re-reading — no test reads a docstring.**
+- **`. Buy {n}.` → `. Sized at {n}.`** (`engine.py`, partner directive #2).
+  `beta` refuted the prediction, not the devig or the ask, so only the imperative
+  clause was refuted. The count stays — it is what the gate counts, and dropping
+  it would change what is measured to reach a target. Two guards, the first
+  verified by putting `Buy` back and watching it go red.
+
+### Open — partner's directive, in order
+
+1. **`GET /api/signal`, rendered above the cards on Board and Slate.** The
+   product states a conclusion whose measured worth it states nowhere: `beta`
+   appears **zero times in `frontend/src`** and is computed only by
+   `scripts/run_signal_test.py`, by hand, on a laptop. **The work is lifting
+   observation construction out of that script into `backend/analysis/` without
+   changing the registered computation** — `signal_test.py` is already
+   signal-agnostic and exposes `fit()`/`verdict()`/`coverage()`. **It must
+   reproduce `beta_hat -0.1412 / se 0.0478 / G 199` on the same data before it
+   ships. If it does not reproduce, stop — you have changed the statistic, not
+   moved it.** This also makes the `G = 300` look arrive on screen by itself,
+   satisfying ADR 0038 by construction rather than by discipline.
+2. **Nav audit**, low priority. `/rejections` and `/builder` are served and
+   reachable only by typing a URL. A screen that is served but unreachable is
+   this repo's named defect in UI form.
+
+### Open — Joe's call, not the fleet's
+
+- **The Odds API spend, and ADR 0038's "the recorder costs nothing" is false as
+  written.** Deployed `ODDS_DAILY_CREDIT_BUDGET = 600` (`fly.live.toml:185`,
+  code default 16) is ~18,000 of 20,000 credits a month on the tier bought
+  2026-08-09 — roughly 90% of a paid tier — to accumulate clusters toward a
+  statistic that would need to move 8.3 standard errors to matter. Partner's
+  position, and mine: **keep recording**, but do not reassert "costs nothing"
+  without the invoice. The renewal is a decision, not a formality.
+- **Whether the live instance gets the same redeploy.** It runs the same image
+  and carries the same stale copy. Demo was deployed this session; live was not.
+
+### The kill list, pre-committed before the panel reported
+
+Recorded because it was written *before* the findings arrived, specifically so
+that whoever argued most persuasively would be arguing into a decision already
+made: no Kelly/bankroll calculator, no opportunity alerts or push, no personal
+P&L tracker, no softening the Gate screen because 0-of-300 reads badly, no
+hiding suppressed rows to tidy the Board, no scope expansion to more sports, no
+wiring `scout.py`/`historian.py` (ADR 0022 §4, and CI goes red by design).
+
+**`sharp-bettor` proposed one thing that is not on that list and is not dead:**
+re-point the Board from *"is this bet mispriced?"* to *"is this bet cheaper on
+Kalshi or at a book?"* — a cost-of-execution meter rather than a signal. It
+argues this overturns no row of ADR 0038 because it asserts nobody is
+mispriced, only that two prices for the same thing can be compared. **Undecided,
+and it carries its own trap, which the proposal names:** the first evening it
+reports "Kalshi is cheaper on 8 of 11 games", somebody reads that as a signal.
+It is not — it is the same 0.63 points ADR 0028 already priced.
+
+### The correction that has to be carried forward
+
+**The panel was briefed with the wrong bankroll and four reviews ran against
+it.** See `tasks/lessons.md` — `.env.example` is a contract, not a
+configuration. Live runs **100 / 40 / 10**, not 1000/400/100. The demo card
+reading `Buy 17` is **1 contract** at the deployed roll, confirmed by calling
+`size_position` with both configs. So: **the screen that overstates is the one
+strangers see, and the screen Joe sees is essentially blank** — at $100,
+quarter-Kelly rounds below one contract on most rows.
+
+---
+
 ## 2026-08-17 — THE HUNT IS CLOSED. ADR 0038. READ THIS FIRST.
 
 **`main` at `1293ca9`+, live at machine v54, schema v9.
