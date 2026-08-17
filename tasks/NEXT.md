@@ -14,7 +14,196 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-17 (latest) — THE MORNING WARNING WAS ARITHMETIC, AND IT IS GONE FROM THE LIVE SCREEN
+## 2026-08-17 (latest) — JOE'S THREE ITEMS, AND THE LANE THAT WAS BRIEFED WAS THE ONE THAT DID NOT EXIST
+
+**`main` at `679e1b9`, pushed. 3,100 tests pass (+20), 10 xfailed, ruff clean,
+`tsc --noEmit` clean — run on `main`, not inherited.** The hunt is still closed
+(ADR 0038); nothing here reopens it, and nothing here searches for an edge.
+
+Joe took on all three of his own items. `partner` sequenced them, then reordered
+its own list mid-session when a subagent found something bigger than any of
+them, then accepted two corrections to claims it had made. Its final answer was
+**stop**, again, and it again declined to name a sixth item.
+
+### THE BIGGEST THING WAS NOT ON THE LIST — ADR 0032 IS SOURCED FROM THE WRONG `G`
+
+**There are two 300s in this project and ADR 0032 conflated them.** It turned
+scheduled prop buying off, arguing props "cannot move the denominator". That is
+true of **the gate's** floor — `gate.clustered_clv` clusters on
+`event_links.odds_event_id` (ADR 0029), and a prop ladder inherits its game's
+id, so it collapses onto the game.
+
+**The CLV signal test's `G = 300` uses a different, registered key**, and
+`backend/analysis/clv_signal.py:109-114` says so in writing, with numbers:
+*"The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
+gate's key ... the two give 210 and 125 — a 68% difference — so a `G` quoted
+without its key is meaningless."* Under it a prop ladder **is** its own cluster,
+and the interim look measured the cost: **props supplied 81 of 199 clusters,
+40.7% of `G`.**
+
+**THE DECISION STANDS AND TURNING SCHEDULED PROPS BACK ON IS KILLED.** Props
+were 260 of ~302 credits a cluster; restoring them buys faster accrual toward a
+statistic `CLAUDE.md` forbids any roadmap from depending on. Only the sourcing
+was wrong.
+
+**What it costs is a misread that is predictable today.** The retired arm was
+the *more negative* one — `prop −0.519` against `moneyline −0.082` — so the
+pooled estimate now drifts **toward zero, toward what reads as good news, by
+composition rather than evidence.** A future session taking the `G = 300` look
+and seeing `beta` improve would be reading the intake, not the world. Written
+in all three places that reader passes through: an annotation on the interim
+look, a **non-amending** note on the registration (no rule changes), and a
+sourcing annotation on ADR 0032.
+
+**Direction only — the magnitude is not computable and the attempt is recorded
+so it is not repeated.** Re-weighting the arms reconstructs nothing:
+row-weighting gives −0.230, cluster-weighting −0.260, against a published pooled
+−0.1412. That is not a defect. The pooled figure is one regression carrying the
+`half_spread_tenths` control, not a mixture, so it is not required to lie
+between its arms.
+
+### 1. `ODDS_API_KEY` ROTATION — THE BLOCKER WAS NOT REAL. `docs/JOE-odds-key-rotation.md`
+
+The handoff said this needs `flyctl` from a laptop and Joe works from a phone.
+`.github/workflows/secrets.yml` genuinely cannot touch this key — its exclusion
+is written, reasoned, and **stays untouched** — but `flyctl` is not the only
+route. **Fly's secrets are settable from the web dashboard, which is a website.**
+No laptop, no ADR, no widening of the workflow.
+
+Sheet states what does **not** verify a rotation: `/api/health` returning 200
+proves nothing, because the deployed API process never reads this key
+(`routes.py:263` takes `load_without_credentials`; the only live reader is
+`config.py:251`, reached only by `run_loop.py` on the live instance). **The
+proof is a served `api_credits` row after the restart.**
+
+**Not done and it is Joe's:** generating and installing the key. No session may
+handle the value.
+
+### 2. THE TIER — MEASURED, AUDITED, AND THE MEASUREMENT MOSTLY DIED
+
+`docs/measurements/2026-08-17-odds-credit-run-rate.md`. All 111 `api_credits`
+rows read off the live box. The first draft published **412 credits/day**;
+`measurement-skeptic` killed it and was right on every count.
+
+**The killer: `n = 0` rows exist under the running configuration.** Three
+changes landed 2026-08-16, all ancestors of the deployed image, all *after* the
+last recorded row — props off the schedule (`83432c1`), `ODDS_MARKETS` three
+markets → `h2h` (`d4afa53`, so a sweep goes **6 → 2 credits**), cap 400 → 600
+(`4600f87`). Machine environment read back to confirm. The formula predicts an
+**8× drop**; that is arithmetic and is **not published as a rate.**
+
+Also: 2026-08-15 spent 390 against a **400 cap that was refusing calls**, so it
+reports a ceiling. And the parts do not agree — sweep leg up 5×, prop leg down
+28%, the pooled totals matched **by cancellation**, which the draft had cited as
+evidence the mean was safe.
+
+**What survives, config-independently: 18,896 ÷ 600 a day means the tier cannot
+be exhausted before 2026-09-17**, covering any plausible renewal. **The renewal
+date is recorded nowhere in this repo** — it is measurable, not guessable
+(`remaining_reported` jumps back to 20,000 on the first call after the cycle
+rolls).
+
+**Two flags checked rather than inherited, and both failed.** `credits-day` has
+**no** boundary defect — it returns 390 / 416, matching a hand re-bucket
+exactly; the calendar-date error was in the draft that bypassed it. And
+`fly.live.toml:156`'s **338 is correct**: the sentence says *"one cluster"*, and
+338 + 78 = 416 exactly. **No correction is owed on either.**
+
+### 3. THE COST METER — THE LANE AS BRIEFED WAS A NO-OP, AND THE PREMISE WAS MINE
+
+I scoped it from *"every cost figure sits inside `suggested_contracts > 0`, so
+rows sized to zero show an edge and no cost."* The guard is real. **The
+conclusion is wrong:** `routes.py` builds `surfaced` under the same predicate,
+`page.tsx` feeds `LiveBoard` nothing else, and `LiveBoard` is
+`OpportunityCard`'s only call site — so the guard is **structurally true on
+every card rendered**. Zero-sized rows never become cards; they are `SlateRow`s
+already saying *"no edge after fees"* in English.
+
+**Both bettor reviews independently ranked a different thing first, and it is a
+real defect.** `LiveBoard` overwrites `suggested_contracts` with
+`quote.contracts` and nothing else. `backend/live.py` computes that with the
+same `size_position` the order endpoint uses, so it legitimately reaches 0 when
+the price moves. The card then lost its cost block, **kept a `reason_text`
+reading "Sized at 14."**, and stayed wrapped in `TicketTrigger` — tappable,
+opening a ticket for a size the server had already decided to refuse.
+
+Server-side re-validation is intact, so nothing could be bought. **A lying
+screen, not a hole in the order path** — and this repo's named failure in the
+dangerous direction. Fixed via `frontend/src/lib/liveSizing.ts`, a pure
+predicate **executed under `node`** (same shape as `sweepTone.ts`), two
+mutations red, both call sites pinned by guards observed red against the
+pre-fix components.
+
+**`sharp-bettor` did not defend its own proposal unchanged**, and the reason is
+worth keeping: the fee curve is **flat at 1.7–1.8c across every price that
+trades**, so a cost column cannot rank anything — which is what made partner's
+cut correct. It argues the comparator belongs on the **ticket sheet**, at
+commitment, not on a discovery board. **Not built. Verify it is not already
+displayed before anyone does.**
+
+### 4. TRACEBACKS WERE NEVER REDACTED
+
+`CredentialRedactingFilter` rewrites `record.msg` and `record.args`. A traceback
+is neither — `Formatter.format` renders it *after* every filter has run, and
+`odds/client.py` calls `logger.exception` on the one path that has just issued a
+request carrying the API key in its query string. Closed **by class** rather
+than by enumerating which `httpx` exceptions leak: a
+`CredentialRedactingFormatter` on every root handler, plus `exc_text` handling
+in the filter. Redaction, not suppression — proved end to end through the real
+`configure_logging`.
+
+### 5. `fee_predicted` MEANS THREE THINGS — `tests/test_fee_predicted_is_not_aggregated.py`
+
+Whole-order when sized, per-contract when refused, and the fee for an order
+later suppressed. `partner` rejected documenting it: the failure is in the
+**analysis** path, and a comment at the write site is not read at the moment the
+mistake is made. Guard is green today by design — a tripwire for the day someone
+sums it. Exemptions checked: `joint_bound.py` already binds it
+`stored_fee_DO_NOT_USE`; `mart_fee_reconciliation` reads the **fills** lake
+where the column has one meaning, and that exemption is pinned by its own test.
+
+### 6. THE CREDIT INSPECTOR WAS BLIND TO THE CONFIG IT SPENDS UNDER
+
+`_CREDIT_COLUMNS` did not select `markets` or `regions` — the two fields whose
+product **is** the cost. Same shape as last session's `trigger` omission, and it
+bit today: reading `cost` to infer the config works and is an *inference*.
+Added and deployed **before** the 20:50Z window, so the first observation under
+the new configuration is read rather than deduced.
+
+### STILL OPEN, AND THE ORDER MATTERS
+
+1. **Joe rotates `ODDS_API_KEY`** — and **not before tonight's 20:50Z window
+   has been read.** `partner`'s call: if a rotation and the first clean
+   run-rate observation land together, a refusal has two candidate causes and
+   **both readings are lost.** Read the window, then rotate.
+2. **Read the first post-cutover credit rows.** `markets`, `regions`, `cost`,
+   `remaining_reported`, `used_reported`, `trigger` — the last should be NULL,
+   and non-NULL means the manual tap fired for the first time in its life.
+   The **2026-08-18T10:00Z** boundary closes the first full day under the new
+   configuration.
+3. **The tier renewal is Joe's, on the invoice.** He has the run rate he can
+   have and the ceiling claim that does not depend on it.
+
+### DROPPED — still a drop list, not a backlog
+
+Everything on the previous list stands: the Board/footer gap, exercising the
+manual-refresh path, the ~99 clusters to `G = 300`, anything reopening the hunt,
+the sweep banner. **Added: turning scheduled props back on** — ADR 0032 stands
+and its annotation says why the sourcing error does not reverse it.
+
+### THE ONE HONEST CANDIDATE IF A NEXT SESSION NEEDS A SUBJECT
+
+`partner`, unprompted, and explicitly **not** work for tonight and **not** a
+hunting line: the only stated purpose in `CLAUDE.md` with no execution behind
+it is that this become a public portfolio repo. It already *is* public. Whether
+the record reads as *"we found out, and here is how"* rather than as an
+abandoned trading bot is a real question with a real answer, and it is the kind
+of thing nothing fails for skipping. It needs a different reviewer than any on
+this session's list, and **whether it is worth a session at all is Joe's call.**
+
+---
+
+## 2026-08-17 — THE MORNING WARNING WAS ARITHMETIC, AND IT IS GONE FROM THE LIVE SCREEN
 
 **`main` at `b0bd2ec`, pushed. 3,080 tests pass (+26), 10 xfailed, ruff clean,
 `tsc --noEmit` clean — run on merged `main`, not inherited. Both instances
