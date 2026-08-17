@@ -75,8 +75,18 @@ ask whether *you* picked it. This one read as a romantic opportunity for a day.
 
 - ~~**Wire or delete the `backend/agents/` orphans.**~~ **DO NEITHER. This item
   was wrong twice over and is struck.** See below.
-- README / portfolio framing: the asset is 38 ADRs and four pre-registered
-  measurements, two of which refuted a prediction their author had written down.
+- ~~README / portfolio framing.~~ **DONE 2026-08-17, `fdc6435`, pushed.**
+  Reordered to lead with the verdict rather than the hunt; the old text still
+  said *"it may never open"*. Corrected five stale claims (taker bar
+  52.00→51.75, headroom 0.38→0.63 and marked an upper bound, the retired fee
+  hedge, 1,202→2,959 tests, gate 0→2 of 300) and cut 287→242 lines.
+
+  **The framing this item carried was itself understated on two counts**, which
+  is the reason it is worth a line here rather than a strikethrough: there are
+  **16** pre-registrations, not four — `ls docs/measurements/*preregistration*.md`
+  — the four were only the final day's. And "38 ADRs" is right by number but
+  there are **39 files**, because `0006` was used twice. Both were repeated from
+  a handoff without being counted. Same shape as the lesson directly below.
 
 ### The `backend/agents/` item was wrong twice, and both halves matter
 
