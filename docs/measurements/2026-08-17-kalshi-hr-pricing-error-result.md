@@ -113,6 +113,21 @@ whose names `props.norm()` cannot match because it strips accents asymmetrically
 
 A model that cannot price half the board is not a model of the board.
 
+> **CORRECTION, 2026-08-17.** The paragraph above mis-describes its own table,
+> which is directly overhead. **"No qualifying 2025 season" is `MIN_PA = 300`**
+> (`scripts/measure_kalshi_hr_pricing_error.py:78`, applied at `:131`) — an
+> analyst-chosen cut, not an absence of history. A batter with a complete,
+> readable 250-PA line is inside the 143. So of the 238: **143 are below a
+> threshold this harness picked**, and **95 are a name-matching defect** since
+> fixed in `2893d8c`. Neither group is characterised by "recent debuts and
+> part-season call-ups", and the sentence asserting it was written without
+> checking what the constant was set to.
+>
+> What the table supports is only: *48% fell outside the population this harness
+> admitted.* The follow-up hypothesis — that this is the half the market is least
+> sure about — is declined in **ADR 0038**, on the independent ground that all
+> 493 markets come from **29 games** and clusters, not rows, are what bind.
+
 ## What this does not establish
 
 - **It does not establish that Kalshi is correctly priced.** It establishes that

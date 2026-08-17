@@ -13,6 +13,41 @@ what made it useful rather than decorative:
 
 ---
 
+## 2026-08-17 — An exclusion count describes the filter, not the world
+
+A harness dropped 238 of 493 markets. Three documents — ADR 0037, the
+measurement result, and the `NEXT.md` top entry — wrote that up as *"48% of the
+board is unreachable **by construction** from a prior-season baseline… recent
+debuts and part-season call-ups… the half the market is least sure about."* It
+was carried into the next session as an open opportunity.
+
+The harness's own published table, directly above the sentence, said
+**143 "no qualifying season" + 95 name-match failures**. And "no qualifying
+season" was `MIN_PA = 300` — a constant *we* chose, ten lines up in the same
+script. A batter with a complete, readable 250-plate-appearance season was being
+described as having no history.
+
+**An exclusion bucket is named after the predicate that produced it, and the
+predicate is usually ours.** The label reads like a property of the data
+("no qualifying season") and is in fact a property of our threshold. So: before
+writing "X is unreachable", open the filter, read the constant, and ask who set
+it. If the answer is "we did", the honest sentence is *"X fell outside the
+population this harness admitted"* — a fact about the harness.
+
+Two aggravating details worth carrying:
+
+- **The romantic half was never measured at all.** *"The half the market is
+  least sure about"* had no number attached in any of the three documents. An
+  unmeasured clause travels alongside a measured one and inherits its
+  credibility. Check every clause in a sentence for its own citation.
+- **Relaxing the wrong limit moves nothing.** Even granting the framing, all 493
+  markets came from **29 games** against a registered floor of 300 clusters.
+  Lowering `MIN_PA` adds rows drawn from the same clusters. **When two limits
+  bind one quantity, relax the first and the symptom does not move** — the same
+  shape that had already got a calibration run refused in registration.
+
+---
+
 ## 2026-08-16 — "X requires Y" is a necessary condition, and meeting it does not elect X
 
 ADR 0023 deferred a decision and wrote the revival test as *"F's liveness

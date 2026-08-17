@@ -1,6 +1,81 @@
 # Next — your checklist
 
-## 2026-08-17 — THE WHOLE PROP-MODEL LINE IS CLOSED. ADR 0037. READ THIS FIRST.
+## 2026-08-17 — THE HUNT IS CLOSED. ADR 0038. READ THIS FIRST.
+
+**`main` at `1293ca9`+, live at machine v54, schema v9.
+2,959 tests pass, 10 xfailed, ruff clean — re-verified this session, not
+inherited.**
+
+**This project is finished as a discovery exercise.** Every quadrant it can
+reach has answered, and ADR 0038 records the table. The one that makes it a
+closure rather than a pause is cost headroom: **a cost advantage multiplies an
+edge, it cannot create one**, and no quadrant supplied one to multiply.
+
+**Do not open a new hunting line here.** A proposal to reopen must name which
+row of ADR 0038's table it overturns, and with what measurement. The recorder
+keeps running (`docker/entrypoint.sh` → `scripts/run_loop.py`) because it costs
+nothing and the `G = 300` look arrives on its own clock — **no plan may depend
+on it**, and the gate is never lowered or bypassed.
+
+**ADR 0018 is untouched.** Betting on Joe's own judgement, with the screen as an
+input, sits *outside* the gate by design. ADR 0038 is a statement about what the
+**tool** may claim, not about what its owner does with his money.
+
+### Done this session
+
+- **5 GitHub CVEs (3 high) → `0 vulnerabilities`.** All five lived inside
+  `next` 16.2.11's pinned tree (4× `postcss` 8.4.31, `sharp` 0.34.5) — so
+  `npm audit fix` alone could **not** have reached them; the top-level `postcss`
+  was already clean. Bumped `next` → **16.3.1**, which surfaced one further high
+  (`nanoid` <3.3.18) that *was* `npm audit fix`-able. `npm audit` → **0**,
+  `next build` → exit 0, all routes render.
+- **ADR 0038 written**, CLAUDE.md moved to past tense.
+- **ADR 0037 and the HR measurement doc corrected.** See below — the correction
+  matters more than the closure.
+
+### The 48%-unpriceable item is DECLINED, and the premise was wrong
+
+This was carried as an open opportunity: *"48% of the HR board is unpriceable —
+debuts and call-ups — the half the market is least sure about."* **It does not
+survive reading the harness.** The published split
+(`docs/measurements/2026-08-17-kalshi-hr-pricing-error-result.md:97-106`) is
+**143 "no qualifying 2025 season" + 95 name-match failures**, and "no qualifying
+season" is `MIN_PA = 300` (`scripts/measure_kalshi_hr_pricing_error.py:78`,
+applied at `:131`) — **a threshold we chose**. A batter with a complete,
+readable 250-PA line is inside the 143. The 95 were the accent defect, fixed in
+`2893d8c`.
+
+Two further reasons, each independently sufficient:
+
+- **Clusters bind, not rows.** All 493 markets come from **29 games**. Lowering
+  `MIN_PA` adds rows from those same 29 clusters against a floor of 300; the
+  interval is ±3.6 points against a 1.75-point bar — the identical arithmetic
+  that got the calibration run *refused in registration*.
+- **The instrument is blunter there, provably.** Detection needs
+  `sd(model − ask) > sigma_model`. Where history was richest, `sigma_model =
+  4.04` vs `sd(d) = 3.72` and it floored at zero. Less history → larger
+  `sigma_model`.
+
+If closure in the record is ever wanted instead of this argument: ~30 min, no
+model and no settlements — **measure the dispersion of Kalshi's own asks on
+no-history vs history players.** Note it **can only kill**; a dispersed result
+still leaves you needing a model ADR 0037 proved you cannot parameterise.
+
+**The transferable lesson, and it is the reason this entry is long:
+an exclusion count describes the filter, not the world.** Before writing "X is
+unreachable by construction", read what the filter's own constant is set to and
+ask whether *you* picked it. This one read as a romantic opportunity for a day.
+
+### Remaining, and it is hygiene not discovery
+
+- **`backend/agents/` orphans (ADR 0022).** Quarantined is a declared state and
+  fine internally; to a stranger reading a public repo it is dead code. Wire or
+  delete before calling the repo finished. This repo's most-repeated defect is
+  "built but never called" — recorded four separate times.
+- README / portfolio framing: the asset is 38 ADRs and four pre-registered
+  measurements, two of which refuted a prediction their author had written down.
+
+## 2026-08-17 — THE WHOLE PROP-MODEL LINE IS CLOSED. ADR 0037.
 
 `main` at **`3ea5d34`+**, live at **machine v54**, schema **v9**.
 **2,959 tests pass, 10 xfailed, ruff clean.** Re-verify; do not inherit.

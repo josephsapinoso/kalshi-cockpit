@@ -91,12 +91,27 @@ never lowered or bypassed, and "the gate will open" is not a step in any plan �
 its 300 counts *actionable* games and the record has 2 in its whole life, both
 soft-book fallbacks.
 
-**What this frees.** `backend/analysis/signal_test.py` is **signal-agnostic**:
-it measures the pass-through of whatever `edge_tenths` contains, over the whole
-scored population including suppressed rows, with no bet placed and no money at
-risk. A *new* signal is therefore validated by the same harness that refuted the
-consensus one, on the same clock. Work that produces an opinion is now the
-critical path; the measurement follows it.
+**~~What this frees.~~ That opinion was produced, and it is spent. The hunt is
+closed — ADR 0038.** The paragraph here used to say "work that produces an
+opinion is now the critical path". It was acted on: four registered measurements
+in one day (ADR 0036, ADR 0037) built the opinion and refuted it, on the ground
+that **our own model's error exceeds its disagreement with Kalshi**. Every
+quadrant this instance can reach has now answered:
+
+| quadrant | verdict | where |
+|---|---|---|
+| Consensus vs Kalshi's close | `beta = -0.141` | ADR 0021, 0034 |
+| In-house model vs Kalshi's price | our error > the disagreement | ADR 0036, 0037 |
+| `KXMVE` combos | zero volume, zero open interest | ADR 0012 §5 |
+| Speed / stale-quote pick-off | edge lives at ~400ms | predecessor |
+| Cost headroom | a **discount, not a signal** | ADR 0027, 0028 |
+
+That last row is why this is a closure and not a pause: **a cost advantage
+multiplies an edge, it cannot create one**, and no quadrant supplied one to
+multiply. `backend/analysis/signal_test.py` remains signal-agnostic and would
+validate a new signal on the same clock — but **no new hunting line is opened
+here.** A proposal to reopen must name which row above it overturns, and with
+what measurement. The recorder keeps running because it costs nothing.
 
 **The premise, stated honestly:** Kalshi's advantage is cost, not information.
 Prices are accurate to ~2c and sports is the most bot-contested corner of the
@@ -132,7 +147,11 @@ has no settlement fee to omit and Kalshi may, so the omission subtracts from the
 the headroom is not. See
 `docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md`.
 
-This tool exists to find out whether an edge is there — not to assume one.
+This tool existed to find out whether an edge is there — not to assume one. **It
+found out. The answer was no, and the record of how is the product** (ADR 0038).
+That does not touch ADR 0018: betting on Joe's own judgement, with the screen as
+an input, sits *outside* the gate by design and is unchanged. This is a statement
+about what the **tool** may claim.
 
 ## The three rules everything else follows from
 

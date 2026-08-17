@@ -92,6 +92,30 @@ It would need its own registration, its own data source — Retrosheet cannot
 help, since the whole difficulty is the absence of history — and an honest prior
 about how few such markets exist per slate.
 
+> **CORRECTION, 2026-08-17.** The two paragraphs above overstate their own
+> harness and the phrase **"unreachable by construction" is not supported by
+> anything measured.** The published split
+> (`docs/measurements/2026-08-17-kalshi-hr-pricing-error-result.md:97-106`) is
+> **143 with "no qualifying 2025 season" + 95 name-match failures**, and
+> `MIN_PA = 300` (`scripts/measure_kalshi_hr_pricing_error.py:78`, applied at
+> `:131`) is what "no qualifying season" means. That is an **analyst-chosen
+> threshold, not an absence of history**: a batter with a complete, readable
+> 250-PA 2025 line is counted in the 143 alongside a player who has never
+> appeared. So the 143 are not "recent debuts and part-season call-ups", and the
+> 95 are a defect — `2893d8c` has since fixed the accent folding and recovered
+> 18 players. The honest sentence is *"48% fall outside the population this
+> harness admitted"*, which is a fact about the harness.
+>
+> The romantic half of the framing — *the half the market is least sure about* —
+> was never measured either. It is a hypothesis, and it is now declined; see
+> **ADR 0038** for why, including the arithmetic that all 493 markets come from
+> **29 games** against a registered floor of 300 clusters, so relaxing `MIN_PA`
+> adds rows without adding clusters and cannot move the binding limit.
+>
+> The lesson generalises past this ADR: **an exclusion count describes the
+> filter, not the world.** Before writing "X is unreachable", read what the
+> filter's own constant is set to and ask whether *you* chose it.
+
 **The name matcher has a fixable defect.** The accent-stripping asymmetry is a
 bug in `props.norm()`, not a property of the problem, and it is cheap to fix
 independently of any model. It is worth fixing on its own merits: it currently
