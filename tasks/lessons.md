@@ -25,6 +25,52 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — A handoff written the night before states tomorrow in the past tense, and "the deadline has passed" is a claim that creates work
+
+A session prompt opened with *"The budget day closed at 2026-08-18T10:00:00Z"*
+and built the entire session on it: one measurement, then a decision by Joe. It
+was **2026-08-17T21:49Z**. The window had **twelve hours** left to run.
+
+Nothing was wrong with the reasoning downstream of it. `tasks/NEXT.md` was
+correct and said the figure *"arrives when the budget day closes at
+2026-08-18T10:00:00Z"* — future tense, accurate. The prompt derived from it
+converted a deadline the author was writing *toward* into one they were writing
+*after*, which is what happens when a handoff is composed hours before the thing
+it describes.
+
+**The whole check was `date -u`.** It cost one command and it was the difference
+between a real measurement tomorrow and a fabricated one tonight — because the
+command would have *run*. `credits-day` on an open window returns rows and a
+total quite happily. It has no idea the day is not over. **The instrument does
+not refuse a premature read; it answers it,** and the answer is a partial-day
+figure that looks exactly like a daily one once it is written into a document.
+
+**This is the "check the claims that create work" lesson pointed at time.** A
+stated deadline is a claim with the same shape as *"X is broken"*: it arrives
+with authority, it is boring to verify, and believing it buys the reader an
+immediate task. Here it would have bought a published run rate off a half-day.
+
+**How to apply.**
+
+- **Run `date -u` before acting on any handoff that says a window closed, a job
+  finished, or a period elapsed.** One command, and this repo's clocks are
+  budget days on a 10:00Z boundary, not calendar dates — the two disagree for
+  ten hours out of every twenty-four.
+- **Ask whether the tool would refuse a premature read.** Most will not.
+  Anything that aggregates over a window will happily aggregate over a partial
+  one and label it with the window's name.
+- **Handoffs are written before the future they describe.** Treat every past
+  tense in one as the author's *intent* about a time that had not yet arrived,
+  and re-check the ones that gate work.
+- **When the premise fails, say the session is not due rather than finding
+  something adjacent to do.** The correct output of a not-yet-due measurement is
+  the measurement, later.
+
+Related: [[open-the-set-before-predicating-over-it]],
+[[scrutiny-was-spent-asymmetrically]].
+
+---
+
 ## 2026-08-17 — Scrutiny was spent asymmetrically, and the unguarded direction was the one that created work
 
 In one session a director agent produced three checkable claims. It verified
