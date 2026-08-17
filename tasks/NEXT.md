@@ -183,10 +183,51 @@ the new configuration is read rather than deduced.
    **No daily rate published** — one window is not a day. The first honest
    figure arrives when the budget day closes at **2026-08-18T10:00:00Z**, and
    reading it is a ten-minute job, not a session.
-2. **Joe rotates `ODDS_API_KEY`.** **The sequencing constraint is now
-   discharged** — the window has been read, so a rotation can no longer confound
-   it. `docs/JOE-odds-key-rotation.md`. Verification after rotation is a served
-   `api_credits` row, **never** a 200 from `/api/health`.
+2. ~~**Joe rotates `ODDS_API_KEY`.**~~ **DONE AND VERIFIED 2026-08-17T21:27:55Z.**
+   Proof is the row's **non-NULL provider headers** — `remaining 18892`,
+   `used 1106 → 1108` — which a rejected call cannot produce. Cost still **2**,
+   so the config saving survived the rotation. The old key no longer exists at
+   the provider, so **the leaked value is dead** and the incident is closed.
+   Recorder downtime ~31 minutes, one missed refresh.
+
+   **It took three attempts and none of the failures were the paste. All three
+   are now in the runbook.**
+
+   - **The Fly dashboard *stages* a secret; saving does not apply it.** The
+     loop kept authenticating on the **old** key and kept succeeding, so every
+     "is it working" check passed while nothing had rotated. `flyctl secrets
+     list` said `Staged`. Joe's dashboard button is literally **"Deploy
+     secrets"**.
+   - **A rejected call still writes an `api_credits` row**, because
+     `client.py` records before raising — some error classes do consume
+     credits. **A row is not proof.** The 401 row carried `cost = 2` and
+     `NULL` provider headers, and it was only the NULLs that gave it away.
+     *"Unreadable resolves to `None`, never `0`"* is what made the failure
+     visible; a `0` there would have read as a real reading.
+   - **The first 401 was the provider not having activated the key yet.** It
+     began answering ~20 minutes later with no further change on our side —
+     the Fly digest was byte-identical across every attempt.
+
+   **The digest is a fingerprint and it is the cheapest diagnostic available.**
+   `flyctl secrets list` prints one per secret without revealing any value, so
+   an unchanged digest after a re-paste proves Fly holds exactly what was
+   pasted and moves the search off the local side. That is how this was narrowed
+   without anyone handling the key.
+
+**TWO DEFECTS FOUND WHILE VERIFYING, NEITHER FIXED, BOTH REAL**
+
+- **A failed odds call resets the freshness clock.** Immediately after the 401
+  the scheduler reported *"odds are 0.4min old"* and deferred its retry a full
+  **ten minutes** — so a rejected key makes the system believe it holds fresh
+  odds. The dangerous direction: an outage presents as freshness. Not fixed
+  here because it wants its own guard, observed red first.
+- **A restart mid-window costs up to 15 minutes of blindness.**
+  `backend/scheduler.py:182` returns
+  `fast_interval_s if self.window_open else self.slow_interval_s`, and a fresh
+  process starts with `window_open` false — so after the restart the loop slept
+  **900s** inside an open window. It looks exactly like a hung process, and
+  diagnosing it cost real time here. Check `sweep-log`'s newest row against the
+  restart time before concluding a stall.
 3. **The tier renewal is Joe's, on the invoice.** He has the ceiling claim that
    does not depend on a run rate (cannot be exhausted before 2026-09-17), and
    the run rate itself is now measurable rather than projected.

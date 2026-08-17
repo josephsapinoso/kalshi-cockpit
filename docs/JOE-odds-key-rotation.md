@@ -88,9 +88,11 @@ retires the task. **Check for `Deployed`, never just for a working sweep.**
 
 Apply it one of two ways:
 
-- Ask the agent, which runs `flyctl secrets deploy -a kalshi-cockpit`; or
-- In the dashboard, look for the pending-secrets banner and confirm the
-  rollout.
+- **In the dashboard, click "Deploy secrets".** That is the literal button
+  name, confirmed by Joe on 2026-08-17. It applies the staged value *and*
+  restarts the machine in one action. Saving the field does not do this;
+  saving only stages.
+- Or ask the agent, which runs `flyctl secrets deploy -a kalshi-cockpit`.
 
 Then confirm the status word has changed:
 
@@ -139,6 +141,41 @@ forces a real call — but it spends credits (22 for a prop tap), so the free
 answer is to wait for the next window.
 
 ---
+
+## What the 2026-08-17 rotation actually cost, so the next one is cheaper
+
+Three things went wrong and none of them were the paste.
+
+**1. The dashboard staged instead of applying.** Covered in step 4 above. The
+running loop kept the old key and kept succeeding, so every "is it working"
+check passed while nothing had rotated.
+
+**2. A rejected call still writes an `api_credits` row, so a row is not proof.**
+The 401 at 2026-08-17T21:06:48Z produced a credit row at 21:06:40 with
+`cost = 2` — because `client.py` records before raising, deliberately, since
+some error classes do consume credits. **The tell is that
+`remaining_reported` and `used_reported` are `NULL`**: the provider sends those
+headers on success, and "unreadable resolves to `None`, never `0`" is what makes
+the failure visible instead of silently zero. **Verify on a non-NULL
+`remaining_reported`, not on the existence of a row.**
+
+A rejected call also **resets the odds-freshness clock** — immediately after the
+401 the scheduler reported *"odds are 0.4min old"* and deferred its retry a full
+ten minutes. So a bad key makes the system believe it has fresh odds. That is a
+defect in its own right and is listed in `tasks/NEXT.md`, not fixed here.
+
+**3. A restart mid-window costs up to 15 minutes.** `backend/scheduler.py:182`
+returns `fast_interval_s if self.window_open else self.slow_interval_s`, and a
+fresh process starts with `window_open` false — so after the restart the loop
+slept **900s** instead of 15s, inside an open window. Ten minutes of apparent
+silence that looked exactly like a hung process. It is not hung; check
+`sweep-log`'s newest row against the restart time before concluding anything.
+
+**The digest is a fingerprint and it is the cheapest diagnostic here.**
+`flyctl secrets list` prints a digest per secret without ever revealing the
+value. If the digest is unchanged after a re-paste, Fly holds byte-for-byte what
+was pasted and the problem is not local. That is how the 2026-08-17 incident was
+narrowed to the provider without anyone handling the key.
 
 ## One thing that breaks and is not on the machine
 
