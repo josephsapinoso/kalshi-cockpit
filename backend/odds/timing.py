@@ -552,6 +552,69 @@ def upcoming_fixtures_by_sport(
     return fixtures
 
 
+_DAY_MS = 24 * _MS_PER_HOUR
+
+
+def first_window_open_of_day(
+    conn,
+    *,
+    day_start_ms: int,
+    max_odds_age_ms: int,
+    due_window_ms: int = DUE_WINDOW_MS,
+    horizon_ms: int = DEFAULT_HORIZON_MS,
+    day_ms: int = _DAY_MS,
+) -> Optional[int]:
+    """When the first sweep window of this budget day opens. `None` if none does.
+
+    **This exists because two unrelated clocks were being compared.** The sweep
+    banner asked "has anything swept since the budget day opened?" and treated
+    `no` as a warning. But `budget_day_start_ms` is a *credits-accounting*
+    boundary -- 10:00Z, chosen so a West Coast extra-innings game lands in the
+    day it belongs to -- while sweep windows are *kickoff-derived*,
+    `[anchor - max_odds_age_ms - due_window_ms, anchor - max_odds_age_ms]`.
+    Nothing connects the two. Between the boundary and the day's first window
+    there is no window in which to spend, so "nothing has swept" is not an
+    observation about the loop; it is arithmetic, and it was rendered as an
+    alarm. Measured on the live record, that state held on **6 of 6** budget days
+    sampled (2026-08-12 .. 2026-08-17), for 6.5-10.8 hours each.
+
+    Deliberately the *same* slot computation the scheduler spends credits with
+    (`slots_for_sport`), read from `day_start_ms` rather than from `now`, so a
+    window that opened and closed earlier today is still counted. Planning from
+    `now` would forget it, and forgetting it is precisely how the 17-hour
+    incident -- windows opened, passed, and nothing swept -- would be rendered
+    calm by this fix. That is the failure this function must not cause.
+
+    The result is clamped to `day_start_ms`: a window already open when the day
+    rolled over opens, for this purpose, at the boundary. It is bounded to one
+    day because the question is about *this* budget day; a slate that starts
+    tomorrow correctly yields `None`, meaning no window is owed today.
+
+    `None` is "no window opens today", never "unknown". The caller must not read
+    it as reassurance on its own -- a loop that is not running at all is
+    `last_look_ms` going stale, and that is a different field and a different
+    tone.
+    """
+    fixtures = upcoming_fixtures_by_sport(
+        conn, now_ms=day_start_ms, horizon_ms=horizon_ms
+    )
+    day_end_ms = day_start_ms + day_ms
+    opens: list[int] = []
+    for sport_key, commences in fixtures.items():
+        for slot in slots_for_sport(
+            sport_key,
+            commences,
+            now_ms=day_start_ms,
+            max_odds_age_ms=max_odds_age_ms,
+            due_window_ms=due_window_ms,
+            horizon_ms=horizon_ms,
+        ):
+            opens_at = max(slot.fire_from_ms, day_start_ms)
+            if opens_at < day_end_ms:
+                opens.append(opens_at)
+    return min(opens) if opens else None
+
+
 # What counts as a served sweep, for both readers of `api_credits` below.
 #
 # **One predicate, named once**, because the two queries used to disagree and
@@ -684,6 +747,13 @@ class ActionableWindow:
     last_look_outcome: Optional[str] = None
     last_look_detail: Optional[str] = None
 
+    # When this budget day's first sweep window opens. `None` means no window
+    # opens today at all. Read `first_window_open_of_day` for why a *schedule*
+    # time has to sit beside `budget_day_start_ms`: the boundary is an accounting
+    # fact and the window is a kickoff fact, and asking the first to answer for
+    # the second is what made the sweep banner fire every morning by arithmetic.
+    first_window_open_ms: Optional[int] = None
+
     @property
     def is_open(self) -> bool:
         return self.fixtures_fresh > 0
@@ -733,6 +803,7 @@ class ActionableWindow:
             "last_look_ms": self.last_look_ms,
             "last_look_outcome": self.last_look_outcome,
             "last_look_detail": self.last_look_detail,
+            "first_window_open_ms": self.first_window_open_ms,
             "note": (
                 "Open means odds are fresh enough for a pick to survive the "
                 "staleness check. It does not mean there is anything to bet -- "
@@ -823,6 +894,12 @@ def window_status(
         last_look_ms=int(look["pass_ms"]) if look else None,
         last_look_outcome=look["outcome"] if look else None,
         last_look_detail=look["detail"] if look else None,
+        first_window_open_ms=first_window_open_of_day(
+            conn,
+            day_start_ms=start_ms,
+            max_odds_age_ms=max_odds_age_ms,
+            horizon_ms=horizon_ms,
+        ),
     )
 
 

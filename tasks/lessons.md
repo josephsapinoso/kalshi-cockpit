@@ -25,6 +25,124 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — A boundary borrowed from another subsystem answers a question it was never about, and the reasoning for borrowing it reads well
+
+The Board's sweep strip warned *"the loop is alive and declining: nothing has
+swept in 18.1h"* every morning. Its predicate:
+
+```ts
+sweptThisDay = last_sweep_ms >= budget_day_start_ms   // else amber
+```
+
+`budget_day_start_ms` is a **credits-accounting** boundary — 10:00Z, so a West
+Coast extra-innings game settles into the day it belongs to. A sweep **window**
+is **kickoff-derived** — 75 to 15 minutes before the first pitch of a cluster.
+Nothing connects them. Between the boundary and the day's first window there is
+**no window in which to spend**, so during that interval "nothing has swept" is
+not an observation about the loop. It is arithmetic, rendered as a warning.
+Measured on live rows: 6 of 6 budget days, 6.5 to 10.8 hours each.
+
+**The component had already argued for the boundary, in writing, and the
+argument was good.** Verbatim: *"'Since the budget day opened' is the boundary
+rather than an invented number of hours: `budget_day_start_ms` is already on the
+payload, the day's whole allowance is two sweeps, and a day with none of them
+spent is a fact rather than a threshold somebody chose."* Every clause is true.
+The conclusion does not follow. The paragraph is defending against the **wrong
+failure mode** — inventing an arbitrary threshold — and in avoiding it reached
+for the nearest quantity that was *not* arbitrary, without checking that it was
+about the same thing. "Already on the payload" is a fact about plumbing and it
+reads as a fact about meaning.
+
+**The tell was available the whole time, in the system's own records.**
+`odds_sweep_log` was writing *"no sweep: next slot is baseball_mlb at
+20:50Z-21:50Z ... sweeping 75-15 min before first kickoff"* every ~15 minutes
+throughout every amber period. The machine knew and said so on a cadence; the
+screen the human reads disagreed. **When two instruments over one system
+disagree, the interesting one is not the one that is wrong — it is that nobody
+had put them side by side.**
+
+**How to apply.**
+
+- **A quantity has a subsystem, and crossing that line needs an argument that
+  names both.** Before comparing X to Y, say out loud what each is *for*. Here:
+  one is for counting money, the other is for catching a first pitch. Said
+  aloud, the mismatch is immediate; left as two `_ms` integers on one payload,
+  it is invisible.
+- **"It is already on the payload" is not a reason to compare against it.**
+  Availability is the weakest possible argument for correctness and it is
+  disproportionately persuasive, because the alternative always costs a new
+  field.
+- **A guard that fires on a schedule is not a guard.** If a warning's on-period
+  is predictable from a clock rather than from the system's state, it is
+  reporting the clock. Measure the duty cycle against real rows before deciding
+  whether a warning is noisy or right.
+- **Fixing a false positive is where you introduce the false negative.** The
+  natural repair — *no window open yet, therefore calm* — would have rendered a
+  budget-exhausted day calm over a dead recorder, because slot planning is
+  unfiltered by budget. A liveness guard may be noisy; it may not be silent. Ask
+  what binds *after* the constraint you are removing is gone.
+
+Related: [[a-count-that-exactly-equals-a-natural-subpopulation-is-a-bug-in-the-counter]],
+[[an-alias-between-two-constants-is-a-bet-that-they-answer-the-same-question]],
+[[a-risk-control-can-be-a-threshold-on-the-wrong-quantity-entirely]],
+[[a-negative-claim-inherits-its-instruments-where-clause]].
+
+---
+
+## 2026-08-17 — An instrument that does not select the column its predicate turns on reports the absence of what it cannot see
+
+`scripts/inspect_live_db.py` was used to measure how often the sweep banner's
+amber state was structurally guaranteed. Its `_CREDIT_COLUMNS` was:
+
+```python
+"called_ms, endpoint, sport_key, cost, remaining_reported, used_reported"
+```
+
+The predicate under investigation was
+`endpoint LIKE '%/odds' AND cost > 0 AND COALESCE(trigger, '') != 'manual'`.
+**`trigger` — the only clause in dispute — was the one column not selected.** A
+day whose only `/odds` rows were manual taps would have rendered in that output
+exactly like a day that swept.
+
+This is the `clv-coverage` failure again, and that one cost six days: it filtered
+on `clv_scored_ms IS NOT NULL` while an actionable row is written *before*
+commence, so the class under investigation sat outside the denominator, and
+"actionable = 0" was repeated across sessions as a measurement when it was a
+repetition of one older measurement.
+
+**The direction of the error mattered and should be stated whenever this
+happens.** A miscounted manual tap would have made the measured gaps *longer*,
+never shorter — so the finding was conservative and survived the re-run. That is
+why this was a ten-minute repair rather than a retraction, and knowing which way
+an instrument's blind spot points is what tells you which of those two you are
+in.
+
+**A second trap, in the paraphrase.** An interim brief restated the predicate as
+`trigger != 'manual'`, dropping the `COALESCE`. Scheduled sweeps are stamped
+`NULL` deliberately, so under the paraphrase *every one of the 111 rows in the
+record* fails the comparison and the banner would read "swept never" for its
+entire life. The measurement was run with the real predicate and was unaffected,
+but the paraphrase was on its way into a document.
+
+**How to apply.**
+
+- **Before trusting a query about a predicate, check the predicate's columns are
+  in the SELECT.** Not in the WHERE — in the output, where a human can see what
+  the filter did.
+- **Quote a SQL predicate verbatim, never in prose.** `COALESCE(x,'') != 'v'`
+  and `x != 'v'` differ on exactly the rows that are usually the majority, and
+  the prose form is the one that gets copied forward.
+- **Say which way a blind spot points.** "The instrument could not see X"
+  is incomplete; "and X would have made the number larger" is what decides
+  whether the finding stands.
+
+Related: [[a-negative-claim-inherits-its-instruments-where-clause]],
+[[the-census-must-apply-the-same-filter-the-storage-path-applies]],
+[[a-count-that-exactly-equals-a-natural-subpopulation-is-a-bug-in-the-counter]],
+[[a-ceiling-is-not-a-spend]].
+
+---
+
 ## 2026-08-17 — A feature and the one path that invokes it are two deliverables, and only the second one ships
 
 `/api/health` was given a `build` object so a single GET could answer *"which
@@ -154,6 +272,9 @@ each is in the linked archive file, unchanged.
 
 ### 2026-08-17 — in this file, above
 
+- A boundary borrowed from another subsystem answers a question it was never about, and the reasoning for borrowing it reads well
+- An instrument that does not select the column its predicate turns on reports the absence of what it cannot see
+- A feature and the one path that invokes it are two deliverables, and only the second one ships
 - A document that has outgrown its reader is unread, and it reads as compliance
 
 ### 2026-08-17 — [`archive/lessons-2026-08-17.md`](archive/lessons-2026-08-17.md)

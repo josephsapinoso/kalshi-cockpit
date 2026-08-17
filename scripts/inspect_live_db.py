@@ -249,8 +249,16 @@ def _derive_iso(section: Section, ms_column: str, iso_column: str) -> Section:
 # The whitelist. Every SQL string below is a constant.
 # ---------------------------------------------------------------------------
 
+# `trigger` is quoted because it is a SQLite keyword, and it is selected because
+# the sweep banner's predicate turns on it: a row counts as a *served* sweep only
+# when `endpoint LIKE '%/odds' AND cost > 0 AND COALESCE(trigger, '') != 'manual'`
+# (`backend/odds/timing.py`, `_SERVED_SWEEP`). Without this column the output
+# cannot tell a hand refresh from a scheduled sweep, so a day whose only `/odds`
+# rows were taps reads exactly like a day that swept -- an instrument blind to
+# the one clause under investigation. See `tasks/lessons.md`.
 _CREDIT_COLUMNS = (
-    "called_ms, endpoint, sport_key, cost, remaining_reported, used_reported"
+    'called_ms, endpoint, sport_key, cost, remaining_reported, used_reported, '
+    '"trigger"'
 )
 
 _SQL_CREDITS_TAIL = (

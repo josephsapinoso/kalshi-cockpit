@@ -757,6 +757,28 @@ export type ActionableWindow = {
   spent_today: number;
   daily_budget: number;
   budget_day_start_ms: number;
+  /**
+   * When this budget day's **first sweep window** opens. `null` means none does.
+   *
+   * It sits beside `budget_day_start_ms` because the two are different clocks
+   * and comparing against the wrong one is what made the sweep banner fire every
+   * morning. The boundary above is a *credits-accounting* time (10:00Z); a sweep
+   * window is *kickoff-derived*, opening 75 minutes before the first pitch of a
+   * cluster. Between the two there is no window in which to spend, so "nothing
+   * has swept since the day opened" is arithmetic there, not an observation.
+   * Measured on the live record it held on 6 of 6 budget days sampled, for
+   * 6.5–10.8 hours each.
+   *
+   * Computed from `day_start_ms` rather than from now, so a window that opened
+   * and **closed** earlier today still counts — that is the 17-hour incident
+   * shape, and forgetting it is the one way this field could make the banner
+   * calm over a real outage.
+   *
+   * `null` is "no window opens today", never "unknown", and it is not on its own
+   * reassurance: a loop that is not running at all shows up as `last_look_ms`
+   * going stale, which is a different field and a louder tone.
+   */
+  first_window_open_ms: number | null;
   note: string;
 };
 

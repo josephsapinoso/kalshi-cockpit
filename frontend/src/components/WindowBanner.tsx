@@ -5,17 +5,23 @@ import {
   formatDuration,
   formatUntil,
 } from "@/lib/api";
+import type { Tone } from "@/lib/sweepTone";
+import { LOOK_SILENT_MS, sweepTone } from "@/lib/sweepTone";
 
 /**
- * How long a `last_look` may be before the loop is presumed stopped.
+ * `LOOK_SILENT_MS` — how long a `last_look` may be before the loop is presumed
+ * stopped — is imported rather than declared here.
  *
  * Two full passes. `scripts/run_loop.py` defaults `--interval` to 900s and
  * `runner.sweep_odds` writes an `odds_sweep_log` row on *every* full pass —
  * served, skipped, refused or empty — so silence past two intervals is not the
  * loop being quiet, it is the loop being absent. One interval would flap on
  * jitter; two is the smallest gap that cannot be a late pass.
+ *
+ * It lives in `@/lib/sweepTone` with the verdict that uses it because a test has
+ * to be able to execute the threshold, not read it. Declaring it twice is how
+ * the copy and the tone drift apart.
  */
-const LOOK_SILENT_MS = 2 * 900_000;
 
 /**
  * Whether anything on this page can be acted on, and when the next chance is.
@@ -143,13 +149,51 @@ export default function WindowBanner({
  *   loop silent     nothing recorded in two full passes. Red: the process is
  *                   gone, and the fresh-looking Board underneath it is a record,
  *                   not a market.
- *   nothing swept   the loop is alive and has declined every pass since the
- *                   budget day opened. Amber. This is the 17-hour shape.
+ *   refused         the loop wanted to sweep and something declined it. Amber,
+ *                   whether or not a window has opened -- see below.
+ *   nothing swept   the loop is alive and has declined every pass since a window
+ *                   opened. Amber. This is the 17-hour shape.
+ *   no window yet   the budget day has opened but no sweep window has. Calm, and
+ *                   the copy names the time the first one opens.
  *
- * "Since the budget day opened" is the boundary rather than an invented number
- * of hours: `budget_day_start_ms` is already on the payload, the day's whole
- * allowance is two sweeps, and a day with none of them spent is a fact rather
- * than a threshold somebody chose.
+ * **The paragraph that used to sit here was wrong, and it was wrong in a way
+ * that reasoned well.** It said: *"'Since the budget day opened' is the boundary
+ * rather than an invented number of hours: `budget_day_start_ms` is already on
+ * the payload, the day's whole allowance is two sweeps, and a day with none of
+ * them spent is a fact rather than a threshold somebody chose."* Every clause is
+ * true and the conclusion does not follow, because the two quantities are
+ * different clocks. `budget_day_start_ms` is a **credits-accounting** boundary
+ * (10:00Z, so a West Coast extra-innings game lands in the day it belongs to).
+ * A sweep window is **kickoff-derived**: `[anchor - max_odds_age_ms -
+ * due_window_ms, anchor - max_odds_age_ms]`, i.e. 75 to 15 minutes before the
+ * first pitch of a cluster. Nothing connects them. Between the boundary and the
+ * day's first window there is no window in which to spend, so "nothing has
+ * swept" there is not an observation about the loop -- it is arithmetic, and it
+ * was being rendered as a warning.
+ *
+ * Measured on the live record before this was changed: the state held on **6 of
+ * 6** budget days sampled, 2026-08-12 to 2026-08-17, for between 6.5 and 10.8
+ * hours each. Meanwhile `odds_sweep_log` was writing the correct explanation
+ * every ~15 minutes -- *"no sweep: next slot is baseball_mlb at 20:50Z-21:50Z
+ * ... sweeping 75-15 min before first kickoff"* -- so the machine knew and the
+ * screen did not.
+ *
+ * So the amber state now requires **both** halves: nothing swept since the day
+ * opened, **and** a window in which it could have. That is stricter by the old
+ * paragraph's own standard rather than looser -- it still invents no threshold,
+ * it just reads the schedule the scheduler uses instead of an accounting
+ * boundary that was never about sweeps.
+ *
+ * `refused` is checked ahead of the window test and that order is the guard.
+ * Slot planning is unfiltered by budget, so a day whose credits ran out at
+ * 14:00Z still computes a first window at 20:50Z; testing the window first would
+ * render a dead-for-the-day recorder calm. Trading the removed false positive
+ * for a false negative on the failure this strip exists to catch would be
+ * strictly worse than leaving the bug in.
+ *
+ * A manual refresh is excluded from `last_sweep_ms` upstream and stays excluded:
+ * a hand tap proves the *spend path* works and says nothing about the
+ * *scheduler*, which is the thing under observation. See ADR 0042.
  */
 function SweepTrace({ window: w }: { window: ActionableWindow }) {
   if (w.last_look_ms === null) {
@@ -178,9 +222,27 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
   // today's allowance, so today's two sweeps are both still unspent.
   const sweptThisDay =
     w.last_sweep_ms !== null && w.last_sweep_ms >= w.budget_day_start_ms;
+  // The second half of the predicate, and the whole of this fix: has there been
+  // a window to spend in yet? `null` means no window opens today at all, which
+  // is also "not yet" for this purpose -- there is no moment today at which the
+  // loop declining to sweep would be news.
+  const windowHasOpened =
+    w.first_window_open_ms !== null && w.now_ms >= w.first_window_open_ms;
+  // Checked BEFORE `windowHasOpened`, and the order is load-bearing. Slot
+  // planning is unfiltered by budget, so a day whose credits were exhausted at
+  // 14:00Z still computes a first window at 20:50Z. Asking "has a window opened"
+  // first would render that calm -- a false negative on exactly the failure this
+  // strip exists to catch, which is strictly worse than the false positive being
+  // removed. A liveness guard is allowed to be noisy; it is not allowed to be
+  // silent.
+  const refused = w.last_look_outcome === "refused";
   const gapMs = w.last_sweep_ms === null ? null : w.last_look_ms - w.last_sweep_ms;
 
-  const tone: Tone = silent ? "alarm" : sweptThisDay ? "calm" : "warn";
+  // The verdict comes from `sweepTone`, which a test executes against recorded
+  // states. The branches below choose *words* for that verdict and must not
+  // re-decide it -- two copies of a predicate is how the strip and its own
+  // explanation start disagreeing.
+  const tone: Tone = sweepTone(w);
   const outcome = w.last_look_outcome ?? "unrecorded";
 
   const headline = silent
@@ -189,15 +251,31 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
       `being stopped — every price below is a record, not an offer.`
     : sweptThisDay
       ? `The loop looked ${formatAge(lookAge)} and the day's sweeps have run.`
-      : `The loop is alive and declining: it looked ${formatAge(lookAge)}, and ` +
-        `${
-          gapMs === null
-            ? "no sweep has ever been served"
-            : `nothing has swept in ${formatDuration(gapMs)}`
-        } — not since the budget day opened at ${formatClock(
-          w.budget_day_start_ms,
-        )}. A loop that looks and never spends is the failure that ran 17 ` +
-        `hours unnoticed, and it looks identical to a quiet market from here.`;
+      : refused
+        ? `The loop looked ${formatAge(lookAge)} and was refused: it wanted to ` +
+          `sweep and something declined it. Nothing has swept since the budget ` +
+          `day opened at ${formatClock(w.budget_day_start_ms)}, and unlike a ` +
+          `quiet morning this will not fix itself when the next window opens.`
+        : windowHasOpened
+          ? `The loop is alive and declining: it looked ${formatAge(lookAge)}, ` +
+            `and ${
+              gapMs === null
+                ? "no sweep has ever been served"
+                : `nothing has swept in ${formatDuration(gapMs)}`
+            } — through a window that opened at ${formatClock(
+              w.first_window_open_ms as number,
+            )}. A loop that looks and never spends is the failure that ran 17 ` +
+            `hours unnoticed, and it looks identical to a quiet market from here.`
+          : w.first_window_open_ms === null
+            ? `No sweep window opens today: the loop looked ${formatAge(
+                lookAge,
+              )} and has nothing near enough to a first pitch to buy odds for. ` +
+              `Nothing is owed until a fixture is within the schedule.`
+            : `No sweep window has opened yet today — the first is at ` +
+              `${formatClock(w.first_window_open_ms)}. The loop looked ` +
+              `${formatAge(lookAge)}. Windows open 75 minutes before the first ` +
+              `pitch of a cluster, not when the budget day does, so nothing has ` +
+              `swept yet and nothing is owed yet.`;
 
   return (
     <Trace
@@ -220,7 +298,9 @@ function SweepTrace({ window: w }: { window: ActionableWindow }) {
   );
 }
 
-type Tone = "calm" | "warn" | "alarm";
+// `Tone` is imported from `@/lib/sweepTone`, where the verdict that produces it
+// lives. It used to be declared here, which put the vocabulary in the component
+// and the decision nowhere testable.
 
 const TONE_TEXT: Record<Tone, string> = {
   calm: "text-muted",

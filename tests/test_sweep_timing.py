@@ -33,6 +33,7 @@ from backend.odds.timing import (
     day_start_ms,
     decide_sweeps,
     firing_for_slot,
+    first_window_open_of_day,
     fixture_freshness,
     plan_sweep_slots,
     refresh_interval_ms,
@@ -843,3 +844,142 @@ class TestThePlannerPricesThePropsItAuthorises:
 class TestCostIsUnchanged:
     def test_a_sweep_still_costs_markets_times_regions(self):
         assert sweep_cost(["h2h", "spreads", "totals"], ["us", "eu"]) == 6
+
+
+# A budget day, using the deployed boundary hour rather than a chosen one.
+DAY_START = day_start_ms(ms("2026-08-17T18:00:00"))  # -> 2026-08-17T10:00:00Z
+
+
+class TestTheFirstWindowOfTheBudgetDay:
+    """`first_window_open_of_day` — the schedule fact the sweep banner needs.
+
+    It exists because the banner was comparing `last_sweep_ms` against
+    `budget_day_start_ms`, and those are different clocks: the boundary is a
+    credits-accounting time, a window is kickoff-derived. Between them there is
+    no window in which to spend, so "nothing has swept" was arithmetic rendered
+    as a warning — on 6 of 6 live budget days sampled.
+    """
+
+    def test_it_reports_when_the_first_window_opens(self, conn):
+        """A 22:05Z first pitch means a window from 20:50Z. The deployed case.
+
+        These are the real numbers off the live box on 2026-08-17, which the
+        scheduler itself wrote into `odds_sweep_log.detail` that morning.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T22:05:00"))
+        assert first_window_open_of_day(
+            conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+        ) == ms("2026-08-17T20:50:00")
+
+    def test_the_gap_from_the_boundary_is_not_small(self, conn):
+        """The defect restated as a number, so it cannot quietly stop being true.
+
+        Ten hours fifty minutes between the budget day opening and the first
+        moment a sweep could be served. Every minute of it rendered amber.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T22:05:00"))
+        opens = first_window_open_of_day(
+            conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+        )
+        assert (opens - DAY_START) == 10 * HOUR + 50 * MIN
+
+    def test_a_window_that_already_closed_today_still_counts(self, conn):
+        """**The guard that keeps the fix from silencing the incident.**
+
+        A cluster at 12:00Z opens its window at 10:45Z and closes it at 11:45Z.
+        By 18:00Z that window is long gone — and a loop that swept nothing
+        through it is exactly the 17-hour failure. Planning from `now` would
+        return the *next* slot and the banner would report "no window yet",
+        rendering the outage calm. Computing from the day boundary is what makes
+        the past window visible.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T12:00:00"))
+        assert first_window_open_of_day(
+            conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+        ) == ms("2026-08-17T10:45:00")
+
+    def test_a_window_already_open_at_the_boundary_is_clamped_to_it(self, conn):
+        """A 10:30Z kickoff wants a window from 09:15Z, before the day existed.
+
+        Reporting 09:15Z would put a time on the screen belonging to yesterday's
+        budget day. For this question the window opens when the day does.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T10:30:00"))
+        assert first_window_open_of_day(
+            conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+        ) == DAY_START
+
+    def test_it_takes_the_earliest_window_across_sports(self, conn):
+        add_fixture(
+            conn,
+            sport_key="baseball_mlb",
+            odds_event_id="mlb1",
+            commence_ms=ms("2026-08-17T22:05:00"),
+        )
+        add_fixture(
+            conn,
+            sport_key="basketball_wnba",
+            odds_event_id="wnba1",
+            commence_ms=ms("2026-08-17T19:00:00"),
+        )
+        assert first_window_open_of_day(
+            conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+        ) == ms("2026-08-17T17:45:00")
+
+    def test_a_slate_that_starts_tomorrow_opens_no_window_today(self, conn):
+        """`None`, and the banner reads it as "nothing is owed today".
+
+        Not as "unknown" and not as reassurance: a loop that is not running at
+        all is `last_look_ms` going stale, a different field and a louder tone.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-18T22:05:00"))
+        assert (
+            first_window_open_of_day(
+                conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+            )
+            is None
+        )
+
+    def test_an_empty_record_opens_no_window(self, conn):
+        assert (
+            first_window_open_of_day(
+                conn, day_start_ms=DAY_START, max_odds_age_ms=MAX_ODDS_AGE_MS
+            )
+            is None
+        )
+
+    def test_it_is_on_the_window_payload(self, conn, budget):
+        """The field has to reach the screen, not just exist.
+
+        `backend/agents/` and four other modules in this repo were complete,
+        tested and invoked by nothing; a computed value that never reaches
+        `to_dict` is the same defect one layer down.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T22:05:00"))
+        payload = window_status(
+            conn,
+            budget=budget,
+            now_ms=ms("2026-08-17T18:00:00"),
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            sweep_cost=6,
+        ).to_dict()
+        assert payload["first_window_open_ms"] == ms("2026-08-17T20:50:00")
+
+    def test_the_boundary_and_the_window_are_different_numbers(self, conn, budget):
+        """The whole premise, asserted rather than assumed.
+
+        If these two ever coincide by construction the banner's old predicate
+        would be correct again and this field would be dead weight. They do not:
+        one is an accounting hour, the other is derived from a kickoff.
+        """
+        add_fixture(conn, commence_ms=ms("2026-08-17T22:05:00"))
+        payload = window_status(
+            conn,
+            budget=budget,
+            now_ms=ms("2026-08-17T18:00:00"),
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            sweep_cost=6,
+        ).to_dict()
+        assert (
+            payload["first_window_open_ms"] != payload["budget_day_start_ms"]
+        )

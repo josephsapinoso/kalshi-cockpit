@@ -31,6 +31,7 @@ from .core.devig import DevigError, consensus_devig, devig
 from .core.suppression import SuppressionConfig, evaluate_suppression
 from .runner import SHARP_BOOKS, write_fair_price
 from .odds.budget import day_start_ms
+from .odds.timing import first_window_open_of_day
 from .engine import (
     Candidate,
     build_recommendation,
@@ -534,9 +535,35 @@ def seed_all(
     # relative to now, which is also what a real instance's record looks like
     # at that hour: the previous day's sweeps have rolled off and today's are
     # all after 10:00Z.
+    # **And the sweep must also land after a window it could have been served
+    # in.** Pinning it to `day_start + 60_000` alone put the seeded spend at
+    # 10:01Z, which no scheduler on this system would ever produce: windows open
+    # 75 minutes before a cluster's first pitch, never at the accounting
+    # boundary. The record was internally consistent about *budget* and
+    # impossible about *schedule*, and the demo is the instance a reader is
+    # invited to trust. It is also the instance on which the sweep banner's
+    # states are exercised, and a sweep that predates every window makes the
+    # pre-window state unreachable there.
+    #
+    # 900_000 is `MAX_ODDS_AGE_S = "900"` as deployed in both tomls. Passed
+    # explicitly rather than read from config because a seed that changes shape
+    # with the environment is not a fixture.
+    # The floor moves up to the first window **only when that window has already
+    # opened**. Seeding at 11:00Z against a 20:50Z window would otherwise write a
+    # credit row dated nine hours in the future -- a worse record than the one
+    # being corrected, and one that would make `last_sweep_ms` newer than
+    # `now_ms` on a screen built to compare exactly those two. In that case the
+    # seed keeps the old boundary floor and the strip renders its pre-window
+    # state, which is now calm and correct rather than a false warning.
     day_start = day_start_ms(stamp)
+    first_window = first_window_open_of_day(
+        conn, day_start_ms=day_start, max_odds_age_ms=900_000
+    )
+    floor_ms = day_start + 60_000
+    if first_window is not None and first_window <= stamp:
+        floor_ms = first_window
     for sport, age_ms in (("baseball_mlb", 120_000), ("basketball_wnba", 5 * 3_600_000)):
-        called_ms = max(stamp - age_ms, day_start + 60_000)
+        called_ms = min(max(stamp - age_ms, floor_ms), stamp)
         conn.execute(
             "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
             "regions, cost, remaining_reported, used_reported) "
