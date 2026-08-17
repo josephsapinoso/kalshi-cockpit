@@ -1,6 +1,11 @@
 # Next — your checklist
 
-## 2026-08-17 — PITCHER-K SLICE 1 IS IN. THE LADDER SHAPE ALREADY MATCHES.
+## 2026-08-17 — PITCHER-K IS REFUTED. THE MODEL WORKS; THE PARAMETERS CANNOT.
+
+**Read ADR 0036 before planning anything in this section.** Slice 1 shipped and
+is correct. Slices 2 and 3 are dead, killed by two registered measurements
+rather than by an opinion, and the MLBAM adapter was cancelled *before* it was
+built. Everything below is the record of how, in the order it happened.
 
 `main` at **`e2840f6`**. **2,949 tests pass, 10 xfailed, ruff clean.** Not
 pushed. Re-verify; do not inherit.
@@ -103,18 +108,52 @@ floor of 15), so both its pairs are missing rows, not omitted ones. And the
 harness's first `unreadable dropped 6,143` spanned the population and its
 complement; in-window it is 7. Counter split, result reproduces exactly.
 
-### DO NOT BUILD THE MLBAM FEED YET. Next measurement first.
-The registered branch says "a current-season blend is required", and the
-reflex is to reach for MLBAM and re-open the licence surface ADR 0035 narrowed.
-**That reflex rests on an untested assumption: that current-season data is
-materially better.** It is answerable from the same file, offline, no feed, no
-licence question — split a season at a date, forecast the rest from what was
-known by then, compare against this 7.44-point floor.
+### THE FEED WAS TESTED BEFORE IT WAS BUILT. NO FEED RESCUES IT. — ADR 0036
 
-**If in-season-to-date is not much better, no feed rescues the design** and
-pitcher-K cannot be priced from public rate data at this venue's precision.
-Cheaper to learn now than after an adapter, a cache, a poll schedule and a
-licence argument. Register it before running it.
+`docs/measurements/2026-08-17-in-season-vs-stale-baseline-result.md`. Three
+pre-declared cuts, ~620 pairs each. **All three: NO FEED RESCUES IT.**
+
+| cut | prior season | season-to-date | **in-sample blend (upper bound)** |
+|---|---:|---:|---:|
+| **07-31 primary** | 8.29 pts | **7.23** | **6.47** |
+| 06-15 | 7.91 | 7.64 | 6.36 |
+| 08-15 (deployed date) | 8.27 | 6.69 | **6.09** |
+
+Current-season data **does** help — it beats the stale baseline in 8 of 8
+seasons at the primary cut. It helps 13% on a quantity that must fall 80%.
+
+**The decisive number is the blend, because it cannot be beaten.** It is fitted
+in-sample on the pairs it is scored on, so it upper-bounds *any* weighting of
+these two rates — better estimator, better shrinkage, longer lookback, all
+bounded. **6.09 points at the deployed cut, against a 1.75-point fee bar.**
+And that `B` is a best case no feed can deliver: complete retrospective data, no
+ingestion lag, no name-matching failure, blend weight fitted knowing the answer.
+
+**So: no MLBAM adapter, no cache, no poll schedule, no licence argument.**
+The ADR 0035 surface stays closed on evidence rather than caution. Slice 3 does
+not begin. `strikeouts.py` stays as a `Tool` — the arithmetic was never what
+failed.
+
+**The honest weak spot:** at the 06-15 cut, season-to-date wins in only 3 of 8
+seasons. "Current-season data helps" is cut-dependent; "nothing helps enough" is
+not.
+
+### The one door still open, and it is not a plan
+**Both measurements exclude starters with no qualifying prior season — 494 of
+them at the primary cut.** Pairs need two seasons by construction, so rookies
+and pitchers back from a lost year were never in the population. They are the
+starters a market is least sure about and the most plausible remaining edge in
+this series. They are also a *harder* problem — the difficulty is that there is
+no history to fit — and it needs its own registration and its own honest prior
+about how few such starts exist. Recorded so it is not inherited as an oversight.
+
+### What is actually next
+`KXMLBHR` is the natural candidate (the one liquid batter ladder) but it
+inherits a **harder** parameter problem, not an easier one, plus ADR 0035's
+lineup dependency. **Scope it against ADR 0036 before starting it, not after.**
+The lesson that generalises: both verdicts turned on comparing parameter error
+to the *fee advantage* rather than to zero. A build asking "is the model any
+good?" instead of "is it good enough to clear the cost?" would have shipped.
 
 **2. Kalshi names the starter itself, so pitcher-K may need no MLBAM at all.**
 The fixture carries **7 pitchers across 4 games** — both sides of a game once

@@ -229,6 +229,7 @@ Measured and refuted in the previous project. Re-litigating them costs days.
 | Stale-quote detection / picking off | Edge lives at ~400ms; a 60–180s detector is far too slow |
 | "The NO side is systematically cheap" | Refuted on 66,686 settled markets — every price bucket negative |
 | Kalshi↔Polymarket arbitrage | Text matching gives 0.56% match rate, and the matches are *wrong* |
+| Pitcher-K priced from public rate data | Parameter noise is 6.09–8.47 points against a 1.75-point fee bar. The **in-sample optimal blend** of prior-season and season-to-date rates — an upper bound no implementation can beat — is still 3.5× the whole advantage. ADR 0036 |
 
 ## Do not repeat this inference
 

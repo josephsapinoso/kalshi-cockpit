@@ -875,18 +875,18 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
             "scripts/price_pitcher_k_ladder.py",
             "scripts/measure_pitcher_k_decay.py",
         ),
-        purpose="Slice 1 of the pitcher-strikeout build: the compound "
-                "distribution that prices a whole `KXMLBKS` ladder from one "
-                "opinion. Off the chain **because it has no parameters yet** -- "
-                "it is pure arithmetic on `(expected_bf, sd_bf, k_per_bf)`, and "
-                "where those come from is licence-constrained (ADR 0035) and is "
-                "slice 2. Wiring it in before then would put a model priced off "
-                "typed-in constants on the money path. It becomes LIVE with a "
-                "MUST_HAVE_CALLERS entry when slice 3 writes model rows under "
-                "their own strategy_config_version -- **and not before**: this "
-                "entry going stale is the signal that the build finished, so a "
-                "future session should expect to delete it rather than extend "
-                "it.",
+        purpose="The compound distribution that prices a whole `KXMLBKS` ladder "
+                "from one opinion. Correct, tested, mutation-verified -- and "
+                "off the chain **permanently, by measurement**: ADR 0036 "
+                "refuted the parameter supply, not the arithmetic. Public rate "
+                "data cannot pin `k_per_bf` closer than 6.09 points of ladder "
+                "price against a 1.75-point fee bar, and that figure is an "
+                "in-sample upper bound no implementation can beat. So there is "
+                "no slice 3 and no `MUST_HAVE_CALLERS` entry coming. It is kept "
+                "rather than deleted because it is the cheapest way to re-test "
+                "that conclusion if a better parameter source ever appears -- "
+                "the one open door being starters with no prior season, whom "
+                "both measurements exclude by construction.",
     ),
     "backend/model/synthetic.py": Tool(
         run_by=("scripts/demo_builder.py",),
