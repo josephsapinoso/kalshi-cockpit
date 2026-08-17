@@ -149,9 +149,11 @@ the headroom is not. See
 
 This tool existed to find out whether an edge is there — not to assume one. **It
 found out. The answer was no, and the record of how is the product** (ADR 0038).
-That does not touch ADR 0018: betting on Joe's own judgement, with the screen as
-an input, sits *outside* the gate by design and is unchanged. This is a statement
-about what the **tool** may claim.
+This is a statement about what the **tool** may claim, and it reaches nothing
+Joe does by hand: the gate guards `OrderPlacer`, and `ORDERS_ARE_DRY_RUNS = True`
+(`backend/store/orders.py:129`) means the tool has never placed an order at all.
+**Do not cite ADR 0018 for this** — it decides that arming is a code change, not
+anything about Joe's discretion; see ADR 0038's sourcing correction.
 
 ## The three rules everything else follows from
 

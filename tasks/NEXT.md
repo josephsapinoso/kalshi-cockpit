@@ -17,9 +17,14 @@ keeps running (`docker/entrypoint.sh` → `scripts/run_loop.py`) because it cost
 nothing and the `G = 300` look arrives on its own clock — **no plan may depend
 on it**, and the gate is never lowered or bypassed.
 
-**ADR 0018 is untouched.** Betting on Joe's own judgement, with the screen as an
-input, sits *outside* the gate by design. ADR 0038 is a statement about what the
-**tool** may claim, not about what its owner does with his money.
+**ADR 0038 reaches nothing Joe does by hand.** The gate guards `OrderPlacer`,
+and `ORDERS_ARE_DRY_RUNS = True` (`backend/store/orders.py:129`) means the tool
+has never placed an order at all — a phone in his hand is not on that code path.
+**Do not cite ADR 0018 for this.** The first draft of this entry did; ADR 0018
+decides that *arming is a code change* and says nothing about Joe's discretion.
+The claim holds on mechanism, not on that citation. See ADR 0038's sourcing
+correction — it is the second over-claim caught in this session and the same
+shape as the first.
 
 ### Done this session
 

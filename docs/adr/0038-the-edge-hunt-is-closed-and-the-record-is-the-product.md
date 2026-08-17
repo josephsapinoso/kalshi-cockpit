@@ -101,10 +101,24 @@ Remaining work is presentation and hygiene, not discovery.
 
 ## What this ADR does NOT decide
 
-- **It does not tell Joe whether to bet.** ADR 0018 puts wagering on his own
-  judgement, with the screen as an input, *outside* the gate by design. This is
-  a statement about what the **tool** may claim, not about what its owner does
-  with his own money. Unchanged.
+- **It does not tell Joe whether to bet.** This is a statement about what the
+  **tool** may claim, not about what its owner does with his own money.
+
+  > **Sourcing correction, same day.** An earlier draft of this bullet cited
+  > ADR 0018 for the proposition that wagering on Joe's own judgement sits
+  > outside the gate *by design*. **ADR 0018 decides no such thing.** It decides
+  > that arming real trading is a code change, and enumerates the four barriers.
+  > What it does record, in "What this does NOT establish", is narrower and
+  > factual: the four fee-calibration trades **"are placed by hand in the Kalshi
+  > app"** because they *cannot* be routed through the order path. That is an
+  > observation about a channel, not a design intent about Joe's discretion.
+  >
+  > The claim survives without the citation, on mechanism: the gate guards
+  > `OrderPlacer`, and `ORDERS_ARE_DRY_RUNS = True`
+  > (`backend/store/orders.py:129`) means the tool has never placed an order at
+  > all. A phone in Joe's hand is not on that code path, so nothing here reaches
+  > it. **But that is this ADR's own reasoning and must be signed as such** —
+  > attributing it to ADR 0018 borrows authority the document never issued.
 - **It does not say Kalshi's sports markets are efficient.** It says this
   instance's instruments cannot detect an inefficiency. Only the second is
   supported, and the distinction is the whole content of ADR 0037.
