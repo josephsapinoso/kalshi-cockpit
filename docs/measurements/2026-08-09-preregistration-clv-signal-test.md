@@ -1656,3 +1656,34 @@ name currently collides. §A1 uses `instr` instead, which has no metacharacters.
 ---
 
 **Amendment 1 ends. No data had been observed when it was written (§A0).**
+
+---
+
+## Note, 2026-08-17 — NOT AN AMENDMENT. NO RULE HERE CHANGES.
+
+**This note adjudicates nothing, adds no cut, moves no threshold and touches no
+stopping rule.** It is recorded here, after data, solely because this file is
+what a session opens before taking the `G = 300` look, and a reader who stops
+here would miss a fact about the population that arrived after Amendment 1
+closed. Every rule above governs unchanged, including the floor of `G = 300` and
+the prohibition on declaring below it.
+
+**The fact:** scheduled prop buying was turned off on 2026-08-16 (ADR 0032). At
+the interim look, props supplied **81 of 199 clusters (40.7% of `G`)** under
+*this registration's* cluster key — `COALESCE(m.event_ticker, r.ticker)`, which
+is deliberately **not** the gate's key (`backend/analysis/clv_signal.py:109-114`;
+the two keys gave 210 and 125 on the same record). Accrual from 2026-08-16 is
+therefore moneyline-dominated.
+
+**Why it matters at the look:** the arms were `moneyline −0.082` and
+`prop −0.519`. A pooled estimate losing its more-negative arm from the intake is
+expected to drift **toward zero**, i.e. toward the NO-SIGNAL threshold and toward
+what reads as improvement — by composition, not by evidence.
+
+**Required at the `G = 300` look:** report the arm split *as measured then*.
+Do not carry 118/81 forward, and do not project a magnitude — the published arms
+do not reconstruct the pooled `beta_hat` under any weighting, and the reason is
+explained in the interim look's 2026-08-17 annotation.
+
+Full write-up: `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`,
+annotation dated 2026-08-17.

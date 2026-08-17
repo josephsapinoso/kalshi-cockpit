@@ -121,3 +121,79 @@ the count, and that it is large enough to matter. Whether it biases `gamma_hat`
   `--modal-config-only` and was **not** applied to the numbers above.
 - **`market_type` is not a registered cut.** The per-group table is a
   diagnostic and can downgrade a verdict, never create one.
+
+---
+
+## Annotation, 2026-08-17 — THE POPULATION CHANGED COMPOSITION THE DAY AFTER THIS LOOK, AND THE DRIFT IT WILL PRODUCE POINTS AT GOOD NEWS
+
+**Read this before taking the `G = 300` look.** Nothing above is retracted. What
+changed is *what clusters 200 through 300 are made of*, and it changed in a way
+that is expected to move `beta_hat` toward zero for a reason that is not
+evidence.
+
+**What happened.** ADR 0032 turned scheduled prop buying off on 2026-08-16
+(`ODDS_BUY_PROPS_ON_SCHEDULE = "false"`, `fly.live.toml:318`, commit `83432c1`,
+deployed — confirmed on the live machine's environment, not read from the toml).
+The last per-event prop call in `api_credits` is **2026-08-16T17:06:36Z**.
+
+**Why that reaches this document.** ADR 0032 §3 argues props "cannot move the
+denominator", and for **the gate's** denominator that is correct: since ADR 0029
+`gate.clustered_clv` clusters on `event_links.odds_event_id`, and a prop ladder
+inherits its game's id, so it collapses onto the game.
+
+**This registration does not use that key.** `backend/analysis/clv_signal.py:109-114`
+says so in terms, and the file was written to say it:
+
+> *"The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
+> gate's key. ADR 0029 clusters on `odds_event_id` so a prop ladder collapses
+> onto its game; this registration predates that and clusters on the Kalshi
+> event. On the current record the two give **210 and 125** — a 68% difference —
+> so a `G` quoted without its key is meaningless."*
+
+Under the registered key a prop ladder **is** its own cluster. The per-group
+table above is the measurement of what that was worth: **prop supplied 81 of the
+199 clusters, 33.9% by row share and 40.7% of `G`.** ADR 0032's arithmetic was
+computed against the other 300 and is sound there. It does not transfer here,
+and §6 of that ADR already flagged the adjacent risk as *unmeasured*.
+
+**The predictable misread, stated now so it cannot be discovered later.** The two
+arms are `moneyline −0.082` and `prop −0.519`. Accrual from 2026-08-16 onward is
+moneyline-dominated. A pooled estimate whose intake has lost its more-negative
+arm is expected to **drift toward zero** — that is, toward the NO-SIGNAL
+threshold of 0.40 and toward what reads as improvement. **A future session that
+takes the `G = 300` look, sees `beta_hat` less negative than −0.1403, and reads
+it as the signal emerging will be reading a composition change as evidence.**
+
+**Direction only. The magnitude is NOT computable from what is published here,
+and the attempt has already been made so nobody repeats it.** Re-weighting the
+two arms does not reconstruct the pooled figure by any weighting: row-weighting
+gives −0.230, cluster-weighting −0.260, against a published pooled
+`beta_hat` of **−0.1412**. That is not a defect. The pooled number is one
+regression carrying the `half_spread_tenths` control (§C2), not a mixture of two
+sub-regressions, so it is not required to lie between its arms and does not.
+**Do not treat the arithmetic disagreement as a bug, and do not publish a
+projected `beta`.**
+
+**The post-cutover population is not a clean step function either.** The
+on-demand prop tap survives ADR 0032 by construction: `POST /api/odds/refresh`
+with an `odds_event_id` (`backend/api/routes.py:1622`) reaches
+`fetch_and_store_props`, whose schedule guard at `backend/runner.py:1667-1670`
+is entered only when no fixture was **named** — so a named tap bypasses it. It is
+wired to a live per-fixture button in the phone UI
+(`frontend/src/components/RefreshOddsPanel.tsx:89-92`). So the intake from here
+is *"moneyline, plus whatever Joe taps"* — human-determined, not a fixed
+population.
+
+**As of 2026-08-17 that tap has never fired.** All 111 `api_credits` rows in the
+life of the table carry `trigger` NULL; the predicate is
+`COALESCE(trigger, '') != 'manual'`. So the mix today is effectively
+moneyline-only, and if that changes it will change discretionarily rather than
+on a schedule. **Whoever takes the `G = 300` look must report the arm split at
+that time**, not assume this one.
+
+**What this annotation does not do.** It does not reverse ADR 0032 and must not
+be cited to. Props were 260 of ~302 credits per cluster; restoring them to buy
+faster accrual toward a statistic `CLAUDE.md` forbids any roadmap from depending
+on would be spending money to accelerate a number nobody is allowed to wait for.
+The decision stands; only its sourcing was wrong, and that is corrected in ADR
+0032's own annotation.

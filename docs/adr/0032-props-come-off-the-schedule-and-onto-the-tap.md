@@ -65,6 +65,48 @@ constraint on the entire project.
 **The 300-game floor goes from months to days.** That is the whole case, and it
 has nothing to do with finding a better bet.
 
+> **Annotation, 2026-08-17 (added after the fact; the section above is left as
+> written). THE DECISION STANDS. THE SOURCING DOES NOT.**
+>
+> **There are two 300s in this project and this section conflates them.**
+> Everything above is correct about *the gate's* floor —
+> `LIVE_GATE_MIN_SCORED_RECOMMENDATIONS`, counted by `gate.clustered_clv` on
+> `event_links.odds_event_id`, where a prop ladder collapses onto its game and
+> therefore genuinely cannot move the denominator.
+>
+> **It is wrong about the CLV signal test's `G = 300`**, which is a different
+> statistic with a different, *registered* cluster key. The codebase already
+> knew and had written it down — `backend/analysis/clv_signal.py:109-114`:
+>
+> > *"The cluster key is `COALESCE(m.event_ticker, r.ticker)` and it is NOT the
+> > gate's key. ... On the current record the two give **210 and 125** — a 68%
+> > difference — so a `G` quoted without its key is meaningless."*
+>
+> Under the registered key a prop ladder **is** its own cluster, and the interim
+> look measured what that was worth: **props supplied 81 of 199 clusters —
+> 40.7% of `G`.** So "the 86% was buying nothing that counts" is true of the
+> gate's denominator and false of the signal test's. §6's third bullet flagged
+> an adjacent risk as *unmeasured*; this is a different one, and it was
+> measurable from a document that already existed.
+>
+> **Why this is an annotation and not a supersession.** Nothing here would have
+> been decided differently. Props cost 260 of ~302 credits per cluster, and the
+> accrual they were buying is toward a statistic `CLAUDE.md` states plainly that
+> **no roadmap may depend on** — `beta` would have to rise 8.3 standard errors
+> for the `G = 300` outcome to be anything but NO SIGNAL. Paying 86% of the
+> credit bill to arrive sooner at a number nobody is permitted to wait for is
+> not a reason to reverse this. **Turning scheduled props back on is
+> explicitly killed, not deferred.**
+>
+> **What the error does cost is a live misreading risk**, and it is written up
+> where the next reader will hit it: the prop arm's `beta` was **−0.519** against
+> moneyline's **−0.082**, so a moneyline-only intake is expected to drift the
+> pooled estimate **toward zero — toward what reads as good news — by
+> composition rather than by evidence.** See the 2026-08-17 annotation on
+> `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`, which also
+> records why the magnitude of that drift is *not* computable from the published
+> arms and must not be projected.
+
 ## 4. What replaces it
 
 ADR 0031 shipped a per-fixture prop refresh: 26 credits, one game, on demand,

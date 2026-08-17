@@ -25,6 +25,63 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-17 — A decision justified by a statistic computed under a *different definition* than the one the decision affects, and the codebase already had the difference written down
+
+ADR 0032 turned scheduled prop buying off. Its whole case was that props "cannot
+move the denominator": since ADR 0029 the gate clusters on
+`event_links.odds_event_id`, a prop ladder inherits its game's id, so it
+collapses onto the game and adds no cluster. **Every word of that is true.**
+
+**It is true about the gate's 300. The project has two.** The CLV signal test's
+`G = 300` is a different statistic with its own *registered* cluster key,
+`COALESCE(m.event_ticker, r.ticker)`, under which a prop ladder **is** its own
+cluster. Props were supplying **81 of 199 clusters — 40.7% of `G`.**
+
+**The difference was not hidden. It was in a comment, in prose, with numbers**
+(`backend/analysis/clv_signal.py:109-114`): *"The cluster key ... is NOT the
+gate's key ... the two give 210 and 125 — a 68% difference — so a `G` quoted
+without its key is meaningless."* Somebody wrote that sentence precisely so this
+could not happen, and it happened anyway, because the ADR never asked which `G`
+it meant. **A named quantity that exists twice in one system is not disambiguated
+by being obvious to whoever defined it.**
+
+**The consequence is worse than the error, and it is the reason this is a lesson.**
+The retired arm was the *more negative* one (`prop −0.519` vs
+`moneyline −0.082`). So the pooled estimate now drifts **toward zero — toward
+what reads as good news — by composition rather than by evidence.** An error
+that merely miscounts is cheap; this one manufactures a future false positive,
+on a schedule, in the flattering direction, and it would arrive looking like the
+thing the project spent months hunting.
+
+**How to apply.**
+
+- **Before citing a count as a reason, name the key it was counted under**, in
+  the same sentence. `G = 199` is not a fact; `G = 199 under
+  COALESCE(event_ticker, ticker)` is. If a project has two denominators, every
+  unqualified use of one is a coin-flip.
+- **Grep for the quantity's own definition before reasoning about it**, not just
+  for its value. The 68% figure was one grep away and would have stopped the
+  argument cold.
+- **When a change alters what a running measurement is made of, write the
+  expected drift down the day it happens** — direction, not magnitude — and put
+  it where the *next reader of the result* will hit it, not only in the ADR that
+  caused it. A composition change is invisible at the look; it has to be
+  pre-announced or it is indistinguishable from a finding.
+- **State the direction of the bias explicitly.** "Toward zero" is the same
+  discipline as *say which way a blind spot points*: a drift toward good news is
+  the one a future session will not question.
+- **A wrong justification does not imply a wrong decision.** Annotate and keep
+  the decision when the outcome is unchanged; reversing on sourcing alone would
+  here have meant spending 86% of the credit bill to accelerate a statistic
+  `CLAUDE.md` forbids any roadmap from depending on.
+
+Related: [[a-boundary-borrowed-from-another-subsystem-answers-a-question-it-was-never-about]],
+[[an-exclusion-count-describes-the-filter-not-the-world]],
+[[say-which-way-a-blind-spot-points]],
+[[open-the-set-before-predicating-over-it]].
+
+---
+
 ## 2026-08-17 — An acceptance criterion carries implicit scope, and the person who sets it owns that scope
 
 A lane was capped at a named deliverable list: backend field, banner predicate,
