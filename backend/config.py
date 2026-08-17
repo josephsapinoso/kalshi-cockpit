@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
@@ -56,6 +57,15 @@ def _int(key: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise ConfigError(f"{key}={raw!r} is not an integer.") from exc
+
+
+def _str_or_none(key: str) -> Optional[str]:
+    """Unset, empty, or whitespace-only are all the same answer: not readable.
+
+    Distinct from `_optional`, which returns `""`. An empty string is a value a
+    caller can compare and be misled by; `None` is not.
+    """
+    return os.getenv(key, "").strip() or None
 
 
 def _int_or_none(key: str) -> Optional[int]:
@@ -711,6 +721,118 @@ class GateConfig:
             live_trading_enabled=_bool("LIVE_TRADING_ENABLED", False),
             min_scored_recommendations=_int("LIVE_GATE_MIN_SCORED_RECOMMENDATIONS", 300),
         )
+
+
+# --- build identity ---------------------------------------------------------
+#
+# Which build of this repo is answering. Served on `/api/health` so that
+# "which commit is this machine running?" is one unauthenticated GET rather
+# than an inference.
+#
+# It is here because the inference is expensive and has been wrong. Proving
+# that commit `999857f` was absent from both deployed images took 32 tool calls
+# of behavioural HTML diffing, and the 52.00% fee copy served live for three
+# days after the correction had landed in git while the record said "deployed
+# and verified".
+#
+# **Fly's environment carries no commit.** Enumerated on a real machine rather
+# than assumed (`fly ssh console -a kalshi-cockpit-demo -C "env | grep ^FLY_"`,
+# 2026-08-17), the whole set is:
+#
+#   FLY_ALLOC_ID  FLY_APP_NAME  FLY_IMAGE_REF  FLY_MACHINE_ID
+#   FLY_MACHINE_VERSION  FLY_PRIVATE_IP  FLY_PROCESS_GROUP  FLY_REGION
+#   FLY_SSH  FLY_VM_MEMORY_MB  PRIMARY_REGION
+#
+# `FLY_RELEASE_VERSION` does not exist -- it was in the brief as a candidate and
+# is not present. `FLY_IMAGE_REF` ends in a deployment ULID, and
+# `fly releases --json` reports `"Metadata": null` on every release, so nothing
+# the platform knows can be walked back to a commit.
+#
+# So the commit has to be injected, and it is injected as a **runtime** variable
+# rather than a Docker build arg:
+#
+#   fly deploy -c fly.live.toml -e GIT_SHA="$(git rev-parse HEAD)"
+#
+# A build arg would sit in the image and invalidate every layer after it on
+# every commit. `-e` sets machine environment and touches the Docker cache not
+# at all, which is why the build-arg trade-off the brief warned about never had
+# to be made. It also fails in the safe direction: `-e` applies to the deploy
+# that passes it and is not inherited by the next one, so a forgotten flag
+# yields `None` -- never a stale SHA from the previous deploy, which is the one
+# outcome worse than no field.
+_GIT_SHA_PATTERN = re.compile(r"\A[0-9a-fA-F]{7,40}\Z")
+
+
+def _git_sha_from_env() -> Optional[str]:
+    """`GIT_SHA` if it can be a commit, else `None`, loudly.
+
+    Clamp what you trust; refuse what you're validating. This field is the one
+    a caller acts on, so a value that cannot be a commit is refused rather than
+    echoed -- a mangled or truncated SHA presented as authoritative is exactly
+    the fake-value-masquerading-as-data this repo forbids. The commonest way to
+    get one is an unexpanded `$(git rev-parse HEAD)` from a shell that did not
+    substitute it.
+
+    Refusal is logged because dropping a set-but-wrong value silently reads
+    identically to never having set it, and those need different fixes.
+    """
+    raw = _str_or_none("GIT_SHA")
+    if raw is None:
+        return None
+    if not _GIT_SHA_PATTERN.match(raw):
+        logger.error(
+            "GIT_SHA=%r is not a commit sha (7-40 hex chars) and is being "
+            "ignored. /api/health will report git_sha=null. Deploy with "
+            'GIT_SHA="$(git rev-parse HEAD)".',
+            raw,
+        )
+        return None
+    return raw.lower()
+
+
+@dataclass(frozen=True)
+class BuildInfo:
+    """Identity of the running build. Every field is `None` when unreadable.
+
+    Never `"unknown"`, and that is the point rather than a style choice: a
+    caller comparing two instances would find `"unknown" == "unknown"` and
+    conclude the machines match, which is the exact wrong answer and worse than
+    having no field at all.
+
+    `image_ref` is the load-bearing one when `git_sha` is absent. Its
+    deployment ULID appears verbatim as `ImageRef` in `fly releases --json`,
+    which maps it to a release version and a timestamp.
+
+    **This is an identity, not a verification.** It says which build answered;
+    it does not say that build is the one anyone intended.
+    """
+
+    git_sha: Optional[str] = None
+    image_ref: Optional[str] = None
+    machine_version: Optional[str] = None
+    machine_id: Optional[str] = None
+    region: Optional[str] = None
+
+    @classmethod
+    def from_env(cls) -> "BuildInfo":
+        return cls(
+            git_sha=_git_sha_from_env(),
+            image_ref=_str_or_none("FLY_IMAGE_REF"),
+            machine_version=_str_or_none("FLY_MACHINE_VERSION"),
+            machine_id=_str_or_none("FLY_MACHINE_ID"),
+            region=_str_or_none("FLY_REGION"),
+        )
+
+    def as_dict(self) -> dict:
+        """A fixed allow-list of names, so no secret can arrive here by having
+        been set in the same environment. `/api/health` is public."""
+        return {
+            "git_sha": self.git_sha,
+            "image_ref": self.image_ref,
+            "machine_version": self.machine_version,
+            "machine_id": self.machine_id,
+            "region": self.region,
+        }
 
 
 @dataclass(frozen=True)
