@@ -259,6 +259,23 @@ working page.
 
 ---
 
+## Data sources and attribution
+
+**The information used here was obtained free of charge from and is copyrighted
+by [Retrosheet](https://www.retrosheet.org/).**
+
+Retrosheet supplies the historical baseball statistics behind every derived
+baseball number in this repository — per-pitcher, per-start batters faced and
+strikeouts, used to estimate the parameters of the strikeout model in
+[`backend/model/strikeouts.py`](backend/model/strikeouts.py). Retrosheet's terms
+explicitly permit commercial use and redistribution and ask only for this
+notice, which is why the historical half of the data sits there rather than
+anywhere else. See
+[ADR 0035](docs/adr/0035-mlb-stat-data-is-split-across-two-sources-on-licence-grounds.md)
+for the split and its reasoning.
+
+Kalshi and The Odds API supply prices, under their own separate terms.
+
 ## Notes
 
 Design system shared with [josephsapinoso.com](https://github.com/josephsapinoso/personal-website) —

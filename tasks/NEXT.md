@@ -60,12 +60,61 @@ game, **1,274,253 rows**, columns `p_bfp` (batters faced), `p_k` (strikeouts),
 unknown and it is now closed. Every parameter slice 2 needs is derivable from
 this one file.
 
-**Coverage ends at 2025 — there is no 2026 in it.** ~21,000 pitcher-games per
-recent season. So the *baseline* is Retrosheet and the current season is not.
-That is the open question, and it is now the only one: how much does a pitcher's
-`K/BF` move year to year, and is a 2025 baseline good enough on its own? **That
-is measurable from this file alone** (fit on season N, score on season N+1,
-repeatedly) with no live feed involved. Do that before building any adapter.
+**Coverage ends at 2025 — there is no 2026 in it.** So the *baseline* is
+Retrosheet and the current season is not. **That question is now measured.**
+
+### THE ANSWER: a season-old baseline is TOO STALE ALONE. Registered verdict.
+
+`docs/measurements/2026-08-17-pitcher-k-baseline-decay-result.md`. 772
+pitcher-season pairs, 2015–2025, 50,382 starts of which **7 unreadable**.
+
+```
+RMSE_prior  0.03479   RMSE_league 0.04910   improvement +29.1%
+slope 0.7724          price error 8.47 points mean (max 14.54)
+VERDICT     TOO STALE ALONE     (fee bar 1.75 pts, too-stale bar 5.00)
+```
+
+**Both halves matter and they point opposite ways.** A pitcher's own prior
+season beats the league mean by 29.1%, in **8 of 8 pair-years** (+16% to +36%),
+largest contributor 13.5% — so `k_per_bf` is a real, persistent pitcher
+attribute and the thing slice 1 is built around is not imaginary. **And the
+residual moves a ladder by 8.47 points against a 1.75-point fee advantage** —
+roughly five times the entire prize.
+
+**The strongest counter-argument was tried and fails.** Next season's realised
+rate is itself an estimate (median 676 BF), so binomial target noise (0.01678)
+is inside the residual and is not a parameter error. Removing it gives 0.03047
+→ **7.44 points**. Still above the 5.00 too-stale bar. Verdict unchanged.
+
+**Three parameters, three different answers — this changes the design:**
+
+| parameter | improvement over league constant |
+|---|---:|
+| `k_per_bf` | **+29.1%** — use it, shrunk to **0.77** of face value |
+| `mean_bf` | +6.9% — barely a pitcher attribute at all |
+| `sd_bf` | **−30.6%** — *worse* than a constant. **Use the league value.** |
+
+A slice 2 that helpfully passed a per-pitcher `sd_bf` would be measurably worse
+than one that did not.
+
+**Two things the registration got wrong, disclosed:** 2020 was to be "included
+and flagged" — in fact **no 2020 pitcher-season qualified** (max 13 starts vs a
+floor of 15), so both its pairs are missing rows, not omitted ones. And the
+harness's first `unreadable dropped 6,143` spanned the population and its
+complement; in-window it is 7. Counter split, result reproduces exactly.
+
+### DO NOT BUILD THE MLBAM FEED YET. Next measurement first.
+The registered branch says "a current-season blend is required", and the
+reflex is to reach for MLBAM and re-open the licence surface ADR 0035 narrowed.
+**That reflex rests on an untested assumption: that current-season data is
+materially better.** It is answerable from the same file, offline, no feed, no
+licence question — split a season at a date, forecast the rest from what was
+known by then, compare against this 7.44-point floor.
+
+**If in-season-to-date is not much better, no feed rescues the design** and
+pitcher-K cannot be priced from public rate data at this venue's precision.
+Cheaper to learn now than after an adapter, a cache, a poll schedule and a
+licence argument. Register it before running it.
 
 **2. Kalshi names the starter itself, so pitcher-K may need no MLBAM at all.**
 The fixture carries **7 pitchers across 4 games** — both sides of a game once

@@ -871,7 +871,10 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
                 "single markets. Reachable only from a demo script.",
     ),
     "backend/model/strikeouts.py": Tool(
-        run_by=("scripts/price_pitcher_k_ladder.py",),
+        run_by=(
+            "scripts/price_pitcher_k_ladder.py",
+            "scripts/measure_pitcher_k_decay.py",
+        ),
         purpose="Slice 1 of the pitcher-strikeout build: the compound "
                 "distribution that prices a whole `KXMLBKS` ladder from one "
                 "opinion. Off the chain **because it has no parameters yet** -- "
