@@ -867,6 +867,20 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # was protecting, and the multiplier is precisely the construction that
     # makes unlimited re-reading valid. The row is kept as a comment because the
     # deletion is the decision.
+    "backend/portfolio_poll.py": Tool(
+        run_by=("scripts/poll_portfolio.py",),
+        purpose="Mirrors the venue's record of hand-placed bets -- "
+                "settlements, fills (source='venue_hand', ADR 0043), balance "
+                "-- before Kalshi drops it: both portfolio endpoints have now "
+                "been observed to lose history, settlements inside eight days. "
+                "A Tool TODAY and deliberately not forever: the calibration "
+                "registration (§7.6, amended) requires a 12h/5min cadence "
+                "on the LIVE instance, because a closed laptop does not poll "
+                "and the record expires. Wiring it into the deployed loop is a "
+                "deploy decision that has not been taken; until it is, this "
+                "row is the honest state, and moving it out of here and into "
+                "the chain is the definition of that work being done.",
+    ),
     "backend/main.py": Tool(
         run_by=("python -m backend.main --seed-demo",),
         purpose="Local dev server. Superseded on the instance by entrypoint.sh, "

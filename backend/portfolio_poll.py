@@ -1,0 +1,400 @@
+"""Mirror the venue's record of Joe's hand-placed bets, before Kalshi drops it.
+
+Why this exists, and why it is urgent rather than nice
+------------------------------------------------------
+Both portfolio endpoints have now been observed to lose history.
+`/portfolio/fills` retains roughly three months (measured 2026-08-10: empty on
+an account whose settlements then reached back to 2025-11). And
+`/portfolio/settlements` -- which the calibration registration originally
+called "the safety net" at nine-plus months of reach -- returned 55 records on
+2026-08-10 and **22 entirely different ones eight days later**, cursor empty,
+one page. A poll that does not happen does not delay the record. It loses it.
+
+This module is the first production caller of any portfolio endpoint in this
+project's life. `balance()`, `positions()`, `fills()` and `settlements()` were
+all built, tested against their envelopes, and called by nothing -- the
+"built but never called" pattern `tasks/lessons.md` records. The calibration
+registration (§7.6, as amended) is what finally supplies a caller.
+
+What it writes, and what it refuses to write
+--------------------------------------------
+- `venue_settlements` -- one row per settled position, mirrored verbatim-ish:
+  parsed into the repo's units, never summarised. `INSERT OR IGNORE` on the
+  `(ticker, settled_ms)` key makes every poll idempotent.
+- `fills` with `source = 'venue_hand'` -- **never** `'engine'`. The gate's
+  `_fee_model_verified` counts engine fills only (ADR 0043), and that filter
+  landed before this module existed precisely so switching this on cannot move
+  a live-trading interlock in either direction.
+- `venue_balance_snapshots` -- from `balance_dollars` (a dollar string,
+  "20.6583"), **never** the `balance` integer beside it, which is whole cents
+  and drops the 0.83c. Observed 2026-08-18, both fields side by side.
+- `poll_log` -- one row per endpoint per attempt, **including failures**. Every
+  retention tripwire in the registration is a gap between successive
+  successful polls, and a failure that writes nothing is invisible: it reads
+  exactly like a quiet week in which nothing was bet.
+
+**`positions` is counted and not parsed.** The per-row shape has never been
+observed on this account -- both reads returned an empty list -- and this repo
+has been burned five separate times by parsers written against imagined wire
+formats. The count lands in `poll_log.row_count`; the first non-empty payload
+should be captured (`scripts/capture_fills_fixture.py` is the pattern) before
+anyone writes a parser.
+
+What this does NOT establish
+-----------------------------
+- **That the mirror is complete.** A position opened and closed entirely
+  between polls, on an endpoint that drops history, is gone. The poll cadence
+  bounds that window; it cannot close it.
+- **Anything about the fee model.** `fee_predicted` is populated (the column
+  is NOT NULL, and a real `fee_actual` beside a prediction is the comparison
+  H4 and `core/fees.py` are waiting for) but nothing here evaluates the match.
+  That analysis is off-gate by ADR 0043 and belongs to its own harness.
+- **Which estimate a position matches.** Matching is analysis (§7.3 of the
+  registration), runs on read, and is deliberately not done at ingest: a
+  matcher inside the poller would bake today's matching rule into the stored
+  record.
+
+Money is integer tenths of a cent. Quantities are REAL (fractional counts are
+real: `0.27` and `11.27` are both in the live record). Unreadable resolves to
+`None`, never `0` -- and a row whose money fields cannot be read is **skipped
+and counted**, never written half-parsed.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
+
+from .core.fees import calculate_fee
+from .core.prices import dollars_to_tenths
+from .kalshi.discovery import parse_ms
+from .kalshi.rest import KalshiRestClient
+
+logger = logging.getLogger(__name__)
+
+# The wire values `source` may take here. 'engine' is reserved for the order
+# path and this module must never write it -- see ADR 0043.
+VENUE_SOURCE = "venue_hand"
+
+
+def _fractional_count(value: Any) -> Optional[float]:
+    """A `*_count_fp` string ("11.27") to a float count. None when unreadable.
+
+    Not `dollars_to_tenths`: this is a quantity, not money, and the schema's
+    convention for quantities is REAL. Negative counts are refused the same way
+    negative prices are -- a count is being validated, not trusted.
+    """
+    if value is None:
+        return None
+    try:
+        as_decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not as_decimal.is_finite() or as_decimal < 0:
+        return None
+    return float(as_decimal)
+
+
+@dataclass(frozen=True)
+class ParsedSettlement:
+    ticker: str
+    event_ticker: Optional[str]
+    market_result: Optional[str]
+    settled_ms: int
+    side: str
+    contracts: float
+    entry_price_tenths: Optional[int]
+    fee_cost_tenths: Optional[int]
+
+
+def parse_settlement(row: dict) -> Optional[ParsedSettlement]:
+    """One `/portfolio/settlements` record into the repo's units.
+
+    Returns None -- refusal, not zero -- when the row cannot carry a position:
+    no ticker, no settled time, or a count pair that reads as neither side.
+    Field names are the ones observed on this account 2026-08-18
+    (`data/captures/portfolio_settlements.json`), not the docs' names.
+
+    `revenue` and `value` are deliberately not read: both are the deprecated
+    integer-cent legacy fields and both were 0 on every observed record.
+    """
+    ticker = row.get("ticker")
+    settled_ms = parse_ms(row.get("settled_time"))
+    if not ticker or settled_ms is None:
+        return None
+
+    yes_count = _fractional_count(row.get("yes_count_fp"))
+    no_count = _fractional_count(row.get("no_count_fp"))
+    if yes_count and yes_count > 0:
+        side, contracts, cost_key = "yes", yes_count, "yes_total_cost_dollars"
+    elif no_count and no_count > 0:
+        side, contracts, cost_key = "no", no_count, "no_total_cost_dollars"
+    else:
+        # Both zero, or both unreadable. A settlement with no position on
+        # either side is not a position; refuse rather than invent a side.
+        return None
+
+    # Average entry price: total cost over count, both from the venue. The
+    # division happens in Decimal via the dollar string so a fractional count
+    # cannot smuggle float error into a money figure.
+    entry_price_tenths: Optional[int] = None
+    try:
+        total_cost = Decimal(str(row.get(cost_key)))
+        if total_cost.is_finite() and total_cost >= 0 and contracts > 0:
+            entry_price_tenths = dollars_to_tenths(
+                total_cost / Decimal(str(contracts))
+            )
+    except (InvalidOperation, ValueError, TypeError):
+        entry_price_tenths = None
+
+    return ParsedSettlement(
+        ticker=str(ticker),
+        event_ticker=row.get("event_ticker"),
+        market_result=row.get("market_result"),
+        settled_ms=settled_ms,
+        side=side,
+        contracts=contracts,
+        entry_price_tenths=entry_price_tenths,
+        fee_cost_tenths=dollars_to_tenths(row.get("fee_cost")),
+    )
+
+
+@dataclass(frozen=True)
+class ParsedFill:
+    kalshi_fill_id: str
+    ticker: str
+    filled_ms: int
+    count: float
+    price_tenths: int
+    is_taker: bool
+    fee_actual: Optional[float]
+
+
+def parse_fill(row: dict) -> Optional[ParsedFill]:
+    """One `/portfolio/fills` record into the repo's units. None on refusal.
+
+    The shape is the one observed on this account 2026-08-18 -- 25 fills,
+    every field present on all 25 (`data/captures/portfolio_fills.json`). The
+    price paid is `yes_price_dollars` or `no_price_dollars` **by the fill's own
+    `side`**; reading the wrong one books a 1c fill as a 99c one.
+
+    `fee_cost` stays in dollars (REAL) because `fills.fee_actual` is the
+    column `_fee_model_verified` compares in dollars. It is the one money field
+    in this module not stored in tenths, and that is the existing table's
+    contract, not a new decision.
+    """
+    fill_id = row.get("fill_id")
+    ticker = row.get("ticker")
+    side = row.get("side")
+    if not fill_id or not ticker or side not in ("yes", "no"):
+        return None
+
+    # `created_time` is ISO-8601 with microseconds; `ts` is whole seconds.
+    # Prefer the precise one, fall back to the coarse one, refuse on neither.
+    filled_ms = parse_ms(row.get("created_time"))
+    if filled_ms is None:
+        ts = row.get("ts")
+        filled_ms = int(ts) * 1000 if isinstance(ts, int) and ts > 0 else None
+    if filled_ms is None:
+        return None
+
+    count = _fractional_count(row.get("count_fp"))
+    price_key = "yes_price_dollars" if side == "yes" else "no_price_dollars"
+    price_tenths = dollars_to_tenths(row.get(price_key))
+    is_taker = row.get("is_taker")
+    if count is None or count <= 0 or price_tenths is None:
+        return None
+    if not isinstance(is_taker, bool):
+        # The maker/taker flag is the one field the fee question turns on.
+        # A guessed default here would poison the comparison it exists for.
+        return None
+
+    return ParsedFill(
+        kalshi_fill_id=str(fill_id),
+        ticker=str(ticker),
+        filled_ms=filled_ms,
+        count=count,
+        price_tenths=price_tenths,
+        is_taker=is_taker,
+        fee_actual=_fee_dollars(row.get("fee_cost")),
+    )
+
+
+def _fee_dollars(value: Any) -> Optional[float]:
+    """A `fee_cost` dollar string to a float, refusing garbage. None never 0."""
+    if value is None:
+        return None
+    try:
+        as_decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not as_decimal.is_finite() or as_decimal < 0:
+        return None
+    return float(as_decimal)
+
+
+def parse_balance_tenths(payload: dict) -> Optional[int]:
+    """`balance_dollars` to tenths. **Never the `balance` integer.**
+
+    Observed side by side on 2026-08-18: `balance` was 2065 while
+    `balance_dollars` was "20.6583". The integer is whole cents and silently
+    drops the 0.83c -- the deci-cent error CLAUDE.md opens with, in a wallet.
+    """
+    return dollars_to_tenths(payload.get("balance_dollars"))
+
+
+def parse_portfolio_value_tenths(payload: dict) -> Optional[int]:
+    """`portfolio_value`, accepted only at the one value whose unit is known.
+
+    The field has been observed exactly once, as the integer `0`, with no
+    `_dollars` twin beside it. Zero is zero in every candidate unit, so it is
+    stored. **Any non-zero value is refused (None) until the unit is pinned**
+    by an observation against a non-empty position list -- guessing cents by
+    analogy with `balance` is exactly the convenient-column error, one field
+    over. When this starts returning None on a real portfolio, that is the
+    prompt to capture a payload and pin the unit, not to widen this function.
+    """
+    value = payload.get("portfolio_value")
+    if value == 0:
+        return 0
+    return None
+
+
+def _log(
+    conn: sqlite3.Connection,
+    *,
+    now_ms: int,
+    endpoint: str,
+    ok: bool,
+    row_count: Optional[int] = None,
+    error: Optional[str] = None,
+) -> None:
+    conn.execute(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count, error) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (now_ms, endpoint, 1 if ok else 0, row_count, error),
+    )
+
+
+async def poll_portfolio(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+) -> dict[str, Any]:
+    """One pass over all four endpoints. Every attempt leaves a `poll_log` row.
+
+    Endpoints are independent: a failure on one is logged and the rest still
+    run, because the registration's tripwires are per-endpoint and a
+    settlements outage must not blind the balance record.
+
+    Returns a summary dict for the caller's log line. The summary is
+    convenience; `poll_log` is the record.
+    """
+    summary: dict[str, Any] = {}
+
+    # -- settlements: the primary statistic's inputs live here ---------------
+    try:
+        rows = await client.settlements(limit=200)
+    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
+        _log(conn, now_ms=now_ms, endpoint="settlements", ok=False, error=repr(exc))
+        summary["settlements"] = f"FAILED: {exc}"
+    else:
+        written = refused = 0
+        for row in rows:
+            parsed = parse_settlement(row)
+            if parsed is None:
+                refused += 1
+                logger.warning("settlement refused, ticker=%s", row.get("ticker"))
+                continue
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO venue_settlements "
+                "(ticker, event_ticker, market_result, settled_ms, side, "
+                " contracts, entry_price_tenths, fee_cost_tenths, "
+                " position_first_seen_ms, position_time_source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    parsed.ticker, parsed.event_ticker, parsed.market_result,
+                    parsed.settled_ms, parsed.side, parsed.contracts,
+                    parsed.entry_price_tenths, parsed.fee_cost_tenths,
+                    now_ms, "poll_instant",
+                ),
+            )
+            written += cursor.rowcount
+        _log(conn, now_ms=now_ms, endpoint="settlements", ok=True, row_count=len(rows))
+        summary["settlements"] = {"seen": len(rows), "new": written, "refused": refused}
+
+    # -- fills: source='venue_hand', never 'engine' (ADR 0043) ---------------
+    try:
+        rows = await client.fills(limit=200)
+    except Exception as exc:  # noqa: BLE001
+        _log(conn, now_ms=now_ms, endpoint="fills", ok=False, error=repr(exc))
+        summary["fills"] = f"FAILED: {exc}"
+    else:
+        written = refused = 0
+        for row in rows:
+            parsed = parse_fill(row)
+            if parsed is None:
+                refused += 1
+                logger.warning("fill refused, id=%s", row.get("fill_id"))
+                continue
+            predicted = calculate_fee(
+                price_tenths=parsed.price_tenths,
+                contracts=parsed.count,
+                maker=not parsed.is_taker,
+            )
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO fills "
+                "(kalshi_fill_id, ticker, filled_ms, count, price_tenths, "
+                " is_taker, fee_actual, fee_predicted, fee_model_used, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    parsed.kalshi_fill_id, parsed.ticker, parsed.filled_ms,
+                    parsed.count, parsed.price_tenths,
+                    1 if parsed.is_taker else 0, parsed.fee_actual,
+                    predicted, "model_a_deci", VENUE_SOURCE,
+                ),
+            )
+            written += cursor.rowcount
+        _log(conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows))
+        summary["fills"] = {"seen": len(rows), "new": written, "refused": refused}
+
+    # -- positions: COUNTED, NOT PARSED. Shape never observed. ---------------
+    try:
+        rows = await client.positions()
+    except Exception as exc:  # noqa: BLE001
+        _log(conn, now_ms=now_ms, endpoint="positions", ok=False, error=repr(exc))
+        summary["positions"] = f"FAILED: {exc}"
+    else:
+        _log(conn, now_ms=now_ms, endpoint="positions", ok=True, row_count=len(rows))
+        summary["positions"] = {"seen": len(rows)}
+        if rows:
+            # The first observation of the shape. Capture before parsing.
+            logger.warning(
+                "positions returned %d rows -- the per-row shape has never "
+                "been captured; run scripts/capture_fills_fixture.py-style "
+                "capture before writing a parser", len(rows),
+            )
+
+    # -- balance: dollars string, never the cents integer --------------------
+    try:
+        payload = await client.balance()
+    except Exception as exc:  # noqa: BLE001
+        _log(conn, now_ms=now_ms, endpoint="balance", ok=False, error=repr(exc))
+        summary["balance"] = f"FAILED: {exc}"
+    else:
+        balance_tenths = parse_balance_tenths(payload)
+        conn.execute(
+            "INSERT INTO venue_balance_snapshots "
+            "(observed_ms, balance_tenths, portfolio_value_tenths) "
+            "VALUES (?, ?, ?)",
+            (now_ms, balance_tenths, parse_portfolio_value_tenths(payload)),
+        )
+        _log(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
+        summary["balance"] = {"balance_tenths": balance_tenths}
+
+    conn.commit()
+    return summary
