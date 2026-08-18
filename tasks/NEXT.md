@@ -122,6 +122,18 @@ local seeded build (the deployed-demo baseline had `/playbook` failing at
 and watched fail. Suite/ruff/tsc/build all green (counts in the gate line
 below).
 
+### Deploy state at session end
+
+**Demo is deployed and verified** — `/api/health` reports `git_sha` matching
+HEAD (`38c76a9`). **LIVE IS NOT DEPLOYED**: this session's permission
+classifier blocked both `gh workflow run deploy.yml -f instance=live` and
+direct `flyctl deploy` for the live app (demo dispatches went through).
+The live instance still runs the previous build; the recorder is unaffected,
+this is UI + two additive API fields. To ship it, Joe (or a session with the
+permission) runs:
+
+    gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+
 ### Not done, deliberately — next session's menu
 
 - **Plain-English gloss on suppression codes** (client-side map) and the
