@@ -166,12 +166,21 @@ disabled and watched go red.
 
 ### Deploy state at session end
 
-`2bdab11`, pushed. **Demo deployed and verified**: `build.git_sha` matches HEAD
-and its live `/api/slate` reports **0 of 11** rows disagreeing with their own
-fair price, so the reseed shipped with the fix. **Live is two commits behind**
-(`16e963f`) and both pending deploys are frontend-only — the gloss and the
-strip. Neither touches the recorder, the gate or the order path, so running
-behind costs Joe nothing but those two screens.
+**Both instances are on `edb40ec` and verified.** Demo's live `/api/slate`
+reports **0 of 11** rows disagreeing with their own fair price, so the reseed
+shipped with the fix rather than only passing in tests.
+
+Joe ran the live dispatch himself — the classifier blocked it from here for the
+third session running, so **plan for that** and hand him the one-liner rather
+than burning a turn discovering it again. Live afterwards: `status: ok`,
+`build.git_sha` = HEAD, `/api/health` in 0.14s, `recorder.age_ms` ~74s,
+`live_quotes_available: true`, `undelivered_last_24h: 0`.
+
+**Live's own screens were not read, and could not be**: `/slate` 307s to login
+and `/api/slate` 401s without the app token. Both new screens were verified on
+demo, which serves the same image. If a future session needs to see a live
+screen, `i-can-see-authed-screens-through-his-chrome` is the route — not a
+token in a shell.
 
 ### STILL OPEN
 
