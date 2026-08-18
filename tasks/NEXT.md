@@ -16,28 +16,25 @@ move the older ones into the dated archive file — do not shorten them.
 
 ## 2026-08-18 00:30Z (latest) — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
 
-**Read the handoff box first. This entry was written in a worktree that has
-since been deleted; the work is on a branch, not on `main`.**
+### HANDOFF — NOTHING TO DO. IT IS ALREADY MERGED
 
-### HANDOFF — ONE COMMAND, AND DO IT BEFORE TOUCHING `TicketSheet.tsx` OR `routes.py`
+**`main` is at `a1ae05e` and carries everything described below.** No merge is
+required; if a copy of this paragraph elsewhere tells you to run `git merge
+ui-work`, that instruction is spent.
 
-```
-git merge ui-work
-```
+The work was built on branch **`ui-work`** in the `kalshi-ui` worktree, which Joe
+killed on 2026-08-18 because bouncing between two checkouts cost more than it
+bought. Three commits — `448dd01`, `94fff7c`, `a1ae05e` — were **fast-forwarded
+into `main`** before the folder was removed, with `main`'s working tree clean and
+no session mid-edit in it. Nothing was lost and nothing conflicted.
 
-Branch **`ui-work`**, two commits, off `main` at `fe95fa5`. It was built in the
-`kalshi-ui` worktree, which Joe killed on 2026-08-18 because bouncing between two
-checkouts cost more than it bought. **Deleting a worktree does not delete its
-branch** — worktrees share the object store, so `ui-work` and both commits are
-intact and visible from this checkout.
+**It was never pushed.** `origin/ui-work` does not exist, and neither does a
+pushed `main` containing these three commits — `kalshi-cockpit` is a public repo
+and pushing publishes immediately, so it was left for Joe. **Until someone
+pushes, all of this lives in exactly one directory on one machine.**
 
-**It was never pushed.** `origin/ui-work` does not exist. Until it is merged or
-pushed it lives in exactly one place.
-
-Merge it before starting the payout item, because that item needs *two* fields in
-`backend/api/routes.py` **and** their rendering in `TicketSheet.tsx` — the one
-file `ui-work` has modified and `main` does not have. `main` had not moved when
-this was written, so the merge is clean now and only gets worse.
+The `ui-work` branch ref still exists and can be deleted whenever; it points at
+the same commit as `main`.
 
 ### THE FINDING THAT OUTRANKS EVERYTHING ELSE IN THIS ENTRY
 
