@@ -1,0 +1,13 @@
+{
+ "note": "Leg counts for the 8 combo fills, \u00a74.5 of the registration. Keyed by capture row index, never by ticker (the hashes identify positions; repo is public). Recorded before any fee_cost value was opened.",
+ "leg_counts": {
+  "row_1": 19,
+  "row_2": 16,
+  "row_3": 16,
+  "row_4": 21,
+  "row_5": 34,
+  "row_6": 62,
+  "row_7": 6,
+  "row_8": 13
+ }
+}

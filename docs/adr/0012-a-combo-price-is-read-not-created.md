@@ -128,8 +128,20 @@ would have to land before a measured rho could price anything:
    minutes of polling. **Zero were two-sided** and seventeen of the eighteen
    were outside the Frechet bounds, so exactly one produced a number at all —
    from the ask-only population, which is refused. There is no measurement.
-2. **A combo fee model.** Unverified for this venue, and the per-leg-versus-
-   per-order question is exactly the one `core/fees.py` already hedges on.
+2. **A combo fee model.** ~~Unverified for this venue~~ **Measured and
+   unmatched, 2026-08-18** (marked in place; the original word stands struck
+   so the change is visible): the first 8 combo fills ever observed were
+   scored against eleven registered candidates and none predicted every
+   order — every charge lies strictly above 0.070·C·P·(1−P) (implied k
+   0.070041–0.070548, excluding 0.035 on every row), rows 1/5/6/8 exceed
+   even the deployed ceil-rounded model by ≤0.19% of the fee on charges
+   finer than the $0.0001 grid, and the four exact "matches" are grid
+   coincidences, not support for the coefficient. The per-leg-versus-per-order
+   question `core/fees.py` hedges on is still open: the leg-price form is
+   NOT TESTABLE (fill-time leg prices are unrecorded and unrecoverable).
+   One account, one sitting, one day — durability unestablished. See
+   `docs/measurements/2026-08-18-combo-fill-fee-look-result.md` and
+   ADR 0046.
 3. **Liquidity that means something.** These markets are `is_provisional` with
    zero volume and zero open interest. A two-sided quote on an untraded market
    is a quoter's opinion, not a transaction.

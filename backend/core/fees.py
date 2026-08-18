@@ -88,6 +88,24 @@ anyway. **Fix granularity first, and separately.**
 3. Any rate at 16-26c, above 52c, at sizes 2-19 or above 20, on the **maker**
    side, in-game, on a baseball series other than these two, or on combos.
 
+**Combos are worse than unestablished -- the model is REFUTED there, in the
+bad direction** (2026-08-18, the registered one-look at the first 8 combo
+fills ever observed; `docs/measurements/2026-08-18-combo-fill-fee-look-
+result.md`, ADR 0046). On those 8 ``KXMVECROSSCATEGORY`` fills (one account,
+one sitting, prices $0.001-$0.228): **every charge lies strictly above
+``0.070 * C * P * (1-P)``** -- implied ``k`` 0.070041..0.070548, no row at or
+below 0.070 and every row excluding 0.035 -- and rows 1/5/6/8 exceed even the
+ceil-rounded ``calculate_fee`` (by up to 0.19% of the fee), on a grid finer
+than ``FEE_GRID_DOLLARS`` (gcd $0.00001; one-sided: no coarser than that).
+The four rows that "match" ``calculate_fee`` exactly are grid coincidences --
+the ceil-to-$0.0001 rounds past the charge -- not rows where the coefficient
+is right. No registered candidate model predicted every order. So this
+module's never-undercharge property **does not hold for combos**, and no
+combo consumer may rely on it; nothing in production prices combos, which is
+why the finding lives here as a documented refusal rather than as a fitted
+combo branch (fitting one was forbidden by the registration and would need
+its own registered look on a fresh sample).
+
 Consequences worth internalising before trusting any backtest
 -------------------------------------------------------------
 - The fee peaks at the 50c contract and is symmetric: a 10c contract and a 90c
