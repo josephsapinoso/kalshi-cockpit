@@ -11,6 +11,7 @@ import type {
   SlateRowData,
 } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
+import { glossSentence } from "@/lib/suppressionGloss";
 import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
@@ -243,6 +244,17 @@ function Row({
       {row.suppressed_reason && (
         <span className="w-full break-words font-mono text-xs text-accent xl:col-span-full">
           {row.suppressed_reason}
+        </span>
+      )}
+
+      {/* Plain English under the code, never instead of it. The code above is
+          the engine's own name for the rule and is what `/rejections` groups
+          by; this is a caption on it, for a reader who has not memorised
+          twelve identifiers. Absent when the server sent a code this build
+          does not know — see `frontend/src/lib/suppressionGloss.ts`. */}
+      {glossSentence(row.suppressed_reason) && (
+        <span className="w-full break-words text-xs leading-snug text-muted xl:col-span-full">
+          {glossSentence(row.suppressed_reason)}
         </span>
       )}
     </div>

@@ -6,6 +6,7 @@ import {
   formatAge,
 } from "@/lib/api";
 
+import { glossSentence } from "@/lib/suppressionGloss";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -115,8 +116,20 @@ export default async function LedgerPage() {
                   buy {rec.suggested_contracts}
                 </span>
               ) : rec.suppressed_reason ? (
-                <span className="font-mono text-xs text-muted">
-                  {rec.suppressed_reason}
+                /* Code then caption, the same order as everywhere else. The
+                   code is the engine's name for the rule; the sentence is for
+                   a reader who has not memorised twelve identifiers. See
+                   `frontend/src/lib/suppressionGloss.ts` for why it is never a
+                   replacement. */
+                <span className="flex flex-col items-end gap-0.5 text-right">
+                  <span className="font-mono text-xs text-muted">
+                    {rec.suppressed_reason}
+                  </span>
+                  {glossSentence(rec.suppressed_reason) && (
+                    <span className="max-w-[28ch] text-xs leading-snug text-muted">
+                      {glossSentence(rec.suppressed_reason)}
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className="font-mono text-xs text-muted">no edge</span>

@@ -17,13 +17,11 @@ move the older ones into the dated archive file — do not shorten them.
 ## SESSION START — if Joe said "read NEXT.md", this box is your prompt
 
 Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
-branch `main`. Everything through the combo-fee look is committed; check
-`git status` and `git log origin/main..main` rather than trusting this
-sentence — the 2026-08-18 afternoon session pushed and deployed repeatedly,
-and the LIVE instance's `/api/health` reports its `git_sha`, so read it
-instead of inferring. The calibration study is OPEN (day 1 stamped
-2026-08-18 09:15Z at $20.658). Joe is a beginner and has asked to be
-educated: define every betting/stats term at first use, via
+branch `main`. Check `git status` and `git log origin/main..main` rather than
+trusting any sentence here, and read the LIVE instance's `/api/health` for its
+`git_sha` — it sits under `build`, not at the top level. The calibration study
+is OPEN (day 1 stamped 2026-08-18 09:15Z at $20.658). Joe is a beginner and has
+asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
@@ -32,40 +30,156 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,350 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,432 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** the alerting session (ADR 0048, ADR 0049 **as amended**) is
-discharged, including the dead-man's switch. **It also took live down for
-~15 minutes — read the OUTAGE section of the latest entry before touching
-`/api/health`.** Live is healthy on `cf98954`; verify with `curl`, do not
-inherit that sentence. **One thing wants a human and it is 30 seconds: run
-the Heartbeat workflow by hand with `force_alarm: true` and confirm the
-embed arrives on the phone.** An alarm nobody has watched fire is
-decoration, which is this session's own lesson. After that,
-the "not done, deliberately" menu at the end of the 2026-08-18 evening entry
-(suppression-code gloss, dispersion strip), or ask the partner. Nothing is
-urgent by construction — ADR 0038 closed the hunt, the study accumulates on
-its own, and the money-arm strip, derived bankroll and 423 interlock are
-live.
+**THE JOB:** nothing is urgent, by construction — ADR 0038 closed the hunt, the
+study accumulates on its own, and the alerting session is fully discharged
+**including its one human step**: the heartbeat alarm has now been fired by
+hand and Discord returned 204. The only thing left on it is Joe glancing at the
+channel to confirm the embed reached the phone; that is his, not yours.
+
+Next up is a menu, not a queue. From ADR 0047's approved plan the **dispersion
+strip** is the remaining P2 (min book → four devig methods → max book, labelled
+"where the number came from", never "fair"). The suppression-code gloss is done
+— ADR 0050. Or ask the partner.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
 deploying were both pre-approved on 2026-08-18 and the deploy deny is
 lifted (pass `--build-arg GIT_SHA="$(git rev-parse HEAD)"`; deploy demo
-too — one image, two configs).
+too — one image, two configs). `gh workflow run` is NOT blanket-blocked: the
+heartbeat dispatch went through where the live `deploy.yml` dispatch did not.
 
 GOTCHAS, each of which bit: Bash heredocs eat backticks/backslashes — long
 content via the Write tool, commit messages via `git commit -F <file>`.
-Anything touching `bet_estimates` goes in `schema.sql`, never a migration.
-`git checkout <file>` wipes uncommitted edits — back up with a byte copy
-before disabling a guard to verify it (lessons.md, top). Run `date -u`
-before acting on any deadline sentence.
+**Mixed line endings** — `frontend/src/lib/*.ts` is LF, `app/*/page.tsx` is
+CRLF; a byte edit written with `\n` silently matches nothing, and
+`str.replace` returns the input without erroring. Anything touching
+`bet_estimates` goes in `schema.sql`, never a migration. `git checkout <file>`
+wipes uncommitted edits — back up with a byte copy before disabling a guard to
+verify it (lessons.md, top). Run `date -u` before acting on any deadline
+sentence. To serve the app locally for `check_mobile`, the recipe is in the
+2026-08-19 entry below — `DB_PATH`, not `DATABASE_PATH`, and `pkill` does not
+work here.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
 
 ---
 
-## 2026-08-18 ~night (latest) — THE ALERTS LEAVE THE PHONE, AND THE FAILURE CHANNEL IS WIRED
+## 2026-08-19 ~early — THE ALARM WAS WATCHED, AND THE CODES SPEAK ENGLISH ON FOUR SCREENS
+
+Two items off the previous session's menu: the one thing that needed a human
+(it did not), and the suppression-code gloss. **ADR 0050** is the decision
+record for the second.
+
+### The alarm fired, and it was watched
+
+`gh workflow run heartbeat.yml -f force_alarm=true` — run
+[32189114686], conclusion **success**, `discord replied 204`. The embed left
+GitHub for the webhook and Discord accepted it. **That is delivery to Discord,
+not delivery to the phone**; the last step is Joe glancing at the channel for
+"⚠ Heartbeat test — this is not a real alarm". Nothing else is pending on it.
+
+The dispatch was **not** blocked by the permission classifier, unlike the live
+`deploy.yml` dispatch that the 2026-08-18 evening session had to hand to Joe.
+Worth knowing: the block is per-workflow-and-input, not a blanket refusal of
+`gh workflow run`.
+
+### The gloss — and the three defects it uncovered
+
+`frontend/src/lib/suppressionGloss.ts` maps every suppression code to one short
+sentence. It renders **beneath** the code, muted, never instead of it —
+`SlateRow`'s standing refusal of a translation ("would give the same rule two
+names") is correct and survives intact. Label and caption.
+
+**1. There are four render sites, not two.** The first pass did `SlateRow` and
+`OpportunityCard` — both *Board* components — and looked complete. `/slate`,
+which is where Joe's phone habit goes, renders the field from its own markup in
+`app/slate/page.tsx`; `/ledger` from a third. A per-component test written from
+that same wrong list would have agreed it was done, so the guard scans all of
+`frontend/src` and requires an `EXEMPT` entry with a reason. **It found
+`/ledger` on its first run.**
+
+**2. Two vocabularies share the column.** `backend/engine.py:255` writes
+`sizing:{binding_constraint}` when the sizer refused, so a row can read
+`sizing:bankroll_unobserved` — never a `Check` name. Pinning only to
+`ALL_CHECK_NAMES` would have shipped that whole class rendering bare.
+`SIZING_GLOSS` covers the six *refusing* constraints; the six clamping ones
+cannot reach this column and a sentence for one fails the test in the other
+direction. That direction fired during the build.
+
+**3. Unknown code ⇒ `null`, never a placeholder.** An unrecognised code means
+the server runs a rule this frontend predates, which is a deploy-skew fact
+worth seeing.
+
+### Two guards were green when written, for opposite reasons
+
+Written up in `tasks/lessons.md` because "green" looked identical for both and
+they need opposite fixes:
+
+- Counting `rec.suppressed_reason` occurrences did **not** notice the code being
+  swapped for the gloss — both components also reference the field as a
+  *condition*. The **guard** was decoration; it now looks for a rendering
+  position specifically.
+- The `/ledger` mutation removed one gloss call and left the other, so the scan
+  still saw the name. The **mutation** was too weak; the guard was fine.
+
+Mechanical trap that cost two cycles: **this repo has mixed line endings** —
+`suppressionGloss.ts` is LF, `app/slate/page.tsx` and `app/ledger/page.tsx` are
+CRLF. A byte mutation written with `\n` matches nothing in a CRLF file and
+`str.replace` returns the input without complaining. Assert the mutation applied
+before trusting the result.
+
+### How to run the cockpit locally (nothing recorded this, and it is 30 seconds)
+
+Needed for `scripts/check_mobile.py`, which wants a served build:
+
+    DB_PATH=data/demo.db INSTANCE_MODE=demo .venv/Scripts/python.exe -m uvicorn \
+        backend.api.routes:create_app --factory --host 127.0.0.1 --port 8012
+    cd frontend && npm run build && API_ORIGIN=http://127.0.0.1:8012 npx next start -p 3012
+    .venv/Scripts/python.exe -m scripts.check_mobile --width 390 \
+        --base http://127.0.0.1:3012 --shots <dir>
+
+`DB_PATH`, not `DATABASE_PATH` — the wrong name falls back to
+`data/cockpit.db`, which does not exist, and every route 500s while
+`/api/health` still answers 200 (its blocks are wrapped). `pkill -f uvicorn`
+does **not** kill it from git-bash on Windows; the old process keeps the port
+and the new one dies silently, which reads as the env var not working. Kill by
+PID off `netstat -ano`. `data/demo.db` carries a three-code composite
+suppression row, which is the case worth looking at.
+
+### Cost, accepted
+
+Every rejected row is 1–3 lines taller. On `/slate` at 390px with eleven rows
+that is real scroll. Truncating to the first code was rejected: the codes are
+joined in *evaluation* order, not priority order, so "first" is not "main".
+
+### Verification
+
+Suite 3,432 passed / 10 xfailed; ruff clean; `tsc` clean; frontend build clean.
+`check_mobile` clean at 390/768/1024/1440/1920/2560 against a local seeded
+build; 390px screenshots eyeballed for the Board and the Slate. Ten guards
+disabled and watched go red.
+
+### STILL OPEN, unchanged from the previous entry
+
+- **Joe confirms the heartbeat embed reached his phone.** Everything up to
+  Discord's 204 is proven.
+- **GitHub cron is not a pager.** Best-effort, routinely delayed, skipped on a
+  60-day-idle repo. Bounds time-to-notice at *roughly* 15 minutes.
+- **The daily digest still leads with `x / 300` toward the gate**, which
+  CLAUDE.md says no roadmap may depend on. The partner recommends `beta` and its
+  interval instead. A judgement for Joe, and now the only recurring message the
+  channel carries.
+- **The dispersion strip** (min book → four devig methods → max book, labelled
+  "where the number came from", never "fair") — the other P2 from ADR 0047's
+  approved plan, still unscheduled.
+- `/ledger` real columns is a rewrite, not a widening. Positions/exposure needs
+  an A7 embargo ruling. `/api/results` still has zero frontend references.
+
+---
+
+## 2026-08-18 ~night — THE ALERTS LEAVE THE PHONE, AND THE FAILURE CHANNEL IS WIRED
 
 Joe reported two things in one message: Discord links pointed at
 `localhost:3000`, and he could not click a ticker on the desktop to reach the

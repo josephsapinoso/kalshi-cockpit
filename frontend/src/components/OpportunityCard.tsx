@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Recommendation } from "@/lib/api";
 import { formatAge, formatDuration, formatKickoff, freshness } from "@/lib/api";
 import { liveSizing } from "@/lib/liveSizing";
+import { glossSentence } from "@/lib/suppressionGloss";
 import Term from "./Term";
 
 const MAX_QUOTE_AGE_MS = 30_000;
@@ -286,6 +287,16 @@ export default function OpportunityCard({
           <span className="font-mono text-xs text-accent">
             {rec.suppressed_reason}
           </span>
+          {/* The sentence under the code, never in place of it — the code is
+              the engine's own name for the rule and is what `/rejections`
+              groups by. Absent when this build does not know the code, which
+              means the server is running a rule the frontend predates and
+              inventing wording would hide that. */}
+          {glossSentence(rec.suppressed_reason) && (
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              {glossSentence(rec.suppressed_reason)}
+            </p>
+          )}
         </div>
       )}
     </article>

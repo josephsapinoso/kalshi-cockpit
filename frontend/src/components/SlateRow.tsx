@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
+import { glossSentence } from "@/lib/suppressionGloss";
 
 /**
  * One candidate, as a line rather than a card.
@@ -51,6 +52,11 @@ const CHIP: Record<SlateState, { label: string; className: string }> = {
  * The suppression codes are the server's vocabulary and are shown verbatim —
  * they are what `/api/suppression` counts and what a miscalibrated rule shows
  * up as. Translating them here would give the same rule two names.
+ *
+ * **Since 2026-08-18 a plain-English gloss renders beneath the code, and that
+ * argument is why it renders beneath rather than instead.** The code keeps its
+ * place and its monospace; the sentence is a caption on it. See
+ * `frontend/src/lib/suppressionGloss.ts`.
  */
 function stateOf(rec: Recommendation, fallback: SlateState): SlateState {
   if (rec.suppressed_reason) return "rejected";
@@ -115,20 +121,32 @@ export default function SlateRow({
           beside an edge rendered as an opportunity — the two claims exactly the
           wrong way round. A refused row's reason is the content of the row; on
           a `suspicious_edge` row it is the loudest thing on it. */}
-      <span
-        className={`ml-auto min-w-0 break-words font-mono text-xs ${
-          suspect
-            ? "font-bold text-negative"
-            : resolved === "rejected"
-              ? "text-accent"
-              : "text-muted"
-        }`}
-      >
-        {resolved === "rejected"
-          ? rec.suppressed_reason
-          : resolved === "expired"
-            ? `consensus past ${Math.round(oddsLimitMs / 60_000)}m`
-            : "no edge after fees"}
+      <span className="ml-auto flex min-w-0 flex-col items-start gap-0.5 sm:items-end sm:text-right">
+        <span
+          className={`min-w-0 break-words font-mono text-xs ${
+            suspect
+              ? "font-bold text-negative"
+              : resolved === "rejected"
+                ? "text-accent"
+                : "text-muted"
+          }`}
+        >
+          {resolved === "rejected"
+            ? rec.suppressed_reason
+            : resolved === "expired"
+              ? `consensus past ${Math.round(oddsLimitMs / 60_000)}m`
+              : "no edge after fees"}
+        </span>
+        {/* The caption on the code. Muted at every tone, including
+            `suspicious_edge`: the code above already carries the emphasis, and
+            a second bold line beside it would compete with the edge rather
+            than explain it. `null` when the server sent a code this build does
+            not know — the code alone is the honest render there. */}
+        {resolved === "rejected" && glossSentence(rec.suppressed_reason) && (
+          <span className="min-w-0 break-words text-xs leading-snug text-muted">
+            {glossSentence(rec.suppressed_reason)}
+          </span>
+        )}
       </span>
     </div>
   );

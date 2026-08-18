@@ -25,6 +25,65 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — Find the render sites by scanning, not by remembering, and check that the guard's mutation is the one you meant
+
+Three failures in one small change, and none of them was in the feature.
+
+**The first: a component name is not a screen.** A plain-English caption was
+added to `SlateRow` and `OpportunityCard` and called done. Both are *Board*
+components. `/slate` renders the same field from its own markup, and so does
+`/ledger` — so two of four sites were covered, and the one the user's phone
+habit actually goes through was not. **A test written from the same list as the
+change inherits the same blind spot.** The fix is to derive the list: scan the
+whole source tree for the render, and require an entry in an `EXEMPT` map with a
+reason for anything that renders it without the new treatment. That scan found
+`/ledger` on its first run, which is a site no amount of re-reading the diff
+would have surfaced.
+
+The general shape: **when a change must apply everywhere a value appears, the
+guard's job is to find the appearances — not to check the ones you already
+found.** A per-file assertion is a list you wrote twice.
+
+**The second: one column can carry two vocabularies.** `suppressed_reason`
+holds the suppression check names *and* `sizing:{binding_constraint}` strings
+written by a different module for a different reason. Pinning the new map to
+`ALL_CHECK_NAMES` in both directions felt rigorous and would have shipped a
+whole class of rows rendering bare. Before pinning a vocabulary, grep for every
+writer of the column, not just the one that names it.
+
+And a corollary that bit inside that: **the reachable subset is not the declared
+set.** Only six of the twelve `binding_constraint` values can reach the column —
+the rest sit on non-refused results and are shown elsewhere. The first version
+of the pin demanded a sentence for `no_edge`, a state that cannot occur there,
+because the regex matched the tail of `binding_constraint=`. A guard that
+demands coverage of an unreachable state is the same error as one that misses a
+reachable one, pointed the other way.
+
+**The third, and the one worth carrying furthest: when a break-it-and-watch-it-
+fail check comes back green, the mutation is a suspect too.** Two did here, and
+they were different bugs:
+
+- Counting occurrences of the field did not detect it being swapped for the
+  gloss, because both components also reference it as a *condition*. The
+  **guard** was decoration; it was rewritten to look for a rendering position.
+- Removing one gloss call from `/ledger` left the other one, so the scan still
+  saw the name. The **mutation** was too weak; the guard was fine.
+
+Those need opposite responses, and "green" looks identical for both. So on a
+green result, first prove the mutation reached the thing the test reads — then
+decide whether the test is decoration. Skipping that step turns a weak mutation
+into a false reassurance about a guard that was always fine, and a decoration
+guard into one that ships.
+
+A mechanical note that cost two cycles: **this repo has mixed line endings.**
+`suppressionGloss.ts` is LF; `app/slate/page.tsx` and `app/ledger/page.tsx` are
+CRLF. A byte-level mutation written with `\n` silently matches nothing in a CRLF
+file, and `str.replace` returning the input unchanged is not an error. Every
+mutation script must assert that the replacement actually applied before it
+trusts the test result — otherwise "the guard is green" and "the mutation never
+happened" are the same output.
+
+
 ## 2026-08-18 — A query plan is a shape, not a cost, and the monitoring you add is code that can take the box down
 
 Two defects, one deploy, fifteen minutes of live serving 500. Both are the same
