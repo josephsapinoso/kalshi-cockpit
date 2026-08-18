@@ -31,6 +31,13 @@ import Link from "next/link";
  */
 const SECONDARY = [
   {
+    // Lost its nav slot to Log on 2026-08-18 (the calibration study makes
+    // logging the per-bet action; dbt marts are read weekly at most).
+    href: "/dashboards",
+    label: "Data",
+    blurb: "The dbt marts: settlement outcomes and headline verdicts, rebuilt nightly.",
+  },
+  {
     href: "/rejections",
     label: "Rejections",
     blurb: "Which check is refusing everything, counted across the slate.",

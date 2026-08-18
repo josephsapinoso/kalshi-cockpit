@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  DISPLAY_TIME_ZONE,
   fetchRecentEstimates,
   logEstimate,
   reviseEstimate,
@@ -154,7 +155,10 @@ export default function EstimatePage() {
             {bpToPercent(saved.stated_probability_bp)}
           </p>
           <p className="mt-1 text-xs text-muted">
-            P(YES), stamped {new Date(saved.estimate_server_ms).toLocaleTimeString()}{" "}
+            P(YES), stamped{" "}
+            {new Date(saved.estimate_server_ms).toLocaleTimeString("en-US", {
+              timeZone: DISPLAY_TIME_ZONE,
+            })}{" "}
             by the server. It cannot be edited &mdash; mistyped it? Flag it
             below and log a fresh one.
           </p>
@@ -354,7 +358,9 @@ export default function EstimatePage() {
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-3">
                   <span className="text-xs text-muted">
-                    {new Date(entry.estimate_server_ms).toLocaleString()}
+                    {new Date(entry.estimate_server_ms).toLocaleString("en-US", {
+                      timeZone: DISPLAY_TIME_ZONE,
+                    })}
                     {entry.stated_probability_is_revised === 1 && (
                       <span className="ml-2 font-semibold text-negative">
                         revised &mdash; excluded
