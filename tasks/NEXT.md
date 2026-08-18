@@ -164,6 +164,15 @@ Suite **3,462 passed / 10 xfailed**; ruff, `tsc` and the frontend build clean.
 freshly reseeded `data/demo.db`; 1440 and 390 screenshots read. Eleven guards
 disabled and watched go red.
 
+### Deploy state at session end
+
+`2bdab11`, pushed. **Demo deployed and verified**: `build.git_sha` matches HEAD
+and its live `/api/slate` reports **0 of 11** rows disagreeing with their own
+fair price, so the reseed shipped with the fix. **Live is two commits behind**
+(`16e963f`) and both pending deploys are frontend-only — the gloss and the
+strip. Neither touches the recorder, the gate or the order path, so running
+behind costs Joe nothing but those two screens.
+
 ### STILL OPEN
 
 - **Joe confirms the heartbeat embed reached his phone** (Discord returned 204
