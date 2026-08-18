@@ -388,6 +388,22 @@ and the largest sport's share of `n` are printed beside `B_hat` always.
 **No reload. A reload voids the result** and the record restarts as a separate,
 separately-registered study.
 
+> **[MARKED IN PLACE 2026-08-18 — the clause above and arm 3's wording are
+> superseded by A2, and the contradiction is recorded here rather than
+> erased.]** A2 redefines arm 3 from balance-based onto **cumulative net
+> realised loss**, precisely so that deposits never enter the stopping rule;
+> A8 then registers the study as *not feasible without top-ups* ("If Joe
+> will not top up, this measurement should not start"); and Joe's day-1
+> ruling (2026-08-18: top up ~$20 when under ~$10, $100 cumulative realised
+> loss is the hard total) operates under A2. So: **reloads do not void the
+> result.** The regime is watched instead of forbidden — §4 test 3's drift
+> diagnostic and A2's registered deposit-count diagnostic are what notice a
+> topped-up-eight-times study behaving differently from a single-deposit
+> one. The original sentence is left standing because deleting it would
+> hide that the registration reversed itself between §5 and A2, and a
+> registration that silently edits its own stopping rule is not a
+> registration.
+
 **Arm 3 is the contaminating one** (§0.3) and the $2 stake cap exists to make it
 fire with probability ~0.002. **If arm 3 fires anyway, the verdict is prefixed
 `CONTAMINATED-STOPPING`** and the result is reported as an upper bound on `B`
