@@ -169,13 +169,38 @@ What this does not establish
   the books are read in that same order, so a row's position, its age, and its
   list-to-book gap are perfectly collinear. Nothing in this design can
   attribute an empty book to one rather than another.
-- **Nothing about tradeability.** These rows are provisional with zero volume
-  and zero open interest. A resting level is not a fill.
+- **Nothing about tradeability.** A resting level is not a fill.
+
+  **This bullet used to assert "these rows are provisional with zero volume and
+  zero open interest", and it was false when it was written.** This harness's
+  own first artifact, `docs/measurements/2026-08-09-combo-e2-book-empty.json`,
+  carried non-zero `volume_fp` on 3 of 20 rows; `-combo-e3-list-no-bid.json`
+  on 3 of 9; the 2026-08-18 run on 2 of 11. A limitations section is the last
+  place a disputed claim may be stated as a property of the sample, because
+  every reader downstream takes it as the harness speaking about itself.
+
+  `is_provisional` is on the `/markets` payload and is **not recorded here**,
+  so this module cannot even confirm its rows sit in the population ADR 0012
+  §5 describes.
 - **Nothing about non-eligible combinations.** Rows with no readable ask are
   excluded by construction, so no statement here covers them.
-- **Newest-first, so youngest.** Only the newest combinations carry a quote at
-  all, so the sample is young by necessity. If book presence grows with age,
-  this rate is a lower bound on it and nothing here separates the two.
+- **Newest-first, but NOT necessarily young.** Discovery requests one page
+  newest-first, and the intent was that only the newest combinations carry a
+  quote, making the sample young by necessity. **The 2026-08-18 run falsified
+  that**: its 11 rows were created between 17:14Z and 17:33Z and observed at
+  02:01Z — an 8.5-hour-old residue, read after its own legs had played, which
+  is why `legs_all_priceable` was false on 9 of 11. At the minting rates this
+  product is documented at, a 1,000-row page cannot reach back 8.5 hours, so
+  either minting had stopped or the newer rows carried no readable ask, and
+  **this artifact cannot tell you which.** Check `created_ms` against the
+  observation time before assuming a run sampled the young population.
+
+- **No denominator is persisted.** `report()` logs the open-row count to
+  stdout; `to_json` drops it. So no rate over `KXMVE` combinations can be
+  stated from the artifact alone — only a count over "eligible rows within one
+  page", with the page size unrecorded. If `--max-books` comes back short, the
+  eligible pool was exhausted and the run is a census of that page, not a
+  sample of `--max-books`.
 - **One slate, one window of seconds.** Not an edge: no fair value is computed
   and no combo fee model is verified.
 """

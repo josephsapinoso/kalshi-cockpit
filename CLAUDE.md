@@ -115,9 +115,37 @@ quadrant this instance can reach has now answered:
 |---|---|---|
 | Consensus vs Kalshi's close | `beta = -0.141` | ADR 0021, 0034 |
 | In-house model vs Kalshi's price | our error > the disagreement | ADR 0036, 0037 |
-| `KXMVE` combos | zero volume, zero open interest | ADR 0012 §5 |
+| `KXMVE` combos | **enter-only**: no YES bid on 40/40 books ever read, ≤18 units deep | ADR 0012 §5, E2/E3, 2026-08-18 |
 | Speed / stale-quote pick-off | edge lives at ~400ms | predecessor |
 | Cost headroom | a **discount, not a signal** | ADR 0027, 0028 |
+
+**The combo row's reason was wrong, and the correction is recorded because the
+conclusion is unchanged and that is exactly when a wrong reason survives.** This
+row read *"zero volume, zero open interest"* until 2026-08-18. The script it
+descends from (`scripts/analyse_combo_domination.py:71`) says these markets
+"**mostly** carry zero volume and zero open interest"; the hedge was dropped
+somewhere between the script and this file. And the hardened version was already
+contradicted by this repo's own committed artifacts — non-zero `volume_fp` on
+3 of 20 rows in `docs/measurements/2026-08-09-combo-e2-book-empty.json` and 3 of
+9 in `-combo-e3-list-no-bid.json`, both produced by
+`scripts/measure_combo_book_presence.py` on 2026-08-09. Roughly a fifth of
+quoted combination markets have traded, in every run taken, and no run has
+enough independent rows to narrow that.
+
+**Do not read this as an in-season effect.** A 2026-08-18 run returned 2 of 11
+and was briefly written up as one; Fisher two-sided against the 2026-08-09 runs
+gives **p = 1.0**, its 11 rows collapse to about two independent groups by
+shared legs, and it was 78% tennis — while MLB and WNBA were *already* in
+season on 2026-08-09. The only sports absent from the original 2026-08-06
+capture were NBA and NFL, so **`backend/kalshi/combos.py`'s calendar caveat is
+untouched** and remains open.
+
+What replaces the reason is stronger than what it replaces: **`yes_dollars` is
+empty on 40/40 combination books this repo has ever read**, across three runs
+on two dates. The list ask is the complement of a resting NO bid, not a quoted
+offer. You can enter and you cannot exit. That, plus a combo fee model ADR 0012
+§5 records as unverified, is why the quadrant still supplies no edge — an
+enter-only market ≤18 units deep has nothing to multiply.
 
 That last row is why this is a closure and not a pause: **a cost advantage
 multiplies an edge, it cannot create one**, and no quadrant supplied one to
