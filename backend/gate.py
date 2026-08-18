@@ -708,6 +708,32 @@ def _fee_model_verified(conn) -> Condition:
     an ADR, not a patch: this repo has a standing rule against altering the
     gate's inputs to make something easier. See ADR 0022 for the
     built-never-called classification this belongs to.
+
+    **`source = 'engine'` preserves that meaning; it does not narrow it.**
+    See ADR 0043. When this query was written, `fills` could only mean "orders
+    this engine placed", so the restriction was implicit in the table. Schema
+    v10 broke that: it added `source` precisely because `fills` was about to
+    hold rows of a second kind -- bets Joe places by hand in the Kalshi app,
+    polled back from `/portfolio/fills`. Without this line the same query
+    silently starts counting them.
+
+    That is why this is a repair rather than a relaxation, and the distinction
+    only survives because the filter landed **before the first such INSERT**.
+    Afterwards it would be indistinguishable from tuning a gate to taste.
+
+    **An allowlist, never a denylist.** `source = 'engine'`, not
+    `source != 'venue_hand'`: a third kind added tomorrow must be excluded by
+    default and admitted deliberately. Same family as the repo's rule that
+    unreadable resolves to `None` rather than `0` -- when the meaning is
+    unknown, refuse.
+
+    **Whether hand-placed fills *should* count is deliberately still open.**
+    ADR 0043 defers it rather than rejecting it: the arithmetic does not care
+    who placed the order, and a real `fee_cost` tests `calculate_fee`
+    identically either way. It is not decided here because nobody yet knows
+    which way it cuts -- if those fills mismatch, the currently unreachable
+    MISMATCH branch becomes reachable and this gate gets *stricter*, not
+    looser. A logging feature may not roll that dice in either direction.
     """
     row = conn.execute(
         """
@@ -716,6 +742,7 @@ def _fee_model_verified(conn) -> Condition:
                         THEN 1 ELSE 0 END) AS mismatched
         FROM fills
         WHERE fee_actual IS NOT NULL
+          AND source = 'engine'
         """,
         (FEE_MATCH_TOLERANCE_DOLLARS,),
     ).fetchone()
