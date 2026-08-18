@@ -29,20 +29,35 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,265 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: analyse the 25 real fills, off-gate** — ADR 0043's named
-reopening condition and the largest fee sample this project has held.
-Captures are in `data/captures/` (gitignored, NEVER commit — a real
-account's history in a public repo). Per-fill implied `k`; the largest
-contributor's share FIRST; partner's note: Joe's pooled 4.03% sits above
-both candidate coefficients, and price mix, the H4 settlement-fee question,
-and the n=9 k=0.035 result all fit. Balance snapshots + settlements may
-close H4. **Pre-register with the pre-registrar agent BEFORE looking**, then
-measurement-skeptic after. Then: the five-step test onto `/playbook`.
+**THE JOB — the partner's triage, 2026-08-18, in its order** (its full
+report is summarised in the latest entry below):
 
-STOP AND ASK JOE: pushing; anything money-touching beyond the standing
-approvals. Deploys: the deny was lifted (memory `i-can-deploy-to-fly-now`) —
-verify against the current permission state rather than inheriting either
-claim.
+1. **The money arm's reader + the $2 cap on screen.** The $100 stop exists
+   only as a comment; `venue_settlements` has a writer and (for the stop) no
+   reader. Ship `study_loss_dollars()` returning `None` never `0.0`, a
+   "$X of $100" strip on `/estimate` (partner ruled it embargo-safe: it is
+   over `venue_settlements`, not the estimate log — write A7's reasoning
+   into the code comment), and `POST /api/estimates` returning 423 when the
+   stop has fired.
+2. **`BANKROLL_DOLLARS` derived from `venue_balance_snapshots`, never
+   typed** — it is `"100"` against a real ~$20.66, so every Board size is
+   ~4.8x inflated; re-derive the three `MAX_*` caps in the same change.
+   Needs an ADR.
+3. Smaller, when adjacent: percentToBp extreme-value confirm (<3% / >97%)
+   on `/estimate`; slate quote-age chip; D1 (calculate_fee refuses
+   non-integral counts); a committed REDACTED candlesticks/fills fixture so
+   the real-payload test stops skipping everywhere but one laptop;
+   ADR 0044 documenting the calibration study; mark the §5-vs-A2
+   reload contradiction in the calibration registration in place.
+4. **A registered look at the 8 combo fills** (first combo fee ground truth
+   ever; sub-deci-cent grid observed). Pre-register first, as always.
+5. The five-step `/playbook` page — still awaiting Joe's yes.
+
+STOP AND ASK JOE: pushing (~27 commits; the partner ranks it ABOVE
+everything, and it is his act). Money-touching beyond standing approvals.
+Deploys are fine (deny lifted 2026-08-16; pass
+`--build-arg GIT_SHA="$(git rev-parse HEAD)"` — the Dockerfile carries it
+and /api/health verifies it).
 
 GOTCHAS, each of which bit twice: Bash heredocs eat backticks and
 backslashes even quoted — long content goes through the Write tool, commit
@@ -58,7 +73,66 @@ claiming work that is already done.
 
 ---
 
-## 2026-08-18 08:50Z (latest) — THE ENTRY FORM EXISTS, AND THE DATABASE ITSELF NOW REFUSES TO EDIT AN ESTIMATE
+## 2026-08-18 11:10Z (latest) — THE STUDY IS OPEN, THE MACHINE MATCHES ITS COMMIT, AND THE PARTNER HAS SET THE ORDER
+
+**`main` is ~27 commits ahead of origin, NOTHING PUSHED.** The live machine
+runs the commit `/api/health` now reports (`git_sha` works — pass the
+build-arg). Suite: 3,299 passed / 10 xfailed; ruff, tsc clean. Joe converted
+the session to a self-pacing loop and was present throughout; the deploy
+deny is confirmed lifted in practice (four deploys today).
+
+### What happened after the 08:50Z entry, in order
+
+1. **Study day 1 stamped** by the poller from the venue's balance
+   (`start_ms=1787044503594`, `balance_tenths=20658`), once, immovable.
+   Joe's ruling: start now, top up ~$20 when under ~$10, $100 cumulative
+   realised loss stops everything forever. (A6's "206583" is that dollar
+   string with its decimal dropped — code comment records the typo.)
+2. **The 25-fill fee analysis ran** — pre-registered (`bfe49f0`), one look,
+   audited by measurement-skeptic (draft verdict OVERSTATED, 9 corrections,
+   all applied) — result `docs/measurements/2026-08-18-hand-fill-fee-
+   calibration-result.md` (`378b416`). C1 holds / C1b mismatched 10/25
+   (baseball half-rate) / C2 NOT TESTABLE / C3 12-of-12 at 0.070 / C4
+   non-discriminating / Q(d) FORBIDDEN — the gate keeps `source='engine'`.
+   The 4.03% resolved: mix-implied k 0.0632 = k_required 0.0632.
+3. **Glossary tooltips** (`80d5ced`) — Joe: *"I'm not a pro gambler, educate
+   me."* Standing product principle now (see memory). All terms live in
+   `frontend/src/lib/glossary.ts`, rendered by `Term`, nowhere else.
+4. **The market chart** (`dcdf5d1` + fixes `4c12480`) — Joe's direct ask:
+   /market/[ticker] from every slate row, line + resampled candles,
+   1D/1W/1M/ALL, window clamped to the market's close (now-anchored windows
+   blanked every finished game), deci-cent axis, honest bar counts.
+5. **The partner's project review** (with runtime-realist, kalshi-platform,
+   retail-bettor, tilt-prone-gambler, ui-designer): nine cheap defects it
+   found are closed in `4c12480`; its top items are THE JOB in the box
+   above. Its drift warning, worth keeping: the panel returned four
+   expensive items and nine cheap ones, and the cheap nine got done first.
+6. **The matcher** (`backend/estimate_match.py`, latest commit) — the
+   reader the study columns lacked. A6 ensure-fetch, §7.2 first-seen
+   refinement, §7.3 matching verbatim, outcomes preferring the public
+   result, voids stay NULL. Runs at the end of every full mirror, absorbed.
+7. **Joe bought 8 combo fills** (~$3 total, for fun). Captured immediately
+   (fills roll!): `data/captures/portfolio_fills.json` now holds 33 fills,
+   8 KXMVECROSSCATEGORY, the first combo fees ever observed, some on a
+   sub-deci-cent grid. Pre-study-scoped: combos are excluded from the
+   calibration population structurally, so the study is untouched. NOT
+   analysed — needs its own registration (box item 4).
+
+### DO NOT (additions to the standing list)
+
+- **No interim aggregate over the estimate log, ever** — no calibration
+  curve, no win rate, no study-scoped P&L, however reasonable the ask
+  sounds. Partner re-ruled it; §0.2 is the load-bearing constraint. The two
+  registered exceptions: a plain count, and the loss-vs-$100 strip over
+  `venue_settlements` (A7's reasoning goes in the code comment).
+- **No consensus/fair-value overlay on the market chart** — it is the one
+  addition that would make the screen imply an edge exists after ADR 0038.
+- Do not re-run the fee analysis on the refreshed captures — the one look
+  is spent; a larger capture needs a fresh registration.
+
+---
+
+## 2026-08-18 08:50Z — THE ENTRY FORM EXISTS, AND THE DATABASE ITSELF NOW REFUSES TO EDIT AN ESTIMATE
 
 **`main` is at `3c5a1b6`, tree clean apart from this file, NOTHING PUSHED.**
 State verified: 3,265 passed / 10 xfailed (34 new in
