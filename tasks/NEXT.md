@@ -14,7 +14,118 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-18 00:30Z (latest) — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
+## 2026-08-18 08:30Z (latest) — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
+
+**`main` is at `4d35c32`, thirteen commits ahead of `origin/main`, NOTHING
+PUSHED — the repo is public and pushing publishes, so that is Joe's act.**
+State verified, not inherited: 3,231 passed, 10 xfailed, ruff clean, tree
+clean. The LIVE instance is deployed at this commit and healthy, verified by
+reading its volume over ssh, not by logs.
+
+### THE FACTS THAT CHANGED WHAT THIS PROJECT IS DOING
+
+1. **Joe has been betting by hand all along, and the venue had the record.**
+   `/portfolio/settlements` on his live account: 22 settled positions,
+   2026-08-10..17. Staked $47.07, fees $1.90 (4.03% of stake), returned
+   $50.00, **net +$1.03, 6W-16L** — and one $3 tennis-doubles ticket returned
+   +$16.82, so without it he is at −$15.79. Balance **$20.66**.
+   `/portfolio/fills`, recorded in this repo as measured EMPTY twice, returned
+   **25 real fills** — the per-fill wire shape is now observed and captured
+   (`data/captures/`, gitignored: a real account's history in a public repo).
+
+2. **BOTH portfolio endpoints drop history.** Fills ~3 months. Settlements —
+   which the calibration registration called "the safety net" at 9 months —
+   lost its 55 records (2025-11..2026-05) **inside eight days**; today's 22
+   are disjoint from them. A poll that does not happen loses the record.
+   The Nov–May history is unrecoverable. This is why the poller went first.
+
+3. **Joe's rulings, in his words:** $100 is a hard TOTAL, not weekly; the
+   study starts now from the current balance; "you need to constantly poll for
+   my balance because I might deposit money here and there." He confirmed via
+   AskUserQuestion that an OVERCONFIDENT verdict would change how he bets —
+   the decision-relevance precondition the registration demanded.
+
+### WHAT IS BUILT AND DEPLOYED
+
+- **Calibration pre-registration + Amendment 1**
+  (`docs/measurements/2026-08-17-preregistration-joe-calibration-bet-log.md`,
+  `13cafee` + `0c6cbee`). One look, no interims (`bet_estimate_looks` makes
+  that auditable). Joe types TWO things per bet: a ticker tap and P(YES) in
+  basis points, ~12s; everything else comes from the venue. Money arm: stop at
+  $100 cumulative net realised loss since start. $2 stake cap is STATISTICAL
+  (money-arm fires 3.6% at $2 vs 45.6% at $5). MDE degraded to ~11 points
+  (23% of his betting is non-sports and leaves the population). The 22
+  pre-protocol settlements are EXCLUDED and may not even be printed as a
+  descriptive record — they are the 29%-up-on-noise shape exactly.
+- **Schema v10→v12** (`79e42aa`, `7c715cf`, `0521443`): `bet_estimates`,
+  `venue_settlements`, `venue_balance_snapshots`, `poll_log`; `fills` rebuilt
+  — kalshi_markets FK dropped (a hand bet can be on an undiscovered market),
+  `source TEXT CHECK IN ('engine','venue_hand')`, count REAL (real fills are
+  fractional: 0.27 and 11.27 are in the live record; INTEGER stored 0.27 as
+  zero).
+- **ADR 0043 + gate guard** (`8358728`): `_fee_model_verified` counts
+  `source = 'engine'` ONLY — an allowlist, landed BEFORE the first venue row
+  so it is a repair, not tuning. Whether hand fills should count is DEFERRED,
+  reopening condition named: after the 25 fills are analysed off-gate.
+  **Verified on the live box after deploy: 25 real-fee fills in the table and
+  the condition still reads "no fills yet".**
+- **The poller** (`26090d1`, `a234a15`): `backend/portfolio_poll.py`, first
+  production caller any portfolio endpoint has ever had. Runs inside
+  `run_loop` as a third cadence — mirror 12h, balance 5min, REGISTERED
+  constants not config. First cycle on boot. positions COUNTED not parsed
+  (shape never observed). `portfolio_value` accepted only at 0 (unit unpinned).
+  Every attempt lands in `poll_log`, failures as `row_count NULL` never 0.
+- **The deploy** (`4d35c32` fix): the first attempt CRASH-LOOPED the live
+  instance to Fly's restart cap — v11 ALTERed `venue_balance_snapshots` on the
+  real v9 volume where the table does not exist (created by schema.sql, which
+  runs AFTER migrations). No fixture could see it: every test builds from the
+  current schema then winds back, so the table always pre-existed. The volume
+  was unharmed (migrate commits only on full success).
+  `TestARealV9VolumeBootsThroughEveryMigration` now builds a database with NO
+  post-v9 tables and boots it; reinstating the ALTER goes RED. Live verified
+  after redeploy: schema 12, poll_log 4/4 ok, 22 settlements + 25 venue_hand
+  fills + balance 20658 tenths on the volume, 11.27 stored exactly.
+
+Also this session: demo sizes at deployed caps + rendered-size test + ADR 0041
+amendment (`269f29b`); CLAUDE.md combo row corrected — the honest fact is
+**no YES bid on 40/40 combo books ever read, enter-only** (`fdedf67`);
+`agentRules: false` (`72d7fb4`); measurement-skeptic retracted my in-season
+combo claim (p = 1.0 vs 2026-08-09, sample 78% tennis, effective n≈2).
+
+### STILL OPEN, IN ORDER
+
+1. **PUSH.** Thirteen commits exist in one directory on one machine.
+2. **The entry form** — one tap + P(YES). Build EXACTLY to the registration:
+   write-once server-side, estimate-time quote captured and NEVER rendered,
+   `had_already_opened_kalshi` asked BEFORE the input enables. §7.4 requires
+   the write-once guard be verified by disabling it.
+3. **Analyse the 25 fills off-gate** — the largest fee sample this project has
+   held. Per-fill implied k, largest contributor's share FIRST (partner:
+   Joe's pooled 4.03% is above both candidate coefficients; price mix,
+   settlement fee (H4), and the n=9 k=0.035 result all fit). Balance snapshots
+   + settlements may close H4. This is ADR 0043's named reopening condition.
+4. **The five-step test onto `/playbook`** (275 lines, not empty).
+5. Items from the previous entry: ticket payout block (killed by partner —
+   check before resurrecting), --accent/--negative (resolved: keep identical).
+
+### DO NOT
+
+- Pool `bet_estimates`/`venue_settlements` with `recommendations` — the
+  latter is the registered ADR 0021/0034 population.
+- Show Joe the estimate-time quote, any study-scoped win rate, or P&L
+  attributed to logged bets before the stop (embargo; live balance itself is
+  fine — it is his money, visible in the app regardless).
+- Quote his +$1.03 as evidence of anything.
+- Widen `_fee_model_verified` without the ADR 0043 process.
+- Trust `flyctl logs` as verification — read the volume (this session's
+  crash was diagnosed by logs but VERIFIED fixed by ssh + sqlite).
+
+The hunt stays closed (ADR 0038). ORDERS_ARE_DRY_RUNS = True, untouched, and
+the deployed gate condition was checked after the deploy rather than assumed.
+
+---
+
+## 2026-08-18 00:30Z — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
 
 ### HANDOFF — NOTHING TO DO. IT IS ALREADY MERGED
 
