@@ -15,6 +15,8 @@ import {
   type OrderResult,
   type Recommendation,
 } from "@/lib/api";
+import { betDirection } from "@/lib/betDirection";
+import { focusWrap, type TrapPosition } from "@/lib/focusWrap";
 
 /**
  * The ticket: tap a card, see what the bet is, confirm it.
@@ -111,13 +113,26 @@ export default function TicketSheet({
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      // `panel` is a real case and it used to have no branch. `node` is
+      // `tabIndex={-1}` and `querySelectorAll` returns descendants only, so the
+      // panel is in neither end of that list -- while being exactly what holds
+      // focus after `node.focus()`, which runs on open and on every phase
+      // change. Both comparisons were therefore false, nothing prevented the
+      // default, and Shift+Tab walked backwards onto the veil and out of the
+      // modal. `focusWrap` has the branch; see its module docstring.
+      const active = document.activeElement;
+      const position: TrapPosition =
+        active === node
+          ? "panel"
+          : active === first
+            ? "first"
+            : active === last
+              ? "last"
+              : "inside";
+      const wrap = focusWrap(position, event.shiftKey);
+      if (wrap === null) return;
+      event.preventDefault();
+      (wrap === "first" ? first : last).focus();
     };
 
     document.addEventListener("keydown", onKey);
@@ -180,6 +195,10 @@ export default function TicketSheet({
 
   const quoteAge = rec.quote_age_now_ms ?? rec.kalshi_quote_age_ms;
   const oddsAge = rec.odds_age_now_ms ?? rec.odds_age_ms;
+  // The heading below is `rec.team`, which is the YES-side team on every row
+  // including the ones that buy NO. This is the sentence that says which way
+  // round the bet actually goes; see `lib/betDirection.ts`.
+  const direction = betDirection(rec);
   const priceStale = rec.price_is_current === false;
   const resized = contracts !== authorised;
   const needsToken = !demo && token.trim().length === 0;
@@ -216,6 +235,25 @@ export default function TicketSheet({
               >
                 {rec.team ?? rec.ticker}
               </h2>
+              {/* The heading above names the YES-side team on every row, so on
+                  a NO row it is the team this bet pays out *against*. The `NO`
+                  pill in the meta row is the only other correction on screen
+                  and a pill reads as a tag, not as a negation.
+
+                  Deliberately not truncated: the team name is the payload here,
+                  and "betting against New Yor..." would be a worse failure than
+                  a second line. It wraps instead.
+
+                  No colour. `against` is not a warning -- it is which bet this
+                  is -- and the accent is spoken for. The preposition carries
+                  the meaning, so the preposition is the emphasis. */}
+              {direction && (
+                <p className="mt-1 text-sm leading-snug">
+                  You are betting{" "}
+                  <strong className="font-bold">{direction.preposition}</strong>{" "}
+                  {direction.team}.
+                </p>
+              )}
               <p className="mt-0.5 truncate text-sm text-muted">
                 {rec.event_title ?? rec.ticker}
               </p>
@@ -348,10 +386,20 @@ export default function TicketSheet({
               </Section>
 
               <Section label="Size">
+                {/* Frozen while a request is in flight. `confirm` closes over
+                    `contracts`, so the size that was *sent* is always right --
+                    but the screen was not: tapping `-` mid-send re-rendered the
+                    sheet at the new number, withdrew four money figures to "—",
+                    and could show or hide the depth Note, while a request for
+                    the old size was still out. The answer then came back naming
+                    a size the ticket had stopped displaying.
+
+                    Confirm has carried `phase === "sending"` in its disabled set
+                    all along (below); these two were simply left out of it. */}
                 <Stepper
                   value={contracts}
                   max={authorised}
-                  disabled={!actionable}
+                  disabled={!actionable || phase === "sending"}
                   onChange={setContracts}
                 />
                 <p className="mt-3 text-xs leading-relaxed text-muted">
@@ -418,8 +466,9 @@ export default function TicketSheet({
                     spellCheck={false}
                     value={token}
                     onChange={(event) => onToken(event.target.value)}
+                    disabled={phase === "sending"}
                     placeholder="APP_AUTH_TOKEN"
-                    className="mt-2 w-full rounded-lg border bg-transparent px-3 py-2 font-mono text-sm"
+                    className="mt-2 w-full rounded-lg border bg-transparent px-3 py-2 font-mono text-sm disabled:opacity-40"
                   />
                 </Section>
               )}
