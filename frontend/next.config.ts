@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_ORIGIN}/api/:path*` }];
   },
+
+  // Next.js 16 writes `frontend/CLAUDE.md` and `frontend/AGENTS.md` on every
+  // `next dev` run, by default. This repo keeps **one** spine `CLAUDE.md` at
+  // the root and says so in it; an untracked second one in a subdirectory is
+  // one `git add -A` away from being committed, and it is regenerated often
+  // enough that deleting it is not a fix. Turned off rather than gitignored so
+  // the file is never written at all.
+  agentRules: false,
 };
 
 export default nextConfig;
