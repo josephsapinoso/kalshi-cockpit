@@ -115,7 +115,11 @@ export default async function SlatePage() {
         <ul className="mt-8 divide-y divide-border">
           {rows.map((row) => (
             <li key={row.id}>
-              <Row row={row} driftWindowMs={data.drift_window_ms} />
+              <Row
+                row={row}
+                driftWindowMs={data.drift_window_ms}
+                maxQuoteAgeMs={data.staleness.max_kalshi_quote_age_s * 1000}
+              />
             </li>
           ))}
         </ul>
@@ -170,9 +174,11 @@ export default async function SlatePage() {
 function Row({
   row,
   driftWindowMs,
+  maxQuoteAgeMs,
 }: {
   row: SlateRowData;
   driftWindowMs: number;
+  maxQuoteAgeMs: number;
 }) {
   const tone = edgeTone(row);
 
@@ -203,6 +209,7 @@ function Row({
       <Books row={row} />
       <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
       <Capacity row={row} />
+      <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
 
       {/* **Desktop only, and nothing is lost by that.** The bubble opens on
           hover, which a phone does not have — and at 390px it wrapped onto a
@@ -246,6 +253,48 @@ function Books({ row }: { row: SlateRowData }) {
       title={`${books.books_below} of ${books.book_count} usable books price this side below Kalshi's ask. Book figures are devigged; Kalshi's is an ask.`}
     >
       {books.books_below}/{books.book_count} books under
+    </span>
+  );
+}
+
+/** "12s" / "3m" / "2h" -- rounded to the unit a glance can use. */
+function formatAge(ms: number): string {
+  if (ms < 90_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 90 * 60_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+/**
+ * How old this row's Kalshi quote is, right now.
+ *
+ * The ask column reads as "the price" and on a finished evening it is hours
+ * of history; the recorded-at ages never move, so without this chip a row
+ * from three hours ago still looks current. Amber past the server's own
+ * 30-second freshness limit -- the same clock the order endpoint enforces,
+ * so the chip and a refusal can never disagree about what "stale" means.
+ * `null` renders as an em dash, never as zero seconds: "no reading" and
+ * "read just now" are different facts.
+ */
+function QuoteAge({
+  ageMs,
+  maxMs,
+}: {
+  ageMs: number | null | undefined;
+  maxMs: number;
+}) {
+  if (ageMs === null || ageMs === undefined || ageMs < 0) {
+    return (
+      <span className="tabular text-xs text-muted">
+        <Term k="quote_age">quote</Term> —
+      </span>
+    );
+  }
+  const stale = ageMs > maxMs;
+  return (
+    <span
+      className={`tabular text-xs ${stale ? "text-accent" : "text-muted"}`}
+    >
+      <Term k="quote_age">quote</Term> {formatAge(ageMs)}
     </span>
   );
 }

@@ -27,6 +27,13 @@ export const GLOSSARY = {
       "side”. Think YES only happens 30% of the time? Type 30; that low " +
       "number is itself the case for betting NO.",
   },
+  quote_age: {
+    label: "quote age",
+    definition:
+      "How long ago this market’s Kalshi price was last read. A quote from " +
+      "40 seconds ago is usually still the real price; one from two hours " +
+      "ago is history — the ask shown may not be what you’d actually pay.",
+  },
   realised_loss: {
     label: "realised loss",
     definition:
