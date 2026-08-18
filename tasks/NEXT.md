@@ -17,9 +17,14 @@ move the older ones into the dated archive file — do not shorten them.
 ## SESSION START — if Joe said "read NEXT.md", this box is your prompt
 
 Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
-branch `main`, tree clean, **~16 commits ahead of origin and NOTHING
+branch `main`, tree clean, **25 commits ahead of origin and NOTHING
 PUSHED** — the repo is public, pushing publishes immediately, so ask Joe
-once, early.
+once, early. The LIVE instance runs `ffc060e` and `/api/health` reports its
+`git_sha` — read it instead of inferring. The calibration study is OPEN
+(day 1 stamped 2026-08-18 09:15Z at $20.658; balance ~$16.16 after Joe's
+combo buys). Joe is a beginner and has asked to be educated: define every
+betting/stats term at first use, and put new ones in
+`frontend/src/lib/glossary.ts` (see memory `joe-is-not-a-pro-teach-the-terms`).
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
@@ -27,7 +32,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,265 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,299 passed / 10 xfailed, ruff clean, tsc clean.
 
 **THE JOB — the partner's triage, 2026-08-18, in its order** (its full
 report is summarised in the latest entry below):
