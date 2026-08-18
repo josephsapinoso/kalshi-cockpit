@@ -21,6 +21,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import Term from "@/components/Term";
+
 import {
   DISPLAY_TIME_ZONE,
   fetchRecentEstimates,
@@ -139,7 +141,7 @@ export default function EstimatePage() {
       <header className="mb-6">
         <h1 className="display text-4xl">Log an estimate</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Your P(YES), recorded before the bet. Type it{" "}
+          Your <Term k="p_yes">P(YES)</Term>, recorded before the bet. Type it{" "}
           <strong>before opening Kalshi</strong> &mdash; the record is only
           worth keeping if the number came first.
         </p>
@@ -299,7 +301,7 @@ export default function EstimatePage() {
                 htmlFor="p-yes"
                 className="text-xs font-semibold uppercase tracking-widest text-muted"
               >
-                3 &middot; Your P(YES), percent
+                3 &middot; Your <Term k="p_yes">P(YES)</Term>, percent
               </label>
               <input
                 id="p-yes"
@@ -317,7 +319,7 @@ export default function EstimatePage() {
                 not your side. 0.01 to 99.99.
                 {bp !== null && (
                   <span className="ml-2 font-mono">
-                    = {bp} bp ({bpToPercent(bp)})
+                    = {bp} <Term k="basis_points">bp</Term> ({bpToPercent(bp)})
                   </span>
                 )}
               </p>

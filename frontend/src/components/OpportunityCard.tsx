@@ -1,6 +1,9 @@
+import type { ReactNode } from "react";
+
 import type { Recommendation } from "@/lib/api";
 import { formatAge, formatDuration, formatKickoff, freshness } from "@/lib/api";
 import { liveSizing } from "@/lib/liveSizing";
+import Term from "./Term";
 
 const MAX_QUOTE_AGE_MS = 30_000;
 const MAX_ODDS_AGE_MS = 900_000;
@@ -101,7 +104,12 @@ export default function OpportunityCard({
           // The arrow carries the direction as well as the colour flash. Roughly
           // one man in twelve cannot separate the two hues, and a ticker whose
           // only signal is red-versus-green tells them nothing.
-          label={live ? "Kalshi asks · live" : "Kalshi asks"}
+          label={
+            <>
+              Kalshi <Term k="ask">asks</Term>
+              {live ? " · live" : ""}
+            </>
+          }
           value={
             direction
               ? `${rec.ask_display} ${direction === "up" ? "▲" : "▼"}`
@@ -109,7 +117,11 @@ export default function OpportunityCard({
           }
         />
         <Figure
-          label="Edge, net of fees"
+          label={
+            <>
+              <Term k="edge">Edge</Term>, net of <Term k="fee">fees</Term>
+            </>
+          }
           value={`${positive ? "+" : ""}${rec.edge_cents.toFixed(1)}c`}
           tone={positive ? "positive" : "negative"}
           className="col-span-2 lg:col-span-1"
@@ -147,14 +159,21 @@ export default function OpportunityCard({
             value={`$${rec.total_cost_dollars.toFixed(2)}`}
           />
           <Figure
-            label="Expected"
+            label={<Term k="ev">Expected</Term>}
             value={`${rec.ev_net_dollars >= 0 ? "+" : ""}$${rec.ev_net_dollars.toFixed(2)}`}
             tone={rec.ev_net_dollars >= 0 ? "positive" : "negative"}
           />
           {/* What happens when it is wrong, which nothing on this card said.
               One standard deviation of the position, computed on the server
               from the same fair probability the edge came from. */}
-          <Figure label="Swing, 1 SD" value={`$${rec.sd_dollars.toFixed(2)}`} />
+          <Figure
+            label={
+              <>
+                <Term k="sd">Swing</Term>, 1 SD
+              </>
+            }
+            value={`$${rec.sd_dollars.toFixed(2)}`}
+          />
         </div>
       )}
 
@@ -264,7 +283,8 @@ function Figure({
   tone,
   className,
 }: {
-  label: string;
+  /** A node, not just a string, so a label's jargon can carry a <Term>. */
+  label: ReactNode;
   value: string;
   tone?: "positive" | "negative";
   /** Grid placement, for the one figure that spans its row. */
