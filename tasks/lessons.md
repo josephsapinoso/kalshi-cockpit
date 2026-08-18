@@ -25,6 +25,92 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — The screen you verify against may be rendering a configuration nothing deploys, and a test that reads config text cannot tell you
+
+A UI change was verified the careful way: not just unit tests, but opened in a
+real browser against the real payload, and the element was seen on screen. The
+card read **`Buy 17`, `$8.85 total cost`**. Every design judgement of that
+session — what is prominent, what a figure is worth, whether a control earns its
+height — was made against those numbers.
+
+**No deployed configuration produces them.** `backend/seed_demo.py:405` is
+`risk = RiskConfig()` — bare dataclass defaults, a $1,000 bankroll — and the
+seeder never calls `.load()`. Running the real `size_position` on the same row
+under the deployed caps returns **1 contract, $0.52**. The public demo, which is
+the portfolio piece, overstates by **17x**.
+
+**The visual check was not wrong. It was answering a different question than the
+one it appeared to answer** — "does this render?" rather than "does this render
+what a user will see". Both feel like verification and only one of them is about
+the deployed system.
+
+**The second half is worse, and it is the part that generalises.** An ADR had
+already been written about exactly this class of bug. Its Context says the
+failure was *"`RiskConfig` was well tested, and the tests exercised the loader,
+never the deployment."* Every assertion it then shipped was about **the text of
+the config files** or **the loader**. Not one touched what the demo renders. It
+committed the error it had just diagnosed, one level up, and its status is
+Accepted — so the hole reads as closed to everyone who comes after.
+
+**Naming a failure mode does not inoculate you against it.** The abstraction
+level you are checking at is itself a choice, and writing an eloquent paragraph
+about the previous level does not automatically move you up one.
+
+**How to apply.**
+
+- **Ask what produced the numbers on the screen you are looking at**, before
+  reasoning about them. A seeder, a fixture and a deployment are three different
+  configurations, and a demo exists precisely to be *unlike* production.
+- **A test that asserts on config text or on a loader has not tested the
+  deployment.** Make the assertion on the rendered output — the size the card
+  shows, the string the user reads — and disable it to watch it fail.
+- **When an ADR claims to close a class of bug, check its assertions against its
+  own diagnosis**, not against its conclusion. The two can disagree, and an
+  Accepted status hides that from everyone downstream.
+- **"How wrong is it?" is a separate measurement from "is it wrong?"** Both were
+  available here for one command each, and only the first had been taken. Do not
+  publish a multiple you inferred from a cap when you can compute it from the
+  real function — the constraint that actually bound was Kelly, not the cap the
+  estimate assumed.
+
+Related: [[a-guard-that-is-structurally-always-true-reads-exactly-like-a-guard-that-fires]],
+[[built-but-never-called]], [[verification-methods-that-lie]].
+
+---
+
+## 2026-08-18 — Hand a reviewer your hypothesis and require it to be refutable, then let it win
+
+A visual-design reviewer was briefed with a specific suspicion: two CSS tokens
+held the same hex, so the colour meaning "this is the action" was the colour
+meaning "this is bad". The brief named the tokens, the files, and the reasoning
+— and added one sentence: *"Do not assume it is a defect because you found it."*
+
+It came back and **refuted the hypothesis.** Keep them identical: two reds a few
+degrees apart read as one colour to the eye and as a rendering bug to anyone who
+notices, and both meanings are unwelcome news, so nothing is lost by sharing.
+The real defect was the *third* meaning the same token carried — and that one had
+a measured contrast failure behind it, which the original suspicion did not.
+
+The refutation was worth more than the hypothesis. Without the licence to refuse,
+the likely outcome is a reviewer that finds a way to agree with the brief — and
+agreement between a briefer and the agent they briefed is **correlation with the
+brief, not evidence about the world.**
+
+**How to apply.**
+
+- **Put the hypothesis in the brief, with its evidence, and explicitly permit
+  "no".** Withholding it produces a vaguer review; including it without the
+  licence produces an echo.
+- **Ask for the verdict plus a reason, and require a measurement where one is
+  possible.** "Keep it, because X" is a finding. "Yes, that's a problem" is not.
+- **Treat a subagent's agreement with your framing as the weakest signal in its
+  report**, and its disagreement as the strongest.
+
+Related: [[scrutiny-was-spent-asymmetrically]],
+[[delegation-is-the-partners-call]].
+
+---
+
 ## 2026-08-17 — A handoff written the night before states tomorrow in the past tense, and "the deadline has passed" is a claim that creates work
 
 A session prompt opened with *"The budget day closed at 2026-08-18T10:00:00Z"*

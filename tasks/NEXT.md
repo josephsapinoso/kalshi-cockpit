@@ -14,7 +14,263 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
-## 2026-08-17 21:55Z (latest) — THE MEASUREMENT IS NOT DUE YET, AND THAT IS THE WHOLE SESSION
+## 2026-08-18 00:30Z (latest) — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
+
+**Read the handoff box first. This entry was written in a worktree that has
+since been deleted; the work is on a branch, not on `main`.**
+
+### HANDOFF — ONE COMMAND, AND DO IT BEFORE TOUCHING `TicketSheet.tsx` OR `routes.py`
+
+```
+git merge ui-work
+```
+
+Branch **`ui-work`**, two commits, off `main` at `fe95fa5`. It was built in the
+`kalshi-ui` worktree, which Joe killed on 2026-08-18 because bouncing between two
+checkouts cost more than it bought. **Deleting a worktree does not delete its
+branch** — worktrees share the object store, so `ui-work` and both commits are
+intact and visible from this checkout.
+
+**It was never pushed.** `origin/ui-work` does not exist. Until it is merged or
+pushed it lives in exactly one place.
+
+Merge it before starting the payout item, because that item needs *two* fields in
+`backend/api/routes.py` **and** their rendering in `TicketSheet.tsx` — the one
+file `ui-work` has modified and `main` does not have. `main` had not moved when
+this was written, so the merge is clean now and only gets worse.
+
+### THE FINDING THAT OUTRANKS EVERYTHING ELSE IN THIS ENTRY
+
+**`backend/seed_demo.py:405` is `risk = RiskConfig()`** — bare dataclass
+defaults. There is no `.load()` anywhere in the seeder (`:29` is the only other
+mention). So the **public portfolio demo** sizes every card at a **$1,000**
+bankroll, which is not the deployed configuration and never has been.
+
+**Measured, not estimated.** The real `size_position` called on the row the demo
+served on 2026-08-18, fair 53.8% / ask 50.3c / YES, all risk state zero (the most
+permissive reading, so an upper bound):
+
+| config | contracts | stake | binding constraint |
+|---|---|---|---|
+| seeder — bare `RiskConfig()` | **17** | $8.85 | `kelly` |
+| `fly.demo.toml` and `fly.live.toml` (identical) | **1** | $0.52 | `kelly` |
+
+**17x, on the URL that is the portfolio piece.**
+
+**The binding constraint is Kelly off the bankroll, not `MAX_POSITION_DOLLARS`.**
+ADR 0041 asserts "at $100 most cards read `Buy 1`" and the conclusion is right,
+but $8.85 of stake fits *under* the deployed `MAX_POSITION_DOLLARS = 10`, so the
+position cap is not what binds. Anyone quoting a multiple should quote **17x for
+this row** and compute their own for another; there is no general factor.
+
+### ADR 0041 IS ACCEPTED, AND ITS TESTS CANNOT DETECT THIS
+
+ADR 0041's own Context says the failure was *"`RiskConfig` was well tested, and
+the tests exercised the loader, never the deployment."* Every assertion in
+`tests/test_deployed_risk_caps_are_explicit.py` is then about **the text of the
+two toml files** (`test_the_setting_is_present`,
+`test_the_value_parses_as_the_type_the_loader_expects`,
+`test_the_demo_cap_is_not_looser_than_the_live_one`) or about **the loader**
+(`test_every_field_is_read_from_its_upper_cased_name`, which calls
+`RiskConfig.load()`). All six checked. **Not one touches what the demo
+renders.** It committed the error it had just diagnosed, one level up.
+
+**This needs an ADR amendment, not a commit message.** A test asserting on
+**rendered sizes**, verified by disabling it and watching it fail.
+
+**And there is a real decision inside the fix, so do not paper over it.** Making
+the seeder call `RiskConfig.load()` makes the seed environment-dependent, while
+the seeder's own docstring promises *"the Board looks identical on every run and
+a screenshot stays accurate."* Those two goals conflict. Name the trade-off in
+the amendment.
+
+### WHAT THIS DOES TO THE UI WORK BELOW
+
+**It reframes it rather than voiding it.** The three defects fixed on `ui-work`
+are real at any configuration. But every screen reviewed this session showed
+`Buy 17` and `$8.85`, which no deployed config produces. Most concretely:
+`ui-designer` found that when `authorised === 1` the stepper renders as two
+greyed-out buttons flanking a "1" — 166px of body height presenting a choice with
+one option, reading as a malfunction rather than as "there is nothing to choose".
+**Once the seeder is corrected that stops being an edge case and becomes the
+normal case.** Fix the seeder before designing anything else on that sheet.
+
+**Unverified here, and flagged rather than repeated:** the `partner` agent
+reported `suggested_contracts = 0` on all 10,288 live rows, i.e. `TicketSheet`
+has never rendered on the live instance. **This session did not check that** — it
+needs a live DB read. It is plausible (live rows are real comparisons where
+almost nothing has an edge, so Kelly goes to zero) and the measurement above is
+consistent with it, but consistent is not verified. Check before relying on it.
+
+### WHAT WAS BUILT ON `ui-work`
+
+`448dd01` — **three design review agents**, `.claude/agents/{ux,ui,graphic}-designer.md`,
+seamed so they do not write one report three times: `ux-designer` owns the
+sequence, `ui-designer` the screen, `graphic-designer` the visual language. Each
+names what is *not* its territory.
+
+The audience is written into all three as **one named person, not a persona**:
+Joe, a novice whose reference apps are FanDuel, DraftKings and PrizePicks —
+*apps engineered to increase betting frequency*. Stated as a constraint, not
+trivia: this product's measured answer was that there is no edge, so **a design
+that produces excitement is making a claim the evidence does not support.**
+
+**They load mid-session.** The standing belief that new agent files need a fresh
+session is **wrong**, observed directly.
+
+`94fff7c` — **three defects on the ticket sheet:**
+
+1. **A NO row headed with the team the bet pays out against.** `rec.team` is
+   `m.yes_side_team` (`routes.py:2949`) unconditionally, and `runner.py:1278`
+   writes a row for both sides of every moneyline. The only correction was a
+   small `NO` pill, and a pill reads as a tag, not a negation — on the last
+   screen before Confirm. Now: *"You are betting **on** Houston."* /
+   *"**against** Houston."* (`frontend/src/lib/betDirection.ts`).
+
+   It deliberately does **not** say "pays if they win": `market_type` is on the
+   row in the database and **absent from the payload** (checked against the live
+   demo response), so nothing in the frontend knows whether the market is a
+   winner, a spread or a total. Props get no sentence — `yes_side_team` is NULL
+   there — and still render as a raw ticker.
+
+2. **The size stepper and token input stayed live during a send.** Confirm has
+   carried `phase === "sending"` all along; those two were left out. Tapping `−`
+   mid-send withdrew four money figures to `—` while a request for the old size
+   was still out.
+
+3. **`Shift+Tab` walked out of the modal.** The trap compared `activeElement`
+   against the first and last focusable elements *inside* the panel; the panel is
+   `tabIndex={-1}` and in neither list, while being exactly what holds focus
+   after `node.focus()`. Backwards Tab landed on the veil, then the page behind.
+   (`frontend/src/lib/focusWrap.ts`).
+
+Both predicates run under `node` from pytest with **mutation checks**, because a
+substring assertion passes unchanged on an inverted mapping and inverted is the
+failure mode in both. **One assertion was deleted rather than kept** — a
+`count(SENDING) >= 3` that stayed green with both guards disabled.
+
+**3,140 passed (+40), 10 xfailed, `ruff` clean, `tsc --noEmit` clean.**
+
+### THE REVIEWS, CONDENSED — KEEP THIS, THE AGENTS COST 290K TOKENS
+
+Every work-creating claim below was verified against source before being written
+here. Ones that failed verification are marked.
+
+**All three agreed on two things**, independently:
+
+- **The 423 locked-gate answer.** UX: a good report and a dead end — no next
+  step, and it names the Gate screen without linking to it. UI: **1,422px, 7.2
+  screens at 320px**; one condition `detail` is 548 characters. Graphic: rendered
+  in the *refusal* colour, so a 423 looks like a 500 — when what happened is
+  *nothing left the machine, by design*, the same fact `Placed` reports in gold.
+- **The Confirm button.** Graphic: red is doing "declined", "below zero" **and
+  "proceed"**; white-on-`--accent` is **3.76:1** in dark. UI: the only control in
+  the thumb arc, with all three exits top-corner.
+
+**`ui-designer`'s lead:** it diffed the ticket's eight figures against the card
+that was tapped and **all eight are already on the card**. The sheet's unique
+content is the size control, the token field and Confirm — and at 320px the
+scrolling body viewport is **157px**, so not one complete money number is visible
+on first open.
+
+**`ux-designer`'s lead:** nothing says a contract pays $1.00. One hit in all of
+`frontend/src`, a code comment at `lib/api.ts:121`. The only green plus-signed
+dollar figure is `Expected, net` — a long-run average a FanDuel-trained reader
+takes as "to win".
+
+**`graphic-designer` was handed the hypothesis that `--accent === --negative` is
+a defect and refuted it: keep them identical.** Two reds a few degrees apart read
+as a rendering bug, and both meanings are unwelcome news. The defect is the
+*third* meaning, "proceed". **Do not re-raise the collision without reading
+this.**
+
+**Four measured contrast failures, reproduced by an independent calculation**
+(including the composited `/15` tint, which needs the alpha blend right):
+
+| what | now | needs |
+|---|---|---|
+| white on Confirm, dark | 3.76:1 | 4.5 |
+| `--accent-2` gold on card, light | **2.75:1** | 4.5 |
+| `--positive` on its own `/15` tint, light | 4.09:1 | 4.5 |
+| `--border` as an interactive edge | **1.30:1** | 3.0 |
+
+The gold paints **"Dry run — nothing was sent"** at `text-2xl` — the product's
+most honest sentence is the faintest thing on the sheet, in the theme used
+outdoors. `--border` is the only edge on the stepper's −/+ buttons, so in
+daylight the 44px targets stop existing visually.
+
+### A GUARD THAT IS STRUCTURALLY UNREACHABLE, FOUND RATHER THAN FALLEN FOR
+
+**`!actionable` cannot happen on the ticket sheet.** `routes.py:720` sorts every
+row `(surfaced if item["actionable"] else expired)`; `LiveBoard` is fed
+`board.surfaced` only (`app/page.tsx:289`); `TicketTrigger` (`LiveBoard.tsx:268`)
+is its **sole** call site and passes no override; and there are **zero** other
+callers of `useTicket` or `open()` in `frontend/src`. The amber "aged out" Note,
+the disabled-stepper path and the matching caption are all unreachable.
+**`ux-designer` treated that state as live — discount that part of its report.**
+
+### STILL OPEN, IN THE ORDER `partner` RANKED THEM
+
+1. **Make the seeder read the deployed caps, and give ADR 0041 a test that can
+   fail.** Smallest item here and it invalidates the verification numbers for
+   everything below it, so it goes first. Assert on **rendered sizes**, not
+   config text. Needs an ADR amendment.
+2. **The payout block, the loss sentence, and `reason_text` on the ticket.**
+   `contracts × $1.00` over fields already emitted. **State gross, never a
+   net-if-win** — H4 is untested (ADR 0027). Route the $1.00 settlement identity
+   past `kalshi-platform`. `reason_text` is in the payload (`routes.py:2985`),
+   typed (`lib/api.ts:150`), rendered on the card (`OpportunityCard.tsx:192`) and
+   has **zero** hits in `TicketSheet.tsx` — so does *"All of it is lost if this
+   settles the other way."* **The commitment screen explains less than the browse
+   screen in front of it.**
+3. **The `--accent` / `--negative` collision — one token.**
+
+**Killed by `partner`, recorded so they do not come back:** the ticket layout
+reorder (premise weakened once the direction sentence landed near the top of the
+sheet); the 1,422px gate page (highest effort, no reachability evidence, and a
+long honest document is not obviously a defect on a project whose product is the
+record); `market_title` (real, one line, but ADR 0032 turned scheduled prop
+buying off — fold it into main's next pass at `routes.py`).
+
+### TWO THINGS FOR JOE, NEITHER OURS TO DECIDE
+
+- **The demo cold-starts in 33.0 seconds** (0.21s warm, `min_machines_running = 0`
+  at `fly.demo.toml:90`). The comment at `:87` claims *"the cold start is a few
+  seconds, which is fine for a portfolio link"* — an unverified estimate off by
+  roughly 10x. Keeping a machine warm costs money.
+- **`next dev` regenerates `frontend/CLAUDE.md` and `frontend/AGENTS.md` every
+  run** and rewrites `next-env.d.ts` to dev-mode type paths (Next.js 16 default).
+  They were deleted and the file reverted, but they return for anyone who starts
+  the dev server — and in a repo this deliberate about `CLAUDE.md` being **one
+  spine file**, an untracked second one in a subdirectory is one `git add -A`
+  from being committed. Fix is `agentRules: false` in `frontend/next.config.ts`.
+  Not done; it was outside the approved scope.
+
+### WHAT THIS SESSION DID NOT ESTABLISH
+
+- **The `against` branch was never seen on screen.** The sentence was confirmed
+  rendering in a browser against the live demo payload, but the demo carries
+  **YES rows only**, so the word observed was "on". The `against` branch rests on
+  the node tests.
+- **Nothing was checked at 320px in a browser.** Chrome would not resize below
+  ~852px on this machine. Every 320px figure above is from `ui-designer`'s height
+  model, which it flagged as needing eyes.
+- **Nothing about the live instance was read.** No live DB query was run from
+  this worktree.
+- **No claim that any of this changes a betting decision.** These are
+  comprehension and correctness defects. The hunt stays closed (ADR 0038) and
+  `ORDERS_ARE_DRY_RUNS = True` is untouched.
+
+### NOT THIS BRANCH'S WORK
+
+**The Odds API credit read is still due after 2026-08-18T10:00:00Z.** It was not
+touched. At the time of writing it was **2026-08-18T00:30Z** — the date rolled
+over mid-session and the measurement was still roughly ten hours out. `date -u`
+before acting on that sentence.
+
+---
+
+## 2026-08-17 21:55Z — THE MEASUREMENT IS NOT DUE YET, AND THAT IS THE WHOLE SESSION
 
 **`main` at `d867677`. State re-verified, not inherited: 3,100 passed, 10
 xfailed, `ruff check` clean, `tsc --noEmit` clean.** The hunt is still closed
