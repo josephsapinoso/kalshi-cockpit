@@ -954,6 +954,27 @@ def get_meta(conn: sqlite3.Connection, key: str) -> Optional[str]:
     return row["value"] if row else None
 
 
+def latest_balance_tenths(conn: sqlite3.Connection) -> Optional[int]:
+    """The newest observed account balance, in tenths. `None`, never 0.
+
+    Reads the newest `venue_balance_snapshots` row -- the operational clock of
+    A7, written by the poller every 5 minutes from the venue's own
+    `balance_dollars` string. The newest row verbatim, deliberately: if the
+    latest observation could not read the balance (`balance_tenths` NULL),
+    the answer is "unknown", not the last value that happened to parse --
+    falling back to an older row would hide exactly the outage that makes the
+    number stale. Sizing refuses on `None` (ADR 0045).
+    """
+    try:
+        row = conn.execute(
+            "SELECT balance_tenths FROM venue_balance_snapshots "
+            "ORDER BY observed_ms DESC, id DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return row["balance_tenths"] if row else None
+
+
 def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute(
         "INSERT INTO meta (key, value, updated_ms) VALUES (?, ?, ?) "

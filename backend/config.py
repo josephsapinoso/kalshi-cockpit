@@ -348,7 +348,20 @@ class OddsConfig:
 # `/api/health`, which is the one diagnostic reachable from a phone. Nothing is
 # substituted and nothing is guessed — the value is simply not read, and that is
 # stated wherever anyone would look.
+_DERIVED_CAP_REASON = (
+    "The four dollar quantities are DERIVED from the venue's own balance "
+    "record (`venue_balance_snapshots`, the poller's 5-minute observation) at "
+    "each sizing decision, never typed. The typed value was '100' against a "
+    "real ~$20.66 -- every Board size ~4.8x inflated -- and a typed bankroll "
+    "can only ever be a stale claim about a number the venue states directly. "
+    "See ADR 0045. Remove the variable."
+)
+
 RETIRED_SETTINGS: dict[str, str] = {
+    "BANKROLL_DOLLARS": _DERIVED_CAP_REASON,
+    "MAX_POSITION_DOLLARS": _DERIVED_CAP_REASON,
+    "MAX_EXPOSURE_DOLLARS": _DERIVED_CAP_REASON,
+    "MAX_DAILY_LOSS_DOLLARS": _DERIVED_CAP_REASON,
     "MIN_ORDER_CONTRACTS": (
         "It existed to stop small orders paying the per-order fee rounding "
         "penalty, but core.sizing already prices every candidate at the fee a "
@@ -381,23 +394,38 @@ REFERENCE_MAX_POSITION_DOLLARS = 100.0
 REFERENCE_MAX_EXPOSURE_DOLLARS = 400.0
 REFERENCE_MAX_DAILY_LOSS_DOLLARS = 100.0
 
+# The three caps as fractions of the bankroll: 10% in one market, 40% at risk
+# at once, 10% lost in a day. These are the fractions BOTH prior profiles
+# used -- the $1,000 reference (100/400/100) and the retired deployed env
+# (100 -> 10/40/10) -- so deriving them holds the *judgement* constant while
+# the bankroll tracks the venue's observed balance. Changing a fraction is a
+# strategy change and deserves its own ADR; ADR 0045 records this derivation.
+POSITION_FRACTION_OF_BANKROLL = 0.10
+EXPOSURE_FRACTION_OF_BANKROLL = 0.40
+DAILY_LOSS_FRACTION_OF_BANKROLL = 0.10
+
 
 @dataclass(frozen=True)
 class RiskConfig:
     """Caps. All dollars here are converted to integer tenths at the boundary.
 
-    **`bankroll_dollars` is the running balance, not a weekly top-up.** "$100 a
-    week" is a flow and every cap here is a stock; entering the flow makes each
-    cap four or five times looser than it reads by the end of the month. Update
-    it as the balance moves.
+    **The four dollar quantities are derived, never typed** (ADR 0045). A
+    directly-constructed `RiskConfig(...)` carries explicit dollars -- that is
+    the test-fixture form, and the numeric defaults below exist for it.
+    `RiskConfig.load()`, the production loader, returns them as `None` --
+    "underived" -- and `core.sizing.size_position` REFUSES an underived
+    config, so a production path that forgets to call
+    `with_observed_balance()` fails loudly instead of sizing from a stale
+    typed number. The typed `BANKROLL_DOLLARS` was "100" against a real
+    ~$20.66: every size ~4.8x inflated, and nothing was red.
     """
 
-    bankroll_dollars: float = 1000.0
+    bankroll_dollars: Optional[float] = 1000.0
     kelly_fraction: float = 0.25
     max_order_contracts: int = 50
-    max_position_dollars: float = 100.0
-    max_exposure_dollars: float = 400.0
-    max_daily_loss_dollars: float = 100.0
+    max_position_dollars: Optional[float] = 100.0
+    max_exposure_dollars: Optional[float] = 400.0
+    max_daily_loss_dollars: Optional[float] = 100.0
 
     @classmethod
     def load(cls) -> "RiskConfig":
@@ -407,12 +435,51 @@ class RiskConfig:
         for name, detail in retired_settings_present().items():
             logger.error("retired setting %s is set and is not read. %s", name, detail)
         return cls(
-            bankroll_dollars=_float("BANKROLL_DOLLARS", 1000.0),
+            # Underived until `with_observed_balance` supplies the venue's
+            # number. `None`, never a default dollar figure: an unreadable
+            # bankroll must refuse to size, not size at somebody's guess.
+            bankroll_dollars=None,
             kelly_fraction=_float("KELLY_FRACTION", 0.25),
             max_order_contracts=_int("MAX_ORDER_CONTRACTS", 50),
-            max_position_dollars=_float("MAX_POSITION_DOLLARS", 100.0),
-            max_exposure_dollars=_float("MAX_EXPOSURE_DOLLARS", 400.0),
-            max_daily_loss_dollars=_float("MAX_DAILY_LOSS_DOLLARS", 100.0),
+            max_position_dollars=None,
+            max_exposure_dollars=None,
+            max_daily_loss_dollars=None,
+        )
+
+    @property
+    def underived(self) -> bool:
+        """True when the dollar quantities have not been derived yet."""
+        return (
+            self.bankroll_dollars is None
+            or self.max_position_dollars is None
+            or self.max_exposure_dollars is None
+            or self.max_daily_loss_dollars is None
+        )
+
+    def with_observed_balance(
+        self, balance_tenths: Optional[int]
+    ) -> Optional["RiskConfig"]:
+        """The four dollar quantities, derived from an observed balance.
+
+        `balance_tenths` is `store.db.latest_balance_tenths(conn)` -- the
+        newest `venue_balance_snapshots` row, written by the poller from the
+        venue's own `balance_dollars` string every 5 minutes. `None` in means
+        `None` out: no observation is a refusal, not a default. A balance of
+        0 derives a config that sizes everything to zero, which is correct
+        and different -- observed broke is not unobserved.
+
+        Strategy parameters (`kelly_fraction`, `max_order_contracts`) pass
+        through untouched; they are judgements, not facts about the account.
+        """
+        if balance_tenths is None:
+            return None
+        bankroll = balance_tenths / 1000.0
+        return replace(
+            self,
+            bankroll_dollars=bankroll,
+            max_position_dollars=bankroll * POSITION_FRACTION_OF_BANKROLL,
+            max_exposure_dollars=bankroll * EXPOSURE_FRACTION_OF_BANKROLL,
+            max_daily_loss_dollars=bankroll * DAILY_LOSS_FRACTION_OF_BANKROLL,
         )
 
     def reference(self) -> "RiskConfig":

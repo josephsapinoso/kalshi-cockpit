@@ -1351,7 +1351,17 @@ def create_app(
         all time is a much stronger statement than a zero over a quiet Sunday.
         """
         payload = evaluate_gate(conn, gate).to_dict()
-        payload["bankroll_dollars"] = risk.bankroll_dollars
+        # Derived from the venue's observed balance, never typed (ADR 0045).
+        # `null` when no balance has ever been observed -- the demo instance,
+        # or a live volume the poller has not written yet.
+        derived_risk = (
+            risk.with_observed_balance(db.latest_balance_tenths(conn))
+            if risk.underived
+            else risk
+        )
+        payload["bankroll_dollars"] = (
+            None if derived_risk is None else derived_risk.bankroll_dollars
+        )
         payload["populations"] = {
             "since_ms": 0,
             "counts": population_counts(conn, 0),
@@ -2291,6 +2301,29 @@ def create_app(
         # The population this order will join, not a different one. Sizing
         # against live exposure and then reserving against paper (or the
         # reverse) would admit an order the cap was never applied to.
+        # 8a. Derive the dollar caps from the venue's observed balance, at
+        #     this instant (ADR 0045). `risk` off `create_app` is underived
+        #     by construction -- `RiskConfig.load()` carries no dollars -- so
+        #     an unobserved balance refuses here rather than sizing from a
+        #     stale typed number.
+        #     A directly-injected config (tests, tools) carries explicit
+        #     dollars and is trusted as-is -- clamp what you trust; refuse
+        #     what you're validating.
+        risk_now = risk
+        if risk.underived:
+            risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
+        if risk_now is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "the account balance has never been observed "
+                    "(`venue_balance_snapshots` is empty or its newest row is "
+                    "unreadable), so no bankroll or cap can be derived. "
+                    "Refusing -- 'cannot determine the bankroll' must never "
+                    "resolve to a typed default."
+                ),
+            )
+
         exposure = current_exposure_dollars(conn, dry_run=ORDERS_ARE_DRY_RUNS)
         if exposure is None:
             raise HTTPException(
@@ -2347,7 +2380,7 @@ def create_app(
             side=side,
             ask_tenths=live_ask,
             fair_probability=fair,
-            risk=risk,
+            risk=risk_now,
             current_exposure_dollars=exposure,
             current_position_dollars=position,
             daily_pnl_dollars=daily_pnl,
@@ -2388,7 +2421,7 @@ def create_app(
         #     sizer would now allow more -- a better price is not a mandate to
         #     bet bigger than the decision that was recorded and will be scored.
         contracts = min(
-            request.contracts, authorised, resized.contracts, risk.max_order_contracts
+            request.contracts, authorised, resized.contracts, risk_now.max_order_contracts
         )
         # No flat minimum here any more, and its removal is not a relaxation:
         # step 13 below re-evaluates *this* order at *this* size against the
@@ -2570,7 +2603,7 @@ def create_app(
                 order,
                 dry_run=placer.dry_run,
                 submitted_ms=submitted_ms,
-                max_exposure_dollars=risk.max_exposure_dollars,
+                max_exposure_dollars=risk_now.max_exposure_dollars,
                 idempotency_key=request.idempotency_key,
             )
         except DuplicateOrder as exc:
@@ -2688,7 +2721,7 @@ def create_app(
                 None if order_contribution is None else exposure + order_contribution
             ),
             "resulting_exposure_is_hypothetical": outcome.dry_run,
-            "max_exposure_dollars": risk.max_exposure_dollars,
+            "max_exposure_dollars": risk_now.max_exposure_dollars,
             # The exact bytes. A dry run is comparable to a live order field by
             # field precisely because this is the same string either way.
             "request_body": outcome.request_body,

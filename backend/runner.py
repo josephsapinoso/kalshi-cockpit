@@ -1066,6 +1066,22 @@ def run_pricing_pass(
     """
     stamp = now if now is not None else now_ms()
     risk = risk or RiskConfig()
+    if risk.underived:
+        # Production hands this `RiskConfig.load()`, which carries no dollar
+        # quantities: derive them from the venue's observed balance, per pass
+        # (ADR 0045). No observation -> the config stays underived, every
+        # `suggested_contracts` refuses to size, and `reference_contracts` --
+        # the column the gate counts -- is untouched because `reference()`
+        # replaces the dollars with constants. The record cannot be disabled
+        # by a missing balance read; the shown size can, loudly.
+        derived = risk.with_observed_balance(db.latest_balance_tenths(conn))
+        if derived is None:
+            logger.warning(
+                "no observed balance in venue_balance_snapshots; sizing will "
+                "refuse this pass (reference sizing is unaffected)"
+            )
+        else:
+            risk = derived
     suppression = suppression or SuppressionConfig()
     counts = counts or PassCounts()
 

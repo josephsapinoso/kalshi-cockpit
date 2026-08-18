@@ -287,6 +287,16 @@ class TestTheGateCountsTheReferenceColumn:
         assert not ids("actionable") & ids("no_edge")
 
 
+def _clear_retired(monkeypatch):
+    """Every retired name, cleared -- the developer's own `.env` may still
+    carry the four dollar caps ADR 0045 retired, and dotenv loads it into
+    the test process's environment."""
+    from backend.config import RETIRED_SETTINGS
+
+    for name in RETIRED_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+
+
 class TestTheRemovedSettingIsAnnouncedAndNeverFatal:
     """Loud, and specifically **not** a refusal to start.
 
@@ -337,9 +347,92 @@ class TestTheRemovedSettingIsAnnouncedAndNeverFatal:
 
     def test_an_empty_value_is_not_a_setting(self, monkeypatch):
         """An unset variable that fly renders as `""` is not a stale setting."""
+        _clear_retired(monkeypatch)
         monkeypatch.setenv("MIN_ORDER_CONTRACTS", "")
         assert retired_settings_present() == {}
 
     def test_nothing_retired_is_the_healthy_state(self, monkeypatch):
-        monkeypatch.delenv("MIN_ORDER_CONTRACTS", raising=False)
+        _clear_retired(monkeypatch)
         assert retired_settings_present() == {}
+
+
+class TestTheDollarQuantitiesAreDerivedNotTyped:
+    """ADR 0045: the bankroll comes from the venue's balance record.
+
+    Guard verification 2026-08-18: with the `risk.underived` refusal removed
+    from `size_position`, `test_an_underived_config_refuses_to_size` fails
+    with a TypeError out of the stake arithmetic instead of a refusal --
+    which is exactly the loud failure the check converts into a stated one.
+    """
+
+    def test_load_returns_an_underived_config(self, monkeypatch):
+        for name in (
+            "BANKROLL_DOLLARS",
+            "MAX_POSITION_DOLLARS",
+            "MAX_EXPOSURE_DOLLARS",
+            "MAX_DAILY_LOSS_DOLLARS",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        loaded = RiskConfig.load()
+        assert loaded.underived
+        assert loaded.bankroll_dollars is None
+
+    def test_an_underived_config_refuses_to_size(self):
+        result = size_position(
+            side="yes",
+            ask_tenths=500,
+            fair_probability=0.60,
+            risk=RiskConfig.load(),
+            current_exposure_dollars=0.0,
+            current_position_dollars=0.0,
+            daily_pnl_dollars=0.0,
+        )
+        assert result.refused
+        assert result.binding_constraint == "bankroll_unobserved"
+
+    def test_no_observation_derives_no_config(self):
+        assert RiskConfig.load().with_observed_balance(None) is None
+
+    def test_the_derivation_applies_the_fractions_exactly(self):
+        # The venue-reported balance on study day 1: $20.658.
+        derived = RiskConfig.load().with_observed_balance(20658)
+        assert derived is not None
+        assert derived.bankroll_dollars == pytest.approx(20.658)
+        assert derived.max_position_dollars == pytest.approx(2.0658)
+        assert derived.max_exposure_dollars == pytest.approx(8.2632)
+        assert derived.max_daily_loss_dollars == pytest.approx(2.0658)
+        assert not derived.underived
+
+    def test_an_observed_zero_is_derived_not_refused(self):
+        """Observed broke is not unobserved -- it sizes zero, loudly."""
+        derived = RiskConfig.load().with_observed_balance(0)
+        assert derived is not None
+        assert derived.bankroll_dollars == 0.0
+
+    def test_strategy_parameters_pass_through_untouched(self, monkeypatch):
+        monkeypatch.setenv("KELLY_FRACTION", "0.5")
+        monkeypatch.setenv("MAX_ORDER_CONTRACTS", "7")
+        derived = RiskConfig.load().with_observed_balance(20658)
+        assert derived.kelly_fraction == 0.5
+        assert derived.max_order_contracts == 7
+
+    def test_the_reference_profile_still_sizes_from_an_underived_config(self):
+        """The record cannot be disabled by a missing balance read.
+
+        `reference()` replaces the dollar quantities with constants, so the
+        gate's `reference_contracts` column keeps accumulating even when
+        `venue_balance_snapshots` has never been written. This is the same
+        invariance the rest of this file asserts, at its newest edge.
+        """
+        fair = fair_just_under_the_ceiling(500, SuppressionConfig().edge_ceiling_tenths)
+        result = size_position(
+            side="yes",
+            ask_tenths=500,
+            fair_probability=fair,
+            risk=RiskConfig.load().reference(),
+            current_exposure_dollars=0.0,
+            current_position_dollars=0.0,
+            daily_pnl_dollars=0.0,
+        )
+        assert not result.refused
+        assert result.contracts >= 1

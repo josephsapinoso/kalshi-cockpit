@@ -48,7 +48,11 @@ export default async function GatePage() {
           {gate.open ? "Open" : "Locked"}
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Bankroll ${gate.bankroll_dollars.toFixed(0)}. Quarter-Kelly sizing
+          Bankroll{" "}
+          {gate.bankroll_dollars === null
+            ? "unobserved (no balance snapshot yet)"
+            : `$${gate.bankroll_dollars.toFixed(2)}`}
+          , from the venue&rsquo;s own balance record. Quarter-Kelly sizing
           with per-bet, per-position and total-exposure caps, plus a daily-loss
           kill switch.
         </p>

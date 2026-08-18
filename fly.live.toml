@@ -321,25 +321,21 @@ primary_region = "ord"
   MAX_ODDS_AGE_S = "900"
   MAX_KALSHI_QUOTE_AGE_S = "30"
 
-  # **The running balance, not the weekly top-up.** "$100 a week" is a flow and
-  # every cap below is a stock; entering the flow makes each one four or five
-  # times looser than it reads by the end of a month. Update this as the balance
-  # moves.
-  #
-  # **And it is itself a cap -- the fourth, and the outermost.** `size_position`
-  # computes `stake = kelly_used * bankroll_dollars` and only then trims it, so
-  # the three `MAX_*` values below are cuts taken out of this one rather than a
-  # complete set. The record habitually counts three; counting three is what let
-  # `fly.demo.toml` omit this line for the demo's whole life without anyone
-  # noticing the public screen was sizing off a $1,000 roll. See
-  # `docs/adr/0040`.
-  #
   # This does NOT change what the evidence record counts. The gate's
   # `actionable` counter is scored against a reference bankroll fixed in code
   # (`config.REFERENCE_*`), for the reason in `docs/adr/0015`: defining it here
   # let the size of the deposit decide what counted as evidence, and at $100 it
   # closed the 50c band this strategy trades, leaving only the far wings.
-  BANKROLL_DOLLARS = "100"
+  #
+  # BANKROLL_DOLLARS, MAX_POSITION_DOLLARS, MAX_EXPOSURE_DOLLARS and
+  # MAX_DAILY_LOSS_DOLLARS are RETIRED (ADR 0045). The four dollar quantities
+  # are derived at each sizing decision from the venue's own balance record
+  # (`venue_balance_snapshots`, polled every 5 minutes), at the same fractions
+  # this file used to state: 10% in one market, 40% at risk at once, 10% lost
+  # in a day. The typed "100" here sat against a real ~$20.66 for a week --
+  # every Board size ~4.8x inflated -- and nothing was red. Setting any of the
+  # four again is announced at ERROR on every config load and on /api/health,
+  # and is never read.
   KELLY_FRACTION = "0.25"
 
   # `MIN_ORDER_CONTRACTS` is deliberately absent. If it is ever set,
@@ -356,24 +352,6 @@ primary_region = "ord"
   # Kelly fraction already implies the order is +EV at whatever size it
   # produces. At this bankroll the constant closed the 50c band entirely and
   # left only the far wings, where an edge is least believable. See ADR 0015.
-
-  # Re-scaled with the bankroll, at the same fractions the $1,000 profile used:
-  # 10% in one market, 40% at risk at once, 10% lost in a day before the kill
-  # switch. At $1,000 these were 100 / 400 / 100 and were never stated here, so
-  # they were inherited from the code defaults -- which meant that lowering the
-  # bankroll alone would have left a position cap equal to 100% of it, an
-  # exposure cap of 400%, and a daily loss limit that could only fire after the
-  # whole week was gone. A safety system that cannot bind is worse than none,
-  # because it reassures.
-  #
-  # Of the two, MAX_POSITION_DOLLARS is the one that binds an opening order:
-  # reaching $40 in a single fill would need a staked Kelly fraction above 0.40,
-  # i.e. a full Kelly above 1.6, which is not reachable. MAX_EXPOSURE_DOLLARS
-  # binds by accumulation instead, at the fifth concurrent market. Both are
-  # real; they bind in different situations.
-  MAX_POSITION_DOLLARS = "10"
-  MAX_EXPOSURE_DOLLARS = "40"
-  MAX_DAILY_LOSS_DOLLARS = "10"
 
   # Unset until 2026-08-17, so both instances ran on the code default. Written
   # out at the value it already had: this changes no behaviour, it removes an

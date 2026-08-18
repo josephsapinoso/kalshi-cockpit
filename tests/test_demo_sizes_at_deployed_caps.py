@@ -1,9 +1,13 @@
-"""The public demo must render the size the deployed caps produce.
+"""The public demo must render the size its own pinned profile produces.
 
 **What this establishes:** that every money figure `/api/board` serves for the
 seeded demo -- contracts and stake -- is exactly what `size_position` returns
-under the risk configuration `fly.demo.toml` actually deploys, and that the
-seeder's restated caps and that file cannot drift apart.
+under `seed_demo.DEMO_RISK`, that DEMO_RISK's strategy parameters and
+`fly.demo.toml` cannot drift apart, and that its dollar caps follow the same
+ADR 0045 derivation fractions the live instance applies to its observed
+balance. Since ADR 0045 the toml states no dollar caps at all -- they are
+retired everywhere -- so the demo's profile is pinned in code and checked for
+internal consistency instead of against config text.
 
 **What it does not establish:** that the caps are *right*, that the browser
 paints the number legibly, or anything about the live instance. It asserts on
@@ -37,7 +41,6 @@ rather than a bound.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -65,23 +68,8 @@ CLEAN_BOOK = {
 }
 
 
-def deployed_risk() -> RiskConfig:
-    """`fly.demo.toml`'s caps, through the conversions the loader uses.
-
-    Derived from `RiskConfig`'s own fields rather than a hand-written list, so
-    a seventh cap cannot be read here as its dataclass default in silence.
-    `test_deployed_risk_caps_are_explicit` already pins that every field is
-    read from its upper-cased name, so this derivation cannot drift away from
-    `RiskConfig.load()` without that module failing first.
-    """
-    env = tomllib.loads(FLY_DEMO.read_text(encoding="utf-8"))["env"]
-    defaults = RiskConfig()
-    return RiskConfig(
-        **{
-            f.name: type(getattr(defaults, f.name))(env[f.name.upper()])
-            for f in fields(RiskConfig)
-        }
-    )
+def demo_env() -> dict:
+    return tomllib.loads(FLY_DEMO.read_text(encoding="utf-8"))["env"]
 
 
 # `/api/board` returns the rows in four **top-level** buckets, and a card is
@@ -132,24 +120,57 @@ def demo_app(demo_db):
 
 
 class TestTheSeededCapsAreTheDeployedOnes:
-    """The seeder restates `fly.demo.toml` rather than loading it. Pin that.
+    """The demo profile is pinned in code; pin what CAN still drift.
 
-    Loading would make the demo environment-dependent, and `seed_demo`'s own
-    docstring promises the opposite -- an identical Board on every run, so a
-    screenshot stays accurate. The cost of restating is drift, so drift is what
-    is tested: in both directions, over every field of the dataclass.
+    Since ADR 0045 the toml carries no dollar caps -- deriving them from an
+    observed balance is the rule, and the demo holds no account to observe.
+    What must still agree: the two strategy parameters the toml does state,
+    and the derivation fractions themselves, so the synthetic profile
+    embodies the same judgement (10% / 40% / 10%) the live instance applies
+    to its real balance.
     """
 
-    @pytest.mark.parametrize("field_", [f.name for f in fields(RiskConfig)])
-    def test_the_seeded_caps_match_the_deployed_ones(self, field_):
+    @pytest.mark.parametrize(
+        "field_", ["kelly_fraction", "max_order_contracts"]
+    )
+    def test_the_strategy_parameters_match_the_deployed_ones(self, field_):
         seeded = getattr(DEMO_RISK, field_)
-        deployed = getattr(deployed_risk(), field_)
+        deployed = type(seeded)(demo_env()[field_.upper()])
 
         assert seeded == deployed, (
             f"seed_demo.DEMO_RISK.{field_} is {seeded} but fly.demo.toml "
             f"deploys {deployed}. The public demo would size at a "
             "configuration nothing runs."
         )
+
+    def test_the_dollar_caps_follow_the_derivation_fractions(self):
+        """DEMO_RISK must be what ADR 0045 would derive from its bankroll.
+
+        `with_observed_balance` is the production derivation; feeding it the
+        demo bankroll must reproduce the pinned profile exactly. A hand-typed
+        cap that drifts from the fractions would make the public screen imply
+        a risk judgement no instance runs.
+        """
+        derived = DEMO_RISK.with_observed_balance(
+            int(DEMO_RISK.bankroll_dollars * 1000)
+        )
+        assert derived == DEMO_RISK, (
+            f"DEMO_RISK is {DEMO_RISK} but ADR 0045 derives {derived} from "
+            "the same bankroll"
+        )
+
+    def test_the_retired_caps_are_not_in_the_toml(self):
+        for name in (
+            "BANKROLL_DOLLARS",
+            "MAX_POSITION_DOLLARS",
+            "MAX_EXPOSURE_DOLLARS",
+            "MAX_DAILY_LOSS_DOLLARS",
+        ):
+            assert name not in demo_env(), (
+                f"fly.demo.toml sets {name}, which is retired (ADR 0045): it "
+                "is announced at ERROR and never read, so the value is a "
+                "claim the deploy does not honour"
+            )
 
     def test_the_restated_caps_are_not_just_the_dataclass_defaults(self):
         """That the restating is doing work -- and only that.
@@ -178,7 +199,7 @@ class TestEveryRenderedSizeIsTheOneTheDeployedCapsProduce:
     async def test_the_rendered_contract_count_is_recomputable_from_the_toml(
         self, demo_app
     ):
-        risk = deployed_risk()
+        risk = DEMO_RISK
         rows = unsuppressed(
             rendered_rows(
                 (await get(demo_app, "/api/board?include_suppressed=true")).json()
@@ -208,7 +229,7 @@ class TestEveryRenderedSizeIsTheOneTheDeployedCapsProduce:
         the **recomputed** contract count -- which still fails on the bug, and
         does not depend on guessing which of the two a field name means.
         """
-        risk = deployed_risk()
+        risk = DEMO_RISK
         rows = unsuppressed(
             rendered_rows(
                 (await get(demo_app, "/api/board?include_suppressed=true")).json()
@@ -235,7 +256,7 @@ class TestEveryRenderedSizeIsTheOneTheDeployedCapsProduce:
         the cap for every configuration at once, where a recomputation would
         agree with itself and stay green.
         """
-        risk = deployed_risk()
+        risk = DEMO_RISK
         rows = rendered_rows(
             (await get(demo_app, "/api/board?include_suppressed=true")).json()
         )
@@ -267,7 +288,7 @@ class TestTheSlateCanTellTheTwoConfigurationsApart:
         differing = [
             row
             for row in rows
-            if sized(row, RiskConfig()).contracts != sized(row, deployed_risk()).contracts
+            if sized(row, RiskConfig()).contracts != sized(row, DEMO_RISK).contracts
         ]
 
         assert differing, (

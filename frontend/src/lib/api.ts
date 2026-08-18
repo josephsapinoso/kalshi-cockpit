@@ -286,7 +286,8 @@ export type Gate = {
   conditions: GateCondition[];
   /** Every unmet condition, not just the first — the distance from open is the useful part. */
   reason: string;
-  bankroll_dollars: number;
+  /** Derived from the venue's observed balance; null when never observed. */
+  bankroll_dollars: number | null;
   /**
    * How many rows fell into each population over the **whole table**, at every
    * horizon — not the scored subset the conditions read.

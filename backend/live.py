@@ -163,6 +163,10 @@ class _RiskState:
 
     exposure_dollars: Optional[float] = None
     daily_pnl_dollars: Optional[float] = None
+    # The venue's newest observed balance, riding the same snapshot read. The
+    # dollar caps are derived from it per frame (ADR 0045); `None` -- never
+    # observed -- derives no config and the sizer refuses.
+    balance_tenths: Optional[int] = None
     positions: dict[str, Optional[float]] = field(default_factory=dict)
 
 
@@ -473,6 +477,7 @@ class QuoteHub:
         change exists to remove.
         """
         return _RiskState(
+            balance_tenths=db.latest_balance_tenths(conn),
             exposure_dollars=current_exposure_dollars(
                 conn, dry_run=ORDERS_ARE_DRY_RUNS
             ),
@@ -501,9 +506,13 @@ class QuoteHub:
         frames = []
         state = self._risk_state
         for sub in subs:
+            # Derive the dollar caps from the balance in the same snapshot
+            # (ADR 0045). `None` -- never observed -- leaves the base config
+            # underived and the sizer refuses, which renders as no size.
             priced = price_against(
                 book, sub,
-                risk=self._risk,
+                risk=self._risk.with_observed_balance(state.balance_tenths)
+                or self._risk,
                 # The snapshot taken with this subscription window, not a
                 # literal zero and not a read per book update. See `_RiskState`.
                 # `.get` with no default: a ticker the risk read did not cover

@@ -59,27 +59,17 @@ primary_region = "ord"
   # `tests/test_deployed_risk_caps_are_explicit.py`. Divergence is allowed --
   # divergence upward is not.
   #
-  # **There are four dollar caps and BANKROLL_DOLLARS is one of them**, not a
-  # display setting. `size_position` computes `stake = kelly_used * bankroll`
-  # and then trims it, so the bankroll is the outermost cap and the three
-  # `MAX_*` values are cuts taken out of it. The record's habit of counting
-  # "three caps" is what let this file omit the bankroll without anyone
-  # noticing.
-  BANKROLL_DOLLARS = "100"
+  # The four dollar caps are RETIRED here exactly as in `fly.live.toml`
+  # (ADR 0045): derived from an observed balance, which the demo does not
+  # have -- its Board sizes are seeded by `seed_demo.py` at an explicit
+  # profile, and its live sizing paths are absent by design (no credentials,
+  # no QuoteHub, orders 403). A typed cap here would be a claim about an
+  # account this instance does not hold.
   KELLY_FRACTION = "0.25"
   # Unset here and in `fly.live.toml` until now, so both ran on the code
   # default. Written out at the same value it already had: this changes no
   # behaviour, it removes an inheritance. A cap nobody chose is not a cap.
   MAX_ORDER_CONTRACTS = "50"
-  # 10% of the roll in one market, 40% at risk at once, 10% lost in a day.
-  # MAX_POSITION_DOLLARS is the one that binds an opening order -- reaching $40
-  # in a single fill would need a staked Kelly fraction above 0.40, i.e. a full
-  # Kelly above 1.6, which is not reachable. MAX_EXPOSURE_DOLLARS binds by
-  # accumulation instead, at the fifth concurrent market.
-  MAX_POSITION_DOLLARS = "10"
-  MAX_EXPOSURE_DOLLARS = "40"
-  MAX_DAILY_LOSS_DOLLARS = "10"
-
 [http_service]
   internal_port = 3000
   force_https = true

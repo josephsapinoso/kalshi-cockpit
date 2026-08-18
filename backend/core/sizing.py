@@ -159,6 +159,20 @@ def size_position(
             f"(0 and {PRICE_MAX} are settled outcomes)"
         )
 
+    if risk.underived:
+        # `RiskConfig.load()` no longer carries dollar quantities (ADR 0045):
+        # they are derived from the venue's observed balance via
+        # `with_observed_balance`, and a production path that skipped the
+        # derivation -- or has no balance observation to derive from -- lands
+        # here instead of sizing from a stale typed number.
+        return _refuse(
+            "the bankroll has not been derived from an observed balance "
+            "(`venue_balance_snapshots` is empty, unreadable, or the "
+            "derivation was skipped). Refusing -- a size computed from a "
+            "bankroll nobody measured is not a size.",
+            constraint="bankroll_unobserved",
+        )
+
     if current_exposure_dollars is None:
         return _refuse(
             "current exposure is unreadable. Refusing to size a position "
