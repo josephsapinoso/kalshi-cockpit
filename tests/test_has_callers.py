@@ -192,6 +192,14 @@ NOT_A_CALLER_FILES = ("backend/seed_demo.py",)
 # (symbol, why it matters if it goes uncalled again)
 MUST_HAVE_CALLERS = [
     (
+        "poll_portfolio_forever",
+        "the venue's portfolio record demonstrably expires (settlements lost "
+        "55 records inside eight days; fills retain ~3 months), so a poller "
+        "that nothing starts is a record silently rotting on a schedule -- "
+        "and the registered gap tripwires read poll_log, which only a running "
+        "loop writes",
+    ),
+    (
         "fetch_props",
         "MLB player props are never bought, so the whole prop half of the "
         "pipeline -- discovery, the inherited link, the per-(player, line) "
@@ -858,6 +866,12 @@ class Quarantined:
 # billed-path mechanism at the bottom of this file has ever had.
 DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # -- Tools ---------------------------------------------------------------
+    # `backend/portfolio_poll.py` was here, as a Tool, for exactly one commit
+    # (26090d1). It is now reached from `scripts/run_loop.py`, which the
+    # entrypoint starts on the live instance, so the classification came out
+    # the same day it went in -- the registration's 12h/5min cadence needs a
+    # process that is always up, and a laptop is not one. The row is kept as a
+    # comment because the deletion is the wiring being done.
     # `backend/analysis/signal_test.py` was here, as a Tool, and ADR 0039 moved
     # it out. It is now reached from `GET /api/signal` via
     # `backend/analysis/clv_signal.py`, and its entry lives in
@@ -867,20 +881,6 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # was protecting, and the multiplier is precisely the construction that
     # makes unlimited re-reading valid. The row is kept as a comment because the
     # deletion is the decision.
-    "backend/portfolio_poll.py": Tool(
-        run_by=("scripts/poll_portfolio.py",),
-        purpose="Mirrors the venue's record of hand-placed bets -- "
-                "settlements, fills (source='venue_hand', ADR 0043), balance "
-                "-- before Kalshi drops it: both portfolio endpoints have now "
-                "been observed to lose history, settlements inside eight days. "
-                "A Tool TODAY and deliberately not forever: the calibration "
-                "registration (§7.6, amended) requires a 12h/5min cadence "
-                "on the LIVE instance, because a closed laptop does not poll "
-                "and the record expires. Wiring it into the deployed loop is a "
-                "deploy decision that has not been taken; until it is, this "
-                "row is the honest state, and moving it out of here and into "
-                "the chain is the definition of that work being done.",
-    ),
     "backend/main.py": Tool(
         run_by=("python -m backend.main --seed-demo",),
         purpose="Local dev server. Superseded on the instance by entrypoint.sh, "

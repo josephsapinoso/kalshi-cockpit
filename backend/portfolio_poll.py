@@ -62,8 +62,10 @@ and counted**, never written half-parsed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
+import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -72,6 +74,7 @@ from .core.fees import calculate_fee
 from .core.prices import dollars_to_tenths
 from .kalshi.discovery import parse_ms
 from .kalshi.rest import KalshiRestClient
+from .store import db as store_db
 
 logger = logging.getLogger(__name__)
 
@@ -380,21 +383,109 @@ async def poll_portfolio(
             )
 
     # -- balance: dollars string, never the cents integer --------------------
-    try:
-        payload = await client.balance()
-    except Exception as exc:  # noqa: BLE001
-        _log(conn, now_ms=now_ms, endpoint="balance", ok=False, error=repr(exc))
-        summary["balance"] = f"FAILED: {exc}"
-    else:
-        balance_tenths = parse_balance_tenths(payload)
-        conn.execute(
-            "INSERT INTO venue_balance_snapshots "
-            "(observed_ms, balance_tenths, portfolio_value_tenths) "
-            "VALUES (?, ?, ?)",
-            (now_ms, balance_tenths, parse_portfolio_value_tenths(payload)),
-        )
-        _log(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
-        summary["balance"] = {"balance_tenths": balance_tenths}
+    summary["balance"] = await poll_balance(conn, client, now_ms=now_ms)
 
     conn.commit()
     return summary
+
+
+async def poll_balance(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+) -> Any:
+    """The balance alone: the 5-minute cadence, without the 12-hour mirror.
+
+    Separated because the registration (§7.6 as amended) runs the two on
+    different clocks -- the balance is what the stopping rule reads and what
+    the operational display shows, while the mirror is the record. The caller
+    commits; this function only writes, so `poll_portfolio` can reuse it
+    inside its own transaction.
+    """
+    try:
+        payload = await client.balance()
+    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
+        _log(conn, now_ms=now_ms, endpoint="balance", ok=False, error=repr(exc))
+        return f"FAILED: {exc}"
+    balance_tenths = parse_balance_tenths(payload)
+    conn.execute(
+        "INSERT INTO venue_balance_snapshots "
+        "(observed_ms, balance_tenths, portfolio_value_tenths) "
+        "VALUES (?, ?, ?)",
+        (now_ms, balance_tenths, parse_portfolio_value_tenths(payload)),
+    )
+    _log(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
+    return {"balance_tenths": balance_tenths}
+
+
+# The registered cadence, §7.6 of the calibration registration as amended:
+# the mirror every 12 hours, the balance every 5 minutes. Constants rather
+# than configuration, deliberately -- the cadence is REGISTERED, and a knob
+# invites the deployed value to drift from the protocol without anyone
+# deciding it. Changing these is amending the registration, and should read
+# like it.
+MIRROR_INTERVAL_S = 12 * 3600
+BALANCE_INTERVAL_S = 300
+
+
+async def poll_portfolio_forever(
+    db_path,
+    client: KalshiRestClient,
+    *,
+    mirror_interval_s: float = MIRROR_INTERVAL_S,
+    balance_interval_s: float = BALANCE_INTERVAL_S,
+    sleep=asyncio.sleep,
+    clock=time.time,
+    max_cycles: Optional[int] = None,
+) -> None:
+    """The poller as a long-running task beside the chain runner.
+
+    Every `balance_interval_s` it snapshots the balance; whenever
+    `mirror_interval_s` has elapsed since the last full mirror it runs
+    `poll_portfolio` instead, which includes the balance. The first cycle is a
+    full mirror, so a restart re-anchors the record immediately rather than
+    twelve hours later -- restarts are exactly when a gap is most likely to be
+    open.
+
+    **A failed cycle is logged and the loop continues.** The failure record is
+    `poll_log`, written inside `poll_portfolio`/`poll_balance` themselves; the
+    registration's gap tripwires are the detection mechanism for a poller that
+    keeps failing, and they only work if the loop survives to keep attempting.
+    The catch-all below is therefore not swallowing errors -- it is what makes
+    the error record complete. Only `CancelledError` exits, because the caller
+    cancelling the task is the one legitimate way this loop ends.
+
+    **Own connection, on purpose.** The chain runner's connection is used
+    sequentially by its pass; sharing it from a concurrent task would
+    interleave two transactions on one handle. A second connection in the same
+    process is what WAL is for, and every connection already carries the busy
+    timeout.
+
+    `sleep`, `clock` and `max_cycles` exist for tests. Production callers pass
+    none of them.
+    """
+    conn = store_db.connect(db_path)
+    try:
+        last_mirror: Optional[float] = None
+        cycles = 0
+        while max_cycles is None or cycles < max_cycles:
+            cycles += 1
+            now = clock()
+            now_ms = int(now * 1000)
+            try:
+                if last_mirror is None or now - last_mirror >= mirror_interval_s:
+                    summary = await poll_portfolio(conn, client, now_ms=now_ms)
+                    last_mirror = now
+                    logger.info("portfolio mirror: %s", summary)
+                else:
+                    result = await poll_balance(conn, client, now_ms=now_ms)
+                    conn.commit()
+                    logger.debug("balance snapshot: %s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 -- see the docstring
+                logger.exception("portfolio poll cycle failed; loop continues")
+            await sleep(balance_interval_s)
+    finally:
+        conn.close()

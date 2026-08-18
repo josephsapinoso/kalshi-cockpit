@@ -93,6 +93,7 @@ from backend.logging_setup import configure_logging  # noqa: E402
 from backend.notify.alerts import Alerter  # noqa: E402
 from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
+from backend.portfolio_poll import poll_portfolio_forever  # noqa: E402
 from backend.odds.client import OddsClient  # noqa: E402
 from backend.odds import ondemand  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
@@ -374,6 +375,27 @@ async def main() -> int:
             slow_interval_s=args.interval, fast_interval_s=args.fast_interval
         )
 
+        # The portfolio poller, beside the chain rather than inside a pass.
+        # Its cadence is REGISTERED (calibration registration §7.6 as amended:
+        # mirror 12h, balance 5min) and is not derived from this loop's tempo
+        # -- the two schedules answer different questions and coupling them
+        # would let a tempo change silently amend a protocol. It shares this
+        # process's Kalshi client and opens its own DB connection, because a
+        # concurrent task on the pass's connection would interleave two
+        # transactions on one handle.
+        #
+        # Why it must live here at all: both portfolio endpoints have been
+        # observed to DROP history (fills ~3 months; settlements lost 55
+        # records inside eight days, 2026-08-18), and this process is the only
+        # one that is always up. A poll that does not happen does not delay
+        # the record -- it loses it. A failed cycle logs to poll_log and the
+        # task continues; the registration's gap tripwires read poll_log, so
+        # the loop surviving is what makes its own failures measurable.
+        portfolio_task = asyncio.create_task(
+            poll_portfolio_forever(args.db, kalshi),
+            name="portfolio-poll",
+        )
+
         async def score_settle_and_alert(kind, counts, stamp, started):
             """Everything after the recording half of a pass.
 
@@ -530,6 +552,12 @@ async def main() -> int:
             await alerter.failure("Recording loop died", str(exc), now_ms=db.now_ms())
             raise
         finally:
+            # The poller dies with the loop, by design: the entrypoint restarts
+            # the whole container when the runner exits, and a poller outliving
+            # a dead runner would hold the DB and the client half-alive.
+            portfolio_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await portfolio_task
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()
             )

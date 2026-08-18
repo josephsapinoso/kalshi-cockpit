@@ -36,6 +36,7 @@ from backend.portfolio_poll import (
     parse_portfolio_value_tenths,
     parse_settlement,
     poll_portfolio,
+    poll_portfolio_forever,
 )
 from backend.store import db
 
@@ -361,6 +362,128 @@ class TestPollPortfolio:
         summary = await poll_portfolio(conn, client, now_ms=1)
 
         assert summary["positions"] == {"seen": 1}
+
+
+class TestPollPortfolioForever:
+    """The long-running task the chain runner starts beside itself.
+
+    The cadence is registered (mirror 12h, balance 5min), so these tests drive
+    the loop on a fake clock rather than trusting the intervals by reading
+    them: the schedule is behaviour, and behaviour is what regresses.
+    """
+
+    @staticmethod
+    def _clockwork(step_s: float):
+        """A fake clock and a sleep that advances it. No real time passes."""
+        state = {"now": 1_787_000_000.0}
+
+        def clock():
+            return state["now"]
+
+        async def sleep(_seconds):
+            state["now"] += step_s
+
+        return clock, sleep
+
+    async def test_the_first_cycle_is_a_full_mirror(self, tmp_path):
+        """A restart re-anchors the record immediately, not 12 hours later --
+        restarts are exactly when a gap is most likely to be open."""
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        clock, sleep = self._clockwork(step_s=300)
+
+        await poll_portfolio_forever(
+            path, FakeClient(settlements=[settlement_row()], fills=[fill_row()]),
+            sleep=sleep, clock=clock, max_cycles=1,
+        )
+
+        conn = db.open_db(path, read_only=True)
+        assert conn.execute("SELECT COUNT(*) FROM venue_settlements").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM fills").fetchone()[0] == 1
+        conn.close()
+
+    async def test_the_balance_runs_every_cycle_and_the_mirror_waits_12h(
+        self, tmp_path
+    ):
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        # 5-minute steps; 145 cycles spans just over 12 hours, so the mirror
+        # should fire exactly twice: cycle 1 and the first cycle past 12h.
+        clock, sleep = self._clockwork(step_s=300)
+
+        await poll_portfolio_forever(
+            path, FakeClient(), sleep=sleep, clock=clock, max_cycles=146,
+        )
+
+        conn = db.open_db(path, read_only=True)
+        balances = conn.execute(
+            "SELECT COUNT(*) FROM venue_balance_snapshots"
+        ).fetchone()[0]
+        mirrors = conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'settlements'"
+        ).fetchone()[0]
+        conn.close()
+        assert balances == 146, "the balance is every cycle, mirror included"
+        assert mirrors == 2, "cycle 1, then the first cycle past the 12h mark"
+
+    async def test_endpoint_failures_are_absorbed_and_logged_per_cycle(
+        self, tmp_path
+    ):
+        """The per-endpoint catches inside the poll functions, driven from the
+        loop. Note what this does NOT test: nothing here reaches the loop's
+        own catch-all, because the poll functions catch everything they call.
+        The test below is the one that exercises the outer guard."""
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        clock, sleep = self._clockwork(step_s=300)
+        client = FakeClient(fail={"settlements", "fills", "positions", "balance"})
+
+        await poll_portfolio_forever(
+            path, client, sleep=sleep, clock=clock, max_cycles=3,
+        )
+
+        conn = db.open_db(path, read_only=True)
+        failures = conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE ok = 0"
+        ).fetchone()[0]
+        conn.close()
+        # Cycle 1 is a mirror (4 endpoints fail), cycles 2-3 are balance-only.
+        assert failures == 6, "every failed attempt left a row, and the loop ran on"
+
+    async def test_a_failure_that_escapes_the_poll_does_not_kill_the_loop(
+        self, tmp_path, monkeypatch
+    ):
+        """The loop's OWN catch-all, which the per-endpoint catches shadow.
+
+        The poll functions catch every venue error, so the only things that
+        reach the outer guard are the ones nobody predicted -- a DB error, a
+        bug. Simulated by making `poll_balance` itself raise: the loop must
+        absorb it and keep cycling, because the registration's gap tripwires
+        read `poll_log` and only a surviving loop keeps writing it. The first
+        mutation draft of this file did not test this seam at all and the
+        catch-all was provably decoration; this is the repair.
+        """
+        from backend import portfolio_poll as module
+
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        clock, sleep = self._clockwork(step_s=300)
+        calls = {"n": 0}
+
+        async def exploding_balance(conn, client, *, now_ms):
+            calls["n"] += 1
+            raise RuntimeError("nobody predicted this")
+
+        monkeypatch.setattr(module, "poll_balance", exploding_balance)
+
+        # Must return normally: cycle 1 is a mirror (which also calls the
+        # exploding balance, inside poll_portfolio), cycles 2-3 are the
+        # balance-only path raising straight into the loop body.
+        await poll_portfolio_forever(
+            path, FakeClient(), sleep=sleep, clock=clock, max_cycles=3,
+        )
+
+        assert calls["n"] == 3, "the loop kept attempting after each escape"
 
 
 # ---------------------------------------------------------------------------
