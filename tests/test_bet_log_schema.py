@@ -443,6 +443,98 @@ class TestV11RemovesWhatV10GotWrong:
             assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
+class TestARealV9VolumeBootsThroughEveryMigration:
+    """The shape that took the live instance down on 2026-08-18.
+
+    Every other migration test winds back from a database built by the CURRENT
+    schema, so tables that did not exist at v9 -- venue_settlements,
+    venue_balance_snapshots, bet_estimates, poll_log -- are already present
+    before the wind-back. The real live volume predates all of them, and v11's
+    `ALTER TABLE venue_balance_snapshots ADD COLUMN` raised `no such table`
+    inside `init_db`, before the schema file that creates the table had run:
+    a crash loop at boot, on the one database that cannot be recreated, found
+    by the deploy and not by the suite.
+
+    This fixture builds the genuine article: a database with NO post-v9 table
+    at all, stamped v9, then boots it exactly the way the entrypoint does.
+    """
+
+    @staticmethod
+    def _real_v9(path: Path) -> None:
+        c = db.init_db(path)
+        # The parent chain, because the v9 shape being restored carries the
+        # kalshi_markets foreign key this fill must satisfy.
+        c.execute(
+            "INSERT INTO kalshi_series (series_ticker, league, has_game_markets, "
+            "first_seen_ms, last_seen_ms) VALUES ('KXT', 'L', 1, 0, 0)"
+        )
+        c.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, title, "
+            "category, commence_ms, close_ms, status, first_seen_ms, "
+            "last_seen_ms) VALUES ('E', 'KXT', 't', 'Sports', 1, 2, 'open', 1, 1)"
+        )
+        c.execute(
+            "INSERT INTO kalshi_markets (ticker, event_ticker, title, status, "
+            "first_seen_ms, last_seen_ms) VALUES ('T-1', 'E', 'm', 'open', 1, 1)"
+        )
+        c.execute(
+            "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "
+            "price_tenths, is_taker, fee_predicted, fee_model_used) "
+            "VALUES ('f1', 'T-1', 1, 3, 500, 1, 0.05, 'model_a')"
+        )
+        # Wind fills back to its v9 shape, then remove every table v9 did not
+        # have. DROP, not undo: at v9 these tables were not merely different --
+        # they were absent, and absence is the case the ALTER crashed on.
+        for statement in db._QUANTITIES_ARE_REAL_UNDO:
+            c.execute(statement)
+        for statement in db._V11_UNDO:
+            c.execute(statement)
+        for statement in db._FILLS_REBUILD_UNDO:
+            c.execute(statement)
+        for table in (
+            "bet_estimates", "venue_settlements", "venue_balance_snapshots",
+            "bet_estimate_looks", "poll_log",
+        ):
+            c.execute(f"DROP TABLE IF EXISTS {table}")
+        db._set_meta(c, "schema_version", "9")
+        c.commit()
+        c.close()
+
+    def test_the_fixture_really_lacks_the_post_v9_tables(self, tmp_path):
+        """Otherwise this class quietly becomes every other fixture."""
+        path = tmp_path / "v9.db"
+        self._real_v9(path)
+        c = db.connect(path)
+
+        tables = {
+            r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+
+        assert "venue_balance_snapshots" not in tables
+        assert "bet_estimates" not in tables
+        assert "source" not in {r[1] for r in c.execute("PRAGMA table_info(fills)")}
+        c.close()
+
+    def test_init_db_boots_it_to_current_without_raising(self, tmp_path):
+        """The whole regression: this call is what crashed the live boot."""
+        path = tmp_path / "v9.db"
+        self._real_v9(path)
+
+        c = db.init_db(path)
+
+        assert db.get_meta(c, "schema_version") == str(db.SCHEMA_VERSION)
+        # The tables the migration cannot create arrive from the schema file,
+        # complete -- including the column the fatal ALTER tried to add.
+        assert "portfolio_value_tenths" in {
+            r[1] for r in c.execute("PRAGMA table_info(venue_balance_snapshots)")
+        }
+        row = c.execute(
+            "SELECT kalshi_fill_id, count, source FROM fills"
+        ).fetchone()
+        assert (row["kalshi_fill_id"], row["count"], row["source"]) == ("f1", 3, "engine")
+        c.close()
+
+
 class TestThePollLogRecordsFailuresNotJustSuccesses:
     """Every retention tripwire is decoration without this table.
 

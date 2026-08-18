@@ -717,10 +717,18 @@ _MIGRATIONS: dict[int, _Migration] = {
         skip_statements_if_column=(("venue_settlements", "contracts"),),
         undo_statements=_QUANTITIES_ARE_REAL_UNDO,
     ),
+    # v11 carries NO `columns` entry, and the blank is load-bearing. It used to
+    # add `portfolio_value_tenths` to `venue_balance_snapshots` -- a table that
+    # did not exist before v10's schema, so on the real v9 LIVE volume the
+    # `ALTER TABLE` raised `no such table` inside `init_db`, before the schema
+    # file (which creates it, complete) had run. That was a crash loop at boot
+    # on the one database that cannot be recreated, found by the deploy and not
+    # by the suite: every test fixture builds from the current schema first, so
+    # the table always existed before the wind-back -- the exact
+    # fresh-fixture-vs-production gap `init_db`'s own docstring describes. The
+    # column needs no migration at all: no deployed database ever ran the
+    # v11-era schema, and `executescript` creates the table fully formed.
     11: _Migration(
-        columns=(
-            ("venue_balance_snapshots", "portfolio_value_tenths", "INTEGER"),
-        ),
         statements=_V11_DROP_UNWRITTEN_TABLES,
         skip_statements_if_column=(("bet_estimates", "outcome_source"),),
         undo_statements=_V11_UNDO,
