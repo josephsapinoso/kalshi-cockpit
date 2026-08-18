@@ -513,8 +513,16 @@ async def main() -> int:
                 hub_running=await probe_hub_running(health_client),
                 markets_priced=counts.markets_quoted,
             )
+            # `budget.state(stamp).remaining_today`, not `budget.remaining_today()`
+            # -- `remaining_today` is a PROPERTY on `BudgetState`, which
+            # `CreditBudget.state()` returns. The wrong spelling shipped to
+            # live on 2026-08-18 and raised AttributeError on every pass; see
+            # `tasks/lessons.md`. `state()` runs two SUMs over `api_credits`
+            # once per pass, which is the same cost `decide_sweeps` already
+            # pays each pass.
             await alerter.check_credits(
-                now_ms=stamp, remaining_today=budget.remaining_today()
+                now_ms=stamp,
+                remaining_today=budget.state(stamp).remaining_today,
             )
             if kind == "full":
                 await alerter.daily_digest(
