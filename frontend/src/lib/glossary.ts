@@ -92,6 +92,20 @@ export const GLOSSARY = {
       "already moved toward your side, part of your idea is spent — you " +
       "would be paying for news the price has absorbed.",
   },
+  candlestick: {
+    label: "candlestick",
+    definition:
+      "One bar per time slice showing four prices: where it opened, the " +
+      "highest and lowest it traded, and where it closed. A filled-in hour " +
+      "of trading at a glance; the line view shows only the closes.",
+  },
+  volume: {
+    label: "volume",
+    definition:
+      "How much money has traded in this market. Thin volume means few " +
+      "people are trading it: prices move on tiny orders and getting out " +
+      "of a position can be hard.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

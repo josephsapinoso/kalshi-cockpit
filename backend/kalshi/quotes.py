@@ -282,6 +282,41 @@ class LiveQuoteSource:
             )
         return quote
 
+    async def history(
+        self,
+        series_ticker: str,
+        ticker: str,
+        *,
+        start_ts: int,
+        end_ts: int,
+        period_interval: int,
+    ) -> list[dict]:
+        """Raw candlesticks for the chart, through the same client and the
+        same error discipline as `fetch`: every failure is `QuoteUnavailable`,
+        `ConfigError` passes through untouched so "no credentials" stays
+        distinguishable from "the exchange did not answer".
+        """
+        api = self._api()
+        try:
+            return await api.candlesticks(
+                series_ticker,
+                ticker,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                period_interval=period_interval,
+            )
+        except KalshiAPIError as exc:
+            logger.warning("candlestick read failed for %s: %s", ticker, exc)
+            raise QuoteUnavailable(
+                f"could not read price history for {ticker}: {exc}",
+                permanent=exc.status_code in (400, 404),
+            ) from exc
+        except Exception as exc:                                # noqa: BLE001
+            logger.warning("candlestick read failed for %s: %s", ticker, exc)
+            raise QuoteUnavailable(
+                f"could not read price history for {ticker}: {exc}"
+            ) from exc
+
     async def aclose(self) -> None:
         if self._client is not None and self._owns_client:
             await self._client.aclose()

@@ -1404,3 +1404,50 @@ export async function reviseEstimate(id: number, reason: string): Promise<void> 
     throw new Error(detail);
   }
 }
+
+/** One drawable bar of a market's price history. Prices in tenths of a cent;
+ *  every field independently nullable — a candle in which nothing traded is a
+ *  gap on the chart, never a bar invented at zero. */
+export type ChartCandle = {
+  t_ms: number;
+  open_tenths: number | null;
+  high_tenths: number | null;
+  low_tenths: number | null;
+  close_tenths: number | null;
+  yes_bid_close_tenths: number | null;
+  yes_ask_close_tenths: number | null;
+  volume: number | null;
+};
+
+export type MarketCandles = {
+  ticker: string;
+  title: string | null;
+  range: "1d" | "1w" | "1m" | "all";
+  period_minutes: number;
+  candles: ChartCandle[];
+  dropped_unreadable: number;
+};
+
+/**
+ * Kalshi's own candlesticks for one market, shaped for the chart. History,
+ * not a quote: nothing from this payload may feed a sizing or order decision
+ * — the price you would actually pay is the ask, on the slate.
+ */
+export async function fetchMarketCandles(
+  ticker: string,
+  range: MarketCandles["range"],
+): Promise<MarketCandles> {
+  const response = await fetch(
+    `${BASE}/api/market/${encodeURIComponent(ticker)}/candles?range=${range}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `price history returned ${response.status}`;
+    throw new Error(detail);
+  }
+  return response.json() as Promise<MarketCandles>;
+}

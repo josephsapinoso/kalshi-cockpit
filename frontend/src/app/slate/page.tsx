@@ -1,6 +1,8 @@
 import { DISPLAY_TIME_ZONE, fetchSignal, fetchSlate } from "@/lib/api";
 import type { Signal, Slate, SlateRowData } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
+import Link from "next/link";
+
 import CrewBubble from "@/components/CrewBubble";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
@@ -179,9 +181,15 @@ function Row({
       <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
         {kickoff(row.commence_ms)}
       </span>
-      <span className="min-w-0 font-semibold tracking-tight">
+      {/* The name opens the market's price-history chart. A plain link,
+          not a button: history is safe to browse, and the chart page says
+          itself that the tradeable number is the ask on this row. */}
+      <Link
+        href={`/market/${encodeURIComponent(row.ticker)}`}
+        className="min-w-0 font-semibold tracking-tight hover:underline"
+      >
         {row.team ?? row.ticker}
-      </span>
+      </Link>
       <span className="tabular text-sm text-muted">
         {row.ask_display} <Term k="ask">ask</Term>
       </span>

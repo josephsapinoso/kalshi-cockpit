@@ -62,12 +62,32 @@ def linked_routes(source: Path) -> set[str]:
     return set(re.findall(r'href:\s*"([^"]+)"', source.read_text(encoding="utf-8")))
 
 
+def dynamically_linked(route: str) -> bool:
+    """A `[param]` route cannot appear in Nav or Footer by its literal name --
+    it is reached per-row, through a template link like
+    `` href={`/market/${...}`} ``. Reachable here means some source file under
+    `src/` builds an href from the route's static prefix. Mutation observed
+    red: remove the slate row's `/market/` Link -- the route lands back in
+    `orphaned` by name.
+    """
+    prefix = route.split("[", 1)[0]
+    needle = f"href={{`{prefix}"
+    return any(
+        needle in p.read_text(encoding="utf-8")
+        for p in (REPO_ROOT / "frontend" / "src").rglob("*.tsx")
+    )
+
+
 class TestEveryScreenCanBeArrivedAt:
     def test_no_served_page_is_reachable_only_by_typing_its_url(self):
         """The whole point. Mutation observed red: delete either entry from
         `Footer.tsx`'s `SECONDARY` -- that route reappears here by name."""
         reachable = linked_routes(NAV) | linked_routes(FOOTER) | EXEMPT
-        orphaned = sorted(served_routes() - reachable)
+        orphaned = sorted(
+            route
+            for route in served_routes() - reachable
+            if not ("[" in route and dynamically_linked(route))
+        )
         assert not orphaned, (
             f"{orphaned} render fine and nothing in the application links to "
             f"them, so the only way to arrive is to type the URL -- which on a "

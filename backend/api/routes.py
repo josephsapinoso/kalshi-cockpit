@@ -76,6 +76,7 @@ from ..gate import (
     population_counts,
     recommendation_freshness,
 )
+from ..kalshi.candles import parse_chart_candle
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
@@ -1731,6 +1732,85 @@ def create_app(
             "detail": submission.detail,
             "estimated_credits": submission.estimated_credits,
             "retry_after_ms": submission.retry_after_ms,
+        }
+
+    # -- price history for the market chart ---------------------------------
+
+    @app.get("/api/market/{ticker}/candles")
+    async def market_candles(
+        ticker: str, range: str = Query(default="1w"), conn=Depends(get_conn)
+    ) -> dict:
+        """Kalshi's own candlesticks for one market, shaped for the chart.
+
+        History, not a quote: `price` OHLC is the traded price, and nothing
+        here feeds sizing, the order path, or any measurement. Unreadable
+        fields arrive as null, never 0 -- a candle in which nothing traded is
+        a gap on the chart, not a bar at zero.
+
+        The range names mirror Kalshi's own app. Interval choices keep every
+        answer under ~1,500 bars: a day at 1-minute candles, a week and a
+        month at hourly, everything at daily capped at 90 days.
+        """
+        spans = {
+            # (period_interval minutes, lookback seconds)
+            "1d": (1, 24 * 3600),
+            "1w": (60, 7 * 24 * 3600),
+            "1m": (60, 30 * 24 * 3600),
+            "all": (1440, 90 * 24 * 3600),
+        }
+        if range not in spans:
+            raise HTTPException(
+                status_code=422,
+                detail=f"range must be one of {sorted(spans)}, got {range!r}",
+            )
+        interval, lookback_s = spans[range]
+
+        row = conn.execute(
+            "SELECT series_ticker, title FROM kalshi_markets WHERE ticker = ?",
+            (ticker,),
+        ).fetchone()
+        # An undiscovered market still has a series: the ticker's first
+        # hyphen-segment IS the series ticker on every observed market.
+        series = (row["series_ticker"] if row and row["series_ticker"] else None) \
+            or ticker.split("-", 1)[0]
+
+        end_ts = db.now_ms() // 1000
+        try:
+            raw = await live_quotes().history(
+                series,
+                ticker,
+                start_ts=end_ts - lookback_s,
+                end_ts=end_ts,
+                period_interval=interval,
+            )
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "This instance holds no Kalshi credentials, so price "
+                    f"history cannot be read: {exc}"
+                ),
+            ) from exc
+        except QuoteUnavailable as exc:
+            raise HTTPException(
+                status_code=422 if exc.permanent else 503, detail=str(exc)
+            ) from exc
+
+        candles = []
+        dropped = 0
+        for entry in raw:
+            parsed = parse_chart_candle(entry)
+            if parsed is None:
+                dropped += 1
+            else:
+                candles.append(parsed)
+        return {
+            "ticker": ticker,
+            "title": row["title"] if row else None,
+            "range": range,
+            "period_minutes": interval,
+            "candles": candles,
+            "dropped_unreadable": dropped,
         }
 
     # -- the calibration bet log (registration 2026-08-17, as amended) -------
