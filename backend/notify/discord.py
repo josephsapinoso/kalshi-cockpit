@@ -27,8 +27,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Optional, Sequence
+from urllib.parse import quote
 
 import httpx
+
+from backend.config import DEFAULT_COCKPIT_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +85,7 @@ class DiscordConfig:
         """
         import os
 
-        base = os.getenv("COCKPIT_BASE_URL", "").strip() or "http://localhost:3000"
+        base = os.getenv("COCKPIT_BASE_URL", "").strip() or DEFAULT_COCKPIT_BASE_URL
 
         webhook = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
         if webhook:
@@ -173,11 +176,27 @@ class DiscordNotifier:
 
         The embed carries what a decision needs — fair, ask, edge, stake,
         freshness — and a link. No button.
+
+        **The link goes to `/market/<ticker>`, and the two reasons are
+        separate.** It used to be `/?focus=<ticker>`, which was broken twice
+        over: the host was `localhost:3000` because no deploy file stated
+        `COCKPIT_BASE_URL`, and `focus` was read by nothing —
+        `frontend/src/app/page.tsx` types its params as `{ rejected?: string }`
+        and no file in the tree reads a `focus` param. Fixing the host alone
+        would have produced a link that loads the Board and ignores the ticker,
+        which is the plausible-looking half-fix.
+
+        `/market/[ticker]` is genuinely ticker-addressable and **still renders
+        after the opportunity expires**, which the Board does not — an alert
+        read twenty minutes late lands on the price history rather than on a
+        page that has forgotten the row.
         """
         if not self.config:
             return False
 
-        url = ticker_url or f"{self.config.cockpit_base_url}/?focus={rec.ticker}"
+        url = ticker_url or (
+            f"{self.config.cockpit_base_url}/market/{quote(rec.ticker, safe='')}"
+        )
         edge = rec.edge_tenths / 10.0
 
         return await self._post(

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 
@@ -83,9 +85,21 @@ export default function SlateRow({
       >
         {chip.label}
       </span>
-      <span className="min-w-0 font-semibold tracking-tight">
+      {/* The name opens the market's price-history chart, exactly as it does
+          on the Slate. **This is not the "tappable" the docstring above
+          refuses.** That prohibition is about opening an *order ticket* from a
+          rejected row, which would suggest the refusal is reversible here. A
+          chart is history: it moves no money, `POST /api/orders` does not read
+          this route, and the chart page says on its own face that the price you
+          would pay is the ask. Until 2026-08-18 this link existed only on
+          `/slate`, so the Board -- the landing page -- was the one screen where
+          a name looked like a name and led nowhere. */}
+      <Link
+        href={`/market/${encodeURIComponent(rec.ticker)}`}
+        className="min-w-0 font-semibold tracking-tight hover:underline"
+      >
         {rec.team ?? rec.ticker}
-      </span>
+      </Link>
       {/* Fair value as a percentage and the ask as a price, so the two cannot
           be read as the same kind of number. */}
       <span className="tabular text-sm text-muted">

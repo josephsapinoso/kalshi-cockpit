@@ -27,6 +27,17 @@ primary_region = "ord"
   DB_PATH = "/data/demo.db"
   PORT = "3000"
   API_ORIGIN = "http://127.0.0.1:8000"
+
+  # Set for parity and for CORS, and NOT for alerting -- the honest reason
+  # matters here. `docker/entrypoint.sh:205-214` starts `scripts/run_loop.py`
+  # only when INSTANCE_MODE != "demo", so this instance never constructs a
+  # notifier and no Discord embed is ever built from this value. Its only live
+  # consumer is `routes.py:400`'s CORS allow-list.
+  #
+  # Stated anyway, on the same logic as the risk caps below: the live boot
+  # refusal in `backend/config.py` does not apply to demo, so an omission here
+  # would be silent forever.
+  COCKPIT_BASE_URL = "https://kalshi-cockpit-demo.fly.dev"
   # Belt and braces: the gate is already locked by default, and the demo has no
   # credentials to trade with even if it were not.
   LIVE_TRADING_ENABLED = "false"

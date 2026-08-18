@@ -902,11 +902,19 @@ class BuildInfo:
         }
 
 
+# The base URL when nothing states one. Named rather than repeated because it
+# was previously spelled out in three places -- here twice and in
+# `notify/discord.py` -- with different whitespace semantics, which is the
+# two-paths-one-definition shape this repo keeps repairing. A live instance
+# refuses to boot on it; see `AppConfig.load`.
+DEFAULT_COCKPIT_BASE_URL = "http://localhost:3000"
+
+
 @dataclass(frozen=True)
 class AppConfig:
     instance_mode: str = "demo"
     auth_token: Optional[str] = None
-    cockpit_base_url: str = "http://localhost:3000"
+    cockpit_base_url: str = DEFAULT_COCKPIT_BASE_URL
     db_path: Path = field(default_factory=lambda: Path("data/cockpit.db"))
     # The dbt/DuckDB warehouse. Separate from db_path on purpose: SQLite is the
     # live operational store and this is the analytics snapshot, and the
@@ -929,10 +937,25 @@ class AppConfig:
                 "Generate one with: "
                 "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
             )
+        # **A loopback base URL is a boot refusal on live, for the same reason
+        # the token above is.** Every Discord embed deep-links to this host and
+        # the tool is operated from a phone, where `http://localhost:3000`
+        # resolves to the phone itself and the link is dead. The failure is
+        # silent in the worst way: the alert arrives, looks correct, and the tap
+        # goes nowhere -- so it reads as Discord being broken rather than as a
+        # missing variable. Neither fly toml stated it until 2026-08-18, so live
+        # ran on this default for the life of the alerter.
+        base = _optional("COCKPIT_BASE_URL", DEFAULT_COCKPIT_BASE_URL)
+        if mode == "live" and ("localhost" in base or "127.0.0.1" in base):
+            raise ConfigError(
+                f"INSTANCE_MODE=live requires a public COCKPIT_BASE_URL; got "
+                f"{base!r}. Every Discord alert links to this host and the tool "
+                f"is used from a phone, where a loopback link is dead."
+            )
         return cls(
             instance_mode=mode,
             auth_token=token,
-            cockpit_base_url=_optional("COCKPIT_BASE_URL", "http://localhost:3000"),
+            cockpit_base_url=base,
             db_path=Path(_optional("DB_PATH", "data/cockpit.db")),
             warehouse_path=Path(
                 _optional("WAREHOUSE_PATH", "data/warehouse.duckdb")

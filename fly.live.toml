@@ -33,8 +33,8 @@
 # `docs/adr/0018`.
 #
 #   * The notifier is wired and DISCORD_* is read on **every boot**.
-#     `scripts/run_loop.py:278` calls `DiscordConfig.from_env()`, and
-#     `run_loop.py:289-291` enters `DiscordNotifier` and hands it to `Alerter`,
+#     `scripts/run_loop.py:360` calls `DiscordConfig.from_env()`, and
+#     `run_loop.py:371-373` enters `DiscordNotifier` and hands it to `Alerter`,
 #     which runs on every pass. Unset, `from_env` returns None, the loop logs a
 #     warning, and nothing reaches a phone.
 #   * The fleet is wired. `runner.run_pricing_pass` (backend/runner.py:489)
@@ -80,6 +80,25 @@ primary_region = "ord"
   DB_PATH = "/data/cockpit.db"
   PORT = "3000"
   API_ORIGIN = "http://127.0.0.1:8000"
+
+  # **The host every Discord embed deep-links to, and it was never set.**
+  # Unset, `AppConfig.load` fell through to `http://localhost:3000`, so alerts
+  # arriving on a phone carried a link resolving to the phone itself. The alert
+  # looked right and the tap went nowhere, which reads as Discord being broken
+  # rather than as a missing variable -- the same shape as the risk caps
+  # `fly.demo.toml` omitted, and the reason a value nobody chose is not a value.
+  #
+  # `backend/config.py` now REFUSES TO BOOT on live if this is loopback or
+  # absent, exactly as it does for APP_AUTH_TOKEN. Both refusals are exercised
+  # by `tests/test_deployed_urls_are_explicit.py`; the APP_AUTH_TOKEN one had
+  # never been watched to fail until that file was written.
+  #
+  # Second consumer, named here because it is not a no-op: `routes.py:400`
+  # passes this to CORS `allow_origins` with `allow_credentials=True`. Live has
+  # been allow-listing `http://localhost:3000`. Inert in practice -- the browser
+  # reaches `/api/*` same-origin through the Next rewrite, so no preflight fires
+  # -- and this change is a tightening, not a loosening.
+  COCKPIT_BASE_URL = "https://kalshi-cockpit.fly.dev"
 
   # The gate stays LOCKED until the paper record earns it: >=300 scored
   # recommendations, positive CLV surviving the noise guard, and every fill

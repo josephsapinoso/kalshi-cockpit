@@ -25,6 +25,48 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — A default is a decision nobody made, and it is invisible from inside the running system
+
+The pattern: a config loader that supplies a fallback turns "nobody chose a
+value" into "the value is X" — and every downstream reader then behaves
+correctly with respect to X. Nothing logs, nothing 500s, no test fails. The
+defect only exists at the boundary where the value leaves the machine, and the
+machine cannot see that boundary. **Grep the deploy files for a setting's name
+before believing the deployed value is the one in the code.**
+
+The instance: `COCKPIT_BASE_URL` was defaulted to `http://localhost:3000` in
+`backend/config.py` and stated in neither fly config. Every Discord embed
+therefore deep-linked to `localhost:3000`. On a phone that resolves to the
+phone, so the alert arrived, looked correct, and its link went nowhere. Joe
+read this as "the Discord webhook is broken"; the webhook was fine.
+
+Three things make this class hard, and each is worth its own guard:
+
+- **A self-constructing test cannot see it.** `tests/test_discord.py` passes
+  `DiscordConfig(cockpit_base_url="https://cockpit.example")` in every case, so
+  the default path was never executed. A test that supplies the value it is
+  checking asserts nothing about production — the same shape recorded for
+  `daily_pnl_dollars` and for `test_alerts.py:180`'s `contracts=0`.
+- **A refusal nobody has watched fail is decoration.** The fix copies the
+  `APP_AUTH_TOKEN` live boot refusal, and that refusal had guarded live since
+  it was written with **no test exercising it** — the whole repo contained no
+  `AppConfig.load()` under `pytest.raises`. Copying a guard is a good moment to
+  check the original earns its place.
+- **The host fix alone would have shipped a bug that survives its own fix.**
+  The link was `/?focus=<ticker>` and no file in the frontend reads a `focus`
+  param. A correct host plus a dead param loads the Board and silently ignores
+  the ticker — which looks fixed. **When repairing a URL, verify the path as
+  well as the origin.**
+
+The narrow fix is `tests/test_deployed_urls_are_explicit.py`. The general one
+is the enumerate-and-classify inversion this repo already argues for elsewhere:
+walk `backend/config.py` for every `_optional(NAME, default)` and require each
+name to be stated in both `[env]` blocks or listed in an explicit
+defaults-are-the-decision table. `test_deployed_risk_caps_are_explicit.py`
+applied that reasoning to money in 2026-08-17 and to nothing else; the identical
+hole was open on every other setting the whole time.
+
+
 ## 2026-08-18 — A guard written against one cause leaves the other causes uncovered, and the symptom is identical
 
 The pattern: a quantity can be forced into the same user-visible state by more

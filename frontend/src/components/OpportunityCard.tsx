@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import Link from "next/link";
+
 import type { Recommendation } from "@/lib/api";
 import { formatAge, formatDuration, formatKickoff, freshness } from "@/lib/api";
 import { liveSizing } from "@/lib/liveSizing";
@@ -64,8 +66,17 @@ export default function OpportunityCard({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
+          {/* The name opens the price-history chart, as it does on the Slate
+              and on `SlateRow`. A link, not the card: the card carries a size
+              and a cost, and making the whole of it navigate would put a
+              price-history tap where a reader expects the bet. */}
           <h3 className="text-lg font-bold tracking-tight">
-            {rec.team ?? rec.ticker}
+            <Link
+              href={`/market/${encodeURIComponent(rec.ticker)}`}
+              className="hover:underline"
+            >
+              {rec.team ?? rec.ticker}
+            </Link>
           </h3>
           <p className="mt-0.5 truncate text-sm text-muted">
             {rec.event_title ?? rec.ticker}
