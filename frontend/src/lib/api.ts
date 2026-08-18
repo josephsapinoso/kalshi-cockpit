@@ -1316,3 +1316,91 @@ export type Refreshable = {
  * keyed for *reading*.
  */
 export const fetchRefreshable = () => get<Refreshable>("/api/odds/refreshable");
+
+/**
+ * The calibration bet log (registration 2026-08-17, as amended).
+ *
+ * Deliberately price-free types. The backend captures the market's book at
+ * estimate time for the anchoring tripwires and never serialises it into any
+ * payload below -- a quote key appearing here would mean the embargo broke.
+ */
+export type EstimateMarket = {
+  ticker: string;
+  title: string | null;
+  player_name: string | null;
+  event_ticker: string | null;
+  event_title: string | null;
+  close_ms: number | null;
+};
+
+export type RecentEstimate = {
+  id: number;
+  ticker: string;
+  /** P(YES) in basis points: 6250 renders as 62.50%. */
+  stated_probability_bp: number;
+  estimate_server_ms: number;
+  had_already_opened_kalshi: number | null;
+  stated_probability_is_revised: number;
+};
+
+export const searchEstimateMarkets = (q: string) =>
+  get<{ markets: EstimateMarket[] }>(
+    `/api/estimates/markets?q=${encodeURIComponent(q)}`,
+  );
+
+export const fetchRecentEstimates = () =>
+  get<{ estimates: RecentEstimate[] }>("/api/estimates/recent");
+
+/** What `POST /log-estimate` answers with. Quote-free by construction. */
+export type EstimateLogged = {
+  id: number;
+  ticker: string;
+  stated_probability_bp: number;
+  estimate_server_ms: number;
+};
+
+/**
+ * Log one estimate, through the Next route handler that holds the bearer
+ * token server-side (the `/refresh-odds` pattern: the browser proves session,
+ * the server supplies authority).
+ */
+export async function logEstimate(body: {
+  ticker: string;
+  stated_probability_bp: number;
+  had_already_opened_kalshi: 0 | 1;
+  estimate_client_ms: number;
+}): Promise<EstimateLogged> {
+  const response = await fetch(`/log-estimate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `logging failed (${response.status})`;
+    throw new Error(detail);
+  }
+  return payload as EstimateLogged;
+}
+
+/** Flag an estimate as mistyped. Append-only; nothing is edited in place. */
+export async function reviseEstimate(id: number, reason: string): Promise<void> {
+  const response = await fetch(`/revise-estimate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ id, reason }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `revision failed (${response.status})`;
+    throw new Error(detail);
+  }
+}

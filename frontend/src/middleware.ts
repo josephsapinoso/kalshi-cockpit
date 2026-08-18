@@ -40,7 +40,11 @@ const PUBLIC_PATHS = new Set([
  * belongs to the rewrite -- but a redirect to the login page would reach them
  * as an HTML body behind a 200, which every JSON client reads as success.
  */
-const JSON_ROUTE_HANDLERS = new Set(["/refresh-odds"]);
+const JSON_ROUTE_HANDLERS = new Set([
+  "/refresh-odds",
+  "/log-estimate",
+  "/revise-estimate",
+]);
 
 export async function middleware(request: NextRequest) {
   const secret = sessionSecret();

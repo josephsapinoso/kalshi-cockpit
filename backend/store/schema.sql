@@ -956,6 +956,52 @@ CREATE INDEX IF NOT EXISTS idx_bet_estimates_cluster
 CREATE INDEX IF NOT EXISTS idx_bet_estimates_unmatched
     ON bet_estimates(ticker) WHERE matched_position_id IS NULL;
 
+-- §7.4 of the calibration registration: `stated_probability_bp` is write-once,
+-- **enforced by the database rather than by route discipline**, because the
+-- route is one caller and this file outlives every caller. Fires on any UPDATE
+-- that names the column, including one writing the same value back -- a
+-- statement that names the estimate column at all is doing something the
+-- protocol forbids, and "it happened to be a no-op" is not an audit trail.
+--
+-- Triggers live here and NOT in a numbered migration, deliberately. v11 was a
+-- crash loop at boot because it ALTERed a table the real v9 volume did not
+-- have: migrations run BEFORE this file, and v11 itself DROPs `bet_estimates`
+-- for this file to recreate. `CREATE TRIGGER IF NOT EXISTS` on every open has
+-- no such window -- by the time executescript reaches this line the table
+-- exists, on every volume, at every starting version.
+CREATE TRIGGER IF NOT EXISTS trg_bet_estimates_write_once
+BEFORE UPDATE OF stated_probability_bp ON bet_estimates
+BEGIN
+    SELECT RAISE(ABORT,
+        'stated_probability_bp is write-once (calibration registration 7.4); append a revision row instead');
+END;
+
+-- The trivial bypass of an UPDATE guard is DELETE + INSERT, so an UPDATE-only
+-- guard would be decoration. The record is append-only: a wrong estimate is
+-- flagged revised, never removed.
+CREATE TRIGGER IF NOT EXISTS trg_bet_estimates_no_delete
+BEFORE DELETE ON bet_estimates
+BEGIN
+    SELECT RAISE(ABORT,
+        'bet_estimates is append-only (calibration registration 7.4); flag the row revised instead of deleting it');
+END;
+
+-- §7.4's correction path: append-only, carrying a reason. Revising sets
+-- `stated_probability_is_revised = 1` on the flagged row -- an UPDATE of a
+-- *different* column, which the trigger above deliberately permits -- and §2
+-- excludes the row from every population. The corrected estimate, if any, is
+-- a brand-new `bet_estimates` row logged through the normal path with fresh
+-- clocks and a fresh quote; nothing here edits a probability in place.
+CREATE TABLE IF NOT EXISTS bet_estimate_revisions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id   INTEGER NOT NULL REFERENCES bet_estimates(id),
+    reason        TEXT NOT NULL,
+    revised_ms    INTEGER NOT NULL,
+    CHECK (length(reason) > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_bet_estimate_revisions_estimate
+    ON bet_estimate_revisions(estimate_id);
+
 -- One row per analysis run. The registration forbids interim looks -- an
 -- always-valid boundary would put the entire effect being hunted out of reach
 -- at every achievable sample size, so the design buys power by looking once.

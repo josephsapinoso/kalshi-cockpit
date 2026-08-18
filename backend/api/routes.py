@@ -62,6 +62,7 @@ from ..core.prices import (
     tenths_to_dollars,
 )
 from ..core.sizing import size_position, verify_positive_after_fees
+from .. import estimates as bet_estimates
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
@@ -154,6 +155,26 @@ class OddsRefreshRequest(BaseModel):
     odds_event_id: Optional[str] = Field(
         default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
     )
+
+
+class EstimateRequest(BaseModel):
+    """What the bet-estimate form sends: §9.2's two typed fields plus the tap.
+
+    `stated_probability_bp` is P(YES), always -- never "probability my side
+    wins". The bounds mirror the schema CHECK so a bad value is refused with a
+    422 the phone can render instead of an IntegrityError it cannot.
+    """
+
+    ticker: str = Field(min_length=1, max_length=80)
+    stated_probability_bp: int = Field(ge=1, le=9999)
+    had_already_opened_kalshi: Optional[int] = Field(default=None, ge=0, le=1)
+    estimate_client_ms: Optional[int] = None
+
+
+class EstimateRevisionRequest(BaseModel):
+    """§7.4's correction path: a reason, and nothing editable."""
+
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class LegRequest(BaseModel):
@@ -1712,6 +1733,135 @@ def create_app(
             "retry_after_ms": submission.retry_after_ms,
         }
 
+    # -- the calibration bet log (registration 2026-08-17, as amended) -------
+
+    @app.get("/api/estimates/markets")
+    def estimate_market_search(
+        q: str = Query(default="", max_length=80), conn=Depends(get_conn)
+    ) -> dict:
+        """The one-tap picker's search. Serves no prices, by construction.
+
+        `search_markets` selects no quote column, so this route cannot leak
+        the number the anchoring tripwires exist to measure.
+        """
+        query = q.strip()
+        if len(query) < 2:
+            return {"markets": []}
+        return {
+            "markets": bet_estimates.search_markets(
+                conn, query, now_ms=db.now_ms()
+            )
+        }
+
+    @app.get("/api/estimates/recent")
+    def estimate_recent(conn=Depends(get_conn)) -> dict:
+        """The last few entries, embargo-safe columns only.
+
+        What Joe typed is not embargoed from Joe; what the server captured at
+        estimate time is, until the registered stop. The column list lives in
+        `estimates._SAFE_COLUMNS` and the test suite asserts the quote never
+        appears here.
+        """
+        return {"estimates": bet_estimates.recent_estimates(conn)}
+
+    @app.post("/api/estimates", dependencies=[Depends(require_auth)])
+    async def log_estimate(request: EstimateRequest) -> dict:
+        """Record one estimate: stamp it, capture the quote, say nothing back.
+
+        The server fetches the market's book *at estimate time* and stores it
+        for the anchoring tripwires (§7.7). **The response never carries it.**
+        A quote that cannot be read is recorded as a reason string rather than
+        blocking the write -- the estimate is the measurement and a transient
+        network failure must not cost the row. The one refusal: a ticker
+        Kalshi has permanently never heard of AND discovery has never seen,
+        which can only be a typo, and an unjoinable row is worse than a retype.
+        """
+        stamped = db.now_ms()
+        ticker = request.ticker.strip().upper()
+        yes_bid = yes_ask = observed = None
+        unreadable: Optional[str] = None
+        permanently_unknown = False
+        try:
+            quote = await live_quotes().fetch(ticker, observed_ms=stamped)
+        except ConfigError as exc:
+            unreadable = f"no Kalshi credentials at estimate time: {exc}"
+        except QuoteUnavailable as exc:
+            unreadable = str(exc)
+            permanently_unknown = exc.permanent
+        else:
+            yes_bid = quote.market.yes_bid_tenths
+            yes_ask = quote.ask_tenths("yes")
+            observed = quote.observed_ms
+
+        if permanently_unknown:
+            conn = db.open_db(app_config.db_path, read_only=True)
+            try:
+                known = bet_estimates.market_context(conn, ticker) != (None, None)
+                discovered = conn.execute(
+                    "SELECT 1 FROM kalshi_markets WHERE ticker = ?", (ticker,)
+                ).fetchone()
+            finally:
+                conn.close()
+            if not discovered and not known:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Kalshi has never heard of {ticker!r} and neither "
+                        f"has discovery. Check the ticker and retype it -- "
+                        f"an estimate nothing can join to is not a record."
+                    ),
+                )
+
+        row_id = await run_in_threadpool(
+            _write_estimate,
+            app_config.db_path,
+            ticker=ticker,
+            stated_probability_bp=request.stated_probability_bp,
+            estimate_server_ms=stamped,
+            had_already_opened_kalshi=request.had_already_opened_kalshi,
+            estimate_client_ms=request.estimate_client_ms,
+            server_yes_bid_tenths=yes_bid,
+            server_yes_ask_tenths=yes_ask,
+            server_quote_observed_ms=observed,
+            server_quote_unreadable_reason=unreadable,
+        )
+        # Deliberately quote-free. Rendering the captured book here would hand
+        # the anchoring reference to the person being measured (§7.7).
+        return {
+            "id": row_id,
+            "ticker": ticker,
+            "stated_probability_bp": request.stated_probability_bp,
+            "estimate_server_ms": stamped,
+        }
+
+    @app.post(
+        "/api/estimates/{estimate_id}/revise",
+        dependencies=[Depends(require_auth)],
+    )
+    async def revise_estimate_route(
+        estimate_id: int, request: EstimateRevisionRequest
+    ) -> dict:
+        """Flag an estimate as mistyped. Append-only; nothing is edited.
+
+        The probability itself cannot be changed by anyone -- the schema
+        trigger rejects the UPDATE below the route layer. This records the
+        reason and sets the revised flag, which excludes the row (§2). The
+        corrected estimate is a new row through `log_estimate`, with fresh
+        clocks and a fresh quote.
+        """
+        done = await run_in_threadpool(
+            _revise_estimate,
+            app_config.db_path,
+            estimate_id,
+            reason=request.reason,
+            revised_ms=db.now_ms(),
+        )
+        if not done:
+            raise HTTPException(
+                status_code=404, detail=f"no estimate with id {estimate_id}"
+            )
+        return {"revised": estimate_id}
+
     @app.post("/api/orders", dependencies=[Depends(require_auth)])
     async def place_order(request: OrderPlacementRequest) -> dict:
         """Place an order, or refuse with the specific unmet condition.
@@ -2622,6 +2772,30 @@ def _replay(row) -> dict:
         "sent -- the key you supplied had already been used."
     )
     return body
+
+
+def _write_estimate(db_path, **kwargs) -> int:
+    """One estimate row, on its own writable connection in a worker thread.
+
+    Same shape as `_write_intent` below, for the same reason: the connection
+    is made inside the threadpool worker that uses it, and it is short-lived
+    so the write lock is held for the smallest possible window.
+    """
+    conn = db.open_db(db_path)
+    try:
+        return bet_estimates.record_estimate(conn, **kwargs)
+    finally:
+        conn.close()
+
+
+def _revise_estimate(db_path, estimate_id: int, *, reason: str, revised_ms: int) -> bool:
+    conn = db.open_db(db_path)
+    try:
+        return bet_estimates.revise_estimate(
+            conn, estimate_id, reason=reason, revised_ms=revised_ms
+        )
+    finally:
+        conn.close()
 
 
 def _write_intent(

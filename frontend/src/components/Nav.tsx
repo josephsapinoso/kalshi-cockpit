@@ -25,10 +25,16 @@ import ThemeToggle from "./ThemeToggle";
 // projection of the other. `/rejections` is still served, exactly as
 // `/builder` is, and its counts are still the fastest read when one rule is
 // refusing everything.
+// **Log then took Data's slot, 2026-08-18, same trade again.** The calibration
+// study (registration 2026-08-17) makes logging an estimate the one action
+// performed before every hand bet, on a phone, on a clock -- the flow is
+// budgeted at twelve seconds and a link that must be hunted for blows the
+// budget. Data renders dbt marts that are read weekly at most, and
+// `/dashboards` is still served, exactly as `/builder` and `/rejections` are.
 const LINKS = [
   { href: "/", label: "Board" },
   { href: "/slate", label: "Slate" },
-  { href: "/dashboards", label: "Data" },
+  { href: "/estimate", label: "Log" },
   { href: "/ledger", label: "Ledger" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.
