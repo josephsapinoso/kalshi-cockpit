@@ -168,7 +168,13 @@ class EstimateRequest(BaseModel):
 
     ticker: str = Field(min_length=1, max_length=80)
     stated_probability_bp: int = Field(ge=1, le=9999)
-    had_already_opened_kalshi: Optional[int] = Field(default=None, ge=0, le=1)
+    # REQUIRED at the API, not just enforced by the form's disabled input.
+    # "Never trust that the UI disabled a button" is this repo's own rule, and
+    # the question must be answered BEFORE the number exists (§9.2) -- a
+    # payload arriving without it answered is a payload that skipped the
+    # ordering the study depends on. The schema column stays nullable because
+    # §9.4 reserves the right to cut the field entirely.
+    had_already_opened_kalshi: int = Field(ge=0, le=1)
     estimate_client_ms: Optional[int] = None
 
 
@@ -1766,7 +1772,8 @@ def create_app(
         interval, lookback_s = spans[range]
 
         row = conn.execute(
-            "SELECT series_ticker, title FROM kalshi_markets WHERE ticker = ?",
+            "SELECT series_ticker, title, close_ms FROM kalshi_markets "
+            "WHERE ticker = ?",
             (ticker,),
         ).fetchone()
         # An undiscovered market still has a series: the ticker's first
@@ -1774,7 +1781,14 @@ def create_app(
         series = (row["series_ticker"] if row and row["series_ticker"] else None) \
             or ticker.split("-", 1)[0]
 
-        end_ts = db.now_ms() // 1000
+        # Anchor the window on the market's close, not on "now": a game that
+        # finished yesterday has no candles in the last 24 hours, so a
+        # now-anchored 1D window rendered every settled market as a blank
+        # chart (measured live by kalshi-platform on 2026-08-18 -- 0 candles
+        # now-anchored vs 6 close-anchored on a market 1.5 days done).
+        now_s = db.now_ms() // 1000
+        close_s = (row["close_ms"] // 1000) if row and row["close_ms"] else None
+        end_ts = min(now_s, close_s) if close_s else now_s
         try:
             raw = await live_quotes().history(
                 series,

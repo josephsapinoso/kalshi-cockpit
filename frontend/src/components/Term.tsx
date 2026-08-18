@@ -35,18 +35,26 @@ export default function Term({
 
   useEffect(() => {
     if (!open) return;
-    const away = (event: PointerEvent) => {
+    // Capture phase, and the dismissing tap is SWALLOWED. Without both, a
+    // tap that closes the popover falls through to whatever sits under it --
+    // on the Board that is TicketTrigger, so "stop explaining a word" opened
+    // a money sheet. Closing must consume the tap entirely.
+    const away = (event: MouseEvent | PointerEvent) => {
       if (root.current && !root.current.contains(event.target as Node)) {
         setOpen(false);
+        event.stopPropagation();
+        event.preventDefault();
       }
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    document.addEventListener("pointerdown", away);
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("click", away, true);
     document.addEventListener("keydown", key);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("click", away, true);
       document.removeEventListener("keydown", key);
     };
   }, [open]);

@@ -48,6 +48,16 @@ FROM python:3.11-slim AS runtime
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
+
+# Which commit this image is. Passed per build (`--build-arg
+# GIT_SHA="$(git rev-parse HEAD)"`) and NOT defaulted to anything shaped like
+# a sha: `backend/config.py` validates the value and treats absent as absent,
+# which is the honest state for an image built without the flag. Two sessions
+# have now burned tool calls inferring what the live machine runs from image
+# refs; /api/health exists to answer that in one read.
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
+
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

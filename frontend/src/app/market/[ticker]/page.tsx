@@ -131,9 +131,16 @@ export default function MarketPage() {
                     maximumFractionDigits: 0,
                   })}
                 </span>
+                {/* Honest coverage: a bar with no trades is a gap, and a
+                    footer that only counts unparseable bars reassures while
+                    half the chart is missing. */}
+                <span className="ml-2 tabular">
+                  · {data.candles.filter((c) => c.close_tenths !== null).length}{" "}
+                  of {data.candles.length} bars traded
+                </span>
                 {data.dropped_unreadable > 0 && (
                   <span className="ml-2">
-                    ({data.dropped_unreadable} unreadable bars dropped)
+                    ({data.dropped_unreadable} unreadable, dropped)
                   </span>
                 )}
               </span>

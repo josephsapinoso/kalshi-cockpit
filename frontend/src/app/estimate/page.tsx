@@ -314,12 +314,16 @@ export default function EstimatePage() {
                 autoComplete="off"
                 className="mt-2 w-full rounded-xl border bg-background px-4 py-3 text-2xl font-semibold disabled:opacity-40"
               />
+              {/* A plain sentence, not a bp echo. "0.6" meaning 0.60% passed
+                  every check and rendered as "60 bp" -- a fat-finger the
+                  write-once trigger makes permanent. "a 0.60% chance the
+                  market ends YES" is the echo a tired thumb actually reads. */}
               <p className="mt-2 text-xs text-muted">
                 Probability the market resolves <strong>YES</strong> &mdash;
                 not your side. 0.01 to 99.99.
                 {bp !== null && (
-                  <span className="ml-2 font-mono">
-                    = {bp} <Term k="basis_points">bp</Term> ({bpToPercent(bp)})
+                  <span className="ml-2 font-semibold text-foreground">
+                    = a {bpToPercent(bp)} chance the market ends YES
                   </span>
                 )}
               </p>
@@ -333,12 +337,17 @@ export default function EstimatePage() {
             </div>
           )}
 
-          {error && (
-            <p className="mt-4 rounded-xl border border-negative/50 bg-negative/10 px-4 py-3 text-sm text-negative">
-              {error}
-            </p>
-          )}
         </section>
+      )}
+
+      {/* Outside the saved/form ternary on purpose: a failed REVISION sets
+          this state while the "Logged" card is showing, and an error block
+          scoped to the form branch rendered that failure as silence -- on the
+          one recovery path a write-once record has. */}
+      {error && (
+        <p className="mt-4 rounded-xl border border-negative/50 bg-negative/10 px-4 py-3 text-sm text-negative">
+          {error}
+        </p>
       )}
 
       {/* The record so far -- what was typed, never what the server captured. */}

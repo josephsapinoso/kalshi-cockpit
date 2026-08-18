@@ -49,7 +49,50 @@ function fitDomain(values: number[]): Span {
 }
 
 function pct(tenths: number): string {
-  return `${(tenths / 10).toFixed(0)}%`;
+  // One decimal, trimmed when whole: ~25% of Kalshi markets tick in
+  // deci-cents, and the one screen entirely about price must not round the
+  // tick away.
+  return `${(tenths / 10).toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+/**
+ * Collapse candles into at most `buckets` OHLC bars.
+ *
+ * A day at 1-minute intervals is 1,440 bars in ~280px — every bar a
+ * sub-pixel sliver, and 43 of 46 real fixture candles have high == low, so
+ * the un-bucketed view is a smear that reads as volatility. Aggregation is
+ * the standard OHLC identity: first open, last close, extreme high/low,
+ * summed volume; bars whose members all lack a price stay gaps.
+ */
+function resample(candles: ChartCandle[], buckets: number): ChartCandle[] {
+  if (candles.length <= buckets) return candles;
+  const size = Math.ceil(candles.length / buckets);
+  const out: ChartCandle[] = [];
+  for (let i = 0; i < candles.length; i += size) {
+    const group = candles.slice(i, i + size);
+    const priced = group.filter((c) => c.close_tenths !== null);
+    const highs = group
+      .map((c) => c.high_tenths)
+      .filter((v): v is number => v !== null);
+    const lows = group
+      .map((c) => c.low_tenths)
+      .filter((v): v is number => v !== null);
+    const volumes = group
+      .map((c) => c.volume)
+      .filter((v): v is number => v !== null);
+    out.push({
+      t_ms: group[group.length - 1].t_ms,
+      open_tenths: priced.length > 0 ? priced[0].open_tenths : null,
+      close_tenths:
+        priced.length > 0 ? priced[priced.length - 1].close_tenths : null,
+      high_tenths: highs.length > 0 ? Math.max(...highs) : null,
+      low_tenths: lows.length > 0 ? Math.min(...lows) : null,
+      yes_bid_close_tenths: null,
+      yes_ask_close_tenths: null,
+      volume: volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) : null,
+    });
+  }
+  return out;
 }
 
 export default function PriceChart({
@@ -60,7 +103,8 @@ export default function PriceChart({
   view: "line" | "candles";
 }) {
   const drawn = useMemo(() => {
-    const usable = candles.filter((c) => c.close_tenths !== null);
+    const source = view === "candles" ? resample(candles, 48) : candles;
+    const usable = source.filter((c) => c.close_tenths !== null);
     if (usable.length === 0) return null;
 
     const t0 = usable[0].t_ms;

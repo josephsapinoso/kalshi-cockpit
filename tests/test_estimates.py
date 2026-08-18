@@ -522,3 +522,16 @@ class TestSearchAndRecentHelpers:
         second = _estimate(conn, estimate_server_ms=NOW)
         listed = recent_estimates(conn)
         assert [row["id"] for row in listed] == [second, first]
+
+
+class TestTheHonestyTapIsServerRequired:
+    async def test_a_payload_without_the_answer_is_refused(self, db_path):
+        """'Never trust that the UI disabled a button.' The question must be
+        answered before the number exists; a payload without it skipped the
+        ordering the study depends on."""
+        app = _app(db_path)
+        body = {"ticker": TICKER, "stated_probability_bp": 6250}
+        response = await _request(
+            app, "POST", "/api/estimates", json=body, headers=AUTH
+        )
+        assert response.status_code == 422
