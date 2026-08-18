@@ -106,13 +106,28 @@ strip and watching it go red.
 
 ### Verification
 
-Full suite green, ruff and tsc clean, build clean, `check_mobile` clean at
-390/768/1024/1440/1920/2560 against a local build off the seeded demo, 390px
-screenshot read. Both instances deployed and verified by `build.git_sha`.
+Full suite 3,462 passed / 10 xfailed, ruff and tsc clean, build clean,
+`check_mobile` clean at 390/768/1024/1440/1920/2560 against a local build off
+the seeded demo, 390px screenshot read.
 
-**Live's screens were read directly this time**, through Joe's Chrome while he
-was at the laptop -- the first session to do so rather than verifying live by
-health endpoint and inferring the rest from demo.
+**Demo is deployed on `fc51668` and verified two ways**: `build.git_sha` matches
+HEAD, and the served `/slate` HTML carries `w-full xl:col-span-full` on the
+strip wrapper with no `hidden` anywhere -- so the phone visibility is confirmed
+on the deployed page, not only in the source. **Live is one commit behind and
+needs Joe's dispatch**; the classifier refused it again, and refused the
+combined demo+live command as a unit while the demo-only call went through, so
+issue them separately.
+
+**Live's screens were NOT read, and the attempt is recorded because the tool
+looked available and was not.** Joe was at his laptop and offered Chrome, which
+is the documented route to an authed live screen
+(`i-can-see-authed-screens-through-his-chrome`). Every `navigate` returned
+success and the tab reverted to `chrome://newtab/` immediately -- on the live
+host *and* on demo, so it is not a per-site permission. Three attempts, then
+stopped. **The route is not currently working; do not plan on it without
+checking it first.** Live was verified the usual way, by `build.git_sha` and
+`/api/health`; both new screens were read on demo, which serves the same
+image.
 
 ---
 
