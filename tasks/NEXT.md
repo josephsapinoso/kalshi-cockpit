@@ -17,9 +17,9 @@ move the older ones into the dated archive file — do not shorten them.
 ## SESSION START — if Joe said "read NEXT.md", this box is your prompt
 
 Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
-branch `main` at `39e7816`, tree clean, **14 commits ahead of origin and
-NOTHING PUSHED** — the repo is public, pushing publishes immediately, so ask
-Joe once, early.
+branch `main`, tree clean, **~16 commits ahead of origin and NOTHING
+PUSHED** — the repo is public, pushing publishes immediately, so ask Joe
+once, early.
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
@@ -27,29 +27,30 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,231 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,265 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: the bet-estimate entry form** — one ticker tap + P(YES) in basis
-points, ~12s on a phone, built EXACTLY to the registration
-(`docs/measurements/2026-08-17-preregistration-joe-calibration-bet-log.md`
-as amended). Non-negotiables: `stated_probability_bp` write-once
-server-side, verified by disabling the guard; the estimate-time quote
-captured into `server_yes_*_tenths` and NEVER rendered until the stop;
-`had_already_opened_kalshi` asked BEFORE the input enables; nothing written
-into `recommendations`, ever. Then, in order: the 25-fill fee analysis
-off-gate (ADR 0043's named reopening condition; captures in `data/captures/`,
-gitignored, never commit), then the five-step test onto `/playbook`.
+**THE JOB: analyse the 25 real fills, off-gate** — ADR 0043's named
+reopening condition and the largest fee sample this project has held.
+Captures are in `data/captures/` (gitignored, NEVER commit — a real
+account's history in a public repo). Per-fill implied `k`; the largest
+contributor's share FIRST; partner's note: Joe's pooled 4.03% sits above
+both candidate coefficients, and price mix, the H4 settlement-fee question,
+and the n=9 k=0.035 result all fit. Balance snapshots + settlements may
+close H4. **Pre-register with the pre-registrar agent BEFORE looking**, then
+measurement-skeptic after. Then: the five-step test onto `/playbook`.
 
-STOP AND ASK JOE: pushing; live deploys (`flyctl deploy` is blocked in auto
-mode — Joe exits auto mode and says go, which worked on 2026-08-18); anything
-money-touching beyond the standing approvals.
+STOP AND ASK JOE: pushing; anything money-touching beyond the standing
+approvals. Deploys: the deny was lifted (memory `i-can-deploy-to-fly-now`) —
+verify against the current permission state rather than inheriting either
+claim.
 
 GOTCHAS, each of which bit twice: Bash heredocs eat backticks and
 backslashes even quoted — long content goes through the Write tool, commit
 messages via `git commit -F <file>`. A fixture built from the current schema
 cannot represent a database from before a table existed — that gap
-crash-looped the live boot; copy `TestARealV9VolumeBootsThroughEveryMigration`
-for any migration. Run `date -u` before acting on any deadline sentence.
+crash-looped the live boot; anything touching `bet_estimates` must go in
+`schema.sql`, never a migration (v11 DROPs the table for schema.sql to
+recreate). Run `date -u` before acting on any deadline sentence.
 
 Constraints and the full state of the world are in the entry below. Delete
 this box when its job is taken — a stale session-start box is a handoff
@@ -57,7 +58,83 @@ claiming work that is already done.
 
 ---
 
-## 2026-08-18 08:30Z (latest) — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
+## 2026-08-18 08:50Z (latest) — THE ENTRY FORM EXISTS, AND THE DATABASE ITSELF NOW REFUSES TO EDIT AN ESTIMATE
+
+**`main` is at `3c5a1b6`, tree clean apart from this file, NOTHING PUSHED.**
+State verified: 3,265 passed / 10 xfailed (34 new in
+`tests/test_estimates.py`), ruff clean, tsc clean. Joe converted the session
+to a self-pacing loop mid-morning; the loop continues into the 25-fill
+analysis unless he redirects.
+
+### What was built — the calibration entry form, to the registration
+
+- **`/estimate`** (frontend) — search → one tap → the
+  `had_already_opened_kalshi` question **before the probability input
+  enables** → P(YES) as a percent, stored in basis points. Raw-ticker
+  fallback for markets discovery never saw (UFC, doubles — the A1 gap).
+  No price is fetched, rendered, or even present in any payload the page
+  receives. Nav: **Log took Data's slot** under the six-link budget;
+  `/dashboards` still served.
+- **`POST /api/estimates`** stamps the server clock, captures the book into
+  `server_yes_*_tenths` (never returned), classifies sport/multi-leg from
+  the ticker string alone (`backend/estimates.py`), derives `cluster_key =
+  COALESCE(event_ticker, ticker)` and `is_in_play`. Transient quote failure
+  → reason recorded, row kept. Permanent 404 + unknown to discovery → 422
+  (a typo, not a record). Auth via the `/refresh-odds` pattern:
+  `/log-estimate` and `/revise-estimate` route handlers hold the bearer;
+  the browser holds only the session cookie.
+- **Write-once is a schema TRIGGER, not route discipline** —
+  `trg_bet_estimates_write_once` aborts any UPDATE naming
+  `stated_probability_bp` (same-value rewrites included);
+  `trg_bet_estimates_no_delete` blocks the DELETE+INSERT bypass. **Verified
+  per §7.4: triggers stripped from schema.sql → 3 tests fail; restored →
+  green** (recorded in the test class docstring). Corrections are
+  append-only rows in `bet_estimate_revisions` carrying a reason; the
+  flagged row gets `stated_probability_is_revised = 1` and §2 excludes it.
+- **Why no v13 migration, and this is load-bearing for every future session:**
+  v11 DROPs `bet_estimates` and lets `schema.sql` recreate it AFTER
+  migrations run. An ALTER or CREATE TRIGGER in a migration would raise
+  `no such table` on the v9→current path — the exact 4d35c32 crash loop.
+  Everything estimate-shaped goes in `schema.sql` with `IF NOT EXISTS`.
+- Embargo enforcement is tested, not asserted: `_assert_embargo_holds`
+  walks every renderable payload for bid/ask/quote/outcome/clv-shaped keys,
+  and `/api/estimates/recent` serves exactly the six safe columns.
+
+### NOT deployed yet
+
+The live instance still runs `4d35c32`. **The form does not exist on the
+phone until someone deploys.** Deploy question is live in the session; if it
+did not happen, it is the first thing to do — the study cannot start without
+it, and every hand bet Joe places before the form is live is another
+pre-protocol settlement the registration must exclude.
+
+### STILL OPEN, IN ORDER
+
+1. **PUSH** — now ~16 commits on one machine. Joe's act.
+2. **Deploy live** (and demo, which shares the image) so `/estimate` exists.
+3. **The 25-fill fee analysis off-gate** (the box above; pre-register first).
+4. **The five-step test onto `/playbook`**.
+5. **The matcher + A6 per-ticker ensure-fetch are NOT built**: nothing yet
+   writes `match_status` / `matched_position_id` / `outcome_win`, and the
+   poller does not yet fetch a `kalshi_markets` row for estimate tickers
+   discovery never saw. Registered (A6), deferred deliberately — outcomes
+   are recoverable later from the public market endpoint, which does not
+   roll. Build when the first estimates exist.
+6. Balance meta row `balance_at_study_start_tenths = 206583` (A6) — write
+   once on the day the study formally opens, not before the form is usable.
+
+### DO NOT (unchanged, plus one)
+
+- Everything in the 08:30Z entry's DO NOT list still stands.
+- **Never smoke-test the deployed form by logging a real estimate.** A test
+  row in `bet_estimates` on the live volume is a contaminated population row
+  that can only be removed by the revision path (the triggers make deletion
+  impossible, on purpose). Verify by GET routes and by reading
+  `sqlite_master` over ssh instead.
+
+---
+
+## 2026-08-18 08:30Z — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
 
 **`main` is at `4d35c32`, thirteen commits ahead of `origin/main`, NOTHING
 PUSHED — the repo is public and pushing publishes, so that is Joe's act.**
