@@ -25,6 +25,56 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — A query plan is a shape, not a cost, and the monitoring you add is code that can take the box down
+
+Two defects, one deploy, fifteen minutes of live serving 500. Both are the same
+class: **a change made to observe the system became part of the system**, and
+was held to a lower standard than the code it was watching.
+
+**The first: `EXPLAIN QUERY PLAN` said the opposite of the truth.** A freshness
+field on `/api/health` ran `SELECT MAX(observed_ms) FROM kalshi_quotes`. The
+plan reports `SEARCH ... USING COVERING INDEX` for that and a bare `SCAN` for
+`ORDER BY id DESC LIMIT 1`, which reads unambiguously as the MAX being the
+optimised form. Measured on 3,000,000 synthetic rows with the same schema and
+index:
+
+    MAX(observed_ms)           323.7 ms      (linear in table size)
+    ORDER BY id DESC LIMIT 1     0.116 ms    (constant)
+
+`observed_ms` is the **second** column of `(ticker, observed_ms DESC)`, so the
+aggregate walks the whole covering index; the `SCAN` terminates on its first
+row. **Read the plan for shape and measure for cost.** The words SEARCH and
+SCAN describe access strategy, not work done, and a LIMIT changes the second
+without changing the first.
+
+**The second: "the symbol is called" and "the call resolves" are different
+facts.** `budget.remaining_today()` shipped to live; `remaining_today` is a
+property on `BudgetState`, which `CreditBudget.state()` *returns*.
+`test_has_callers.py` verified the call site existed — true, and useless,
+because the call could not run. A grep-based caller check proves a **name** is
+present, never that it **resolves**. Where a function has no caller but
+`__main__`, nothing executes it and the deployed machine is the first thing to
+try. An AST walk asserting every `obj.attr` exists on the bound class costs
+nothing and closes it: `tests/test_run_loop_attributes_resolve.py`.
+
+The general shape, which is what to carry:
+
+- **Observability code is production code.** A health endpoint is called by the
+  platform check, the frontend proxy and now the loop itself — three callers on
+  a fast cadence, so it is the *most* hot path in the process, not an
+  afterthought. A query that is fine in a report is not fine there. Both new
+  blocks were correctly wrapped so they could not **500**; nothing stopped them
+  from being **slow**, and for a liveness probe slow is the worse failure — it
+  looks like death.
+- **Ask what grows.** `kalshi_quotes` gains ~6,700 rows a pass. Any unbounded
+  aggregate over a table that grows per-pass is a time bomb whose fuse is the
+  record's own success.
+- **The irony is the lesson.** The field added so an external watchdog could
+  tell the box was dead is what killed the box. When adding monitoring, ask
+  what happens when the thing you are measuring gets large — the failure mode
+  of a monitor is that it participates.
+
+
 ## 2026-08-18 — An alert that cannot fire on the failure that happens is not coverage, and the count of alerts hides that
 
 The pattern: a failure channel gets judged by how many alert types it defines.

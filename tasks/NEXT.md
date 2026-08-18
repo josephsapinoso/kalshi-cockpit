@@ -35,10 +35,13 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 Expected: 3,350 passed / 10 xfailed, ruff clean, tsc clean.
 
 **THE JOB:** the alerting session (ADR 0048, ADR 0049 **as amended**) is
-discharged, including the dead-man's switch. **One thing wants a human and
-it is 30 seconds: run the Heartbeat workflow by hand with `force_alarm:
-true` and confirm the embed arrives on the phone.** An alarm nobody has
-watched fire is decoration, which is this session's own lesson. After that,
+discharged, including the dead-man's switch. **It also took live down for
+~15 minutes — read the OUTAGE section of the latest entry before touching
+`/api/health`.** Live is healthy on `cf98954`; verify with `curl`, do not
+inherit that sentence. **One thing wants a human and it is 30 seconds: run
+the Heartbeat workflow by hand with `force_alarm: true` and confirm the
+embed arrives on the phone.** An alarm nobody has watched fire is
+decoration, which is this session's own lesson. After that,
 the "not done, deliberately" menu at the end of the 2026-08-18 evening entry
 (suppression-code gloss, dispersion strip), or ask the partner. Nothing is
 urgent by construction — ADR 0038 closed the hunt, the study accumulates on
@@ -188,6 +191,58 @@ Both new health blocks are wrapped so they can never take `/api/health` down —
 it is the liveness probe both `entrypoint.sh` and the heartbeat read, and a
 route that 500s because a SELECT failed turns a reporting gap into a false
 alarm on a phone. Unreadable is `None`, never a number the heartbeat acts on.
+
+### OUTAGE — I took live down for ~15 minutes, with two bugs in one deploy
+
+Both were mine, both shipped in `a08c1a9`, and both are the same class:
+**a change made to observe the system became part of the system**, and was
+held to a lower standard than the code it watches.
+
+**1. `budget.remaining_today()` — AttributeError on every pass.**
+`remaining_today` is a property on `BudgetState`, which
+`CreditBudget.state(now_ms)` *returns*; `CreditBudget` has no such attribute.
+The pass log shows recording completed first (6,661 markets quoted) so nothing
+was lost, but five consecutive failures takes the container down. Fixed in
+`a1507bb`.
+
+**Why no test caught it:** `test_has_callers.py` verified `alerter.check_credits`
+*is called*. True, and useless — the call could not run. **"The symbol is
+referenced" and "the reference resolves" are different facts**, and a
+grep-based caller check only ever proves the first. `main()` has no caller but
+`__main__`, so nothing executes it and the deployed machine was the first thing
+to try. New guard: `tests/test_run_loop_attributes_resolve.py`, an AST walk
+asserting every `budget.X` / `alerter.X` / `tempo.X` / `counts.X` in the loop
+exists on its bound class. **Verified by reintroducing the exact live defect
+and watching it fail.**
+
+**2. `SELECT MAX(observed_ms) FROM kalshi_quotes` on `/api/health` — this is
+what actually killed it.** Measured on 3,000,000 synthetic rows, same schema
+and index:
+
+```
+MAX(observed_ms)           323.7 ms     (linear in table size)
+ORDER BY id DESC LIMIT 1     0.116 ms   (constant)
+```
+
+`/api/health` is hit by Fly's check, Next's proxy **and now the loop's own
+probe**. The walk was already past the probe's 2s timeout; uvicorn stopped
+answering on `127.0.0.1:8000` and the instance served 500. Fixed in `cf98954`.
+
+**`EXPLAIN QUERY PLAN` said the opposite**, and I wrote the first version of
+the fix's comment from the plan alone — it was backwards. The plan reports
+`SEARCH ... USING COVERING INDEX` for the MAX and a bare `SCAN` for the LIMIT
+form. `observed_ms` is the **second** column of `(ticker, observed_ms DESC)`,
+so the aggregate walks the whole covering index while the `SCAN` stops on its
+first row. **Read the plan for shape; measure for cost.**
+
+**The irony is the lesson, and it is in `lessons.md`:** the field added so an
+external watchdog could tell the box was dead is what killed the box. Both
+health blocks were correctly wrapped so they could not **500** — nothing
+stopped them being **slow**, and for a liveness probe slow is the worse
+failure, because it looks like death.
+
+Live verified back at 200 in 0.3s, `git_sha` `cf98954`, `recorder.age_ms`
+~12s, `notifications.total_ever` 107.
 
 ### STILL OPEN
 

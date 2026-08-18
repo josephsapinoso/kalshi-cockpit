@@ -132,6 +132,37 @@ skipped entirely on repositories idle for 60 days. It bounds time-to-notice at
 *roughly* 15 minutes, never exactly, and it is itself a system that can fail
 silently. Strictly better than nothing off-box. Not a pager.
 
+### The amendment shipped broken, twice, and that belongs here
+
+`a08c1a9` took the live instance down for about fifteen minutes. Two defects,
+both mine, both in the observability code rather than in anything it watches.
+
+**`budget.remaining_today()` raised AttributeError on every pass.**
+`remaining_today` is a property on `BudgetState`, which `CreditBudget.state()`
+returns. `tests/test_has_callers.py` had verified the call site *existed* —
+which was true and useless. **"The symbol is referenced" and "the reference
+resolves" are different facts**, and a grep-based caller check only proves the
+first. `run_loop.main()` has no caller but `__main__`, so nothing executes it.
+Closed by `tests/test_run_loop_attributes_resolve.py`, an AST walk over every
+`obj.attr` in the loop, verified by reintroducing the exact defect.
+
+**`SELECT MAX(observed_ms) FROM kalshi_quotes` on `/api/health` is what killed
+it.** Measured on 3,000,000 rows with this schema and index: 323.7 ms against
+0.116 ms for `ORDER BY id DESC LIMIT 1`, and linear against constant.
+`/api/health` is hit by Fly's check, Next's proxy **and, because of this ADR,
+the loop's own probe** — the walk exceeded the probe's 2s timeout and uvicorn
+stopped answering on loopback.
+
+`EXPLAIN QUERY PLAN` reports `SEARCH ... USING COVERING INDEX` for the MAX and
+a bare `SCAN` for the LIMIT form, which reads as the MAX being optimised. It is
+not: `observed_ms` is the second column of the index. **A plan is a shape, not
+a cost.**
+
+**Both blocks were correctly wrapped so they could not 500. Nothing stopped
+them being slow**, and for a liveness probe slow is the worse failure — it is
+indistinguishable from death. That is the gap this ADR's own subject should
+have predicted: the monitoring became the thing that needed monitoring.
+
 ### The original paragraph, kept
 
 **The container crash-looping.** It kills this process before any of the above
