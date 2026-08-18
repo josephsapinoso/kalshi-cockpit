@@ -504,8 +504,38 @@ def create_app(
                 app_config.db_path, read_only=True, cross_thread=True
             )
             try:
+                # **`ORDER BY id DESC LIMIT 1`, never `MAX(observed_ms)`.**
+                # `id` is `INTEGER PRIMARY KEY AUTOINCREMENT`, i.e. the rowid,
+                # so this stops after one row. Measured on a synthetic table of
+                # 3,000,000 rows with this exact schema and index:
+                #
+                #     MAX(observed_ms)           323.7 ms
+                #     ORDER BY id DESC LIMIT 1     0.116 ms
+                #
+                # **Measured, because the query plan says the opposite.**
+                # `EXPLAIN QUERY PLAN` reports `SEARCH ... USING COVERING INDEX
+                # idx_quotes_ticker_time` for the MAX and a bare `SCAN` for the
+                # LIMIT form, which reads as the MAX being the optimised one.
+                # It is not: `observed_ms` is the *second* column of that index
+                # so the aggregate walks the whole covering index, linearly,
+                # while the `SCAN` terminates on its first row. A plan is a
+                # shape, not a cost.
+                #
+                # This shipped to live in a08c1a9 and took the instance down
+                # inside four minutes. `/api/health` is hit by Fly's check, by
+                # Next's proxy and by the loop's own probe; the table grows by
+                # ~6,700 rows every pass, so the walk was already past the
+                # probe's 2s timeout and uvicorn stopped answering on loopback.
+                # The irony is exact: the field added so an external watchdog
+                # could tell the box was dead is what killed it.
+                #
+                # Rows are inserted in observed order, so the newest rowid is
+                # the newest write. If that ever stops being true this reports
+                # a slightly stale age, which is the safe direction -- it can
+                # only make the heartbeat alarm early, never late.
                 row = conn.execute(
-                    "SELECT MAX(observed_ms) AS last_ms FROM kalshi_quotes"
+                    "SELECT observed_ms AS last_ms FROM kalshi_quotes "
+                    "ORDER BY id DESC LIMIT 1"
                 ).fetchone()
             finally:
                 conn.close()
