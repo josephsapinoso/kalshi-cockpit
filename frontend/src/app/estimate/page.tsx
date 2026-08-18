@@ -64,6 +64,7 @@ export default function EstimatePage() {
   const [revising, setRevising] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [stop, setStop] = useState<StudyStop | null>(null);
+  const [extremeConfirmed, setExtremeConfirmed] = useState(false);
   const probabilityInput = useRef<HTMLInputElement>(null);
 
   const loadRecent = () =>
@@ -101,6 +102,13 @@ export default function EstimatePage() {
   }, [query, market]);
 
   const bp = percentToBp(percent);
+  // The extreme-value confirm: below 3% or above 97%, one extra tap. The
+  // plain-sentence echo below the input catches "0.6"-for-60% on read; this
+  // catches it on ACTION, because the write-once trigger makes the mistyped
+  // row permanent and the revision path is the only undo. Symmetric tails,
+  // deliberately: both are where a dropped decimal lands (0.6, 99.5) and
+  // where a genuine estimate is rare.
+  const isExtreme = bp !== null && (bp < 300 || bp > 9700);
 
   const reset = () => {
     setQuery("");
@@ -110,10 +118,16 @@ export default function EstimatePage() {
     setPercent("");
     setSaved(null);
     setError(null);
+    setExtremeConfirmed(false);
   };
 
   const submit = async () => {
     if (!market || opened === null || bp === null || submitting) return;
+    if (isExtreme && !extremeConfirmed) {
+      // First tap arms the confirm; the button re-labels with the sentence.
+      setExtremeConfirmed(true);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -357,7 +371,10 @@ export default function EstimatePage() {
                 id="p-yes"
                 ref={probabilityInput}
                 value={percent}
-                onChange={(event) => setPercent(event.target.value)}
+                onChange={(event) => {
+                  setPercent(event.target.value);
+                  setExtremeConfirmed(false);
+                }}
                 disabled={opened === null}
                 inputMode="decimal"
                 placeholder={opened === null ? "answer step 2 first" : "62.5"}
@@ -380,10 +397,25 @@ export default function EstimatePage() {
               <button
                 onClick={submit}
                 disabled={opened === null || bp === null || submitting}
-                className="mt-4 w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+                className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 ${
+                  isExtreme && extremeConfirmed ? "bg-negative" : "bg-accent"
+                }`}
               >
-                {submitting ? "Logging…" : "Log it"}
+                {submitting
+                  ? "Logging…"
+                  : isExtreme && extremeConfirmed && bp !== null
+                    ? `Yes — a ${bpToPercent(bp)} chance of YES. Log it.`
+                    : isExtreme
+                      ? "Log it (extreme — will ask once)"
+                      : "Log it"}
               </button>
+              {isExtreme && extremeConfirmed && bp !== null && (
+                <p className="mt-2 text-xs leading-relaxed text-negative">
+                  {bpToPercent(bp)} is a near-{bp < 300 ? "certain NO" : "certain YES"}.
+                  If you meant {bp < 300 ? "a percent like 60, not 0.60" : "something lower"},
+                  fix the number &mdash; once logged it cannot be edited.
+                </p>
+              )}
             </div>
           )}
 
