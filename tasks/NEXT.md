@@ -161,6 +161,21 @@ Suite 3,432 passed / 10 xfailed; ruff clean; `tsc` clean; frontend build clean.
 build; 390px screenshots eyeballed for the Board and the Slate. Ten guards
 disabled and watched go red.
 
+### Deploy state at session end
+
+Committed and pushed as `47f2823`. **Demo is deployed and verified** — its
+`/api/health` reports `build.git_sha` `47f2823`, and the deployed `/slate`
+serves the glossed sentences. **Live is NOT deployed**: the classifier blocked
+`gh workflow run deploy.yml -f instance=live` again, exactly as it did on
+2026-08-18. Hand Joe the one-liner:
+
+    gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+
+Live is healthy on the previous commit (`16e963f`) in the meantime. Nothing in
+this change touches the recorder, the gate or the order path — it is frontend
+copy plus its guards — so running live behind by one commit costs nothing but
+the gloss.
+
 ### STILL OPEN, unchanged from the previous entry
 
 - **Joe confirms the heartbeat embed reached his phone.** Everything up to
