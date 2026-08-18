@@ -349,12 +349,30 @@ class TestItIsActuallyOnTheScreen:
         )
         assert "@/components/DispersionStrip" in source
 
-    def test_the_strip_is_desktop_only(self):
-        """ADR 0047 fixes everything below 1280px as byte-identical. Four extra
-        lines on eleven rows at 390px is most of a phone screen, so this is an
-        `xl:` decision and not an oversight -- if it moves to the phone that is
-        Joe's call and this assertion should be deleted deliberately."""
+    def test_the_strip_is_on_the_phone_too(self):
+        """**This assertion is the exact inverse of the one it replaces, and
+        that is the point of writing it rather than deleting it.**
+
+        The strip shipped `xl:`-only under ADR 0047's rule that everything below
+        1280px stays byte-identical, with a test pinning `hidden`. Joe overrode
+        it the same day: he reads this screen on a phone, and an explanation
+        that only exists on a monitor explains nothing to the person who owns
+        the account. ADR 0052.
+
+        An override that only removes a guard leaves the next session free to
+        re-add `hidden` as a tidy-up, because nothing records that the
+        visibility was decided. So the guard is inverted instead of dropped, and
+        a future `hidden` fails here with a reason attached.
+
+        The cost is measured, not waved at: the seeded `/slate` at 390px grew
+        from 5,808px to 8,912px of scroll -- **+53%**. `check_mobile` is clean
+        at every width, so the change is length, not overflow.
+        """
         source = SLATE_PAGE.read_text(encoding="utf-8")
         block = source.split("<DispersionStrip", 1)[0]
         opening = block.rsplit("<span", 1)[1]
-        assert "hidden" in opening and "xl:" in opening, opening
+        assert "hidden" not in opening, (
+            "The dispersion strip is hidden below xl again. Joe asked for it on "
+            "the phone (ADR 0052) -- if it is going back behind a breakpoint "
+            "that needs to be his call, not a density tidy-up."
+        )

@@ -259,18 +259,20 @@ function Row({
         </span>
       )}
 
-      {/* **Desktop only, like the Anchor and Width columns above, and for the
-          same reason.** ADR 0047 fixed everything below 1280px as byte
-          identical, and this is four extra lines per row -- on eleven rows at
-          390px that is most of a screen. The component itself is
-          width-agnostic, so bringing it to the phone later is a class change
-          rather than a rewrite; that is a decision for Joe, not a default.
+      {/* **Every width, including the phone.** This shipped `xl:`-only on
+          2026-08-19 under ADR 0047's rule that everything below 1280px stays
+          byte-identical, with the cost of overriding that stated and the
+          decision handed to Joe. He took it the same day: he reads this screen
+          on a phone, and an explanation that only exists on a monitor explains
+          nothing to the person who owns the account. ADR 0052.
 
-          It answers the one question the row cannot: this line says `fair`
-          once, and that number is the lowest of four devig readings averaged
-          over an anchored subset of the books. Three choices, none of them
-          previously on any screen. */}
-      <span className="hidden xl:col-span-full xl:block">
+          The rule it overrides was about *density* -- not adding rows of
+          columns to a hand-held screen -- and this is not a column. It is the
+          one thing on the row that says where its own number came from: this
+          line reads `fair` once, and that number is the lowest of four devig
+          readings averaged over an anchored subset of the books. Three
+          choices, none of them on any screen before this. */}
+      <span className="w-full xl:col-span-full">
         <DispersionStrip
           books={row.books}
           methods={row}

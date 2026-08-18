@@ -66,6 +66,56 @@ handoff claiming work that is already done.
 
 ---
 
+## 2026-08-19 ~late — THE STRIP IS ON THE PHONE, BY JOE'S CALL
+
+He read the handoff's open question and answered it the same day: **put the
+strip on the phone too.** **ADR 0052** amends ADR 0047.
+
+**The reason is not a preference.** Joe reads `/slate` on a phone -- it is the
+documented habit and it is why the 2026-08-18 deep-link repair mattered. An
+explanation of where a number came from that exists only on a monitor explains
+nothing to the person who owns the account.
+
+**ADR 0047 is amended, not overturned.** Its rule was about *density* -- not
+putting rows of columns on a hand-held screen, which is what the Anchor and
+Width cells are and why those stay `xl:`-only. The strip is not a column.
+
+### The cost, measured rather than waved at
+
+Seeded `/slate` at 390px: **5,808px to 8,912px of scroll, +53%** across eleven
+rows. `check_mobile` clean at all six widths, so this is length and not
+overflow.
+
+**Nothing was trimmed to pay for it**, and the two candidates were considered:
+the `worst method each` label and the anchoring caveat, which wrap to three
+lines and are near-identical on ten of eleven rows. Both kept -- they are the
+labels that stop the picture making a claim about the *market* instead of about
+the *statistic* (ADR 0051). Trading them for scroll would put the honesty on
+the big screen and the density on the small one, which is backwards. If it
+proves too long in use, **the next move is a per-row disclosure, not a
+breakpoint and not a shorter caveat.**
+
+### The guard was inverted, not deleted
+
+`test_the_strip_is_desktop_only` asserted `hidden` was present. It is now
+`test_the_strip_is_on_the_phone_too` and asserts `hidden` is absent, with the
+ADR cited in the failure message. Deleting it would have left the visibility
+unrecorded, and the next session tidying phone density re-adds `hidden` as an
+obvious improvement with nothing to argue against. Verified by re-hiding the
+strip and watching it go red.
+
+### Verification
+
+Full suite green, ruff and tsc clean, build clean, `check_mobile` clean at
+390/768/1024/1440/1920/2560 against a local build off the seeded demo, 390px
+screenshot read. Both instances deployed and verified by `build.git_sha`.
+
+**Live's screens were read directly this time**, through Joe's Chrome while he
+was at the laptop -- the first session to do so rather than verifying live by
+health endpoint and inferring the rest from demo.
+
+---
+
 ## 2026-08-19 ~mid — THE STRIP SAYS WHERE THE NUMBER CAME FROM, AND THE DEMO WAS DISAGREEING WITH ITSELF
 
 The last P2 from ADR 0047's approved plan is done. **ADR 0051** is the decision
