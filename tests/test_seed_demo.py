@@ -273,3 +273,93 @@ class TestTheSeededHistoryActuallyLands:
             assert live == 0
         finally:
             conn.close()
+
+
+class TestTheSeededFairValueIsTheOneItPointsAt:
+    """**`fair_probability` and the joined `p_conservative` are the same
+    number, and on the demo they were not.**
+
+    In production they cannot come apart: `runner.py` devigs once and passes
+    the *same* `DevigResult` both to `write_fair_price` and to
+    `build_recommendation` (`runner.py:936`). The seeder used to run a second,
+    single-pair `devig()` over `scenario.odds` and price the recommendation
+    from that, while `fair_price_id` pointed at the multi-book consensus -- so
+    all 11 seeded rows disagreed with their own fair price, by up to 0.35
+    probability points, in both directions.
+
+    It cost nothing while no screen read both. It became visible the moment one
+    rendered the four devig methods beside the fair value and their minimum
+    contradicted it -- on the public demo, which is the portfolio piece.
+
+    **What this does not establish.** That the consensus is *correct*, or that
+    production really holds the invariant -- this reads the seeded database
+    only. `p_conservative` being the minimum of the four methods is asserted
+    separately below, because "they match" and "they match the right thing" are
+    different claims and a seeder that wrote one number into both columns would
+    pass the first.
+    """
+
+    def _joined(self, path):
+        conn = db.open_db(path, read_only=True)
+        try:
+            return conn.execute(
+                "SELECT r.ticker, r.fair_probability, f.p_conservative, "
+                "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin "
+                "FROM recommendations r "
+                "JOIN fair_prices f ON f.id = r.fair_price_id"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def test_the_join_finds_rows_at_all(self, seeded):
+        """The anchor. Every assertion below is vacuous over an empty set, and
+        a seeder that stopped writing `fair_price_id` would satisfy them all."""
+        path, _ = seeded
+        rows = self._joined(path)
+        assert len(rows) >= 9, len(rows)
+
+    def test_no_row_disagrees_with_its_own_fair_price(self, seeded):
+        path, _ = seeded
+        offenders = [
+            (r["ticker"], r["fair_probability"], r["p_conservative"])
+            for r in self._joined(path)
+            if abs(r["fair_probability"] - r["p_conservative"]) > 1e-9
+        ]
+        assert not offenders, (
+            "These seeded rows carry a `fair_probability` that is not the "
+            "`p_conservative` of the `fair_prices` row they point at, which "
+            f"production cannot produce: {offenders}"
+        )
+
+    def test_the_conservative_reading_is_the_lowest_of_the_four_methods(
+        self, seeded
+    ):
+        """Otherwise the test above passes on a seeder that wrote one invented
+        number into both columns, which is the shape it is meant to catch."""
+        for r in self._joined(seeded[0]):
+            methods = [
+                r["p_multiplicative"], r["p_additive"], r["p_power"], r["p_shin"]
+            ]
+            present = [m for m in methods if m is not None]
+            assert present, r["ticker"]
+            assert abs(r["p_conservative"] - min(present)) < 1e-9, r["ticker"]
+
+    def test_the_four_methods_are_not_all_the_same_number(self, seeded):
+        """A dispersion strip over four identical values shows nothing, and a
+        seeder that collapsed them would make the screen look broken while
+        every assertion above stayed green."""
+        spreads = [
+            max(vals) - min(vals)
+            for r in self._joined(seeded[0])
+            for vals in [[
+                v for v in (
+                    r["p_multiplicative"], r["p_additive"],
+                    r["p_power"], r["p_shin"],
+                ) if v is not None
+            ]]
+        ]
+        assert spreads, "no rows"
+        assert max(spreads) > 1e-6, (
+            "Every seeded row has four identical devig readings, so the "
+            "method-dispersion strip renders as a single point on the demo."
+        )

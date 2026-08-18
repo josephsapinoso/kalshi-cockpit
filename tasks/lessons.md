@@ -25,6 +25,77 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — Two columns that must be equal are not checked by anyone, and rendering both is what finds them
+
+The pattern: a value is written into two places by construction — a computed
+number and the row it points at — and a comment somewhere says they must agree.
+**Nobody ever runs the comparison, because no consumer needs both columns at
+once.** The disagreement is then free to exist for as long as the two columns
+stay on separate screens.
+
+The instance: `recommendations.fair_probability` and the `p_conservative` of the
+`fair_prices` row its `fair_price_id` points at. The API serializer carries the
+check *as a sentence* — "Should equal `fair_probability` exactly. Sent so a
+consumer can check the join landed on the right row rather than assuming it" —
+and no consumer had ever checked. On the seeded demo they disagreed on **11 of
+11 rows**, in both directions, because the seeder devigged twice: once as a
+multi-book consensus for `fair_prices`, once as a single pair for the
+recommendation. Production devigs once and passes the same object to both, so
+this could never have been found by reading production code.
+
+Two things to carry:
+
+- **A screen that puts two independently-derived numbers side by side is a
+  test.** It found this in one glance after the columns had been apart for the
+  life of the project. When adding any view that renders a derived value beside
+  its inputs, expect it to surface a disagreement — and treat the disagreement
+  as the finding, not as a rendering problem to smooth over.
+- **An invariant stated in a comment is not enforced.** If a docstring says two
+  columns must be equal, write the assertion in the same commit. The comment is
+  where a future reader looks *after* the bug; the test is what stops them
+  needing to.
+
+And a corollary about seeded data specifically: **the demo is not exempt from
+the invariants of the thing it demonstrates.** A seeder that reaches the same
+tables by a shorter route will violate constraints production cannot, and the
+demo is the instance anyone actually looks at.
+
+
+## 2026-08-19 — A picture whose axis is set by its loudest number shows nothing about its quietest
+
+Three separate calibration mistakes in one small chart, all found by looking at
+the rendered page and none findable from the code:
+
+**The scale was set by the wrong quantity.** The strip existed to show a
+disagreement between four devig methods, routinely a tenth of a percentage point
+wide. It also drew Kalshi's ask, which on any row with a real edge is 20+ points
+away — so the axis spanned 26 points and the four readings the chart was *for*
+collapsed into one pixel. **Ask what the picture is of, and let only that set
+the domain.** Context that is far away belongs in a label, not in the scale. An
+off-scale marker is then reported as off-scale, never clamped to an edge: a
+marker pinned to the end of a scale it is not on is a drawing that lies.
+
+**The legend was coarser than the drawing.** Three visibly distinct marks whose
+labels all read `47.4%`. A reader cannot tell "the labels are rounded" from "the
+chart is broken", and will pick the second. **A legend must resolve whatever the
+drawing resolves** — the precision of the number and the precision of the
+position are one decision, not two.
+
+**A structural artifact read as a finding.** The chart's bar plotted each book's
+*lowest* of four methods; its marks plotted *one* method averaged. So the marks
+sit at or above the bar by construction, on nearly every row — and unlabelled
+that reads as "the consensus is higher than every book", a claim about the
+market. It is a fact about the statistic. **When two series on one axis are
+different statistics, the label has to say which, because the reader will
+otherwise interpret the offset as data.**
+
+The general shape, and it is why "eyeball it at the real width" is not optional:
+every one of these renders perfectly, passes every unit test of its geometry,
+and is wrong on the screen. The node tests proved the axis was not inverted and
+that every point landed in `[0,1]`. None of them could have said the axis was
+measuring the wrong thing.
+
+
 ## 2026-08-18 — Find the render sites by scanning, not by remembering, and check that the guard's mutation is the one you meant
 
 Three failures in one small change, and none of them was in the feature.

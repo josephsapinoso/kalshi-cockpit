@@ -30,18 +30,18 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,432 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,462 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** nothing is urgent, by construction — ADR 0038 closed the hunt, the
-study accumulates on its own, and the alerting session is fully discharged
-**including its one human step**: the heartbeat alarm has now been fired by
-hand and Discord returned 204. The only thing left on it is Joe glancing at the
-channel to confirm the embed reached the phone; that is his, not yours.
+**THE JOB:** nothing is urgent, by construction — ADR 0038 closed the hunt and
+the study accumulates on its own. **ADR 0047's approved plan is now fully
+discharged**: the suppression gloss (ADR 0050) and the dispersion strip (ADR
+0051) were the last two P2s. The alerting session is discharged too, including
+its human step — the heartbeat alarm was fired by hand and Discord returned
+204; all that is left there is Joe glancing at the channel.
 
-Next up is a menu, not a queue. From ADR 0047's approved plan the **dispersion
-strip** is the remaining P2 (min book → four devig methods → max book, labelled
-"where the number came from", never "fair"). The suppression-code gloss is done
-— ADR 0050. Or ask the partner.
+So there is no queue. **Two live-deploy dispatches are pending Joe** (see the
+two newest entries), and past that the open list at the bottom of the newest
+entry is a menu — or ask the partner. Do not invent urgency.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
 deploying were both pre-approved on 2026-08-18 and the deploy deny is
@@ -63,6 +63,124 @@ work here.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
+
+---
+
+## 2026-08-19 ~mid — THE STRIP SAYS WHERE THE NUMBER CAME FROM, AND THE DEMO WAS DISAGREEING WITH ITSELF
+
+The last P2 from ADR 0047's approved plan is done. **ADR 0051** is the decision
+record. The larger find was underneath it and had been true for the life of the
+project.
+
+### THE DEFECT: every seeded row disagreed with its own fair price
+
+A Slate row's `fair_probability` and the `p_conservative` of the `fair_prices`
+row its `fair_price_id` points at **must** be the same number — production
+devigs once and hands the same `DevigResult` to both (`runner.py:936`). On the
+demo they disagreed on **11 of 11 rows**, by up to 0.35 probability points, in
+both directions.
+
+`seed_demo.py` ran `consensus_devig` over the seeded books, wrote it to
+`fair_prices`, pointed `fair_price_id` at it — and then priced the
+recommendation from a **second**, single-pair `devig()` over `scenario.odds`.
+
+**The check already existed, as a comment.** `routes.py` serialises
+`p_conservative` with the note *"Should equal `fair_probability` exactly. Sent
+so a consumer can check the join landed on the right row rather than assuming
+it."* No consumer had ever checked, because until this session no screen needed
+both columns at once. **Rendering the two side by side is what found it, in one
+glance.** Guarded now by
+`tests/test_seed_demo.py::TestTheSeededFairValueIsTheOneItPointsAt`, which also
+asserts `p_conservative` really is the minimum of the four — otherwise a seeder
+writing one invented number into both columns passes.
+
+**This is demo-only.** Verified by reading the production path, not assumed:
+`runner.py:865` computes the consensus, `:873` writes it, `:936` passes the same
+object. Live cannot produce the mismatch. `data/demo.db` is gitignored and the
+deployed demo seeds on boot, so the fix ships with the code.
+
+### The strip
+
+`frontend/src/components/DispersionStrip.tsx`, geometry in
+`frontend/src/lib/dispersion.ts` (React-free, so node executes it).
+**xl-only on `/slate`**, same tier as Anchor and Width — ADR 0047 fixes
+everything below 1280px as byte-identical, and this is five lines per row. The
+component is width-agnostic; moving it to the phone is a class change, and
+**that is a decision for Joe** rather than something to do quietly.
+
+Header reads **"where the number came from"**. The word *fair* appears nowhere
+in what it renders, and a test fails if it returns.
+
+Every data point was already recorded **and already served** — this is the
+"built but never called" pattern one layer further out. No backend change.
+
+### Four calibrations, three of them found by looking at the page
+
+1. **Kalshi's ask no longer sets the scale.** With the ask in the domain, the
+   seeded `suspicious_edge` row spanned 34.00% to 60.45% and the four readings
+   0.4 points apart became one pixel — nothing visible on the row where the
+   question matters most. The ask is not an input to the fair value. Drawn only
+   when it lands inside; otherwise labelled `off this scale`, never clamped to
+   an edge.
+2. **The bar is labelled "worst method each".** It plots each book's *lowest*
+   of four; the marks plot *one* method averaged. So marks sit at or above the
+   bar **by construction**, on most rows. Unlabelled that reads as "the
+   consensus is higher than every book" — a claim about the market. It is a
+   fact about the statistic.
+3. **Two decimals, not one.** Three distinct marks all labelled `47.4%` looks
+   like a broken chart, not a coarse label. A legend must resolve whatever the
+   drawing resolves.
+4. **It refuses to draw** on fewer than two distinct readings. One point looks
+   like four methods agreeing perfectly.
+
+### Two guards were green when written, again, for opposite reasons
+
+Same lesson as yesterday and it fired twice more, so it is now written in
+`tasks/lessons.md` as its own pattern:
+
+- `assert "<DispersionStrip" in source` is a **prefix** match, so renaming the
+  tag to `<DispersionStripUnused` — the obvious unwiring — left it green. Now a
+  word boundary.
+- A byte mutation written with `\n` matched nothing in `dispersion.ts`, because
+  a `write_text` on Windows had silently converted that file from LF to CRLF
+  mid-session. **The mutation script's assert-it-applied step is the only thing
+  that separates "the guard is green" from "the mutation never happened."**
+
+### Also worth knowing
+
+- **`asPercent`, the axis, the refusal-to-draw and the caveat wording are all
+  in `lib/dispersion.ts`**, deliberately React-free. Change them there; the
+  component is layout only.
+- `frontend/src/lib/api.ts`'s `DevigMethods` docstring says these fields are
+  "**Present only on `/api/ledger`**". That is **stale** — `/api/slate` selects
+  and serves them (`routes.py:1049`), which is what made this session possible.
+  Not corrected here because the sentence is load-bearing for the
+  present-or-absent rule and rewriting it wants its own careful pass.
+
+### Verification
+
+Suite **3,462 passed / 10 xfailed**; ruff, `tsc` and the frontend build clean.
+`check_mobile` clean at 390/768/1024/1440/1920/2560 against a local build off a
+freshly reseeded `data/demo.db`; 1440 and 390 screenshots read. Eleven guards
+disabled and watched go red.
+
+### STILL OPEN
+
+- **Joe confirms the heartbeat embed reached his phone** (Discord returned 204
+  on 2026-08-18; everything up to Discord is proven).
+- **Live deploy needs Joe's dispatch** — the classifier blocks
+  `gh workflow run deploy.yml -f instance=live` from here, twice running now:
+
+      gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+
+- **The daily digest still leads with `x / 300` toward the gate**, which
+  CLAUDE.md says no roadmap may depend on. Partner recommends `beta` and its
+  interval. Joe's judgement.
+- **Should the dispersion strip reach the phone?** It is xl-only by ADR 0047's
+  rule, and Joe uses a phone. Deliberately not decided here.
+- `/ledger` real columns is a rewrite, not a widening. Positions/exposure needs
+  an A7 embargo ruling. `/api/results` still has zero frontend references.
+- ADR 0047's approved plan is now **fully discharged** — both P2 items are done.
 
 ---
 

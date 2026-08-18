@@ -227,7 +227,17 @@ def _seed_link_and_fair_price(
     moment either changes -- the failure `_LIVE_SUPPRESSION_MIX` above is
     written to avoid, in a different column.
 
-    Returns `(link_id, fair_price_id_for_the_team_side)`.
+    Returns `(link_id, fair_price_id_for_the_team_side, consensus_result)`.
+
+    **The `DevigResult` comes back out, and that is not a convenience.** The
+    caller prices the recommendation from it. Until 2026-08-19 the caller ran a
+    *second*, single-pair `devig()` over `scenario.odds` and priced from that,
+    while `fair_price_id` pointed here -- so every seeded row carried a
+    `fair_probability` that disagreed with its own `p_conservative`, on all 11
+    rows, by up to 0.35 probability points. Production cannot do this:
+    `runner.py:936` passes the same `devig_result` it wrote to `fair_prices`.
+    The mismatch was invisible until a screen rendered the four methods beside
+    the fair value and their minimum contradicted it.
     """
     cursor = conn.execute(
         "INSERT INTO event_links (kalshi_event_ticker, odds_event_id, league, "
@@ -251,7 +261,7 @@ def _seed_link_and_fair_price(
         # not a reason to abort the seed. The link still exists; the row simply
         # carries no fair price, which is what a live row in that condition
         # looks like.
-        return link_id, None
+        return link_id, None, None
 
     ids = write_fair_price(
         conn,
@@ -260,7 +270,7 @@ def _seed_link_and_fair_price(
         metadata=metadata,
         computed_ms=computed_ms,
     )
-    return link_id, ids.get(scenario.team)
+    return link_id, ids.get(scenario.team), result
 
 
 def _seed_quote_history(conn, *, ticker: str, ask_tenths: int, stamp: int, rng) -> int:
@@ -471,11 +481,6 @@ def seed_all(
             ),
         )
 
-        fair = devig([scenario.team, scenario.opponent], list(scenario.odds))
-        fair_p = fair.conservative_probability(scenario.team)
-        ask = int(round(fair_p * 1000)) + scenario.ask_offset_tenths
-        ask = max(10, min(990, ask))
-
         conn.execute(
             "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, "
             "series_ticker, title, yes_side_team, market_type, price_structure, "
@@ -502,12 +507,32 @@ def seed_all(
 
         # The link and the fair price the Slate screen reads. Written after the
         # books because they are computed *from* them.
-        link_id, fair_price_id = _seed_link_and_fair_price(
+        link_id, fair_price_id, consensus = _seed_link_and_fair_price(
             conn,
             scenario=scenario,
             quotes_by_book=quotes_by_book,
             computed_ms=stamp,
         )
+
+        # **Price the row off the consensus that was just written, not off a
+        # second devig of its own.** These two lines used to run *above* the
+        # market insert, over `scenario.odds` as a single pair, while
+        # `fair_price_id` pointed at the multi-book consensus below -- so the
+        # recommendation's `fair_probability` and its own `p_conservative`
+        # disagreed on every seeded row. `runner.py:936` passes production the
+        # same `DevigResult` it wrote; this now does too, and
+        # `tests/test_seed_demo.py` fails if they ever come apart again.
+        #
+        # The fallback is the old single-pair devig, and it is the honest one:
+        # it runs only where `consensus_devig` refused, which is exactly the
+        # state in which there is no `fair_price_id` and so nothing to
+        # contradict.
+        fair = consensus or devig(
+            [scenario.team, scenario.opponent], list(scenario.odds)
+        )
+        fair_p = fair.conservative_probability(scenario.team)
+        ask = int(round(fair_p * 1000)) + scenario.ask_offset_tenths
+        ask = max(10, min(990, ask))
         counts["kalshi_quotes"] = counts.get("kalshi_quotes", 0) + (
             _seed_quote_history(
                 conn, ticker=scenario.ticker, ask_tenths=ask, stamp=stamp, rng=rng

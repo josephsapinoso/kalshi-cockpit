@@ -15,6 +15,7 @@ import { glossSentence } from "@/lib/suppressionGloss";
 import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
+import DispersionStrip from "@/components/DispersionStrip";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
@@ -257,6 +258,28 @@ function Row({
           {glossSentence(row.suppressed_reason)}
         </span>
       )}
+
+      {/* **Desktop only, like the Anchor and Width columns above, and for the
+          same reason.** ADR 0047 fixed everything below 1280px as byte
+          identical, and this is four extra lines per row -- on eleven rows at
+          390px that is most of a screen. The component itself is
+          width-agnostic, so bringing it to the phone later is a class change
+          rather than a rewrite; that is a decision for Joe, not a default.
+
+          It answers the one question the row cannot: this line says `fair`
+          once, and that number is the lowest of four devig readings averaged
+          over an anchored subset of the books. Three choices, none of them
+          previously on any screen. */}
+      <span className="hidden xl:col-span-full xl:block">
+        <DispersionStrip
+          books={row.books}
+          methods={row}
+          kalshiProbability={
+            typeof row.ask_tenths === "number" ? row.ask_tenths / 1000 : null
+          }
+          anchoredBookCount={row.book_count ?? null}
+        />
+      </span>
     </div>
   );
 }
