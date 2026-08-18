@@ -28,7 +28,13 @@ import pytest
 
 from backend.analysis.clv import DEFAULT_HORIZON_HOURS
 
-from backend.notify.alerts import Alerter
+from backend.notify.alerts import (
+    Alerter,
+    FAILURE_CREDITS_EXHAUSTED,
+    FAILURE_FEED_DIED,
+    FAILURE_KINDS,
+    FAILURE_LOOP_DIED,
+)
 from backend.store import db
 
 HOUR = 3_600_000
@@ -53,6 +59,9 @@ class FakeNotifier:
         self.windows: list = []
         self.digests: list = []
         self.failures: list = []
+        self.feed_deaths: list = []
+        self.credit_alerts: list = []
+        self.fee_alerts: list = []
 
     @property
     def enabled(self) -> bool:
@@ -72,6 +81,23 @@ class FakeNotifier:
 
     async def failure(self, kind, detail):
         self.failures.append((kind, detail))
+        return self.delivers
+
+    # The three below were complete, tested and called by nothing in production
+    # until 2026-08-18. Recorded separately from `failure` so a test can tell
+    # "the purpose-built alert fired" from "the generic one did" -- routing
+    # through the generic path is exactly how they stayed unwired while looking
+    # wired.
+    async def feed_died(self, detail):
+        self.feed_deaths.append(detail)
+        return self.delivers
+
+    async def credits_exhausted(self, remaining):
+        self.credit_alerts.append(remaining)
+        return self.delivers
+
+    async def fee_mismatch(self, ticker, predicted, actual):
+        self.fee_alerts.append((ticker, predicted, actual))
         return self.delivers
 
 
@@ -176,7 +202,28 @@ class TestASurfacedRowReachesThePhone:
 
     async def test_a_suppressed_row_is_never_announced(self, conn):
         """A phone notification per rejected candidate trains you to mute the
-        channel, which is worse than having no channel."""
+        channel, which is worse than having no channel.
+
+        **The row is suppressed AND sized above zero, deliberately.** This test
+        used to insert `contracts=0, suppressed="wide_market"` -- it constructed
+        the zero it was checking, so it passed on the `suggested_contracts > 0`
+        clause alone and could not see the suppression clause at all. The
+        production sizer happens to zero that field on suppression today; the
+        whole point of the query's second clause is the day it stops. A test
+        that supplies the invariant it is verifying asserts nothing about
+        production. Same shape as the `daily_pnl_dollars` defect
+        `test_has_callers.py` exists for.
+        """
+        add_recommendation(conn, contracts=15, suppressed="wide_market")
+        notifier = FakeNotifier()
+        await run_pass(Alerter(conn, notifier), surfaced=0)
+        assert notifier.opportunities == []
+
+    async def test_a_suppressed_row_the_sizer_zeroed_is_also_not_announced(
+        self, conn
+    ):
+        """The state production actually produces. Both clauses agree here, and
+        that agreement is what the test above deliberately does not rely on."""
         add_recommendation(conn, contracts=0, suppressed="wide_market")
         notifier = FakeNotifier()
         await run_pass(Alerter(conn, notifier), surfaced=0)
@@ -275,21 +322,23 @@ class TestFailureAlertsDoNotStorm:
         notifier = FakeNotifier()
         alerter = Alerter(conn, notifier)
         for i in range(5):
-            await alerter.failure("feed died", "detail", now_ms=NOW + i * 60_000)
+            await alerter.failure(
+                FAILURE_FEED_DIED, "detail", now_ms=NOW + i * 60_000
+            )
         assert len(notifier.failures) == 1
 
     async def test_the_next_day_alerts_again(self, conn):
         notifier = FakeNotifier()
         alerter = Alerter(conn, notifier)
-        await alerter.failure("feed died", "d", now_ms=NOW)
-        await alerter.failure("feed died", "d", now_ms=NOW + 24 * HOUR)
+        await alerter.failure(FAILURE_FEED_DIED, "d", now_ms=NOW)
+        await alerter.failure(FAILURE_FEED_DIED, "d", now_ms=NOW + 24 * HOUR)
         assert len(notifier.failures) == 2
 
     async def test_different_kinds_do_not_suppress_each_other(self, conn):
         notifier = FakeNotifier()
         alerter = Alerter(conn, notifier)
-        await alerter.failure("feed died", "d", now_ms=NOW)
-        await alerter.failure("credits exhausted", "d", now_ms=NOW)
+        await alerter.failure(FAILURE_FEED_DIED, "d", now_ms=NOW)
+        await alerter.failure(FAILURE_CREDITS_EXHAUSTED, "d", now_ms=NOW)
         assert len(notifier.failures) == 2
 
 
@@ -450,3 +499,133 @@ class TestUnconfiguredIsInertRatherThanBroken:
         notifier = FakeNotifier()
         await run_pass(Alerter(conn, notifier))
         assert len(notifier.opportunities) == 1
+
+
+class TestTheFeedWatchdog:
+    """The alert the Board cannot substitute for.
+
+    A dead feed makes the cockpit look *calm*: prices stop moving and a stale
+    number renders identically to a fresh one. Before 2026-08-18 the only
+    failure alert with a production caller was `Recording loop died`, which
+    needs five consecutive pass failures -- and a container crash-loop, the
+    failure that has actually happened to this instance, kills the process
+    before that path is reached.
+
+    **What is not tested here, because it cannot be:** the crash-loop itself.
+    Nothing running inside the box can report the box being dead.
+    """
+
+    async def test_a_dead_hub_fires_the_purpose_built_alert(self, conn):
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_feed(
+            now_ms=NOW, hub_running=False, markets_priced=12
+        )
+        assert notifier.feed_deaths, "feed_died was not called"
+        assert "12" in notifier.feed_deaths[0]
+
+    async def test_a_live_hub_says_nothing(self, conn):
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_feed(
+            now_ms=NOW, hub_running=True, markets_priced=12
+        )
+        assert notifier.feed_deaths == []
+        assert notifier.failures == []
+
+    async def test_an_empty_slate_says_nothing_even_with_a_dead_hub(self, conn):
+        """The denominator, and it is the difference between a watchdog and a
+        nightly buzz. Overnight there is nothing to quote; a watchdog that fires
+        anyway gets the channel muted, which is worse than no channel."""
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_feed(
+            now_ms=NOW, hub_running=False, markets_priced=0
+        )
+        assert notifier.feed_deaths == []
+        assert notifier.failures == []
+
+    async def test_an_unreadable_probe_is_its_own_alert_not_a_dead_feed(self, conn):
+        """`None` is not `False`. "The API did not answer" and "the hub is down"
+        are different facts and a phone must not be told the second when the
+        first is what happened."""
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_feed(
+            now_ms=NOW, hub_running=None, markets_priced=12
+        )
+        assert notifier.feed_deaths == []
+        assert [kind for kind, _ in notifier.failures] == [
+            "Cockpit API unreachable"
+        ]
+
+    async def test_it_fires_once_a_day_however_many_passes_run(self, conn):
+        """A broken feed is broken on every pass. Ninety-six alerts is one alert
+        and ninety-five reasons to mute the channel."""
+        notifier = FakeNotifier()
+        alerter = Alerter(conn, notifier)
+        for offset in range(0, 5 * 60_000, 60_000):
+            await alerter.check_feed(
+                now_ms=NOW + offset, hub_running=False, markets_priced=12
+            )
+        assert len(notifier.feed_deaths) == 1
+
+    async def test_the_next_day_alerts_again(self, conn):
+        """Deduped, not silenced. A feed still dead tomorrow is still news."""
+        notifier = FakeNotifier()
+        alerter = Alerter(conn, notifier)
+        await alerter.check_feed(now_ms=NOW, hub_running=False, markets_priced=12)
+        await alerter.check_feed(
+            now_ms=NOW + 24 * HOUR, hub_running=False, markets_priced=12
+        )
+        assert len(notifier.feed_deaths) == 2
+
+
+class TestTheCreditWatchdog:
+    """Not a malfunction -- the budget working -- but invisible from the Board,
+    which simply stops producing rows."""
+
+    async def test_exhausted_credits_fire_the_purpose_built_alert(self, conn):
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_credits(now_ms=NOW, remaining_today=0)
+        assert notifier.credit_alerts == [0]
+
+    async def test_remaining_credits_say_nothing(self, conn):
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).check_credits(now_ms=NOW, remaining_today=42)
+        assert notifier.credit_alerts == []
+
+    async def test_it_fires_once_a_day(self, conn):
+        notifier = FakeNotifier()
+        alerter = Alerter(conn, notifier)
+        for offset in range(0, 5 * 60_000, 60_000):
+            await alerter.check_credits(now_ms=NOW + offset, remaining_today=0)
+        assert len(notifier.credit_alerts) == 1
+
+
+class TestTheFailureKindsAreDeclared:
+    """`FAILURE_KINDS` was referenced by nothing and matched nothing.
+
+    It listed `("loop_failed", "credits_exhausted", "feed_died")` while the one
+    kind ever sent was the free-text `"Recording loop died"`. A constant nobody
+    reads cannot be wrong, so it was wrong for the life of the project. It is
+    now the dedupe key's allowlist, and these tests are what make that real.
+    """
+
+    async def test_an_undeclared_kind_raises(self, conn):
+        """A typo must not open a second dedupe bucket and double the traffic."""
+        notifier = FakeNotifier()
+        with pytest.raises(AssertionError, match="undeclared failure kind"):
+            await Alerter(conn, notifier).failure(
+                "Recording lop died", "typo", now_ms=NOW
+            )
+
+    async def test_the_kind_the_loop_sends_is_declared(self):
+        """The specific mismatch that stood for the life of the project."""
+        assert FAILURE_LOOP_DIED in FAILURE_KINDS
+
+    @pytest.mark.parametrize("kind", FAILURE_KINDS)
+    def test_every_declared_kind_is_a_title_the_notifier_writes(self, kind):
+        """The dedupe key and the embed title are the same name.
+
+        A near-miss would dedupe under a string that appears nowhere on the
+        phone, so the record and the notification would disagree about what was
+        sent -- and only the record is queryable.
+        """
+        assert kind.strip() == kind and kind

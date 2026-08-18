@@ -259,6 +259,20 @@ MUST_HAVE_CALLERS = [
         "state this file exists to detect",
     ),
     (
+        "check_feed",
+        "a dead WebSocket is the one failure the Board cannot show -- prices "
+        "stop moving and a stale number renders identically to a fresh one, so "
+        "a broken feed makes the cockpit look CALM. Before 2026-08-18 the only "
+        "failure alert with a caller needed five consecutive pass failures, "
+        "which a container crash-loop skips entirely",
+    ),
+    (
+        "check_credits",
+        "odds fetches stop and the Board simply stops producing rows, which "
+        "looks exactly like a quiet slate. `DiscordNotifier.credits_exhausted` "
+        "was complete and referenced only by tests for the life of the project",
+    ),
+    (
         "run_settlement_pass",
         "no paper position ever closes, so paper exposure only ratchets up "
         "until the order endpoint refuses everything -- a cap that can only "

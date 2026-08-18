@@ -25,6 +25,47 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — An alert that cannot fire on the failure that happens is not coverage, and the count of alerts hides that
+
+The pattern: a failure channel gets judged by how many alert types it defines.
+The number that matters is different — **for each failure that has actually
+occurred, is there an alert whose trigger condition that failure satisfies?**
+Those two questions come apart badly, because the alerts get written against an
+imagined taxonomy of failure and the real failures arrive in a shape nobody
+enumerated.
+
+The instance: three purpose-built failure alerts existed, complete and tested,
+with **zero production callers** — every reference in the tree was a test. The
+one that *was* wired fires inside `except LoopFailed`, which needs five
+consecutive pass failures. The failure that actually happened to this instance
+(volume full, 2026-08-16) crash-looped the *container*, killing the process
+before that exception can be raised. Four alerts on paper, zero coverage of the
+observed event.
+
+Three things this generalises to:
+
+- **Ask which process is alive at the moment of the failure.** A watchdog can
+  only report a failure it outlives. A loop cannot alert on its own death; only
+  something off-box can. Writing that down is the honest deliverable when the
+  external piece is out of scope — an ADR that claims coverage it does not have
+  is worse than the gap.
+- **A watchdog needs a denominator or it gets muted.** "No data arriving" and
+  "nothing to send" are the same observation at 3am. The clause that
+  distinguishes them is the whole difference between an alarm and a nightly
+  buzz, and a muted channel is strictly worse than no channel.
+- **Check the writers before trusting a symptom.** The proposed in-process
+  signal here was the age of the newest `kalshi_quotes` row, believed to reflect
+  the WebSocket. That table is written only by the REST discovery pass; the hub
+  writes nothing to it. The symptom was real and measured the wrong subsystem —
+  which is the most expensive kind, because it produces a green watchdog.
+
+A fourth, about constants: `FAILURE_KINDS` listed three strings, was referenced
+by nothing, and **matched none of the kinds actually sent**. A constant nobody
+reads cannot be wrong, so it was wrong for the life of the project. The fix is
+not to correct it but to make something read it — here it became the allowlist
+for a dedupe key, asserted at the send.
+
+
 ## 2026-08-18 — A default is a decision nobody made, and it is invisible from inside the running system
 
 The pattern: a config loader that supplies a fallback turns "nobody chose a

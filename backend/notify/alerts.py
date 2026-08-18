@@ -63,7 +63,36 @@ from ..gate import POPULATIONS
 logger = logging.getLogger(__name__)
 
 # Failure alerts collapse to one per kind per day. See the module docstring.
-FAILURE_KINDS = ("loop_failed", "credits_exhausted", "feed_died")
+#
+# **These are the kinds this module can actually send**, and the tuple is now
+# read rather than decorative. It previously listed `("loop_failed",
+# "credits_exhausted", "feed_died")` -- referenced by nothing in the tree, not
+# even by this module, and **not one of its three strings matched the one kind
+# ever sent**, which was the free-text `"Recording loop died"` at
+# `scripts/run_loop.py`. A constant nobody reads cannot be wrong, so it was
+# wrong for the life of the project.
+#
+# `Alerter._failure` now asserts membership, which is what turns it into a
+# guard: a new failure kind must be declared here, and a typo at a call site
+# raises in tests instead of opening a second dedupe bucket that silently
+# doubles the phone traffic.
+FAILURE_LOOP_DIED = "Recording loop died"
+FAILURE_FEED_DIED = "Kalshi feed died"
+FAILURE_CREDITS_EXHAUSTED = "Odds credits exhausted"
+FAILURE_API_UNREACHABLE = "Cockpit API unreachable"
+# The exact strings `DiscordNotifier` puts in the embed title, so the dedupe
+# key and the thing Joe reads are the same name. `fee_mismatch` uses an em
+# dash; matching it here is not cosmetic -- a near-miss would dedupe under a
+# kind that appears nowhere on the phone.
+FAILURE_FEE_MISMATCH = "Fee model mismatch — stop the line"
+
+FAILURE_KINDS = (
+    FAILURE_LOOP_DIED,
+    FAILURE_FEED_DIED,
+    FAILURE_CREDITS_EXHAUSTED,
+    FAILURE_API_UNREACHABLE,
+    FAILURE_FEE_MISMATCH,
+)
 
 
 def _day(ms: int) -> str:
@@ -218,7 +247,16 @@ class Alerter:
         return self.conn.execute(
             "SELECT r.*, m.yes_side_team AS team FROM recommendations r "
             "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
+            # **Both halves of `Recommendation.surfaced`.** `engine.py` defines
+            # a surfaced row as sized above zero AND unsuppressed, and this
+            # query carried only the first. They agree today -- `engine.py`
+            # zeroes contracts on suppression, and `with_added_suppression`
+            # zeroes all four fields -- so this was not a live bug. It is the
+            # two-paths-one-definition shape the digest query below was already
+            # repaired for: the day the sizer stops zeroing that field, this
+            # announces suppressed rows to a phone and nothing says so.
             "WHERE r.created_ms = ? AND r.suggested_contracts > 0 "
+            "AND r.suppressed_reason IS NULL "
             "ORDER BY r.edge_tenths DESC",
             (pass_ms,),
         ).fetchall()
@@ -329,12 +367,142 @@ class Alerter:
 
     async def failure(self, kind: str, detail: str, *, now_ms: int) -> Optional[bool]:
         """One alert per kind per day. A broken feed fails on every pass."""
+        return await self._failure(
+            kind, lambda: self.notifier.failure(kind, detail),
+            detail=detail, now_ms=now_ms,
+        )
+
+    async def _failure(
+        self, kind: str, coro_factory, *, detail: str, now_ms: int
+    ) -> Optional[bool]:
+        """The shared claim-and-send for every failure kind.
+
+        Takes the coroutine factory rather than the text, so the callers below
+        can use `DiscordNotifier`'s purpose-built methods -- `feed_died`,
+        `credits_exhausted`, `fee_mismatch` -- each of which carries copy saying
+        what the failure means for the numbers on screen. Those three had
+        **zero production callers** until 2026-08-18: every reference in the
+        tree was a test. Routing them through the generic `failure(kind,
+        detail)` would have kept it that way while looking wired.
+
+        The kind is asserted against `FAILURE_KINDS` because it is half of the
+        dedupe key. A typo does not fail loudly -- it opens a second bucket, and
+        the phone gets the same alert twice a day, which reads as the alerter
+        being noisy rather than as a bug.
+        """
+        assert kind in FAILURE_KINDS, f"undeclared failure kind {kind!r}"
         if not self.enabled:
             return None
         return await self._send(
             "failure", f"{kind}:{_day(now_ms)}",
-            lambda: self.notifier.failure(kind, detail),
+            coro_factory,
             now_ms=now_ms, detail=detail[:200],
+        )
+
+    async def check_feed(
+        self, *, now_ms: int, hub_running: Optional[bool], markets_priced: int
+    ) -> Optional[bool]:
+        """Alert when the live feed is down while there is something to feed.
+
+        **This is the alert the Board cannot substitute for**, and the reason is
+        in `discord.py`'s own docstring: a dead feed makes the cockpit look
+        *calm*. Prices stop moving, stale numbers render identically to fresh
+        ones, and silence is the symptom.
+
+        `markets_priced` is the denominator and it is not optional. Overnight
+        with no slate there is nothing to quote, and a watchdog without this
+        clause would buzz every night -- which is how a channel gets muted, and
+        a muted channel is strictly worse than no channel.
+
+        **`hub_running` crosses a process boundary, and the in-process
+        alternative was checked and rejected.** The obvious local signal is the
+        age of the newest `kalshi_quotes` row, but that table is written **only**
+        by `runner.store_quotes_from_discovery`, at `source = 'rest'`, on every
+        pass; `QuoteHub` writes nothing to it. So quote age measures this loop's
+        own liveness and is blind to the WebSocket entirely -- and a loop cannot
+        alert on its own death in any case. The hub lives in the uvicorn process
+        (`routes.create_app`), which already publishes the canonical answer as
+        `/api/health`'s `live_quotes_available`. Reading that is not a second
+        implementation of the check: `docker/entrypoint.sh:176` polls the same
+        endpoint on the same loopback address to decide the backend has started.
+
+        `None` means the probe itself failed, which is a different and worse
+        fact than the hub being down -- the API is not answering on loopback at
+        all. It gets its own kind so the two cannot be confused on a phone.
+
+        **What this does not cover: the container crash-looping.** That kills
+        this process before any of this runs, and it is the failure that has
+        actually happened to this instance (the 2026-08-16 volume-full
+        incident). Nothing running *inside* the box can report the box being
+        dead. That needs an external dead-man's switch and is not built here.
+        """
+        if markets_priced <= 0:
+            return None
+        if hub_running is None:
+            return await self._failure(
+                FAILURE_API_UNREACHABLE,
+                lambda: self.notifier.failure(
+                    FAILURE_API_UNREACHABLE,
+                    "The loop could not reach the cockpit API on loopback, so "
+                    "the live feed's state is unknown. Every price on the Board "
+                    "may be frozen, and a frozen price renders exactly like a "
+                    "fresh one.",
+                ),
+                detail="health probe failed",
+                now_ms=now_ms,
+            )
+        if hub_running:
+            return None
+        return await self._failure(
+            FAILURE_FEED_DIED,
+            lambda: self.notifier.feed_died(
+                f"The quote hub is not running while {markets_priced} market(s) "
+                f"are being priced."
+            ),
+            detail=f"{markets_priced} markets priced",
+            now_ms=now_ms,
+        )
+
+    async def check_credits(
+        self, *, now_ms: int, remaining_today: int
+    ) -> Optional[bool]:
+        """Alert once when the day's odds credits are gone.
+
+        Not a malfunction -- it is the budget working -- but it is invisible
+        from the Board, which simply stops producing new rows. The notifier's
+        own copy says exactly that, which is why this routes through
+        `credits_exhausted` rather than the generic failure.
+        """
+        if remaining_today > 0:
+            return None
+        return await self._failure(
+            FAILURE_CREDITS_EXHAUSTED,
+            lambda: self.notifier.credits_exhausted(remaining_today),
+            detail=f"{remaining_today} remaining",
+            now_ms=now_ms,
+        )
+
+    async def check_fee(
+        self, *, now_ms: int, ticker: str, predicted: float, actual: float
+    ) -> Optional[bool]:
+        """Alert when a real fill disagrees with `core/fees.py`.
+
+        Keyed per *day* like every other failure rather than per ticker: a wrong
+        fee model is wrong on every fill, and one alert saying "stop the line"
+        is the whole message.
+
+        **This one still has no production caller, and that is recorded rather
+        than hidden.** `ORDERS_ARE_DRY_RUNS = True` (`store/orders.py:129`)
+        means this instance has never placed an order, so there is no fill to
+        reconcile and no honest place to call it from. It is here so the
+        reconciliation path has one obvious hook when arming happens. The other
+        two on this class were wired the same day; this one could not be.
+        """
+        return await self._failure(
+            FAILURE_FEE_MISMATCH,
+            lambda: self.notifier.fee_mismatch(ticker, predicted, actual),
+            detail=f"{ticker} {predicted:.2f} vs {actual:.2f}",
+            now_ms=now_ms,
         )
 
 

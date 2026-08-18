@@ -34,13 +34,15 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,350 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** the desktop tier landed in the evening session (ADR 0047 — read
-it before touching any width) and the triage before it is discharged. No new
-triage has been taken. The natural next session: the "not done, deliberately"
-menu at the end of the latest entry (suppression-code gloss, dispersion
-strip), or ask the partner. Nothing is urgent by construction — ADR 0038
-closed the hunt, the study accumulates on its own, and the money-arm strip,
-derived bankroll and 423 interlock are live.
+**THE JOB:** the alerting session (ADR 0048, ADR 0049) discharged two of
+Joe's own reports and one thing the partner found underneath them. **One
+item is open and it is the honest gap, not a polish item: nothing can tell
+Joe the container is dead.** See "STILL OPEN" in the latest entry. Beyond
+that, the "not done, deliberately" menu at the end of the 2026-08-18 evening
+entry (suppression-code gloss, dispersion strip), or ask the partner.
+Nothing else is urgent by construction — ADR 0038 closed the hunt, the study
+accumulates on its own, and the money-arm strip, derived bankroll and 423
+interlock are live.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
 deploying were both pre-approved on 2026-08-18 and the deploy deny is
@@ -59,7 +61,129 @@ handoff claiming work that is already done.
 
 ---
 
-## 2026-08-18 ~evening (latest) — THE DESKTOP TIER EXISTS, AND THE GREEN-ZERO DEFECT DIED FIRST
+## 2026-08-18 ~night (latest) — THE ALERTS LEAVE THE PHONE, AND THE FAILURE CHANNEL IS WIRED
+
+Joe reported two things in one message: Discord links pointed at
+`localhost:3000`, and he could not click a ticker on the desktop to reach the
+price chart. He asked for the partner to review the webhook. Both reports were
+real; the second was not the bug he thought it was, and the partner found a
+third underneath the first that is worse than either.
+
+**ADR 0048** (the deep link) and **ADR 0049** (the failure channel) are the
+decision records. Read both before touching `backend/notify/` or a fly `[env]`
+block.
+
+### What Joe reported, and what was actually wrong
+
+**1. The Discord link.** `COCKPIT_BASE_URL` was defaulted in
+`backend/config.py` and stated in neither fly config nor as a secret on either
+app, so live ran on `http://localhost:3000` for the life of the alerter. On a
+phone that is the phone. The alert arrived, looked right, and the tap went
+nowhere — which reads as Discord being broken.
+
+**The link was broken twice.** It also pointed at `/?focus=<ticker>`, and no
+file in the frontend reads a `focus` param (`app/page.tsx` types its params as
+`{ rejected?: string }`). **Fixing the host alone would have shipped a link
+that loads the Board and silently ignores the ticker** — a repair that looks
+complete. It now goes to `/market/<ticker>`, which is ticker-addressable and
+still renders after the opportunity expires, which the Board does not.
+
+Live now **refuses to boot** on a loopback host, same shape as the
+`APP_AUTH_TOKEN` refusal. The live deploy succeeding is itself the proof the
+variable is set.
+
+**2. "I can't click a ticker on desktop."** Not a desktop bug. The chart link
+existed on `/slate` and **nowhere else**, at every width — phone included.
+Joe's phone habit goes through the Slate and his desktop habit lands on the
+Board, which is why it looked width-dependent. `OpportunityCard` and
+`SlateRow` now carry the link. Not the whole card: the card carries a size and
+a cost, and making it navigate would put a price-history tap where a reader
+expects the bet.
+
+### What the partner found underneath, which is the bigger one
+
+**Three purpose-built failure alerts had zero production callers.**
+`feed_died`, `credits_exhausted` and `fee_mismatch` were complete and tested;
+every reference in the tree was a test. The one wired failure alert fires
+inside `except LoopFailed`, which needs five consecutive pass failures — and
+**the 2026-08-16 volume-full incident crash-looped the container**, killing
+the process before that path is reached. Four alerts on paper, zero coverage
+of the event that actually happened.
+
+Wired now: `Alerter.check_feed` and `Alerter.check_credits`, on every pass,
+both in `MUST_HAVE_CALLERS` so unwiring either turns `test_has_callers.py`
+red.
+
+**The reviewer's proposed mechanism was wrong and the correction matters.** It
+suggested reading the age of the newest `kalshi_quotes` row as an in-process
+signal, claiming it would catch a hub that re-subscribed to nothing. That
+table is written **only** by `runner.store_quotes_from_discovery` at `source =
+'rest'`; `QuoteHub` writes nothing to it. The signal is blind to the WebSocket
+entirely — a green watchdog measuring the wrong subsystem. `check_feed` reads
+`/api/health`'s `live_quotes_available` over loopback instead, which is the
+address `docker/entrypoint.sh:176` already polls.
+
+`FAILURE_KINDS` listed three strings, was referenced by nothing, and matched
+**none** of the kinds actually sent. It is now the dedupe key's allowlist,
+asserted at the send.
+
+### STILL OPEN — and it is the honest gap
+
+**Nothing can tell Joe the container is dead.** Every watchdog above runs
+inside the box; a crash-loop kills them first, and that is the failure that
+has actually happened here. This needs an **external dead-man's switch** — a
+Fly health-check alert, or something off-box expecting a heartbeat and
+shouting when it stops. Not built, deliberately not claimed. ADR 0049 says so
+in its own text.
+
+Two smaller ones the partner ranked and I did not take:
+
+- **One query settles three questions**, and I could not run it: `flyctl ssh
+  console` is blocked by the classifier here. `SELECT kind, COUNT(*),
+  SUM(delivered) FROM notifications GROUP BY kind` on the live volume answers
+  how many `window_open` buzzes an evening produces, whether `opportunity()`
+  has **ever** fired, and whether anything is failing delivery. Joe can run it
+  from a laptop with `!`. Everything below it should wait on the answer.
+- **A delivery health signal.** `notifications.delivered` is written and read
+  by nothing outside tests; `/api/health`'s `notifications_configured` is a
+  boolean about whether a string is non-empty. Revoke the webhook and a broken
+  alerter is indistinguishable from a quiet slate. ~10 lines, but the query
+  above tells us whether it is worth them.
+- **The daily digest still leads with `x / 300` toward the gate**, which
+  CLAUDE.md says no roadmap may depend on and the record has three actionable
+  rows toward in its whole life. The partner's recommendation is to put `beta`
+  and its interval there instead. A judgement call about what the daily buzz
+  should say; left for Joe.
+
+### Killed, so nobody re-proposes them
+
+`?focus=` support on the Board (the chart page already exists and survives
+expiry); deep links on the failure embed (a failure means every number on
+screen is lying — sending Joe to the Board is the wrong instinct); any Discord
+button or interaction (decided in `discord.py`'s own docstring); rebuilding
+the dedupe (`UNIQUE (kind, key)` with claim-before-send is the best-built part
+of the module); polishing the opportunity embed (it has fired at most three
+times in the project's life and possibly zero — see the query above).
+
+### One defect fixed on the way past
+
+`_surfaced_this_pass` filtered on `suggested_contracts > 0` while
+`Recommendation.surfaced` is that *and* unsuppressed. Not a live bug — they
+agree today — but its test proved the claim by **inserting `contracts=0`
+itself**, so it could never have exercised the second clause. Same shape as
+the `daily_pnl_dollars` defect `test_has_callers.py` exists for.
+
+### Verification
+
+Full suite green, ruff clean, `tsc` clean, frontend build clean. Every guard
+added this session was verified by disabling it and watching the test go red —
+eight of them across `test_deployed_urls_are_explicit.py`,
+`test_alerts.py` and `test_has_callers.py`. Both instances deployed and
+`/api/health` on live reports the committed `git_sha`.
+
+---
+
+## 2026-08-18 ~evening — THE DESKTOP TIER EXISTS, AND THE GREEN-ZERO DEFECT DIED FIRST
 
 Joe compared the cockpit to kalshi.com on a monitor and asked for the wasted
 space back. The partner convened six agents (three designers, sharp/retail/

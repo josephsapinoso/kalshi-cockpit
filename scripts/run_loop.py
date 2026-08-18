@@ -70,9 +70,13 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
+
+import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -90,7 +94,7 @@ from backend.config import (  # noqa: E402
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
 from backend.logging_setup import configure_logging  # noqa: E402
-from backend.notify.alerts import Alerter  # noqa: E402
+from backend.notify.alerts import Alerter, FAILURE_LOOP_DIED  # noqa: E402
 from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.portfolio_poll import poll_portfolio_forever  # noqa: E402
@@ -203,6 +207,48 @@ class CombinedPass:
                 {k: v for k, v in self.alerts.as_dict().items() if v}
             )
         return merged
+
+
+# Where the cockpit API answers inside the container. `docker/entrypoint.sh`
+# starts uvicorn on exactly this address and polls this exact endpoint to decide
+# the backend came up, so this reuses the established loopback contract rather
+# than inventing a second one.
+HEALTH_URL = os.getenv("API_ORIGIN", "http://127.0.0.1:8000").rstrip("/") + "/api/health"
+
+# Deliberately short: this runs on every pass, and a health endpoint needing
+# more than two seconds on loopback is itself the symptom.
+HEALTH_TIMEOUT_S = 2.0
+
+# `main` binds its own `log` as a local, so a module-level function cannot see
+# it. Same name and same logger, taken at import.
+_log = logging.getLogger("run_loop")
+
+
+async def probe_hub_running(client) -> Optional[bool]:
+    """Is the quote hub running? `None` when the question could not be asked.
+
+    The WebSocket lives in the uvicorn process and the notifier lives in this
+    one, so there is no in-process way to read it. `Alerter.check_feed` records
+    why the obvious local alternative -- the age of the newest `kalshi_quotes`
+    row -- is blind to the feed entirely.
+
+    **Unreadable resolves to `None`, never to `False`.** A timeout, a 500 and a
+    missing field all mean "the state is unknown", which is a different alert
+    from "the hub is down"; reporting a dead feed because a probe timed out is
+    the flattering-in-reverse version of the same defect. See `tasks/lessons.md`.
+    """
+    try:
+        response = await client.get(HEALTH_URL, timeout=HEALTH_TIMEOUT_S)
+        if response.status_code >= 400:
+            _log.warning("health probe returned HTTP %d", response.status_code)
+            return None
+        value = response.json().get("live_quotes_available")
+    except Exception:                                          # noqa: BLE001
+        _log.warning("health probe failed", exc_info=True)
+        return None
+    # A missing key is unknown, not false. An older image that does not publish
+    # the field must not be reported to a phone as a dead feed.
+    return None if value is None else bool(value)
 
 
 async def main() -> int:
@@ -368,7 +414,8 @@ async def main() -> int:
 
     async with KalshiRestClient(kalshi_config) as kalshi, \
             OddsClient(odds_config, budget) as odds, \
-            DiscordNotifier(discord_config) as discord:
+            DiscordNotifier(discord_config) as discord, \
+            httpx.AsyncClient(timeout=HEALTH_TIMEOUT_S) as health_client:
 
         alerter = Alerter(conn, discord)
         tempo = Tempo(
@@ -447,6 +494,27 @@ async def main() -> int:
             alerts = await alerter.after_pass(
                 pass_ms=stamp, counts=counts, window=window,
                 sweeps_this_pass=counts.odds_sweeps,
+            )
+
+            # **The failure checks run on every pass, beside the good news.**
+            # Here rather than behind `if kind == "full"` on purpose: a feed
+            # dies at a moment, not at a cadence, and the quote pass is the
+            # frequent one. Both dedupe to once per kind per day in
+            # `notifications`, so a per-pass call costs one INSERT that
+            # conflicts.
+            #
+            # `markets_quoted` is the denominator that keeps this quiet
+            # overnight -- it is what `store_quotes_from_discovery` actually
+            # wrote this pass, so zero means there was nothing to feed rather
+            # than nothing arriving. Without it the watchdog buzzes every night
+            # and the channel gets muted, which is worse than no channel.
+            await alerter.check_feed(
+                now_ms=stamp,
+                hub_running=await probe_hub_running(health_client),
+                markets_priced=counts.markets_quoted,
+            )
+            await alerter.check_credits(
+                now_ms=stamp, remaining_today=budget.remaining_today()
             )
             if kind == "full":
                 await alerter.daily_digest(
@@ -549,7 +617,7 @@ async def main() -> int:
             # The last thing this process does. The loop dying is precisely the
             # failure the Board cannot show -- it keeps serving the record it
             # already has, which reads as a calm market.
-            await alerter.failure("Recording loop died", str(exc), now_ms=db.now_ms())
+            await alerter.failure(FAILURE_LOOP_DIED, str(exc), now_ms=db.now_ms())
             raise
         finally:
             # The poller dies with the loop, by design: the entrypoint restarts
