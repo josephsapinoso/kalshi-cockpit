@@ -7,8 +7,16 @@ fixed now so that none of them can be made after the number exists.
 - Owner: pre-registrar (agent), on behalf of Joe.
 - Scored against by: `measurement-skeptic`, after the single terminal look.
 - Negative-result destination: fixed in §8, and it exists before the result does.
-- Build spec: §9 is the field list. **§9 governs**; if the implementation and §9
+- Build spec: **§9** is the field list. **§9 governs**; if the implementation and §9
   disagree, the implementation is wrong.
+
+> **AMENDMENT 1, 2026-08-18 — read it before reading anything below.**
+> Two live reads at ~03:00Z falsified measured claims this registration was
+> built on. **Seven passages are superseded**; each is marked in place with a
+> pointer and **none has been deleted**. The amendment is appended at the end
+> and **it, not the original text, governs**.
+> **The registered estimand did not change. The power did.**
+> See [Amendment 1](#amendment-1--2026-08-18).
 
 ## Filing note — why this is not in `docs/preregistrations/`
 
@@ -69,6 +77,10 @@ rather than aspirational.
 ### 0.3 The $100 bankroll arm is outcome-dependent, and stake size decides
 whether that matters
 
+> **SUPERSEDED by [A2](#a2--the-ruin-arm-recomputed-and-the-100-arm-redefined).**
+> The simulation below used a $2.00 stake and a 3% cost drift. The realised
+> figures are $2.14 and 4.03%, and P(bind) is **0.0149**, not 0.002.
+
 Simulated, 20,000 paths, $100 bankroll, 200 bets, −3% EV per bet:
 
 | stake | P(bankroll stops him before 200 bets) |
@@ -96,6 +108,10 @@ cost fields (§9), not against Joe's memory.
 therefore sets an asymmetric floor rather than assuming `n = 200`.
 
 ### 0.5 Verdict of the power check
+
+> **SUPERSEDED by [A3](#a3--the-power-is-lower-than-registered).** ~23% of his
+> betting is non-sports and leaves the primary population, so 200 logged bets
+> is ~155 primary rows and the MDE is **10.7 points, not 9.4**.
 
 **The primary (calibration) arm is adequately powered, conditional on a single
 terminal look, `n ≥ 120`, and a $2 stake cap.** All three are registered below.
@@ -173,7 +189,9 @@ A row is in iff **all** of:
 5. `outcome_win IS NOT NULL` — `market_result` was `yes` or `no`.
 6. `estimate_server_ms < position_first_seen_ms` — the estimate was recorded
    before the venue knew about the trade (§7.2).
-7. `protocol_calibration_bet = 0` — excludes bet #1 (§7.5).
+7. ~~`protocol_calibration_bet = 0` — excludes bet #1 (§7.5).~~ **VACATED by
+   [A4](#a4--the-bet-1-exclusion-is-vacated).** Its precondition was satisfied
+   on 2026-08-18. **No bet is excluded on protocol grounds.**
 
 ### The exclusions, each with a reason independent of the outcome
 
@@ -184,7 +202,7 @@ A row is in iff **all** of:
 | **Voided / cancelled markets excluded** | A void is the absence of an outcome, not an outcome. |
 | **Revised probabilities excluded** | A revision is adjacent to information arriving. The field is write-once (§7.4); this rule catches a revision that reaches the record anyway. |
 | **Estimates with no matching position excluded from primary** | He estimated and did not bet. Retained in the record and re-run as a registered sensitivity (§9.5), because *not betting* is itself unselected on outcome. |
-| **Bet #1 excluded** | It exists to capture the `/portfolio/fills` wire shape (§7.5). Registered before it is placed, so it cannot be chosen for its result. |
+| ~~**Bet #1 excluded**~~ **VACATED — [A4](#a4--the-bet-1-exclusion-is-vacated)** | The wire shape has now been observed (25 fills). The exclusion has no remaining purpose and is struck rather than retained as decoration. |
 | **In-play bets: INCLUDED in primary, EXCLUDED from CLV** | A live forecast is still a forecast, so it belongs in calibration. A "closing line" does not exist for a market whose event has started. |
 
 ### Exclusions this registration explicitly REFUSES to make
@@ -517,6 +535,12 @@ registered before it is placed, so it cannot be chosen for its result.
 
 ### 7.6 The poll cadence, and what a missed window costs
 
+> **SUPERSEDED IN ITS ENTIRETY by [A1](#a1--both-endpoints-roll-the-safety-net-never-existed).**
+> The claim that `/portfolio/settlements` has never been
+> observed to drop history is **false**: measured 2026-08-18, it holds 22 rows
+> spanning 8 days and the 55 older records are **gone**. The 30/75-day
+> tripwires below were calibrated against a safety net that does not exist.
+
 **Registered: `/portfolio/settlements`, `/portfolio/fills`, `/portfolio/positions`
 and `/portfolio/balance` are polled once daily at a fixed UTC time, every day the
 study is open.**
@@ -655,6 +679,9 @@ Nothing in this table is typed by anyone. All of it is authoritative.
 | `is_taker` | INTEGER 0/1 | `/portfolio/fills` | `is_taker` | descriptive only. **Explicitly forbidden as a slice** (§4) |
 | `kalshi_fill_id` | TEXT | `/portfolio/fills` | fill id | reconciliation identity |
 | `balance_tenths` | INTEGER tenths | `/portfolio/balance` | balance | §5 arm 3, evaluated on the venue's number rather than Joe's memory |
+
+> **The retention claims in this table are SUPERSEDED by
+> [A1](#a1--both-endpoints-roll-the-safety-net-never-existed).**
 
 **Caveat that must travel with the settlement fields:** the 55 existing records
 are dated 2025-11 to 2026-05 and **the fee schedule was revised in July 2026**.
@@ -815,11 +842,12 @@ survivable.
    as evidence of edge is a misreading of this document.
 8. **It says nothing about the tool's consensus signal**, which ADR 0038 closed.
    Different subject, different population, different statistic.
-9. **The venue data is authoritative but not complete.** `/portfolio/fills` has a
-   measured ~3-month retention ceiling and its per-fill wire shape has never been
-   observed on this account. Every claim resting on `fills` — the strong form of
-   the two-clock check, `is_taker`, `n_fills_in_position` — is contingent on an
-   endpoint that has so far returned nothing but an empty list.
+9. ~~**The venue data is authoritative but not complete.**~~ **SUPERSEDED by
+   [A1](#a1--both-endpoints-roll-the-safety-net-never-existed) and
+   [A4](#a4--the-bet-1-exclusion-is-vacated).** The wire shape *has* now been
+   observed (25 fills, 2026-08-18) so `fills` is no longer hypothetical — but
+   **both** portfolio endpoints roll, which is worse than one rolling. The
+   replacement caveat is A1's.
 10. **`n = 200` is an upper bound, not a plan.** The date arm needs 1.5 bets/day
     (§0.4) and the realistic outcome is `UNRESOLVED` at a smaller `n`. That is a
     legitimate result and it goes in the same file (§8).
@@ -840,3 +868,412 @@ reused (§9.6), costs twenty minutes now and prevents a re-litigation later.
 It also carries two decisions that outlive this study: the `fills.source` column,
 and the fact that the portfolio poller is the **first production caller** of four
 endpoints that have existed unused. Both are architectural on their own terms.
+
+---
+
+# Amendment 1 — 2026-08-18
+
+**Written after live read-only measurements at ~03:00Z, a ruling from Joe, and
+before any estimate has been logged.** The recorder is unbuilt and the primary
+population is empty, so this is a pre-registration revision, not a post-hoc one.
+**The estimand, the decision rule and the exclusion list are untouched. The power
+and the plumbing changed.**
+
+## A0 — What did not survive
+
+| original claim | status |
+|---|---|
+| §7.6: `/portfolio/settlements` reach "at least 9 months"; a gap costs "nothing observed. **This is the safety net**" | **FALSIFIED.** It rolls. |
+| §7.6: "a broken poller degrades the integrity check, not the estimand" | **FALSIFIED as reasoned.** The conclusion partly survives on a *different* mechanism I had not identified — A1. |
+| §7.6: tripwires at >30 / >75 days | **TOO LOOSE.** Total turnover observed inside 8 days. Now >3 / >7. |
+| §7.5, §2 rule 7: bet #1 excluded as a protocol calibration bet | **VACATED.** Precondition satisfied. |
+| §9.1: settlements "has never been observed to drop history" | **FALSIFIED.** |
+| §10.9: `fills` "has so far returned nothing but an empty list" | **FALSIFIED.** 25 rows, shape observed. |
+| §0.3: P(bankroll arm binds) = 0.002 on a $100 bankroll | **WRONG ON BOTH TERMS.** The bankroll is **$20.66**, not $100, and the per-bet variance was understated by 1.64x. See A2. |
+| §0.5: "adequately powered", MDE 9.4 pts at n=200 | **DEGRADED to 10.7 pts.** A3. |
+
+Two of these were **measured facts I inherited and repeated without
+re-measuring**. They were true on 2026-08-10 and false eight days later. That is
+the lesson worth more than the correction: **a measured fact about a venue has a
+shelf life, and this registration quoted two past their expiry.**
+
+## A1 — Both endpoints roll, the safety net never existed
+
+`/portfolio/settlements`, `limit=200`, **cursor empty, one page** — turnover, not
+truncation:
+
+- 2026-08-10: **55 rows**, `settled_time` 2025-11-27 to 2026-05-10.
+- 2026-08-18: **22 rows**, `settled_time` 2026-08-11 to 2026-08-17.
+- **Disjoint.** The older 55 are gone.
+
+### The epistemics, stated more carefully than the headline
+
+**The mechanism is unidentified, and that is the important part.** A simple
+3-month rolling window does **not** fit: on 2026-08-10 the endpoint returned
+records from 2025-11-27, **8.5 months old**. Whatever governs this was not a
+fixed lookback in force on 2026-08-10.
+
+Consistent with both reads, none distinguished by available data: a retention
+policy that changed in the interval; a periodic archival sweep; a
+`subaccount_number` scoping change (that field exists in the fills payload); a
+series-level purge. **I cannot rank these and will not pretend to.** The lower
+bound is unbounded below, because Joe did not trade between 2026-05-10 and
+2026-08-10, so nothing existed in the gap to observe rolling off. "~3 months" and
+"8 days" both fit.
+
+**An unidentified mechanism is worse to plan against than a known short window**,
+because a known window can be respected and an unknown one can only be out-run.
+Everything below out-runs it rather than modelling it.
+
+### The re-derivation, which I owe rather than inherit
+
+The estimand needs four ingredients. Their retention exposure is **not uniform**,
+and that is what my original conclusion missed:
+
+| ingredient | source | exposed? |
+|---|---|---|
+| `p_i`, the estimate | **our** `bet_estimates` | **No.** Ours forever. |
+| `y_i`, the outcome | `kalshi_markets.result`, written by **`backend/market_results.py`** from the **public** `/markets?event_ticker=` path | **No.** Not a portfolio endpoint. |
+| `side` | portfolio only | **Yes.** |
+| `entry_price_tenths`, `contracts`, fee | portfolio only | **Yes.** |
+| the `coverage` denominator | portfolio only | **Yes.** |
+
+**This is the fact that rescues the design, and it is not the one I originally
+gave.** `market_results.py` already exists, already runs, walks every market
+discovery has seen, and accepts a result **only at `finalized`** so a reversible
+answer never enters a permanent record. **The dependent variable was never
+exposed to portfolio retention.** My original sentence reached a defensible place
+through an argument that is now false.
+
+**But a gap does cost the estimand, and here is exactly how much.** Losing `side`
+makes `y_i` uncomputable *for the side he took*, so the row leaves the primary
+population. A gap **drops rows**.
+
+Is that biasing? **No, and the distinction is the whole answer.** A poller outage
+is a fact about our infrastructure, uncorrelated with whether a bet won —
+missing-completely-at-random with respect to the outcome. `B_hat` stays unbiased;
+the cost is `n`, which at our marginal power is already serious. It *is*
+correlated with calendar time, hence season and sport, so it shifts composition;
+§4 test 3 detects that.
+
+**The sharper harm is not lost `n` at all.** A gap makes `coverage` uncomputable
+over the interval, because a position we never polled is indistinguishable from
+one that never existed. **It converts a *measured* attrition rate into an
+*unmeasured* one** — and attrition is the only guard in this document against
+outcome-correlated selection. That is the real cost of a gap.
+
+### Registered replacement for §7.6
+
+**Cadence: `fills`, `settlements` and `positions` polled every 12 hours** (up
+from daily). `balance` is separate — see A7. The only defensible anchor for the
+tripwires is the measurement: **the shortest interval over which total turnover
+has been observed is 8 days.**
+
+- **> 3 days** produces rows in the interval flagged `RETENTION-AT-RISK`, counted
+  in the result, with an immediate backstop reconciliation triggered.
+- **> 7 days** declares `coverage` over that interval **UNVERIFIABLE**. If
+  unverifiable intervals cover more than 20% of the study window, the verdict is
+  prefixed **`CONTAMINATED-ATTRITION-UNVERIFIABLE`**.
+- **A gap voids no row.** This survives, and the reason in my own words: voiding
+  on an outage removes rows for a cause correlated with calendar time and
+  therefore with season and sport, trading an *unbiased* loss of `n` for a
+  *biased* shift in composition. It would also let an infrastructure failure
+  silently shrink the population with nobody auditing it. Report the gap; keep
+  the rows.
+
+**Two additions the old §7.6 lacked:**
+
+1. **A `poll_log` table is mandatory** (A6). Without a persisted record of which
+   polls succeeded, the gap is unmeasurable and every tripwire above is
+   decoration.
+2. **Poller health is actively monitored, not inferred from output.** A silent
+   poller failure is exactly the "verification methods that lie" pattern in Joe's
+   own notes, and here it presents as a quietly shrinking `n`.
+
+**A hole in the durable outcome path that must be closed:** `market_results.py`
+walks `kalshi_markets`, which holds only what **sports discovery** has seen. Joe
+bets **UFC (10 of 22), ATP doubles, and non-sports** — markets that walk may
+never discover. **`bet_estimates` must seed a per-ticker market fetch for every
+ticker it holds.** Without it the durable outcome path has holes exactly where
+his betting is, and the ingredient I just called safe becomes unsafe.
+
+## A2 — The ruin arm recomputed, and the $100 arm redefined
+
+Three parameters in §0.3 were wrong, and they compound.
+
+**(i) The bankroll is $20.66, not $100.** Venue-reported at 2026-08-18T~03:00Z,
+no open positions. **(ii) The per-bet variance was understated.** He bets cheap
+longshots; at an implied price `p` the per-bet sd is `stake * sqrt((1-p)/p)`,
+which at his observed price level is **1.64x stake**, not 1.0x. **(iii) The cost
+drift is 4.03% of stake, not 3%** — a fee proportional to `p(1-p)` is a large
+fraction of a small stake.
+
+**Re-simulated, 20,000 paths, 200 bets, longshot payoff:**
+
+| framing | stake | P(money arm fires) |
+|---|---|---|
+| **$20.66 balance, NO deposits** | $2.00 | **0.71** (win prob 0.27) / **0.53** (0.50) |
+| $100 cumulative-loss ceiling | **$2.00** | **0.036** |
+| $100 cumulative-loss ceiling | $2.50 | 0.108 |
+| $100 cumulative-loss ceiling | $3.00 | 0.190 |
+| $100 cumulative-loss ceiling | $5.00 | 0.456 |
+
+**The first row is the headline and it inverts the framing of Joe's deposits.**
+On the balance he actually holds, with no top-ups, the money arm fires **53–71%
+of the time** — the study would almost certainly terminate on a losing run, which
+is maximal truncation on the dependent variable. **Deposits are not a nuisance
+that weakens a control; they are load-bearing for the study to be feasible at
+all.** Without them this measurement cannot reach 200 bets and should not start.
+
+**Ruling on the money arm.** Registered:
+
+> **Arm 3 fires when cumulative net realised loss since study start reaches
+> $100.** Computed from persisted study-period `venue_settlements` as
+> `sum(payout - cost - fee)` over settled positions, where `payout` is
+> `contracts x $1` on a win and `$0` on a loss.
+
+Chosen over the alternatives for reasons fixed now:
+
+- **It needs no deposit inference.** Realised loss comes from settlements, not
+  from balance deltas, so the unlabelled-deposit problem never enters the
+  stopping rule.
+- **It requires Joe to remember nothing** — decidable from persisted rows.
+- **It matches what his $100 hard cap is actually about.** Churn is not
+  consumption: he staked $47.07 pre-study and $50.00 came back, consuming
+  nothing. A cumulative-*stake* arm would fire on turnover, which is not a limit
+  on anything.
+- **A cumulative-deposit ceiling was rejected** because deposits are inferred
+  rather than observed (below), so the stopping rule would rest on a derived
+  quantity that degrades in exactly the poll gaps A1 registers.
+- **Retiring the arm was rejected** because it leaves §5 resting on count and
+  date alone, and a study with no money stop on a real-money account is not
+  something to register silently.
+
+**Is the $2 cap still statistical? YES, and more so than registered.** At $2 the
+arm fires 3.6% — 18x my original 0.2%, because of (ii) and (iii) — and at $5 it
+fires **45.6%**. The cap is precisely what controls how fast he burns the loss
+ceiling, and the arm truncates on losses and biases `B_hat` **upward, toward the
+hypothesis**. So the cap's justification is **statistical, conditional on the
+$100 ceiling being real.**
+
+> **Both branches registered now, so neither is chosen later.**
+>
+> **(a) Joe holds the $100 ceiling** — arm active, $2 cap statistical, P(fire) =
+> 0.036 registered, and §5's existing `CONTAMINATED-STOPPING` prefix catches the
+> 3.6% of runs where it fires.
+>
+> **(b) Joe removes the ceiling and deposits without limit** — the arm never
+> fires, §5 rests on **count or date alone**, and the $2 cap becomes
+> **risk-management only, with no statistical justification**. This must be
+> stated in the result file, because it changes what §5 guarantees.
+
+**Study start:** `balance_at_study_start_tenths` = **$20.6583**, venue-reported,
+recorded on day 1. **Pre-study betting does not count against the arm** — per
+Joe's ruling and per A5.
+
+**Do we need to distinguish deposits from settlement proceeds?** **Not for the
+stopping rule** — that is the point of defining the arm on realised loss. **Yes
+for one descriptive diagnostic**, because a study in which he topped up eight
+times is a different behavioural regime from one with a single deposit, and that
+bears on whether §4 test 3 finds drift. Registered computation:
+
+```
+expected_delta   = settlement_proceeds - stakes_placed - fees   (in the interval)
+inferred_deposit = observed_balance_delta - expected_delta
+```
+
+Reported **descriptively, never as a verdict input**, and marked **UNRELIABLE**
+for any interval covered by a poll gap > 3 days. Registering the formula now is
+the point: inferring deposits afterwards, under whichever definition makes the
+arm fire conveniently, is exactly what a pre-registration prevents.
+
+## A3 — The power is lower than registered
+
+**17 of 22 pre-study positions are sports** (10 UFC, 7 MLB). §2 excludes
+non-sports, so **~23% of his betting leaves the primary population.** Using
+0.773 as a planning figure — `0.773 ± 0.089` on n=22, a planning figure and not a
+constant:
+
+| logged bets | primary `n` | `se` | fixed one-look MDE at 80% power |
+|---|---|---|---|
+| 150 | 116 | 0.0498 | 12.4 pts |
+| **200** | **155** | **0.0431** | **10.7 pts** (was 9.4) |
+| 260 | 201 | 0.0378 | 9.4 pts |
+
+- **The registered ~9-point target now sits at ~67% power, not ~76%.**
+- Restoring a 9.4-point MDE needs **260 logged bets = 173 days at 1.5/day**
+  against **133 available**. **The 9-point target is not recoverable inside the
+  date window.** This corrects the brief's premise that 200 bets can detect ~9
+  points.
+- **The registered target effect is revised from ~9 points to ~11 points.** The
+  beginner band is 10–20, so it remains resolvable at its lower edge — barely,
+  with no margin.
+- The `G >= 120` negative branch needs **155 logged bets, about 103 days.**
+  Reachable, tight.
+
+**Two re-parameterisations were available. I took one and refused the other, and
+the asymmetry is deliberate.**
+
+**TAKEN (all unfavourable):** the sports fraction; the stake distribution; the
+fee rate; and the longshot variance multiplier in A2.
+
+**REFUSED (favourable):** the pre-study record of 6W-16L implies `q ~ 0.27`,
+hence `sd(d) ~ 0.444` rather than 0.50, which would put the MDE back at **9.5
+points and restore the registered target.** **`sd(d) = 0.50` stands.** Revising a
+power calculation in the flattering direction, using outcome data I was shown
+after registering it, is precisely the move this document exists to prevent. The
+arithmetic is recorded so the refusal is auditable rather than merely claimed.
+
+**The population is NOT widened to recover the lost 23%.** Including non-sports
+would restore `n` at a stroke. Refused: the composition figure arrived attached
+to a sample whose **aggregate outcomes I have now been told**, so a population
+change made at this moment cannot be distinguished — by me or by an auditor
+later — from one made because non-sports looked good. §9.5(c) already registers
+the all-markets version as a named, non-confirmatory sensitivity.
+
+## A4 — The bet #1 exclusion is vacated
+
+`/portfolio/fills` returned **25 rows**, empty cursor, `created_time` 2026-08-10
+to 2026-08-17. Observed keys:
+
+```
+action, book_side, count_fp, created_time, fee_cost, fill_id, is_taker,
+market_ticker, no_price_dollars, order_id, outcome_side, side,
+subaccount_number, ticker, trade_id, ts, yes_price_dollars
+```
+
+**Ruling: VACATED, not deleted in silence.** Its sole purpose was to make one
+real fill exist so a fixture could be captured; 25 now exist and the purpose is
+spent. §2 rule 7 is struck and `protocol_calibration_bet` is removed from the
+schema rather than kept as an always-zero column — a field no branch reads is
+this repo's documented "built but never called" shape.
+
+**Replaced by a time-critical precondition, because the window rolls (A1):**
+
+> **The fills fixture must be captured before the study opens.** The 25 fills
+> span 8 days and total turnover has been observed inside 8 days. Run
+> `scripts/capture_fills_fixture.py` **now**. If the window rolls first, a parser
+> must be written against a shape nobody holds, which CLAUDE.md forbids. This is
+> the operational note `rest.py` already carries — *capture within days of a
+> fill* — now binding rather than advisory.
+
+**Three things the observed shape tells the parser, registered so they are not
+rediscovered:**
+
+- `yes_price_dollars` / `no_price_dollars` are **dollar strings** and go through
+  `dollars_to_tenths`, never `float()`. `count_fp` is fixed-point.
+- **All 25 are `is_taker = True`.** The maker path is unobserved, so any
+  maker-dependent claim is unsupported. `is_taker` stays **forbidden as a slice**
+  (§4) and is now additionally *degenerate* in the observed data.
+- **All 25 are `action = buy`.** A sell has never been observed, so the
+  **early-exit path has no captured wire shape.** §2 refuses to exclude early
+  exits and A6 reports their count, but the handling of a sell fill is
+  **unverified** until one is captured.
+
+## A5 — The pre-study record: the ruling, and a declared contamination
+
+22 settled positions, 10–17 August, pre-protocol. **No estimates exist, so `p_i`
+is undefined for all of them.**
+
+1. **EXCLUDED from the primary population.** Not a judgement call:
+   `B = mean(p - y)` is *uncomputable* without `p`. There is nothing to include.
+2. **Permitted for exactly one purpose — nuisance-parameter planning, and only
+   in the direction that costs the design.** Sports fraction, stake distribution,
+   fee rate, longshot variance: taken (A2, A3). Win rate to `sd(d)`: **refused**
+   (A3).
+3. **NOT permitted in the result file as a descriptive record of his betting.**
+   The record is +$1.03 over 22 bets, 6W-16L, and **one position (KXATPDOUBLES,
+   $3.00 staked, +$16.82) exceeds the entire profit — without it he is
+   −$15.79.** Reporting "he was up before the study" is exactly the
+   29%-finish-up-on-noise error the town hall identified, on a sample where a
+   single observation carries the whole sign. **The fact that the number happens
+   to be positive is why this refusal has to be written down now.**
+4. **DECLARED CONTAMINATION.** I have been told the aggregate outcomes of 22
+   pre-study positions. It cannot let me steer the primary statistic — no `p`
+   exists, so `B` is unobservable there — but **it is partial information about
+   `mean(y)` in a closely related population**, and `mean(y)` is one of the two
+   terms in the estimand. Disclosed rather than omitted so a future skeptic can
+   weigh it. **The specific decision it puts at risk is A3's refusal**, which is
+   recorded with its arithmetic so the refusal itself can be checked.
+
+## A6 — Changes to the field list (§9)
+
+**Removed:** `protocol_calibration_bet` (A4).
+
+**Added to `bet_estimates`:**
+
+| field | type / units | why |
+|---|---|---|
+| `market_result_public` | TEXT NULL, yes/no | from `kalshi_markets.result` via `market_results.py`. **The durable, non-portfolio outcome** (A1) |
+| `outcome_source` | TEXT, `public_market` or `venue_settlement` | `outcome_win` **prefers `public_market`**; stored so a reader sees which was used rather than infers it |
+| `retention_at_risk` | INTEGER NOT NULL DEFAULT 0 | set when the row falls in a >3-day poll gap (A1) |
+
+**New table `poll_log` — mandatory; the tripwires are decoration without it:**
+`polled_ms` INTEGER, `endpoint` TEXT, `ok` INTEGER, `row_count` INTEGER, `error`
+TEXT NULL. One row per endpoint per attempt, **including failures** — a failure
+that writes no row is invisible, which is the failure mode.
+
+**New table `venue_balance_snapshots`** (A7): `polled_ms` INTEGER,
+`balance_tenths` INTEGER, `portfolio_value_tenths` INTEGER NULL. One row per
+balance poll. Serves both the live display and the daily analysis snapshot
+**from one table**.
+
+**New meta row:** `balance_at_study_start_tenths` = **206583** tenths ($20.6583),
+written once on day 1.
+
+**New poller requirement:** for every distinct `ticker` in `bet_estimates`,
+ensure a `kalshi_markets` row exists via an explicit per-ticker fetch, so
+`market_results.py` can reach it. Sports discovery does not cover UFC, ATP
+doubles or non-sports (A1).
+
+**Unchanged: everything Joe types. Still two fields — a ticker tap and P(YES).**
+Nothing in this amendment adds a keystroke.
+
+## A7 — Polling cadence: the operational and analysis clocks are separated
+
+Joe asked for the balance to be polled continuously. **Granted, with the
+separation the coordinator correctly identified, because conflating the two is
+how a protocol drifts.**
+
+> **Operational clock.** `balance()` is polled continuously — every 5 minutes is
+> fine — into `venue_balance_snapshots`. It is free, read-only, and Joe asked for
+> it.
+>
+> **Analysis clock.** Every analysis, including the money arm of §5, reads
+> **exactly one snapshot per day**: the last row in `venue_balance_snapshots`
+> before 00:00 UTC. Registered, and it does not change with the operational
+> cadence.
+>
+> **`fills`, `settlements`, `positions`: every 12 hours** (A1).
+
+**The reason the separation is not fussiness.** An analysis that reads a
+continuously-updating balance series has an **unbounded number of implicit looks
+at the stopping arm** — the §0.2 problem transposed onto the money axis, where an
+arm checked thousands of times against a wandering balance fires earlier than its
+nominal rate. The daily snapshot bounds the look count at ~133.
+
+**Embargo interaction, ruled explicitly so nobody has to guess.** A live balance
+display **does not** violate §5's embargo: §5 forbids aggregates over *the
+estimate log*, and his balance is his own money, which he sees in the Kalshi app
+regardless. **One guard, and it is a real distinction:** the display must **not**
+show P&L attributed to logged bets, a win rate, or any running total scoped to
+the study — those *are* aggregates over the estimate log and are embargoed until
+the stop.
+
+## A8 — What the verdict is now
+
+**READY, at reduced power, and conditional on deposits.**
+
+The estimand, the decision rule, the exclusion list and the entry burden are
+unchanged. Three things moved:
+
+- The registered detectable effect: **~9 points to ~11 points** (A3).
+- The money arm: **balance-based to cumulative-realised-loss-based**, with
+  P(fire) **0.002 to 0.036** at the $2 cap (A2).
+- **A new precondition: the study is not feasible without deposits.** On the
+  $20.66 he holds, with no top-ups, the money arm fires 53–71% of the time and
+  the run terminates on a losing streak. **If Joe will not top up, this
+  measurement should not start.**
+
+That is a worse measurement than the one registered yesterday. It is the one the
+data supports.
