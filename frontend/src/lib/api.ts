@@ -1351,6 +1351,20 @@ export const searchEstimateMarkets = (q: string) =>
 export const fetchRecentEstimates = () =>
   get<{ estimates: RecentEstimate[] }>("/api/estimates/recent");
 
+/**
+ * The money arm's position: realised loss since the study opened, against
+ * the $100 stop. Summed over the venue's own settlement record — never the
+ * estimate log — which is why showing it breaks no embargo (A7). Nulls mean
+ * "cannot read the record right now", which is a state, not a zero.
+ */
+export type StudyStop = {
+  loss_dollars: number | null;
+  ceiling_dollars: number;
+  stopped: boolean | null;
+};
+
+export const fetchStudyStop = () => get<StudyStop>("/api/estimates/stop");
+
 /** What `POST /log-estimate` answers with. Quote-free by construction. */
 export type EstimateLogged = {
   id: number;

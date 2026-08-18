@@ -26,12 +26,14 @@ import Term from "@/components/Term";
 import {
   DISPLAY_TIME_ZONE,
   fetchRecentEstimates,
+  fetchStudyStop,
   logEstimate,
   reviseEstimate,
   searchEstimateMarkets,
   type EstimateLogged,
   type EstimateMarket,
   type RecentEstimate,
+  type StudyStop,
 } from "@/lib/api";
 
 /** 6250 bp -> "62.50%". Rendering only; the record keeps the integer. */
@@ -61,6 +63,7 @@ export default function EstimatePage() {
   const [recent, setRecent] = useState<RecentEstimate[]>([]);
   const [revising, setRevising] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+  const [stop, setStop] = useState<StudyStop | null>(null);
   const probabilityInput = useRef<HTMLInputElement>(null);
 
   const loadRecent = () =>
@@ -70,6 +73,12 @@ export default function EstimatePage() {
 
   useEffect(() => {
     loadRecent();
+    // The money arm's strip. Over the venue's settlement record, never the
+    // estimate log — A7 rules that embargo-safe. The server enforces the
+    // stop regardless (423); this is the honest dashboard, not the control.
+    fetchStudyStop()
+      .then(setStop)
+      .catch(() => setStop(null));
   }, []);
 
   // Debounced search. Two characters before the first request, so a single
@@ -147,7 +156,48 @@ export default function EstimatePage() {
         </p>
       </header>
 
-      {saved ? (
+      {/* The money arm, always in view. "$X of $100" is summed over the
+          venue's own settlements — Joe's wallet, which he sees in the Kalshi
+          app anyway — never over the estimate log, which is why A7 rules it
+          embargo-safe. No win rate, no per-bet attribution, no study-scoped
+          P&L: those ARE the estimate log and stay embargoed until the stop. */}
+      {stop !== null &&
+        (stop.stopped === true ? (
+          <section className="mb-6 rounded-2xl border border-negative/50 bg-negative/10 p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-negative">
+              Study stopped
+            </div>
+            <p className="mt-2 text-sm leading-relaxed">
+              The $100 stop has fired:{" "}
+              <Term k="realised_loss">realised loss</Term> since the study
+              opened reached ${stop.loss_dollars?.toFixed(2)}. Logging is
+              closed, permanently.
+            </p>
+          </section>
+        ) : stop.stopped === null ? (
+          <p className="mb-6 rounded-xl border bg-card px-4 py-3 text-xs text-muted">
+            The $100 stop: the record can&rsquo;t be read right now, so the
+            loss figure is unknown. Logging still works.
+          </p>
+        ) : (
+          <p className="mb-6 rounded-xl border bg-card px-4 py-3 text-sm">
+            <span className="font-semibold">
+              ${Math.max(stop.loss_dollars ?? 0, 0).toFixed(2)}
+            </span>{" "}
+            of the ${stop.ceiling_dollars.toFixed(0)} stop used &mdash;{" "}
+            <Term k="realised_loss">realised loss</Term> since the study
+            opened
+            {(stop.loss_dollars ?? 0) < 0 && (
+              <span className="text-muted">
+                {" "}
+                (you&rsquo;re net up ${(-(stop.loss_dollars ?? 0)).toFixed(2)})
+              </span>
+            )}
+            .
+          </p>
+        ))}
+
+      {stop?.stopped === true ? null : saved ? (
         <section className="rounded-2xl border bg-card p-6">
           <div className="text-xs font-semibold uppercase tracking-widest text-accent">
             Logged

@@ -25,12 +25,16 @@ import pytest
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.estimates import (
+    STUDY_LOSS_CEILING_DOLLARS,
     classify_ticker,
     record_estimate,
     recent_estimates,
     revise_estimate,
     search_markets,
+    study_loss_dollars,
+    study_stop_fired,
 )
+from backend.portfolio_poll import STUDY_START_MS_KEY
 from backend.kalshi.discovery import DiscoveredMarket
 from backend.kalshi.quotes import LiveQuote, QuoteUnavailable
 from backend.store import db
@@ -535,3 +539,195 @@ class TestTheHonestyTapIsServerRequired:
             app, "POST", "/api/estimates", json=body, headers=AUTH
         )
         assert response.status_code == 422
+
+
+def _seed_settlement(
+    conn,
+    *,
+    settled_ms,
+    side="yes",
+    contracts=2.0,
+    entry_price_tenths=450,
+    fee_cost_tenths=70,
+    market_result="no",
+    ticker="KXMLBGAME-26AUG20HOUSEA-HOU",
+):
+    conn.execute(
+        "INSERT INTO venue_settlements (ticker, settled_ms, side, contracts, "
+        "entry_price_tenths, fee_cost_tenths, market_result) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            ticker,
+            settled_ms,
+            side,
+            contracts,
+            entry_price_tenths,
+            fee_cost_tenths,
+            market_result,
+        ),
+    )
+    conn.commit()
+
+
+START = NOW - 1_000_000
+
+
+def _open_study(conn, start_ms=START):
+    db._set_meta(conn, STUDY_START_MS_KEY, str(start_ms))
+    conn.commit()
+
+
+class TestStudyLossReader:
+    """§5 arm 3, as amended by A2: sum(payout - cost - fee), negated to a loss.
+
+    The refusal semantics are the point: `None` means "the record cannot
+    carry the registered formula", and it is never collapsed into 0.0 --
+    a broken read and a clean sheet are different states.
+    """
+
+    def test_no_study_start_means_none_not_zero(self, conn):
+        _seed_settlement(conn, settled_ms=NOW)
+        assert study_loss_dollars(conn) is None
+
+    def test_open_study_with_no_settlements_is_a_true_zero(self, conn):
+        _open_study(conn)
+        assert study_loss_dollars(conn) == 0.0
+
+    def test_a_loss_is_cost_plus_fee(self, conn):
+        _open_study(conn)
+        # 2 contracts at 45.0c, 7.0c fee, market went the other way:
+        # payout 0 - cost 900 - fee 70 = -970 tenths = $0.97 lost.
+        _seed_settlement(conn, settled_ms=NOW, side="yes", market_result="no")
+        assert study_loss_dollars(conn) == pytest.approx(0.97)
+
+    def test_a_win_reduces_the_loss_below_zero(self, conn):
+        _open_study(conn)
+        # payout 2000 - cost 900 - fee 70 = +1030 tenths: loss is -$1.03.
+        _seed_settlement(conn, settled_ms=NOW, side="yes", market_result="yes")
+        assert study_loss_dollars(conn) == pytest.approx(-1.03)
+
+    def test_fractional_contracts_stay_exact(self, conn):
+        _open_study(conn)
+        # The live record holds 0.27-contract positions; Decimal math means
+        # 0.27 * 300 is exactly 81 tenths, not 80.999...
+        _seed_settlement(
+            conn,
+            settled_ms=NOW,
+            contracts=0.27,
+            entry_price_tenths=300,
+            fee_cost_tenths=10,
+            side="no",
+            market_result="no",
+        )
+        # payout 270 - cost 81 - fee 10 = +179 tenths: loss -$0.179.
+        assert study_loss_dollars(conn) == pytest.approx(-0.179)
+
+    def test_pre_study_settlements_do_not_count(self, conn):
+        _open_study(conn)
+        _seed_settlement(conn, settled_ms=START - 1, side="yes", market_result="no")
+        assert study_loss_dollars(conn) == 0.0
+
+    def test_an_unreadable_entry_price_refuses_the_whole_sum(self, conn):
+        _open_study(conn)
+        _seed_settlement(conn, settled_ms=NOW)
+        _seed_settlement(
+            conn,
+            settled_ms=NOW + 1,
+            entry_price_tenths=None,
+            ticker="KXMLBGAME-26AUG20HOUSEA-SEA",
+        )
+        assert study_loss_dollars(conn) is None
+
+    def test_a_void_result_refuses_rather_than_inventing_a_payout(self, conn):
+        _open_study(conn)
+        _seed_settlement(conn, settled_ms=NOW, market_result="void")
+        assert study_loss_dollars(conn) is None
+
+    def test_stop_fires_at_the_ceiling_exactly(self, conn):
+        _open_study(conn)
+        # 200 contracts at 50.0c, no fee, lost: exactly $100.00.
+        _seed_settlement(
+            conn,
+            settled_ms=NOW,
+            contracts=200.0,
+            entry_price_tenths=500,
+            fee_cost_tenths=0,
+            side="yes",
+            market_result="no",
+        )
+        assert study_loss_dollars(conn) == pytest.approx(100.0)
+        assert study_stop_fired(conn) is True
+
+    def test_stop_is_tristate(self, conn):
+        assert study_stop_fired(conn) is None
+        _open_study(conn)
+        assert study_stop_fired(conn) is False
+
+
+class TestTheMoneyArmOverTheApi:
+    """The strip's route is embargo-safe (A7) and the 423 is server-side."""
+
+    def _seed(self, db_path, loss_dollars=None, void=False):
+        handle = db.open_db(db_path)
+        _open_study(handle)
+        if void:
+            _seed_settlement(handle, settled_ms=NOW, market_result="void")
+        elif loss_dollars is not None:
+            # loss = contracts * entry, no fee, side lost. entry 50.0c each:
+            # contracts = dollars * 2.
+            _seed_settlement(
+                handle,
+                settled_ms=NOW,
+                contracts=loss_dollars * 2.0,
+                entry_price_tenths=500,
+                fee_cost_tenths=0,
+                side="yes",
+                market_result="no",
+            )
+        handle.close()
+
+    async def test_the_strip_reads_unknown_as_null(self, db_path):
+        response = await _request(_app(db_path), "GET", "/api/estimates/stop")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload == {
+            "loss_dollars": None,
+            "ceiling_dollars": STUDY_LOSS_CEILING_DOLLARS,
+            "stopped": None,
+        }
+        _assert_embargo_holds(payload)
+
+    async def test_the_strip_shows_the_loss(self, db_path):
+        self._seed(db_path, loss_dollars=12.5)
+        response = await _request(_app(db_path), "GET", "/api/estimates/stop")
+        payload = response.json()
+        assert payload["loss_dollars"] == pytest.approx(12.5)
+        assert payload["stopped"] is False
+        _assert_embargo_holds(payload)
+
+    async def test_a_fired_stop_locks_the_write_path(self, db_path):
+        self._seed(db_path, loss_dollars=100.0)
+        app = _app(db_path)
+        strip = (await _request(app, "GET", "/api/estimates/stop")).json()
+        assert strip["stopped"] is True
+        response = await _request(
+            app, "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 423
+        assert "$100.00" in response.json()["detail"]
+
+    async def test_an_unreadable_record_does_not_lock_joe_out(self, db_path):
+        # A void row makes the loss uncomputable. That must read as unknown,
+        # not as a firing -- and must not refuse the log.
+        self._seed(db_path, void=True)
+        response = await _request(
+            _app(db_path), "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200
+
+    async def test_below_the_ceiling_the_write_path_is_open(self, db_path):
+        self._seed(db_path, loss_dollars=99.0)
+        response = await _request(
+            _app(db_path), "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200

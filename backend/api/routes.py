@@ -1858,6 +1858,31 @@ def create_app(
         """
         return {"estimates": bet_estimates.recent_estimates(conn)}
 
+    @app.get("/api/estimates/stop")
+    def estimate_money_arm(conn=Depends(get_conn)) -> dict:
+        """The money arm's position: "$X of $100", for the /estimate strip.
+
+        Embargo-safe by A7's explicit ruling (and the partner's, 2026-08-18):
+        §5 forbids aggregates over *the estimate log*; this is a sum over
+        `venue_settlements` -- Joe's own money, visible in the Kalshi app
+        regardless -- and reads no estimate row. The guard that IS real:
+        nothing here may be attributed to logged bets, split into a win rate,
+        or scoped to the study population. One wallet number, nothing else.
+
+        `loss_dollars` and `stopped` are null when the record cannot carry
+        the registered formula (no study start stamped, or an unreadable
+        settlement row) -- unknown is a state, not a zero, and the strip
+        renders it as such.
+        """
+        loss = bet_estimates.study_loss_dollars(conn)
+        return {
+            "loss_dollars": loss,
+            "ceiling_dollars": bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
+            "stopped": None
+            if loss is None
+            else loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
+        }
+
     @app.post("/api/estimates", dependencies=[Depends(require_auth)])
     async def log_estimate(request: EstimateRequest) -> dict:
         """Record one estimate: stamp it, capture the quote, say nothing back.
@@ -1870,6 +1895,33 @@ def create_app(
         Kalshi has permanently never heard of AND discovery has never seen,
         which can only be a typo, and an unjoinable row is worse than a retype.
         """
+        # The $100 stop, checked server-side before anything else: a strip on
+        # the phone is a hint to a human; this is the control. Only a
+        # COMPUTABLE firing refuses -- `None` means the record cannot be read
+        # (no study start, or an unreadable settlement row), and locking Joe
+        # out of his own log on a broken read would punish the wrong party.
+        # 423 Locked: nothing about the request is wrong; the resource is.
+        # Guard verified 2026-08-18: predicate forced False -> the 423 test
+        # fails; restored -> green.
+        stop_conn = db.open_db(app_config.db_path, read_only=True)
+        try:
+            stop_loss = bet_estimates.study_loss_dollars(stop_conn)
+        finally:
+            stop_conn.close()
+        if (
+            stop_loss is not None
+            and stop_loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS
+        ):
+            raise HTTPException(
+                status_code=423,
+                detail=(
+                    f"The $100 money arm has fired: cumulative realised loss "
+                    f"since study start is ${stop_loss:.2f} "
+                    f"(registration §5 arm 3, as amended by A2). The study "
+                    f"is stopped and logging is closed, permanently."
+                ),
+            )
+
         stamped = db.now_ms()
         ticker = request.ticker.strip().upper()
         yes_bid = yes_ask = observed = None

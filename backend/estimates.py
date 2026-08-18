@@ -20,8 +20,10 @@ quote is captured and **never returned to a caller that could render it**.
 from __future__ import annotations
 
 import sqlite3
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
+from backend.portfolio_poll import STUDY_START_MS_KEY
 from backend.store import db
 
 # Series prefix -> the registration's fixed sport enum. Matched against the
@@ -260,3 +262,77 @@ def search_markets(
         (like, like, like, like, now_ms, int(limit)),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# The money arm's ceiling, in dollars. Joe's ruling (2026-08-18, recorded in
+# tasks/NEXT.md and registration A2): $100 is a hard cumulative TOTAL, not
+# weekly, and when it is reached everything stops, permanently. A constant
+# rather than config, deliberately -- the arm is REGISTERED (§5 arm 3, as
+# amended by A2), and changing this number is amending the registration.
+STUDY_LOSS_CEILING_DOLLARS = 100.0
+
+
+def study_loss_dollars(conn: sqlite3.Connection) -> Optional[float]:
+    """Cumulative net realised loss since study start, in dollars. §5 arm 3.
+
+    The registered formula, verbatim from Amendment A2: "sum(payout - cost -
+    fee) over settled positions, where payout is contracts x $1 on a win and
+    $0 on a loss", over study-period `venue_settlements`. This function
+    returns the NEGATION of that sum -- a positive number is money lost -- so
+    the arm fires when the return value reaches `STUDY_LOSS_CEILING_DOLLARS`.
+
+    Why reading this before the stop does not violate the embargo (A7, and
+    the partner's explicit ruling 2026-08-18): §5 forbids aggregates over
+    *the estimate log*. This reads `venue_settlements` -- Joe's own money,
+    which he sees in the Kalshi app regardless -- and touches no estimate
+    row. The one guard A7 states is real: nothing derived from this may be
+    attributed to logged bets, split into a win rate, or scoped to the study
+    population. It is one number about the wallet, not about the log.
+
+    Returns `None` -- refusal, never 0.0 -- when the study has not been
+    stamped open, or when ANY study-period settlement row cannot carry the
+    registered formula: an unreadable entry price or fee, or a
+    `market_result` that is neither "yes" nor "no" (a void has no registered
+    payout and inventing one here would silently amend the stopping rule).
+    An empty settlement set with the study open is a true $0.00, not a
+    refusal. Callers must treat `None` as "cannot know", not "not stopped".
+    """
+    start_text = db.get_meta(conn, STUDY_START_MS_KEY)
+    if start_text is None:
+        return None
+    rows = conn.execute(
+        "SELECT side, contracts, entry_price_tenths, fee_cost_tenths, "
+        "market_result FROM venue_settlements WHERE settled_ms >= ?",
+        (int(start_text),),
+    ).fetchall()
+    net_tenths = Decimal(0)
+    for row in rows:
+        result = row["market_result"]
+        if result not in ("yes", "no"):
+            return None
+        if row["entry_price_tenths"] is None or row["fee_cost_tenths"] is None:
+            return None
+        try:
+            contracts = Decimal(str(row["contracts"]))
+        except InvalidOperation:
+            return None
+        if not contracts.is_finite() or contracts < 0:
+            return None
+        cost = contracts * row["entry_price_tenths"]
+        payout = contracts * 1000 if result == row["side"] else Decimal(0)
+        net_tenths += payout - cost - Decimal(row["fee_cost_tenths"])
+    return float(-net_tenths / 1000)
+
+
+def study_stop_fired(conn: sqlite3.Connection) -> Optional[bool]:
+    """Whether the money arm has fired. Tri-state, and the `None` matters.
+
+    `True` / `False` only when the loss is computable; `None` when it is not.
+    The write path refuses new estimates only on a computable `True` -- an
+    unreadable record must not lock Joe out of logging, and equally must not
+    be reported as "not stopped".
+    """
+    loss = study_loss_dollars(conn)
+    if loss is None:
+        return None
+    return loss >= STUDY_LOSS_CEILING_DOLLARS

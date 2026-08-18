@@ -27,6 +27,14 @@ export const GLOSSARY = {
       "side”. Think YES only happens 30% of the time? Type 30; that low " +
       "number is itself the case for betting NO.",
   },
+  realised_loss: {
+    label: "realised loss",
+    definition:
+      "Money actually gone on bets that have finished — wins minus what " +
+      "they cost, fees included. A bet still open doesn’t count yet. If " +
+      "you staked $5, got $4 back, and paid 20¢ in fees, your realised " +
+      "loss is $1.20.",
+  },
   basis_points: {
     label: "basis points",
     definition:
