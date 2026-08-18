@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -263,6 +263,106 @@ _BACKFILL_REFERENCE_CONTRACTS = (
 )
 
 
+# v10 rebuilds `fills`, which cannot be done with `ALTER TABLE`: the change is
+# to a column-level `REFERENCES`, and SQLite has no syntax for dropping a
+# foreign key.
+#
+# **Why the constraint has to go.** `ticker TEXT NOT NULL REFERENCES
+# kalshi_markets(ticker)` is right for a fill this tool's own order path
+# produced -- the engine only ever recommends a market it discovered. It is
+# wrong for a fill polled from `/portfolio/fills`, which is a bet placed by
+# hand in the Kalshi app on whatever market a person felt like. `PRAGMA
+# foreign_keys = ON` is set in `connect`, so the insert would not merely be
+# untidy: it would raise, and the tool would refuse to record a real fill
+# because its own discovery had not reached that market. That is the wrong way
+# round -- the venue is the authority on what was traded, not us.
+#
+# `source` is added in the same step because both changes serve one caller. It
+# separates the engine's fee-calibration population from hand-placed bets, and
+# they answer different questions: one is our order path, the other is a person
+# tapping buttons in an app we cannot observe. Pooling them silently is the
+# failure this column exists to prevent.
+#
+# **The rebuild almost certainly carries no rows, and does not assume it.**
+# `ORDERS_ARE_DRY_RUNS = True` (`store/orders.py:129`) means this project has
+# never placed an order, so nothing has ever written a fill --
+# `test_store.py` asserts the v9 table is empty before this step. The copy is
+# still written, and written as `INSERT OR IGNORE`, because "no writer exists"
+# is a claim about today and a migration outlives it.
+#
+# Idempotent at every crash point, given the `skip_statements_if_column` guard:
+#   - after CREATE:  `fills` still lacks `source`, so the step re-runs from the
+#                    top and `CREATE IF NOT EXISTS` is a no-op.
+#   - after INSERT:  re-running re-inserts, and every row collides on the
+#                    primary key, so `OR IGNORE` makes it a no-op. A plain
+#                    INSERT here would raise on the second boot.
+#   - after DROP:    `fills` does not exist, so the guard cannot fire; CREATE,
+#                    INSERT and DROP are all no-ops and the RENAME completes it.
+#   - after RENAME:  `fills.source` exists, so the whole step is skipped --
+#                    which is the case that would otherwise recreate the temp
+#                    table and drop the real one.
+_FILLS_COLUMNS_V9 = (
+    "id, kalshi_fill_id, order_id, ticker, filled_ms, count, price_tenths, "
+    "is_taker, fee_actual, fee_predicted, fee_model_used"
+)
+
+_FILLS_REBUILD = (
+    """
+    CREATE TABLE IF NOT EXISTS fills_v10 (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        kalshi_fill_id      TEXT UNIQUE,
+        order_id            INTEGER REFERENCES orders(id),
+        -- The dropped foreign key. See the comment above this constant.
+        ticker              TEXT NOT NULL,
+        filled_ms           INTEGER NOT NULL,
+        count               INTEGER NOT NULL,
+        price_tenths        INTEGER NOT NULL,
+        is_taker            INTEGER NOT NULL,
+        fee_actual          REAL,
+        fee_predicted       REAL NOT NULL,
+        fee_model_used      TEXT NOT NULL,
+        source              TEXT NOT NULL DEFAULT 'engine',
+        CHECK (source IN ('engine', 'venue_hand'))
+    )
+    """,
+    # Existing rows are `engine` by construction: the only writer that has ever
+    # existed is the order path, and the venue poller does not exist yet at
+    # this version.
+    f"""
+    INSERT OR IGNORE INTO fills_v10 ({_FILLS_COLUMNS_V9}, source)
+        SELECT {_FILLS_COLUMNS_V9}, 'engine' FROM fills
+    """,
+    "DROP TABLE fills",
+    "ALTER TABLE fills_v10 RENAME TO fills",
+)
+
+# Restoring a rebuilt table cannot be inferred from the step, so it is stated.
+# The migration tests build a v9 database by undoing this.
+_FILLS_REBUILD_UNDO = (
+    """
+    CREATE TABLE IF NOT EXISTS fills_v9 (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        kalshi_fill_id      TEXT UNIQUE,
+        order_id            INTEGER REFERENCES orders(id),
+        ticker              TEXT NOT NULL REFERENCES kalshi_markets(ticker),
+        filled_ms           INTEGER NOT NULL,
+        count               INTEGER NOT NULL,
+        price_tenths        INTEGER NOT NULL,
+        is_taker            INTEGER NOT NULL,
+        fee_actual          REAL,
+        fee_predicted       REAL NOT NULL,
+        fee_model_used      TEXT NOT NULL
+    )
+    """,
+    f"""
+    INSERT OR IGNORE INTO fills_v9 ({_FILLS_COLUMNS_V9})
+        SELECT {_FILLS_COLUMNS_V9} FROM fills
+    """,
+    "DROP TABLE fills",
+    "ALTER TABLE fills_v9 RENAME TO fills",
+)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
     2: _Migration(
         columns=(
@@ -370,6 +470,16 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads `COALESCE(trigger, '')` so a NULL keeps counting as a sweep, which
     # is what those rows are. Backfilling `'scheduled'` would assert a fact
     # about history that this column was not there to observe.
+    10: _Migration(
+        statements=_FILLS_REBUILD,
+        indexes=("idx_fills_time", "idx_fills_mismatch"),
+        # `source` exists only after the rebuild completes, so this is the
+        # sentinel that makes the whole step a no-op on a database already at
+        # v10 -- the one crash point where re-running would recreate the temp
+        # table and then drop the real one.
+        skip_statements_if_column=(("fills", "source"),),
+        undo_statements=_FILLS_REBUILD_UNDO,
+    ),
     9: _Migration(
         columns=(("api_credits", "trigger", "TEXT"),),
         undo_statements=(

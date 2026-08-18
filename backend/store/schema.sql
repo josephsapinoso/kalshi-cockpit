@@ -633,7 +633,11 @@ CREATE TABLE IF NOT EXISTS fills (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     kalshi_fill_id      TEXT UNIQUE,
     order_id            INTEGER REFERENCES orders(id),
-    ticker              TEXT NOT NULL REFERENCES kalshi_markets(ticker),
+    -- **No FK to kalshi_markets, since v10.** A fill polled from
+    -- /portfolio/fills may be on a market this tool never discovered -- a bet
+    -- placed by hand, in the Kalshi app -- and refusing to record a real fill
+    -- because our own discovery missed it is the wrong way round.
+    ticker              TEXT NOT NULL,
     filled_ms           INTEGER NOT NULL,
     count               INTEGER NOT NULL,
     price_tenths        INTEGER NOT NULL,
@@ -643,7 +647,13 @@ CREATE TABLE IF NOT EXISTS fills (
     -- it is also how the year-old fee-schedule TODO finally gets closed.
     fee_actual          REAL,
     fee_predicted       REAL NOT NULL,
-    fee_model_used      TEXT NOT NULL
+    fee_model_used      TEXT NOT NULL,
+    -- engine | venue_hand. Which population this fill belongs to. Without it
+    -- the fee-calibration set and the hand-bet set pool silently, and they are
+    -- answers to different questions -- one is our order path, the other is a
+    -- person tapping buttons in an app we cannot see.
+    source              TEXT NOT NULL DEFAULT 'engine',
+    CHECK (source IN ('engine', 'venue_hand'))
 );
 CREATE INDEX IF NOT EXISTS idx_fills_time ON fills(filled_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_fills_mismatch ON fills(ticker)
@@ -764,3 +774,158 @@ CREATE TABLE IF NOT EXISTS agent_calls (
     CHECK (blocked IS NULL OR blocked IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);
+
+-- ============================================================================
+-- Joe's own hand-placed bets, and his stated probability before each one
+--
+-- Registered in `docs/measurements/2026-08-17-preregistration-joe-calibration-
+-- bet-log.md`. The question is whether **Joe** is overconfident, not whether
+-- the engine has an edge -- ADR 0038 closed that and nothing here reopens it.
+--
+-- **These tables must never be pooled with `recommendations`.** That table is
+-- engine output and is the registered population of the ADR 0021/0034 CLV
+-- signal test, which `analysis/signal_test.py` fits. Writing hand-placed bets
+-- into it would silently contaminate a different registered measurement with
+-- rows that were never engine recommendations.
+-- ============================================================================
+
+-- The venue's own record of a settled position, mirrored. One row per settled
+-- position, straight off `/portfolio/settlements`.
+--
+-- **Deliberately NOT the `settlements` table above.** That one is keyed
+-- `order_id INTEGER NOT NULL` -- structural to its identity, and this project
+-- has never placed an order -- and its `pnl_cents` is *our* computed profit
+-- under a named `fill_assumption`, which is a meaningless concept when the
+-- venue is stating the truth directly.
+CREATE TABLE IF NOT EXISTS venue_settlements (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- No FK to `kalshi_markets`. A market bet by hand may never have been
+    -- discovered by this tool, and refusing to record a real settled position
+    -- because our own discovery missed it is the wrong way round.
+    ticker                  TEXT NOT NULL,
+    event_ticker            TEXT,
+    market_result           TEXT,
+    settled_ms              INTEGER NOT NULL,
+    side                    TEXT NOT NULL,      -- yes | no, from the count pair
+    contracts               INTEGER NOT NULL,
+    -- The price actually paid, from the venue: total cost / count. It is not a
+    -- mid and nobody can accidentally make it one. NULL if the pair was
+    -- unreadable -- never 0, because a settled loser genuinely trades at 0.
+    entry_price_tenths      INTEGER,
+    fee_cost_tenths         INTEGER,
+    -- `/portfolio/fills` `created_time`, else the poll instant, else
+    -- `settled_time`. `position_time_source` says which, because a silent
+    -- `settled_time` fallback guts the two-clock check without looking like it.
+    position_first_seen_ms  INTEGER,
+    position_time_source    TEXT,
+    is_taker                INTEGER,
+    n_fills_in_position     INTEGER,
+    UNIQUE (ticker, settled_ms),
+    CHECK (side IN ('yes', 'no')),
+    CHECK (is_taker IS NULL OR is_taker IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_venue_settlements_time
+    ON venue_settlements(settled_ms DESC);
+
+-- The account balance, observed. `CLAUDE.md` names this as what is needed to
+-- settle H4 -- whether settlement carries its own fee -- which is why ADR 0027
+-- calls the cost headroom an upper bound. The registration's stopping rule
+-- needs it anyway, so recording it costs nothing extra.
+CREATE TABLE IF NOT EXISTS venue_balance_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_ms     INTEGER NOT NULL,
+    balance_tenths  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_venue_balance_time
+    ON venue_balance_snapshots(observed_ms DESC);
+
+-- The one field in the whole design that Kalshi cannot supply.
+--
+-- **It cannot be a column on `fills`.** It is written and timestamped *before
+-- any fill exists*, and it must survive the case where no fill ever exists --
+-- an estimate made and then not bet on is the *less* selected sample and is a
+-- registered sensitivity analysis. A column on a row that does not yet exist
+-- cannot be written, which is fatal to the two-clock design rather than
+-- inconvenient.
+CREATE TABLE IF NOT EXISTS bet_estimates (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker                      TEXT NOT NULL,
+    -- P(YES), ALWAYS -- never "probability my side wins". That phrasing is
+    -- undefined until a side is chosen, and asking for P(YES) lets the estimate
+    -- be formed *before* choosing one, which is a strictly more pre-price act.
+    -- The venue reports which side was actually taken, so `side` is not asked.
+    -- Basis points, so 6789 is 67.89%. Converted to p_side at analysis time.
+    stated_probability_bp       INTEGER NOT NULL,
+    -- Clock A. The server's, not the phone's: the two-clock check is worthless
+    -- if one of the clocks is the one being checked.
+    estimate_server_ms          INTEGER NOT NULL,
+    -- Divergence from the server stamp is a tamper diagnostic and nothing else.
+    -- It never enters the analysis.
+    estimate_client_ms          INTEGER,
+    -- Asked BEFORE the probability input is enabled. The only recorded signal
+    -- about the hole the two clocks do not close -- they prove he had not
+    -- transacted, never that he had not looked.
+    had_already_opened_kalshi   INTEGER,
+    -- THE clustering variable. Every standard error groups on this.
+    cluster_key                 TEXT NOT NULL,
+    -- The market quote at estimate time, captured server-side and **never
+    -- rendered until the study stops**. It is the anchoring tripwire, so
+    -- showing it would destroy the thing it measures.
+    server_yes_bid_tenths       INTEGER,
+    server_yes_ask_tenths       INTEGER,
+    server_quote_observed_ms    INTEGER,
+    -- Why the quote is NULL. Unreadable is a state, not a zero.
+    server_quote_unreadable_reason TEXT,
+    stated_probability_is_revised  INTEGER NOT NULL DEFAULT 0,
+    protocol_calibration_bet    INTEGER NOT NULL DEFAULT 0,
+    is_in_play                  INTEGER NOT NULL DEFAULT 0,
+    is_sports                   INTEGER NOT NULL DEFAULT 1,
+    is_multi_leg                INTEGER NOT NULL DEFAULT 0,
+    sport                       TEXT,
+    matched_position_id         INTEGER REFERENCES venue_settlements(id),
+    -- matched | unmatched_no_position | position_unlogged. The last one is how
+    -- attrition becomes a measured rate instead of an invisible bias: the venue
+    -- reports a position whether or not an estimate was logged for it.
+    match_status                TEXT,
+    -- NULL when unsettled or void. **Never 0** -- a loss and "we do not know"
+    -- are different states and this repo has collapsed them before.
+    outcome_win                 INTEGER,
+    closing_line_id             INTEGER REFERENCES closing_lines(id),
+    clv_tenths                  REAL,
+    -- Written *with* the score, never inferred later. Without it the column
+    -- silently blends the 0.0h anchor with the legacy 1.0h one, and pooling
+    -- them biases the result in the flattering direction.
+    clv_horizon_hours           REAL,
+    clv_scored_ms               INTEGER,
+    CHECK (stated_probability_bp BETWEEN 1 AND 9999),
+    CHECK (outcome_win IS NULL OR outcome_win IN (0, 1)),
+    CHECK (had_already_opened_kalshi IS NULL
+           OR had_already_opened_kalshi IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_bet_estimates_time
+    ON bet_estimates(estimate_server_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_bet_estimates_cluster
+    ON bet_estimates(cluster_key);
+CREATE INDEX IF NOT EXISTS idx_bet_estimates_unmatched
+    ON bet_estimates(ticker) WHERE matched_position_id IS NULL;
+
+-- One row per analysis run. The registration forbids interim looks -- an
+-- always-valid boundary would put the entire effect being hunted out of reach
+-- at every achievable sample size, so the design buys power by looking once.
+--
+-- **This table is what makes "we only looked once" checkable rather than
+-- aspirational.** More than one non-embargoed row before the stop voids the
+-- single-look claim, and a claim nobody can audit is not a protocol.
+CREATE TABLE IF NOT EXISTS bet_estimate_looks (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_ms              INTEGER NOT NULL,
+    n_in_population     INTEGER NOT NULL,
+    -- 1 while the stopping rule has not fired. An embargoed run may compute
+    -- counts; it may not compute or return the test statistic.
+    embargo_active      INTEGER NOT NULL,
+    git_sha             TEXT,
+    reason              TEXT,
+    CHECK (embargo_active IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_bet_estimate_looks_time
+    ON bet_estimate_looks(run_ms DESC);
