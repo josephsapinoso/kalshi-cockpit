@@ -216,13 +216,26 @@ class TestTheRowSaysWhatHappensWhenItLoses:
     async def test_ten_bets_this_shape_lose_money_almost_half_the_time(
         self, demo_app
     ):
-        """The review's 46%, reproduced from the payload rather than quoted."""
+        """The review's number, reproduced from the payload rather than quoted.
+
+        **It was 45.6% and it is now 46.4%, and the move is the fix working.**
+        The review measured it on a demo seeded at the `RiskConfig` dataclass
+        defaults -- a $1,000 bankroll no instance deploys, which sized that row
+        at 17 contracts. `seed_demo` now restates the deployed caps (ADR 0041,
+        amended 2026-08-18), the row sizes at 1, and `max` picks among rows
+        tied at one contract by the sort `/api/board` already applies. So this
+        is a different row's probability, correctly, and 45.6% was never a
+        number a visitor could have seen.
+
+        Updated rather than widened. The tolerance stays at +/-0.005; loosening
+        it to admit both would be the assertion apologising for the change.
+        """
         row = max(
             sized_rows((await get(demo_app, "/api/board")).json()),
             key=lambda r: r["suggested_contracts"],
         )
         assert row["losing_run_bets"] == 10
-        assert row["losing_run_probability"] == pytest.approx(0.456, abs=0.005)
+        assert row["losing_run_probability"] == pytest.approx(0.464, abs=0.005)
 
     async def test_a_row_with_no_position_reports_no_run_probability(
         self, demo_app

@@ -43,6 +43,42 @@ from .store.orders import DEPTH_CAPPED_TAKER
 
 DEFAULT_SEED = 1337
 
+# The caps the demo deploy actually runs under, restated here rather than
+# loaded, and pinned to `fly.demo.toml` by
+# `tests/test_demo_sizes_at_deployed_caps.py`.
+#
+# **This is a decision with a cost, so it is written down rather than left to
+# look like an oversight.** Until 2026-08-18 this was a bare `RiskConfig()` --
+# the dataclass defaults, a $1,000 bankroll -- and the public demo sized every
+# card at a configuration no instance deploys. On the row the demo served, the
+# card read `Buy 17` / `$8.85` where the deployed caps give **1 contract /
+# $0.52**: 17x, on the URL that is the portfolio piece. The binding constraint
+# was Kelly off the bankroll, not `MAX_POSITION_DOLLARS` -- $8.85 fits *under*
+# the deployed $10 position cap, so no cap check could have caught it.
+#
+# The obvious repair is `RiskConfig.load()`, and it was rejected. This module's
+# docstring promises "the Board looks identical on every run and a screenshot
+# stays accurate", and `.load()` reads the environment: correct on Fly, back to
+# the $1,000 defaults on any laptop with no env set. That is the same class of
+# defect wearing the fix's clothes -- a demo whose numbers depend on where it
+# was run.
+#
+# So the numbers are duplicated, deliberately, and the duplication is the thing
+# under test. `test_the_seeded_caps_match_the_deployed_ones` fails if these and
+# `fly.demo.toml` ever disagree, in either direction.
+#
+# `kelly_fraction` and `max_order_contracts` are stated too: they are strategy
+# parameters rather than facts about the account, and leaving them to the
+# dataclass is how the four dollar caps got left in the first place.
+DEMO_RISK = RiskConfig(
+    bankroll_dollars=100.0,
+    kelly_fraction=0.25,
+    max_order_contracts=50,
+    max_position_dollars=10.0,
+    max_exposure_dollars=40.0,
+    max_daily_loss_dollars=10.0,
+)
+
 # A plausible mid-August slate: MLB in season, WNBA in season, NFL preseason
 # listing ahead. Matches what the discovery spike actually found.
 _FIXTURES = [
@@ -402,7 +438,7 @@ def seed_all(
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
 
-    risk = RiskConfig()
+    risk = DEMO_RISK
     suppression = SuppressionConfig()
     version = ensure_strategy_config(
         conn,

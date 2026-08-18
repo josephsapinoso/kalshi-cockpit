@@ -2782,8 +2782,14 @@ def _losing_run_probability(ev_dollars: float, sd_dollars: float) -> Optional[fl
     engine did not size has no run to lose, and an unmeasurable probability
     that renders as a number is the failure this repo has recorded twice.
 
-    Verified against the review's figure: the demo's best row is +$0.2619 with
-    a $7.4778 deviation, which gives 0.456 -- the 46% quoted there.
+    Verified against the demo: its best-sized row is +$0.0135 with a $0.4728
+    deviation, which gives 0.464.
+
+    **The review quoted 45.6%, off a $0.2619 expectation and a $7.4778
+    deviation. Those were 17 contracts at a $1,000 bankroll no instance
+    deploys** -- see ADR 0041's 2026-08-18 amendment. The ratio barely moves
+    because both terms scale with size; what moved is which row is "best" once
+    the deployed caps flatten every size to 1.
     """
     if sd_dollars <= 0:
         return None
