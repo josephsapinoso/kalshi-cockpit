@@ -523,3 +523,47 @@ class TestTheRealCapturesParseInFull:
         parsed = [parse_settlement(r) for r in rows]
 
         assert parsed and all(p is not None for p in parsed)
+
+
+class TestStudyStartIsStampedOnce:
+    """Amendment A6's day-1 meta row: the venue's number, written exactly once.
+
+    The value is the polled balance in tenths, NOT A6's literal "206583" --
+    that integer is $20.6583 with its decimal dropped, and the code comment on
+    `_mark_study_start` records the discrepancy so nobody restores the typo.
+    """
+
+    async def test_the_first_readable_balance_stamps_day_one(self, conn):
+        await poll_portfolio(conn, FakeClient(), now_ms=1_787_100_000_000)
+
+        assert db.get_meta(conn, "calibration_study_start_ms") == "1787100000000"
+        assert db.get_meta(conn, "balance_at_study_start_tenths") == "20658"
+
+    async def test_a_later_poll_never_moves_it(self, conn):
+        await poll_portfolio(conn, FakeClient(), now_ms=1_787_100_000_000)
+        richer = FakeClient(
+            balance={"balance": 4000, "balance_dollars": "40.0000",
+                     "portfolio_value": 0}
+        )
+
+        await poll_portfolio(conn, richer, now_ms=1_787_100_300_000)
+
+        assert db.get_meta(conn, "calibration_study_start_ms") == "1787100000000"
+        assert db.get_meta(conn, "balance_at_study_start_tenths") == "20658"
+
+    async def test_a_failed_balance_poll_does_not_stamp(self, conn):
+        await poll_portfolio(
+            conn, FakeClient(fail=("balance",)), now_ms=1_787_100_000_000
+        )
+
+        assert db.get_meta(conn, "calibration_study_start_ms") is None
+        assert db.get_meta(conn, "balance_at_study_start_tenths") is None
+
+    async def test_an_unreadable_balance_does_not_stamp(self, conn):
+        """`None` is "could not read", and a day-1 row with a guessed balance
+        would defeat the row's purpose. The next readable poll stamps."""
+        unreadable = FakeClient(balance={"balance": 2065, "portfolio_value": 0})
+
+        await poll_portfolio(conn, unreadable, now_ms=1_787_100_000_000)
+
+        assert db.get_meta(conn, "calibration_study_start_ms") is None

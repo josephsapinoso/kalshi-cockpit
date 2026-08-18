@@ -416,7 +416,46 @@ async def poll_balance(
         (now_ms, balance_tenths, parse_portfolio_value_tenths(payload)),
     )
     _log(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
+    _mark_study_start(conn, now_ms=now_ms, balance_tenths=balance_tenths)
     return {"balance_tenths": balance_tenths}
+
+
+# Amendment A6's "written once on day 1" meta row. Joe declared the study open
+# on 2026-08-18 (his ruling, delegated in-session: start now, top up as
+# needed, the $100 cumulative-loss stop is the cap either way), so the first
+# successful balance poll after this code lands stamps day 1. Idempotent:
+# written exactly once, from the venue's own number, never from memory.
+#
+# A6 prints the value as "206583 tenths ($20.6583)". Those two cannot both be
+# right -- $20.6583 is 20,658 tenths, and the poller's own live read on
+# 2026-08-18 stored 20658 -- so the integer in A6 is the dollar string with
+# its decimal point dropped, and the registered INTENT (the venue balance on
+# day 1, in tenths) is what this writes. Recorded here so nobody "corrects"
+# the stored value to the typo.
+STUDY_START_MS_KEY = "calibration_study_start_ms"
+STUDY_START_BALANCE_KEY = "balance_at_study_start_tenths"
+
+
+def _mark_study_start(
+    conn: sqlite3.Connection, *, now_ms: int, balance_tenths: Optional[int]
+) -> None:
+    """Stamp the study's day 1 on the first readable balance, exactly once.
+
+    An unreadable balance must not stamp the start: `None` here means the
+    venue could not be read, and a start marker with no balance beside it
+    would make the A6 row a guess. The next successful poll stamps it.
+    """
+    if balance_tenths is None:
+        return
+    if store_db.get_meta(conn, STUDY_START_MS_KEY) is not None:
+        return
+    store_db._set_meta(conn, STUDY_START_MS_KEY, str(now_ms))
+    store_db._set_meta(conn, STUDY_START_BALANCE_KEY, str(balance_tenths))
+    logger.info(
+        "calibration study day 1 stamped: start_ms=%d balance_tenths=%d",
+        now_ms,
+        balance_tenths,
+    )
 
 
 # The registered cadence, §7.6 of the calibration registration as amended:
