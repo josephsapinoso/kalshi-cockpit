@@ -386,6 +386,22 @@ async def poll_portfolio(
     summary["balance"] = await poll_balance(conn, client, now_ms=now_ms)
 
     conn.commit()
+
+    # -- the matcher: the reader for everything mirrored above ---------------
+    # After the commit, so a matcher failure cannot roll back the mirror --
+    # the record is the point and the join is derived from it, rerunnable on
+    # the next cycle. Absorbed like the endpoints: the study's bookkeeping
+    # must not take down the poller that feeds it.
+    try:
+        from .estimate_match import run_match_pass
+        from .kalshi.quotes import LiveQuoteSource
+
+        summary["match"] = await run_match_pass(
+            conn, LiveQuoteSource(rest=client), now_ms=now_ms
+        )
+    except Exception as exc:  # noqa: BLE001 -- never blind the mirror
+        logger.exception("estimate match pass failed: %s", exc)
+        summary["match"] = f"FAILED: {exc}"
     return summary
 
 
