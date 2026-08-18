@@ -14,6 +14,49 @@ move the older ones into the dated archive file — do not shorten them.
 
 ---
 
+## SESSION START — if Joe said "read NEXT.md", this box is your prompt
+
+Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
+branch `main` at `39e7816`, tree clean, **14 commits ahead of origin and
+NOTHING PUSHED** — the repo is public, pushing publishes immediately, so ask
+Joe once, early.
+
+Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
+`tasks/lessons.md` top two. Re-verify state, never inherit it:
+
+    .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
+    cd frontend && npx tsc --noEmit
+
+Expected: 3,231 passed / 10 xfailed, ruff clean, tsc clean.
+
+**THE JOB: the bet-estimate entry form** — one ticker tap + P(YES) in basis
+points, ~12s on a phone, built EXACTLY to the registration
+(`docs/measurements/2026-08-17-preregistration-joe-calibration-bet-log.md`
+as amended). Non-negotiables: `stated_probability_bp` write-once
+server-side, verified by disabling the guard; the estimate-time quote
+captured into `server_yes_*_tenths` and NEVER rendered until the stop;
+`had_already_opened_kalshi` asked BEFORE the input enables; nothing written
+into `recommendations`, ever. Then, in order: the 25-fill fee analysis
+off-gate (ADR 0043's named reopening condition; captures in `data/captures/`,
+gitignored, never commit), then the five-step test onto `/playbook`.
+
+STOP AND ASK JOE: pushing; live deploys (`flyctl deploy` is blocked in auto
+mode — Joe exits auto mode and says go, which worked on 2026-08-18); anything
+money-touching beyond the standing approvals.
+
+GOTCHAS, each of which bit twice: Bash heredocs eat backticks and
+backslashes even quoted — long content goes through the Write tool, commit
+messages via `git commit -F <file>`. A fixture built from the current schema
+cannot represent a database from before a table existed — that gap
+crash-looped the live boot; copy `TestARealV9VolumeBootsThroughEveryMigration`
+for any migration. Run `date -u` before acting on any deadline sentence.
+
+Constraints and the full state of the world are in the entry below. Delete
+this box when its job is taken — a stale session-start box is a handoff
+claiming work that is already done.
+
+---
+
 ## 2026-08-18 08:30Z (latest) — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
 
 **`main` is at `4d35c32`, thirteen commits ahead of `origin/main`, NOTHING
