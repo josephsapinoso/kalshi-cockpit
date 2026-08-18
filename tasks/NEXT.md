@@ -17,14 +17,14 @@ move the older ones into the dated archive file — do not shorten them.
 ## SESSION START — if Joe said "read NEXT.md", this box is your prompt
 
 Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
-branch `main`, tree clean, **25 commits ahead of origin and NOTHING
-PUSHED** — the repo is public, pushing publishes immediately, so ask Joe
-once, early. The LIVE instance runs `ffc060e` and `/api/health` reports its
-`git_sha` — read it instead of inferring. The calibration study is OPEN
-(day 1 stamped 2026-08-18 09:15Z at $20.658; balance ~$16.16 after Joe's
-combo buys). Joe is a beginner and has asked to be educated: define every
-betting/stats term at first use, and put new ones in
-`frontend/src/lib/glossary.ts` (see memory `joe-is-not-a-pro-teach-the-terms`).
+branch `main`. Everything through the combo-fee look is committed; check
+`git status` and `git log origin/main..main` rather than trusting this
+sentence — the 2026-08-18 afternoon session pushed and deployed repeatedly,
+and the LIVE instance's `/api/health` reports its `git_sha`, so read it
+instead of inferring. The calibration study is OPEN (day 1 stamped
+2026-08-18 09:15Z at $20.658). Joe is a beginner and has asked to be
+educated: define every betting/stats term at first use, via
+`frontend/src/lib/glossary.ts` and `<Term>`.
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
@@ -32,53 +32,108 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,299 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,322 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB — the partner's triage, 2026-08-18, in its order** (its full
-report is summarised in the latest entry below):
+**THE JOB:** the partner's 2026-08-18 triage is fully discharged (all five
+items — see the latest entry). No new triage has been taken. The natural
+next session: ask the partner for direction, or pick up the standing
+recorder/maintenance posture. Nothing is urgent by construction — ADR 0038
+closed the hunt, the study accumulates on its own, and the money-arm strip,
+derived bankroll and 423 interlock are live.
 
-1. **The money arm's reader + the $2 cap on screen.** The $100 stop exists
-   only as a comment; `venue_settlements` has a writer and (for the stop) no
-   reader. Ship `study_loss_dollars()` returning `None` never `0.0`, a
-   "$X of $100" strip on `/estimate` (partner ruled it embargo-safe: it is
-   over `venue_settlements`, not the estimate log — write A7's reasoning
-   into the code comment), and `POST /api/estimates` returning 423 when the
-   stop has fired.
-2. **`BANKROLL_DOLLARS` derived from `venue_balance_snapshots`, never
-   typed** — it is `"100"` against a real ~$20.66, so every Board size is
-   ~4.8x inflated; re-derive the three `MAX_*` caps in the same change.
-   Needs an ADR.
-3. Smaller, when adjacent: percentToBp extreme-value confirm (<3% / >97%)
-   on `/estimate`; slate quote-age chip; D1 (calculate_fee refuses
-   non-integral counts); a committed REDACTED candlesticks/fills fixture so
-   the real-payload test stops skipping everywhere but one laptop;
-   ADR 0044 documenting the calibration study; mark the §5-vs-A2
-   reload contradiction in the calibration registration in place.
-4. **A registered look at the 8 combo fills** (first combo fee ground truth
-   ever; sub-deci-cent grid observed). Pre-register first, as always.
-5. The five-step `/playbook` page — still awaiting Joe's yes.
+STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
+deploying were both pre-approved on 2026-08-18 and the deploy deny is
+lifted (pass `--build-arg GIT_SHA="$(git rev-parse HEAD)"`; deploy demo
+too — one image, two configs).
 
-STOP AND ASK JOE: pushing (~27 commits; the partner ranks it ABOVE
-everything, and it is his act). Money-touching beyond standing approvals.
-Deploys are fine (deny lifted 2026-08-16; pass
-`--build-arg GIT_SHA="$(git rev-parse HEAD)"` — the Dockerfile carries it
-and /api/health verifies it).
+GOTCHAS, each of which bit: Bash heredocs eat backticks/backslashes — long
+content via the Write tool, commit messages via `git commit -F <file>`.
+Anything touching `bet_estimates` goes in `schema.sql`, never a migration.
+`git checkout <file>` wipes uncommitted edits — back up with a byte copy
+before disabling a guard to verify it (lessons.md, top). Run `date -u`
+before acting on any deadline sentence.
 
-GOTCHAS, each of which bit twice: Bash heredocs eat backticks and
-backslashes even quoted — long content goes through the Write tool, commit
-messages via `git commit -F <file>`. A fixture built from the current schema
-cannot represent a database from before a table existed — that gap
-crash-looped the live boot; anything touching `bet_estimates` must go in
-`schema.sql`, never a migration (v11 DROPs the table for schema.sql to
-recreate). Run `date -u` before acting on any deadline sentence.
-
-Constraints and the full state of the world are in the entry below. Delete
-this box when its job is taken — a stale session-start box is a handoff
-claiming work that is already done.
+Delete this box when its job is taken — a stale session-start box is a
+handoff claiming work that is already done.
 
 ---
 
-## 2026-08-18 11:10Z (latest) — THE STUDY IS OPEN, THE MACHINE MATCHES ITS COMMIT, AND THE PARTNER HAS SET THE ORDER
+## 2026-08-18 ~16:30Z (latest) — THE TRIAGE IS DISCHARGED: THE STOP HAS A READER, THE BANKROLL IS DERIVED, AND THE COMBO FEES GOT THEIR REGISTERED LOOK
+
+Joe pre-approved every human step in the morning box ("sally forth"), so
+this session pushed, deployed (live + demo, deny confirmed lifted in
+practice), and worked the partner's five items in its order. All five are
+done. Suite 3,322 passed / 10 xfailed; ruff and tsc clean; live
+`/api/health` verified matching HEAD by reading `git_sha`, not logs.
+
+### What landed, in the partner's order
+
+1. **The money arm's reader** (`066976b`): `study_loss_dollars()` computes
+   §5 arm 3 as amended by A2 — sum(payout − cost − fee) over study-period
+   `venue_settlements`, negated — returning None, never 0.0, on anything
+   the registered formula cannot carry (no study start, unreadable row, a
+   void). `POST /api/estimates` answers **423 Locked** when the loss is
+   computable and ≥ $100 (guard verified by forcing it False). The
+   "$X of $100" strip is on `/estimate` via `GET /api/estimates/stop`,
+   with A7's embargo reasoning in the code comments; unknown renders as
+   unknown, and a fired stop closes the form. "realised loss" joined the
+   glossary.
+2. **ADR 0045** (`3a4840f`): the four dollar caps are RETIRED settings.
+   `RiskConfig.load()` returns them as None (underived); `size_position`
+   REFUSES an underived config (`bankroll_unobserved`, guard verified);
+   `with_observed_balance()` derives bankroll from the newest
+   `venue_balance_snapshots` row and the caps at 10/40/10% — per pricing
+   pass, inside the order request, and on the QuoteHub's snapshot read.
+   `reference()` still works underived, so a dead poller can blank the
+   shown size but cannot stop the gate's evidence. Both fly configs,
+   `.env.example` and Joe's local `.env` dropped the vars;
+   `test_deployed_risk_caps_are_explicit.py` now asserts the OPPOSITE of
+   its original claim and records why the reversal is not drift.
+3. **The smaller five** (`b5515c8`..`d43bfe5`): D1 closed on the accept
+   side — `calculate_fee` computes fractional counts exactly via
+   Decimal(str(...)), NaN/inf refuse, `orders.py` no longer int-coerces;
+   the extreme-value confirm (<3% / >97%) arms the /estimate button for a
+   second tap; the slate got a per-row quote-age chip on the server's own
+   30s staleness clock ("quote age" in the glossary — title-tooltips
+   rejected, Joe is on a phone); `scripts/redact_captures.py` emits
+   committed redacted portfolio fixtures so the wire-format test runs
+   everywhere (identity stripped, money strings verbatim); ADR 0044
+   records the calibration study; the §5-vs-A2 reload contradiction is
+   marked in place in the registration (reloads do NOT void the result).
+4. **The combo fee look** (`b3e0a2b` registration, `d0a4d06` result):
+   pre-registered blind (envelope only), leg counts fetched per §4.5
+   BEFORE any fee (19/16/16/21/34/62/6/13), one look taken, audited by
+   measurement-skeptic (draft DEFECTIVE, 14 corrections, all applied —
+   including its catch that the draft buried the real finding). Result:
+   **every one of the 8 charges lies strictly above 0.070·D** (implied k
+   0.070041–0.070548, excluding 0.035 on every row); rows 1/5/6/8 exceed
+   even `calculate_fee` (≤0.19% of the fee) on a grid no coarser than
+   $0.00001; C4 = NONE-with-MIXED-also-in-force; C5 NOT REACHED; M11 NOT
+   TESTABLE. ADR 0046: **no combo branch is fitted** — the refutation is
+   documented in `fees.py` at the point of use and armed as a tripwire
+   for any future combo-pricing proposal. ADR 0012 §5 item 2 →
+   *measured and unmatched*, marked in place. **The look is SPENT**; more
+   combo fills need a fresh registration.
+5. **The five-step test onto `/playbook`** (`8b806eb`): referenced three
+   times, defined nowhere — the sharp-bettor agent authored it fresh
+   against the record (write your number before you look / say what you
+   know the price doesn't / price it at the ask plus the fee / bet two
+   dollars / know what would make you stop), with costs-of-skipping and
+   drills, static content above the version cards. It refuses to teach
+   line shopping, and says why.
+
+### DO NOT (additions)
+
+- Do not re-run `scripts/analyse_combo_fill_fees.py` as a look — the one
+  look is spent. The script remains re-runnable as the result's producer
+  only.
+- Do not "complete" a combo fee branch in `fees.py` — ADR 0046 decides no
+  branch, and names the tripwire instead.
+- Everything in the previous entry's DO NOT list stands.
+
+---
+
+## 2026-08-18 11:10Z — THE STUDY IS OPEN, THE MACHINE MATCHES ITS COMMIT, AND THE PARTNER HAS SET THE ORDER
 
 **`main` is ~27 commits ahead of origin, NOTHING PUSHED.** The live machine
 runs the commit `/api/health` now reports (`git_sha` works — pass the

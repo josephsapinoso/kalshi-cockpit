@@ -25,6 +25,23 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — `git checkout <file>` is a destroyer of uncommitted work, and guard-verification is exactly when you reach for it
+
+The pattern: verifying a guard means disabling it, watching the test fail,
+and restoring it. The natural restore is `git checkout <file>` — and if the
+file also carries *other* uncommitted edits from the same session, the
+checkout silently wipes them back to HEAD. It happened here mid-session: the
+423 guard was force-disabled with `sed`, verified red, and restored with
+`git checkout` — which also discarded two uncommitted route additions in the
+same file, with no error and no diff left to notice.
+
+The rule: **before disabling a guard in a file with uncommitted changes,
+copy the file aside (`file.bak`) and restore by moving the copy back — never
+by git.** Or commit first and verify after, so git's baseline is the state
+you want back. The failure is silent in exactly the situation that invites
+it, because guard verification feels like a read-only detour and is actually
+a write.
+
 ## 2026-08-18 — The screen you verify against may be rendering a configuration nothing deploys, and a test that reads config text cannot tell you
 
 A UI change was verified the careful way: not just unit tests, but opened in a
