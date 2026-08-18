@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -363,6 +363,123 @@ _FILLS_REBUILD_UNDO = (
 )
 
 
+# v11 corrects three things v10 got wrong, and it is a DROP rather than a
+# rebuild because these tables provably hold nothing.
+#
+# **Why dropping is safe here and would not be anywhere else.** `bet_estimates`
+# and `venue_settlements` were created by v10 (`79e42aa`) and **no code has
+# ever written to either** -- no route, no runner, no script; the poller they
+# exist for does not exist yet. `test_store.py` asserts the emptiness rather
+# than trusting this paragraph. Dropping them lets `schema.sql` recreate the
+# corrected shape on the next `executescript`, which is simpler and has fewer
+# crash points than a copy-and-rename of two tables with nothing to copy.
+#
+# The three corrections, in descending order of how badly v10 was wrong:
+#
+# **1. `venue_settlements.contracts` was INTEGER and counts are FRACTIONAL.**
+# This is the one that would have destroyed data silently. The wire fields are
+# `yes_count_fp` / `no_count_fp` -- `_fp` for fixed point, two decimals -- and
+# the live record read on 2026-08-18 contains `11.27` and `0.27`. A 0.27
+# contract position stored as INTEGER rounds to **0**: an entire position
+# vanishing, and the entry price derived from it dividing by zero. v10 declared
+# that column from a specification written **before anyone had looked at the
+# payload**, which is the whole reason CLAUDE.md requires wire-format work to
+# be driven by captured payloads. Now `contracts_hundredths`, exact and
+# integer.
+#
+# **2. `protocol_calibration_bet` is dropped.** The registration excluded bet
+# number one on the grounds that the per-fill wire shape had never been
+# observed on this account, so one real fill had to be spent learning it. On
+# 2026-08-18 `/portfolio/fills` returned **25 real fills** and the shape was
+# captured, so the exclusion is vacated and the column has no branch that reads
+# it. A field nothing reads is this repo's "built but never called" pattern at
+# the smallest possible scale, and it is cheaper to remove now than to explain
+# forever.
+#
+# **3. Three columns are added for the durable outcome path.** `market_result`
+# from the **public** market endpoint is preferred over the portfolio's,
+# because `/portfolio/settlements` has now been observed to drop history -- 55
+# records spanning 2025-11 to 2026-05 were gone eight days later. An outcome
+# read only from the portfolio can evaporate; a fact about a market cannot.
+# `outcome_source` records which path supplied it, because a silent fallback to
+# the perishable source is exactly what would not look like a defect.
+#
+# `poll_log` and the two new `venue_balance_snapshots` columns need no
+# statements here: a brand-new table and an additive column are both handled,
+# the first by `schema.sql` on every open and the second by `columns` below.
+#
+# Idempotent at every crash point:
+#   - after the first DROP:  the guard cannot fire (the table is gone), the
+#                            remaining DROPs are `IF EXISTS` no-ops, and
+#                            `schema.sql` rebuilds both on the same boot.
+#   - after both DROPs:      as above.
+#   - after the rebuild:     `bet_estimates.outcome_source` exists, so the
+#                            whole step is skipped.
+_V11_DROP_UNWRITTEN_TABLES = (
+    "DROP TABLE IF EXISTS bet_estimates",
+    "DROP TABLE IF EXISTS venue_settlements",
+)
+
+# Restoring the v10 shape for the migration tests. The indexes come back with
+# the tables, so only the tables are stated.
+_V11_UNDO = (
+    "DROP TABLE IF EXISTS bet_estimates",
+    "DROP TABLE IF EXISTS venue_settlements",
+    """
+    CREATE TABLE venue_settlements (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker                  TEXT NOT NULL,
+        event_ticker            TEXT,
+        market_result           TEXT,
+        settled_ms              INTEGER NOT NULL,
+        side                    TEXT NOT NULL,
+        contracts               INTEGER NOT NULL,
+        entry_price_tenths      INTEGER,
+        fee_cost_tenths         INTEGER,
+        position_first_seen_ms  INTEGER,
+        position_time_source    TEXT,
+        is_taker                INTEGER,
+        n_fills_in_position     INTEGER,
+        UNIQUE (ticker, settled_ms),
+        CHECK (side IN ('yes', 'no')),
+        CHECK (is_taker IS NULL OR is_taker IN (0, 1))
+    )
+    """,
+    """
+    CREATE TABLE bet_estimates (
+        id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker                      TEXT NOT NULL,
+        stated_probability_bp       INTEGER NOT NULL,
+        estimate_server_ms          INTEGER NOT NULL,
+        estimate_client_ms          INTEGER,
+        had_already_opened_kalshi   INTEGER,
+        cluster_key                 TEXT NOT NULL,
+        server_yes_bid_tenths       INTEGER,
+        server_yes_ask_tenths       INTEGER,
+        server_quote_observed_ms    INTEGER,
+        server_quote_unreadable_reason TEXT,
+        stated_probability_is_revised  INTEGER NOT NULL DEFAULT 0,
+        protocol_calibration_bet    INTEGER NOT NULL DEFAULT 0,
+        is_in_play                  INTEGER NOT NULL DEFAULT 0,
+        is_sports                   INTEGER NOT NULL DEFAULT 1,
+        is_multi_leg                INTEGER NOT NULL DEFAULT 0,
+        sport                       TEXT,
+        matched_position_id         INTEGER REFERENCES venue_settlements(id),
+        match_status                TEXT,
+        outcome_win                 INTEGER,
+        closing_line_id             INTEGER REFERENCES closing_lines(id),
+        clv_tenths                  REAL,
+        clv_horizon_hours           REAL,
+        clv_scored_ms               INTEGER,
+        CHECK (stated_probability_bp BETWEEN 1 AND 9999),
+        CHECK (outcome_win IS NULL OR outcome_win IN (0, 1)),
+        CHECK (had_already_opened_kalshi IS NULL
+               OR had_already_opened_kalshi IN (0, 1))
+    )
+    """,
+)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
     2: _Migration(
         columns=(
@@ -470,6 +587,14 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads `COALESCE(trigger, '')` so a NULL keeps counting as a sweep, which
     # is what those rows are. Backfilling `'scheduled'` would assert a fact
     # about history that this column was not there to observe.
+    11: _Migration(
+        columns=(
+            ("venue_balance_snapshots", "portfolio_value_tenths", "INTEGER"),
+        ),
+        statements=_V11_DROP_UNWRITTEN_TABLES,
+        skip_statements_if_column=(("bet_estimates", "outcome_source"),),
+        undo_statements=_V11_UNDO,
+    ),
     10: _Migration(
         statements=_FILLS_REBUILD,
         indexes=("idx_fills_time", "idx_fills_mismatch"),

@@ -807,7 +807,15 @@ CREATE TABLE IF NOT EXISTS venue_settlements (
     market_result           TEXT,
     settled_ms              INTEGER NOT NULL,
     side                    TEXT NOT NULL,      -- yes | no, from the count pair
-    contracts               INTEGER NOT NULL,
+    -- **Hundredths, because contract counts are FRACTIONAL on this venue.**
+    -- The wire fields are `yes_count_fp` / `no_count_fp` -- `_fp` for fixed
+    -- point, two decimals -- and the real record contains `11.27` and `0.27`.
+    -- Declared INTEGER in v10 from a spec written before the payload was
+    -- observed, which would have stored a 0.27-contract fill as **zero**: a
+    -- silent whole-position loss, in the same family as the deci-cent rounding
+    -- CLAUDE.md warns about. Integer hundredths keeps it exact and keeps money
+    -- arithmetic off floats.
+    contracts_hundredths    INTEGER NOT NULL,
     -- The price actually paid, from the venue: total cost / count. It is not a
     -- mid and nobody can accidentally make it one. NULL if the pair was
     -- unreadable -- never 0, because a settled loser genuinely trades at 0.
@@ -831,10 +839,27 @@ CREATE INDEX IF NOT EXISTS idx_venue_settlements_time
 -- settle H4 -- whether settlement carries its own fee -- which is why ADR 0027
 -- calls the cost headroom an upper bound. The registration's stopping rule
 -- needs it anyway, so recording it costs nothing extra.
+-- `balance_tenths` comes from `balance_dollars` ("20.6583"), **never** the
+-- `balance` integer beside it. Observed 2026-08-18: `balance` was 2065 while
+-- `balance_dollars` was 20.6583 -- the integer is whole cents and drops 0.83c.
+-- Reading the convenient integer field is exactly the deci-cent error
+-- CLAUDE.md opens with. NULL when unreadable, never 0.
+--
+-- `portfolio_value_tenths` is open positions; the stopping rule reads cash.
+-- Kept beside it so a balance that fell because a position was opened is
+-- distinguishable from one that fell because a bet lost.
+--
+-- **No comments inside the parentheses, deliberately.** SQLite's
+-- `ALTER TABLE ... DROP COLUMN` rewrites the stored CREATE text, and an
+-- interleaved comment defeats that surgery -- dropping the last column left
+-- `error in table venue_balance_snapshots after drop column: incomplete
+-- input` and took out 17 migration tests. Any table a migration ALTERs keeps
+-- its prose up here.
 CREATE TABLE IF NOT EXISTS venue_balance_snapshots (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    observed_ms     INTEGER NOT NULL,
-    balance_tenths  INTEGER
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_ms            INTEGER NOT NULL,
+    balance_tenths         INTEGER,
+    portfolio_value_tenths INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_venue_balance_time
     ON venue_balance_snapshots(observed_ms DESC);
@@ -877,7 +902,6 @@ CREATE TABLE IF NOT EXISTS bet_estimates (
     -- Why the quote is NULL. Unreadable is a state, not a zero.
     server_quote_unreadable_reason TEXT,
     stated_probability_is_revised  INTEGER NOT NULL DEFAULT 0,
-    protocol_calibration_bet    INTEGER NOT NULL DEFAULT 0,
     is_in_play                  INTEGER NOT NULL DEFAULT 0,
     is_sports                   INTEGER NOT NULL DEFAULT 1,
     is_multi_leg                INTEGER NOT NULL DEFAULT 0,
@@ -890,6 +914,25 @@ CREATE TABLE IF NOT EXISTS bet_estimates (
     -- NULL when unsettled or void. **Never 0** -- a loss and "we do not know"
     -- are different states and this repo has collapsed them before.
     outcome_win                 INTEGER,
+    -- The outcome as the PUBLIC market endpoint reports it, via
+    -- `backend/market_results.py`, which already runs and accepts a result
+    -- only at `finalized`.
+    --
+    -- **This is the durable path and it is preferred over the portfolio one.**
+    -- `/portfolio/settlements` has now been observed to drop history -- 55
+    -- records spanning 2025-11 to 2026-05 were gone eight days later -- so an
+    -- outcome read only from the portfolio can evaporate. The public market
+    -- result cannot: it is a fact about the market, not about this account.
+    market_result_public        TEXT,
+    -- Which path supplied `outcome_win`: public_market | venue_settlement.
+    -- Recorded rather than inferred, because a silent fallback to the
+    -- perishable source is precisely what would not look like a defect.
+    outcome_source              TEXT,
+    -- 1 when this row sits inside a poll gap long enough that the venue may
+    -- have dropped the fill before it was read. It flags; it never voids --
+    -- dropping rows on an outage would remove them for a reason correlated
+    -- with calendar time, and therefore with sport and with betting streaks.
+    retention_at_risk           INTEGER NOT NULL DEFAULT 0,
     closing_line_id             INTEGER REFERENCES closing_lines(id),
     clv_tenths                  REAL,
     -- Written *with* the score, never inferred later. Without it the column
@@ -929,3 +972,33 @@ CREATE TABLE IF NOT EXISTS bet_estimate_looks (
 );
 CREATE INDEX IF NOT EXISTS idx_bet_estimate_looks_time
     ON bet_estimate_looks(run_ms DESC);
+
+-- One row per poll ATTEMPT, per endpoint, including the ones that failed.
+--
+-- **Every retention tripwire in the registration is decoration without this.**
+-- The rules are stated as gaps between successive *successful* polls -- flag
+-- rows above 3 days, fall back above 7 -- and a gap can only be measured
+-- against a record of when polling did and did not work. A failure that writes
+-- nothing is invisible, and an invisible failure reads exactly like a quiet
+-- week in which nothing was bet.
+--
+-- This matters more than it did yesterday. Both portfolio endpoints have now
+-- been observed to drop history: `/portfolio/fills` retains roughly three
+-- months, and `/portfolio/settlements` -- previously believed to be the safety
+-- net at nine months -- lost 55 records inside eight days. If a poll does not
+-- happen, the record is not merely late. It is gone.
+CREATE TABLE IF NOT EXISTS poll_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    polled_ms   INTEGER NOT NULL,
+    endpoint    TEXT NOT NULL,      -- settlements | fills | positions | balance
+    ok          INTEGER NOT NULL,
+    -- NULL on failure, never 0: "the call raised" and "the venue returned an
+    -- empty list" are different states, and an empty list is a legitimate one.
+    row_count   INTEGER,
+    error       TEXT,
+    CHECK (ok IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_poll_log_endpoint_time
+    ON poll_log(endpoint, polled_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_poll_log_ok
+    ON poll_log(polled_ms DESC) WHERE ok = 1;

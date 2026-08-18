@@ -130,8 +130,9 @@ class TestAnEstimateOutlivesTheAbsenceOfABet:
 
     def test_a_matched_estimate_points_at_the_venue_record(self, conn):
         conn.execute(
-            "INSERT INTO venue_settlements (ticker, settled_ms, side, contracts, "
-            "entry_price_tenths) VALUES ('T-1', 99, 'yes', 2, 520)"
+            "INSERT INTO venue_settlements (ticker, settled_ms, side, "
+            "contracts_hundredths, entry_price_tenths) "
+            "VALUES ('T-1', 99, 'yes', 200, 520)"
         )
         position_id = conn.execute(
             "SELECT id FROM venue_settlements"
@@ -226,7 +227,10 @@ class TestTheV10RebuildIsSafeOnADatabaseThatAlreadyExists:
         self._wound_back_to_v9(path)
         c = db.connect(path)
 
-        assert db.migrate(c) == [10]
+        # Every step from the recorded version up, not just v10 -- the wind-back
+        # stamps v9 and later versions exist. Asserting equality with [10] made
+        # this test fail the day v11 landed, which is noise rather than signal.
+        assert 10 in db.migrate(c)
 
         row = c.execute(
             "SELECT id, kalshi_fill_id, ticker, count, price_tenths, source "
@@ -329,3 +333,143 @@ class TestTheV10RebuildIsSafeOnADatabaseThatAlreadyExists:
 
         assert c.execute("SELECT COUNT(*) FROM fills_v10").fetchone()[0] == 1
         c.close()
+
+
+class TestContractCountsAreFractionalOnThisVenue:
+    """v10 declared these INTEGER from a spec written before anyone looked.
+
+    The wire fields are `yes_count_fp` / `no_count_fp` -- `_fp` for fixed
+    point, two decimals. The live record read on 2026-08-18 contains **11.27**
+    and **0.27**. Under the v10 shape a 0.27-contract position rounds to
+    **zero**: the position disappears and the entry price derived from it
+    divides by zero.
+
+    This is the same family as the deci-cent rule CLAUDE.md opens with -- a
+    convenient integer that silently discards a real fraction of the value --
+    and it is exactly why wire-format work has to be driven by a captured
+    payload rather than by a specification.
+    """
+
+    @pytest.mark.parametrize(
+        "hundredths, description",
+        [(27, "the 0.27-contract fill that would round to zero"),
+         (1127, "the 11.27-contract position"),
+         (2100, "a whole 21 contracts, which must still be exact")],
+    )
+    def test_a_fractional_count_survives_storage_exactly(
+        self, conn, hundredths, description
+    ):
+        conn.execute(
+            "INSERT INTO venue_settlements (ticker, settled_ms, side, "
+            "contracts_hundredths, entry_price_tenths) VALUES (?, 1, 'yes', ?, 500)",
+            (f"T-{hundredths}", hundredths),
+        )
+
+        stored = conn.execute(
+            "SELECT contracts_hundredths FROM venue_settlements"
+        ).fetchone()[0]
+
+        assert stored == hundredths, description
+
+    def test_the_column_the_v10_shape_used_is_gone(self, conn):
+        """So nothing can write the lossy one by habit."""
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(venue_settlements)")}
+
+        assert "contracts" not in columns
+        assert "contracts_hundredths" in columns
+
+
+class TestV11RemovesWhatV10GotWrong:
+    @staticmethod
+    def _wound_back_to_v10(path: Path):
+        c = db.init_db(path)
+        for statement in db._V11_UNDO:
+            c.execute(statement)
+        db._set_meta(c, "schema_version", "10")
+        c.commit()
+        return c
+
+    def test_the_wind_back_really_restores_the_v10_shape(self, tmp_path):
+        c = self._wound_back_to_v10(tmp_path / "v10.db")
+
+        assert "protocol_calibration_bet" in {
+            r[1] for r in c.execute("PRAGMA table_info(bet_estimates)")
+        }
+        assert "contracts" in {
+            r[1] for r in c.execute("PRAGMA table_info(venue_settlements)")
+        }
+        c.close()
+
+    def test_migrating_replaces_both_tables_with_the_corrected_shape(self, tmp_path):
+        path = tmp_path / "v10.db"
+        self._wound_back_to_v10(path).close()
+        conn = db.connect(path)
+
+        assert 11 in db.migrate(conn)
+        conn.executescript(db._SCHEMA_PATH.read_text(encoding="utf-8"))
+
+        estimates = {r[1] for r in conn.execute("PRAGMA table_info(bet_estimates)")}
+        settlements = {
+            r[1] for r in conn.execute("PRAGMA table_info(venue_settlements)")
+        }
+        assert "protocol_calibration_bet" not in estimates, (
+            "a field the registration vacated, that no branch reads"
+        )
+        assert {"market_result_public", "outcome_source", "retention_at_risk"} <= estimates
+        assert "contracts_hundredths" in settlements and "contracts" not in settlements
+        conn.close()
+
+    def test_dropping_is_safe_because_nothing_has_ever_written_these(self, conn):
+        """The assumption v11 rests on, asserted rather than trusted.
+
+        v11 drops and recreates rather than copying, which is only defensible
+        while both tables are provably empty everywhere. If a writer appears,
+        this test fails and the next migration has to copy instead.
+        """
+        for table in ("bet_estimates", "venue_settlements"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+
+class TestThePollLogRecordsFailuresNotJustSuccesses:
+    """Every retention tripwire is decoration without this table.
+
+    The registered rules are gaps between successive *successful* polls. A
+    failure that writes no row is invisible, and an invisible failure reads
+    exactly like a quiet week in which nothing was bet. Both portfolio
+    endpoints have now been observed to drop history, so a poll that does not
+    happen does not merely delay the record -- it loses it.
+    """
+
+    def test_a_failed_poll_is_recorded_with_no_row_count(self, conn):
+        """`NULL`, never 0. An empty list is a legitimate, different state."""
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, error) "
+            "VALUES (1, 'settlements', 0, 'HTTP 503')"
+        )
+
+        row = conn.execute("SELECT ok, row_count, error FROM poll_log").fetchone()
+
+        assert row["ok"] == 0
+        assert row["row_count"] is None, (
+            "a failed poll recorded as 0 rows is indistinguishable from a "
+            "successful poll of an account that did nothing"
+        )
+        assert row["error"] == "HTTP 503"
+
+    def test_a_successful_empty_poll_is_zero_and_not_null(self, conn):
+        """The other half of the same distinction."""
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+            "VALUES (2, 'fills', 1, 0)"
+        )
+
+        row = conn.execute("SELECT ok, row_count FROM poll_log").fetchone()
+
+        assert (row["ok"], row["row_count"]) == (1, 0)
+
+    def test_ok_is_a_boolean_and_not_a_free_text_field(self, conn):
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO poll_log (polled_ms, endpoint, ok) "
+                "VALUES (3, 'balance', 2)"
+            )
