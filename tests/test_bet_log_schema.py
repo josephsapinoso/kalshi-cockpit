@@ -131,8 +131,7 @@ class TestAnEstimateOutlivesTheAbsenceOfABet:
     def test_a_matched_estimate_points_at_the_venue_record(self, conn):
         conn.execute(
             "INSERT INTO venue_settlements (ticker, settled_ms, side, "
-            "contracts_hundredths, entry_price_tenths) "
-            "VALUES ('T-1', 99, 'yes', 200, 520)"
+            "contracts, entry_price_tenths) VALUES ('T-1', 99, 'yes', 2.0, 520)"
         )
         position_id = conn.execute(
             "SELECT id FROM venue_settlements"
@@ -351,32 +350,46 @@ class TestContractCountsAreFractionalOnThisVenue:
     """
 
     @pytest.mark.parametrize(
-        "hundredths, description",
-        [(27, "the 0.27-contract fill that would round to zero"),
-         (1127, "the 11.27-contract position"),
-         (2100, "a whole 21 contracts, which must still be exact")],
+        "count, description",
+        [(0.27, "the 0.27-contract fill that INTEGER would round to zero"),
+         (11.27, "the 11.27-contract position in the live record"),
+         (21.0, "a whole 21 contracts, which must still come back exact")],
     )
-    def test_a_fractional_count_survives_storage_exactly(
-        self, conn, hundredths, description
-    ):
+    def test_a_fractional_count_survives_storage(self, conn, count, description):
         conn.execute(
             "INSERT INTO venue_settlements (ticker, settled_ms, side, "
-            "contracts_hundredths, entry_price_tenths) VALUES (?, 1, 'yes', ?, 500)",
-            (f"T-{hundredths}", hundredths),
+            "contracts, entry_price_tenths) VALUES (?, 1, 'yes', ?, 500)",
+            (f"T-{count}", count),
         )
 
         stored = conn.execute(
-            "SELECT contracts_hundredths FROM venue_settlements"
+            "SELECT contracts FROM venue_settlements"
         ).fetchone()[0]
 
-        assert stored == hundredths, description
+        assert stored == pytest.approx(count), description
 
-    def test_the_column_the_v10_shape_used_is_gone(self, conn):
-        """So nothing can write the lossy one by habit."""
+    def test_a_fractional_fill_count_survives_too(self, conn):
+        """v11 fixed this in one table and missed the other.
+
+        The defect was corrected where it was noticed rather than everywhere
+        the same quantity is held, which is how one fix leaves its twin in
+        place. Both are REAL as of v12.
+        """
+        conn.execute(
+            "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "
+            "price_tenths, is_taker, fee_predicted, fee_model_used, source) "
+            "VALUES ('f-frac', 'T-1', 1, 0.27, 990, 1, 0.0001, 'model_a', "
+            "'venue_hand')"
+        )
+
+        assert conn.execute("SELECT count FROM fills").fetchone()[0] == pytest.approx(0.27)
+
+    def test_the_hundredths_column_v11_invented_is_gone(self, conn):
+        """One answer to "how are sizes stored", not two."""
         columns = {r[1] for r in conn.execute("PRAGMA table_info(venue_settlements)")}
 
-        assert "contracts" not in columns
-        assert "contracts_hundredths" in columns
+        assert "contracts_hundredths" not in columns
+        assert "contracts" in columns
 
 
 class TestV11RemovesWhatV10GotWrong:
@@ -416,7 +429,7 @@ class TestV11RemovesWhatV10GotWrong:
             "a field the registration vacated, that no branch reads"
         )
         assert {"market_result_public", "outcome_source", "retention_at_risk"} <= estimates
-        assert "contracts_hundredths" in settlements and "contracts" not in settlements
+        assert "contracts" in settlements
         conn.close()
 
     def test_dropping_is_safe_because_nothing_has_ever_written_these(self, conn):

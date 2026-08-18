@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -480,6 +480,130 @@ _V11_UNDO = (
 )
 
 
+# v12 makes both fractional quantities REAL, which is what this schema's own
+# conventions block has said since the first commit:
+#
+#     QUANTITIES are REAL. Kalshi returns fractional sizes ("17.38"); 42 of 152
+#     sampled order book levels were fractional. An INTEGER column here would
+#     silently truncate depth.
+#
+# Two corrections, and the second one is mine.
+#
+# **`fills.count` was INTEGER and venue fills are fractional.** The captured
+# payload has a `count_fp` of `0.27`; as INTEGER that is **zero**, and a fill of
+# zero contracts at a real price is a row asserting that a trade did not happen.
+# v11 fixed this defect in `venue_settlements` and missed it here, because the
+# fix was applied to the table the mistake was noticed in rather than to every
+# table holding the same quantity.
+#
+# **`venue_settlements.contracts_hundredths` was my invention and it is
+# withdrawn.** Faced with a fractional count, v11 reached for integer
+# hundredths by analogy with the money rule -- integer tenths of a cent -- and
+# in doing so introduced a *third* numeric convention into a file that already
+# had exactly two and stated both at the top. The money rule exists because
+# money math must be exact; the quantity rule already existed and already
+# covers this. Consistency with a documented convention beats a locally clever
+# encoding, and a future reader should find one answer to "how are sizes
+# stored", not two.
+#
+# **Why this is safe now and would not be in a month.** Neither table has a
+# production writer: `ORDERS_ARE_DRY_RUNS = True`, `venue_settlements` was
+# created two commits ago, and the poller is the commit after this one. A test
+# asserts the emptiness rather than trusting this paragraph.
+#
+# Idempotent at every crash point by the same reasoning as v10: `INSERT OR
+# IGNORE` makes the copy re-runnable, and the guard makes the whole step a
+# no-op once the rename has landed.
+_FILLS_COLUMNS_V12 = (
+    "id, kalshi_fill_id, order_id, ticker, filled_ms, count, price_tenths, "
+    "is_taker, fee_actual, fee_predicted, fee_model_used, source"
+)
+
+_QUANTITIES_ARE_REAL = (
+    """
+    CREATE TABLE IF NOT EXISTS fills_v12 (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        kalshi_fill_id      TEXT UNIQUE,
+        order_id            INTEGER REFERENCES orders(id),
+        ticker              TEXT NOT NULL,
+        filled_ms           INTEGER NOT NULL,
+        count               REAL NOT NULL,
+        price_tenths        INTEGER NOT NULL,
+        is_taker            INTEGER NOT NULL,
+        fee_actual          REAL,
+        fee_predicted       REAL NOT NULL,
+        fee_model_used      TEXT NOT NULL,
+        source              TEXT NOT NULL DEFAULT 'engine',
+        CHECK (source IN ('engine', 'venue_hand'))
+    )
+    """,
+    f"""
+    INSERT OR IGNORE INTO fills_v12 ({_FILLS_COLUMNS_V12})
+        SELECT {_FILLS_COLUMNS_V12} FROM fills
+    """,
+    "DROP TABLE fills",
+    "ALTER TABLE fills_v12 RENAME TO fills",
+    # `venue_settlements` has never been written, so it is dropped and left for
+    # `schema.sql` to rebuild rather than copied. See the v11 note for why that
+    # is defensible here and nowhere else.
+    "DROP TABLE IF EXISTS venue_settlements",
+)
+
+_QUANTITIES_ARE_REAL_UNDO = (
+    """
+    CREATE TABLE IF NOT EXISTS fills_v11 (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        kalshi_fill_id      TEXT UNIQUE,
+        order_id            INTEGER REFERENCES orders(id),
+        ticker              TEXT NOT NULL,
+        filled_ms           INTEGER NOT NULL,
+        count               INTEGER NOT NULL,
+        price_tenths        INTEGER NOT NULL,
+        is_taker            INTEGER NOT NULL,
+        fee_actual          REAL,
+        fee_predicted       REAL NOT NULL,
+        fee_model_used      TEXT NOT NULL,
+        source              TEXT NOT NULL DEFAULT 'engine',
+        CHECK (source IN ('engine', 'venue_hand'))
+    )
+    """,
+    # **Copies the v9 column list, not v12s, and `source` is left to its
+    # DEFAULT.** The migration tests wind a database back by applying every
+    # undo in ASCENDING version order, so v10s undo -- which rebuilds `fills`
+    # without `source` -- runs before this one. Naming `source` here raises
+    # `no such column` on every wind-back past v10. Nothing is lost: at v11 the
+    # only writer that could exist is the order path, so every row is
+    # `engine`, which is what the DEFAULT supplies.
+    f"""
+    INSERT OR IGNORE INTO fills_v11 ({_FILLS_COLUMNS_V9})
+        SELECT {_FILLS_COLUMNS_V9} FROM fills
+    """,
+    "DROP TABLE fills",
+    "ALTER TABLE fills_v11 RENAME TO fills",
+    "DROP TABLE IF EXISTS venue_settlements",
+    """
+    CREATE TABLE venue_settlements (
+        id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker                  TEXT NOT NULL,
+        event_ticker            TEXT,
+        market_result           TEXT,
+        settled_ms              INTEGER NOT NULL,
+        side                    TEXT NOT NULL,
+        contracts_hundredths    INTEGER NOT NULL,
+        entry_price_tenths      INTEGER,
+        fee_cost_tenths         INTEGER,
+        position_first_seen_ms  INTEGER,
+        position_time_source    TEXT,
+        is_taker                INTEGER,
+        n_fills_in_position     INTEGER,
+        UNIQUE (ticker, settled_ms),
+        CHECK (side IN ('yes', 'no')),
+        CHECK (is_taker IS NULL OR is_taker IN (0, 1))
+    )
+    """,
+)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
     2: _Migration(
         columns=(
@@ -587,6 +711,12 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads `COALESCE(trigger, '')` so a NULL keeps counting as a sweep, which
     # is what those rows are. Backfilling `'scheduled'` would assert a fact
     # about history that this column was not there to observe.
+    12: _Migration(
+        statements=_QUANTITIES_ARE_REAL,
+        indexes=("idx_fills_time", "idx_fills_mismatch"),
+        skip_statements_if_column=(("venue_settlements", "contracts"),),
+        undo_statements=_QUANTITIES_ARE_REAL_UNDO,
+    ),
     11: _Migration(
         columns=(
             ("venue_balance_snapshots", "portfolio_value_tenths", "INTEGER"),

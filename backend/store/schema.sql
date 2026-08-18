@@ -639,7 +639,7 @@ CREATE TABLE IF NOT EXISTS fills (
     -- because our own discovery missed it is the wrong way round.
     ticker              TEXT NOT NULL,
     filled_ms           INTEGER NOT NULL,
-    count               INTEGER NOT NULL,
+    count               REAL NOT NULL,
     price_tenths        INTEGER NOT NULL,
     is_taker            INTEGER NOT NULL,
     -- The whole point of this pair. fee_actual is ground truth from Kalshi;
@@ -797,6 +797,18 @@ CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);
 -- has never placed an order -- and its `pnl_cents` is *our* computed profit
 -- under a named `fill_assumption`, which is a meaningless concept when the
 -- venue is stating the truth directly.
+-- `contracts` is REAL, per this file's QUANTITIES convention at the top, and
+-- **not** because nobody thought about it. The wire fields are `yes_count_fp`
+-- / `no_count_fp` -- `_fp` for fixed point, two decimals -- and the live
+-- record read on 2026-08-18 contains `11.27` and `0.27`. v10 declared this
+-- INTEGER from a spec written before anyone had read the payload, which would
+-- have stored a 0.27-contract position as **zero**: the position vanishing,
+-- and the entry price derived from it dividing by zero.
+--
+-- v11 then over-corrected to integer hundredths, inventing a third numeric
+-- convention in a file that already had exactly two and stated both. The money
+-- rule -- integer tenths of a cent -- exists because money math must be exact.
+-- The quantity rule already covered this. v12 put it back.
 CREATE TABLE IF NOT EXISTS venue_settlements (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     -- No FK to `kalshi_markets`. A market bet by hand may never have been
@@ -807,15 +819,7 @@ CREATE TABLE IF NOT EXISTS venue_settlements (
     market_result           TEXT,
     settled_ms              INTEGER NOT NULL,
     side                    TEXT NOT NULL,      -- yes | no, from the count pair
-    -- **Hundredths, because contract counts are FRACTIONAL on this venue.**
-    -- The wire fields are `yes_count_fp` / `no_count_fp` -- `_fp` for fixed
-    -- point, two decimals -- and the real record contains `11.27` and `0.27`.
-    -- Declared INTEGER in v10 from a spec written before the payload was
-    -- observed, which would have stored a 0.27-contract fill as **zero**: a
-    -- silent whole-position loss, in the same family as the deci-cent rounding
-    -- CLAUDE.md warns about. Integer hundredths keeps it exact and keeps money
-    -- arithmetic off floats.
-    contracts_hundredths    INTEGER NOT NULL,
+    contracts               REAL NOT NULL,
     -- The price actually paid, from the venue: total cost / count. It is not a
     -- mid and nobody can accidentally make it one. NULL if the pair was
     -- unreadable -- never 0, because a settled loser genuinely trades at 0.
