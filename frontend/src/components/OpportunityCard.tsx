@@ -89,10 +89,14 @@ export default function OpportunityCard({
           Nothing overflowed: the label simply painted over the one beside it
           and the Board read "CONSENSUSKALSHI". `scrollWidth` was identical to
           a correct layout's throughout, which is why every check passed.
-          The breakpoint is `lg`, not `sm`, and that is measured rather than
-          chosen: the Board goes two-up at `sm`, so a card at 640px is *
-          narrower* than one at 430px and three columns overlap again there. */}
-      <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 lg:grid-cols-3">
+          The variant is a container query at 30rem, not a viewport
+          breakpoint, and 30rem is measured rather than chosen: it is the cell
+          width where the old `lg:` fired (1024px shell, two-up, 16px gap),
+          so behaviour is identical today and stays honest when the shell
+          widens. The Board goes two-up at `sm`, so a card at a 640px viewport
+          is *narrower* than one at 430px and three columns would overlap
+          there — the cell width is the only number that ever mattered. */}
+      <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 @[30rem]:grid-cols-3">
         {/* A percentage, not a price. `fair_display` renders the same number
             as `53.8c`, and it sat here immediately left of the real ask at the
             same type size -- the one place a left-to-right scan reads the
@@ -124,7 +128,7 @@ export default function OpportunityCard({
           }
           value={`${positive ? "+" : ""}${rec.edge_cents.toFixed(1)}c`}
           tone={positive ? "positive" : "negative"}
-          className="col-span-2 lg:col-span-1"
+          className="col-span-2 @[30rem]:col-span-1"
         />
       </div>
 

@@ -247,6 +247,28 @@ def _decode(item: dict) -> Optional[RefreshRequest]:
     )
 
 
+def _reserved_since(decoded: list[RefreshRequest], start_ms: int) -> int:
+    return sum(r.estimated_credits for r in decoded if r.requested_ms >= start_ms)
+
+
+def manual_spent_today(
+    path: Path,
+    now_ms: int,
+    *,
+    day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+) -> int:
+    """What today's taps have reserved, in credits, for a screen to say.
+
+    The same file and the same arithmetic `submit` refuses against -- via
+    `_reserved_since`, so there is exactly one implementation of the tally and
+    a screen can never quote a ceiling the refusal does not enforce. Like that
+    tally it deliberately over-counts: a request is counted when it is
+    accepted, whether or not the runner ever serves it.
+    """
+    decoded = [r for r in (_decode(item) for item in _read(path)) if r is not None]
+    return _reserved_since(decoded, day_start_ms(now_ms, hour=day_start_hour))
+
+
 def submit(
     path: Path,
     *,
@@ -302,7 +324,7 @@ def submit(
             )
 
     start = day_start_ms(now_ms, hour=day_start_hour)
-    spent = sum(r.estimated_credits for r in decoded if r.requested_ms >= start)
+    spent = _reserved_since(decoded, start)
     if spent + estimated_credits > manual_daily_credits:
         return Submission(
             accepted=False,

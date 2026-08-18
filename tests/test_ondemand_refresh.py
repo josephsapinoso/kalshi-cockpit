@@ -843,3 +843,61 @@ class TestTheWholePathFromTapToSpend:
         assert last_sweep_by_sport(conn, since_ms=NOW - HOUR) == {}, (
             "a served tap must leave the planner still seeing an unopened window"
         )
+
+
+class TestTheRefreshableEndpointStatesTheSpend:
+    """`GET /api/odds/refreshable` says what has been spent, not just the caps.
+
+    The panel used to quote `manual_daily_credits` as a constant — "taps share
+    150 a day" — with no way to know whether today's taps had used 0 of them or
+    all of them, and no view of the day's whole metered budget at all. Both
+    numbers were computed on the backend since the beginning (`ondemand.submit`
+    's tally and `BudgetState.remaining_today`) and exposed nowhere.
+
+    **What this does not establish.** It pins the fields and their arithmetic
+    against one inbox and one empty `api_credits` table; it does not exercise
+    the day-boundary roll (that is `TestTheManualDailyCeiling`'s), nor that the
+    frontend renders any of it.
+    """
+
+    async def _get(self, app):
+        import httpx
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            return await client.get("/api/odds/refreshable")
+
+    async def test_a_quiet_day_reports_zero_spent_and_the_full_budget(self, live_app):
+        payload = (await self._get(live_app)).json()
+        assert payload["manual_credits_spent_today"] == 0
+        assert payload["day_credits_spent"] == 0
+        assert payload["day_credits_budget"] == 600
+        assert payload["day_credits_remaining"] == 600
+
+    async def test_an_accepted_tap_moves_the_manual_tally(self, live_app, app_db):
+        response = await self._get(live_app)
+        before = response.json()["manual_credits_spent_today"]
+
+        import httpx
+
+        transport = httpx.ASGITransport(app=live_app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            accepted = await client.post(
+                "/api/odds/refresh",
+                headers={"Authorization": "Bearer secret-token"},
+                json={"sport_key": "baseball_mlb"},
+            )
+        assert accepted.json()["accepted"] is True
+        cost = accepted.json()["estimated_credits"]
+        assert cost > 0
+
+        after = (await self._get(live_app)).json()
+        assert after["manual_credits_spent_today"] == before + cost, (
+            "the tally the screen quotes must be the same one the ceiling "
+            "refuses against -- an accepted tap that does not move it means "
+            "two counts of one day"
+        )

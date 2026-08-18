@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SHELL_WIDTH } from "@/lib/shell";
 
 /**
  * The screens the nav budget could not afford, and what each is for.
@@ -52,7 +53,7 @@ const SECONDARY = [
 export default function Footer() {
   return (
     <footer className="mt-16 border-t">
-      <div className="mx-auto max-w-5xl px-5 py-8">
+      <div className={`${SHELL_WIDTH} px-5 py-8 xl:px-8`}>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
           Also served
         </h2>

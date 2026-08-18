@@ -18,7 +18,7 @@ export default function HowToRead() {
       <h2 className="text-xs font-semibold uppercase tracking-widest text-muted">
         How to read this board
       </h2>
-      <ul className="mt-4 space-y-3 text-sm leading-relaxed text-muted">
+      <ul className="mt-4 max-w-[65ch] space-y-3 text-sm leading-relaxed text-muted">
         <li>
           <span className="font-semibold text-foreground">
             You need to be right 52 times in 100 here, not 50.

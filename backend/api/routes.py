@@ -1618,6 +1618,13 @@ def create_app(
 
         team_credits = sweep_cost(odds.markets, odds.regions)
         prop_credits = sweep_cost(prop_market_keys(), odds.regions)
+        # The same construction the POST refuses with, never a second count.
+        budget_state = CreditBudget(
+            conn,
+            daily_budget=odds.daily_credit_budget,
+            monthly_budget=odds.monthly_credit_budget,
+            day_start_hour=odds.budget_day_start_utc_hour,
+        ).state(now)
         by_sport: dict[str, list[dict]] = {}
         for row in rows:
             by_sport.setdefault(row["sport_key"], []).append(
@@ -1648,6 +1655,22 @@ def create_app(
             # Surfaced so a screen can say what it is protecting rather than
             # only reporting a refusal after the fact.
             "manual_daily_credits": ondemand.DEFAULT_MANUAL_DAILY_CREDITS,
+            # The spend so far, through the same file and the same arithmetic
+            # `submit` refuses against, so the panel can say "12 of 150 left"
+            # instead of restating the ceiling. Over-counts by design: a tap is
+            # counted when it is accepted, served or not.
+            "manual_credits_spent_today": ondemand.manual_spent_today(
+                ondemand.inbox_path(app_config.db_path),
+                now,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            ),
+            # The whole day's budget beside the taps' slice of it. `remaining`
+            # is `BudgetState.remaining_today` -- computed by the planner since
+            # the beginning and exposed nowhere until now, which left the panel
+            # quoting a constant where a person was deciding whether to spend.
+            "day_credits_spent": budget_state.spent_today,
+            "day_credits_budget": budget_state.daily_budget,
+            "day_credits_remaining": budget_state.remaining_today,
             "cooldown_ms": ondemand.DEFAULT_COOLDOWN_MS,
             "note": (
                 "A refresh buys a fresh price. It does not make a row bettable "

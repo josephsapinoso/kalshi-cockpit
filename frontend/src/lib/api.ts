@@ -1006,9 +1006,11 @@ export function hasSuppression(
  *   suspect   `suspicious_edge` fired. The code that means the data is broken,
  *             and the one whose rows sort to the top of any edge ranking. It
  *             gets the loudest treatment on the row, not the quietest.
- *   refused   some other rule fired. Caution, never money — the number is a
- *             record of what the arithmetic said, not an offer.
- *   positive  nothing refused it and the edge survives fees.
+ *   refused   some other rule fired, or the sizer left the row at zero
+ *             contracts. Caution, never money — the number is a record of
+ *             what the arithmetic said, not an offer.
+ *   positive  nothing refused it, the edge survives fees, and the size is
+ *             at least one contract.
  *   negative  nothing refused it and there is no edge.
  *
  * Shared rather than written per screen because a suppressed row reaches the
@@ -1018,10 +1020,19 @@ export function hasSuppression(
 export type EdgeTone = "suspect" | "refused" | "positive" | "negative";
 
 export function edgeTone(
-  rec: Pick<Recommendation, "edge_cents" | "suppressed_reason">,
+  rec: Pick<
+    Recommendation,
+    "edge_cents" | "suppressed_reason" | "suggested_contracts"
+  >,
 ): EdgeTone {
   if (hasSuppression(rec, "suspicious_edge")) return "suspect";
   if (rec.suppressed_reason) return "refused";
+  // Unbettable is unbettable whichever rule said so. A row the sizer left at
+  // zero contracts has no suppression code, but its number is still not money
+  // — below ~$250 of bankroll quarter-Kelly sizes under one contract across
+  // the whole band, so this is the modal row, not a corner case. Reading the
+  // sign before reading the size painted those rows green.
+  if (rec.suggested_contracts === 0) return "refused";
   return rec.edge_cents > 0 ? "positive" : "negative";
 }
 
@@ -1304,6 +1315,13 @@ export type RefreshableSport = {
 export type Refreshable = {
   sports: RefreshableSport[];
   manual_daily_credits: number;
+  /** What today's taps have already reserved against that ceiling. Counted at
+      accept time, served or not, so it can only overstate — the safe error. */
+  manual_credits_spent_today: number;
+  /** The whole day's metered budget beside the taps' slice of it. */
+  day_credits_spent: number;
+  day_credits_budget: number;
+  day_credits_remaining: number;
   cooldown_ms: number;
   note: string;
 };

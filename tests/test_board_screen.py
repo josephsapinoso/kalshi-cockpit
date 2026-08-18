@@ -36,6 +36,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -207,6 +208,82 @@ class TestARefusedRowIsNeverPaintedAsMoney:
         assert "text-muted" not in rejected or "text-accent" in row, (
             "the suppression reason still renders in the muted colour with no "
             "escalated branch beside it."
+        )
+
+
+class TestAZeroContractRowIsNeverPaintedAsMoney:
+    """The second bound on the same quantity.
+
+    `no_edge` on the wire means `suggested_contracts == 0` with no suppression
+    code (`backend/api/routes.py`, the bucket split) — the sizer refused the
+    row, not a rule. `edgeTone` used to consult only `suppressed_reason`, so
+    these rows fell through to the sign test and a `+4.1c` the bankroll cannot
+    buy rendered `text-positive`. Below ~$250 of bankroll quarter-Kelly sizes
+    under one contract across the whole band, so this was the modal row.
+    """
+
+    def test_the_size_is_consulted_before_the_sign_of_the_subtraction(self):
+        body = block(source(API_TS), "): EdgeTone {", "\n}")
+        assert "suggested_contracts" in body, (
+            "edgeTone no longer reads suggested_contracts, so a zero-sized row "
+            "is coloured by the sign of a subtraction its bankroll cannot buy."
+        )
+        assert body.index("suggested_contracts") < body.index('"positive"'), (
+            'edgeTone can return "positive" without having consulted the size.'
+        )
+
+    def test_the_suppression_codes_still_outrank_the_size(self):
+        """`suspicious_edge` must stay the loudest claim on the row. A
+        zero-sized suspect row is a data defect first and an unbettable row
+        second, and the chip treatment must win."""
+        body = block(source(API_TS), "): EdgeTone {", "\n}")
+        assert body.index("suppressed_reason") < body.index("suggested_contracts")
+
+    def test_no_cell_of_the_cross_product_renders_positive_at_zero_size(self):
+        """The behaviour itself, not its source text — run the real function.
+
+        Node strips erasable TypeScript natively, so the actual `edgeTone` and
+        `hasSuppression` declarations are copied into a scratch module and
+        executed over every combination of edge sign and suppression state at
+        `suggested_contracts: 0`. None may come back "positive".
+        """
+        api = source(API_TS)
+        fns = "".join(
+            f"export function {name}(" + block(api, f"export function {name}(", "\n}") + "\n}\n"
+            for name in ("hasSuppression", "edgeTone")
+        )
+        # The Pick<> annotations reference the Recommendation interface; a
+        # local alias keeps the scratch module self-contained.
+        harness = (
+            "type Recommendation = { edge_cents: number; "
+            "suppressed_reason: string | null; suggested_contracts: number };\n"
+            + fns
+            + """
+for (const edge_cents of [5, 0, -5]) {
+  for (const suppressed_reason of [null, "stale_odds"]) {
+    const tone = edgeTone({ edge_cents, suppressed_reason, suggested_contracts: 0 });
+    if (tone === "positive") {
+      console.error(`positive at zero size: edge=${edge_cents} reason=${suppressed_reason}`);
+      process.exit(1);
+    }
+  }
+}
+"""
+        )
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            tmp_ts = Path(d) / "edge_tone_cross_product.ts"
+            tmp_ts.write_text(harness, encoding="utf-8")
+            node = shutil.which("node")
+            if node is None:
+                pytest.skip("node is not on PATH; the source assertions above still hold")
+            scratch = subprocess.run(
+                [node, str(tmp_ts)], capture_output=True, text=True, timeout=60
+            )
+        assert scratch.returncode == 0, (
+            "a zero-contract row rendered as money:\n" + scratch.stderr + scratch.stdout
         )
 
 

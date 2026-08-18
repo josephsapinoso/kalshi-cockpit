@@ -29,7 +29,7 @@ export type SlateState = "expired" | "rejected" | "no-edge";
 const CHIP: Record<SlateState, { label: string; className: string }> = {
   expired: {
     label: "EXPIRED",
-    className: "border-accent-2/50 bg-card text-accent-2",
+    className: "border-accent-2/70 bg-card text-accent-2",
   },
   rejected: {
     // Named, not implied. A dimmed row reads as a rendering accident; a word

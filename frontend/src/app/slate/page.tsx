@@ -1,5 +1,15 @@
-import { DISPLAY_TIME_ZONE, fetchSignal, fetchSlate } from "@/lib/api";
-import type { Signal, Slate, SlateRowData } from "@/lib/api";
+import {
+  DISPLAY_TIME_ZONE,
+  fetchSignal,
+  fetchSlate,
+  fetchWindow,
+} from "@/lib/api";
+import type {
+  ActionableWindow,
+  Signal,
+  Slate,
+  SlateRowData,
+} from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import Link from "next/link";
 
@@ -43,9 +53,13 @@ export default async function SlatePage() {
   // rows and not a precondition of them, and `SignalStrip` renders nothing
   // rather than a placeholder that could be misread as a measured zero.
   let signal: Signal | null = null;
+  // Same treatment: the timetable is context for the refresh panel, never a
+  // precondition of the slate.
+  let actionable: ActionableWindow | null = null;
   try {
     data = await fetchSlate();
     signal = await fetchSignal().catch(() => null);
+    actionable = await fetchWindow().catch(() => null);
   } catch {
     return (
       <Shell>
@@ -76,22 +90,18 @@ export default async function SlatePage() {
           consensus the edge was computed against is narrower than the market. */}
       <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
         <Stat label="On the slate" value={counts.returned} />
-        <Stat label="Bettable" value={counts.surfaced} accent />
+        <Stat label="Bettable" value={counts.surfaced} />
         <Stat label="With book spread" value={counts.with_book_distribution} />
-        <Stat
-          label="Actionable, ever"
-          value={slate.actionable_total}
-          accent={slate.actionable_total > 0}
-        />
+        <Stat label="Actionable, ever" value={slate.actionable_total} />
       </dl>
 
       {/* Placed above the rows, not below them. A slate greyed out by the
           clock is unreadable until this is used, so it has to be visible
           without scrolling past the thing it fixes. */}
-      <RefreshOddsPanel />
+      <RefreshOddsPanel actionable={actionable} />
 
       {!slate.is_current && slate.anchor_ms !== null && (
-        <p className="mt-6 rounded-lg border border-accent-2/50 bg-card p-3 text-sm text-accent-2">
+        <p className="mt-6 max-w-[65ch] rounded-lg border border-accent-2/70 bg-card p-3 text-sm text-accent-2">
           This is the last slate recorded, not a current one. The recorder has
           not decided anything for{" "}
           {Math.round((slate.age_ms ?? 0) / 60_000)} minutes.
@@ -107,7 +117,7 @@ export default async function SlatePage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="mt-8 text-muted">
+        <p className="mt-8 max-w-[65ch] text-muted">
           Nothing recorded in the current window. An empty slate is a real state
           — it is not the same as every candidate being refused.
         </p>
@@ -126,7 +136,7 @@ export default async function SlatePage() {
       )}
 
       {slate.truncated && (
-        <p className="mt-6 text-xs text-muted">
+        <p className="mt-6 max-w-[65ch] text-xs text-muted">
           {slate.in_window} rows are in the window and {slate.returned} are shown
           {slate.off_basis > 0
             ? `; ${slate.off_basis} were dropped by the second freshness reading`
@@ -135,7 +145,7 @@ export default async function SlatePage() {
         </p>
       )}
 
-      <footer className="mt-10 space-y-3 border-t border-border pt-6 text-xs text-muted">
+      <footer className="mt-10 max-w-[65ch] space-y-3 border-t border-border pt-6 text-xs text-muted">
         <p>
           <strong className="text-foreground">
             Where Kalshi sits is measured against you.
@@ -183,7 +193,7 @@ function Row({
   const tone = edgeTone(row);
 
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 xl:grid xl:grid-cols-[3rem_minmax(0,1fr)_5.5rem_5rem_8rem_6.5rem_11rem_6rem_7rem_6.5rem_2.5rem] xl:gap-x-4 xl:items-baseline">
       <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
         {kickoff(row.commence_ms)}
       </span>
@@ -210,6 +220,15 @@ function Row({
       <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
       <Capacity row={row} />
       <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
+      {/* xl-only, like the CrewBubble below: two more wrapped fragments per
+          row would cost the phone a line each, and the phone row already
+          carries the suppression code in full. */}
+      <span className="hidden xl:inline">
+        <Anchor anchored={row.anchored_on_sharp} />
+      </span>
+      <span className="hidden xl:inline">
+        <Width width={row.market_width} edgeCents={row.edge_cents} />
+      </span>
 
       {/* **Desktop only, and nothing is lost by that.** The bubble opens on
           hover, which a phone does not have — and at 390px it wrapped onto a
@@ -222,7 +241,7 @@ function Row({
       </span>
 
       {row.suppressed_reason && (
-        <span className="w-full break-words font-mono text-xs text-accent">
+        <span className="w-full break-words font-mono text-xs text-accent xl:col-span-full">
           {row.suppressed_reason}
         </span>
       )}
@@ -353,6 +372,74 @@ function Capacity({ row }: { row: SlateRowData }) {
 }
 
 /**
+ * Whether sharp anchoring actually bound on this row.
+ *
+ * The most consequential unrendered field in the product until now: the devig
+ * is `selected = sharp or usable`, so `false` means **no sharp book quoted**
+ * and the fair value silently fell back to the full soft-book set — a wide
+ * consensus wearing a sharp consensus's name. Every actionable row in the
+ * whole record (all three of them) has this at `false`, which is why it gets
+ * the warning ink rather than a muted footnote. `null` means the join missed
+ * — an em dash, never a default.
+ */
+function Anchor({ anchored }: { anchored: boolean | null | undefined }) {
+  if (anchored === null || anchored === undefined) {
+    return <span className="tabular text-xs text-muted">anchor —</span>;
+  }
+  if (anchored) {
+    return (
+      <span
+        className="tabular text-xs text-muted"
+        title="A sharp book quoted this market; the consensus is anchored on it."
+      >
+        sharp-anchored
+      </span>
+    );
+  }
+  return (
+    <span
+      className="text-xs font-semibold text-accent-2"
+      title="No sharp book quoted this market, so the fair value fell back to the full soft-book set. The edge is measured against a wide consensus, not a sharp one."
+    >
+      soft fallback
+    </span>
+  );
+}
+
+/**
+ * The books' own disagreement, beside the edge it bounds.
+ *
+ * In points, same unit as the edge, so the comparison is one glance: a width
+ * larger than the edge means the books disagree with each other by more than
+ * they disagree with Kalshi, and the edge is inside the consensus's error
+ * bar. Warning ink exactly then — arithmetic, not judgement. `null` renders
+ * as an em dash: one book cannot disagree with itself, and `0.0` is a real
+ * measured value two identical quotes legitimately produce.
+ */
+function Width({
+  width,
+  edgeCents,
+}: {
+  width: number | null | undefined;
+  edgeCents: number;
+}) {
+  if (width === null || width === undefined) {
+    return <span className="tabular text-xs text-muted">width —</span>;
+  }
+  const points = width * 100;
+  const drowns = points > Math.abs(edgeCents);
+  return (
+    <span
+      className={`tabular text-xs ${drowns ? "text-accent-2" : "text-muted"}`}
+      title={`The devigged books disagree with each other by ${points.toFixed(1)} points on this outcome.${drowns ? " That exceeds the edge, so the edge is inside the consensus's own error bar." : ""}`}
+    >
+      width {points.toFixed(1)}c
+    </span>
+  );
+}
+
+
+/**
  * Pacific, like every other human-facing clock here. See `DISPLAY_TIME_ZONE`.
  *
  * This rendered UTC until 2026-08-16, on the argument that "every other clock
@@ -379,28 +466,28 @@ function kickoff(ms: number | null): string {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-3xl px-6 py-12 sm:py-16">{children}</div>;
+  /* `max-w-3xl` below xl — the phone-first page, unchanged. From xl the slate
+     is the screen that earns the desktop tier most: nine facts per row that
+     wrap into ragged lines at 768px become one aligned line each. The prose
+     on this page keeps its own `ch`/`max-w-prose` caps — the shell widens the
+     data, never the sentences (ADR 0047). */
+  return (
+    <div className="mx-auto w-full max-w-3xl px-6 py-12 sm:py-16 xl:max-w-[84rem] xl:px-8 2xl:max-w-[96rem]">
+      {children}
+    </div>
+  );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-}) {
+function Stat({ label, value }: { label: string; value: number }) {
+  /* No accent variant, for the Board's reason: `--accent` is byte-identical
+     to `--negative` in every theme block, so an emphasised count rendered as
+     a loss. A count is a fact, not a verdict. */
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-widest text-muted">
         {label}
       </div>
-      <div
-        className={`tabular mt-1 text-2xl font-extrabold tracking-tight ${
-          accent ? "text-accent" : ""
-        }`}
-      >
+      <div className="tabular mt-1 text-2xl font-semibold tracking-tight">
         {value}
       </div>
     </div>

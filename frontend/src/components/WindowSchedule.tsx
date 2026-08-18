@@ -89,7 +89,7 @@ export default function WindowSchedule({
            opposite responses from a reader. `sweeps_remaining_today`
            separates them, so it is quoted rather than left to be inferred
            from an empty list. */
-        <p className="px-5 py-4 text-sm text-muted">
+        <p className="max-w-[65ch] px-5 py-4 text-sm text-muted">
           {w.sweeps_remaining_today === 0
             ? "No sweeps left in today's budget, so nothing further will be priceable until the budget day rolls over."
             : "No window is scheduled. Credits remain, but no fixture is close enough to plan a sweep against yet."}
@@ -142,7 +142,7 @@ export default function WindowSchedule({
         </ol>
       )}
 
-      <p className="border-t border-[color:var(--border)] px-5 py-3 text-xs text-muted">
+      <p className="max-w-[65ch] border-t border-[color:var(--border)] px-5 py-3 text-xs text-muted">
         The range is the outer envelope: the sweep fires somewhere in its slot
         and odds stay fresh for {Math.round(freshnessMs / 60_000)} minutes after
         it, so the priceable stretch inside is about that long, not the whole

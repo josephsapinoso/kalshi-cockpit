@@ -20,7 +20,7 @@
   --card: #ffffff;
   --border: #e7e1da;
   --accent: #aa0000;
-  --accent-2: #b3995d;
+  --accent-2: #7a5c14;
   --accent-soft: #f8e6e6;
 
   /* Added for this project. Green is warm-tuned to sit with the cream/crimson
@@ -82,6 +82,10 @@
 
 html {
   scroll-behavior: smooth;
+  /* The ticket locks body scroll while it is open. On a desktop scrollbar
+     that used to remove ~15px of viewport width and jump the whole page
+     sideways on open; reserving the gutter makes the lock invisible. */
+  scrollbar-gutter: stable;
 }
 
 body {

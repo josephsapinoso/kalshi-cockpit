@@ -1,5 +1,10 @@
-import { DISPLAY_TIME_ZONE, fetchRefreshable, formatClock } from "@/lib/api";
-import type { Refreshable } from "@/lib/api";
+import {
+  DISPLAY_TIME_ZONE,
+  fetchRefreshable,
+  formatClock,
+  formatUntil,
+} from "@/lib/api";
+import type { ActionableWindow, Refreshable } from "@/lib/api";
 import RefreshOddsButton from "@/components/RefreshOddsButton";
 
 /**
@@ -28,7 +33,18 @@ import RefreshOddsButton from "@/components/RefreshOddsButton";
  * the largest credit accident in this project's history was a 6-credit request
  * that spent 266.
  */
-export default async function RefreshOddsPanel() {
+export default async function RefreshOddsPanel({
+  actionable,
+}: {
+  /**
+   * The sweep timetable, passed down rather than fetched again. The panel
+   * used to borrow its context from *position* — it sat below the banner and
+   * schedule, so a reader had met "next sweep in 12 min" before reaching a
+   * spend button. A panel that states its own preconditions inline can be
+   * placed anywhere a layout needs it; one that borrows them cannot.
+   */
+  actionable: ActionableWindow | null;
+}) {
   let data: Refreshable;
   try {
     data = await fetchRefreshable();
@@ -54,13 +70,32 @@ export default async function RefreshOddsPanel() {
     <section className="mt-6 rounded-xl border p-4">
       <h2 className="text-sm font-bold">Refresh the odds</h2>
       <p className="mt-2 max-w-prose text-sm text-muted">
-        {data.note} Taps share {data.manual_daily_credits} credits a day, kept
-        apart from the day&apos;s scheduled windows — those are what build the
-        record. The same button waits{" "}
-        {Math.round(data.cooldown_ms / 60000)} minutes between taps, because the
-        books&apos; own scrape is slower than that and a second call would buy
-        the same numbers at the same age.
+        {data.note} Taps have reserved{" "}
+        <span className="font-semibold text-foreground">
+          {data.manual_credits_spent_today} of {data.manual_daily_credits}
+        </span>{" "}
+        credits set aside for them today, kept apart from the scheduled windows
+        — those are what build the record. The whole day has spent{" "}
+        {data.day_credits_spent} of {data.day_credits_budget}. The same button
+        waits {Math.round(data.cooldown_ms / 60000)} minutes between taps,
+        because the books&apos; own scrape is slower than that and a second
+        call would buy the same numbers at the same age.
       </p>
+      {/* The alternative to spending, stated beside the spend buttons: the
+          planner may be about to buy these same lines anyway. Rendered only
+          when a sweep is actually scheduled — "no sweep is coming" is the
+          case where the button is the only path to a fresh price, and saying
+          nothing is the honest version of that. */}
+      {actionable !== null && actionable.next_sweep_ms !== null && (
+        <p className="mt-2 max-w-prose text-sm text-muted">
+          The next scheduled sweep is{" "}
+          <span className="font-semibold text-foreground">
+            in {formatUntil(actionable.next_sweep_ms - actionable.now_ms)}
+          </span>{" "}
+          and buys these same team lines out of the day&apos;s budget. A tap
+          buys the same numbers sooner, out of the taps&apos; share.
+        </p>
+      )}
 
       {data.sports.map((sport) => (
         <div key={sport.sport_key} className="mt-4 border-t pt-4">

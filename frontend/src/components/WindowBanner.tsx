@@ -98,7 +98,7 @@ export default function WindowBanner({
         )}
       </div>
 
-      <p className="mt-2 px-5 text-sm leading-relaxed text-muted">
+      <p className="mt-2 max-w-[65ch] px-5 text-sm leading-relaxed text-muted">
         {explain(w, surfaced, expired)}
       </p>
 
@@ -350,12 +350,12 @@ function Trace({
         <span className="tabular text-foreground">{right}</span>
       </div>
 
-      <p className={`mt-2 text-xs leading-relaxed ${TONE_TEXT[tone]}`}>
+      <p className={`mt-2 max-w-[65ch] text-xs leading-relaxed ${TONE_TEXT[tone]}`}>
         {headline}
       </p>
 
       {outcome !== undefined && (
-        <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted">
+        <p className="mt-1 max-w-[65ch] font-mono text-[11px] leading-relaxed text-muted">
           <span className="uppercase tracking-widest">{outcome}</span>
           {detail ? ` · ${detail}` : " · no reason recorded"}
         </p>

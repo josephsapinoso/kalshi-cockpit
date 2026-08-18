@@ -25,6 +25,31 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-18 — A guard written against one cause leaves the other causes uncovered, and the symptom is identical
+
+The pattern: a quantity can be forced into the same user-visible state by more
+than one rule. A guard written when *one* of those rules misfired protects that
+rule alone — and when another rule produces the identical symptom, every test
+stays green, because the tests were written against the cause and not the
+symptom.
+
+The instance: "is this row's edge money?" has two independent "no" paths —
+`suppressed_reason` set, and `suggested_contracts == 0` (the sizer refused;
+below ~$250 bankroll that is the *modal* row, not a corner case). `edgeTone`
+guarded the first and its `Pick<>` signature structurally could not see the
+second, so zero-contract rows fell through to the sign test and rendered
+`text-positive`. 3,322 tests passed throughout; `tests/test_board_screen.py`
+even documented the blind spot in prose while its four guards all checked
+`suppressed_reason` ordering.
+
+The rule: **when a screen state means "refuse", enumerate every rule that can
+demand it and test the state against the full cross-product of causes — not
+against the rule that happened to misfire first.** The fix's test runs the real
+function over `{edge sign} x {suppression} x {contracts=0}` via node and
+asserts no cell renders as money.
+
+---
+
 ## 2026-08-18 — `git checkout <file>` is a destroyer of uncommitted work, and guard-verification is exactly when you reach for it
 
 The pattern: verifying a guard means disabling it, watching the test fail,

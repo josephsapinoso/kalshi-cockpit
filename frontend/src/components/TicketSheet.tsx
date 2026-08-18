@@ -204,7 +204,11 @@ export default function TicketSheet({
   const needsToken = !demo && token.trim().length === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end lg:items-center lg:justify-center lg:p-6">
+      {/* Bottom sheet on a phone; centred dialog from `lg`. Unconstrained,
+          the sheet's `w-full` panel put a monitor-wide filled Confirm on the
+          order path at 2560px — the largest, brightest control this app had
+          ever drawn, on the one screen that spends money. */}
       <button
         type="button"
         aria-label="Close the ticket"
@@ -220,12 +224,14 @@ export default function TicketSheet({
         aria-modal="true"
         aria-labelledby="ticket-heading"
         tabIndex={-1}
-        className="sheet-panel sheet-rise relative flex w-full flex-col overflow-y-auto rounded-t-2xl border-t bg-card shadow-2xl outline-none"
+        className="sheet-panel sheet-rise relative flex w-full flex-col overflow-y-auto rounded-t-2xl border-t bg-card shadow-2xl outline-none lg:max-w-xl lg:rounded-2xl lg:border"
       >
         <div className="sticky top-0 z-10 border-b bg-card px-4 pb-3 pt-2 sm:px-6">
+          {/* The drag affordance is a phone gesture; on a pointer it is a
+              decoration that promises a drag that does nothing. */}
           <div
             aria-hidden
-            className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)]"
+            className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--border)] lg:hidden"
           />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">

@@ -32,12 +32,13 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,322 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,350 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** the partner's 2026-08-18 triage is fully discharged (all five
-items — see the latest entry). No new triage has been taken. The natural
-next session: ask the partner for direction, or pick up the standing
-recorder/maintenance posture. Nothing is urgent by construction — ADR 0038
+**THE JOB:** the desktop tier landed in the evening session (ADR 0047 — read
+it before touching any width) and the triage before it is discharged. No new
+triage has been taken. The natural next session: the "not done, deliberately"
+menu at the end of the latest entry (suppression-code gloss, dispersion
+strip), or ask the partner. Nothing is urgent by construction — ADR 0038
 closed the hunt, the study accumulates on its own, and the money-arm strip,
 derived bankroll and 423 interlock are live.
 
@@ -58,7 +59,84 @@ handoff claiming work that is already done.
 
 ---
 
-## 2026-08-18 ~16:30Z (latest) — THE TRIAGE IS DISCHARGED: THE STOP HAS A READER, THE BANKROLL IS DERIVED, AND THE COMBO FEES GOT THEIR REGISTERED LOOK
+## 2026-08-18 ~evening (latest) — THE DESKTOP TIER EXISTS, AND THE GREEN-ZERO DEFECT DIED FIRST
+
+Joe compared the cockpit to kalshi.com on a monitor and asked for the wasted
+space back. The partner convened six agents (three designers, sharp/retail/
+tilt-prone bettors) and the plan they produced was implemented whole this
+session. **ADR 0047 is the decision record** — "the desktop tier is a reading
+surface" — read it before touching any width.
+
+### The bugs density would have multiplied (shipped first, deliberately)
+
+1. **`edgeTone` painted unbettable rows green.** The signature could not see
+   `suggested_contracts`, and `/api/board`'s `no_edge` bucket (0 contracts,
+   no suppression) fell to the sign test — the *modal* row at a ~$20 derived
+   bankroll. Now: 0 contracts ⇒ `refused` tone, and a node-driven
+   cross-product in `tests/test_board_screen.py` executes the real function
+   over every {sign × suppression × 0-contracts} cell. Lesson written (top of
+   `tasks/lessons.md`): a guard against one cause leaves the other causes of
+   an identical symptom uncovered.
+2. **`--accent-2` (the ink on every warning: DRY RUN, EXPIRED, refused edges)
+   measured 2.75:1 on the light card.** Now `#7a5c14` (6.2:1), with WCAG
+   arithmetic pinned in `tests/test_palette_contrast.py`.
+3. **`Stat accent` rendered "Bettable now: 0" in the loss red** (`--accent`
+   == `--negative` in every theme block). The accent variant is gone on both
+   pages that had it.
+
+### The tier itself (all below 1280px is byte-identical to before)
+
+- `frontend/src/lib/shell.ts` — ONE width constant (`max-w-5xl` →
+  `xl:84rem` → `2xl:96rem`), imported by Board shell, Nav, Footer. Guarded.
+- Board at `xl`: banner/schedule/refresh-panel become a 24rem right rail by
+  grid *column assignment only* — DOM order untouched (guarded by
+  `tests/test_desktop_tier.py`). Card grid stays 2-up forever; its inner
+  figure grid now fires on `@[30rem]:` container queries, not viewport.
+- Slate at `xl`: rows become aligned grid columns, and two always-recorded,
+  never-rendered fields joined the row — **`anchored_on_sharp`** (warning ink
+  on `soft fallback`; all 3 actionable rows ever were fallbacks) and
+  **`market_width`** in points, warning-inked exactly when it exceeds the
+  edge. Both xl-only, like the CrewBubble.
+- `RefreshOddsPanel` now states its own preconditions: new fields on
+  `GET /api/odds/refreshable` (`manual_credits_spent_today` through the same
+  `ondemand` tally the ceiling refuses with; `day_credits_*` through
+  `CreditBudget.state`) plus the next scheduled sweep, passed down from the
+  page. Its safety used to be positional; it can now live in a rail.
+- Nav: an xl-only **window chip** (muted ink at every state, never green,
+  state-not-permission), predicate in `frontend/src/lib/windowChip.ts`,
+  executed-by-node tests in `tests/test_window_chip.py`.
+- TicketSheet at `lg`: centred `max-w-xl` dialog instead of a monitor-wide
+  bottom sheet with a monitor-wide Confirm; `scrollbar-gutter: stable` kills
+  the sideways jump its body-scroll lock caused.
+- Prose keeps its measure everywhere (~65ch caps; guarded per-file).
+- `/playbook`'s five-column stat row painted label-over-label at ≥1024 since
+  before this session (baseline-verified) — now four columns.
+- **`/estimate` is excluded from the tier permanently** — anchoring grounds,
+  ADR 0047 has the paragraph. Do not "finish" it onto the desktop.
+
+### Verification
+
+`scripts/check_mobile.py` clean at 390/768/1024/1440/1920/2560 against a
+local seeded build (the deployed-demo baseline had `/playbook` failing at
+≥1024). Screenshots eyeballed at 1440 and 390. Every new guard was disabled
+and watched fail. Suite/ruff/tsc/build all green (counts in the gate line
+below).
+
+### Not done, deliberately — next session's menu
+
+- **Plain-English gloss on suppression codes** (client-side map) and the
+  **dispersion strip** (min book → four devig methods → max book, labelled
+  "where the number came from", never "fair") — P2 items from the approved
+  plan, unscheduled.
+- `/ledger` real columns is a rewrite, not a widening — after Slate proves
+  the pattern.
+- Positions/exposure screen needs an A7 embargo ruling first.
+- `/api/results` still has zero frontend references (the "built but never
+  called" pattern).
+
+---
+
+## 2026-08-18 ~16:30Z — THE TRIAGE IS DISCHARGED: THE STOP HAS A READER, THE BANKROLL IS DERIVED, AND THE COMBO FEES GOT THEIR REGISTERED LOOK
 
 Joe pre-approved every human step in the morning box ("sally forth"), so
 this session pushed, deployed (live + demo, deny confirmed lifted in

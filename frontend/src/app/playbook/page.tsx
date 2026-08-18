@@ -160,7 +160,12 @@ function VersionCard({
         clean. This is the "CONSENSUSKALSHI" defect the Board had, and only the
         per-element check in `scripts/check_mobile.py` sees it.
       */}
-      <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Four at lg, not five, and that is measured the same way as the
+          320px case above: this page's shell is 48rem, so five columns give
+          each ~131px against the same 137px "Recommendations" label and it
+          paints over its neighbour — `check_mobile --width 1440` reported
+          exactly that for as long as the five-column class existed. */}
+      <dl className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Recommendations" value={version.recommendations} />
         <Stat label="Markets" value={version.markets} />
         <Stat label="Unsuppressed" value={version.unsuppressed} />

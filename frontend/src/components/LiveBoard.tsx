@@ -257,7 +257,14 @@ export default function LiveBoard({
             />
           );
           return (
-          <div key={row.id} className={move ? `tick-${move}` : undefined}>
+          <div
+            key={row.id}
+            // `@container`: the card's figure grid asks how wide the *cell*
+            // is, not how wide the window is. The old `lg:` variant fired at
+            // a 1024px viewport because the cell happened to be 480px there;
+            // a wider shell would have carried that coincidence around.
+            className={move ? `@container tick-${move}` : "@container"}
+          >
             {/* The ticket opens on the *merged* row, so the sheet shows the
                 price the ticker is showing rather than the recorded one it
                 replaced. The sheet still calls the endpoint with nothing but an
@@ -347,7 +354,7 @@ function FeedStatus({
         />
         {label}
       </span>
-      <span className="min-w-0 text-xs leading-relaxed text-muted">{detail}</span>
+      <span className="min-w-0 max-w-[65ch] text-xs leading-relaxed text-muted">{detail}</span>
     </div>
   );
 }

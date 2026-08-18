@@ -4,6 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
+import { SHELL_WIDTH } from "@/lib/shell";
+import { fetchWindow } from "@/lib/api";
+import { windowChip } from "@/lib/windowChip";
+import type { Chip } from "@/lib/windowChip";
 
 // Six links, and the count is a budget rather than a coincidence. A seventh
 // does not clip the page -- the row scrolls, which is what `min-w-0
@@ -45,6 +49,30 @@ const LINKS = [
 export default function Nav() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
+  // The window chip's fact, fetched on mount and once a minute after. `null`
+  // renders nothing at all: an unreachable timetable must not put a state
+  // claim in the chrome of every page. Only xl viewports render the chip, but
+  // the fetch is cheap and gating it on a media query would put layout state
+  // into data state.
+  const [chip, setChip] = useState<Chip | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      fetchWindow()
+        .then((w) => {
+          if (!cancelled) setChip(windowChip(w));
+        })
+        .catch(() => {
+          if (!cancelled) setChip(null);
+        });
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -73,7 +101,9 @@ export default function Nav() {
         mean a sixth link degrades to a scroll instead of clipping the page.
         The tighter mobile padding is what makes all five fit today.
       */}
-      <nav className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
+      <nav
+        className={`${SHELL_WIDTH} flex items-center justify-between gap-2 px-4 py-4 sm:px-6 xl:px-8`}
+      >
         <Link href="/" className="flex shrink-0 items-center gap-3">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-white">
             K
@@ -82,6 +112,23 @@ export default function Nav() {
             Cockpit
           </span>
         </Link>
+
+        {/* State, not navigation, and muted ink at every state on purpose:
+            "open" means the recorder's prices are fresh, never that there is
+            something to bet, and a green chip here would read as permission.
+            Hidden below xl — the phone's six-link budget is not renegotiated
+            by a desktop feature. See lib/windowChip.ts. */}
+        {chip !== null && (
+          <span className="hidden shrink-0 items-center gap-2 font-mono text-xs text-muted xl:flex">
+            <span
+              aria-hidden
+              className={`inline-block h-2 w-2 rounded-full ${
+                chip.state === "open" ? "bg-current" : "border border-current"
+              }`}
+            />
+            {chip.label}
+          </span>
+        )}
 
         <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto sm:gap-1">
           {LINKS.map((link) => (

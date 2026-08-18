@@ -49,7 +49,7 @@ export default function SignalStrip({
           </span>
           <span className="font-mono text-sm text-muted">not computable here</span>
         </div>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted">
+        <p className="mt-1.5 max-w-[65ch] text-sm leading-relaxed text-muted">
           {/*
             This is the demo instance's normal state, and saying so plainly
             matters more than it looks. The seeded history has no book quotes
@@ -83,7 +83,7 @@ export default function SignalStrip({
         </span>
       </div>
 
-      <p className="mt-1.5 px-5 text-sm leading-relaxed text-muted">
+      <p className="mt-1.5 max-w-[65ch] px-5 text-sm leading-relaxed text-muted">
         {signal.may_declare ? (
           <>
             The record has reached the registered floor of {clusters_to_declare}{" "}

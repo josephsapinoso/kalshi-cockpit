@@ -1,3 +1,4 @@
+import { SHELL_WIDTH } from "@/lib/shell";
 import Link from "next/link";
 import HowToRead from "@/components/HowToRead";
 import LiveBoard from "@/components/LiveBoard";
@@ -63,7 +64,7 @@ export default async function BoardPage({
       <Shell>
         <div className="rounded-2xl border bg-card p-7">
           <h2 className="text-xl font-bold tracking-tight">Backend unreachable</h2>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
+          <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
             Start it with{" "}
             <code className="rounded bg-accent-soft px-1.5 py-0.5 font-mono text-xs text-accent">
               python -m backend.main --seed-demo
@@ -113,8 +114,8 @@ export default async function BoardPage({
         oddsLimitMs={board.staleness.max_odds_age_s * 1000}
       >
         {health.instance_mode === "demo" && (
-          <div className="mb-8 rounded-2xl border border-accent-2/50 bg-card p-4">
-            <p className="text-sm text-muted">
+          <div className="mb-8 rounded-2xl border border-accent-2/70 bg-card p-4">
+            <p className="max-w-[65ch] text-sm text-muted">
               <span className="font-semibold text-accent-2">Demo instance.</span>{" "}
               Synthetic data, no credentials, and no execution path. The numbers
               are shaped to resemble a real slate &mdash; which means mostly no
@@ -132,6 +133,16 @@ export default async function BoardPage({
           </p>
         </header>
 
+        {/* **The xl grid: context rail beside the evidence column.**
+            Below xl this wrapper is inert — two plain blocks in the exact DOM
+            order the phone has always had, banner → schedule → refresh panel
+            → the board. At xl the first block becomes a 24rem right-hand rail
+            (`col-start-2`) and the second takes the remaining width, so the
+            first card sits beside the timetable instead of ~1,400px below it.
+            The rail is deliberately not sticky: it is context, and context
+            that follows the scroll competes with the cards it annotates. */}
+        <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start xl:gap-10">
+          <div className="xl:col-start-2 xl:row-start-1">
         {actionable && (
           <WindowBanner
             window={actionable}
@@ -152,8 +163,10 @@ export default async function BoardPage({
             answer. The banner says whether now is usable and the schedule says
             which instants today are; this says what to do when the answer to
             both is "not now" and the games are still hours away. */}
-        <RefreshOddsPanel />
+        <RefreshOddsPanel actionable={actionable} />
+          </div>
 
+          <div className="min-w-0 xl:col-start-1 xl:row-start-1">
         {/* **When this slate was recorded, whenever that is not now.**
             The rows below carry no date of their own, so without this a slate
             from last night and a slate from ninety seconds ago draw
@@ -162,8 +175,8 @@ export default async function BoardPage({
             slate is not current: a line saying "this is current" on every page
             load is a line nobody reads by the third time. */}
         {!board.slate.is_current && board.slate.age_ms !== null && (
-          <div className="mb-8 rounded-2xl border border-accent-2/50 bg-card p-4">
-            <p className="text-sm text-muted">
+          <div className="mb-8 rounded-2xl border border-accent-2/70 bg-card p-4">
+            <p className="max-w-[65ch] text-sm text-muted">
               <span className="font-semibold text-accent-2">
                 Not a live slate.
               </span>{" "}
@@ -177,7 +190,7 @@ export default async function BoardPage({
         )}
 
         <div className="mb-3 flex flex-wrap items-center gap-3 border-y py-4">
-          <Stat label="Bettable now" value={board.counts.surfaced} accent />
+          <Stat label="Bettable now" value={board.counts.surfaced} />
           {/* Shown only when it is non-zero, because it is a qualifier on the
               number to its left rather than a category of its own. */}
           {priceStale > 0 && <Stat label="Price re-read on order" value={priceStale} />}
@@ -305,7 +318,7 @@ export default async function BoardPage({
             expired rows lost their ticket in this change and that is the
             trade: one line each, no order path, and the reason in words. */}
         {(rest.length > 0 || hidden > 0) && (
-          <section className="mt-14">
+          <section className="mt-14 max-w-4xl">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
               The rest of the slate
             </h2>
@@ -399,7 +412,7 @@ export default async function BoardPage({
                 section that vanishes entirely is how a page comes to look like
                 it found nothing when it is only declining to show it. */}
             {hidden > 0 && (
-              <p className="mt-4 text-sm text-muted">
+              <p className="mt-4 max-w-[65ch] text-sm text-muted">
                 {hidden} further {hidden === 1 ? "row is" : "rows are"} hidden.{" "}
                 <Link href="/" className="underline">
                   Show rejected
@@ -421,34 +434,30 @@ export default async function BoardPage({
         <div className="mt-14">
           <HowToRead />
         </div>
+          </div>
+        </div>
       </TicketProvider>
     </Shell>
   );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-5xl px-6 py-12 sm:py-16">{children}</div>;
+  return (
+    <div className={`${SHELL_WIDTH} px-6 py-12 sm:py-16 xl:px-8`}>{children}</div>
+  );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-}) {
+function Stat({ label, value }: { label: string; value: number }) {
+  /* No accent variant, deliberately. `--accent` is byte-identical to
+     `--negative` in every theme block, so the one number this row emphasised
+     -- "Bettable now", nightly value 0 -- rendered in the loss colour. A
+     count is a fact, not a verdict; it reads in the foreground ink. */
   return (
     <div className="pr-6">
       <div className="text-xs font-semibold uppercase tracking-widest text-muted">
         {label}
       </div>
-      <div
-        className={`tabular mt-1 text-2xl font-extrabold tracking-tight ${
-          accent ? "text-accent" : "text-foreground"
-        }`}
-      >
+      <div className="tabular mt-1 text-2xl font-semibold tracking-tight text-foreground">
         {value}
       </div>
     </div>
