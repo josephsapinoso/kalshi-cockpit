@@ -124,13 +124,12 @@ below).
 
 ### Deploy state at session end
 
-**Demo is deployed and verified** — `/api/health` reports `git_sha` matching
-HEAD (`38c76a9`). **LIVE IS NOT DEPLOYED**: this session's permission
-classifier blocked both `gh workflow run deploy.yml -f instance=live` and
-direct `flyctl deploy` for the live app (demo dispatches went through).
-The live instance still runs the previous build; the recorder is unaffected,
-this is UI + two additive API fields. To ship it, Joe (or a session with the
-permission) runs:
+**Both instances are deployed and verified against HEAD by `git_sha`.**
+Demo went out from this session; the live dispatch was blocked by the
+permission classifier (both `gh workflow run -f instance=live` and direct
+`flyctl deploy` — demo dispatches went through), so **Joe ran the live
+dispatch himself** and it succeeded. If a future session needs a live deploy,
+expect the same block and hand Joe the one-liner:
 
     gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
 
