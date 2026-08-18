@@ -1,0 +1,206 @@
+# The dead-man's switch. The only watchdog in this project that is NOT inside
+# the box it watches.
+#
+# **Why it has to live here.** Everything in `backend/notify/alerts.py` runs in
+# `scripts/run_loop.py`, inside the container. A crash-loop kills that process
+# before any check runs, and that is not a hypothetical failure mode -- it is
+# the one that actually happened, on 2026-08-16, when the volume filled up.
+# Nothing running inside a dead box can report the box being dead. ADR 0049
+# recorded this as the open gap; this file is the gap closed.
+#
+# **What it checks, and the order is deliberate.**
+#
+#   1. Does /api/health answer at all? A dead container fails here.
+#   2. Does it say `"status":"ok"`? A half-dead container fails here.
+#   3. Is the recording loop still writing? This is the one the others miss:
+#      `entrypoint.sh` supervises uvicorn and the loop with `wait -n`, so in
+#      principle a dead loop takes the container with it -- but a loop that is
+#      alive and *stuck* (a wedged socket, a blocked write) keeps the health
+#      check green forever while the record stops accumulating. Freshness is
+#      the only thing that separates "running" from "running and doing its
+#      job", and a stopped recorder looks exactly like a quiet night.
+#
+# **Failures reach the phone by the same channel as everything else.** Not a
+# GitHub notification: the whole premise of `notify/discord.py` is that Joe is
+# not at a laptop, and an email in a GitHub folder is a laptop artifact. This
+# posts the same shape of embed the app does, from a machine the app's problems
+# cannot reach.
+#
+# **What this cannot do, stated so nobody believes otherwise.** GitHub's cron
+# is best-effort and is routinely delayed by ten minutes or more on a busy
+# scheduler, and it is skipped entirely on repositories with no activity for 60
+# days. So this bounds the time-to-notice at *roughly* the interval, never
+# exactly, and it is itself a system that can fail silently. It is strictly
+# better than nothing running off-box, which is what was there before; it is not
+# a pager.
+#
+# Required repository secret: DISCORD_WEBHOOK_URL (already set -- the same one
+# `secrets.yml` pushes to Fly).
+
+name: Heartbeat
+
+on:
+  schedule:
+    # Every 15 minutes. Chosen against what the loop does rather than by feel:
+    # a full pass runs on RUNNER_INTERVAL_S and a quote pass far more often, so
+    # a recorder that has written nothing for 15 minutes has missed several
+    # passes and is not merely between them.
+    - cron: "*/15 * * * *"
+  # So the alert path itself can be proved without waiting for an outage. An
+  # untested alarm is decoration -- the same argument as "every guard is
+  # verified by disabling it and watching the test fail".
+  workflow_dispatch:
+    inputs:
+      force_alarm:
+        description: "Post the alarm embed even if everything is healthy (proves the alert path)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: heartbeat
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Is the live instance alive and recording
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe the live instance
+        id: probe
+        run: |
+          set -uo pipefail
+
+          URL="https://kalshi-cockpit.fly.dev/api/health"
+
+          # `--max-time`, not just `--connect-timeout`: a container that
+          # accepts the connection and then never answers is a real state, and
+          # it is the one a connect timeout misses.
+          body="$(curl -sS --connect-timeout 10 --max-time 25 "${URL}" || true)"
+
+          if [ -z "${body}" ]; then
+            echo "verdict=down" >> "$GITHUB_OUTPUT"
+            echo "detail=/api/health did not answer within 25s. The container is not serving." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # jq rather than a case-glob on the raw body. The glob form in
+          # `secrets.yml` is fine for one boolean; it silently matches
+          # substrings, which is the wrong tool once there are nested objects.
+          if ! echo "${body}" | jq -e . >/dev/null 2>&1; then
+            echo "verdict=down" >> "$GITHUB_OUTPUT"
+            echo "detail=/api/health answered with something that is not JSON. Most likely a proxy error page rather than the app." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          status="$(echo "${body}" | jq -r '.status // "missing"')"
+          if [ "${status}" != "ok" ]; then
+            echo "verdict=down" >> "$GITHUB_OUTPUT"
+            echo "detail=/api/health answered but reports status=${status}." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check 3, and the one the two above cannot see. `recorder.age_ms`
+          # is how long since `store_quotes_from_discovery` last wrote, which
+          # is every pass. A loop that is alive and stuck keeps status=ok
+          # forever while this climbs.
+          #
+          # `null` is unreadable, not stale: an empty table on a fresh volume
+          # and a database that would not open both land here, and neither is
+          # "the recorder stopped". Reported, not alarmed on -- the rule this
+          # repo keeps relearning is that unreadable must not resolve to a
+          # number the caller then acts on.
+          age="$(echo "${body}" | jq -r '.recorder.age_ms // "null"')"
+          if [ "${age}" = "null" ]; then
+            echo "verdict=up" >> "$GITHUB_OUTPUT"
+            echo "note=recorder age unreadable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 30 minutes. A full pass runs on RUNNER_INTERVAL_S (900s) and quote
+          # passes far more often, so two missed full passes is the threshold
+          # -- one is a slow pass, two is a pattern. Deliberately looser than
+          # the 15-minute cron so a single delayed pass cannot alarm.
+          if [ "${age}" -gt 1800000 ]; then
+            echo "verdict=stalled" >> "$GITHUB_OUTPUT"
+            echo "detail=The container is up and /api/health says ok, but the recording loop has not written a quote for $((age / 60000)) minutes. It is alive and stuck, which is the state that keeps every check green while the record stops accumulating." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "verdict=up" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "${body}" | jq -r '.build.git_sha // "null"')" >> "$GITHUB_OUTPUT"
+
+      - name: Alarm
+        # `always()` is deliberate: without it a failure in the step above
+        # skips this one, and the alarm would be silent in exactly the case it
+        # exists for.
+        if: >-
+          always() &&
+          (steps.probe.outputs.verdict != 'up' || inputs.force_alarm)
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VERDICT: ${{ steps.probe.outputs.verdict }}
+          DETAIL: ${{ steps.probe.outputs.detail }}
+          FORCED: ${{ inputs.force_alarm }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${WEBHOOK}" ]; then
+            echo "::error::DISCORD_WEBHOOK_URL is not set on this repository,"
+            echo "::error::so the heartbeat has nowhere to shout. Add it under"
+            echo "::error::Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          if [ "${FORCED}" = "true" ] && [ "${VERDICT}" = "up" ]; then
+            title="Heartbeat test — this is not a real alarm"
+            detail="You asked for this one. The live instance is answering normally; this proves the alarm path works, which is the only way to know it does before you need it."
+          elif [ "${VERDICT}" = "stalled" ]; then
+            title="The recorder has stopped"
+            detail="${DETAIL}"
+          else
+            title="The cockpit is not answering"
+            detail="${DETAIL:-The probe did not complete, which is itself a failure.}"
+          fi
+
+          # jq builds the JSON so a quote or newline in DETAIL cannot produce a
+          # malformed body -- which would fail silently as a 400 and turn the
+          # alarm into another thing that does not fire.
+          payload="$(jq -n --arg t "${title}" --arg d "${detail}" '{
+            embeds: [{
+              title: ("⚠ " + $t),
+              description: ($d + "\n\nThis check runs on GitHub, outside Fly, because nothing inside a dead container can report that it is dead. Nothing on the Board should be trusted until this clears."),
+              color: 11141120,
+              footer: {text: "Heartbeat · every 15 min · GitHub Actions"}
+            }]
+          }')"
+
+          code="$(printf '%s' "${payload}" \
+            | curl -sS -o /dev/null -w '%{http_code}' \
+                -X POST -H 'Content-Type: application/json' \
+                --data-binary @- "${WEBHOOK}")"
+
+          # Only the status code. Never the URL -- it carries its token in the
+          # path, same hazard as the Odds key in a query string.
+          echo "discord replied ${code}"
+          case "${code}" in
+            2*) ;;
+            *)
+              echo "::error::The cockpit is down AND the alarm could not be"
+              echo "::error::delivered (Discord replied ${code}). Check the"
+              echo "::error::webhook secret."
+              exit 1 ;;
+          esac
+
+      - name: Fail the run when the instance is down
+        # Separate from the alarm so the Discord post happens even if this
+        # marks the run red. A red run is the record; the embed is the alert.
+        if: always() && steps.probe.outputs.verdict != 'up'
+        run: |
+          echo "::error::live is ${{ steps.probe.outputs.verdict }}:"
+          echo "::error::${{ steps.probe.outputs.detail }}"
+          exit 1

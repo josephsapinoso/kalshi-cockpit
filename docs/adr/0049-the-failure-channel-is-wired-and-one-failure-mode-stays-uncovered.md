@@ -1,7 +1,10 @@
 # ADR 0049 — The failure channel is wired, and the failure that actually happened stays uncovered
 
 **Date:** 2026-08-18
-**Status:** Accepted
+**Status:** Accepted, **amended the same day — the title's second clause no
+longer holds.** The filename is kept because links are cheaper than accuracy in
+a slug and the body records both states. See "AMENDED" below: one query against
+the live volume closed the gap and reversed a decision made above it.
 **Follows:** ADR 0048 (the deep link), which is what sent a reviewer into this module.
 
 ## What was there
@@ -68,7 +71,68 @@ and the thing Joe reads are the same name.
 malfunction — the budget working — but invisible from the Board, which simply
 stops producing rows.
 
-## What this deliberately does not cover
+## AMENDED the same day: the gap is closed, and the record decided two things
+
+The paragraph below stood for about an hour. Joe ran the one query this ADR's
+review had asked for, and its answer settled two open items and reversed a
+third. Amended rather than superseded because nothing above is wrong — only
+incomplete.
+
+```
+digest       12   delivered 12
+window_open  93   delivered 93
+failure       1   delivered  0
+opportunity   —   NO ROWS AT ALL
+```
+
+**1. `opportunity` has never fired.** Not one row in the project's life. So all
+93 `window_open` buzzes — about eight a day across twelve budget days — opened
+onto a board with nothing on it. `after_pass` now requires `counts.surfaced > 0`.
+
+`tests/test_alerts.py` previously asserted the **opposite** ("it is the only
+signal that the machinery ran"). That reasoning was not silly; it was
+unmeasured. The daily digest is also that signal, on a cadence that cannot
+storm, and the empty case turned out to be not a minority of the traffic buying
+a heartbeat but *all* of it. The reversal is recorded in the test's own
+docstring rather than swapped quietly.
+
+**2. The one failure alert ever attempted was not delivered.** `delivered = 0`,
+one for one. Before today the only wired failure was "Recording loop died",
+sent as the last thing a dying process does — the alerter claims the row before
+sending, so a process that dies mid-send leaves exactly this. **The loop died
+and Joe was not told, and nothing said so for months.** `/api/health` now
+carries `notifications: {last_delivered_ms, undelivered_last_24h, total_ever}`.
+
+**3. The external dead-man's switch is built**:
+`.github/workflows/heartbeat.yml`, every 15 minutes, posting to the same Discord
+webhook from a machine the app's problems cannot reach. Three checks: does
+`/api/health` answer, does it say ok, and **is the recorder still writing**.
+
+That third one needed a new field. `entrypoint.sh` supervises the loop with
+`wait -n`, so a loop that *exits* takes the container down and is visible from
+outside — but a loop that is alive and **stuck** keeps every existing check
+green while the record stops accumulating. `/api/health` now carries
+`recorder: {last_write_ms, age_ms}`, and the heartbeat alarms past 30 minutes
+(two missed full passes; one is a slow pass, two is a pattern).
+
+**The irony is worth keeping.** `kalshi_quotes` age — the signal rejected above
+as blind to the WebSocket — is exactly the right signal *for the loop's own
+pulse*, read by something outside the process. The reviewer's instinct was
+sound and its subject was wrong.
+
+Both new health blocks are wrapped so they can never take `/api/health` down:
+it is the liveness probe both `entrypoint.sh` and the heartbeat read, and a
+route that 500s because a SELECT failed turns a reporting gap into an outage —
+and into a false alarm on a phone. Unreadable resolves to `None`, never to a
+number the heartbeat would act on.
+
+**What the heartbeat still cannot do**, stated because this ADR's whole subject
+is unclaimed coverage: GitHub's cron is best-effort, routinely delayed, and
+skipped entirely on repositories idle for 60 days. It bounds time-to-notice at
+*roughly* 15 minutes, never exactly, and it is itself a system that can fail
+silently. Strictly better than nothing off-box. Not a pager.
+
+### The original paragraph, kept
 
 **The container crash-looping.** It kills this process before any of the above
 runs, and it is the failure that has actually happened here. **Nothing running

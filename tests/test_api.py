@@ -84,6 +84,81 @@ class TestHealth:
         body = (await get(demo_app, "/api/health")).json()
         assert body["notifications_configured"] is True
 
+    async def test_it_reports_whether_alerts_are_actually_landing(self, demo_app):
+        """`notifications_configured` says a string is non-empty and nothing
+        more. Revoke the webhook and `_post` logs a WARNING, returns False, and
+        that boolean stays `true` — so a broken alerter and a quiet slate read
+        identically.
+
+        Not hypothetical: the live record on 2026-08-18 held one `failure` row
+        and it was `delivered = 0`. The loop died, the alert was claimed, and
+        nothing reached the phone.
+        """
+        health = (await get(demo_app, "/api/health")).json()["notifications"]
+        assert health is not None
+        assert set(health) == {
+            "last_delivered_ms", "undelivered_last_24h", "total_ever"
+        }
+        # Never zero for "nothing has ever landed". Zero is 1970 and would
+        # render as a delivery.
+        assert health["last_delivered_ms"] is None or health["last_delivered_ms"] > 0
+
+    async def test_it_reports_how_stale_the_recorder_is(self, demo_app):
+        """The field an external watchdog needs and could not get.
+
+        `entrypoint.sh` supervises the loop with `wait -n`, so a loop that
+        *exits* takes the container down and is visible from outside. A loop
+        that is alive and **stuck** keeps this endpoint green forever while the
+        record stops accumulating. `.github/workflows/heartbeat.yml` reads
+        `age_ms` and alarms past thirty minutes.
+        """
+        recorder = (await get(demo_app, "/api/health")).json()["recorder"]
+        assert recorder is not None
+        assert set(recorder) == {"last_write_ms", "age_ms"}
+        assert recorder["age_ms"] >= 0
+
+    def test_a_recorder_that_never_wrote_reports_none_in_both_fields(self):
+        """**Tested directly, and the first version of this could not be.**
+
+        It went through `demo_app`, whose seeded database always has quotes, so
+        the `None` branch never ran -- the test passed with that branch
+        deliberately broken to `age_ms: 0`. An empty table is "never written",
+        and 0 is 1970, which renders as an age of fifty-six years rather than
+        as the absence of a measurement.
+        """
+        from backend.api.routes import recorder_fields
+
+        assert recorder_fields(None, 1_700_000_000_000) == {
+            "last_write_ms": None, "age_ms": None
+        }
+
+    def test_a_clock_that_ran_backwards_reports_zero_not_a_negative_age(self):
+        """The heartbeat compares `age_ms` against a threshold with `-gt` in
+        bash. A negative number there is not merely wrong, it is quietly
+        healthy forever."""
+        from backend.api.routes import recorder_fields
+
+        assert recorder_fields(1_000, 500)["age_ms"] == 0
+
+    async def test_neither_block_can_take_health_down(self, demo_app, monkeypatch):
+        """`/api/health` is the liveness probe `entrypoint.sh` and the external
+        heartbeat both read. A route that 500s because a SELECT failed turns a
+        reporting gap into an outage — and into a false alarm on a phone."""
+        import backend.store.db as store_db
+
+        def explode(*a, **kw):
+            raise RuntimeError("volume is gone")
+
+        monkeypatch.setattr(store_db, "open_db", explode)
+        response = await get(demo_app, "/api/health")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ok"
+        # Unreadable resolves to None, and the caller can tell that from a real
+        # answer. It must not resolve to a zero the heartbeat would act on.
+        assert body["notifications"] is None
+        assert body["recorder"] is None
+
     async def test_health_never_carries_the_credential_itself(
         self, demo_app, monkeypatch
     ):

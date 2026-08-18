@@ -157,6 +157,34 @@ class Alerter:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def delivery_health(self, *, now_ms: int, window_ms: int = 24 * 3_600_000):
+        """What the alerter has actually managed to send. For `/api/health`.
+
+        **`notifications_configured` is a boolean about whether a string is
+        non-empty**, so a revoked webhook and a quiet slate are the same
+        reading. This is the difference, and it is not hypothetical: the live
+        record on 2026-08-18 held exactly one `failure` row and it was
+        `delivered = 0` -- the loop died, the alert was claimed, and nothing
+        reached the phone. One for one, and nothing said so for months.
+
+        Returns plain values rather than a dataclass because its one consumer
+        serialises it straight to JSON.
+        """
+        row = self.conn.execute(
+            "SELECT MAX(CASE WHEN delivered = 1 THEN sent_ms END) AS last_ok, "
+            "SUM(CASE WHEN delivered = 0 AND sent_ms >= ? THEN 1 ELSE 0 END) "
+            "AS failed_recent, COUNT(*) AS total "
+            "FROM notifications",
+            (now_ms - window_ms,),
+        ).fetchone()
+        # `None` for "never delivered anything", never 0 -- a zero timestamp is
+        # 1970 and would render as a delivery. This repo's recurring defect.
+        return {
+            "last_delivered_ms": row["last_ok"],
+            "undelivered_last_24h": int(row["failed_recent"] or 0),
+            "total_ever": int(row["total"] or 0),
+        }
+
     def _record_delivery(self, kind: str, key: str, delivered: bool) -> None:
         self.conn.execute(
             "UPDATE notifications SET delivered = ? WHERE kind = ? AND key = ?",
@@ -209,7 +237,32 @@ class Alerter:
             else:
                 failed.append(kind)
 
-        if sweeps_this_pass > 0 and window is not None:
+        # **Only when something surfaced, and this is a measurement, not a
+        # taste.** Queried on the live volume 2026-08-18:
+        #
+        #     digest       12   delivered 12
+        #     window_open  93   delivered 93
+        #     failure       1   delivered  0
+        #     opportunity   -   NO ROWS AT ALL
+        #
+        # Ninety-three buzzes across twelve budget days -- about eight a day --
+        # and **not one `opportunity` row has ever been written**, so every one
+        # of those ninety-three opened onto a board with nothing on it. That is
+        # not a hypothetical: the module docstring above warns that a
+        # notification per non-event "would train you to ignore the channel,
+        # which is worse than no channel", and the record says it already had
+        # ninety-three goes at doing exactly that.
+        #
+        # What is lost, stated because it is real: the alert used to double as
+        # proof the loop was alive. The daily digest already carries that, on a
+        # cadence that cannot storm, so the heartbeat is not lost -- only its
+        # duplicate. And the empty case was the *majority* of the signal, so
+        # dropping it does not thin a useful stream; it removes the stream and
+        # keeps the exceptions.
+        #
+        # `counts.surfaced` rather than re-querying: it is what this pass
+        # actually wrote, and it is the same number the embed reports.
+        if sweeps_this_pass > 0 and window is not None and counts.surfaced > 0:
             key = str(window.last_sweep_ms or pass_ms)
             note(
                 "window_open",

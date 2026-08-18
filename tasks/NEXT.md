@@ -34,15 +34,16 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,350 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** the alerting session (ADR 0048, ADR 0049) discharged two of
-Joe's own reports and one thing the partner found underneath them. **One
-item is open and it is the honest gap, not a polish item: nothing can tell
-Joe the container is dead.** See "STILL OPEN" in the latest entry. Beyond
-that, the "not done, deliberately" menu at the end of the 2026-08-18 evening
-entry (suppression-code gloss, dispersion strip), or ask the partner.
-Nothing else is urgent by construction — ADR 0038 closed the hunt, the study
-accumulates on its own, and the money-arm strip, derived bankroll and 423
-interlock are live.
+**THE JOB:** the alerting session (ADR 0048, ADR 0049 **as amended**) is
+discharged, including the dead-man's switch. **One thing wants a human and
+it is 30 seconds: run the Heartbeat workflow by hand with `force_alarm:
+true` and confirm the embed arrives on the phone.** An alarm nobody has
+watched fire is decoration, which is this session's own lesson. After that,
+the "not done, deliberately" menu at the end of the 2026-08-18 evening entry
+(suppression-code gloss, dispersion strip), or ask the partner. Nothing is
+urgent by construction — ADR 0038 closed the hunt, the study accumulates on
+its own, and the money-arm strip, derived bankroll and 423 interlock are
+live.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
 deploying were both pre-approved on 2026-08-18 and the deploy deny is
@@ -127,33 +128,82 @@ address `docker/entrypoint.sh:176` already polls.
 **none** of the kinds actually sent. It is now the dedupe key's allowlist,
 asserted at the send.
 
-### STILL OPEN — and it is the honest gap
+### THE QUERY, WHICH DECIDED THREE THINGS
 
-**Nothing can tell Joe the container is dead.** Every watchdog above runs
-inside the box; a crash-loop kills them first, and that is the failure that
-has actually happened here. This needs an **external dead-man's switch** — a
-Fly health-check alert, or something off-box expecting a heartbeat and
-shouting when it stops. Not built, deliberately not claimed. ADR 0049 says so
-in its own text.
+Joe ran the one thing I was blocked on (`flyctl ssh console` is refused by the
+classifier here). On the live volume, 2026-08-18:
 
-Two smaller ones the partner ranked and I did not take:
+```
+digest       12   delivered 12
+window_open  93   delivered 93
+failure       1   delivered  0
+opportunity   —   NO ROWS AT ALL
+```
 
-- **One query settles three questions**, and I could not run it: `flyctl ssh
-  console` is blocked by the classifier here. `SELECT kind, COUNT(*),
-  SUM(delivered) FROM notifications GROUP BY kind` on the live volume answers
-  how many `window_open` buzzes an evening produces, whether `opportunity()`
-  has **ever** fired, and whether anything is failing delivery. Joe can run it
-  from a laptop with `!`. Everything below it should wait on the answer.
-- **A delivery health signal.** `notifications.delivered` is written and read
-  by nothing outside tests; `/api/health`'s `notifications_configured` is a
-  boolean about whether a string is non-empty. Revoke the webhook and a broken
-  alerter is indistinguishable from a quiet slate. ~10 lines, but the query
-  above tells us whether it is worth them.
+**1. `opportunity` has NEVER fired.** Not one row in the project's life. So
+all 93 `window_open` buzzes — about eight a day across twelve budget days —
+opened onto a board with nothing on it. That is the "trains you to ignore the
+channel" failure the module's own docstring warns about, already realised,
+ninety-three times. Joe's call: **buzz only when something surfaced.**
+`after_pass` now requires `counts.surfaced > 0`.
+
+`tests/test_alerts.py` asserted the **opposite** until today, on the reasoning
+that the empty buzz was "the only signal that the machinery ran". Not silly —
+unmeasured. The digest is also that signal and cannot storm, and the empty
+case turned out to be *all* of the traffic rather than a minority of it. The
+reversal is in the test's own docstring.
+
+**2. The one failure alert ever attempted was NOT delivered.** One for one.
+Before today the only wired failure was "Recording loop died", sent as the
+last thing a dying process does — and the alerter claims the row before
+sending, so a process that dies mid-send leaves exactly `delivered = 0`. **The
+loop died, Joe was not told, and nothing said so for months.**
+`/api/health` now carries `notifications: {last_delivered_ms,
+undelivered_last_24h, total_ever}`.
+
+**3. Polishing the opportunity embed is dead**, as the partner ranked it. It
+has never rendered.
+
+### THE DEAD-MAN'S SWITCH IS BUILT
+
+`.github/workflows/heartbeat.yml` — every 15 minutes, on GitHub, outside Fly,
+posting to the same Discord webhook. Three checks:
+
+1. Does `/api/health` answer at all? A dead container fails here.
+2. Does it say `status: ok`? A half-dead container fails here.
+3. **Is the recorder still writing?** The one the others miss.
+
+Check 3 needed a new field. `entrypoint.sh` supervises the loop with `wait
+-n`, so a loop that *exits* takes the container down and is visible from
+outside — but a loop that is alive and **stuck** keeps every existing check
+green while the record stops accumulating. `/api/health` now carries
+`recorder: {last_write_ms, age_ms}`; the heartbeat alarms past 30 minutes.
+
+**The irony, kept because it is the lesson:** `kalshi_quotes` age is the
+signal ADR 0049 rejected as blind to the WebSocket, and it is exactly the
+right signal for the *loop's own pulse* when read from outside the process.
+Right instinct, wrong subject.
+
+Both new health blocks are wrapped so they can never take `/api/health` down —
+it is the liveness probe both `entrypoint.sh` and the heartbeat read, and a
+route that 500s because a SELECT failed turns a reporting gap into a false
+alarm on a phone. Unreadable is `None`, never a number the heartbeat acts on.
+
+### STILL OPEN
+
+- **Nobody has watched the alarm fire.** Run the Heartbeat workflow by hand
+  with `force_alarm: true` and confirm the embed lands. Thirty seconds, and it
+  is this session's own lesson applied to itself: an untested alarm is
+  decoration. **This is the first thing to do.**
+- **GitHub cron is not a pager.** Best-effort, routinely delayed ten minutes
+  or more, and skipped entirely on a repository idle for 60 days. It bounds
+  time-to-notice at *roughly* 15 minutes and is itself a system that can fail
+  silently. Strictly better than nothing off-box; do not upgrade the claim.
 - **The daily digest still leads with `x / 300` toward the gate**, which
   CLAUDE.md says no roadmap may depend on and the record has three actionable
-  rows toward in its whole life. The partner's recommendation is to put `beta`
-  and its interval there instead. A judgement call about what the daily buzz
-  should say; left for Joe.
+  rows toward in its whole life. The partner's recommendation is `beta` and
+  its interval instead. A judgement about what the daily buzz should say; left
+  for Joe, and now the *only* recurring message the channel carries.
 
 ### Killed, so nobody re-proposes them
 
@@ -177,9 +227,17 @@ the `daily_pnl_dollars` defect `test_has_callers.py` exists for.
 
 Full suite green, ruff clean, `tsc` clean, frontend build clean. Every guard
 added this session was verified by disabling it and watching the test go red —
-eight of them across `test_deployed_urls_are_explicit.py`,
-`test_alerts.py` and `test_has_callers.py`. Both instances deployed and
-`/api/health` on live reports the committed `git_sha`.
+**fourteen** of them across `test_deployed_urls_are_explicit.py`,
+`test_alerts.py`, `test_api.py` and `test_has_callers.py`. Both instances
+deployed and `/api/health` on live reports the committed `git_sha`.
+
+**One guard was decoration when first written, and the catch is the point.**
+The recorder's empty-table case was tested through `demo_app`, whose seeded
+database always has quotes — so the `None` branch never ran and the test passed
+with that branch deliberately broken to `age_ms: 0`. Fixed by extracting
+`recorder_fields` to module level and testing it directly. This is exactly why
+the disable-and-watch-it-fail step is not optional: it is the only thing that
+distinguishes a guard from a comment.
 
 ---
 

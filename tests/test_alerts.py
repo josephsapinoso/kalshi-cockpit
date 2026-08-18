@@ -286,8 +286,11 @@ class TestTheWindowAlert:
     """The alert without which the rest of the tool cannot be used at all."""
 
     async def test_it_fires_when_a_credit_was_actually_spent(self, conn):
+        """`surfaced=1` since 2026-08-18 -- see the class below on the empty
+        case. A credit spent is still the precondition; it is no longer the
+        whole condition."""
         notifier = FakeNotifier()
-        result = await run_pass(Alerter(conn, notifier), surfaced=0, sweeps=1)
+        result = await run_pass(Alerter(conn, notifier), surfaced=1, sweeps=1)
         assert len(notifier.windows) == 1
         assert "window_open" in result.sent
 
@@ -297,12 +300,24 @@ class TestTheWindowAlert:
         await run_pass(Alerter(conn, notifier), surfaced=0, sweeps=0)
         assert notifier.windows == []
 
-    async def test_it_reports_a_quiet_slate_rather_than_staying_silent(self, conn):
-        """Fresh odds with nothing surfaced is the expected result, and it still
-        matters -- it is the only signal that the machinery ran."""
+    async def test_it_no_longer_reports_a_quiet_slate(self, conn):
+        """**This test asserted the opposite until 2026-08-18, and the reversal
+        is recorded rather than quietly swapped.**
+
+        It read: "Fresh odds with nothing surfaced is the expected result, and
+        it still matters -- it is the only signal that the machinery ran." Both
+        clauses were reasonable and the second was false: the daily digest is
+        also that signal, on a cadence that cannot storm.
+
+        What settled it was the record, not the argument. Live, 2026-08-18: 93
+        `window_open` rows across 12 budget days, and **zero `opportunity` rows
+        in the entire history**. So the empty case was not a minority of the
+        traffic that bought a heartbeat -- it was ALL of it, about eight buzzes
+        a day, none of which ever preceded a bet.
+        """
         notifier = FakeNotifier()
         await run_pass(Alerter(conn, notifier), surfaced=0, sweeps=1)
-        assert notifier.windows[0][1] == 0
+        assert notifier.windows == []
 
     async def test_a_second_sweep_later_in_the_day_is_a_second_alert(self, conn):
         notifier = FakeNotifier()
@@ -629,3 +644,78 @@ class TestTheFailureKindsAreDeclared:
         sent -- and only the record is queryable.
         """
         assert kind.strip() == kind and kind
+
+
+class TestTheWindowAlertOnlyFiresOnSomethingToSee:
+    """Measured, not preferred.
+
+    Queried on the live volume 2026-08-18: 93 `window_open` rows across 12
+    budget days -- about eight buzzes a day -- and **zero `opportunity` rows in
+    the entire record**. Every one of those ninety-three opened onto a board
+    with nothing on it, which is precisely the "trains you to ignore the
+    channel" failure the module docstring warns about, already realised.
+    """
+
+    async def test_a_window_with_something_on_it_still_buzzes(self, conn):
+        add_recommendation(conn)
+        notifier = FakeNotifier()
+        await run_pass(Alerter(conn, notifier), surfaced=1)
+        assert len(notifier.windows) == 1
+
+    async def test_an_empty_window_says_nothing(self, conn):
+        notifier = FakeNotifier()
+        await run_pass(Alerter(conn, notifier), surfaced=0)
+        assert notifier.windows == []
+
+    async def test_the_daily_digest_still_carries_the_heartbeat(self, conn):
+        """What the cut costs, and why it is affordable.
+
+        The window alert doubled as proof the loop was alive. The digest already
+        carries that on a cadence that cannot storm, so what was dropped is the
+        duplicate -- not the heartbeat.
+        """
+        notifier = FakeNotifier()
+        await Alerter(conn, notifier).daily_digest(
+            now_ms=NOW, day_start_ms=ms("2026-08-07T10:00:00"), gate_required=300
+        )
+        assert len(notifier.digests) == 1
+
+
+class TestDeliveryHealthIsReadable:
+    """`notifications_configured` is a boolean about a string being non-empty.
+
+    The live record on 2026-08-18 held one `failure` row at `delivered = 0` --
+    the loop died, the alert was claimed, nothing reached the phone, and for
+    months nothing said so. This is the query that would have said so.
+    """
+
+    async def test_nothing_sent_reports_none_never_zero(self, conn):
+        """A zero timestamp is 1970 and renders as a delivery."""
+        health = Alerter(conn, FakeNotifier()).delivery_health(now_ms=NOW)
+        assert health["last_delivered_ms"] is None
+        assert health["undelivered_last_24h"] == 0
+        assert health["total_ever"] == 0
+
+    async def test_a_delivered_alert_sets_the_timestamp(self, conn):
+        add_recommendation(conn)
+        alerter = Alerter(conn, FakeNotifier())
+        await run_pass(alerter)
+        assert alerter.delivery_health(now_ms=NOW)["last_delivered_ms"] == NOW
+
+    async def test_an_undelivered_alert_is_counted_and_does_not_set_it(self, conn):
+        """The exact live state: claimed, never landed."""
+        add_recommendation(conn)
+        alerter = Alerter(conn, FakeNotifier(delivers=False))
+        await run_pass(alerter)
+        health = alerter.delivery_health(now_ms=NOW)
+        assert health["last_delivered_ms"] is None
+        assert health["undelivered_last_24h"] >= 1
+
+    async def test_an_old_failure_falls_out_of_the_24h_count(self, conn):
+        """Otherwise one bad night reads as a permanently broken alerter."""
+        add_recommendation(conn)
+        alerter = Alerter(conn, FakeNotifier(delivers=False))
+        await run_pass(alerter)
+        assert alerter.delivery_health(now_ms=NOW + 48 * HOUR)[
+            "undelivered_last_24h"
+        ] == 0

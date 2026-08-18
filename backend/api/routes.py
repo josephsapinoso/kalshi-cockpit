@@ -83,6 +83,7 @@ from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
 from ..market_results import result_coverage
 from ..agents.base import AgentConfig
+from ..notify.alerts import Alerter
 from ..notify.discord import DiscordConfig
 from ..odds import ondemand
 from ..odds.budget import CreditBudget, sweep_cost
@@ -110,6 +111,25 @@ from ..store.orders import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def recorder_fields(last_ms, now_ms: int) -> dict:
+    """`/api/health`'s `recorder` block, as a pure function.
+
+    Module level and not a closure **because the empty case was otherwise
+    untestable**. The first version of this lived inside `create_app` and its
+    test went through the demo app, whose seeded database always has quotes --
+    so the `None` branch never ran and the test passed with the branch
+    deliberately broken. A guard that cannot be made to fail is decoration; see
+    `tasks/lessons.md`.
+
+    An empty table is "never written", which is `None` in BOTH fields. Not 0 --
+    that is 1970, and it would render as an age of fifty-six years rather than
+    as the absence of a measurement.
+    """
+    if last_ms is None:
+        return {"last_write_ms": None, "age_ms": None}
+    return {"last_write_ms": int(last_ms), "age_ms": max(0, now_ms - int(last_ms))}
 
 
 class OrderPlacementRequest(BaseModel):
@@ -454,6 +474,46 @@ def create_app(
         finally:
             conn.close()
 
+    def _notification_health():
+        """Delivery stats for `/api/health`, or `None` if they cannot be read.
+
+        Opens its own short-lived read-only connection rather than taking the
+        `get_conn` dependency, because `/api/health` deliberately has no
+        database dependency at all -- it must answer while the volume is
+        unmountable, which is precisely when someone is reading it.
+        """
+        try:
+            conn = db.open_db(
+                app_config.db_path, read_only=True, cross_thread=True
+            )
+            try:
+                return Alerter(conn, None).delivery_health(now_ms=db.now_ms())
+            finally:
+                conn.close()
+        except Exception:                                      # noqa: BLE001
+            logger.warning("notification health unreadable", exc_info=True)
+            return None
+
+    def _recorder_health():
+        """When the loop last wrote a quote, and how long ago. `None` if
+        unreadable -- same containment as `_notification_health`, and for the
+        same reason: this endpoint is the liveness probe, so it must not be
+        able to 500 because a SELECT did."""
+        try:
+            conn = db.open_db(
+                app_config.db_path, read_only=True, cross_thread=True
+            )
+            try:
+                row = conn.execute(
+                    "SELECT MAX(observed_ms) AS last_ms FROM kalshi_quotes"
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception:                                      # noqa: BLE001
+            logger.warning("recorder health unreadable", exc_info=True)
+            return None
+        return recorder_fields(row["last_ms"] if row else None, db.now_ms())
+
     # -- read routes -------------------------------------------------------
 
     @app.get("/api/health")
@@ -472,6 +532,46 @@ def create_app(
             # which is exactly what a working alerter also looks like on a quiet
             # night.
             "notifications_configured": DiscordConfig.from_env() is not None,
+            # **What the line above cannot tell you.** It reports that a string
+            # is non-empty. Revoke the webhook and `_post` logs a WARNING,
+            # returns False, and that boolean stays `true` -- so a broken
+            # alerter and a quiet slate read identically, which is the same
+            # shape as the dead feed that makes the Board look calm.
+            #
+            # Not hypothetical. Queried on the live volume 2026-08-18: one
+            # `failure` row in the whole record, `delivered = 0`. The loop died,
+            # the alert was claimed, nothing reached the phone, and nothing said
+            # so. `last_delivered_ms` is `null` when nothing has ever landed --
+            # never 0, which is 1970 and would render as a delivery.
+            #
+            # Wrapped so it can never take health down with it: this is the
+            # liveness probe `docker/entrypoint.sh` and the external heartbeat
+            # both read, and a route that 500s because a SELECT failed would
+            # turn a reporting gap into an outage. Unreadable resolves to
+            # `None`, and the caller can tell that from a real answer.
+            "notifications": _notification_health(),
+            # **How long since the recording loop last wrote anything.** The
+            # field an external watchdog needs and could not get.
+            #
+            # `entrypoint.sh` supervises uvicorn and the loop with `wait -n`, so
+            # a loop that *exits* takes the container down and the outage is
+            # visible from outside. A loop that is alive and **stuck** -- a
+            # wedged socket, a blocked write -- keeps this endpoint green
+            # forever while the record stops accumulating, and a stopped
+            # recorder looks exactly like a quiet night. Freshness is the only
+            # thing separating "running" from "running and doing its job".
+            #
+            # **`kalshi_quotes` is the right table for this and the wrong one
+            # for the feed**, and the distinction cost a review round. It is
+            # written ONLY by `runner.store_quotes_from_discovery`, at
+            # `source = 'rest'`, on every pass -- `QuoteHub` writes nothing to
+            # it. So its age is blind to the WebSocket (that is
+            # `live_quotes_available`, above) and is exactly a measure of this
+            # loop's own pulse, which is what something off-box wants.
+            #
+            # Ages, not just timestamps, because the consumer is a shell script
+            # and clock arithmetic in bash is how an off-by-1000 ships.
+            "recorder": _recorder_health(),
             # Whether `/api/stream/quotes` will do anything. The Board opens the
             # stream only when this is true, so the demo shows a static page
             # rather than an EventSource reconnect loop against a 503 -- which
