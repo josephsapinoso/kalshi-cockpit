@@ -90,7 +90,7 @@ export default async function RefreshOddsPanel({
         <p className="mt-2 max-w-prose text-sm text-muted">
           The next scheduled sweep is{" "}
           <span className="font-semibold text-foreground">
-            in {formatUntil(actionable.next_sweep_ms - actionable.now_ms)}
+            {formatUntil(actionable.next_sweep_ms - actionable.now_ms)}
           </span>{" "}
           and buys these same team lines out of the day&apos;s budget. A tap
           buys the same numbers sooner, out of the taps&apos; share.
