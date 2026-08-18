@@ -104,7 +104,7 @@ Consequences worth internalising before trusting any backtest
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 from typing import Optional
 
 from .prices import PRICE_MAX, is_valid_price
@@ -137,7 +137,28 @@ def _price_dollars(price_tenths: int) -> Decimal:
     return Decimal(price_tenths) / _PRICE_MAX_DEC
 
 
-def _model_a(price_tenths: int, contracts: int, maker: bool) -> Decimal:
+def _exact_count(contracts: float) -> Optional[Decimal]:
+    """The contract count as an exact Decimal, or None for garbage.
+
+    Through `str`, never `Decimal(float)` directly: `Decimal(0.27)` carries
+    the float's binary noise (0.2700000000000000155...) into arithmetic that
+    is then quantized on a $0.0001 grid the venue actually charges on.
+    Fractional counts are REAL positions (0.27 observed on this account) and
+    are accepted exactly -- defect D1 of the 2026-08-18 fee calibration chose
+    accept-exact over refuse, because `fills.fee_predicted` is NOT NULL and a
+    refusal would cost the mirror a real fill on an endpoint that drops
+    history. Only unreadable garbage (NaN, inf) refuses.
+    """
+    try:
+        count = Decimal(str(contracts))
+    except (InvalidOperation, ValueError):
+        return None
+    if not count.is_finite():
+        return None
+    return count
+
+
+def _model_a(price_tenths: int, contracts: Decimal, maker: bool) -> Decimal:
     """Single coefficient, rounded up to `FEE_GRID_DOLLARS` on the whole order.
 
     **This is the observed model**, not a candidate. On 11 real taker fills the
@@ -148,7 +169,7 @@ def _model_a(price_tenths: int, contracts: int, maker: bool) -> Decimal:
     """
     coefficient = MAKER_COEFFICIENT if maker else TAKER_COEFFICIENT
     price = _price_dollars(price_tenths)
-    raw = coefficient * Decimal(contracts) * price * (Decimal(1) - price)
+    raw = coefficient * contracts * price * (Decimal(1) - price)
     return raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING)
 
 
@@ -193,12 +214,16 @@ def fee_candidates(
         return {"model_a_per_order_roundup": 0.0, "model_b_per_contract_nearest": 0.0}
 
     return {
-        "model_a_per_order_roundup": float(_model_a(price_tenths, contracts, maker)),
+        "model_a_per_order_roundup": float(
+            _model_a(price_tenths, _exact_count(contracts), maker)
+        ),
         "model_b_per_contract_nearest": float(_model_b(price_tenths, contracts, maker)),
     }
 
 
-def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Optional[float]:
+def calculate_fee(
+    price_tenths: int, contracts: float, maker: bool = False
+) -> Optional[float]:
     """Return the Kalshi fee for an order, in dollars.
 
     Returns the **measured** model (`_model_a`): `ceil(k * C * P * (1-P))` to
@@ -224,7 +249,11 @@ def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Opt
             fee. Note this differs from the original module, which took whole
             cents -- roughly a quarter of Kalshi markets use deci-cent ticks,
             so whole cents would misprice the fee on those markets.
-        contracts: Number of contracts in the order.
+        contracts: Number of contracts in the order. Fractional counts are
+            real (0.27 observed on this account) and are computed EXACTLY,
+            via `Decimal(str(...))` -- defect D1: the old `contracts: int`
+            hint invited `int(0.27)` at a call site, which is 0, which is a
+            real position's fee reported as free. NaN/inf refuse with None.
         maker: True for a resting (maker) order, False for a marketable
             (taker) order.
 
@@ -240,7 +269,10 @@ def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Opt
     arrives already looking legitimate. Callers must refuse rather than
     substitute.
     """
-    if contracts <= 0:
+    count = _exact_count(contracts)
+    if count is None:
+        return None
+    if count <= 0:
         return 0.0
     if not is_valid_price(price_tenths):
         return None
@@ -257,7 +289,7 @@ def calculate_fee(price_tenths: int, contracts: int, maker: bool = False) -> Opt
     #
     # `fee_candidates` still reports B, because the harness's job is to show a
     # refuted model failing. Pricing no longer consults it.
-    return float(_model_a(price_tenths, contracts, maker))
+    return float(_model_a(price_tenths, count, maker))
 
 
 def calculate_fee_cents(

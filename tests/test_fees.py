@@ -523,3 +523,51 @@ class TestTheFeeMatchToleranceIsFloatNoiseOnly:
         assert predicted is not None
         actual = float(f"{predicted:.10f}")
         assert abs(actual - predicted) <= fees.FEE_MATCH_TOLERANCE_DOLLARS
+
+
+class TestFractionalCountsAreExact:
+    """Defect D1 of the 2026-08-18 fee calibration, closed on the accept side.
+
+    The signature said `contracts: int` while the live record holds 0.27; the
+    two registered repairs were "accept exact fractional counts or refuse
+    them loudly". Accept-exact won because `fills.fee_predicted` is NOT NULL
+    and a refusal would cost the mirror a real fill on an endpoint that drops
+    history. The one wrong answer -- $0.00 for a real fee -- is what these
+    pin against.
+
+    Guard verification 2026-08-18: with `_exact_count` changed to
+    `Decimal(contracts)` (the float-noise path),
+    `test_the_count_is_exact_not_float_noisy` fails at 0.0071 vs 0.0070;
+    restored, green.
+    """
+
+    def test_a_real_fractional_position_is_not_free(self):
+        # The 0.27-contract baseball fill from the calibration record: the
+        # deployed model answers $0.0038 (2.00x the venue's $0.0019, the
+        # known baseball-coefficient overstatement -- see `calculate_fee`).
+        # The wrong answer D1 names is $0.00.
+        assert fees.calculate_fee(270, 0.27) == pytest.approx(0.0038)
+
+    def test_the_int_truncation_is_the_hazard_it_was(self):
+        """`int(0.27)` is 0, and zero contracts genuinely pay no fee.
+
+        This is why no caller may coerce: the coercion, not the fee model, is
+        what reported a real position as free. `store/orders.py` passes the
+        count through un-coerced since D1.
+        """
+        assert fees.calculate_fee(270, int(0.27)) == 0.0
+        assert fees.calculate_fee(270, 0.27) > 0.0
+
+    def test_the_count_is_exact_not_float_noisy(self):
+        # 0.07 * 0.4 * 0.5 * 0.5 = 0.0070, exactly ON the $0.0001 grid.
+        # Decimal(0.4) carries binary noise (0.4000...022) that ROUND_CEILING
+        # would push to 0.0071 -- the construction that catches the
+        # Decimal(str(...)) route being lost.
+        assert fees.calculate_fee(500, 0.4) == pytest.approx(0.0070, abs=1e-12)
+
+    def test_unreadable_counts_refuse_rather_than_invent(self):
+        assert fees.calculate_fee(500, float("nan")) is None
+        assert fees.calculate_fee(500, float("inf")) is None
+
+    def test_integral_counts_are_unchanged(self):
+        assert fees.calculate_fee(500, 10) == fees.calculate_fee(500, 10.0)

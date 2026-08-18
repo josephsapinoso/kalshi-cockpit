@@ -514,7 +514,10 @@ def exposure_contribution(
     """
     if price_tenths is None:
         return None
-    fee = calculate_fee(int(price_tenths), int(count))
+    # `count` passes through un-coerced: `calculate_fee` computes fractional
+    # counts exactly since D1 (2026-08-18 fee calibration), and `int(0.27)`
+    # is 0 -- a real position's fee reported as free.
+    fee = calculate_fee(int(price_tenths), count)
     if fee is None:
         return None
     return count * int(price_tenths) / float(PRICE_MAX) + fee
