@@ -6,6 +6,8 @@ import {
   type Lesson,
 } from "@/lib/api";
 
+import FiveStepTest from "@/components/FiveStepTest";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -61,6 +63,12 @@ export default async function PlaybookPage() {
           </p>
         </section>
       )}
+
+      {/* Above the version cards, deliberately: they answer an archivist's
+          question, the five steps answer "what do I do in the next twenty
+          seconds", and on a phone the thing you act on goes where the thumb
+          lands first. */}
+      <FiveStepTest />
 
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">
         Strategy versions
