@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Collection, Iterable, Optional, Sequence
@@ -192,6 +193,26 @@ class PassCounts:
     # skips the sweep silently looks exactly like one that swept and found
     # nothing, and those two need opposite responses.
     sweep_decision: str = ""
+    # Where the pass's wall clock went, in milliseconds, one field per leg.
+    #
+    # **This exists because `took_s` alone sent two sessions after the wrong
+    # leg.** A quote pass melting the box was diagnosed first as the inserts
+    # and then as the parse -- both refuted by measurement -- before the HTTP
+    # walk was found (ADR 0053). Narrowing the walk then took it from ~15s to
+    # 2.3s and the pass still took 23.6s, because a single total cannot say
+    # which of four legs moved. Every one of those diagnoses cost a session and
+    # each was settled in minutes once the leg was timed, so the timing is now
+    # part of what a pass reports rather than something a future session
+    # reconstructs over SSH.
+    #
+    # Reported even when zero, for the reason `ALWAYS_REPORT` already gives
+    # about the skeptic fields: a *missing* key cannot be told from a leg that
+    # ran instantly, and those need opposite responses -- one means the leg was
+    # never timed, the other that it is not the problem.
+    leg_walk_ms: int = 0
+    leg_parse_ms: int = 0
+    leg_store_ms: int = 0
+    leg_price_ms: int = 0
     errors: list[str] = field(default_factory=list)
 
     # Always printed even when zero. "surfaced: 0" is the headline result of a
@@ -215,6 +236,10 @@ class PassCounts:
         "skeptic_blocked",
         "skeptic_unreviewed",
         "sweep_decision",
+        "leg_walk_ms",
+        "leg_parse_ms",
+        "leg_store_ms",
+        "leg_price_ms",
     )
 
     def as_dict(self) -> dict[str, Any]:
@@ -1064,6 +1089,7 @@ def run_pricing_pass(
     machines happen to hold the key -- so the seam is in the signature, where it
     is visible, rather than resolved from module scope where it is not.
     """
+    priced_started = time.perf_counter()
     stamp = now if now is not None else now_ms()
     risk = risk or RiskConfig()
     if risk.underived:
@@ -1375,9 +1401,14 @@ def run_pricing_pass(
     # then died in scoring. `run_loop.py` reports the counts on that path
     # explicitly, which is where the knowledge of "there is more to come"
     # actually lives.
-    return _review_and_persist(
+    # Timed around the review-and-persist leg too, not just the devig loop
+    # above it: `review` leaves the process for Anthropic, so a pass that goes
+    # slow because the fleet is slow must not read as "pricing is slow".
+    priced = _review_and_persist(
         conn, pending, counts=counts, review=review, now=stamp
     )
+    priced.leg_price_ms = int((time.perf_counter() - priced_started) * 1000)
+    return priced
 
 
 def _review_and_persist(
@@ -1953,6 +1984,7 @@ async def run_kalshi_pass(
     honest response there is to go and look rather than to fetch nothing and
     report a quiet slate.
     """
+    walk_started = time.perf_counter()
     if series_tickers:
         raw_events: list[dict] = []
         for series in series_tickers:
@@ -1970,11 +2002,18 @@ async def run_kalshi_pass(
         raw_events = [
             e async for e in kalshi_client.events(with_nested_markets=True)
         ]
+    parse_started = time.perf_counter()
+    counts.leg_walk_ms = int((parse_started - walk_started) * 1000)
+
     events = discover_from_events(
         raw_events, always_log_summary=log_discovery_summary
     )
+    store_started = time.perf_counter()
+    counts.leg_parse_ms = int((store_started - parse_started) * 1000)
+
     upsert_discovered(conn, events, now=now)
     counts.markets_quoted = store_quotes_from_discovery(conn, events, now=now)
+    counts.leg_store_ms = int((time.perf_counter() - store_started) * 1000)
     return events
 
 
