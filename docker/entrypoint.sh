@@ -163,8 +163,35 @@ shutdown() {
 trap shutdown INT TERM
 
 echo "[entrypoint] starting backend on 127.0.0.1:8000"
+# `--timeout-keep-alive` must exceed the health check interval, and uvicorn's
+# default of 5s does not. Fly checks port 3000 every 15s on live and every 30s
+# on demo; Next proxies that to uvicorn over a pooled connection it keeps
+# between checks. With the upstream closing at 5s, the socket Next reuses is
+# already gone -- the request dies with ECONNRESET, Next logs "Failed to proxy
+# http://127.0.0.1:8000/api/health Error: socket hang up", and Fly marks the
+# machine unhealthy while the backend is perfectly fine.
+#
+# Measured on the live machine 2026-08-19, driving the proxy on port 3000 over
+# one reused connection:
+#
+#     15s between requests (Fly's live interval)   5 failures of 10
+#      3s between requests (inside the 5s window)  0 failures of 10
+#
+# and the failures alternate exactly -- reuse dies, reconnect succeeds, next
+# reuse dies -- which is the signature of the upstream closing first rather
+# than of anything being slow. In the same window `/api/health` on port 8000
+# answered 50 of 50 direct probes, worst case 1.6s, while IO pressure on the
+# box hit 90%. **The backend was never the thing failing**, which is why three
+# earlier sessions attributed this flapping to CPU saturation from long passes
+# and none of the fixes stopped it. See
+# `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`.
+#
+# 75s clears both intervals with room. The guard that keeps it clearing them is
+# `tests/test_keepalive_outlives_health_check.py`, which reads the interval out
+# of every fly config rather than trusting this comment.
 python -m uvicorn backend.api.routes:create_app --factory \
-  --host 127.0.0.1 --port 8000 --no-access-log &
+  --host 127.0.0.1 --port 8000 --no-access-log \
+  --timeout-keep-alive 75 &
 backend_pid=$!
 pids="${pids} ${backend_pid}"
 
