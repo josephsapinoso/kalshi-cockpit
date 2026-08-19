@@ -94,6 +94,29 @@ and the next quote pass would block behind it — turning a disk fix into a
 latency incident. Both bounds are needed and neither substitutes for the
 other.
 
+### The two bounds are coupled to the pass interval, and the arithmetic is tight
+
+A batch of 20,000 takes ~20s against the live table, so the 5s budget buys
+**exactly one batch per pass**. Throughput is therefore
+`DELETE_BATCH x passes-per-day`, and it has to beat the table's growth or
+the prune loses ground while appearing to work:
+
+```
+96 full passes/day x 20,000  =  1.92M pruned/day
+observed growth              =  1.30M rows/day
+net drain                    =  0.62M/day  ->  ~2.8 days to clear the backlog
+```
+
+**Lowering `DELETE_BATCH` for a shorter stall would invert this.** At 5,000
+it is 480k/day against 1.3M of growth -- the table grows forever while
+`quotes_pruned` reports a healthy non-zero number every pass. Nothing in
+the code couples these three quantities, so the check is this paragraph:
+**change either constant and re-do the arithmetic against current growth.**
+
+The tell that the backlog is still draining is `quotes_pruned` sitting at
+exactly `DELETE_BATCH` every pass. When it drops below, the prune has
+caught up and is in steady state.
+
 **Both counts are reported on the pass line** (`quotes_pruned`,
 `unmatched_pruned`), always, including zero: a prune that has stopped finding
 anything and a prune that has stopped running produce the same silence.
