@@ -56,6 +56,7 @@ What this does NOT do
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,23 @@ DEFAULT_UNMATCHED_RETENTION_MS = 7 * _MS_PER_DAY
 #: Batching lets the writer interleave.
 DELETE_BATCH = 20_000
 
+#: How long a prune may hold the pass, in seconds.
+#:
+#: **Batching alone did not bound this, and the first live run proved it.** The
+#: batch size limits how long one `DELETE` holds the write lock, which is a
+#: different quantity from how long the *pass* is blocked -- the prune runs
+#: inside the pass, so a loop that deletes until nothing matches blocks the
+#: recorder for the whole backlog however small the batches are. On the first
+#: run, 2026-08-19, that was 1.25M rows at ~60k/minute with 1.8M still to go,
+#: and `recorder.age_ms` climbed one second per second for the duration: no
+#: quotes recorded at all while it ran.
+#:
+#: So the prune takes a time budget and leaves the rest for the next pass. A
+#: backlog drains over several passes instead of one long stall, and the
+#: steady state -- one pass's worth of newly-aged rows -- finishes well inside
+#: the budget and is unaffected.
+DEFAULT_BUDGET_S = 5.0
+
 
 @dataclass(frozen=True)
 class PruneResult:
@@ -95,13 +113,20 @@ class PruneResult:
         return self.quotes_deleted + self.unmatched_deleted
 
 
-def _delete_in_batches(conn, sql: str, params: tuple) -> int:
-    """Run a bounded `DELETE` until it stops matching. Returns rows removed.
+def _delete_in_batches(conn, sql: str, params: tuple, *, budget_s: float) -> int:
+    """Run a bounded `DELETE` until it stops matching or the budget runs out.
 
     Each batch is its own transaction. A crash midway therefore leaves the
     table partly pruned rather than rolled back, which is the correct
     direction: the rows were surplus, and resuming simply removes the rest.
+
+    The budget is checked *between* batches, never inside one, so the deadline
+    is honoured to within one batch rather than exactly. That is deliberate:
+    the alternative is abandoning a `DELETE` mid-statement, and a prune that
+    can leave a half-applied transaction behind is worse than one that
+    overruns by a few hundred milliseconds.
     """
+    deadline = time.monotonic() + budget_s
     removed = 0
     while True:
         cursor = conn.execute(sql, params)
@@ -109,9 +134,17 @@ def _delete_in_batches(conn, sql: str, params: tuple) -> int:
         if not cursor.rowcount:
             return removed
         removed += cursor.rowcount
+        if time.monotonic() >= deadline:
+            return removed
 
 
-def prune_quotes(conn, *, now: int, retention_ms: int = DEFAULT_QUOTE_RETENTION_MS) -> int:
+def prune_quotes(
+    conn,
+    *,
+    now: int,
+    retention_ms: int = DEFAULT_QUOTE_RETENTION_MS,
+    budget_s: float = DEFAULT_BUDGET_S,
+) -> int:
     """Drop quotes older than the window whose ticker never produced a bet.
 
     The `NOT IN` is against `recommendations.ticker` rather than against a
@@ -129,11 +162,16 @@ def prune_quotes(conn, *, now: int, retention_ms: int = DEFAULT_QUOTE_RETENTION_
         "  LIMIT ?"
         ")",
         (now - retention_ms, DELETE_BATCH),
+        budget_s=budget_s,
     )
 
 
 def prune_unmatched(
-    conn, *, now: int, retention_ms: int = DEFAULT_UNMATCHED_RETENTION_MS
+    conn,
+    *,
+    now: int,
+    retention_ms: int = DEFAULT_UNMATCHED_RETENTION_MS,
+    budget_s: float = DEFAULT_BUDGET_S,
 ) -> int:
     """Drop unmatched-event diagnostics older than the window.
 
@@ -149,6 +187,7 @@ def prune_unmatched(
         "  SELECT id FROM unmatched_events WHERE observed_ms < ? LIMIT ?"
         ")",
         (now - retention_ms, DELETE_BATCH),
+        budget_s=budget_s,
     )
 
 
@@ -158,6 +197,7 @@ def prune(
     now: int,
     quote_retention_ms: int = DEFAULT_QUOTE_RETENTION_MS,
     unmatched_retention_ms: int = DEFAULT_UNMATCHED_RETENTION_MS,
+    budget_s: float = DEFAULT_BUDGET_S,
 ) -> PruneResult:
     """Both prunes, for the full pass to call once per slow interval.
 
@@ -166,9 +206,14 @@ def prune(
     would run during exactly the minutes a bettable window is open.
     """
     result = PruneResult(
-        quotes_deleted=prune_quotes(conn, now=now, retention_ms=quote_retention_ms),
+        quotes_deleted=prune_quotes(
+            conn, now=now, retention_ms=quote_retention_ms, budget_s=budget_s
+        ),
+        # Its own budget, not the remainder of the quotes one: a large quote
+        # backlog would otherwise starve this table indefinitely, and the
+        # table that is never reached is the one nobody notices growing.
         unmatched_deleted=prune_unmatched(
-            conn, now=now, retention_ms=unmatched_retention_ms
+            conn, now=now, retention_ms=unmatched_retention_ms, budget_s=budget_s
         ),
     )
     if result.total:

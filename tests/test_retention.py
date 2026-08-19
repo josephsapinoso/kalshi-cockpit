@@ -221,3 +221,66 @@ class TestItRunsOnTheSlowCadenceOnly:
             "the full pass no longer prunes, so both tables are unbounded "
             "again -- the volume filled on 2026-08-16 for this reason"
         )
+
+
+class TestThePruneCannotHoldThePass:
+    """Batching bounds the lock; only the budget bounds the pass.
+
+    These are different quantities and conflating them cost a live stall. The
+    prune runs *inside* the pass, so a loop that deletes until nothing matches
+    blocks the recorder for the whole backlog no matter how small each batch
+    is. Measured on the first live run, 2026-08-19: 1.25M rows removed at
+    ~60k/minute with 1.8M still pending, and `recorder.age_ms` climbing one
+    second per second throughout -- no quotes recorded at all while it ran.
+    """
+
+    def test_it_stops_at_the_budget_and_leaves_the_rest(self, monkeypatch, conn):
+        """A backlog drains over passes rather than in one stall."""
+        monkeypatch.setattr(retention, "DELETE_BATCH", 1)
+        for i in range(50):
+            add_quote(conn, f"OLD{i}", age_days=10)
+
+        # A budget of zero still does one batch: the deadline is checked after
+        # a delete, never instead of one, so the prune always makes progress.
+        removed = retention.prune_quotes(conn, now=NOW, budget_s=0)
+
+        assert removed == 1, "the budget stopped the prune before it did any work"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM kalshi_quotes").fetchone()[0] == 49, (
+            "the prune ran past its budget; on live this blocked the recorder "
+            "for the whole backlog"
+        )
+
+    def test_a_generous_budget_still_finishes_the_job(self, conn):
+        """The budget must not turn a small steady-state prune into a dribble."""
+        for i in range(5):
+            add_quote(conn, f"OLD{i}", age_days=10)
+
+        removed = retention.prune_quotes(conn, now=NOW, budget_s=60)
+
+        assert removed == 5
+        assert tickers(conn) == []
+
+    def test_unmatched_gets_its_own_budget_not_the_remainder(self):
+        """A quote backlog must not starve the other table indefinitely.
+
+        If both prunes shared one deadline, the quotes prune would consume it
+        every pass for as long as its backlog lasted and `unmatched_events`
+        would never be reached -- growing unbounded behind a rule that looked
+        like it covered it.
+        """
+        import inspect
+
+        source = inspect.getsource(retention.prune)
+        quotes_at = source.index("prune_quotes")
+        unmatched_at = source.index("prune_unmatched")
+        after = source[unmatched_at:]
+
+        assert "budget_s=budget_s" in after, (
+            "prune_unmatched no longer receives a full budget of its own"
+        )
+        assert source.count("budget_s=budget_s") == 2, (
+            "the two prunes must each get the full budget, not one shared "
+            "deadline -- a quote backlog would starve unmatched_events"
+        )
+        assert quotes_at < unmatched_at

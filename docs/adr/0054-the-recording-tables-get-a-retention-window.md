@@ -74,7 +74,22 @@ On live this keeps 4.8% of the table unconditionally and makes 45.5% of
 resolved: a rule that spared resolved rows would spare nothing while reading as
 a safeguard.
 
-**Batched at 20,000 rows per statement.** A single unbounded `DELETE` over
+**Bounded twice: 20,000 rows per statement, and 5 seconds per pass.**
+
+The batch size limits how long one `DELETE` holds the write lock. That is
+**not** the same quantity as how long the *pass* is blocked, and conflating
+them cost a live stall on the first run: the prune runs inside the pass, so
+deleting until nothing matches blocked the recorder for the whole backlog
+however small the batches were. Measured 2026-08-19: 1.25M rows removed at
+~60k/minute with 1.8M still pending, `recorder.age_ms` climbing one second
+per second throughout. The time budget was added in the same session that
+shipped the bug.
+
+Each table gets its own full budget rather than a shared deadline, so a
+quote backlog cannot starve `unmatched_events` indefinitely.
+
+The original single-bound reasoning, kept because it is still true of the
+batch size: A single unbounded `DELETE` over
 millions of rows holds the write lock for its whole duration, and the next quote
 pass would block behind it — turning a disk fix into a latency incident.
 
