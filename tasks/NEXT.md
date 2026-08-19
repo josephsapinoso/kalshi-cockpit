@@ -110,13 +110,19 @@ Full suite 3,462 passed / 10 xfailed, ruff and tsc clean, build clean,
 `check_mobile` clean at 390/768/1024/1440/1920/2560 against a local build off
 the seeded demo, 390px screenshot read.
 
-**Demo is deployed on `fc51668` and verified two ways**: `build.git_sha` matches
-HEAD, and the served `/slate` HTML carries `w-full xl:col-span-full` on the
-strip wrapper with no `hidden` anywhere -- so the phone visibility is confirmed
-on the deployed page, not only in the source. **Live is one commit behind and
-needs Joe's dispatch**; the classifier refused it again, and refused the
-combined demo+live command as a unit while the demo-only call went through, so
-issue them separately.
+**Both instances are deployed and current.** Demo went out on `fc51668` and
+verified two ways -- `build.git_sha`, and the served `/slate` HTML carrying
+`w-full xl:col-span-full` on the strip wrapper with no `hidden` anywhere, so the
+phone visibility is confirmed on the deployed page rather than only in source.
+Joe then dispatched live, which is on `c79a733` = HEAD: `status: ok`,
+`/api/health` in 0.14s warm, `recorder.age_ms` ~30s, `live_quotes_available:
+true`, `undelivered_last_24h: 0`, `notifications.total_ever` 108 (up one from
+107 earlier in the session -- the channel is delivering).
+
+**The live dispatch was refused from here for the third session running**, so
+plan for it: hand Joe the one-liner rather than spending a turn rediscovering
+the block. The classifier also refused a combined demo+live command *as a unit*
+while the demo-only call went through -- issue them separately.
 
 ### Chrome: demo is permitted, live is not, and `navigate` lies about it
 
@@ -142,7 +148,10 @@ Before the restart *both* hosts failed, and this file briefly concluded "so it
 is not a per-site permission". That was wrong: it was read off a broken
 extension. It is a per-site permission, and **live is the one missing.** Joe
 needs to allow `kalshi-cockpit.fly.dev` in the extension's site list before any
-future session can see a live screen.
+future session can see a live screen. **Re-checked once after the live
+deploy and it is still blocked**, so the permission had not been added as of
+session end -- assume it is still missing and test it with one call before
+planning on it.
 
 **What that bought anyway:** the deployed demo's `/slate` was read at 390px on
 the real internet, showing the strip rendering under the Houston row --
