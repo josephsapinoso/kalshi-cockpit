@@ -1,8 +1,16 @@
-# Live OOM-killed itself at 18:59:16Z, and memory pressure fits this incident better than table size does
+# Live OOM-killed itself, then stalled in the kernel waiting on a page. Memory is the mechanism.
 
-Taken 2026-08-19 19:30-19:50Z on live (`a482fea`), while watching for the
+Taken 2026-08-19 19:30-20:21Z on live (`a482fea`), while watching for the
 `link slow` line the previous handoff asked for. The OOM was found by accident;
 the memory measurements that follow it were not.
+
+**This file was written in two passes and the second one upgrades the first.**
+The body below hedges -- correctly, at the time -- that memory pressure was a
+well-fitting *hypothesis*. Seventeen minutes later the loop was caught stopped
+in `D (disk sleep)` on `folio_wait_bit_common` at 663 MB, which is the mechanism
+rather than a fit. **Read the 20:05-20:21Z section before quoting the hedge.**
+The hedge is kept because the order is the point: it was a hypothesis, it earned
+a measurement, and the measurement is what settled it.
 
 ## What this establishes
 
@@ -15,10 +23,16 @@ that the page cache available to a **1.5 GB** database whose hot index is
 
 ## What it does not
 
-**It does not establish that memory pressure causes the slow state.** That is
-the seventh candidate mechanism on this incident and six of the first six were
-wrong. What is claimed here is narrower and is argued below: it is the first
-candidate that predicts the *timing* behaviour instead of explaining it away.
+**It does not establish that memory pressure explains the ORIGINAL slow state**
+-- the 12-20s `leg_price_link_ms` swings of 16:48Z. It establishes that memory
+pressure stops the loop dead, which is a different and larger claim about a
+different observation. The two may be the same thing at two severities; that is
+not shown here.
+
+This was the seventh candidate mechanism on this incident and six of the first
+six were wrong. The reason it is not written up as the seventh guess is the
+`D`-state reading: the others were all inferences from timing, and this one is
+the process caught in the act.
 
 **One OOM event.** The log buffer reaches back only to ~17:56Z, so whether this
 recurs on a schedule, or had happened before today, is unknown from here.
@@ -133,3 +147,67 @@ arithmetic: fewer rows is a smaller index is more of it resident. That was not
 the reason it was chosen and it does not become a second justification for it --
 it is stated so that a future session reading this file does not treat the two
 as competing work.
+
+## 20:05-20:21Z — the same failure at a lower severity, caught in the act
+
+The loop stopped writing at **20:04:58Z** and was still stopped seventeen
+minutes later. `/api/health` reported `recorder.age_ms` climbing one second per
+second. The machine stayed up and the API kept answering; only the loop was
+gone.
+
+Read straight off `/proc`:
+
+```
+pid 670  python       state=S (sleeping)   rss=97MB   wchan=ep_poll
+pid 705  next-server  state=R (running)    rss=52MB   wchan=0
+pid 706  python       state=D (disk sleep) rss=663MB  wchan=folio_wait_bit_common
+         cmd: python scripts/run_loop.py --db /data/cockpit.db --interval 900 --fast
+```
+
+**`D` is uninterruptible sleep and `folio_wait_bit_common` is waiting on a page.**
+The loop is not slow, not deadlocked on a lock, and not waiting on the network:
+it is blocked in the kernel on page IO, at **663 MB RSS — 12 MB below the
+675,560 kB the OOM killer took it at**.
+
+**This is the mechanism rather than a correlation**, and it is what the earlier
+section could not claim. The hypothesis was *memory pressure evicts the page
+cache and index writes go to disk*; the observation is the writer stopped inside
+the kernel's page-wait path with memory exhausted. The 18:59Z OOM kill and this
+stall are the same failure at two severities: thrash, then either recover or be
+killed.
+
+It also retires the last thing "table size" had going for it as a rival
+explanation. A large table makes each write cost more pages; it does not put a
+process in `D` state with 20 MB free.
+
+### The measurement perturbed the system, and the amount is not knowable from here
+
+**Between 19:43Z and 20:17Z this session opened an `flyctl ssh console` roughly
+every 45 seconds** to sample `/proc`. Each spawns a process on a box that had
+**54 MB free**. The live log for that period is mostly `New SSH session` lines.
+
+The stall began at ~20:05Z, a few minutes into the densest run of that sampling.
+
+**What can be said:** the loop did not recover in the three minutes after the
+sampling stopped, and the 18:59Z OOM kill happened with no sampling running at
+all. So the failure is not manufactured. **What cannot:** whether the sampling
+advanced this particular stall, or how much. It is not separable after the fact.
+
+The general rule, which this file is the second half of the evidence for:
+**do not diagnose a resource-starved box by repeatedly consuming that
+resource.** The same session had already noted that heavy SQL on live would
+contaminate the latency it was measuring, and then spent thirty minutes spawning
+processes on a memory-starved machine. The safe instruments here are the ones
+that cost the box nothing — the pass lines it already emits, and `/api/health`,
+which is one keyed read.
+
+### What this makes urgent, in order
+
+1. **Headroom.** 962 MB with a ~585 MB steady-state loop and a ~70 MB full-pass
+   spike leaves no margin at all. Whether the answer is a bigger VM or a smaller
+   process is a decision, not a measurement.
+2. **The walk.** `raw_events = [e async for e in kalshi_client.events(...)]` on a
+   full pass materialises the whole catalogue. Still unverified as the holder of
+   the 585 MB; now the first thing worth verifying.
+3. **ADR 0055 and the prune ceiling.** Fewer rows is a smaller index is more of
+   it resident. Neither is a fix for this on its own.
