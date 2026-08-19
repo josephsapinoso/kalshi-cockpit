@@ -152,7 +152,21 @@ the two disagreed for at least three days and the optimistic one is the one
   than three days no longer exist. Nothing reads them today. A future analysis
   that wants them must raise the window here *before* it needs them.
 
-## What would falsify this
+## What would falsify this -- and the wrong way to check it
+
+**Do not read `leg_store_ms` off a pass that pruned.** The prune and the
+store write into the same index in the same pass, so a pruning pass measures
+the store leg while millions of btree pages are being freed underneath it.
+Observed 2026-08-19 on passes that pruned 20k-40k rows: **5,416ms then
+10,450ms**, varying 2x with the table size barely moving. That is the prune
+showing up in the store leg, not evidence about either.
+
+**The clean measurement is a QUOTE pass**, which never prunes (the window
+gate and the full-pass-only rule both see to that) and does the same store
+work. Compare quote-pass `leg_store_ms` before and after the table is
+trimmed. At the time of writing no instrumented quote pass had been
+observed at all, so the prediction below is completely untested.
+
 
 `leg_store_ms` staying at 6–14s after the table has been trimmed. That would
 mean the insert cost is not driven by index size, and the latency argument
