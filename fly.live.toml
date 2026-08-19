@@ -431,7 +431,26 @@ primary_region = "ord"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1gb"
+  # **2gb because 1gb was measured, not because bigger is safer.** On
+  # 2026-08-19 the loop held ~585 MB steady with a ~70 MB spike on every full
+  # pass, against 962 MB usable. That left `MemAvailable` at 21-82 MB and the
+  # page cache at 27-135 MB -- for a 1546 MB database whose hot index alone is
+  # 476 MiB, so under a tenth of the index the pass writes into every fifteen
+  # seconds could stay resident.
+  #
+  # The box did not merely run slowly. It OOM-killed the loop at 18:59:16Z
+  # (anon-rss 675,560kB), and twice more stalled it in `D (disk sleep)` on
+  # `folio_wait_bit_common` for 12-18 minutes at a stretch -- blocked in the
+  # kernel waiting on a page, with the API still answering health checks from a
+  # different process the whole time.
+  # `docs/measurements/2026-08-19-live-oom-killed-itself.md`.
+  #
+  # **This buys headroom; it does not fix the growth.** `kalshi_quotes` was
+  # growing +6.4M rows/day against a prune whose ceiling is half the write rate
+  # (ADR 0055, and the prune ceiling item it explicitly leaves open). A larger
+  # index eats a larger cache. If this line ever needs raising again, that is
+  # the thing to fix rather than this number.
+  memory = "2gb"
 
 [checks.health]
   type = "http"
