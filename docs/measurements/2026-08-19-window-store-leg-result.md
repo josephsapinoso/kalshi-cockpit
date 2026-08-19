@@ -238,6 +238,31 @@ before an event late in the loop could see fixtures an earlier one could not.
 state's 2.1s is the same 456 calls against a smaller table. Verify on live
 before believing it.
 
+### Verified on live, 17:26-17:31Z (`a482fea`), 14 consecutive quote passes
+
+```
+                    link      price     store      took_s
+before (fast)   2023-2423  2167-2570  3405-5359   8.1-10.6
+after            251- 371   491-1177  3814-10001   6.8- 9.6
+```
+
+**`leg_price_link_ms` fell 2.1s -> 0.25s, about 8x**, and pricing fell with it
+to ~0.59s. This is the *fast* state on both sides — the same 456 calls that
+now number about five — so it is the multiplier being removed, exactly as
+predicted, and not the slow state being avoided.
+
+**The slow state has not been observed since and that is not evidence yet.**
+Its arithmetic is 456 calls x ~24ms; at five calls the same per-call cost is
+~0.12s, so it should not be reachable. But the conditions that produced it —
+a window that has been sweeping into `odds_snapshots` for a while — have not
+recurred since the deploy. **Confirm on the next open window**, by watching for
+a `link slow` line that should now never fire.
+
+`leg_store_ms` is now the largest leg at 3.8-10.0s. It was never the thing
+pushing a pass over its cadence and still is not: `took_s` sits at 6.8-9.6s
+against 15s.
+
+
 
 
 

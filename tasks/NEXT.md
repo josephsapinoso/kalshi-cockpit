@@ -32,8 +32,29 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,512 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: find out why `link_discovered_events` costs 20s some passes and
-2.1s others.** The pricing leg was split into four phases and deployed 16:34Z,
+**THE JOB: confirm on the next open window that `link slow` never fires.**
+The previous job is done. The inner timer named the cause in one pass —
+`_match_candidates` was **97.5%** of the leg, called **456 times** with
+arguments that vary only by `sport_key` — and it is now memoised per sport per
+pass, like the aliases beside it always were.
+
+Verified on live over 14 consecutive quote passes: **link 2.1s -> 0.25s (8x)**,
+pricing 2.2s -> 0.59s, `took_s` 8.1-10.6s -> 6.8-9.6s against a 15s cadence.
+
+**What is not yet confirmed is the slow state.** Its arithmetic (456 calls x
+~24ms) should be unreachable at five calls, but the conditions that produced it
+have not recurred since the deploy, so this is a prediction. Stream
+`flyctl logs -a kalshi-cockpit` during the next open window and grep for
+`link slow`. **It should never appear.** If it does, read the new breakdown —
+it will name a different term this time.
+
+The drift is also explained, which no earlier theory managed: the query is a
+`SELECT DISTINCT` over `odds_snapshots`, which grows ~900 rows per odds sweep,
+so a constant ~456 calls cost 2.1s early in a window and 11-20s later. Process
+uptime was never the variable.
+
+Historical, for the record only: **"why does link cost 20s some passes and 2.1s
+others"** The pricing leg was split into four phases and deployed 16:34Z,
 and the slow state returned on its own at 16:48Z with the window unchanged. The
 split named the culprit in one pass:
 
