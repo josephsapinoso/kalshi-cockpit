@@ -32,98 +32,89 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,565 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: live OOM-kills itself, and that is now the lead.** Everything below
-about the link leg is *answered*; this is what replaced it.
+**Live is on `f198404` with 2 GB and is healthy for the first time today.**
+Measured 20:41-22:08Z, 234 passes, inside an open `baseball_mlb` sweep window:
 
 ```
-18:36Z-18:52Z  seven health-check failures
-18:59:16Z      Out of memory: Killed process 707 (python)  anon-rss 675560kB
-18:59:43Z      machine restarted -- no deploy, same release, same machine id
-19:00Z on      took_s ~9s, store ~6s, link ~260ms      <- fast again
+                 before (a482fea, 1gb)      after (f198404, 2gb)
+took_s              18-35s  (limit 15)      2.9-3.4s
+leg_store_ms         8,000-21,400ms         123-232ms
+leg_price_link_ms   11,000-20,000 bad       58-258ms
+cadence warnings    nearly every pass       0
+quote rows/day       7.77M written          2.25M written, 13.47M pruned
 ```
 
-Steady state is **~555 MB RSS on a 962 MB box**, and **every full pass adds
-~55 MB and halves the page cache** (`MemAvailable` 76 -> 35 MB, cached
-126 -> 76 MB). So a **1546 MB** database whose hot index is **476 MiB** gets
-**76-130 MB** of cache: under a tenth of the index the pass writes into every
-fifteen seconds can be resident.
+`link slow`: **never fired** in the window. The previous handoff's job is done.
 
-**Why this is the lead and not candidate seven of seven.** It is the first one
-that predicts the *timing* behaviour instead of explaining it away — restart
-fixes it (the restart was an OOM kill), the transition is abrupt not a ramp (a
-cache falls off a cliff), "uptime" nearly fits but not quite (RSS is not linear
-in uptime; the spike is per full pass). It does **not** compete with the
-table-size story: cache residency is the mechanism by which table size costs
-anything. `docs/measurements/2026-08-19-live-oom-killed-itself.md`.
+**THE JOB: watch it hold, and do not fix anything yet.** Everything below is
+open, and none of it is urgent in the way this morning's was. The single most
+valuable thing the next session can do is confirm this is stable over hours
+rather than 87 minutes — specifically that memory does **not** climb into the
+new ceiling. Read `/api/health` (`recorder.age_ms`) and the pass lines. **Do
+NOT sample live over `flyctl ssh console` on a loop** — see `lessons.md`, that
+mistake is one day old.
 
-**A prediction was registered and is unchecked.** The first OOM came 95 minutes
-after boot. The same interval from the 18:59:43Z boot is **~20:34Z**. If it
-recurs near there the OOM is periodic; if it does not, the 95 minutes was
-incidental and the real trigger is something else. **Check the log before
-theorising.**
+**Two things shipped today and both need a second look, not more work.**
 
-**Do NOT re-open the health-check keep-alive fix on this.** It was measured
-working at 15:30Z (0 failures of 12). Seven failures in the sixteen minutes
-before an OOM kill is the box dying, not the proxy hop regressing.
+1. **ADR 0055** — a quote row is written only when it moves; `confirmed_ms`
+   carries freshness. Working: **5-14% of ~6,900 markets written per pass**.
+   The check that matters is *correctness*, not speed: has anything gone quiet?
+   `dropped_no_kalshi_quote`, `suppressed`, and the Board's drift column are
+   where a mistake here would show, and it would look like a market politely
+   having no opinion rather than an error.
+2. **2 GB** (`fly.live.toml`). Bought headroom; did not fix growth.
 
-**Unverified, and named so it gets tested rather than rediscovered:** no
-`cache_size` or `mmap_size` pragma is ever set, so SQLite is not holding the
-555 MB. `run_kalshi_pass` does `raw_events = [e async for e in
-kalshi_client.events(...)]`, and a **full** pass passes no `series_tickers` —
-so that is the whole catalogue with nested markets materialised into one list,
-over what is already an async generator. ADR 0053 measured that walk at 15.21s
-of transfer. The falsifiable version: RSS should rise during `leg_walk_ms` on a
-full pass and not on a quote pass's narrowed walk.
+**A CORRECTION LANDED AT 22:10Z AND IT IS THE MOST IMPORTANT THING TO READ.**
+`2026-08-19-the-prune-loses-to-the-writer.md` claimed the prune *"cannot win at
+any schedule"*, ceiling 3.84M rows/day. **That was the memory starvation
+measured a second way and written up as an independent finding.** The 40,000-row
+prune was not a config limit; `budget_s` buys as many batches as fit, and the
+20s batch cost was the symptom. With memory the same prune clears **440,000** in
+one pass and the table shrinks **11.2M rows/day**. The file is marked superseded
+in part; ADR 0055 stands on its *second* premise (84.5% of writes carried no
+information) and its first must not be cited onward.
 
-**THE PREVIOUS JOB IS DONE: `link slow` fired once, and it named a new term.**
+**The pattern, which is the actual lesson: every number taken from a degraded
+system describes the degradation.** Three numbers were taken off a box minutes
+from an OOM kill and only one was suspected of being a symptom.
 
-```
-19:31:15Z  link slow: 9641ms total; candidates 1450ms over 4 calls,
-           unmatched writes 8162ms, link writes 1ms, other 27ms
-           (554 discovered, 85 linked)
-```
+**Still open, in the order they are worth doing.**
 
-**The candidate cache holds — 4 calls, not 456.** The cost moved to
-`record_unmatched`, which was the *other* suspect the previous handoff named and
-which measured **117ms (1%)** at 17:16Z. It is now **8,162ms**, 70x, on the same
-code. `unmatched_events` takes ~465 rows a pass and its 7-day retention has not
-reached steady state, so it is still filling. Same shape as before: a write into
-a table that is still growing.
+- **`unmatched_events` is the next table with this shape.** ~451 rows a pass at
+  the new cadence is **~1.7M rows/day**, 7-day retention, so a ~12M-row steady
+  state it has not reached. `record_unmatched` was **8,162ms** in the one
+  `link slow` line today (19:31Z) and is 60-260ms now. It will come back as the
+  table fills. Same fix shape as ADR 0055 is available — it re-records the same
+  unmatched event hundreds of times a day — and **no production code reads it**
+  (`retention.py` says so; verify before acting).
+- **The window gate is one pass late, and after a restart the loop can take a
+  full 900s to notice a window at all.** Confirmed twice, most recently at
+  20:39Z: the deploy restarted the box mid-window and only full passes ran until
+  the next one latched. `run_loop.py:543` assigns `tempo.window_open` *after*
+  the pass; `:577` reads it *before*. One fix, its own ADR.
+- **What holds the ~585 MB is still unverified**, and it is now cheap to check
+  rather than urgent. No `cache_size`/`mmap_size` pragma is set, so SQLite is
+  not the holder. `run_kalshi_pass` does
+  `raw_events = [e async for e in kalshi_client.events(...)]`, and a **full**
+  pass passes no `series_tickers` — the whole catalogue, materialised into one
+  list, over what is already an async generator. Falsifiable: RSS should rise
+  during `leg_walk_ms` on a full pass and not on a quote pass.
+- **The 84.5% dedup is a property of the slate, not of Kalshi.** College
+  football and NFL are 57% of today's markets at 98-99% unchanged; today's
+  baseball runs 51-74%. As sports come into season the saving falls. Re-measure
+  when NFL/NBA start rather than assuming.
 
-**Also open, and the arithmetic is not close.**
-`kalshi_quotes` grows **+6.4M rows/day**: 7.77M written against a prune whose
-**absolute ceiling** — four full passes an hour, every hour, never gated — is
-3.84M/day. There is no schedule that breaks even.
-`docs/measurements/2026-08-19-the-prune-loses-to-the-writer.md`.
+**Do not re-derive these; they were eliminated by measurement today.**
+`priceable_series` (`kalshi_events` holds 1,590 rows; `leg_series_ms` reads **0**
+on live), the WAL (flat at 51.6 MB), and the store leg's `upsert` half
+(**38-44ms** against `quotes` at 82-193ms — the split in `0c609de` answered the
+question it was built for).
 
-**ADR 0055 is Joe's call and is built, tested and pushed but NOT DEPLOYED.**
-A quote row is written only when the quote moves; `confirmed_ms` carries
-freshness. 84.5% of consecutive observations are byte-identical
-(`2026-08-19-how-often-a-kalshi-quote-actually-moves.md`) — but that is a
-property of the *slate*, not of Kalshi: college football and NFL are 57% of
-today's markets at 98-99% unchanged, today's baseball runs 51-74%. On an
-all-active slate the rate lands near 3.5M/day against the same 3.84M ceiling,
-so **the prune's ceiling is still worth raising** and ADR 0055 does not close
-that item.
-
-**THE DEPLOY IS BLOCKED AND TWO COMMITS ARE WAITING ON IT.** `gh workflow run
-deploy.yml -f instance=live` is refused by the auto-mode classifier; Joe has to
-switch to manual mode. Waiting: `0c609de` (splits `leg_store_ms` into
-`upsert`/`quotes` and times the two pieces outside every leg) and `7ae3ffb`
-(ADR 0055). **Nothing about the OOM is fixed by either.**
-
-**Two candidates were eliminated cheaply and must not be re-derived.**
-`priceable_series` looked exactly like `_match_candidates` — a `SELECT DISTINCT`
-on an unindexed column, outside every leg — and `kalshi_events` holds **1,590
-rows**. The WAL is flat at 51.6 MB. Neither is the store leg.
-
-**A verification method that lies, now in `lessons.md`:** a `mode=ro` SQLite URI
-cannot create the `-shm` file it needs to read the WAL, so it serves the last
-checkpoint silently. Live reads were **749 seconds stale**. Caught because two
-reads eleven minutes apart returned byte-identical counts on a table taking
-~6,000 inserts every 25 seconds. Check `now - MAX(observed_ms)` before believing
-any aggregate, or read the pass lines instead — which is what every number in
-today's measurements now does.
+**Deploying works and needs two flags.** `gh workflow run deploy.yml -f
+instance=live -f confirm_live=kalshi-cockpit` — the guard rejects the dispatch
+without the second. In auto mode the classifier blocks live deploys, `flyctl
+machine restart` and `flyctl scale`; Joe switches to manual on request. Say it
+once and ask.
 
 Also open, and now measured rather than suspected:
 
@@ -133,8 +124,11 @@ Also open, and now measured rather than suspected:
   write it up as confirmed *or* refuted. The **disk** half stands — the DB
   file is flat at 1546.4 MB — but **that is not evidence the table stopped
   growing**, and it was read that way. ~25% of the file is freelist being
-  reused, so the row count can climb (+6.4M/day, measured 2026-08-19) behind a
-  flat file size. Size on disk and rows in a table answer different questions.
+  reused, so the row count can climb behind a flat file size. Size on disk and
+  rows in a table answer different questions. **The +6.4M/day this used to
+  quote is superseded** — after 2 GB and ADR 0055 the table *shrinks* 11.2M/day
+  (written 2.25M, pruned 13.47M). See the CORRECTION at the foot of
+  `2026-08-19-the-prune-loses-to-the-writer.md`.
 - **The window gate is one pass late, confirmed by prediction.**
   `scripts/run_loop.py:543` assigns `tempo.window_open` *after* the pass;
   `:577` reads it *before*. So the first full pass after a window opens still
