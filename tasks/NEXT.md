@@ -30,58 +30,189 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,489 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,512 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: confirm the store leg fell, at an open betting window.** Live flapped
-on 2026-08-19 because quote passes ran 27-77s on a 15s cadence. Two fixes have
-shipped and **neither is proven under load**:
+**THE JOB: time the pricing leg on a quote pass, before changing anything.**
+The 15:21Z test was taken and the previous brief's question is closed —
+`leg_store_ms` on a quote pass is **~4.5s against a projected 8-12s**, so the
+store leg is not what puts the pass over its cadence. `leg_price_ms` is, at
+**12-20s** of a 17-32s pass on a **15s** cadence.
 
-- **ADR 0053** narrowed the HTTP walk. Confirmed working on the live box —
-  `priceable_series` returns 19 series and the scoped walk measures 2.55s
-  against ~15s. This one is done.
-- **ADR 0054** put a retention window on `kalshi_quotes` and
-  `unmatched_events`, because the *store* leg had become the dominant cost —
-  6.0s then 14.0s per pass, against the 0.17s the previous handoff ruled it out
-  on. That 0.17s was measured at 279k rows; the table holds 6.9M.
+`leg_price_ms` also tracks the **window**, not the table: ~3s on every
+closed-window full pass all morning, then 20031 and 30086 once the window
+opened, while `markets_quoted` moved +9%. **That is a correlate, not a cause.**
+The plausible mechanism — pricing only has work when fresh odds exist to devig
+against — is written down in
+`docs/measurements/2026-08-19-window-store-leg-result.md` **so it can be tested,
+not adopted.** This is the fourth leg blamed on this incident and the first
+three were wrong; the two that were settled were settled by timing, in minutes.
+Time inside `run_pricing_pass` first.
 
-**Every leg sample so far is from a FULL pass with the window closed.** The
-test is a *quote* pass during an open window: read `leg_store_ms` on the pass
-line and check it against the 15s cadence. Projected ~8-12s, which is a
-projection with no margin, not a result.
+Also open, and now measured rather than suspected:
 
-**If `leg_store_ms` has not fallen**, ADR 0054's latency half is refuted —
-withdraw it, say so, and go to the write-side narrowing in STILL OPEN item 3.
-Its disk half stands on separate evidence either way.
+- **ADR 0054's latency half is UNRESOLVED**, by its own registered rule. The
+  table lost 28% of its rows and the prune-free store leg did not move
+  (before 5997/14030 at 6.9M, after 9164/14345 at 4.9M — n=2 a side). Do not
+  write it up as confirmed *or* refuted. The **disk** half stands: the DB file
+  has stopped growing.
+- **The window gate is one pass late, confirmed by prediction.**
+  `scripts/run_loop.py:543` assigns `tempo.window_open` *after* the pass;
+  `:577` reads it *before*. So the first full pass after a window opens still
+  prunes (measured: 15:32:14 pruned 40000 with the window open since 15:21Z).
+  Same root cause makes the loop take up to 900s to notice a window at all,
+  which is the more expensive half. One fix, its own ADR.
 
-Read `docs/measurements/2026-08-19-quote-pass-leg-attribution.md` before
-proposing any cause. It records three wrong attributions on this one incident,
-including one made in the session that wrote it, and all three came from
-skipping `n`.
+**Health check flapping is FIXED and verified on live** — two hops, both
+defaulting to a 5s keep-alive against a 15s check. `KEEP_ALIVE_TIMEOUT=50000`
+for Next and `--timeout-keep-alive 75` for uvicorn, in `docker/entrypoint.sh`.
+Live measured 0 failures of 12 at 15s spacing where it was 5 of 10 that
+morning, and no Fly check failure since the 15:30Z deploy. **Do not re-attribute
+this to CPU or long passes** — the backend answered 50 of 50 probes while IO
+pressure hit 90%. `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`
+records the wrong fix that shipped first and why its reasoning read as sound.
 
 Everything else is done and none of it is urgent: ADR 0047's plan is fully
 discharged (gloss = ADR 0050, strip = ADR 0051, phone = ADR 0052), and ADR 0038
-closed the hunt.
+closed the hunt. `VACUUM` is **not** wanted: 25.2% of the file is freelist and
+those pages are what is keeping it flat.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
-deploying were both pre-approved on 2026-08-18 and the deploy deny is
-lifted (pass `--build-arg GIT_SHA="$(git rev-parse HEAD)"`; deploy demo
-too — one image, two configs). `gh workflow run` is NOT blanket-blocked: the
-heartbeat dispatch went through where the live `deploy.yml` dispatch did not.
+deploying were both pre-approved on 2026-08-18. **The live deploy is blocked by
+the auto-mode classifier** — demo goes through, live does not; Joe switched to
+manual mode on request and it then worked. Say it once and ask, do not retry.
+`gh workflow run` is NOT blanket-blocked: the heartbeat dispatch went through
+where the live `deploy.yml` dispatch did not.
 
 GOTCHAS, each of which bit: Bash heredocs eat backticks/backslashes — long
-content via the Write tool, commit messages via `git commit -F <file>`.
-**Mixed line endings** — `frontend/src/lib/*.ts` is LF, `app/*/page.tsx` is
-CRLF; a byte edit written with `\n` silently matches nothing, and
-`str.replace` returns the input without erroring. Anything touching
-`bet_estimates` goes in `schema.sql`, never a migration. `git checkout <file>`
-wipes uncommitted edits — back up with a byte copy before disabling a guard to
-verify it (lessons.md, top). Run `date -u` before acting on any deadline
-sentence. To serve the app locally for `check_mobile`, the recipe is in the
-2026-08-19 entry below — `DB_PATH`, not `DATABASE_PATH`, and `pkill` does not
-work here.
+content via the Write tool, commit messages via `git commit -F <file>`. **Assert
+your edit changed something**; a `str.replace` that matches nothing returns the
+input silently, and it happened three times this session. **Mixed line endings**
+— `frontend/src/lib/*.ts` is LF, `app/*/page.tsx` is CRLF; `docker/entrypoint.sh`
+is LF. Anything touching `bet_estimates` goes in `schema.sql`, never a
+migration. `git checkout <file>` wipes uncommitted edits — back up with a byte
+copy before disabling a guard to verify it (lessons.md, top). Run `date -u`
+before acting on any deadline sentence — a deploy took 40 minutes this session
+and the window opened during it. `flyctl ssh console -C` works fine but always
+exits `Error: The handle is invalid.` on Windows; ignore it, the output above it
+is real.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
+
+---
+
+## 2026-08-19 ~16:20Z — THE 15:21Z TEST WAS TAKEN; THE STORE LEG IS INNOCENT, AND THE FLAPPING WAS NEVER THE BACKEND
+
+Both questions the previous brief left are answered, and a third problem that
+had been misattributed for three sessions is fixed and verified on live.
+
+### The registered read, written before the window opened
+
+`docs/measurements/2026-08-19-window-store-leg-plan.md`, committed 13:55Z.
+
+**The brief named a test that could not answer its own question.** It said to
+watch `leg_store_ms` on a **quote** pass — but every pre-ADR-0054 quote pass is
+uninstrumented and carries `took_s` only, so that comparison has **no
+before-side**. The isolating comparison is the **prune-free full pass**, which
+exists on both sides: this morning's two first-instrumented passes predate the
+prune, and a full pass inside an open window skips it (`runner.py:2102`).
+
+### ADR 0054's latency half: UNRESOLVED, by the rule registered in advance
+
+| when | rows | pruned | `leg_store_ms` |
+|---|---|---|---|
+| before | 6.9M | 0 | **5997**, **14030** |
+| after | 4.9M | 0 | **9164**, **14345** |
+
+9164 lands inside the before-pair's own spread, and the registered rule says
+that is UNRESOLVED. **The table lost 28% of its rows and the store leg did not
+detectably move.** Do not write this up as confirmed or refuted; n = 2 a side.
+
+The **disk** half stands and is stronger than before: quotes 6.9M -> 4.9M,
+unmatched 507k -> 357k, and the file has **stopped growing** (identical byte
+size across reads). 25.2% of it is now freelist, which is an argument *against*
+the open `VACUUM` item — those pages are exactly what keeps the file flat.
+
+### The handoff's own question, answered, and it is not the store leg
+
+`leg_store_ms` on 24 quote passes in the window: median **~4.5s**, range
+2.9-8.8s, against a projected 8-12s. Only 2 of 24 reach 8s.
+
+**`leg_price_ms` is the pass**: 12-20s of a 17-32s pass, on a **15s** cadence.
+The loop logged "a QUOTE pass took 25.0s" throughout. Same overrun that took
+live down yesterday, fourth leg to be blamed for it.
+
+And it tracks the **window**, not the table — ~3s on every closed-window full
+pass all morning, then 20031 and 30086 once the window opened, while
+`markets_quoted` moved +9%. **Correlate, not cause.** The mechanism is written
+down to be tested, not adopted. Time inside `run_pricing_pass` first; the two
+legs that were settled on this incident were settled in minutes by timing.
+
+### The window gate is one pass late — predicted in writing, then confirmed
+
+The plan registered a falsifiable prediction: `run_loop.py:543` assigns
+`tempo.window_open` **after** the pass, `:577` reads it **before**.
+
+```
+15:21Z    window opens
+15:32:14  full  took_s  94.3   quotes_pruned 40000   <- pruned on a stale flag
+15:46:48  full  took_s  51.2   quotes_pruned     0   <- gate latched
+```
+
+The stated falsifier (`quotes_pruned: 0` on that first pass) did not occur.
+`51.2` against the morning's 90-172s also confirms the gate works once latched.
+The same staleness makes the loop take up to 900s to notice a window at all,
+which is the more expensive half. One fix, its own ADR, not taken here.
+
+### THE FLAPPING WAS THE PROXY HOP, AND THE FIRST FIX WAS THE WRONG HOP
+
+Three sessions attributed live's health-check flapping to CPU saturation from
+long passes. It is not, and the disproof is direct:
+
+- **Two of three failures happened while no pass was running.**
+- The backend answered **50 of 50** probes on port 8000 — worst 1.6s — while IO
+  pressure on the box peaked at **90%**.
+- Fly checks **port 3000**, which is Next, not the backend.
+
+Both hops pooled a connection and **both defaulted to a 5 second keep-alive**
+against a 15s check, so the socket was always dead when reused. Driving it over
+one reused connection: **5 failures of 10** at 15s, **0 of 10** at 3s, failures
+alternating exactly. Nothing merely slow alternates.
+
+**I fixed the wrong hop first and deploying is how I found out.** The proxy's
+error line names port 8000, so uvicorn was fixed and shipped — and demo, running
+that fix, still failed 5 of 10, unchanged. *Fixing the hop an error message
+names is not the same as fixing the hop that is failing.* The real closer was
+Node's `server.keepAliveTimeout`.
+
+Shipped: `KEEP_ALIVE_TIMEOUT=50000` for Next (it has a **ceiling** too — Next
+never raises Node's 60s `headersTimeout`) and `--timeout-keep-alive 75` for
+uvicorn, so the inner hop outlives the outer. Floor is `interval + timeout +
+10s`, absolute rather than a ratio, because what is absorbed is one *late*
+check.
+
+Verified on live after deploy: **0 failures of 12** at Fly's own 15s spacing,
+and no Fly check failure since. Nine guards in
+`tests/test_keepalive_outlives_health_check.py`, each broken and watched go red.
+
+Suite **3,512 passed / 10 xfailed**, ruff clean. Live and demo both on
+`c77c35b`.
+
+### STILL OPEN
+
+1. **Time `leg_price_ms` inside `run_pricing_pass`.** It is the whole pass now.
+   Do not fix before timing — three of four attributions on this incident were
+   wrong, and every one came from reasoning instead of measuring.
+2. **The window gate reads a stale flag** (above). Fixing the cadence half is
+   worth more than the prune half.
+3. **`QUOTE_PASS_DURATION_BUDGET_S = 8.0`** still validates the configured
+   interval and never the observed duration — it logged the overrun all session
+   and stopped nothing. Unchanged from the previous entry, and now demonstrated
+   twice.
+4. **ADR 0054's latency half is UNRESOLVED**, not refuted. Its disk half is
+   confirmed. `VACUUM` is not wanted.
+5. Everything from the previous entries: Chrome's live-host permission, the
+   digest leading with `x / 300`.
 
 ---
 

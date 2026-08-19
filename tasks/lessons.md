@@ -25,6 +25,50 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — An error message names the hop it was thrown on, not the hop that is broken; and a fix is not a fix until it is measured after deploying
+
+Live's health check flapped for days. Three sessions blamed CPU saturation from
+long passes. It was two proxy hops each defaulting to a 5-second keep-alive
+against a 15-second check, so the pooled connection was always dead when reused
+— nothing to do with load at all.
+
+**What ruled the standing explanation out was reconstructing *when*, not
+measuring harder.** Pass start times were derived from `took_s` and the pass
+line's own timestamp; two of the three failures then fell in gaps where **no
+pass was running**. A theory about load has to survive the machine being idle,
+and checking that cost one derivation over data already in hand. Do it before
+building any instrument.
+
+**The convenient signal pointed at the wrong component and it read as
+evidence.** The app log said `Failed to proxy http://127.0.0.1:8000/api/health`.
+That names the backend, so the backend's keep-alive was raised and shipped. The
+next deploy still failed at exactly the same rate. The error was thrown by the
+client of the failing hop, and it named *its own* upstream — which was a real
+second instance of the same bug and not the one the platform was tripping on.
+**An error message tells you where something was noticed, not where it lives.**
+When a request crosses N hops, enumerate all N before fixing any.
+
+**And the disproof was already in hand and pointed the other way.** The backend
+answered 50 of 50 direct probes, worst case 1.6s, while IO pressure on the box
+hit 90%. A component that answers every request under the load you are blaming
+is not the component failing. That observation was made *before* the wrong fix
+shipped, and was not weighed against it, because the error message felt more
+specific than the measurement.
+
+**The general shape: a fix is a hypothesis, and deploying it is the
+experiment.** The wrong fix was tested on demo after deploying, at the deploy's
+own check interval, over one reused connection — which is the only reason two
+hops were ever found instead of one. Had it gone straight to live on a green
+`flyctl checks list`, it would have read as fixed: a single sample against a bug
+that fails every *other* request looks healthy half the time.
+
+So: **re-run the exact measurement that exposed the bug, on the deployed
+artifact, before believing it or shipping it further.** Not the platform's
+green tick, not a curl that happened to succeed — the measurement that failed,
+reproduced.
+
+---
+
 ## 2026-08-19 — A performance number expires when the thing it measured grows, and a benchmark that "isolates" a cost usually removes the cost
 
 Three attributions of one slow pass were wrong, in three consecutive sessions,
