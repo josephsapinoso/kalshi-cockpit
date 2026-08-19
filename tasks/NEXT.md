@@ -56,10 +56,35 @@ proposing a cause; it contains a wrong reading of mine from four hours earlier
 ("pricing tracks the window") and the measurement that refuted it, kept in
 order deliberately.
 
-**Time inside the call before changing it.** `alias_cache` is built fresh each
-pass, so a cold cache cannot explain a swing between adjacent passes. This
-incident has had five attributions and four were wrong; every one that was
-settled was settled by a timer in minutes.
+**The timer is already in, deployed, and armed — you probably do not need to
+write one.** `link_discovered_events` now times the candidate query (with a
+call count), the unmatched writes and the link writes, and emits a single
+
+    link slow: NNNNms total; candidates NNNms over NNN calls, unmatched
+    writes NNNms, link writes NNNms, other NNNms (531 discovered, 81 linked)
+
+whenever it exceeds `LINK_SLOW_REPORT_MS` (8s — chosen to sit in the empty gap
+between the two measured clusters, 2.0-2.4s fast and 12.7s+ slow). Conditional
+because this runs on the 15s cadence and an unconditional line would be ~5,700
+a day against a 100-line log buffer.
+
+**To catch it: stream `flyctl logs -a kalshi-cockpit` to a file during an open
+window and grep for `link slow`.** It did not fire in the 10 minutes after the
+17:04Z deploy — a restart lands you in the fast state — and on the previous
+cycle the flip came ~14 minutes after boot. `leg_price_link_ms` is on *every*
+pass line regardless, so you can see which state you are in without waiting.
+
+Two things worth knowing before you read the result. `_match_candidates` is
+called **once per event inside the loop** (531 calls a pass) with arguments that
+are identical for every event sharing a `sport_key` — the aliases beside it are
+cached and the candidates are not. And `record_unmatched` writes **450 rows per
+pass**, every 15s, into the table ADR 0054 put a retention window on. Both are
+plausible and neither is measured; the line above will say which, if either.
+
+**Do not fix before reading it.** `alias_cache` is built fresh each pass, so a
+cold cache cannot explain a swing between adjacent passes — that is the kind of
+plausible story this incident has now produced five of, four of them wrong.
+Every one that was settled was settled by a timer, in minutes.
 
 Also open, and now measured rather than suspected:
 
