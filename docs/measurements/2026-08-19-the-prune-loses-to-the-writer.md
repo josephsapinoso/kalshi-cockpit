@@ -1,4 +1,11 @@
-# The prune cannot win: 2 to 1 against ungated, 5.7 to 1 as it is scheduled
+# The prune loses 5.7 to 1 -- on a box that is out of memory
+
+> **SUPERSEDED IN PART. Read the CORRECTION at the foot of this file before
+> quoting anything above it.** The title used to end "2 to 1 against ungated",
+> asserting a structural ceiling. That ceiling was an artifact of the memory
+> starvation this file did not yet know about: given 2 GB the same prune clears
+> 440,000 rows in a pass where it had never once exceeded 40,000, and the table
+> shrinks by 11.2M rows/day. The write-rate measurements stand.
 
 Taken 2026-08-19 17:56-18:38Z on live (`a482fea`), from the pass lines
 themselves. Follows `2026-08-19-window-store-leg-result.md`, which closed the
@@ -225,3 +232,72 @@ Either the relationship is not linear in the region that matters -- plausible,
 if the index has outgrown the page cache -- or something else moved. **This is
 the sixth candidate mechanism on this incident and it gets no more credit than
 the five before it.** The split timer decides it.
+
+## CORRECTION, 22:10Z — "the prune cannot win at any schedule" was measured on a sick box
+
+**The headline of this file is wrong, and the arithmetic in it is right.** Both
+need saying, because the error is not in the sums.
+
+After live was given 2 GB and ADR 0055 shipped (`f198404`, 20:39Z), 87.7 minutes
+and 234 passes:
+
+```
+quote rows WRITTEN   137,079   ->   2,251,212/day
+quote rows PRUNED    820,000   ->  13,466,641/day
+NET                                -11,215,429/day     <- the table SHRINKS
+```
+
+And the prune sizes, which are the point:
+
+```
+retention: pruned 440000 kalshi_quotes ...
+retention: pruned 380000 kalshi_quotes ...
+```
+
+**Against `40,000` on every single prune this file recorded.**
+
+### Where the reasoning failed
+
+The "absolute ceiling" of 3.84M/day was built from `40,000 rows per full pass`,
+and that figure was treated as a property of the configuration --
+`DEFAULT_BUDGET_S = 30.0` divided by a batch cost of ~20s, giving two batches.
+It is not. `budget_s` buys **as many batches as fit in thirty seconds**, and the
+20s batch cost was itself a symptom of the thing being diagnosed: a box with
+27-135 MB of page cache for a 476 MiB index, where every `DELETE` walked the
+btree through disk. With memory, the same thirty seconds buys **eleven batches**
+rather than two.
+
+So the ceiling was not structural. It was **the same memory starvation measured
+a second way, and written up as an independent finding.** The file argued the
+prune could never keep up, when what it had actually measured was that a
+thrashing box cannot prune -- which is the same sentence as "a thrashing box
+cannot insert", one paragraph earlier, and was not recognised as such.
+
+**The general shape, and it is why this correction is longer than the fix:
+every number taken from a degraded system describes the degradation.** This file
+took the write rate, the prune rate and the batch cost from a box that was
+minutes away from an OOM kill, and only one of the three was suspected of being
+a symptom. A measurement is not "of the system" when the system is sick; it is
+of the sickness.
+
+### What survives, and what does not
+
+**Does not survive:** "there is no number of open hours at which two batches
+break even", "the prune cannot win at any schedule", and the framing of
+`retention.py`'s `~1.30M rows/day` as a **6x** underestimate. The comment's
+sizing was much closer to right than this file allowed -- its error was assuming
+a healthy box, which was reasonable.
+
+**Survives:** the write rate *was* 7.77M/day and *was* mostly duplicates; the
+gate genuinely does skip the prune while a window is open; the 84.5% dedup
+figure is unaffected, having been measured per-ticker rather than per-second.
+See `2026-08-19-how-often-a-kalshi-quote-actually-moves.md`.
+
+**ADR 0055 is unaffected as a decision and its stated context is now half
+wrong.** Writing 90% fewer rows is worth having on its own terms -- a smaller
+index is more of it resident, which is the actual constraint -- and the measured
+write rate fell 7.77M -> 2.25M/day. But it was justified here as *necessary
+because the prune cannot win*, and the prune can win. It should be re-read as an
+optimisation that removes the pressure, not as the only available escape. A
+conclusion that survives its reason being wrong is exactly when the wrong reason
+gets carried forward, so it is corrected here rather than left implied.

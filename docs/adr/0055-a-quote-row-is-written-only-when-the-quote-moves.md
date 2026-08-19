@@ -8,6 +8,17 @@ window this decision exists because it cannot win.
 
 ## Context
 
+> **The first premise below was later found to be an artifact, and the decision
+> stands anyway.** *"The prune cannot win at any schedule"* was measured on a box
+> that was out of memory; given 2 GB the same prune clears 440,000 rows in a pass
+> where it had never once exceeded 40,000. See the CORRECTION in
+> `2026-08-19-the-prune-loses-to-the-writer.md`. What justifies this ADR after
+> that correction is the second premise, not the first: 84.5% of writes carried
+> no information, and a smaller index is more of it resident in a page cache
+> that was the real constraint. Measured after shipping: write rate 7.77M ->
+> 2.25M rows/day. **Read it as an optimisation that removes pressure, not as the
+> only available escape** -- and do not cite the first premise onward.
+
 Two measurements, taken the same afternoon, and neither is a judgement call.
 
 **The prune cannot win at any schedule.**
