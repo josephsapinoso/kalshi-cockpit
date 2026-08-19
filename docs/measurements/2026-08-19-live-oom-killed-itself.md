@@ -188,10 +188,18 @@ every 45 seconds** to sample `/proc`. Each spawns a process on a box that had
 
 The stall began at ~20:05Z, a few minutes into the densest run of that sampling.
 
-**What can be said:** the loop did not recover in the three minutes after the
-sampling stopped, and the 18:59Z OOM kill happened with no sampling running at
-all. So the failure is not manufactured. **What cannot:** whether the sampling
-advanced this particular stall, or how much. It is not separable after the fact.
+**It recovered, and the timing is worse for me than the first draft said.**
+The loop did not die: pass 115 *completed*, at `took_s` **114.7** for a full
+pass that normally costs 67s, and it logged at **20:23:17Z**. The last SSH
+session was **20:17:36Z**. So the pass finished about four minutes after the
+sampling stopped, where this section first said it "did not recover in the three
+minutes after". That was true and it was the wrong window to quote.
+
+**What can still be said:** the 18:59Z OOM kill happened with no sampling
+running at all, and the box was already at 35-82 MB free before any of it. The
+failure is not manufactured. **What cannot:** whether the sampling triggered
+this particular stall or merely coincided with it. The correlation is closer
+than the first draft implied and it is not separable after the fact.
 
 The general rule, which this file is the second half of the evidence for:
 **do not diagnose a resource-starved box by repeatedly consuming that
