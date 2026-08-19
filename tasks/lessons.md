@@ -25,6 +25,78 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — "I checked and it was fine" is not monitoring, and the alarm you built is not evidence until you read the channel
+
+I spent a whole session reporting the live instance healthy. It was down 71
+times out of 302 probes in one half-hour window, including **18 unbroken
+minutes**. My evidence was `curl` — three or four calls, all of which happened
+to land between the failures. The alarms had been firing into Discord all day
+and I never looked, because the alarm I was waiting on was the *test* one I had
+triggered myself.
+
+Three things to carry:
+
+**A handful of probes cannot see an intermittent fault, and the failure mode is
+always the flattering one.** If a service is down half the time, four spot
+checks miss it 6% of the time — and I ran fewer than four, spread across hours,
+each one immediately after an action I wanted to have worked. When the question
+is "is this reliable", the instrument has to be a *rate*: poll on a fixed
+cadence, count, and report both numbers. One 200 is evidence about one moment
+and nothing else.
+
+**A monitoring channel you built is not monitoring until someone reads it.**
+The heartbeat did its job perfectly from the hour it shipped. Nine real alarms
+reached the phone. The gap was entirely on the reading end, and it stayed open
+because I treated the channel as *delivered* once the test embed returned 204 —
+proving the pipe, then never opening the other end. Check the channel's actual
+contents before reporting on the health of the thing it watches.
+
+**The platform's own verdict outranks yours.** `flyctl checks list` said
+`critical` while my `curl` said 200 in 0.14s, minutes apart. Both were true.
+Fly probes every 15 s with a 5 s timeout and had been watching all day; I had
+not. When a platform-level check disagrees with a hand probe, the hand probe is
+the one with the small sample.
+
+
+## 2026-08-19 — Attribute cost by measuring the parts, because the expensive-looking part usually is not
+
+A quote pass that should take under 15 s was taking 27, then 36, then 52, then
+77. I proposed two fixes in a row, confidently, and both were aimed at the wrong
+thing:
+
+- **"It is the 7,148 inserts per pass."** Measured against the real schema and
+  indexes at 279,000 rows: **0.17 s** for ~14,000 statements. Two orders of
+  magnitude too small.
+- **"It is parsing 11,000 events."** Measured on the captured fixture and
+  scaled: **0.46 s**. Also too small.
+
+The residual — the HTTP walk, ~56 paginated pages of nested markets fetched
+every 15 seconds — was the whole cost, and it was the part I had not suspected
+because it *looks* like one line of code.
+
+What generalises:
+
+- **Volume is not cost.** "Seven thousand inserts" is a big-sounding number and
+  a rounding error; "one paginated fetch" is a small-sounding phrase and 56
+  round trips. Count round trips and bytes, not statements.
+- **Measure before proposing, not after being asked to build.** I told Joe a
+  fix twice before checking, and both would have shipped work that changed
+  nothing. The measurement that settled it took four minutes.
+- **And measure the replacement too.** The obvious fix — fetch each of the ~70
+  linked events individually instead of paginating — is **worse**: it is more
+  requests than pages, against a shared minimum-interval rate limiter that
+  serialises them, so concurrency buys nothing. That was caught by reading
+  `_RateLimiter` before writing the code, and it would have survived every test
+  I would have written for it.
+
+A fourth, about the shape of the failure: **an intermittent fault usually has a
+schedule.** This one tracked the betting window — the fast cadence only runs
+while a window is open, so the box melted during games and recovered between
+them. Finding the schedule turned "randomly unreliable" into "predictably
+unreliable for the next 13 hours", which is the difference between an emergency
+and a piece of planned work.
+
+
 ## 2026-08-19 — A screenshot proves what the tab context says it does, not what the picture looks like
 
 The browser tool's `navigate` reported **success** on a host the extension was

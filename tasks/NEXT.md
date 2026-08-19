@@ -32,16 +32,20 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,462 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB:** nothing is urgent, by construction — ADR 0038 closed the hunt and
-the study accumulates on its own. **ADR 0047's approved plan is now fully
-discharged**: the suppression gloss (ADR 0050) and the dispersion strip (ADR
-0051) were the last two P2s. The alerting session is discharged too, including
-its human step — the heartbeat alarm was fired by hand and Discord returned
-204; all that is left there is Joe glancing at the channel.
+**THE JOB: live flaps.** It was hard down for 18 minutes on 2026-08-19 and
+had been failing about half of all heartbeat checks for a day. The cause is
+diagnosed and the fix is **not built** — the quote pass paginates ~56 pages of
+Kalshi's catalogue every 15s to price ~70 events, saturating a shared vCPU
+while a betting window is open. Read
+`docs/measurements/2026-08-19-quote-pass-cost-attribution.md` and the newest
+entry below **before** touching `run_quote_pass`; two obvious fixes are already
+refuted there and one of them is the one you will think of first.
 
-So there is no queue. **Two live-deploy dispatches are pending Joe** (see the
-two newest entries), and past that the open list at the bottom of the newest
-entry is a menu — or ask the partner. Do not invent urgency.
+A machine restart is the bandage and it holds until the next open window.
+
+Everything else is done and none of it is urgent: ADR 0047's plan is fully
+discharged (gloss = ADR 0050, strip = ADR 0051, phone = ADR 0052), and ADR 0038
+closed the hunt.
 
 STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
 deploying were both pre-approved on 2026-08-18 and the deploy deny is
@@ -63,6 +67,109 @@ work here.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
+
+---
+
+## 2026-08-19 ~02:30Z — LIVE HAS BEEN FLAPPING ALL DAY, I SAID IT WAS HEALTHY, AND THE CAUSE IS THE QUOTE PASS
+
+**Read `docs/measurements/2026-08-19-quote-pass-cost-attribution.md` before
+touching `run_quote_pass` or `run_kalshi_pass`.** The fix is designed and
+**not built**.
+
+### What Joe found that I had not
+
+He pasted the Discord channel. Alongside the heartbeat test he asked for, it
+held **eleven alarms he had not**: nine `The cockpit is not answering` from the
+GitHub heartbeat and two `Cockpit API unreachable` from the loop's own probe,
+across the whole day.
+
+I had reported live healthy all session, on `curl` probes that landed in the
+gaps. A 5-second poller settled it:
+
+```
+302 probes   229 ok   71 timeouts
+71 consecutive 30s timeouts  01:51:18Z -> 02:09:10Z   (18 minutes, hard down)
+machine restarted            ~02:09:20Z
+229 consecutive ok since     128-1835 ms
+```
+
+`flyctl checks list` read `critical` while my `curl` returned 200 in 0.14s,
+minutes apart. Both true. **The platform check had been watching all day and I
+had not.** Lesson written.
+
+### The cause, and two wrong theories killed by measurement
+
+The quote pass is configured every **15s** and was taking **27 → 36 → 36 → 52
+→ 77s**, saturating a `shared-cpu-1x`. uvicorn then misses Fly's 5s check;
+Next logs `Failed to proxy 127.0.0.1:8000/api/health — socket hang up`.
+
+I proposed two fixes before checking. Both wrong:
+
+| theory | measured | verdict |
+|---|---|---|
+| the 7,148 inserts per pass | **0.17s** at 279k rows, ~14,000 statements | refuted |
+| parsing ~11,191 events | **0.46s** scaled from the fixture | refuted |
+| **the HTTP walk** | ~56 paginated pages, every 15s | **the whole cost** |
+
+`run_kalshi_pass` paginates `/events` at 200/page to find 541 priceable events,
+so `run_pricing_pass` can link and price **~70**. A **160:1** waste ratio,
+every 15 seconds.
+
+### It is intermittent because it has a schedule
+
+`Scheduler.interval()` uses the fast interval **only while a window is open**.
+The box melts during betting windows and recovers between them. That is the
+alarm pattern exactly. After the 02:00Z WNBA kickoff closed the window the
+recorder age climbed steadily past 750s — **the calm is the loop idling at
+900s, not the problem being fixed.**
+
+### THE OBVIOUS FIX IS WORSE — do not re-propose it
+
+Fetching the ~70 linked events individually via `markets_for_event` looks
+cheaper. It is **more requests than pages** (70 vs ~56) against
+`_RateLimiter`, a shared minimum-interval lock at
+`DEFAULT_RATE_LIMIT_PER_SECOND = 8.0` that serialises them — `asyncio.gather`
+buys nothing. Caught by reading the limiter before writing the code.
+
+**The direction that survives:** walk `/events?series_ticker=…` for only the
+series carrying priceable leagues — a handful of requests instead of 56 —
+leaving the full catalogue walk on the 900s pass. Cost: a newly-listed event is
+linked up to 900s later instead of 15s, which is inside the odds window anyway.
+
+### The second, slower problem — separate decision, do not conflate
+
+`routes.py:2936` records `kalshi_quotes` as ~two thirds of an **879 MiB** file
+on a **2 GB** volume, which filled once already (2026-08-16). Every reader joins
+that table **by ticker to a market that produced a recommendation**
+(`clv_signal.py:143`, `slate.py:232`, `runner.py:592`), so quotes for the
+~7,000 never-priced markets are read by nothing.
+
+Narrowing what is stored is the **disk** fix and a change to the record's
+population. It is **not** the latency fix — the writes measured 0.17s. Keep the
+two apart or the ADR will justify one with the other's evidence.
+
+### What was actually done
+
+- Machine restarted, restoring service. **A bandage.** It will melt again at
+  the next open window — next slot is `baseball_mlb 15:21Z`.
+- `RUNNER_FAST_INTERVAL_S` was proposed and **is not a lever**:
+  `scripts/run_loop.py:301` refuses to start when
+  `fast_interval * 1.15 + 8 > MAX_KALSHI_QUOTE_AGE_S`, i.e. above **~19s**.
+  Setting 60 would have stopped the recorder, not slowed it. The guard's
+  `QUOTE_PASS_DURATION_BUDGET_S = 8.0` is an assumption that is off by ~10x
+  against observed pass durations — **it validates the parameter and never the
+  reality**, which is its own defect.
+
+### STILL OPEN — this is the top of the list
+
+1. **Build the series-scoped quote pass.** Needs an ADR: it changes discovery
+   cadence for new events from 15s to 900s.
+2. **Decide separately whether `kalshi_quotes` narrows.** Disk, not latency.
+3. **`QUOTE_PASS_DURATION_BUDGET_S` should be measured, not assumed** — or the
+   guard should read observed pass duration rather than the configured
+   interval.
+4. Everything from the previous entries: Chrome's live-host permission, the
+   digest leading with `x / 300`.
 
 ---
 
