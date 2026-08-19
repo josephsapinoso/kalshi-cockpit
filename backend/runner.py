@@ -714,6 +714,13 @@ def _linked_fixtures(conn, *, since_ms: int) -> list[LinkedFixture]:
     return fixtures
 
 
+# The threshold a `link slow` line is emitted above. 8s because the fast state
+# measured 2.0-2.4s across 29 consecutive live passes and the slow state 12.7s
+# and up, so this sits in the empty gap between two well-separated clusters
+# rather than at a round number. A pass at 8s would be news either way.
+LINK_SLOW_REPORT_MS = 8_000
+
+
 def link_discovered_events(
     conn,
     events: Sequence[DiscoveredEvent],
@@ -730,6 +737,27 @@ def link_discovered_events(
     """
     cache = alias_cache if alias_cache is not None else {}
     linked: dict[str, tuple[int, Optional[int]]] = {}
+    # Timed inside the function, and reported only when it is slow.
+    #
+    # `leg_price_link_ms` was measured on live 2026-08-19 swinging **2.1s ->
+    # 20.7s between adjacent passes on identical input** -- 531 discovered, 81
+    # linked, in both states -- while every other leg stayed flat. One total
+    # cannot say which of this function's three costs moved, which is the same
+    # argument that produced the outer legs and then the pricing split. Two
+    # levels of that argument have already paid for themselves on this one
+    # incident.
+    #
+    # **Conditional, unlike the legs above, and deliberately so.** This runs on
+    # the 15s cadence and the legs are on every pass because a *zero* is
+    # informative there. Here the informative case is the outlier: a line per
+    # pass would be ~5,700 a day against the 100-line `flyctl logs` buffer that
+    # the pass line itself is rationed for. Below the threshold the fast state
+    # is already fully described by `leg_price_link_ms`.
+    link_started = time.perf_counter()
+    candidates_ms = 0.0
+    unmatched_ms = 0.0
+    record_ms = 0.0
+    candidate_calls = 0
 
     # **Games first, then props, and the order is load-bearing.** A prop event
     # inherits the link its own game earned, so a single-pass loop would resolve
@@ -744,19 +772,27 @@ def link_discovered_events(
             cache[event.sport_key] = load_aliases(event.sport_key)
         aliases = cache[event.sport_key]
 
+        _t = time.perf_counter()
+        candidates = _match_candidates(
+            conn, event.sport_key, since_ms=now - 86_400_000
+        )
+        candidates_ms += (time.perf_counter() - _t) * 1000
+        candidate_calls += 1
+
         result = link_event(
             kalshi_event_ticker=event.event_ticker,
             kalshi_teams=event.teams,
             kalshi_commence_ms=event.commence_ms,
-            candidates=_match_candidates(
-                conn, event.sport_key, since_ms=now - 86_400_000
-            ),
+            candidates=candidates,
             aliases=aliases,
         )
         if result.matched:
+            _t = time.perf_counter()
             link_id = record_link(conn, result, event.league, now)
+            record_ms += (time.perf_counter() - _t) * 1000
             linked[event.event_ticker] = (link_id, result.commence_skew_ms)
         else:
+            _t = time.perf_counter()
             record_unmatched(
                 conn,
                 observed_ms=now,
@@ -768,6 +804,7 @@ def link_discovered_events(
                 detail=" vs ".join(event.teams) or event.title,
                 reason=result.reason or "no_counterpart",
             )
+            unmatched_ms += (time.perf_counter() - _t) * 1000
 
     if props:
         fixtures = _linked_fixtures(conn, since_ms=now - 86_400_000)
@@ -794,6 +831,17 @@ def link_discovered_events(
                     reason=result.reason or "no_counterpart",
                 )
 
+    total_ms = (time.perf_counter() - link_started) * 1000
+    if total_ms >= LINK_SLOW_REPORT_MS:
+        logger.warning(
+            "link slow: %dms total; candidates %dms over %d calls, "
+            "unmatched writes %dms, link writes %dms, other %dms "
+            "(%d discovered, %d linked)",
+            int(total_ms), int(candidates_ms), candidate_calls,
+            int(unmatched_ms), int(record_ms),
+            int(total_ms - candidates_ms - unmatched_ms - record_ms),
+            len(events), len(linked),
+        )
     return linked
 
 
