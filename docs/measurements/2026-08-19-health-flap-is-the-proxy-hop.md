@@ -92,24 +92,67 @@ n = 10 per arm, and the arms are 5/10 against 0/10 — Fisher two-sided
 p = 0.033. Small, but the alternation is a mechanism, not an effect size, and
 the mechanism is reproducible on demand.
 
-## The fix
+## THE FIRST FIX WAS THE WRONG HOP, AND DEPLOYING IT IS HOW THAT WAS FOUND
 
-`--timeout-keep-alive 75` in `docker/entrypoint.sh`, clearing live's 15s and
-demo's 30s with margin. Margin rather than a bare inequality because both ends
-are timers and the box demonstrably stalls on IO for seconds at a time.
+The measurement above is correct and the conclusion drawn from it was not.
+Because the app log named port 8000 — `Failed to proxy
+http://127.0.0.1:8000/api/health` — uvicorn was assumed to be the process
+closing early, and shipped with `--timeout-keep-alive 75`.
 
-`tests/test_keepalive_outlives_health_check.py` reads the interval out of every
-`fly*.toml` and compares it to the flag, so the relationship cannot silently
-break when either number is changed alone. Six ways of breaking it were applied
-and watched go red: flag removed (5 fail), flag at uvicorn's default (5), 20s
-which clears live but not demo (3), 31s which ties demo (1), live's interval
-raised past the flag (2), and the check moved to port 8000 (1).
+**Demo, running that fix, still failed 5 of 10.** Same 15s spacing, same
+alternation:
+
+```
+demo @ dd480bd, KEEP_ALIVE unset, uvicorn --timeout-keep-alive 75
+  15s gap   .X.X.X.X.X   5 of 10
+  30s gap   .X.X.X       3 of 6     (demo's own check interval)
+```
+
+**There are two hops and both defaulted to 5 seconds.** Fly's edge pools a
+connection to **Next on 3000**; Next pools a separate one to **uvicorn on
+8000**. The test above connects to port 3000, so what it measured all along was
+*Node's* `server.keepAliveTimeout` — 5s by default — and not uvicorn's at all.
+The uvicorn flag fixed a real second instance of the same bug, which is what the
+proxy error line was reporting, but it was never the one Fly trips over.
+
+The correction is recorded rather than folded away because the reasoning that
+produced it reads as sound: an error message naming a port is evidence about
+that hop and about nothing else. **Fixing the hop an error names is not the same
+as fixing the hop that is failing.**
+
+## The fix, both halves
+
+| hop | setting | value | bound |
+|---|---|---|---|
+| Fly edge -> Next :3000 | `KEEP_ALIVE_TIMEOUT` (ms) | **50000** | must clear the check; must stay under Node's 60s `headersTimeout` |
+| Next -> uvicorn :8000 | `--timeout-keep-alive` | **75** | must outlive Next's, so the inner hop never hangs up first |
+
+Next's standalone `server.js` reads `KEEP_ALIVE_TIMEOUT` and passes it to
+`startServer`, which sets `server.keepAliveTimeout` **and nothing else**
+(`start-server.js:248`) — `headersTimeout` stays at Node's 60s default, so this
+value has a ceiling as well as a floor.
+
+The floor is `interval + timeout + 10s`, absolute rather than a ratio: what has
+to be absorbed is one *late* check, and lateness does not scale with the
+interval. Live needs 30s, demo needs 45s, both have 50s.
+
+`tests/test_keepalive_outlives_health_check.py` reads every interval and timeout
+out of every `fly*.toml` and checks both hops against them, so no single number
+can be changed alone. Nine breakages applied and watched go red: Next's setting
+removed (5 fail), at Node's default (3), 35s which clears live but not demo (1),
+90s past `headersTimeout` (2), uvicorn's flag removed (4), uvicorn dropped below
+Next (1), a check interval raised (2), the check moved to port 8000 (1), and a
+demo interval large enough that the floor crosses the ceiling (2).
 
 ## What this predicts
 
-Health check failures on live should stop. If they continue at the same ~3/hour
-after this ships, the alternation measured above is real but is not what Fly is
-tripping over, and this explanation joins the other three.
+Health check failures on live should stop. If they continue at ~3/hour after
+this ships, the alternation measured here is real but is not what Fly trips
+over, and this explanation joins the other three.
 
 **It should not change `took_s`, any `leg_*_ms`, or the prune.** If it appears
-to, something other than the keep-alive flag went out with it.
+to, something other than these two settings went out with it.
+
+Verify the same way it was found — on the box, over one reused connection, at
+the deploy's own check interval. A green `flyctl checks list` is a single
+sample against a bug that fails every *other* request.

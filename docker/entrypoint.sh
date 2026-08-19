@@ -216,7 +216,28 @@ done
 echo "[entrypoint] backend healthy after ${i}s"
 
 echo "[entrypoint] starting frontend on 0.0.0.0:${PORT:-3000}"
-HOSTNAME=0.0.0.0 node frontend/server.js &
+# **This is the hop Fly's health check actually rides on**, and it is the one
+# that was flapping. Node defaults `server.keepAliveTimeout` to 5s; Fly checks
+# port 3000 every 15s on live and 30s on demo over a connection its edge pools
+# between checks, so the socket is always closed before it is reused. Measured
+# on demo 2026-08-19 at 15s spacing over one reused connection: `.X.X.X.X.X` --
+# five failures of ten, perfectly alternating, which is the signature of the
+# server closing rather than of anything being slow.
+#
+# `KEEP_ALIVE_TIMEOUT` (milliseconds) is the only way in: Next's standalone
+# `server.js` reads it and passes it to `startServer`, which sets
+# `server.keepAliveTimeout` and nothing else -- see `start-server.js:248`. In
+# particular it does **not** raise `headersTimeout`, which Node defaults to
+# 60s, so this value must stay below 60000 or idle connections get destroyed by
+# the other timer instead.
+#
+# The uvicorn `--timeout-keep-alive` below is 75s, deliberately longer: the
+# inner hop must outlive the outer one, or Next pools a socket to a backend
+# that has already hung up. Both were measured failing independently, and
+# fixing only uvicorn left this one failing 5 of 10 unchanged -- which is how
+# the second hop was found. See
+# `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`.
+KEEP_ALIVE_TIMEOUT="${KEEP_ALIVE_TIMEOUT:-50000}" HOSTNAME=0.0.0.0 node frontend/server.js &
 frontend_pid=$!
 pids="${pids} ${frontend_pid}"
 
