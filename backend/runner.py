@@ -212,6 +212,21 @@ class PassCounts:
     leg_walk_ms: int = 0
     leg_parse_ms: int = 0
     leg_store_ms: int = 0
+    # `leg_store_ms` split, for the same reason `leg_price_ms` was split below
+    # and on the same day: once the pricing leg was fixed the store leg became
+    # the largest, and it is two calls timed as one lump. `upsert` is
+    # `upsert_discovered` -- ~7,100 upserts across three keyed tables whose row
+    # count is bounded by the slate. `quotes` is `store_quotes_from_discovery`
+    # -- ~5,960 plain appends into `kalshi_quotes`, the multi-million-row table
+    # ADR 0054 put a retention window on.
+    #
+    # They are not interchangeable diagnoses. `upsert` climbing points at the
+    # per-statement path; `quotes` climbing points at insert cost rising with
+    # the table, which is the same shape as the `_match_candidates` scan and
+    # would be fixed nothing like the same way. The two sum to `leg_store_ms`
+    # up to rounding.
+    leg_store_upsert_ms: int = 0
+    leg_store_quotes_ms: int = 0
     leg_price_ms: int = 0
     # `leg_price_ms` split, because on 2026-08-19 it became the whole quote
     # pass -- 12-20s of a 17-32s pass on a 15s cadence -- and a single total
@@ -224,6 +239,23 @@ class PassCounts:
     # trip**, so a slow fleet lands there and not on `judge` -- keeping the
     # arithmetic separable from the network, which is the whole point of
     # splitting it.
+    # The two pieces of a **quote** pass that sit outside every leg above, and
+    # therefore outside their sum. Measured on live 2026-08-19: the legs
+    # accounted for 18.8s of a 34.1s pass, with a median gap of 3.9s across 61
+    # passes and a 15.3s worst case -- a fifth of the pass, invisible.
+    #
+    # `series` is `priceable_series`, a `SELECT DISTINCT ... WHERE last_seen_ms
+    # >= ?` over `kalshi_events`, which carries no index on `last_seen_ms` and
+    # is not covered by ADR 0054's retention. That is the same growing-scan
+    # shape as `_match_candidates`, which is a reason to *time* it, not a
+    # diagnosis -- the table is bounded by the slate per pass but not over the
+    # instance's life, and nobody has counted its rows.
+    #
+    # `sweep` is `fetch_and_store_odds`, which is a no-op on the ~39 passes in
+    # 40 that `decide_sweeps` refuses. It is timed anyway: an untimed no-op and
+    # an untimed network call look identical from the log line.
+    leg_series_ms: int = 0
+    leg_sweep_ms: int = 0
     leg_price_setup_ms: int = 0
     leg_price_link_ms: int = 0
     leg_price_judge_ms: int = 0
@@ -260,7 +292,11 @@ class PassCounts:
         "leg_walk_ms",
         "leg_parse_ms",
         "leg_store_ms",
+        "leg_store_upsert_ms",
+        "leg_store_quotes_ms",
         "leg_price_ms",
+        "leg_series_ms",
+        "leg_sweep_ms",
         "leg_price_setup_ms",
         "leg_price_link_ms",
         "leg_price_judge_ms",
@@ -2125,8 +2161,12 @@ async def run_kalshi_pass(
     counts.leg_parse_ms = int((store_started - parse_started) * 1000)
 
     upsert_discovered(conn, events, now=now)
+    quotes_started = time.perf_counter()
+    counts.leg_store_upsert_ms = int((quotes_started - store_started) * 1000)
     counts.markets_quoted = store_quotes_from_discovery(conn, events, now=now)
-    counts.leg_store_ms = int((time.perf_counter() - store_started) * 1000)
+    store_finished = time.perf_counter()
+    counts.leg_store_quotes_ms = int((store_finished - quotes_started) * 1000)
+    counts.leg_store_ms = int((store_finished - store_started) * 1000)
     return events
 
 
@@ -2309,12 +2349,16 @@ async def run_quote_pass(
     # scoped one, and at 15s intervals the difference is the whole CPU. The
     # full pass keeps walking everything, which is what finds a series this
     # list does not have yet.
+    series_started = time.perf_counter()
+    series = priceable_series(conn, now=stamp)
+    counts.leg_series_ms = int((time.perf_counter() - series_started) * 1000)
     events = await run_kalshi_pass(
         conn, kalshi_client, now=stamp, counts=counts,
         log_discovery_summary=False,
-        series_tickers=priceable_series(conn, now=stamp),
+        series_tickers=series,
     )
 
+    sweep_started = time.perf_counter()
     if odds_client is not None and budget is not None and config is not None:
         # Before pricing, not after: a refresh that landed this tick should be
         # what this tick's rows are priced against. Pricing first would publish
@@ -2329,6 +2373,7 @@ async def run_quote_pass(
         counts.odds_sweeps = sweeps
         counts.odds_quotes_stored = stored
         counts.sweep_decision = decision.detail
+    counts.leg_sweep_ms = int((time.perf_counter() - sweep_started) * 1000)
 
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,

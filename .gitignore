@@ -127,3 +127,6 @@ jar.txt
 *.cookies
 cookies.txt
 cookiejar*
+
+# transient log captures
+live.log
