@@ -284,3 +284,50 @@ class TestThePruneCannotHoldThePass:
             "deadline -- a quote backlog would starve unmatched_events"
         )
         assert quotes_at < unmatched_at
+
+
+class TestRetentionYieldsToABettableWindow:
+    """The prune costs ~40s of a full pass, and it has no deadline.
+
+    `budget_s` is checked between batches and one batch measures ~20s against
+    the live table, so a 5s budget really costs ~40s across the two tables --
+    full passes went 50s to 87s when this shipped, 2026-08-19. Between windows
+    that is free. While one is open it is exactly the confirmation gap the fast
+    cadence exists to close, spent on housekeeping that could equally happen an
+    hour later.
+
+    The budget and this rule are not redundant: the budget bounds a stall that
+    is happening anyway, this decides whether it happens now.
+    """
+
+    def test_the_full_pass_skips_the_prune_while_a_window_is_open(self):
+        import inspect
+
+        from backend import runner
+
+        source = inspect.getsource(runner.run_once)
+        assert "if window_open:" in source, (
+            "the full pass no longer checks window_open before pruning; a "
+            "~40s prune inside a bettable window is the incident retention "
+            "was written to prevent"
+        )
+        gate = source.index("if window_open:")
+        call = source.index("retention.prune(")
+        assert gate < call, (
+            "the prune runs before the window check, so the check cannot "
+            "prevent it"
+        )
+
+    def test_the_loop_passes_the_schedulers_own_window_state(self):
+        """One source of truth for 'is this minute bettable'.
+
+        A prune reading a different clock from the cadence could prune during
+        exactly the minutes the cadence had sped up for.
+        """
+        from pathlib import Path
+
+        source = Path("scripts/run_loop.py").read_text(encoding="utf-8")
+        assert "window_open=tempo.window_open" in source, (
+            "run_loop no longer hands run_once the scheduler's window state, "
+            "so the prune falls back to the default and runs during windows"
+        )

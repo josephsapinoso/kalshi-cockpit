@@ -2073,6 +2073,7 @@ async def run_once(
     risk: Optional[RiskConfig] = None,
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
+    window_open: bool = False,
 ) -> PassCounts:
     """One full pass: ingest, then price. The unit the scheduler repeats.
 
@@ -2091,7 +2092,17 @@ async def run_once(
     # cadence would put a multi-million-row delete inside exactly the minutes a
     # bettable window is open. Once per slow interval is enough: the tables
     # grow by one pass's worth at a time, and the window this trims to is days.
-    pruned = retention.prune(conn, now=stamp)
+    # **Not while a window is open**, and the budget is why that is a
+    # separate rule rather than a redundant one. `budget_s` is checked
+    # between batches and one batch measures ~20s against the live table,
+    # so a 5s budget really costs ~40s across the two tables -- measured
+    # 2026-08-19, full passes going 50s -> 87s. That is affordable between
+    # windows and is exactly the gap the fast cadence exists to close
+    # while one is open. Retention has no deadline; a bettable minute does.
+    if window_open:
+        pruned = retention.PruneResult()
+    else:
+        pruned = retention.prune(conn, now=stamp)
     counts.quotes_pruned = pruned.quotes_deleted
     counts.unmatched_pruned = pruned.unmatched_deleted
 

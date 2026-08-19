@@ -570,6 +570,11 @@ async def main() -> int:
                     conn, kalshi, odds, budget,
                     config=odds_config, risk=risk, suppression=suppression,
                     now=stamp,
+                    # Retention is skipped while a window is open. Read off
+                    # the same `tempo` the cadence is, so the prune cannot
+                    # disagree with the scheduler about whether the minutes
+                    # it is about to spend are bettable ones.
+                    window_open=tempo.window_open,
                 )
             else:
                 # Kalshi, plus the odds refresh that keeps an already-open
