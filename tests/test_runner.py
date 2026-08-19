@@ -773,13 +773,38 @@ class TestTheRecordDoesNotFillWithRepeats:
 
 
 class FakeKalshi:
-    """`events()` is an async generator on the real client, so it is here too."""
+    """`events()` is an async generator on the real client, so it is here too.
+
+    **It filters on `series_ticker`, and that is not politeness.** A fake that
+    accepted the argument and ignored it would let the narrowed walk (ADR 0053)
+    pass every test while fetching the whole catalogue -- which is precisely the
+    behaviour the narrowing exists to stop, and it would be invisible because
+    the resulting event list is identical.
+
+    `series_seen` records every value asked for, so a test can assert *which*
+    series were walked rather than only what came back.
+    """
 
     def __init__(self, raw_events: list[dict]):
         self.raw = raw_events
+        self.series_seen: list[str | None] = []
+        #: How many raw events were actually handed over. This -- not the
+        #: discovered count -- is what the narrowing is for: discovery drops
+        #: out-of-scope events either way, so an assertion downstream of it
+        #: cannot tell a narrowed fetch from a wide one.
+        self.yielded = 0
 
-    async def events(self, with_nested_markets: bool = False):
+    async def events(
+        self,
+        with_nested_markets: bool = False,
+        series_ticker: str | None = None,
+        **_: object,
+    ):
+        self.series_seen.append(series_ticker)
         for event in self.raw:
+            if series_ticker is not None and event.get("series_ticker") != series_ticker:
+                continue
+            self.yielded += 1
             yield event
 
 
@@ -2346,4 +2371,181 @@ class TestScheduledPropBuyingIsOffByDefault:
         )
         assert [c[1] for c in odds.prop_calls] == [("odds-1",)], (
             f"the tap did not buy its named fixture; got {odds.prop_calls}"
+        )
+
+
+class TestTheQuotePassWalksOnlyPriceableSeries:
+    """The narrowed walk (ADR 0053), which is what stopped the quote pass
+    taking the live instance down.
+
+    The unnarrowed walk paginates the whole open catalogue -- 11,160 events and
+    96,326 nested markets, measured against the real API on 2026-08-19 -- to
+    find ~510 priceable ones, on a 15-second cadence. It took 27-77s on the
+    live shared vCPU, starved uvicorn, and cost 18 unbroken minutes of
+    downtime. Scoping the walk to the series that recently carried a priceable
+    event measured 3.13s for the same coverage.
+
+    **What these tests establish**: that a quote pass asks for exactly the
+    known series and never the whole catalogue, that a full pass still asks for
+    the whole catalogue, and that an unknown or stale series set falls back to
+    walking everything rather than fetching nothing. **What they do not
+    establish**: that it is faster -- that is a network property, measured in
+    `docs/measurements/2026-08-19-quote-pass-cost-attribution.md` and not
+    re-derivable from a fake.
+    """
+
+    async def test_priceable_series_reads_recently_seen_events(self, conn):
+        from backend.runner import PRICEABLE_SERIES_WINDOW_MS, priceable_series
+
+        now = 1_787_000_000_000
+        for ticker, series, seen in (
+            ("KXA-1", "KXMLBGAME", now - 1_000),
+            ("KXA-2", "KXMLBGAME", now - 2_000),
+            ("KXB-1", "KXWNBAGAME", now - 5_000),
+            ("KXC-1", "KXOLDGAME", now - PRICEABLE_SERIES_WINDOW_MS - 1),
+        ):
+            conn.execute(
+                "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
+                "has_game_markets, first_seen_ms, last_seen_ms) "
+                "VALUES (?, 'Pro Baseball', 1, ?, ?)",
+                (series, seen, seen),
+            )
+            conn.execute(
+                "INSERT INTO kalshi_events (event_ticker, series_ticker, title, "
+                "category, commence_ms, status, first_seen_ms, last_seen_ms) "
+                "VALUES (?, ?, 't', 'Sports', ?, 'open', ?, ?)",
+                (ticker, series, now, seen, seen),
+            )
+        conn.commit()
+
+        got = priceable_series(conn, now=now)
+        assert got == ["KXMLBGAME", "KXWNBAGAME"], got
+
+    async def test_a_series_that_stopped_listing_drops_out(self, conn):
+        """Otherwise a series whose season ended is walked every 15 seconds for
+        the life of the instance -- the same unbounded-growth shape as the query
+        that took the box down on 2026-08-18."""
+        from backend.runner import PRICEABLE_SERIES_WINDOW_MS, priceable_series
+
+        now = 1_787_000_000_000
+        conn.execute(
+            "INSERT INTO kalshi_series (series_ticker, league, has_game_markets, "
+            "first_seen_ms, last_seen_ms) VALUES ('KXDONE', 'Pro Baseball', 1, ?, ?)",
+            (now, now),
+        )
+        conn.execute(
+            "INSERT INTO kalshi_events (event_ticker, series_ticker, title, "
+            "category, commence_ms, status, first_seen_ms, last_seen_ms) "
+            "VALUES ('KXZ-1', 'KXDONE', 't', 'Sports', ?, 'open', ?, ?)",
+            (now, now, now),
+        )
+        conn.commit()
+        assert priceable_series(conn, now=now) == ["KXDONE"]
+        later = now + PRICEABLE_SERIES_WINDOW_MS + 1
+        assert priceable_series(conn, now=later) == []
+
+    async def test_an_empty_set_walks_everything_rather_than_nothing(
+        self, conn, kalshi_events
+    ):
+        """A fresh volume knows no series. Fetching nothing there would report a
+        quiet slate, which is indistinguishable from a quiet market -- the
+        failure this repo names most often."""
+        from backend.runner import run_kalshi_pass, PassCounts
+
+        client = FakeKalshi([_mlb_template(kalshi_events)])
+        await run_kalshi_pass(
+            conn, client, now=1_787_000_000_000, counts=PassCounts(),
+            series_tickers=[],
+        )
+        assert client.series_seen == [None], client.series_seen
+
+    async def test_a_full_pass_still_walks_the_whole_catalogue(
+        self, conn, kalshi_events
+    ):
+        """A narrowed walk can only re-see series it already knows, so something
+        has to look at everything or a newly-listed league is invisible
+        forever. That job stays on the full pass."""
+        from backend.runner import run_kalshi_pass, PassCounts
+
+        client = FakeKalshi([_mlb_template(kalshi_events)])
+        await run_kalshi_pass(
+            conn, client, now=1_787_000_000_000, counts=PassCounts()
+        )
+        assert client.series_seen == [None], client.series_seen
+
+    async def test_a_quote_pass_asks_for_the_known_series_and_not_the_catalogue(
+        self, conn, joined, kalshi_events
+    ):
+        """The claim the whole change rests on. Asserted on what was *asked
+        for*, not on what came back: a client that accepted `series_ticker` and
+        ignored it returns an identical event list, which is exactly the
+        regression that would put the 15s catalogue walk back without changing
+        a single visible number."""
+        from backend.runner import run_quote_pass
+
+        _, odds_event = joined
+        raw = aligned_kalshi_event(
+            _mlb_template(kalshi_events),
+            odds_event=odds_event,
+            kalshi_names=("Pittsburgh", "New York M"),
+        )
+        series = raw["series_ticker"]
+        now = 1_787_000_000_000
+        conn.execute(
+            "INSERT OR REPLACE INTO kalshi_events (event_ticker, series_ticker, "
+            "title, category, commence_ms, status, first_seen_ms, last_seen_ms) "
+            "VALUES (?, ?, 't', 'Sports', ?, 'open', ?, ?)",
+            (raw["event_ticker"], series, now, now, now),
+        )
+        conn.commit()
+
+        client = FakeKalshi([raw])
+        await run_quote_pass(conn, client, now=now)
+
+        assert client.series_seen == [series], client.series_seen
+        assert None not in client.series_seen, (
+            "the quote pass walked the whole catalogue, which is the 27-77s "
+            "path that took live down"
+        )
+
+    async def test_narrowing_actually_narrows_what_is_fetched(
+        self, conn, kalshi_events
+    ):
+        """**The claim `series_seen` cannot make.** Asserting which series were
+        *asked for* proves the argument is passed; it says nothing about the
+        argument doing anything, and it passed unchanged when the fake was made
+        to ignore its own filter.
+
+        The first attempt at this test asserted on the *discovered* events and
+        was also green under that mutation -- discovery drops an out-of-scope
+        series either way, so nothing downstream of it can tell a narrowed
+        fetch from a wide one. It is written down because a test that passes
+        for the wrong reason is worse than no test.
+
+        So the assertion is on **what the client handed over**, which is the
+        quantity the change exists to reduce: 96,326 nested markets on the wide
+        walk against 6,917 on the scoped one, measured 2026-08-19.
+        """
+        from backend.runner import run_kalshi_pass, PassCounts
+
+        wanted = _mlb_template(kalshi_events)
+        other = dict(wanted)
+        other["series_ticker"] = "KXOTHER"
+        other["event_ticker"] = wanted["event_ticker"] + "-OTHER"
+
+        wide = FakeKalshi([wanted, other])
+        await run_kalshi_pass(
+            conn, wide, now=1_787_000_000_000, counts=PassCounts()
+        )
+
+        narrow = FakeKalshi([wanted, other])
+        await run_kalshi_pass(
+            conn, narrow, now=1_787_000_000_000, counts=PassCounts(),
+            series_tickers=[wanted["series_ticker"]],
+        )
+
+        assert wide.yielded == 2, wide.yielded
+        assert narrow.yielded == 1, (
+            "the narrowed walk fetched everything anyway, so it is not "
+            f"narrowing: {narrow.yielded} events"
         )

@@ -1870,6 +1870,44 @@ def store_quotes_from_discovery(
     return stored
 
 
+#: How far back a series may have last been seen and still be walked on a quote
+#: pass. Two full passes: one full-pass interval is the cadence at which the
+#: set is refreshed, so a single-interval window would drop every series in the
+#: gap between a full pass writing and the next quote pass reading.
+#:
+#: Deliberately not "forever". A series that stops listing games -- a season
+#: ending -- would otherwise be walked every 15 seconds for the rest of the
+#: instance's life, which is the same unbounded-growth shape as the query that
+#: took the box down on 2026-08-18.
+PRICEABLE_SERIES_WINDOW_MS = 2 * 900_000
+
+
+def priceable_series(conn, *, now: int) -> list[str]:
+    """Series that recently carried a priceable event, for the narrowed walk.
+
+    **Read from `kalshi_events`, which holds only priceable events.**
+    `upsert_discovered` is fed `discover_from_events`' output, so anything in
+    that table already survived scope classification -- there is no second
+    definition of "priceable" here that could drift from discovery's.
+
+    **Not read from `event_links`**, which was the first instinct and is wrong:
+    a link exists only where a fixture *matched* a sportsbook event, so the set
+    would collapse to the handful of game-level series that happen to be linked
+    right now and silently stop quoting every prop, spread and total series.
+    The narrowed walk must cover what discovery can price, not what matching
+    happened to join.
+
+    Returns `[]` on a fresh volume, and the caller treats that as "walk
+    everything" rather than "walk nothing".
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT series_ticker FROM kalshi_events "
+        "WHERE last_seen_ms >= ? ORDER BY series_ticker",
+        (now - PRICEABLE_SERIES_WINDOW_MS,),
+    ).fetchall()
+    return [r["series_ticker"] for r in rows]
+
+
 async def run_kalshi_pass(
     conn,
     kalshi_client,
@@ -1877,6 +1915,7 @@ async def run_kalshi_pass(
     now: int,
     counts: PassCounts,
     log_discovery_summary: bool = True,
+    series_tickers: Optional[Sequence[str]] = None,
 ) -> list[DiscoveredEvent]:
     """Discovery and the quotes it carries. Kalshi only; spends no odds credit.
 
@@ -1891,10 +1930,46 @@ async def run_kalshi_pass(
     printing. A quote pass passes False, so that line is emitted only when its
     numbers change; the full pass always prints and is the heartbeat. See
     `_LAST_SUMMARY` in `kalshi/discovery.py`.
+
+    **`series_tickers` narrows the walk, and it is what stops this taking the
+    instance down.** ADR 0053. The unnarrowed walk paginates the whole open
+    catalogue -- 11,160 events and 96,326 nested markets, measured 2026-08-19 --
+    to find ~510 priceable ones, and on the quote cadence it ran every 15s. It
+    took 27-77s on the live shared vCPU, starved uvicorn of the CPU, and cost
+    18 unbroken minutes of downtime. Measured the same day against the real API:
+
+        full walk          15.21s   11,160 events, 96,326 markets
+        19 scoped walks     3.13s      573 events,  6,917 markets   (4.9x)
+
+    with **every** priceable event still found -- the coverage check is in
+    `docs/measurements/2026-08-19-quote-pass-cost-attribution.md`, and the
+    saving is bytes transferred rather than requests made.
+
+    `None` means the full walk, which is what the *full* pass must keep doing:
+    a narrowed walk can only ever re-see series it already knows, so something
+    has to look at the whole catalogue or a newly-listed league is invisible
+    forever. Passing an **empty** sequence also walks everything, deliberately
+    -- an empty set means "nothing known yet", i.e. a fresh volume, and the
+    honest response there is to go and look rather than to fetch nothing and
+    report a quiet slate.
     """
-    # `events()` is an async *generator* -- it paginates lazily -- so it is
-    # consumed rather than awaited.
-    raw_events = [e async for e in kalshi_client.events(with_nested_markets=True)]
+    if series_tickers:
+        raw_events: list[dict] = []
+        for series in series_tickers:
+            raw_events.extend(
+                [
+                    e
+                    async for e in kalshi_client.events(
+                        with_nested_markets=True, series_ticker=series
+                    )
+                ]
+            )
+    else:
+        # `events()` is an async *generator* -- it paginates lazily -- so it is
+        # consumed rather than awaited.
+        raw_events = [
+            e async for e in kalshi_client.events(with_nested_markets=True)
+        ]
     events = discover_from_events(
         raw_events, always_log_summary=log_discovery_summary
     )
@@ -2057,9 +2132,15 @@ async def run_quote_pass(
     stamp = now if now is not None else now_ms()
     suppression = suppression or SuppressionConfig()
     counts = PassCounts(sweep_decision=QUOTE_PASS_SWEEP_DETAIL)
+    # **The narrowed walk lives on this cadence and not on the full pass.** ADR
+    # 0053: the full catalogue walk is 15.21s of transfer against 3.13s for the
+    # scoped one, and at 15s intervals the difference is the whole CPU. The
+    # full pass keeps walking everything, which is what finds a series this
+    # list does not have yet.
     events = await run_kalshi_pass(
         conn, kalshi_client, now=stamp, counts=counts,
         log_discovery_summary=False,
+        series_tickers=priceable_series(conn, now=stamp),
     )
 
     if odds_client is not None and budget is not None and config is not None:

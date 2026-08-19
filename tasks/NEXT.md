@@ -160,14 +160,46 @@ two apart or the ADR will justify one with the other's evidence.
   against observed pass durations — **it validates the parameter and never the
   reality**, which is its own defect.
 
-### STILL OPEN — this is the top of the list
+### THE FIX IS BUILT — ADR 0053
 
-1. **Build the series-scoped quote pass.** Needs an ADR: it changes discovery
-   cadence for new events from 15s to 900s.
-2. **Decide separately whether `kalshi_quotes` narrows.** Disk, not latency.
-3. **`QUOTE_PASS_DURATION_BUDGET_S` should be measured, not assumed** — or the
-   guard should read observed pass duration rather than the configured
-   interval.
+`run_kalshi_pass` now takes `series_tickers`; the **quote pass** supplies it and
+the **full pass** does not. Measured against the real API in the same session:
+
+| walk | time | events | markets |
+|---|---:|---:|---:|
+| full catalogue | **15.21s** | 11,160 | 96,326 |
+| 19 scoped walks | **3.13s** | 573 | 6,917 |
+
+**4.9x, and the saving is bytes not requests.** Coverage checked in the same
+run: every priceable event the full walk found, the scoped walks found too.
+
+The series list is `priceable_series(conn, now)` — `DISTINCT series_ticker FROM
+kalshi_events` inside two full-pass intervals. **From `kalshi_events`, not
+`event_links`**: a link needs a *matched* fixture, so that set collapses to the
+few game-level series linked right now and silently stops quoting every prop,
+spread and total. Empty set ⇒ walk everything (a fresh volume must go and look,
+not report a quiet slate).
+
+Suite **3,468 passed / 10 xfailed**, ruff clean. Six guards, each broken and
+watched go red — **two were green when first written**, both recorded in the
+ADR. The subtle one: a test asserting on *discovered* events cannot tell a
+narrowed fetch from a wide one, because discovery drops out-of-scope series
+either way. Assert on what the client handed over.
+
+### STILL OPEN
+
+1. **Deploy it.** Not deployed as of this entry — live still runs the wide
+   walk and will melt at the next open window (`baseball_mlb 15:21Z`). The live
+   dispatch needs Joe.
+2. **Decide separately whether `kalshi_quotes` narrows.** Disk, not latency,
+   and ADR 0053 does **not** fix it — the quote store iterates *priceable*
+   events (~510), not the catalogue, so it wrote ~7,148 rows a pass before and
+   writes about the same now. The writes measured 0.17s; do not justify a
+   population change with the latency evidence.
+3. **`QUOTE_PASS_DURATION_BUDGET_S = 8.0` is an assumption off by ~10x.** It
+   validates the *configured interval* and never the *observed* duration, so
+   the loop ran 77s passes on a 15s cadence while logging a warning nobody
+   read. A guard that cannot see the thing it guards.
 4. Everything from the previous entries: Chrome's live-host permission, the
    digest leading with `x / 300`.
 
