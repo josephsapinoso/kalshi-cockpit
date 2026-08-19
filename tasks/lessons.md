@@ -25,6 +25,65 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — Do not diagnose a resource-starved machine by consuming that resource; and a process that is *stuck* looks nothing like a process that is slow
+
+Live was short of memory, so its memory was sampled — by opening an
+`flyctl ssh console` roughly every forty-five seconds for half an hour, on a box
+with **54 MB free**. Each session spawns a process. The instance's own log for
+that period is mostly `New SSH session` lines, and the loop stalled a few
+minutes into the densest run of it.
+
+**The general shape: an instrument that consumes the scarce resource is part of
+the experiment.** This is the same error as a heavy query on the box whose
+latency is being measured — which the same session had already identified and
+avoided, in SQL, before doing it again over SSH. Recognising the pattern in one
+form does not transfer to the next form on its own; the question to ask is *what
+does this measurement cost the thing being measured*, not *is this a query*.
+
+**Prefer instruments the system already pays for.** The pass lines the loop
+emits and `/api/health` (one keyed read) cost nothing extra and, unlike an SSH
+session, produce numbers a later session can re-derive. Every figure in the
+day's measurements was eventually recomputed from log lines for exactly this
+reason, and they were better numbers.
+
+**The corollary about honesty:** once the instrument is inside the experiment,
+the contamination is **not separable after the fact**. The correct write-up is
+the size of the doubt, not a verdict — and when picking the window to argue over
+("it did not recover in the three minutes after I stopped"), pick it before
+seeing which window flatters you. It recovered in four.
+
+### The second half: `D` state is a different failure from slowness
+
+The loop appeared dead — nothing written for seventeen minutes against a
+fifteen-second cadence — and it was not. It was one pass, `took_s` **114.7** for
+work that normally costs 67s, blocked in
+
+```
+state=D (disk sleep)   wchan=folio_wait_bit_common
+```
+
+**`D` is uninterruptible sleep in the kernel, and it is worth learning to read**
+because it discriminates where timing cannot. It is not a lock, not the network,
+and not slow code: it is the process waiting on a page. Three timing-based
+theories had been argued over this incident and none of them could have
+distinguished these; one `/proc` read did, instantly.
+
+The cheap discriminators, none of which need instrumentation shipped to
+production:
+
+    /proc/<pid>/status   State:  R running, S sleeping, D uninterruptible IO
+    /proc/<pid>/wchan    what the kernel is waiting on, by name
+    /proc/meminfo        MemAvailable and Cached, together
+
+**And "the process is alive" is not "the work is happening."** The machine was
+up, the health check passed, and the API answered every request throughout —
+because the API is a *different process*. A liveness signal that does not come
+from the component doing the work will report health for a component that has
+stopped. `recorder.age_ms` was the field that told the truth, and it exists
+because an earlier session asked exactly this question.
+
+---
+
 ## 2026-08-19 — A read-only handle to a WAL database reports the last checkpoint and calls it the present; and "the file stopped growing" is not "the table stopped growing"
 
 Live row counts were read over `flyctl ssh console` with
