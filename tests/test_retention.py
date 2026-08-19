@@ -331,3 +331,37 @@ class TestRetentionYieldsToABettableWindow:
             "run_loop no longer hands run_once the scheduler's window state, "
             "so the prune falls back to the default and runs during windows"
         )
+
+
+class TestTheBudgetBuysMoreThanOneBatch:
+    """The budget has to clear the table's growth, not just bound the stall.
+
+    Throughput is `batches x DELETE_BATCH x passes-outside-a-window`. A budget
+    below one batch's cost silently pins that to a single batch, and on live
+    that was 1.58M rows/day against ~1.30M/day of growth -- a margin that runs
+    out at 7.75 open hours/day, with 4.33 measured and two major leagues out of
+    season. The failure is quiet: `quotes_pruned` reports a healthy number
+    every pass while the table grows.
+    """
+
+    def test_the_budget_exceeds_one_measured_batch(self):
+        """A batch cost ~20s on live; the budget must clear it to buy a second."""
+        assert retention.DEFAULT_BUDGET_S > 20.0, (
+            "the budget no longer clears one batch's measured ~20s cost, so it "
+            "buys exactly one batch per pass and the prune falls behind growth "
+            "as soon as the season adds window hours"
+        )
+
+    def test_a_budget_of_two_batches_deletes_two_batches(self, monkeypatch, conn):
+        """The arithmetic above is only true if the loop actually continues."""
+        monkeypatch.setattr(retention, "DELETE_BATCH", 3)
+        for i in range(12):
+            add_quote(conn, f"OLD{i}", age_days=10)
+
+        # Batches here are instant, so any positive budget runs to exhaustion;
+        # the claim under test is that the loop is not capped at one batch.
+        removed = retention.prune_quotes(conn, now=NOW, budget_s=30)
+
+        assert removed == 12, (
+            "the prune stopped before exhausting a backlog it had budget for"
+        )

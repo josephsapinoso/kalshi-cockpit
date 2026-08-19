@@ -98,7 +98,23 @@ DELETE_BATCH = 20_000
 #: backlog drains over several passes instead of one long stall, and the
 #: steady state -- one pass's worth of newly-aged rows -- finishes well inside
 #: the budget and is unaffected.
-DEFAULT_BUDGET_S = 5.0
+#: Measured on live 2026-08-19: one 20,000-row batch costs **~20s**, which is
+#: index maintenance rather than the scan -- every deleted row must come out
+#: of a 476 MiB btree. So a budget under 20s buys exactly one batch and the
+#: number is misleading about what it spends; 30s buys two and says so.
+#:
+#: **Two batches is not tuning, it is the margin.** Throughput is
+#: `batches x DELETE_BATCH x passes-outside-a-window`, against ~1.30M rows/day
+#: of growth. At one batch that is 1.58M/day -- a 274k margin that runs out
+#: at **7.75 open hours/day**, and live measured **4.33** with only two
+#: sports in season. NFL and NBA are both out of season as this is written
+#: and both return within weeks. At two batches the same break-even is
+#: ~15.9 open hours/day, which the schedule cannot reach.
+#:
+#: The cost is ~40s of a full pass instead of ~20s, and it is affordable for
+#: exactly one reason: this never runs while a window is open, so the
+#: minutes it spends are ones in which nothing is bettable.
+DEFAULT_BUDGET_S = 30.0
 
 
 @dataclass(frozen=True)
