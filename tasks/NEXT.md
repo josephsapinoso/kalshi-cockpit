@@ -32,21 +32,34 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,512 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: time the pricing leg on a quote pass, before changing anything.**
-The 15:21Z test was taken and the previous brief's question is closed —
-`leg_store_ms` on a quote pass is **~4.5s against a projected 8-12s**, so the
-store leg is not what puts the pass over its cadence. `leg_price_ms` is, at
-**12-20s** of a 17-32s pass on a **15s** cadence.
+**THE JOB: find out why `link_discovered_events` costs 20s some passes and
+2.1s others.** The pricing leg was split into four phases and deployed 16:34Z,
+and the slow state returned on its own at 16:48Z with the window unchanged. The
+split named the culprit in one pass:
 
-`leg_price_ms` also tracks the **window**, not the table: ~3s on every
-closed-window full pass all morning, then 20031 and 30086 once the window
-opened, while `markets_quoted` moved +9%. **That is a correlate, not a cause.**
-The plausible mechanism — pricing only has work when fresh odds exist to devig
-against — is written down in
-`docs/measurements/2026-08-19-window-store-leg-result.md` **so it can be tested,
-not adopted.** This is the fourth leg blamed on this incident and the first
-three were wrong; the two that were settled were settled by timing, in minutes.
-Time inside `run_pricing_pass` first.
+```
+                took_s   walk   store   PRICE   link   judge  persist
+16:47:53 fast      9.8   2294    5136    2236    2094     20      122
+16:49:16 SLOW     29.3   2294    3429   22637   20716    164     1755
+```
+
+**`leg_price_link_ms` is 90% of the slow pass and swings 10x while nothing else
+moves.** `events_discovered` is 531 and `events_linked` is 81 in *both* states —
+same input, ten times the wall clock. The transition is abrupt (41s apart), not
+a ramp, so it is not accumulation and a restart only appears to fix it.
+
+Four legs are now eliminated *by measurement*: the walk (2.3s, flat — ADR 0053
+works), the store leg (flat — so ADR 0054's question is moot for latency), the
+devig loop, and the Skeptic. Read
+`docs/measurements/2026-08-19-window-store-leg-result.md` end to end before
+proposing a cause; it contains a wrong reading of mine from four hours earlier
+("pricing tracks the window") and the measurement that refuted it, kept in
+order deliberately.
+
+**Time inside the call before changing it.** `alias_cache` is built fresh each
+pass, so a cold cache cannot explain a swing between adjacent passes. This
+incident has had five attributions and four were wrong; every one that was
+settled was settled by a timer in minutes.
 
 Also open, and now measured rather than suspected:
 
@@ -198,11 +211,27 @@ and no Fly check failure since. Nine guards in
 Suite **3,512 passed / 10 xfailed**, ruff clean. Live and demo both on
 `c77c35b`.
 
+### ADDENDUM 16:50Z — THE SPLIT SHIPPED AND CAUGHT IT THE SAME HOUR
+
+`leg_price_ms` was split into `setup / link / judge / persist` and deployed at
+16:34Z. The slow state returned on its own at 16:48Z, window unchanged, and the
+split named it immediately: **`leg_price_link_ms`, 2.1s -> 20.7s, 90% of the
+slow pass, while walk and store do not move at all.** Same 531 events in both
+states. The transition is one pass wide.
+
+**This also refutes a reading written earlier in this very entry.** "The
+pricing leg tracks the window" was hedged as a correlate and it does not
+survive: eleven minutes of 8-10s passes followed with the window still open.
+Both are kept in
+`docs/measurements/2026-08-19-window-store-leg-result.md`, in order, because
+which claim survived contact is the useful part.
+
 ### STILL OPEN
 
-1. **Time `leg_price_ms` inside `run_pricing_pass`.** It is the whole pass now.
-   Do not fix before timing — three of four attributions on this incident were
-   wrong, and every one came from reasoning instead of measuring.
+1. **Find out why `link_discovered_events` swings 10x on identical input.** The
+   walk, the store leg, the devig loop and the Skeptic are all eliminated by
+   measurement. Time inside the call before changing it — this incident has had
+   five attributions and four were wrong.
 2. **The window gate reads a stale flag** (above). Fixing the cadence half is
    worth more than the prune half.
 3. **`QUOTE_PASS_DURATION_BUDGET_S = 8.0`** still validates the configured

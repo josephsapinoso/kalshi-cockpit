@@ -1,18 +1,25 @@
-# The 15:21Z window: the store leg is not the problem, and pricing is
+# The 15:21Z window: the store leg is not the problem, and the slow state is not the window
 
-Taken 2026-08-19 15:21-16:21Z on live (`c77c35b`), the `baseball_mlb` window the
-previous handoff named as the test. Read against
+Taken 2026-08-19 15:21-16:56Z on live (`c77c35b`, then `d654ba8`), the
+`baseball_mlb` window the previous handoff named as the test. Read against
 `2026-08-19-window-store-leg-plan.md`, registered at 13:55Z before the window
 opened.
 
-**What this establishes.** That `leg_store_ms` on a quote pass came in *below*
-the projection, that the table-size effect ADR 0054 predicted is not detectable,
-and that `leg_price_ms` — never measured on a quote pass before — is now the
-dominant leg and is what puts the pass over its 15s cadence.
+**Read the CORRECTION section before acting on anything above it.** This file
+was written in two passes and the second one refutes a reading in the first.
+Both are kept, in order, because which claim survived contact is the point.
 
-**What it does not.** It does not explain *why* pricing costs 12-20s here
-against ~3s on a closed-window pass. That is stated as an observation with a
-correlate, not a cause. One window, one sport, one machine.
+**What this establishes.** That `leg_store_ms` on a quote pass came in *below*
+its projection and is not what puts the pass over its cadence; that ADR 0054's
+predicted table-size effect is not detectable; that `leg_price_ms` was the
+dominant leg during the slow state; that within pricing,
+`link_discovered_events` is **92%** of the cost; and that the slow state
+**disappeared across a process restart with the window still open**.
+
+**What it does not.** It does not explain what makes the slow state appear or
+go away. The first pass proposed the window and the second refuted it; no
+replacement is offered, because uptime does not fit either. One window, one
+sport, one machine.
 
 ## The registered comparison: UNRESOLVED
 
@@ -87,6 +94,96 @@ the next session tests it rather than rediscovering the correlation.
 
 This is the fourth leg to be blamed on this one incident and the first three
 were wrong. Time it before fixing it.
+
+## CORRECTION, 16:50Z — the window correlation does not survive
+
+The section above is left as written because the correction is the useful part.
+It was hedged (*"correlate and a plausible mechanism, not a measurement"*), and
+the hedge was doing real work: **the correlate itself is now refuted.**
+
+`leg_price_ms` was split into four phases and deployed at 16:34Z. Eleven
+minutes of quote passes with the **same window still open**, on the same code
+and the same database:
+
+```
+took_s     8.0 - 10.6   (was 17-32)
+leg_price_ms   2167 - 2570   (was 12000-20000)
+  setup      0ms
+  link    2023 - 2423   <- 92% of pricing
+  judge     20 -   51
+  persist  118 -  156
+```
+
+Flat across the whole eleven minutes — **no climb**. The window did not close;
+the passes simply stopped being slow.
+
+So *"pricing is expensive while a window is open"* is **wrong as stated**. The
+window was open for both readings. What changed between them is the process:
+live was restarted by the 16:34Z deploy.
+
+**And uptime alone does not explain it either**, which is why no replacement
+theory is offered here. The 12-20s readings were taken **6-45 minutes** after
+the 15:30Z restart; the 2.2s readings are 2-13 minutes after the 16:34Z one.
+Those ranges overlap. Something reset that is not simply "time since boot", and
+this file does not know what it is.
+
+**What is now known, and it is the useful half:** in steady state the pass costs
+8-10s against its 15s cadence with room to spare, and **`link_discovered_events`
+is 92% of pricing**. If the slow state returns, the split will say which phase
+it lands in — which is the whole reason it was instrumented rather than argued
+about. Until it does, there is nothing to fix.
+
+**Do not carry "pricing tracks the window" forward.** It was written here, in
+this file, four hours before it was refuted, and it would have sent the next
+session to read the sweep path.
+
+## THE SLOW STATE RETURNED AT 16:48Z AND THE SPLIT NAMED IT: `link_discovered_events`
+
+Fifteen minutes after the split shipped, the slow state came back on its own,
+with the window unchanged and no deploy in between. The instrumentation
+answered in one pass what four sessions of reasoning did not.
+
+```
+                took_s   walk   store   PRICE   link   judge  persist
+16:47:27 fast      8.1   2298    3405    2274    2131     20      122
+16:47:53 fast      9.8   2294    5136    2236    2094     20      122
+16:48:34 SLOW     26.4   2333    3738   19139   17211    321     1606
+16:49:16 SLOW     29.3   2294    3429   22637   20716    164     1755
+16:49:54 SLOW     23.9   2561    4839   14959   12716    318     1923
+```
+
+**`leg_price_link_ms` is 90% of the slow pass**, and it moves **10x** — 2.1s to
+20.7s — while every other leg stays where it was. `leg_walk_ms` does not move
+at all (2.3s throughout). `leg_store_ms` does not move (3.4-5.1s both states).
+`judge` and `persist` rise ~10x but are 0.3s and 1.9s at their worst, so
+together they are under 10% of the excess.
+
+**The input is identical.** `events_discovered` is 531 and `events_linked` is
+81 in every row above, fast and slow. Same work, ten times the wall clock.
+
+**The transition is abrupt, not a ramp** — one pass at 2.1s, the next at 17.2s,
+41 seconds apart. That rules out the gradual-accumulation story the earlier
+"uptime" guess assumed, and it is why the restart appeared to fix it: a restart
+lands you in the fast state, and so does simply waiting.
+
+### What this closes and what it opens
+
+**Closed:** the walk (ADR 0053 works, 2.3s, never moves), the store leg
+(ADR 0054's question, does not move), the devig loop, and the Skeptic. None of
+them is the overrun. Four legs eliminated by measurement rather than argument.
+
+**Open:** what makes `link_discovered_events` cost 20s for the same 531 events
+it prices in 2.1s a minute earlier. It is not called with different input and
+it is not the network — the walk is a separate leg and is flat. That leaves
+something inside the call or under it, and this file does not name it, because
+naming it is exactly the step that has been wrong four times on this incident.
+
+**Start with `backend/runner.py`'s `link_discovered_events` and the queries it
+runs per event.** `alias_cache` is built fresh per pass and passed in, so a
+cold cache costs the same every pass and cannot explain a 10x swing between
+adjacent passes. Time inside the call before changing it.
+
+
 
 ## The window gate has an off-by-one-pass, as predicted
 
