@@ -753,6 +753,27 @@ def link_discovered_events(
     # pass would be ~5,700 a day against the 100-line `flyctl logs` buffer that
     # the pass line itself is rationed for. Below the threshold the fast state
     # is already fully described by `leg_price_link_ms`.
+    # **Per pass, keyed by sport, exactly as `alias_cache` beside it already
+    # is.** `_match_candidates` was called once per *event* -- 456 times on the
+    # live slate -- with arguments that vary only by `sport_key`, because
+    # `since_ms` is derived from the pass's single `now`. Every call after the
+    # first for a sport re-ran an identical `SELECT DISTINCT` over
+    # `odds_snapshots`, a table that grows by ~900 rows per odds sweep.
+    #
+    # Measured on live 2026-08-19 before this cache, on a slow pass:
+    #
+    #     link slow: 11057ms total; candidates 10779ms over 456 calls,
+    #     unmatched writes 117ms, link writes 1ms, other 159ms
+    #
+    # **97.5% of the leg, in one repeated query.** The growing table is also
+    # why the cost drifts: the same 456 calls cost ~2s when `odds_snapshots`
+    # is small and ~11-20s once a window has been sweeping into it.
+    #
+    # One snapshot per pass is also *more* correct than re-reading, not less:
+    # every event on a slate now links against the same candidate set, where
+    # before an event late in the loop could see fixtures an earlier one could
+    # not.
+    candidate_cache: dict[str, list[MatchCandidate]] = {}
     link_started = time.perf_counter()
     candidates_ms = 0.0
     unmatched_ms = 0.0
@@ -772,12 +793,14 @@ def link_discovered_events(
             cache[event.sport_key] = load_aliases(event.sport_key)
         aliases = cache[event.sport_key]
 
-        _t = time.perf_counter()
-        candidates = _match_candidates(
-            conn, event.sport_key, since_ms=now - 86_400_000
-        )
-        candidates_ms += (time.perf_counter() - _t) * 1000
-        candidate_calls += 1
+        if event.sport_key not in candidate_cache:
+            _t = time.perf_counter()
+            candidate_cache[event.sport_key] = _match_candidates(
+                conn, event.sport_key, since_ms=now - 86_400_000
+            )
+            candidates_ms += (time.perf_counter() - _t) * 1000
+            candidate_calls += 1
+        candidates = candidate_cache[event.sport_key]
 
         result = link_event(
             kalshi_event_ticker=event.event_ticker,

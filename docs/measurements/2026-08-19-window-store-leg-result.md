@@ -183,6 +183,62 @@ runs per event.** `alias_cache` is built fresh per pass and passed in, so a
 cold cache costs the same every pass and cannot explain a 10x swing between
 adjacent passes. Time inside the call before changing it.
 
+## 17:16Z — THE INNER TIMER FIRED, AND IT IS ONE QUERY RUN 456 TIMES
+
+The conditional `link slow` report shipped at 17:04Z and fired twelve minutes
+later, on the first slow pass after the restart:
+
+```
+link slow: 11057ms total; candidates 10779ms over 456 calls,
+unmatched writes 117ms, link writes 1ms, other 159ms
+(531 discovered, 80 linked)
+```
+
+**97.5% of the leg is `_match_candidates`, called 456 times.** The unmatched
+writes — 450 rows a pass, the other standing suspect — are **117ms**, about 1%.
+Link writes are 1ms. The remainder, which includes the whole prop path, is
+159ms. Both suspects named in the handoff were testable and one of them was
+wrong; the timer separated them in a single pass.
+
+### Why it is 456 identical queries
+
+`_match_candidates(conn, sport_key, since_ms=now - 86_400_000)` is called
+**once per event**, and `since_ms` derives from the pass's single `now`. So its
+arguments vary only by `sport_key`, of which a slate has a handful. The
+`alias_cache` immediately beside it in the same loop was already memoised per
+sport; the candidate query was not.
+
+### And this explains the drift, which no previous theory did
+
+The query is `SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team
+FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?` — a distinct scan
+over a table that grows by **~900 rows per odds sweep**, several sweeps an hour
+while a window is open.
+
+That is why the leg reads ~2.1s shortly after a restart and 11-20s later in a
+window with **identical event counts**: the multiplier is constant at ~456 and
+the per-call cost climbs with the table. It also explains why a restart appeared
+to help and why "uptime" did not fit — what matters is how much has been swept
+into `odds_snapshots` since, not how long the process has been up.
+
+### The fix
+
+Memoise per `(sport_key)` for the life of the pass, exactly as the aliases
+beside it already are. `tests/test_candidate_cache.py` asserts one query per
+sport, a separate entry per sport, that the cache does **not** survive the pass
+(a process-scoped cache would freeze the fixture set at boot — a correctness bug
+traded for a performance one, and a far quieter one), and that the same events
+still link. Three breakages applied and watched go red.
+
+**The correctness argument is independent of the speed one:** one snapshot per
+pass means every event on a slate links against the same candidate set, where
+before an event late in the loop could see fixtures an earlier one could not.
+
+**Expect the leg to fall in both states, not just the slow one** — the fast
+state's 2.1s is the same 456 calls against a smaller table. Verify on live
+before believing it.
+
+
 
 
 ## The window gate has an off-by-one-pass, as predicted
