@@ -169,11 +169,18 @@ def prune_quotes(
     was ever recommended keeps that entire run, which is what makes the
     surviving series usable for closing-line work.
     """
+    # **`confirmed_ms`, not `observed_ms` (ADR 0055).** The table is a change
+    # log: a market whose price genuinely has not moved in three days has one
+    # row, with an `observed_ms` three days old and a `confirmed_ms` from this
+    # pass. Selecting on `observed_ms` would delete **the live quote** -- the
+    # market would then have no quote at all until the next pass rewrote it,
+    # and `latest_kalshi_quote` would return `None` for a market that is
+    # perfectly well priced. Keep what was recently *confirmed*.
     return _delete_in_batches(
         conn,
         "DELETE FROM kalshi_quotes WHERE id IN ("
         "  SELECT id FROM kalshi_quotes"
-        "  WHERE observed_ms < ?"
+        "  WHERE COALESCE(confirmed_ms, observed_ms) < ?"
         "    AND ticker NOT IN (SELECT ticker FROM recommendations)"
         "  LIMIT ?"
         ")",

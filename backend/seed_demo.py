@@ -299,11 +299,15 @@ def _seed_quote_history(conn, *, ticker: str, ask_tenths: int, stamp: int, rng) 
         step = ask_tenths - drift + int(round(drift * index / 3))
         step = max(10, min(990, step))
         conn.execute(
-            "INSERT INTO kalshi_quotes (ticker, observed_ms, source, "
-            "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
-            "VALUES (?, ?, 'rest', ?, ?, ?, ?)",
+            "INSERT INTO kalshi_quotes (ticker, observed_ms, confirmed_ms, "
+            "source, yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
+            "VALUES (?, ?, ?, 'rest', ?, ?, ?, ?)",
             (
                 ticker,
+                stamp - minutes_ago * 60_000,
+                # Confirmed when observed. The demo writes a walk of distinct
+                # prices, so no row here is ever a re-confirmation of the one
+                # before it -- ADR 0055's unchanged path has nothing to model.
                 stamp - minutes_ago * 60_000,
                 max(10, step - 10),
                 float(rng.randint(50, 500)),
@@ -632,6 +636,13 @@ def seed_all(
             (called_ms, sport),
         )
     counts["odds_sweeps"] = 2
+
+    # **The demo has to claim a live recorder, and since ADR 0055 that is a
+    # separate fact from the quote rows.** Health reads a `meta` heartbeat now,
+    # not the newest row in `kalshi_quotes`, so a seed that writes quotes and no
+    # heartbeat reports a recorder that has never run -- which is what the demo
+    # exists to *not* look like.
+    db.set_recorder_heartbeat(conn, stamp)
 
     conn.commit()
     conn.close()

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -711,6 +711,16 @@ _MIGRATIONS: dict[int, _Migration] = {
     # reads `COALESCE(trigger, '')` so a NULL keeps counting as a sweep, which
     # is what those rows are. Backfilling `'scheduled'` would assert a fact
     # about history that this column was not there to observe.
+    13: _Migration(
+        # ADR 0055. Nullable with no backfill on purpose: every reader uses
+        # COALESCE(confirmed_ms, observed_ms), so a pre-ADR row reads exactly
+        # as it did before. That makes the deploy reversible without rewriting
+        # 6M rows on a box already missing its cadence.
+        columns=(("kalshi_quotes", "confirmed_ms", "INTEGER"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
+        ),
+    ),
     12: _Migration(
         statements=_QUANTITIES_ARE_REAL,
         indexes=("idx_fills_time", "idx_fills_mismatch"),
@@ -973,6 +983,39 @@ def latest_balance_tenths(conn: sqlite3.Connection) -> Optional[int]:
     except sqlite3.OperationalError:
         return None
     return row["balance_tenths"] if row else None
+
+
+#: `meta` key holding the wall clock of the last quote-recorder write.
+#:
+#: **This exists because ADR 0055 broke the signal it replaces.** Recorder
+#: liveness was "the newest row in `kalshi_quotes`", which was exact while every
+#: pass wrote ~6,000 rows and is wrong the moment the table becomes a change
+#: log: a quiet slate legitimately writes nothing, and a dead recorder writes
+#: nothing, and the health endpoint could not tell those apart.
+RECORDER_HEARTBEAT_KEY = "recorder_last_write_ms"
+
+
+def set_recorder_heartbeat(conn: sqlite3.Connection, stamp: int) -> None:
+    """Record that the quote recorder completed a write at `stamp`.
+
+    One row, keyed, upserted once per pass. Deliberately **not** a `MAX()` over
+    `kalshi_quotes`: that aggregate walks the whole covering index, and shipping
+    it to `/api/health` took the live instance down in four minutes (a08c1a9).
+    A primary-key lookup cannot repeat that.
+    """
+    _set_meta(conn, RECORDER_HEARTBEAT_KEY, str(int(stamp)))
+
+
+def recorder_last_write_ms(conn: sqlite3.Connection) -> Optional[int]:
+    """The heartbeat above, or `None` if the recorder has never written.
+
+    `None` on a fresh volume, and on a database whose last pass predates ADR
+    0055. Callers must treat it as "unknown", never as "now" -- an unreadable
+    heartbeat that resolved to the current time would report perfect health for
+    a recorder that has never run.
+    """
+    raw = get_meta(conn, RECORDER_HEARTBEAT_KEY)
+    return int(raw) if raw is not None else None
 
 
 def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:

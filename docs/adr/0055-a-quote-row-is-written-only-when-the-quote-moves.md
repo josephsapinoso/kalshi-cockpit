@@ -80,13 +80,75 @@ two it does not cover added.
 |---|---|---|
 | `runner.latest_kalshi_quote` -> suppression | newest row for a ticker | **changes**: reads `COALESCE(confirmed_ms, observed_ms)` |
 | `routes.py:537` recorder health | newest row overall, by `id DESC` | **changes**: reads the `meta` heartbeat |
-| `slate.kalshi_drift_tenths` | a one-hour window | unaffected, and slightly more honest -- drift between two change points is the same number with the copies removed |
+| `slate.kalshi_drift_tenths` | a one-hour window | **changes, and this ADR got it wrong first** -- see below |
 | `clv_signal.py` | `observed_ms <= created_ms ORDER BY DESC LIMIT 1` | unaffected. Already "the most recent quote at or before this time", which is the correct reading of a change log |
 | `routes.py:3264` `price_is_current` | quote age vs the 30s limit | **changes**, same substitution as the suppression gate |
-| retention `DELETE` | `observed_ms` vs the window | unaffected, and now deletes far less |
+| retention `DELETE` | `observed_ms` vs the window | **changes**: filters on `COALESCE(confirmed_ms, observed_ms)`, and now deletes far less |
 
 `notify/alerts.py:472` was checked and does **not** read this table; its
 docstring already records why, and that reasoning is unchanged.
+
+### The drift column, which this ADR first recorded as unaffected
+
+The first version of the table above said `kalshi_drift_tenths` was *"unaffected,
+and slightly more honest"*. That is wrong, and it is left in the history because
+it is the same class of mistake as the staleness one and was caught only by
+reading the function instead of reasoning about it.
+
+`slate.py` collects rows **inside** the window and returns `None` when there are
+fewer than two:
+
+```sql
+WHERE ticker = ? AND observed_ms >= ?   ORDER BY observed_ms DESC
+```
+
+Today a market that has not moved for an hour has ~240 identical rows in that
+window, so `latest - earliest` is **0** -- and 0 is the truthful answer: the
+price did hold steady. Under a change log the same market has **one** row, or
+none, and the function returns `None`. So the drift column would go blank for
+exactly the 84.5% of markets whose drift is most confidently known.
+
+The docstring's rule -- *"`None` ... Never 0, which would assert the price held
+steady"* -- is about not fabricating steadiness from missing data. Turning a
+measured steadiness into `None` breaks the same rule from the other side.
+
+**The fix is a better query than the one there now**, and it is an improvement
+independent of this ADR: the baseline should be *the most recent quote at or
+before the start of the window*, not the oldest quote inside it. Today, a market
+first quoted twenty minutes ago reports twenty minutes of movement as an hour's
+-- a bug that exists in the current code and that nobody has hit because the
+copies hid it.
+
+```
+baseline := latest row with observed_ms <= now - window
+            else the oldest row inside the window
+latest   := the most recent row for the ticker
+None     := only when baseline and latest are the same observation and
+            no row precedes the window -- i.e. genuinely one data point
+```
+
+A market steady across the whole window then has a baseline at or before the
+window start, `latest` is that same row, and the answer is **0** -- measured,
+not fabricated.
+
+### Retention would delete the live quote, and that is the same bug again
+
+`prune_quotes` selects on `observed_ms` against the three-day window. Under a
+change log, a market whose price has genuinely not moved in three days has one
+row, with an `observed_ms` three days old and a `confirmed_ms` from this pass --
+and the prune would delete **the current quote**.
+
+The market then has no quote at all until the next pass rewrites it, which means
+at least one pass where `latest_kalshi_quote` returns `None` and the market
+cannot be priced. Self-healing, and still wrong: the row deleted is the only
+record of a live price.
+
+So retention filters on `COALESCE(confirmed_ms, observed_ms)` -- *keep what was
+recently confirmed*, not *keep what was recently written*. Three readers now
+make that same substitution, which is the tell that the column was the missing
+concept rather than a patch: **every question about whether a quote is still
+good is a question about confirmation, and every question about the price
+history is a question about observation.**
 
 ## What was rejected
 

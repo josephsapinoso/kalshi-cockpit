@@ -228,20 +228,54 @@ def kalshi_drift(
     `None` when there is no earlier quote in the window, or when either end is
     unreadable. Never 0, which would assert the price held steady.
     """
+    since_ms = now_ms - window_ms
     rows = conn.execute(
         "SELECT observed_ms, yes_bid_tenths, no_bid_tenths FROM kalshi_quotes "
         "WHERE ticker = ? AND observed_ms >= ? "
         "ORDER BY observed_ms DESC",
-        (ticker, now_ms - window_ms),
+        (ticker, since_ms),
     ).fetchall()
-    if len(rows) < 2:
-        return None
+    # **The baseline is the quote that was standing when the window opened
+    # (ADR 0055), and `confirmed_ms` is what makes that knowable.**
+    #
+    # Under a change log, a market that has not moved all hour has one row in
+    # the window or none, so the old `len(rows) < 2` rule returned `None` --
+    # blanking the column for exactly the markets whose drift is most
+    # confidently zero.
+    #
+    # But a gap in the rows is ambiguous, and the ambiguity is the whole reason
+    # this needs a second column. No row for an hour means either *the price
+    # held* or *nobody was looking*, and those must not produce the same
+    # answer: differencing across an outage would report a recorder gap as an
+    # hour of movement. The pre-window row is a legitimate baseline only if it
+    # was **still being confirmed** at the window edge.
+    #
+    # `COALESCE` for rows written before ADR 0055: their `confirmed_ms` is NULL
+    # and `observed_ms` is the only thing known, which correctly disqualifies a
+    # stale one.
+    baseline = conn.execute(
+        "SELECT observed_ms, yes_bid_tenths, no_bid_tenths FROM kalshi_quotes "
+        "WHERE ticker = ? AND observed_ms < ? "
+        "  AND COALESCE(confirmed_ms, observed_ms) >= ? "
+        "ORDER BY observed_ms DESC LIMIT 1",
+        (ticker, since_ms, since_ms),
+    ).fetchone()
+    if baseline is None:
+        # Nothing was standing at the window edge that we know of. Two distinct
+        # observations inside the window are then the most that can be claimed,
+        # and one is not a series. This is the pre-ADR-0055 rule, kept for
+        # exactly the case it was right about.
+        if len(rows) < 2:
+            return None
+        baseline = rows[-1]
+    elif not rows:
+        # Confirmed across the window and never moved. That is a measured 0,
+        # not an absent reading, and returning None here is what this change
+        # exists to prevent.
+        return 0 if ask_for_side(baseline, side) is not None else None
 
     latest = ask_for_side(rows[0], side)
-    # The oldest observation still inside the window, not merely the previous
-    # one: a pass writes several quotes a minute, so `rows[1]` would measure
-    # fifteen seconds of drift and report it as an hour's.
-    earliest = ask_for_side(rows[-1], side)
+    earliest = ask_for_side(baseline, side)
     if latest is None or earliest is None:
         # Unreadable resolves to None, never 0. A market with no bid on one
         # side has no derivable ask, and calling that "no movement" would put a

@@ -529,20 +529,24 @@ def create_app(
                 # The irony is exact: the field added so an external watchdog
                 # could tell the box was dead is what killed it.
                 #
-                # Rows are inserted in observed order, so the newest rowid is
-                # the newest write. If that ever stops being true this reports
-                # a slightly stale age, which is the safe direction -- it can
-                # only make the heartbeat alarm early, never late.
-                row = conn.execute(
-                    "SELECT observed_ms AS last_ms FROM kalshi_quotes "
-                    "ORDER BY id DESC LIMIT 1"
-                ).fetchone()
+                # **A keyed `meta` lookup, not the newest quote row (ADR
+                # 0055).** "Newest row in `kalshi_quotes`" was exact while every
+                # pass wrote ~6,000 of them. Under a change log it is not: a
+                # slate where nothing moved writes no row, and so does a dead
+                # recorder. The two need opposite responses and that query
+                # returns the same answer for both.
+                #
+                # It is also cheaper than the thing it replaces, which matters
+                # on this endpoint above all others -- see the incident above.
+                # `ORDER BY id DESC LIMIT 1` was already O(1); a primary-key
+                # lookup on a four-row table is no worse.
+                last_ms = db.recorder_last_write_ms(conn)
             finally:
                 conn.close()
         except Exception:                                      # noqa: BLE001
             logger.warning("recorder health unreadable", exc_info=True)
             return None
-        return recorder_fields(row["last_ms"] if row else None, db.now_ms())
+        return recorder_fields(last_ms, db.now_ms())
 
     # -- read routes -------------------------------------------------------
 

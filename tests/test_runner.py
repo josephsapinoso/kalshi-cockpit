@@ -1229,17 +1229,72 @@ class TestTheQuotePassKeepsARowBettable:
         )
 
     async def test_it_re_reads_kalshi_and_re_prices(self, conn, joined, kalshi_events):
+        """A pass re-confirms the quote it read.
+
+        **This used to assert the row COUNT rose, and that stopped being the
+        refresh (ADR 0055).** The fixture replays an unchanged book, so the
+        correct behaviour now is to write no row at all and bump `confirmed_ms`
+        instead -- and a count assertion cannot tell that apart from a pass that
+        did nothing. What is actually claimed is that the quote was re-read and
+        is newly confirmed, so that is what is asserted.
+        """
         _, odds_event = joined
-        before = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
+        before = conn.execute(
+            "SELECT COUNT(*) n, MAX(COALESCE(confirmed_ms, observed_ms)) c "
+            "FROM kalshi_quotes"
+        ).fetchone()
 
         counts = await self._quote_pass(
             conn, kalshi_events, odds_event, now=NOW + 60_000
         )
 
-        after = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
-        assert after > before, "a quote pass that stores no quote refreshes nothing"
+        after = conn.execute(
+            "SELECT COUNT(*) n, MAX(COALESCE(confirmed_ms, observed_ms)) c "
+            "FROM kalshi_quotes"
+        ).fetchone()
+        assert after["c"] > before["c"], (
+            "a quote pass that re-confirms nothing refreshes nothing"
+        )
+        assert after["n"] == before["n"], (
+            "the book did not move, so the pass should have re-confirmed the "
+            "existing rows rather than duplicating them"
+        )
         assert counts.markets_quoted > 0
+        assert counts.quote_rows_written == 0, (
+            "an unchanged book wrote rows; ADR 0055's whole saving is that it "
+            "does not"
+        )
         assert counts.events_linked == 1
+
+    async def test_a_moved_quote_does_write_a_row(
+        self, conn, joined, kalshi_events
+    ):
+        """The other half, without which the test above passes on a broken writer.
+
+        A writer that never inserted anything would satisfy every assertion
+        above. Verified by moving the book and watching the count rise.
+        """
+        _, odds_event = joined
+        before = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
+
+        moved = copy.deepcopy(kalshi_events)
+        bumped = 0
+        for event in moved:
+            for market in event.get("markets", []):
+                if market.get("yes_bid_dollars") is not None:
+                    market["yes_bid_dollars"] = str(
+                        round(float(market["yes_bid_dollars"]) + 0.07, 4)
+                    )
+                    bumped += 1
+        assert bumped, "the fixture carried no yes_bid to move"
+
+        counts = await self._quote_pass(
+            conn, moved, odds_event, now=NOW + 60_000
+        )
+
+        after = conn.execute("SELECT COUNT(*) n FROM kalshi_quotes").fetchone()["n"]
+        assert after > before, "a moved book wrote no row"
+        assert counts.quote_rows_written > 0
 
     async def test_a_row_survives_the_thirty_second_limit_across_quote_passes(
         self, conn, joined, kalshi_events

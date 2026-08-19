@@ -47,6 +47,11 @@ def conn():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ticker TEXT NOT NULL,
             observed_ms INTEGER NOT NULL,
+            -- ADR 0055. Left NULL by `add_quote` on purpose: that is what
+            -- every row written before the ADR looks like, so these tests
+            -- exercise the COALESCE fallback, and the cases where the two
+            -- columns disagree get their own class below.
+            confirmed_ms INTEGER,
             source TEXT NOT NULL DEFAULT 'rest'
         );
         CREATE TABLE recommendations (

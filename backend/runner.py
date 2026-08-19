@@ -266,6 +266,16 @@ class PassCounts:
     # all until 2026-08-19 are the ones where that distinction matters.
     quotes_pruned: int = 0
     unmatched_pruned: int = 0
+    # Rows `store_quotes_from_discovery` actually inserted, against
+    # `markets_quoted` which counts markets carrying a readable quote. Equal
+    # before ADR 0055 and deliberately reported separately after it: the ratio
+    # is the whole claim of that decision, and it is the number that says
+    # whether the change is still earning its keep as the slate turns over.
+    #
+    # Reported at zero for the reason the legs are: a pass that wrote nothing
+    # because nothing moved and a pass that wrote nothing because the writer
+    # broke produce the same silence otherwise.
+    quote_rows_written: int = 0
     errors: list[str] = field(default_factory=list)
 
     # Always printed even when zero. "surfaced: 0" is the headline result of a
@@ -303,6 +313,7 @@ class PassCounts:
         "leg_price_persist_ms",
         "quotes_pruned",
         "unmatched_pruned",
+        "quote_rows_written",
     )
 
     def as_dict(self) -> dict[str, Any]:
@@ -675,12 +686,38 @@ def write_fair_price(
 
 
 def latest_kalshi_quote(conn, ticker: str):
-    """The most recent stored quote for a market, or `None`."""
+    """The most recent stored quote for a market, or `None`.
+
+    Under ADR 0055 this row is the price standing **now**, however old its
+    `observed_ms` is -- the table is a change log, so an old `observed_ms` means
+    the price has held, not that nobody has looked.
+    """
     return conn.execute(
         "SELECT * FROM kalshi_quotes WHERE ticker = ? "
         "ORDER BY observed_ms DESC LIMIT 1",
         (ticker,),
     ).fetchone()
+
+
+def quote_age_ms(quote, *, now: int) -> int:
+    """How long since this quote was last *confirmed*, not since it appeared.
+
+    **The distinction is the whole of ADR 0055 and it decides whether a row is
+    bettable.** `observed_ms` is when the price first appeared; a market that
+    has not moved in an hour has an hour-old `observed_ms` and a quote confirmed
+    seconds ago. Measuring from `observed_ms` would refuse 84.5% of the slate as
+    stale against the 30s Kalshi limit.
+
+    `COALESCE` in Python rather than SQL because `latest_kalshi_quote` is a
+    `SELECT *` shared by callers that want the raw columns. Rows written before
+    ADR 0055 carry `confirmed_ms IS NULL` and fall back to `observed_ms`, which
+    is exactly right for them: every one was written by a pass that had just
+    seen it.
+    """
+    confirmed = quote["confirmed_ms"]
+    if confirmed is None:
+        confirmed = quote["observed_ms"]
+    return now - int(confirmed)
 
 
 # ---------------------------------------------------------------------------
@@ -1089,7 +1126,7 @@ def _price_prop_event(
                     outcome_name=side_outcome,
                     ask_tenths=ask,
                     depth_at_ask=depth,
-                    kalshi_quote_age_ms=stamp - int(quote["observed_ms"]),
+                    kalshi_quote_age_ms=quote_age_ms(quote, now=stamp),
                     link_id=link_id,
                     fair_price_id=fair_ids.get(side_outcome),
                     devig=devig_result,
@@ -1485,7 +1522,7 @@ def run_pricing_pass(
                         outcome_name=side_outcome,
                         ask_tenths=ask,
                         depth_at_ask=depth,
-                        kalshi_quote_age_ms=stamp - int(quote["observed_ms"]),
+                        kalshi_quote_age_ms=quote_age_ms(quote, now=stamp),
                         link_id=link_id,
                         fair_price_id=fair_ids.get(side_outcome),
                         devig=devig_result,
@@ -2019,12 +2056,29 @@ def store_quotes_from_discovery(
     uncaptured format is what left the WebSocket path dead.
 
     A market with neither bid readable is skipped rather than stored as zeros.
+
+    **A row is written only when the quote moved (ADR 0055).** When it has not,
+    the existing row's `confirmed_ms` is bumped instead. Measured 2026-08-19:
+    84.5% of consecutive observations are byte-identical, and the table was
+    growing +6.4M rows/day against a prune whose ceiling is half the write rate.
+
+    **`confirmed_ms` is not an optimisation detail, it is the reason this is
+    safe.** Suppression asks "is this quote younger than 30s". Without a second
+    column that question would be answered by `observed_ms`, which now stops
+    advancing while a price holds -- and 84.5% of the slate would be refused as
+    stale while every component behaved exactly as documented.
+
+    Returns `(markets_quoted, rows_written)`. The first keeps its old meaning --
+    markets carrying a readable quote this pass -- so the pass line stays
+    comparable across the change; the second is what actually hit the disk.
     """
-    stored = 0
+    quoted = 0
+    written = 0
     for event in events:
         for market in event.markets:
             if market.yes_bid_tenths is None and market.no_bid_tenths is None:
                 continue
+            quoted += 1
             # Sizes cross over, and it is worth spelling out rather than
             # trusting the reader to re-derive it at a glance:
             #
@@ -2035,19 +2089,46 @@ def store_quotes_from_discovery(
             #
             # The columns store bid sizes; `DiscoveredMarket` names ask sizes,
             # because an ask size is what a buyer can actually lift.
+            current = (
+                market.yes_bid_tenths, market.no_ask_size,
+                market.no_bid_tenths, market.yes_ask_size,
+            )
+            # The newest row for this ticker, which under a change log is the
+            # price standing right now however old its `observed_ms` is.
+            previous = conn.execute(
+                "SELECT id, yes_bid_tenths, yes_bid_qty, no_bid_tenths, "
+                "no_bid_qty FROM kalshi_quotes WHERE ticker = ? "
+                "ORDER BY observed_ms DESC LIMIT 1",
+                (market.ticker,),
+            ).fetchone()
+            if previous is not None and current == (
+                previous["yes_bid_tenths"], previous["yes_bid_qty"],
+                previous["no_bid_tenths"], previous["no_bid_qty"],
+            ):
+                # Same price. Record that we looked, and write no row.
+                conn.execute(
+                    "UPDATE kalshi_quotes SET confirmed_ms = ? WHERE id = ?",
+                    (now, previous["id"]),
+                )
+                continue
             conn.execute(
-                "INSERT INTO kalshi_quotes (ticker, observed_ms, seq, source, "
+                "INSERT INTO kalshi_quotes (ticker, observed_ms, confirmed_ms, "
+                "seq, source, "
                 "yes_bid_tenths, yes_bid_qty, no_bid_tenths, no_bid_qty) "
-                "VALUES (?, ?, NULL, 'rest', ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, NULL, 'rest', ?, ?, ?, ?)",
                 (
-                    market.ticker, now,
+                    market.ticker, now, now,
                     market.yes_bid_tenths, market.no_ask_size,
                     market.no_bid_tenths, market.yes_ask_size,
                 ),
             )
-            stored += 1
+            written += 1
+    # **Before the commit, so liveness and the rows it describes land
+    # atomically.** A heartbeat committed separately could survive a rolled-back
+    # write and report a recorder that wrote nothing as healthy.
+    db.set_recorder_heartbeat(conn, now)
     conn.commit()
-    return stored
+    return quoted, written
 
 
 #: How far back a series may have last been seen and still be walked on a quote
@@ -2163,7 +2244,9 @@ async def run_kalshi_pass(
     upsert_discovered(conn, events, now=now)
     quotes_started = time.perf_counter()
     counts.leg_store_upsert_ms = int((quotes_started - store_started) * 1000)
-    counts.markets_quoted = store_quotes_from_discovery(conn, events, now=now)
+    counts.markets_quoted, counts.quote_rows_written = (
+        store_quotes_from_discovery(conn, events, now=now)
+    )
     store_finished = time.perf_counter()
     counts.leg_store_quotes_ms = int((store_finished - quotes_started) * 1000)
     counts.leg_store_ms = int((store_finished - store_started) * 1000)

@@ -163,7 +163,17 @@ CREATE INDEX IF NOT EXISTS idx_markets_status ON kalshi_markets(status);
 CREATE TABLE IF NOT EXISTS kalshi_quotes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker          TEXT NOT NULL REFERENCES kalshi_markets(ticker),
-    observed_ms     INTEGER NOT NULL,   -- when WE saw it
+    observed_ms     INTEGER NOT NULL,   -- when this price FIRST appeared
+    -- When we last saw this same price still standing. ADR 0055: the table is
+    -- a change log, so a row is written only when the quote moves and this
+    -- column is bumped in place on every pass that re-confirms it.
+    --
+    -- `observed_ms` answers "how long has this price been here"; this answers
+    -- "is it still good". Before ADR 0055 one column did both, which worked
+    -- only because every pass wrote a duplicate row. Every staleness question
+    -- reads this; every price-history question reads `observed_ms`.
+    -- NULL on rows written before ADR 0055, hence COALESCE at every reader.
+    confirmed_ms    INTEGER,
     -- Kalshi's own sequence number for the orderbook_delta stream. A gap means
     -- the book is corrupt and must be re-snapshotted; without this the book
     -- degrades permanently and silently. NULL for REST-sourced quotes.
