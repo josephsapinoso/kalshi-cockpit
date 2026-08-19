@@ -118,16 +118,39 @@ needs Joe's dispatch**; the classifier refused it again, and refused the
 combined demo+live command as a unit while the demo-only call went through, so
 issue them separately.
 
-**Live's screens were NOT read, and the attempt is recorded because the tool
-looked available and was not.** Joe was at his laptop and offered Chrome, which
-is the documented route to an authed live screen
-(`i-can-see-authed-screens-through-his-chrome`). Every `navigate` returned
-success and the tab reverted to `chrome://newtab/` immediately -- on the live
-host *and* on demo, so it is not a per-site permission. Three attempts, then
-stopped. **The route is not currently working; do not plan on it without
-checking it first.** Live was verified the usual way, by `build.git_sha` and
-`/api/health`; both new screens were read on demo, which serves the same
-image.
+### Chrome: demo is permitted, live is not, and `navigate` lies about it
+
+Joe was at his laptop and offered Chrome -- the documented route to an authed
+live screen (`i-can-see-authed-screens-through-his-chrome`). After he restarted
+the extension:
+
+| host | result |
+|---|---|
+| `example.com` | renders |
+| `kalshi-cockpit-demo.fly.dev` | renders, **including at 390px** |
+| `kalshi-cockpit.fly.dev` (live) | **silently does not navigate** |
+
+**`navigate` returns success on the live host and the tab does not move.** It
+keeps whatever page it was on, so a screenshot taken straight afterwards is of
+the *previous* site while every line of the tool output says otherwise. The only
+thing that caught it is `Tab Context` in the result footer still naming the old
+URL. **Read the tab context, never the screenshot, to decide what you are
+looking at** -- this session came one step from writing up a demo screenshot as
+live.
+
+Before the restart *both* hosts failed, and this file briefly concluded "so it
+is not a per-site permission". That was wrong: it was read off a broken
+extension. It is a per-site permission, and **live is the one missing.** Joe
+needs to allow `kalshi-cockpit.fly.dev` in the extension's site list before any
+future session can see a live screen.
+
+**What that bought anyway:** the deployed demo's `/slate` was read at 390px on
+the real internet, showing the strip rendering under the Houston row --
+`WHERE THE NUMBER CAME FROM 53.53% - 54.48%`, `multiplicative 54.19% · used`,
+`Kalshi ask 50.70% · off this scale`. Demo and live run one image, so that is
+the shipped phone layout confirmed on a deployed instance rather than only
+locally. Live itself is still verified the usual way, by `build.git_sha` and
+`/api/health`.
 
 ---
 

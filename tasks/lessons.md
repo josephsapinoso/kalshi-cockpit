@@ -25,6 +25,44 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — A screenshot proves what the tab context says it does, not what the picture looks like
+
+The browser tool's `navigate` reported **success** on a host the extension was
+not permitted for, and the tab did not move. It kept the previous page. So the
+screenshot taken immediately afterwards was a fully-rendered, entirely plausible
+picture **of a different site** — one that looked exactly like what was being
+looked for, because the previous page was the same application on its other
+instance.
+
+Every line of output said the navigation had happened. The only contradicting
+signal was the `Tab Context` footer still naming the old URL.
+
+**Read the tab context, not the picture.** A screenshot is evidence about
+whatever the tab is showing; it carries no evidence about *which page that is*.
+Where two deployments of one app differ only by hostname — a demo and a live
+instance from one image, which is this project's whole deployment model — the
+picture cannot distinguish them and will never look wrong.
+
+The near-miss: this session was one step from writing up a demo screenshot as a
+verification of live.
+
+The general rule, which is the same one this repo keeps arriving at from other
+directions: **when a tool reports success, find the independent signal that says
+what it actually did.** `flyctl logs` is lossy, so read `/api/health`'s
+`git_sha`. A grep-based caller check proves a name is present, not that it
+resolves. `navigate` returning OK proves a request was made, not that a page was
+loaded. In each case the confirming evidence and the reported success come from
+the same source, and that is exactly the case where the report is worthless.
+
+A second, smaller trap in the same episode: **a diagnosis is only as good as the
+state it was taken in.** Before the extension was restarted, both hosts failed,
+and the conclusion written down was "so it is not a per-site permission" — a
+real inference from a broken tool. After the restart one host worked and the
+other did not, which is precisely a per-site permission. Re-run the
+discriminating test after any environment change, and treat conclusions drawn
+during an outage as provisional.
+
+
 ## 2026-08-19 — Two columns that must be equal are not checked by anyone, and rendering both is what finds them
 
 The pattern: a value is written into two places by construction — a computed
