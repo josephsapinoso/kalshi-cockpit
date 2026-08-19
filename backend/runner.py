@@ -213,6 +213,21 @@ class PassCounts:
     leg_parse_ms: int = 0
     leg_store_ms: int = 0
     leg_price_ms: int = 0
+    # `leg_price_ms` split, because on 2026-08-19 it became the whole quote
+    # pass -- 12-20s of a 17-32s pass on a 15s cadence -- and a single total
+    # cannot say which of four phases moved. Exactly the reason the outer legs
+    # exist, one level down. The four sum to `leg_price_ms` up to rounding.
+    #
+    # `setup` is the three per-pass reads (strategy config, exposure, daily
+    # P&L); `link` is `link_discovered_events`; `judge` is the devig loop;
+    # `persist` is review-and-write. **`persist` includes the Anthropic round
+    # trip**, so a slow fleet lands there and not on `judge` -- keeping the
+    # arithmetic separable from the network, which is the whole point of
+    # splitting it.
+    leg_price_setup_ms: int = 0
+    leg_price_link_ms: int = 0
+    leg_price_judge_ms: int = 0
+    leg_price_persist_ms: int = 0
     # Rows retention removed this pass. Reported even at zero, because a
     # prune that has stopped finding anything and a prune that has stopped
     # running produce the same silence, and the tables that had no bound at
@@ -246,6 +261,10 @@ class PassCounts:
         "leg_parse_ms",
         "leg_store_ms",
         "leg_price_ms",
+        "leg_price_setup_ms",
+        "leg_price_link_ms",
+        "leg_price_judge_ms",
+        "leg_price_persist_ms",
         "quotes_pruned",
         "unmatched_pruned",
     )
@@ -1220,13 +1239,18 @@ def run_pricing_pass(
             "to 'nothing'."
         )
 
+    setup_ms = int((time.perf_counter() - priced_started) * 1000)
+
     # Judged but not yet written. Surfaced rows carry the Skeptic's prompt
     # inputs; everything else carries an empty mapping, because nothing will
     # ask it anything.
     pending: list[ReviewCandidate] = []
 
     alias_cache: dict[str, TeamAliases] = {}
+    link_started = time.perf_counter()
     linked = link_discovered_events(conn, events, now=stamp, alias_cache=alias_cache)
+    link_ms = int((time.perf_counter() - link_started) * 1000)
+    judge_started = time.perf_counter()
     counts.events_discovered += len(events)
     counts.events_linked += len(linked)
     counts.events_unmatched += len(events) - len(linked)
@@ -1412,9 +1436,19 @@ def run_pricing_pass(
     # Timed around the review-and-persist leg too, not just the devig loop
     # above it: `review` leaves the process for Anthropic, so a pass that goes
     # slow because the fleet is slow must not read as "pricing is slow".
+    judge_ms = int((time.perf_counter() - judge_started) * 1000)
+    persist_started = time.perf_counter()
     priced = _review_and_persist(
         conn, pending, counts=counts, review=review, now=stamp
     )
+    priced.leg_price_persist_ms = int((time.perf_counter() - persist_started) * 1000)
+    # `priced is counts` -- `_review_and_persist` mutates and returns the same
+    # object. So which of the two names these are assigned through does not
+    # matter, and a comment here previously claimed it did. Left as `priced`
+    # only because that is what the line below already used.
+    priced.leg_price_setup_ms = setup_ms
+    priced.leg_price_link_ms = link_ms
+    priced.leg_price_judge_ms = judge_ms
     priced.leg_price_ms = int((time.perf_counter() - priced_started) * 1000)
     return priced
 
