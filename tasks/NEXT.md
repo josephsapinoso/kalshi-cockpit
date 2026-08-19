@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,487 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,489 passed / 10 xfailed, ruff clean, tsc clean.
 
 **THE JOB: confirm the store leg fell, at an open betting window.** Live flapped
 on 2026-08-19 because quote passes ran 27-77s on a 15s cadence. Two fixes have
@@ -212,12 +212,19 @@ when `window_open`, read off the same `tempo` the cadence is read from.
 The budget stays -- it bounds a stall that is happening anyway, the gate
 decides whether it happens now.
 
-**This changes the drain arithmetic and nobody has redone it.** The 96
-passes/day figure above assumed every full pass prunes. Passes inside open
-windows no longer do, so throughput is lower by however many that is -- and
-the margin was 1.92M against 1.30M of growth. **Someone should count the
-open-window passes per day and check the margin survives.** If it does not,
-the lever is `DELETE_BATCH` upward, never downward.
+**The drain arithmetic was redone, and it forced a second change.** Measured
+with the scheduler's own `slots_for_sport` against live fixtures:
+**4.33 open hours/day**, so 17 of 96 full passes skip the prune and 79 run
+it. At one batch that is 1.57M rows/day against ~1.30M of growth -- a
+**17% margin whose break-even is 7.75 open hours/day**. NFL and NBA are both
+out of season and both back within weeks, and they are exactly the two
+sports `backend/kalshi/combos.py` records as missing from our captures.
+
+One 20,000-row batch costs **~20s** (index maintenance, not the scan), so a
+budget under 20s buys exactly one batch -- which is why a "5s budget" and an
+observed ~40s prune were never a contradiction. **Budget raised to 30s**,
+two batches, break-even out to ~15.9 open hours/day.
+`docs/measurements/2026-08-19-retention-drain-margin.md`.
 
 ### STILL OPEN
 
