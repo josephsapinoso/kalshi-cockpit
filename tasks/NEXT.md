@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,485 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,487 passed / 10 xfailed, ruff clean, tsc clean.
 
 **THE JOB: confirm the store leg fell, at an open betting window.** Live flapped
 on 2026-08-19 because quote passes ran 27-77s on a 15s cadence. Two fixes have
@@ -196,6 +196,28 @@ shorten the stall inverts this** -- 5,000 gives 480k/day against 1.3M of
 growth and the table grows forever while `quotes_pruned` reports a healthy
 number every pass. `quotes_pruned` sitting at exactly `DELETE_BATCH` means
 the backlog is still draining; below it means steady state.
+
+### AND THE BUDGET WAS 8x OPTIMISTIC, SO THE PRUNE NOW YIELDS TO A WINDOW
+
+The 5s budget is really **~40s**. It is checked *between* batches, one batch
+measures ~20s against the live table, and there are two tables. Full passes
+went **50s -> 87.3s** once the prune was in them -- legs summing to 19.7s of
+an 87.3s pass, the rest being the prune.
+
+Between windows that is free. While one is open it is exactly the
+confirmation gap the fast cadence exists to close. **Retention has no
+deadline; a bettable minute does.** So the full pass now skips the prune
+when `window_open`, read off the same `tempo` the cadence is read from.
+
+The budget stays -- it bounds a stall that is happening anyway, the gate
+decides whether it happens now.
+
+**This changes the drain arithmetic and nobody has redone it.** The 96
+passes/day figure above assumed every full pass prunes. Passes inside open
+windows no longer do, so throughput is lower by however many that is -- and
+the margin was 1.92M against 1.30M of growth. **Someone should count the
+open-window passes per day and check the margin survives.** If it does not,
+the lever is `DELETE_BATCH` upward, never downward.
 
 ### STILL OPEN
 
