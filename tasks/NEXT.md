@@ -226,6 +226,34 @@ observed ~40s prune were never a contradiction. **Budget raised to 30s**,
 two batches, break-even out to ~15.9 open hours/day.
 `docs/measurements/2026-08-19-retention-drain-margin.md`.
 
+### HOW TO READ THE 15:21Z TEST -- WRITTEN BEFORE IT, DELIBERATELY
+
+**There is no clean pre-window baseline and one cannot be made.** With the
+window closed the interval is 900s, so `pass_kind` finds a full pass due
+every time -- **every closed-window pass is a full pass**, and quote passes
+appear only during a window or occasionally via scheduler jitter. Six hours
+of watching produced zero instrumented quote passes for this reason.
+
+So the comparison is against the three quote passes seen this morning at
+the **old table size (~6.9M rows)**, which have `took_s` and no leg
+breakdown:
+
+```
+BEFORE (6.9M rows, uninstrumented)   took_s  23.6 / 9.7 / 18.2
+AFTER  (~4.5M rows, instrumented)    took_s  ?    + leg_store_ms
+```
+
+**n = 3 on the before side, and one of the three was 16 minutes after a
+boot.** That is a weak baseline and saying so now is the point -- deciding
+after the fact which of the three to compare against is exactly how a
+result gets chosen rather than measured. Use all three, report the spread,
+and if the after-side lands inside 9.7-23.6 the honest answer is
+**unresolved**, not "no improvement".
+
+The full pass during the window is a **separate** observation: it skips the
+prune, so it should drop from ~90-122s back to ~50s. If it does not, the
+window gate is not working and that is a bug, not a measurement.
+
 ### STILL OPEN
 
 1. **The 15:21Z window is still the test.** Watch `leg_store_ms` on a *quote*
