@@ -125,7 +125,7 @@ from .odds.timing import (
     SweepSlot,
     decide_sweeps,
 )
-from .store import db
+from .store import db, retention
 from .store.db import ask_for_side, now_ms
 from .settlement import daily_realised_pnl_dollars, open_position_dollars
 from .store.orders import ORDERS_ARE_DRY_RUNS, current_exposure_dollars
@@ -213,6 +213,12 @@ class PassCounts:
     leg_parse_ms: int = 0
     leg_store_ms: int = 0
     leg_price_ms: int = 0
+    # Rows retention removed this pass. Reported even at zero, because a
+    # prune that has stopped finding anything and a prune that has stopped
+    # running produce the same silence, and the tables that had no bound at
+    # all until 2026-08-19 are the ones where that distinction matters.
+    quotes_pruned: int = 0
+    unmatched_pruned: int = 0
     errors: list[str] = field(default_factory=list)
 
     # Always printed even when zero. "surfaced: 0" is the headline result of a
@@ -240,6 +246,8 @@ class PassCounts:
         "leg_parse_ms",
         "leg_store_ms",
         "leg_price_ms",
+        "quotes_pruned",
+        "unmatched_pruned",
     )
 
     def as_dict(self) -> dict[str, Any]:
@@ -2078,6 +2086,15 @@ async def run_once(
         conn, kalshi_client, odds_client, budget, config=config, now=stamp,
         suppression=suppression,
     )
+    # **Here and not in the quote pass.** Retention competes for the same write
+    # lock as the inserts it exists to keep fast, so running it on the 15s
+    # cadence would put a multi-million-row delete inside exactly the minutes a
+    # bettable window is open. Once per slow interval is enough: the tables
+    # grow by one pass's worth at a time, and the window this trims to is days.
+    pruned = retention.prune(conn, now=stamp)
+    counts.quotes_pruned = pruned.quotes_deleted
+    counts.unmatched_pruned = pruned.unmatched_deleted
+
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,
         day_start_hour=config.budget_day_start_utc_hour,

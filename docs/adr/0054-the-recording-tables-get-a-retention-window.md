@@ -1,0 +1,121 @@
+# 0054 — The recording tables get a retention window
+
+**Date:** 2026-08-19
+**Status:** accepted
+**Supersedes nothing. Amends the separation instruction in the 2026-08-19 handoff.**
+
+## Context
+
+Nothing in this project had ever deleted a row. `kalshi_quotes` and
+`unmatched_events` grew for the life of the volume, and by 2026-08-19 that was
+causing two distinct failures.
+
+**Disk.** The volume filled on 2026-08-16. On 2026-08-19 it was 79% full again
+— 1.41 GiB of database on a 2 GiB filesystem, 405 MB free — growing 214 MiB/day
+and accelerating: 264k quote rows/day a week earlier against 1.37M the previous
+day. That is **1.9 days to full**, and a full SQLite volume is a hard down that
+a restart does not clear, because `VACUUM` needs roughly twice the free space it
+would have by then.
+
+**Latency.** Each quote pass inserts ~5,300 rows into `kalshi_quotes`, behind a
+`(ticker, observed_ms DESC)` index that had reached **476 MiB** on a machine
+with 1 GiB of RAM. Measured on live:
+
+| table size | store leg |
+|---|---:|
+| 279k rows | 0.17s |
+| 6.9M rows | **6.0s**, then **14.0s** on the next pass |
+
+on a **15 second** cadence. See
+`docs/measurements/2026-08-19-quote-pass-leg-attribution.md`.
+
+### This overturns one instruction, and it should be said plainly
+
+The 2026-08-19 handoff and `tasks/NEXT.md` both instructed that narrowing
+`kalshi_quotes` is a **disk** decision that must not be justified with latency
+evidence, "because the writes measured 0.17s". That instruction was correct when
+written and its *purpose* — do not justify one change with the other's evidence
+— still stands. But its premise has expired: the 0.17s was measured at 279k
+rows, and the store leg is now the largest measured leg of a pass. Bounding the
+table is now **both** fixes at once.
+
+That is not a licence to recycle either number. This ADR cites the leg
+attribution for the latency half and the volume measurement for the disk half,
+and neither is used for the other.
+
+## Decision
+
+Add `backend/store/retention.py`, called **once per full pass** (900s) and
+never on the quote cadence.
+
+**`kalshi_quotes`** — delete rows older than **3 days** whose `ticker` has never
+appeared in `recommendations`.
+
+Every production reader was enumerated before the rule was written:
+
+| reader | reaches back |
+|---|---|
+| `runner.latest_kalshi_quote` | newest row for one ticker |
+| `routes.py` recorder health | newest row overall |
+| `slate.kalshi_drift_tenths` | **one hour** |
+| `clv_signal.py` | joined through `recommendations.ticker` |
+
+So the only reader that reaches past an hour reaches through a recommendation,
+and `recommendations` is the only downstream table carrying a ticker at all
+(`fair_prices` is keyed by `link_id`). Three days against a one-hour longest
+reader is a ~72x margin — deliberately generous, so a future reader added
+without reading the module has room to be wrong before it is silently starved.
+
+On live this keeps 4.8% of the table unconditionally and makes 45.5% of
+6,946,356 rows eligible immediately.
+
+**`unmatched_events`** — delete rows older than **7 days**, unconditionally on
+`resolved`. Unconditional because **0 of 506,655** live rows had ever been
+resolved: a rule that spared resolved rows would spare nothing while reading as
+a safeguard.
+
+**Batched at 20,000 rows per statement.** A single unbounded `DELETE` over
+millions of rows holds the write lock for its whole duration, and the next quote
+pass would block behind it — turning a disk fix into a latency incident.
+
+**Both counts are reported on the pass line** (`quotes_pruned`,
+`unmatched_pruned`), always, including zero: a prune that has stopped finding
+anything and a prune that has stopped running produce the same silence.
+
+## Also decided, and it is not code
+
+The Fly volume was extended from 3 GB to 5 GB. That was done first, because it
+removed the 1.9-day deadline in thirty seconds and let this rule be designed
+rather than rushed. Free space went from 405 MB to 3.2 GB.
+
+**A latent bug was found doing it.** The volume was *already* provisioned at
+3 GB while the filesystem reported **2.0 G** — a previous extend had grown the
+volume and never grown the filesystem. So the 2026-08-16 fill happened against
+2 GB on a volume that was supposed to be 3. After this extend the filesystem
+reports 4.9 G, so the resize did take this time. **Any future extend must be
+verified with `df -h /data` on the machine, not with `flyctl volumes list`** —
+the two disagreed for at least three days and the optimistic one is the one
+`flyctl` prints.
+
+## Consequences
+
+- Both tables become bounded. Growth stops even without a `VACUUM`, because
+  freed pages are reused by subsequent inserts.
+- **The file does not shrink.** SQLite returns freed pages to a free list, not
+  to the filesystem. Any claim that the database got smaller must come from a
+  `VACUUM`, which is now affordable at 3.2 GB free but is not part of this
+  change.
+- The store leg should fall as the index shrinks. **That is a prediction, not a
+  result** — the pass now reports `leg_store_ms`, so the next full pass after
+  deploy measures it. If it does not fall, the index size was not the cause and
+  this ADR's latency half is wrong while its disk half stands.
+- The record's population changes: quotes for never-recommended tickers older
+  than three days no longer exist. Nothing reads them today. A future analysis
+  that wants them must raise the window here *before* it needs them.
+
+## What would falsify this
+
+`leg_store_ms` staying at 6–14s after the table has been trimmed. That would
+mean the insert cost is not driven by index size, and the latency argument
+above would have to be withdrawn — leaving the disk argument, which stands on
+its own measurement.
