@@ -25,6 +25,68 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — A read-only handle to a WAL database reports the last checkpoint and calls it the present; and "the file stopped growing" is not "the table stopped growing"
+
+Live row counts were read over `flyctl ssh console` with
+
+```python
+sqlite3.connect('file:/data/cockpit.db?mode=ro', uri=True)
+```
+
+and were **749 seconds stale**, on a table taking ~6,000 inserts every 25
+seconds. A read-only connection cannot create the `-shm` file it needs to read
+the write-ahead log, so it silently serves the last checkpoint. There is no
+error, no warning, and no way to tell from the result. 51.6 MB of committed
+writes were invisible.
+
+**The general shape: a read handle that cannot see the newest writes fails by
+returning an older truth, not by failing.** `mode=ro` is the safe-looking
+choice, which is exactly why it gets picked for a production box, and the safety
+it buys is on the write side while the cost lands on the read side. Any
+read-only path to live — a replica, a snapshot, a cached view, a follower — has
+this shape.
+
+**What caught it was a constant, not a contradiction.** Two reads eleven minutes
+apart returned byte-identical counts *and* an identical file size. A number that
+does not move when it must move is as strong a signal as a number that is
+obviously wrong, and it is much easier to miss, because "the same answer twice"
+reads as confirmation. **Take the second reading in order to disagree with the
+first.** If it cannot disagree, it is not a second reading.
+
+**The check is one line and belongs beside every such query:**
+
+```
+now_ms - MAX(observed_ms)   ->   lag_s
+```
+
+Compare the newest row against the wall clock before believing any aggregate
+over the table. This is the same rule as *"state when a price was observed
+relative to when the outcome became known"*, applied to the reader rather than
+to the data.
+
+**And the paired trap: a flat file size is not a flat table.** The same
+database was reported as 1546.4 MB across 24 minutes while its row count
+climbed, because ~25% of the file is freelist being reused. A retention change
+had been recorded as working on the evidence that "the DB file has stopped
+growing" — which was true, and did not mean what it was read to mean. Deleted
+pages go on the freelist and get refilled, so file size is bounded long after
+row count stops being. **Size on disk and rows in a table answer different
+questions; a claim about retention needs the one it is actually about.**
+
+**The corollary that made it worth chasing rather than shrugging at:** the
+correction moved every figure in the *unfavourable* direction — the table was
+larger and the write rate higher than reported. A stale reader flatters, because
+the thing being measured was smaller in the past. That is the same direction as
+every other measurement error this project has caught, and it is why "the number
+looked fine" is not a reason to skip the check.
+
+The durable fix was to stop reading the database at all. Write rate, prune rate
+and pass timings were all recomputed from the pass lines the loop already emits,
+which have no such failure mode — and which, unlike an SSH session, are the same
+numbers a future session can re-derive.
+
+---
+
 ## 2026-08-19 — An error message names the hop it was thrown on, not the hop that is broken; and a fix is not a fix until it is measured after deploying
 
 Live's health check flapped for days. Three sessions blamed CPU saturation from
