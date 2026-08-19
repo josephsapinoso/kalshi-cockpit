@@ -30,18 +30,33 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,462 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,482 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: live flaps.** It was hard down for 18 minutes on 2026-08-19 and
-had been failing about half of all heartbeat checks for a day. The cause is
-diagnosed and the fix is **not built** — the quote pass paginates ~56 pages of
-Kalshi's catalogue every 15s to price ~70 events, saturating a shared vCPU
-while a betting window is open. Read
-`docs/measurements/2026-08-19-quote-pass-cost-attribution.md` and the newest
-entry below **before** touching `run_quote_pass`; two obvious fixes are already
-refuted there and one of them is the one you will think of first.
+**THE JOB: confirm the store leg fell, at an open betting window.** Live flapped
+on 2026-08-19 because quote passes ran 27-77s on a 15s cadence. Two fixes have
+shipped and **neither is proven under load**:
 
-A machine restart is the bandage and it holds until the next open window.
+- **ADR 0053** narrowed the HTTP walk. Confirmed working on the live box —
+  `priceable_series` returns 19 series and the scoped walk measures 2.55s
+  against ~15s. This one is done.
+- **ADR 0054** put a retention window on `kalshi_quotes` and
+  `unmatched_events`, because the *store* leg had become the dominant cost —
+  6.0s then 14.0s per pass, against the 0.17s the previous handoff ruled it out
+  on. That 0.17s was measured at 279k rows; the table holds 6.9M.
+
+**Every leg sample so far is from a FULL pass with the window closed.** The
+test is a *quote* pass during an open window: read `leg_store_ms` on the pass
+line and check it against the 15s cadence. Projected ~8-12s, which is a
+projection with no margin, not a result.
+
+**If `leg_store_ms` has not fallen**, ADR 0054's latency half is refuted —
+withdraw it, say so, and go to the write-side narrowing in STILL OPEN item 3.
+Its disk half stands on separate evidence either way.
+
+Read `docs/measurements/2026-08-19-quote-pass-leg-attribution.md` before
+proposing any cause. It records three wrong attributions on this one incident,
+including one made in the session that wrote it, and all three came from
+skipping `n`.
 
 Everything else is done and none of it is urgent: ADR 0047's plan is fully
 discharged (gloss = ADR 0050, strip = ADR 0051, phone = ADR 0052), and ADR 0038
@@ -67,6 +82,114 @@ work here.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
+
+---
+
+## 2026-08-19 ~12:15Z — ADR 0053 HALF-HELD; THE COST MOVED TO THE STORE LEG, AND I GUESSED WRONG ABOUT IT FIRST
+
+**The 15:21Z test had not happened when this was written.** The brief asked
+whether the fix held at the first open betting window. At 04:12Z that window
+was still eleven hours out, and the all-success heartbeat run since 02:10Z was
+the machine restart plus a closed window. It is not evidence. `baseball_mlb
+15:21Z-16:21Z` is still the test.
+
+Live also only received ADR 0053 at **04:07Z** (release v82), five minutes
+before the first look — "deployed and unproven" was fresher than the handoff
+thought.
+
+### The narrowing works, and it was never the whole pass
+
+Timed on the live box itself, not from a laptop:
+
+| leg | value |
+|---|---|
+| `priceable_series` | exactly **19** series, as designed |
+| scoped HTTP walk | **2.55s** (was ~15s for the full catalogue) |
+
+That leg is fixed. But the first instrumented passes showed where the clock
+actually goes:
+
+```
+full pass  took_s 44.6   walk 8454ms  parse 96ms  store  5997ms  price 2793ms
+full pass  took_s 54.9   walk 7904ms  parse 93ms  store 14030ms  price 2143ms
+```
+
+**The store leg is 6.0s and then 14.0s.** The handoff ruled the writes out at
+**0.17s** — correct at 279k rows, and now applied to a table holding 6.9M rows
+behind a 476 MiB index on a 1 GiB machine. A write cost measured against a
+growing table has an expiry date.
+
+### I produced the third wrong attribution on this incident, and it is recorded
+
+Before instrumenting I timed the walk (2.55s), the parse (0.11s) and the store
+(**0.02s**), subtracted them from an observed 23.6s pass, and concluded pricing
+was ~21s. Pricing is **2.8s**. Both inputs were wrong the same way:
+
+- the 23.6s was **one sample, 16 minutes after a boot** — the next was 9.7s;
+- the 0.02s store was measured against an **empty database in tmpfs**, not the
+  live volume. The real figure is 300x larger.
+
+Reading `n` before the effect size — rule one in `CLAUDE.md` — catches both.
+See `docs/measurements/2026-08-19-quote-pass-leg-attribution.md`. The fix for
+the whole class is shipped: a pass now reports `leg_walk_ms / leg_parse_ms /
+leg_store_ms / leg_price_ms`, always, including zero.
+
+### Disk was worse than the handoff said, and there was a latent bug under it
+
+Measured 2026-08-19: **1.41 GiB** database (handoff said 879 MiB), 405 MB free,
+growing **214 MiB/day and accelerating** — 264k quote rows/day a week earlier
+against 1.37M the day before. **1.9 days to full.** `unmatched_events` was
+404 MiB of that and appears nowhere in the handoff: 506,655 rows, **0 ever
+resolved**.
+
+**Nothing in this project had ever deleted a row.** No prune, no retention,
+anywhere.
+
+**The volume was already 3 GB while the filesystem reported 2.0 G.** A previous
+extend grew the volume and never grew the filesystem, so the 2026-08-16 fill
+happened against 2 GB on a volume provisioned for 3. Extended to 5 GB with
+Joe's approval; `df` now reports **4.9 G, 3.2 G free, 32%**. **Verify any
+future extend with `df -h /data` on the machine** — `flyctl volumes list` was
+the optimistic one and the two disagreed for at least three days.
+
+A volume snapshot (`vs_Noek6wqO0eqyIoLQgjKjZ`, 1.6 GiB) was taken before the
+first prune ran, so the deletion is reversible.
+
+### ADR 0054 — the recording tables get a retention window
+
+`kalshi_quotes`: 3 days, **except** tickers that ever produced a
+recommendation (4.8% of the table, kept regardless of age). Every reader was
+enumerated first; the only one reaching past **one hour** reaches through
+`recommendations.ticker`, and `recommendations` is the only downstream table
+carrying a ticker at all. 45.5% of 6,946,356 rows eligible immediately.
+
+`unmatched_events`: 7 days, unconditional on `resolved`, because sparing
+resolved rows would spare zero of 506,655.
+
+Batched at 20k rows so the delete cannot hold the write lock the quote inserts
+need, and on the **full pass only** for the same reason. Both counts on the
+pass line, always.
+
+Four guards, each verified by breaking it. Suite **3,482 passed / 10 xfailed**,
+ruff and tsc clean. Live and demo both on `a1807f5`.
+
+### STILL OPEN
+
+1. **The 15:21Z window is still the test.** Watch `leg_store_ms` on a *quote*
+   pass — every leg sample so far is a full pass. Projected ~8-12s against a
+   15s cadence: a projection with no margin, not a result.
+2. **ADR 0054's latency half is a prediction.** If `leg_store_ms` does not fall
+   once the table is trimmed, index size was not the cause and that half must
+   be withdrawn; the disk half stands on its own measurement.
+3. **The deeper lever is write-side, and was deliberately not taken.** ~5,300
+   quote rows are written per pass and 4.8% of tickers are ever read.
+   Retention keeps 3 days of everything, which preserves the option; narrowing
+   the *write* would not. A separate ADR if retention proves insufficient.
+4. **`VACUUM` has not been run.** The prune frees pages for reuse but does not
+   return them to the filesystem, so the file will not shrink. Affordable now
+   at 3.2 G free; deliberately not part of ADR 0054.
+5. Everything from the previous entries: Chrome's live-host permission, the
+   digest leading with `x / 300`.
 
 ---
 

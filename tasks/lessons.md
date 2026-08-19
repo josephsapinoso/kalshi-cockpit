@@ -25,6 +25,82 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — A performance number expires when the thing it measured grows, and a benchmark that "isolates" a cost usually removes the cost
+
+Three attributions of one slow pass were wrong, in three consecutive sessions,
+each confident and each cheap to refute. The third was mine. What they share is
+worth more than any of the answers.
+
+**A measurement of a write is a measurement of the table it wrote into.** The
+inserts were timed at 0.17s and ruled out — correctly, at 279k rows. That
+number was then carried forward in a handoff as a settled fact and used to
+argue the writes could not be the problem. By then the table held 6.9M rows
+behind a 476 MiB index and the same work cost 6.0s, then 14.0s. Nothing was
+dishonest; the number simply had an expiry date that nobody wrote on it.
+
+**So: when a measurement's subject grows, record the size it was taken at, in
+the same sentence.** "Inserts cost 0.17s" is a trap. "Inserts cost 0.17s at
+279k rows" invites the next reader to check whether that still holds, and takes
+about four seconds to do.
+
+**A benchmark that isolates a leg usually isolates it from the thing that makes
+it slow.** I timed the store leg on the live box at 0.02s and concluded it was
+free. It was 0.02s because I had pointed it at an empty database in tmpfs —
+neither the real index nor the real volume. The isolation that made the
+benchmark clean is exactly what removed the cost. A local run against a
+same-sized table got closer (0.445s) and was still off by 13x, because it had a
+fast SSD.
+
+**The general form: before trusting a micro-benchmark, name what it does not
+contain, and ask whether the answer lives there.** For a write, that list is
+index size, page cache pressure and fsync — and on a 1 GiB shared box, all
+three are the answer.
+
+**Subtraction is not measurement; it inherits every error in its terms.** I
+took an observed 23.6s pass, subtracted a 2.55s walk and a 0.02s store, and
+concluded pricing was ~21s. Pricing was 2.8s. *Both* terms were wrong, and in
+the direction that made the story coherent — which is what made it convincing.
+The 23.6s was one sample taken sixteen minutes after a boot; the next was 9.7s.
+
+**`n` before the effect size is already rule one in `CLAUDE.md`, and it catches
+all three of these.** It is written there as a rule about statistics, and every
+one of these failures was an engineer's timing measurement rather than a
+statistic. The rule does not care about the distinction; the sessions that
+skipped it did.
+
+**What actually ended it: instrument the thing rather than reason about it.**
+The pass now reports `leg_walk_ms / leg_parse_ms / leg_store_ms /
+leg_price_ms`, always, including zero. It cost one small change and one deploy,
+and the first pass afterwards settled in a single line what three sessions of
+inference had got wrong. The tell that this was overdue was there the whole
+time: three different people had needed the same number and none could read it.
+
+**When you are about to argue about where time goes, the argument is the
+signal. Log the legs and stop arguing.**
+
+---
+
+## 2026-08-19 — `flyctl volumes list` and `df` disagreed for three days, and the optimistic one is the one you type
+
+The live volume filled on 2026-08-16. Three days later `flyctl volumes list`
+reported the volume as **3 GB** while `df -h /data` on the machine reported the
+filesystem as **2.0 G**. A previous extend had grown the volume and never grown
+the filesystem, so the incident happened against a gigabyte less than anyone
+believed was there — and every check that would have caught it was a check
+nobody ran, because the convenient command said 3 GB.
+
+**The pattern: a resize is two operations, and the control plane only reports
+the first.** Provisioning the block device and growing the filesystem on it are
+separate, and the tool that provisions is the tool that reports.
+
+**So verify capacity from inside the machine, never from the control plane.**
+`df -h /data` over `flyctl ssh console`, and do it *after* every extend rather
+than trusting the success message. The extend that fixed this did take — 4.9 G
+— which is exactly why the failed one was invisible: they print the same thing.
+
+This generalises past volumes. Wherever a provisioning API and a running system
+can disagree about the same quantity, the running system is the one holding the
+money.
 ## 2026-08-19 — "I checked and it was fine" is not monitoring, and the alarm you built is not evidence until you read the channel
 
 I spent a whole session reporting the live instance healthy. It was down 71
