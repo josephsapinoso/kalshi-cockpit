@@ -88,10 +88,11 @@ shipped the bug.
 Each table gets its own full budget rather than a shared deadline, so a
 quote backlog cannot starve `unmatched_events` indefinitely.
 
-The original single-bound reasoning, kept because it is still true of the
-batch size: A single unbounded `DELETE` over
-millions of rows holds the write lock for its whole duration, and the next quote
-pass would block behind it — turning a disk fix into a latency incident.
+The batch bound still earns its place on its own terms: a single unbounded
+`DELETE` over millions of rows holds the write lock for its whole duration,
+and the next quote pass would block behind it — turning a disk fix into a
+latency incident. Both bounds are needed and neither substitutes for the
+other.
 
 **Both counts are reported on the pass line** (`quotes_pruned`,
 `unmatched_pruned`), always, including zero: a prune that has stopped finding
