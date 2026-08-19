@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,482 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,485 passed / 10 xfailed, ruff clean, tsc clean.
 
 **THE JOB: confirm the store leg fell, at an open betting window.** Live flapped
 on 2026-08-19 because quote passes ran 27-77s on a 15s cadence. Two fixes have
@@ -172,6 +172,30 @@ pass line, always.
 
 Four guards, each verified by breaking it. Suite **3,482 passed / 10 xfailed**,
 ruff and tsc clean. Live and demo both on `a1807f5`.
+
+### THE FIRST PRUNE STALLED THE RECORDER, AND THAT IS FIXED TOO
+
+Shipping ADR 0054 broke live for ~25 minutes and it is worth knowing why,
+because the reasoning that produced the bug reads as correct. Batching
+bounds how long **one `DELETE`** holds the write lock. It says nothing about
+how long the **pass** is blocked -- the prune runs inside the pass, so
+deleting until nothing matched blocked the recorder for the whole backlog
+however small the batches were. Caught by watching `recorder.age_ms` climb
+one second per second across three reads 25s apart: 1.25M rows gone at
+~60k/minute, 1.8M still pending, zero quotes recorded throughout.
+
+A prune now takes a **5s budget** and leaves the rest for the next pass.
+Confirmed on live: `retention: pruned 20000 kalshi_quotes and 20000
+unmatched_events rows`, one bounded batch each, recorder healthy.
+
+**The throughput arithmetic is tight and nothing in the code enforces it.**
+A batch takes ~20s, so the budget buys exactly one batch per pass:
+96 passes/day x 20,000 = **1.92M/day pruned** against **1.30M/day grown**,
+net 620k/day, backlog clear in ~2.8 days. **Lowering `DELETE_BATCH` to
+shorten the stall inverts this** -- 5,000 gives 480k/day against 1.3M of
+growth and the table grows forever while `quotes_pruned` reports a healthy
+number every pass. `quotes_pruned` sitting at exactly `DELETE_BATCH` means
+the backlog is still draining; below it means steady state.
 
 ### STILL OPEN
 
