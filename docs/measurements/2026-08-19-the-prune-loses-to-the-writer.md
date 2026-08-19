@@ -188,3 +188,40 @@ delete more per prune, or keep less than three days. The first changes what the
 recorder records and needs its own ADR; the second and third are dials. Nothing
 here says which, and the store-leg split should land first so that "the table
 size is the cost" stops being an assumption.
+
+## Two candidate causes of the store leg, eliminated without a deploy
+
+Both were cheap, both were checked because they were about to become story six,
+and both are recorded so that the next session does not re-derive them.
+
+**`priceable_series` is not the untimed gap.** It is a `SELECT DISTINCT ...
+WHERE last_seen_ms >= ?` over `kalshi_events` with no index on that column,
+evaluated as an argument to `run_kalshi_pass` and therefore outside every leg --
+the same growing-scan shape as `_match_candidates`, in the same file, on the
+same day. `kalshi_events` holds **1,590 rows**. A full scan of 1,590 rows is
+milliseconds. The timer added in `0c609de` stays, because eliminating a
+candidate by measurement is what it is for, but the shape was a coincidence.
+
+**The WAL is not growing.** A write-ahead log that grows until a checkpoint
+would fit the within-the-hour doubling better than table size does, and it would
+fit the abrupt transitions the previous file describes. It is flat:
+
+```
+18:47:40Z   cockpit.db 1546.4 MB   cockpit.db-wal 51.6 MB
+18:59:20Z   cockpit.db 1546.4 MB   cockpit.db-wal 51.6 MB   (uptime 95 min)
+```
+
+Read off the filesystem rather than through SQLite, which is the whole lesson of
+the correction above. Checkpointing is keeping the WAL at a steady size, and the
+main file is flat because ~25% of it is freelist being reused -- so the disk
+half of ADR 0054 still holds even while the row count climbs. **Those two facts
+are compatible and it is worth saying so**: "the file has stopped growing" is
+not evidence that the table has.
+
+**And the table-size story itself is weaker than it looks.** `leg_store_ms` was
+3.8-10.0s at 17:26-17:31Z and 7.9-21.4s at 17:56-18:38Z, but the table grew only
+~5-8% between those readings. A 5% larger table does not double insert cost.
+Either the relationship is not linear in the region that matters -- plausible,
+if the index has outgrown the page cache -- or something else moved. **This is
+the sixth candidate mechanism on this incident and it gets no more credit than
+the five before it.** The split timer decides it.
