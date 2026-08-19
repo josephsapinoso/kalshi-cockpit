@@ -30,90 +30,111 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,512 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,565 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: confirm on the next open window that `link slow` never fires.**
-The previous job is done. The inner timer named the cause in one pass —
-`_match_candidates` was **97.5%** of the leg, called **456 times** with
-arguments that vary only by `sport_key` — and it is now memoised per sport per
-pass, like the aliases beside it always were.
-
-Verified on live over 14 consecutive quote passes: **link 2.1s -> 0.25s (8x)**,
-pricing 2.2s -> 0.59s, `took_s` 8.1-10.6s -> 6.8-9.6s against a 15s cadence.
-
-**What is not yet confirmed is the slow state.** Its arithmetic (456 calls x
-~24ms) should be unreachable at five calls, but the conditions that produced it
-have not recurred since the deploy, so this is a prediction. Stream
-`flyctl logs -a kalshi-cockpit` during the next open window and grep for
-`link slow`. **It should never appear.** If it does, read the new breakdown —
-it will name a different term this time.
-
-The drift is also explained, which no earlier theory managed: the query is a
-`SELECT DISTINCT` over `odds_snapshots`, which grows ~900 rows per odds sweep,
-so a constant ~456 calls cost 2.1s early in a window and 11-20s later. Process
-uptime was never the variable.
-
-Historical, for the record only: **"why does link cost 20s some passes and 2.1s
-others"** The pricing leg was split into four phases and deployed 16:34Z,
-and the slow state returned on its own at 16:48Z with the window unchanged. The
-split named the culprit in one pass:
+**THE JOB: live OOM-kills itself, and that is now the lead.** Everything below
+about the link leg is *answered*; this is what replaced it.
 
 ```
-                took_s   walk   store   PRICE   link   judge  persist
-16:47:53 fast      9.8   2294    5136    2236    2094     20      122
-16:49:16 SLOW     29.3   2294    3429   22637   20716    164     1755
+18:36Z-18:52Z  seven health-check failures
+18:59:16Z      Out of memory: Killed process 707 (python)  anon-rss 675560kB
+18:59:43Z      machine restarted -- no deploy, same release, same machine id
+19:00Z on      took_s ~9s, store ~6s, link ~260ms      <- fast again
 ```
 
-**`leg_price_link_ms` is 90% of the slow pass and swings 10x while nothing else
-moves.** `events_discovered` is 531 and `events_linked` is 81 in *both* states —
-same input, ten times the wall clock. The transition is abrupt (41s apart), not
-a ramp, so it is not accumulation and a restart only appears to fix it.
+Steady state is **~555 MB RSS on a 962 MB box**, and **every full pass adds
+~55 MB and halves the page cache** (`MemAvailable` 76 -> 35 MB, cached
+126 -> 76 MB). So a **1546 MB** database whose hot index is **476 MiB** gets
+**76-130 MB** of cache: under a tenth of the index the pass writes into every
+fifteen seconds can be resident.
 
-Four legs are now eliminated *by measurement*: the walk (2.3s, flat — ADR 0053
-works), the store leg (flat — so ADR 0054's question is moot for latency), the
-devig loop, and the Skeptic. Read
-`docs/measurements/2026-08-19-window-store-leg-result.md` end to end before
-proposing a cause; it contains a wrong reading of mine from four hours earlier
-("pricing tracks the window") and the measurement that refuted it, kept in
-order deliberately.
+**Why this is the lead and not candidate seven of seven.** It is the first one
+that predicts the *timing* behaviour instead of explaining it away — restart
+fixes it (the restart was an OOM kill), the transition is abrupt not a ramp (a
+cache falls off a cliff), "uptime" nearly fits but not quite (RSS is not linear
+in uptime; the spike is per full pass). It does **not** compete with the
+table-size story: cache residency is the mechanism by which table size costs
+anything. `docs/measurements/2026-08-19-live-oom-killed-itself.md`.
 
-**The timer is already in, deployed, and armed — you probably do not need to
-write one.** `link_discovered_events` now times the candidate query (with a
-call count), the unmatched writes and the link writes, and emits a single
+**A prediction was registered and is unchecked.** The first OOM came 95 minutes
+after boot. The same interval from the 18:59:43Z boot is **~20:34Z**. If it
+recurs near there the OOM is periodic; if it does not, the 95 minutes was
+incidental and the real trigger is something else. **Check the log before
+theorising.**
 
-    link slow: NNNNms total; candidates NNNms over NNN calls, unmatched
-    writes NNNms, link writes NNNms, other NNNms (531 discovered, 81 linked)
+**Do NOT re-open the health-check keep-alive fix on this.** It was measured
+working at 15:30Z (0 failures of 12). Seven failures in the sixteen minutes
+before an OOM kill is the box dying, not the proxy hop regressing.
 
-whenever it exceeds `LINK_SLOW_REPORT_MS` (8s — chosen to sit in the empty gap
-between the two measured clusters, 2.0-2.4s fast and 12.7s+ slow). Conditional
-because this runs on the 15s cadence and an unconditional line would be ~5,700
-a day against a 100-line log buffer.
+**Unverified, and named so it gets tested rather than rediscovered:** no
+`cache_size` or `mmap_size` pragma is ever set, so SQLite is not holding the
+555 MB. `run_kalshi_pass` does `raw_events = [e async for e in
+kalshi_client.events(...)]`, and a **full** pass passes no `series_tickers` —
+so that is the whole catalogue with nested markets materialised into one list,
+over what is already an async generator. ADR 0053 measured that walk at 15.21s
+of transfer. The falsifiable version: RSS should rise during `leg_walk_ms` on a
+full pass and not on a quote pass's narrowed walk.
 
-**To catch it: stream `flyctl logs -a kalshi-cockpit` to a file during an open
-window and grep for `link slow`.** It did not fire in the 10 minutes after the
-17:04Z deploy — a restart lands you in the fast state — and on the previous
-cycle the flip came ~14 minutes after boot. `leg_price_link_ms` is on *every*
-pass line regardless, so you can see which state you are in without waiting.
+**THE PREVIOUS JOB IS DONE: `link slow` fired once, and it named a new term.**
 
-Two things worth knowing before you read the result. `_match_candidates` is
-called **once per event inside the loop** (531 calls a pass) with arguments that
-are identical for every event sharing a `sport_key` — the aliases beside it are
-cached and the candidates are not. And `record_unmatched` writes **450 rows per
-pass**, every 15s, into the table ADR 0054 put a retention window on. Both are
-plausible and neither is measured; the line above will say which, if either.
+```
+19:31:15Z  link slow: 9641ms total; candidates 1450ms over 4 calls,
+           unmatched writes 8162ms, link writes 1ms, other 27ms
+           (554 discovered, 85 linked)
+```
 
-**Do not fix before reading it.** `alias_cache` is built fresh each pass, so a
-cold cache cannot explain a swing between adjacent passes — that is the kind of
-plausible story this incident has now produced five of, four of them wrong.
-Every one that was settled was settled by a timer, in minutes.
+**The candidate cache holds — 4 calls, not 456.** The cost moved to
+`record_unmatched`, which was the *other* suspect the previous handoff named and
+which measured **117ms (1%)** at 17:16Z. It is now **8,162ms**, 70x, on the same
+code. `unmatched_events` takes ~465 rows a pass and its 7-day retention has not
+reached steady state, so it is still filling. Same shape as before: a write into
+a table that is still growing.
+
+**Also open, and the arithmetic is not close.**
+`kalshi_quotes` grows **+6.4M rows/day**: 7.77M written against a prune whose
+**absolute ceiling** — four full passes an hour, every hour, never gated — is
+3.84M/day. There is no schedule that breaks even.
+`docs/measurements/2026-08-19-the-prune-loses-to-the-writer.md`.
+
+**ADR 0055 is Joe's call and is built, tested and pushed but NOT DEPLOYED.**
+A quote row is written only when the quote moves; `confirmed_ms` carries
+freshness. 84.5% of consecutive observations are byte-identical
+(`2026-08-19-how-often-a-kalshi-quote-actually-moves.md`) — but that is a
+property of the *slate*, not of Kalshi: college football and NFL are 57% of
+today's markets at 98-99% unchanged, today's baseball runs 51-74%. On an
+all-active slate the rate lands near 3.5M/day against the same 3.84M ceiling,
+so **the prune's ceiling is still worth raising** and ADR 0055 does not close
+that item.
+
+**THE DEPLOY IS BLOCKED AND TWO COMMITS ARE WAITING ON IT.** `gh workflow run
+deploy.yml -f instance=live` is refused by the auto-mode classifier; Joe has to
+switch to manual mode. Waiting: `0c609de` (splits `leg_store_ms` into
+`upsert`/`quotes` and times the two pieces outside every leg) and `7ae3ffb`
+(ADR 0055). **Nothing about the OOM is fixed by either.**
+
+**Two candidates were eliminated cheaply and must not be re-derived.**
+`priceable_series` looked exactly like `_match_candidates` — a `SELECT DISTINCT`
+on an unindexed column, outside every leg — and `kalshi_events` holds **1,590
+rows**. The WAL is flat at 51.6 MB. Neither is the store leg.
+
+**A verification method that lies, now in `lessons.md`:** a `mode=ro` SQLite URI
+cannot create the `-shm` file it needs to read the WAL, so it serves the last
+checkpoint silently. Live reads were **749 seconds stale**. Caught because two
+reads eleven minutes apart returned byte-identical counts on a table taking
+~6,000 inserts every 25 seconds. Check `now - MAX(observed_ms)` before believing
+any aggregate, or read the pass lines instead — which is what every number in
+today's measurements now does.
 
 Also open, and now measured rather than suspected:
 
 - **ADR 0054's latency half is UNRESOLVED**, by its own registered rule. The
   table lost 28% of its rows and the prune-free store leg did not move
   (before 5997/14030 at 6.9M, after 9164/14345 at 4.9M — n=2 a side). Do not
-  write it up as confirmed *or* refuted. The **disk** half stands: the DB file
-  has stopped growing.
+  write it up as confirmed *or* refuted. The **disk** half stands — the DB
+  file is flat at 1546.4 MB — but **that is not evidence the table stopped
+  growing**, and it was read that way. ~25% of the file is freelist being
+  reused, so the row count can climb (+6.4M/day, measured 2026-08-19) behind a
+  flat file size. Size on disk and rows in a table answer different questions.
 - **The window gate is one pass late, confirmed by prediction.**
   `scripts/run_loop.py:543` assigns `tempo.window_open` *after* the pass;
   `:577` reads it *before*. So the first full pass after a window opens still
@@ -121,13 +142,25 @@ Also open, and now measured rather than suspected:
   Same root cause makes the loop take up to 900s to notice a window at all,
   which is the more expensive half. One fix, its own ADR.
 
-**Health check flapping is FIXED and verified on live** — two hops, both
-defaulting to a 5s keep-alive against a 15s check. `KEEP_ALIVE_TIMEOUT=50000`
-for Next and `--timeout-keep-alive 75` for uvicorn, in `docker/entrypoint.sh`.
-Live measured 0 failures of 12 at 15s spacing where it was 5 of 10 that
-morning, and no Fly check failure since the 15:30Z deploy. **Do not re-attribute
-this to CPU or long passes** — the backend answered 50 of 50 probes while IO
-pressure hit 90%. `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`
+**Health check flapping: the keep-alive fix is sound and live has failed
+checks again anyway.** Both are true and the order matters. The fix was two
+hops each defaulting to a 5s keep-alive against a 15s check —
+`KEEP_ALIVE_TIMEOUT=50000` for Next and `--timeout-keep-alive 75` for uvicorn,
+in `docker/entrypoint.sh` — measured at 0 failures of 12 where it had been 5 of
+10. `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`.
+
+**The sentence that used to sit here — "no Fly check failure since the 15:30Z
+deploy" — stopped being true at 18:36Z**, and it is corrected rather than
+deleted because the correction is the useful part. Seven failures fell between
+18:36Z and 18:52Z and were followed at 18:59:16Z by an OOM kill. That is the box
+dying, not the keep-alive regressing. **Do not re-open the keep-alive fix on
+this evidence, and do not re-attribute it to CPU or long passes either** — the
+backend answered 50 of 50 probes while IO pressure hit 90%.
+
+The general shape, which is why it is worth the space: **a verified fix stays
+verified for the failure it was measured against, and the same symptom can
+return for a different reason.** A green measurement is not a standing
+guarantee, and "we already fixed that" is how the second cause gets missed.
 records the wrong fix that shipped first and why its reasoning read as sound.
 
 Everything else is done and none of it is urgent: ADR 0047's plan is fully
