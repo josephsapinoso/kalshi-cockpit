@@ -449,7 +449,7 @@ class TestTheChainProducesRecordedObservations:
         linked = link_discovered_events(conn, events, now=NOW)
         assert linked == {}
 
-        queued = conn.execute("SELECT * FROM unmatched_events").fetchall()
+        queued = conn.execute("SELECT * FROM unmatched_items").fetchall()
         assert len(queued) == 1
         assert queued[0]["side"] == "kalshi"
         assert queued[0]["reason"]

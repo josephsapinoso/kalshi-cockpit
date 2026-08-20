@@ -2,7 +2,7 @@
 
 `backend/store/retention.py` is the first code in this project that deletes a
 row. The tables it trims had no bound at all: `kalshi_quotes` reached 6.9M rows
-behind a 476 MiB index on a 1 GiB machine, and `unmatched_events` 506,655 rows
+behind a 476 MiB index on a 1 GiB machine, and the unmatched queue 788,944 rows
 of which zero had ever been resolved. That cost a filled volume on 2026-08-16
 and, because every quote pass inserts into that index, a store leg that grew
 from 0.17s at 279k rows to 14.0s at 6.9M.
@@ -58,14 +58,54 @@ def conn():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ticker TEXT NOT NULL
         );
-        CREATE TABLE unmatched_events (
+        -- ADR 0056: one row per work item. Built with the identity columns and
+        -- the unique index rather than the two this module reads, because a
+        -- fixture that omits the constraint cannot show a prune interacting
+        -- with it -- and the interaction is the whole risk. Two sightings of
+        -- one item are one row here, exactly as on live.
+        CREATE TABLE unmatched_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            observed_ms INTEGER NOT NULL,
+            first_seen_ms INTEGER NOT NULL,
+            last_seen_ms INTEGER NOT NULL,
+            seen_count INTEGER NOT NULL DEFAULT 1,
+            side TEXT NOT NULL,
+            identifier TEXT NOT NULL,
+            league TEXT,
+            detail TEXT,
+            reason TEXT NOT NULL,
             resolved INTEGER NOT NULL DEFAULT 0
         );
+        CREATE UNIQUE INDEX idx_unmatched_item ON unmatched_items(
+            side, identifier, COALESCE(league, ''), COALESCE(detail, ''), reason);
         """
     )
     return c
+
+
+def add_unmatched(
+    conn, identifier: str, *, last_seen_days: float,
+    first_seen_days: float | None = None, resolved: int = 0,
+) -> None:
+    """One work item, last seen `last_seen_days` ago.
+
+    `first_seen_days` defaults to the same instant. Where the two differ is
+    exactly where the prune's choice of column shows, so the tests that care
+    pass both.
+    """
+    if first_seen_days is None:
+        first_seen_days = last_seen_days
+    conn.execute(
+        "INSERT INTO unmatched_items (first_seen_ms, last_seen_ms, side, "
+        "identifier, league, detail, reason, resolved) "
+        "VALUES (?, ?, 'kalshi', ?, NULL, NULL, 'no_counterpart', ?)",
+        (
+            int(NOW - first_seen_days * _MS_PER_DAY),
+            int(NOW - last_seen_days * _MS_PER_DAY),
+            identifier,
+            resolved,
+        ),
+    )
+    conn.commit()
 
 
 def add_quote(conn, ticker: str, age_days: float) -> None:
@@ -156,22 +196,15 @@ class TestWhatIsRemoved:
         assert tickers(conn) == []
 
     def test_unmatched_is_pruned_regardless_of_resolved(self, conn):
-        """0 of 506,655 live rows were resolved, so sparing them spares nothing."""
-        conn.execute(
-            "INSERT INTO unmatched_events (observed_ms, resolved) VALUES (?, 0)",
-            (NOW - 30 * _MS_PER_DAY,),
-        )
-        conn.execute(
-            "INSERT INTO unmatched_events (observed_ms, resolved) VALUES (?, 1)",
-            (NOW - 30 * _MS_PER_DAY,),
-        )
-        conn.commit()
+        """0 of 743,428 live rows were resolved, so sparing them spares nothing."""
+        add_unmatched(conn, "OPEN", last_seen_days=30, resolved=0)
+        add_unmatched(conn, "DONE", last_seen_days=30, resolved=1)
 
         removed = retention.prune_unmatched(conn, now=NOW)
 
         assert removed == 2
         assert conn.execute(
-            "SELECT COUNT(*) FROM unmatched_events").fetchone()[0] == 0
+            "SELECT COUNT(*) FROM unmatched_items").fetchone()[0] == 0
 
 
 class TestItReportsWhatItDid:
@@ -185,11 +218,7 @@ class TestItReportsWhatItDid:
 
     def test_both_tables_are_counted_separately(self, conn):
         add_quote(conn, "OLD", age_days=10)
-        conn.execute(
-            "INSERT INTO unmatched_events (observed_ms) VALUES (?)",
-            (NOW - 30 * _MS_PER_DAY,),
-        )
-        conn.commit()
+        add_unmatched(conn, "OLD", last_seen_days=30)
 
         result = retention.prune(conn, now=NOW)
 
@@ -269,10 +298,15 @@ class TestThePruneCannotHoldThePass:
     def test_unmatched_gets_its_own_budget_not_the_remainder(self):
         """A quote backlog must not starve the other table indefinitely.
 
-        If both prunes shared one deadline, the quotes prune would consume it
-        every pass for as long as its backlog lasted and `unmatched_events`
+        If the prunes shared one deadline, the quotes prune would consume it
+        every pass for as long as its backlog lasted and the unmatched queue
         would never be reached -- growing unbounded behind a rule that looked
         like it covered it.
+
+        **Three since ADR 0056**, not two: `prune_legacy_unmatched` drains the
+        old append-only table and gets its own budget for the same reason. The
+        count is asserted exactly rather than as a minimum, so adding a fourth
+        prune has to come here and state that it meant to.
         """
         import inspect
 
@@ -284,9 +318,9 @@ class TestThePruneCannotHoldThePass:
         assert "budget_s=budget_s" in after, (
             "prune_unmatched no longer receives a full budget of its own"
         )
-        assert source.count("budget_s=budget_s") == 2, (
-            "the two prunes must each get the full budget, not one shared "
-            "deadline -- a quote backlog would starve unmatched_events"
+        assert source.count("budget_s=budget_s") == 3, (
+            "each prune must get the full budget, not one shared deadline -- "
+            "a quote backlog would starve the unmatched queue"
         )
         assert quotes_at < unmatched_at
 

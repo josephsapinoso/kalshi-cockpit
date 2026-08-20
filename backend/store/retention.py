@@ -4,6 +4,12 @@ Nothing in this project deleted a row until 2026-08-19. `kalshi_quotes` and
 `unmatched_events` accumulated for the life of the volume, which is two
 separate failures rather than one:
 
+ADR 0056 then changed what a row in the second of them *is*. The work queue is
+now `unmatched_items`, one row per item rather than one per sighting, and the
+window below reads `last_seen_ms`. `unmatched_events` is the old append-only
+table, no longer written, drained by `prune_legacy_unmatched` and dropped when
+it is empty. The `kalshi_quotes` rule is untouched by that change.
+
 - **Disk.** The volume filled on 2026-08-16 and was 79% full again three days
   later, growing ~214 MiB/day and accelerating. A full SQLite volume is a hard
   down that a restart does not clear, and `VACUUM` needs roughly twice the free
@@ -69,12 +75,17 @@ _MS_PER_DAY = 24 * 60 * 60 * 1000
 #: be wrong before it is silently starved.
 DEFAULT_QUOTE_RETENTION_MS = 3 * _MS_PER_DAY
 
-#: `unmatched_events` is a diagnostic: a row per event the linker could not
-#: match, written every pass, so the same unmatched event is re-recorded
-#: hundreds of times a day. No production code path reads it -- the linker
-#: writes it and `store/publish.py` exposes it to dbt. Kept longer than the
-#: quotes because it is small per row in aggregate terms and because a
+#: `unmatched_items` is a diagnostic: one row per work item the linker could
+#: not match. No production code path reads it -- the linker writes it and
+#: `store/publish.py` exposes it to dbt. Kept longer than the quotes because a
 #: matching regression is diagnosed over days, not hours.
+#:
+#: **Measured against `last_seen_ms`, and since ADR 0056 that is a different
+#: question from the one this window used to ask.** Under the append-only shape
+#: a row was a sighting, so ageing one out dropped a stale observation. A row is
+#: now the item itself, so this says "forget work nobody has seen for a week" --
+#: and an item still failing every pass is never eligible however old it is,
+#: which is correct and was not expressible before.
 DEFAULT_UNMATCHED_RETENTION_MS = 7 * _MS_PER_DAY
 
 #: Rows deleted per statement. A single unbounded `DELETE` over millions of
@@ -123,10 +134,22 @@ class PruneResult:
 
     quotes_deleted: int = 0
     unmatched_deleted: int = 0
+    #: Rows removed from the pre-ADR-0056 `unmatched_events` table, which is no
+    #: longer written and is being drained to nothing. **Counted separately
+    #: rather than folded into `unmatched_deleted`, because the two mean
+    #: opposite things**: one is steady-state housekeeping that should stay
+    #: small forever, the other is a one-off backlog that should reach zero and
+    #: stay there. Summed together, the backlog draining would look exactly like
+    #: the steady state misbehaving.
+    legacy_unmatched_deleted: int = 0
 
     @property
     def total(self) -> int:
-        return self.quotes_deleted + self.unmatched_deleted
+        return (
+            self.quotes_deleted
+            + self.unmatched_deleted
+            + self.legacy_unmatched_deleted
+        )
 
 
 def _delete_in_batches(conn, sql: str, params: tuple, *, budget_s: float) -> int:
@@ -196,22 +219,92 @@ def prune_unmatched(
     retention_ms: int = DEFAULT_UNMATCHED_RETENTION_MS,
     budget_s: float = DEFAULT_BUDGET_S,
 ) -> int:
-    """Drop unmatched-event diagnostics older than the window.
+    """Forget work items nobody has seen inside the window.
 
     Unconditional on `resolved`, unlike the quotes rule, and that is
-    deliberate: on live, **0 of 506,655** rows had ever been marked resolved,
+    deliberate: on live, **0 of 788,944** rows had ever been marked resolved,
     so a rule that spared resolved rows would spare nothing and would read as a
     safeguard while being a no-op. If the resolution path is ever built, this
     is the line to revisit.
+
+    **`last_seen_ms`, never `first_seen_ms` (ADR 0056).** Pruning on first-seen
+    would delete an item the linker is still failing on every pass, and the very
+    next pass would insert it again with `seen_count` back to 1 -- so a
+    week-long failure would present as new, forever, while the pass line
+    reported a healthy prune. That is the same class of defect as a guard that
+    validates its parameter instead of its observation: busy, green, and blind.
     """
     return _delete_in_batches(
         conn,
-        "DELETE FROM unmatched_events WHERE id IN ("
-        "  SELECT id FROM unmatched_events WHERE observed_ms < ? LIMIT ?"
+        "DELETE FROM unmatched_items WHERE id IN ("
+        "  SELECT id FROM unmatched_items WHERE last_seen_ms < ? LIMIT ?"
         ")",
         (now - retention_ms, DELETE_BATCH),
         budget_s=budget_s,
     )
+
+
+#: The pre-ADR-0056 table. No longer written by anything; drained to nothing and
+#: then dropped. The name is spelled out here rather than inlined so the day it
+#: can be deleted, `grep` finds every place that has to go with it.
+LEGACY_UNMATCHED_TABLE = "unmatched_events"
+
+
+def _table_exists(conn, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
+
+
+def prune_legacy_unmatched(
+    conn, *, budget_s: float = DEFAULT_BUDGET_S
+) -> int:
+    """Drain the pre-ADR-0056 `unmatched_events` table, then drop it.
+
+    **This exists because the obvious migration was measured and refused.**
+    Collapsing the old table in place at boot costs, rehearsed against live on
+    2026-08-19, **229s** for the `GROUP BY` and **218s** for the `DROP TABLE`
+    over its 181,154 pages. Migrations run before uvicorn, so that is a
+    multi-minute outage under a health check that does not wait -- and a machine
+    killed part-way re-runs the step from the top, which is a crash loop on the
+    one volume that cannot be recreated.
+
+    So the cost is moved off the boot path and onto the machinery that already
+    bounds exactly this: batched deletes, a time budget, full passes only. The
+    table drains over a few passes instead of blocking one boot.
+
+    **Everything is deleted, with no window at all**, unlike every other rule
+    here. Nothing reads this table, nothing writes it any more, and the linker
+    re-derives its entire contents into `unmatched_items` on the next pass --
+    so a retention window over it would preserve nothing that is not already
+    being rebuilt.
+
+    **The `DROP` only happens once the table is empty**, which is the whole
+    point: dropping 181,154 pages costs 218s, dropping one costs nothing. Kept
+    inside the same budget check so a slow drain cannot turn into a slow drop.
+
+    Returns rows removed. Zero once the table is gone, forever.
+    """
+    if not _table_exists(conn, LEGACY_UNMATCHED_TABLE):
+        return 0
+    removed = _delete_in_batches(
+        conn,
+        f"DELETE FROM {LEGACY_UNMATCHED_TABLE} WHERE id IN ("
+        f"  SELECT id FROM {LEGACY_UNMATCHED_TABLE} LIMIT ?"
+        ")",
+        (DELETE_BATCH,),
+        budget_s=budget_s,
+    )
+    empty = conn.execute(
+        f"SELECT 1 FROM {LEGACY_UNMATCHED_TABLE} LIMIT 1"
+    ).fetchone() is None
+    if empty:
+        conn.execute(f"DROP TABLE {LEGACY_UNMATCHED_TABLE}")
+        conn.commit()
+        logger.info(
+            "retention: %s is empty and has been dropped", LEGACY_UNMATCHED_TABLE
+        )
+    return removed
 
 
 def prune(
@@ -238,11 +331,17 @@ def prune(
         unmatched_deleted=prune_unmatched(
             conn, now=now, retention_ms=unmatched_retention_ms, budget_s=budget_s
         ),
+        # Its own budget again, and last: this is a finite backlog, so starving
+        # it merely postpones the day it finishes, while starving either of the
+        # two above lets a live table grow.
+        legacy_unmatched_deleted=prune_legacy_unmatched(conn, budget_s=budget_s),
     )
     if result.total:
         logger.info(
-            "retention: pruned %d kalshi_quotes and %d unmatched_events rows",
+            "retention: pruned %d kalshi_quotes, %d unmatched_items and "
+            "%d legacy unmatched_events rows",
             result.quotes_deleted,
             result.unmatched_deleted,
+            result.legacy_unmatched_deleted,
         )
     return result

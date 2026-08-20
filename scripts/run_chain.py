@@ -18,7 +18,7 @@ says where it stopped:
 
     events_discovered   nothing priceable on Kalshi -- check the calendar
     events_linked       discovery worked, matching did not -- read
-                        `unmatched_events`, which names the teams as seen
+                        `unmatched_items`, which names the teams as seen
     dropped_no_books    linked, but no stored odds for that fixture -- the
                         sweep did not cover it, or the budget refused
     dropped_no_kalshi_quote   no readable bid on the market

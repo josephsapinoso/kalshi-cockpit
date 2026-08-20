@@ -25,6 +25,79 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-19 — A schema change costs its time at boot, under a health check that does not wait; and rehearse the migration before writing it
+
+A table needed collapsing: 788,944 rows carrying 1,376 distinct work items. The
+migration was designed, built, tested, and verified by breaking each of its
+eleven guards. Then the cost was rehearsed against live, which took two minutes
+and made all of it waste:
+
+```
+COUNT(*)  over 788,944 rows        1.6 s
+GROUP BY  over the same rows     229.4 s        <- 143x
+DROP TABLE (181,154 pages)       217.6 s
+```
+
+**Migrations run at boot, before the server binds.** So that step was a four-to-
+eight minute startup on a platform whose health check gives seconds — and the
+version stamp is written only after the step succeeds, so a machine killed
+part-way re-runs it from the top. The "fix" was a crash loop on the one volume
+that cannot be recreated.
+
+**The pattern: a query's cost and a migration's cost are the same number in
+different units.** Ad hoc, 229 s is a slow afternoon. At boot it is an outage,
+and one that repeats. Nothing about the SQL says which it is; the *caller* does.
+Ask where the statement runs before asking how long it takes, and rehearse the
+expensive statement against production-sized data **before** building the thing
+that contains it. Eleven verified guards on a design that cannot ship are still
+eleven guards on a design that cannot ship.
+
+The corollary is about what to do with a number you distrust. These timings came
+off a box concurrently serving traffic, so they overstate a quiet boot by an
+unknown factor — the same "a number from a loaded system describes the load"
+trap this file records one entry above. The response was **not** to go and
+re-measure on a quiet box. It was to pick a design that is O(1) at boot whether
+the disk is fast or slow, so the uncertain number stops being load-bearing.
+**When a measurement is uncertain and a design exists that does not depend on
+it, that design is the answer to the uncertainty.**
+
+---
+
+## 2026-08-19 — `GROUP BY` treats NULLs as equal; a `UNIQUE` index treats them as distinct. A guard written on the all-NULL case cannot see the difference
+
+A table was given a unique index over five columns, two of them nullable, using
+`COALESCE(col, '')` so that NULLs would collide instead of inserting afresh — the
+whole point of the change. A migration copied the old rows in with a matching
+`GROUP BY ... COALESCE(...)`.
+
+The mutation test for the `GROUP BY`'s `COALESCE` **stayed green**. The test
+seeded 500 rows all with a NULL league and asserted one row came out, which it
+did with or without the `COALESCE` — because SQL's `GROUP BY` already treats
+NULLs as one group. It is only the `UNIQUE` index that treats them as distinct.
+The two clauses were written to look alike and they are governed by opposite
+rules.
+
+The `COALESCE` is load-bearing only where NULL **and** `''` both occur. Then the
+bare grouping emits two rows for one item, the index collapses them, and
+`INSERT OR IGNORE` swallows the rejection — so the step reports success while
+silently discarding the smaller group.
+
+**Two patterns, and the second is the general one.**
+
+- Concretely: **SQL's NULL semantics differ between `GROUP BY` and `UNIQUE`**,
+  and code that restates one clause as the other is exactly where that bites.
+- Generally: **a mutation test that seeds only the common case tests only the
+  common case.** The guard was written from the data live actually holds
+  (`league` is a name or `None`, never `''`), which is the natural thing to do
+  and is why it could not fail. Seeding the case that distinguishes the two
+  implementations is a different act from seeding the case that occurs.
+
+Found only because the mutation harness was run and one of eleven came back
+green. The rule "every guard is verified by disabling it and watching the test
+fail" earned its place here in a single run.
+
+---
+
 ## 2026-08-19 — Do not diagnose a resource-starved machine by consuming that resource; and a process that is *stuck* looks nothing like a process that is slow
 
 Live was short of memory, so its memory was sampled — by opening an

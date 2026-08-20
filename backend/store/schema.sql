@@ -341,9 +341,54 @@ CREATE TABLE IF NOT EXISTS event_links (
 -- filling in alias tables by hand, and it must stay visible -- a matcher that
 -- silently drops what it cannot resolve looks identical to one that has
 -- nothing to do.
-CREATE TABLE IF NOT EXISTS unmatched_events (
+--
+-- **One row per work item, not one per sighting (ADR 0056).** The linker runs
+-- every pass and re-derives the same failures, so its predecessor gained a row
+-- per unmatched event per pass for a work list that does not change. Measured
+-- on live 2026-08-19: **788,944 rows carrying 1,376 distinct items**, a 573:1
+-- duplication, the eight worst items appearing 2,477 times each with exactly
+-- one reason apiece, and `resolved` set on none of them.
+--
+-- **`seen_count` is what makes this queue readable, and is the reason this is
+-- not merely a disk fix.** It separates a fixture that failed to match once
+-- during a rename from one that has been failing for a week. The append-only
+-- shape could not express that difference: every row looked alike and there
+-- were three quarters of a million of them, which is why nobody ever worked it.
+--
+-- **This is a NEW TABLE rather than a migration of `unmatched_events`, and the
+-- reason is a measurement rather than taste.** The obvious change is to collapse
+-- the old table in place at boot. Rehearsed against live on 2026-08-19, the two
+-- statements that would take cost **229s** (the `GROUP BY` over 788,944 rows)
+-- and **218s** (`DROP TABLE` on the 181,154 pages it occupies). Migrations run
+-- at boot, before uvicorn; a four-to-eight minute boot is an outage with Fly's
+-- health check watching, and a machine killed part-way re-runs the step from
+-- the top on restart -- a crash loop on the one volume that cannot be
+-- recreated. That is the v11 failure this repo has already survived once.
+--
+-- So nothing is migrated. This table is created empty (`IF NOT EXISTS` covers
+-- both a fresh database and the live volume), the linker writes here from the
+-- first pass, and **`unmatched_events` is left exactly where it is** to be
+-- drained by the retention rule that already bounds it and dropped once it is
+-- empty, when the drop is free. See `store/retention.py`.
+--
+-- **Discarding the old rows would also have been defensible, and is not what
+-- happens.** The linker re-derives the entire work list every pass, so the
+-- content is rebuilt within about fifteen seconds; only `first_seen_ms` -- how
+-- long an item has been failing -- would be lost. Draining costs nothing extra
+-- because the prune already existed, so the cheaper-looking option was not
+-- taken.
+CREATE TABLE IF NOT EXISTS unmatched_items (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    observed_ms         INTEGER NOT NULL,
+    -- When this item was first and most recently seen.
+    --
+    -- **Named as a pair deliberately.** The single `observed_ms` this replaces
+    -- reads as "when it was observed", which under an upsert is ambiguous
+    -- between the two -- and a reader who guesses "most recent" gets a
+    -- retention rule backwards. The rename is the guard against that reading.
+    first_seen_ms       INTEGER NOT NULL,
+    last_seen_ms        INTEGER NOT NULL,
+    -- Sightings, including the first, so this is never 0.
+    seen_count          INTEGER NOT NULL DEFAULT 1,
     side                TEXT NOT NULL,      -- kalshi | odds
     identifier          TEXT NOT NULL,
     league              TEXT,
@@ -361,7 +406,24 @@ CREATE TABLE IF NOT EXISTS unmatched_events (
     reason              TEXT NOT NULL,
     resolved            INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_unmatched_open ON unmatched_events(resolved, observed_ms DESC);
+-- The work item's identity, and the guard that makes duplication impossible
+-- rather than merely unlikely.
+--
+-- **The `COALESCE` calls are load-bearing, not tidiness.** SQLite treats NULLs
+-- as distinct in a UNIQUE index, so leaving nullable `league` and `detail` bare
+-- would let every NULL-league item insert afresh on every pass -- the exact
+-- behaviour this replaces, surviving behind an index that claims to prevent it.
+-- A unique index that silently exempts the common case is worse than none,
+-- because it is cited as a reason not to check. Verified against NULL on both
+-- columns rather than reasoned about.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unmatched_item ON unmatched_items(
+    side, identifier, COALESCE(league, ''), COALESCE(detail, ''), reason);
+-- Retention reads `last_seen_ms`, never `first_seen_ms`: an item still being
+-- seen is still open work however old it is. Pruning on first-seen would delete
+-- it and let the very next pass write it straight back with `seen_count` reset
+-- to 1, destroying the one number this table now exists to carry while
+-- reporting a healthy prune.
+CREATE INDEX IF NOT EXISTS idx_unmatched_open ON unmatched_items(resolved, last_seen_ms DESC);
 
 -- ============================================================================
 -- Fair prices

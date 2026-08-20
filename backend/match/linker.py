@@ -356,7 +356,7 @@ def link_prop_event(
     two-team bijection built from `yes_sub_title`. A prop event's subtitles are
     `"Anthony Kay: 2+"`, `"Anthony Kay: 3+"`, and so on -- twelve player-rung
     strings, not two team names. Every prop event would fail with
-    `"expected 2 sides, got 12"` and land in `unmatched_events`, roughly twelve
+    `"expected 2 sides, got 12"` and land in `unmatched_items`, roughly twelve
     hundred rows a pricing pass, describing a failure that was never a failure.
 
     So a prop is linked by **identity, not by inference**: its ticker names the
@@ -426,16 +426,48 @@ def record_unmatched(
     detail: str,
     reason: str,
 ) -> None:
-    """Add to the visible work queue.
+    """Add to the visible work queue, or stamp the item already on it.
 
     A matcher that silently drops what it cannot resolve looks identical to one
     with nothing to do. This is the difference between "coverage is thin" and
     "coverage is broken", and it is the queue that alias files get filled from.
+
+    **One row per work item, not one per sighting (ADR 0056).** This is called
+    once per unmatched event per pass, and the linker re-derives the same
+    failures every pass, so appending produced a queue that grew without the
+    work list changing: **743,428 rows carrying 1,356 items** on live, and
+    `resolved` set on none of them. A sighting now moves `last_seen_ms` and
+    increments `seen_count`; `first_seen_ms` is written once and never again.
+
+    **`seen_count` is the point, and disk is the side effect.** "Failed once
+    while a fixture was being renamed" and "has failed every pass for a week"
+    are different pieces of work, and under the append-only shape they were the
+    same row repeated a different number of times -- countable in principle,
+    unreadable in practice.
+
+    `observed_ms` names the sighting, which is why it lands in both columns on
+    a first insert and only in `last_seen_ms` after. The parameter keeps its
+    name because that is what the caller has: the pass's `now`.
     """
     conn.execute(
-        "INSERT INTO unmatched_events (observed_ms, side, identifier, league, "
-        "detail, reason, resolved) VALUES (?, ?, ?, ?, ?, ?, 0)",
-        (observed_ms, side, identifier, league, detail, reason),
+        "INSERT INTO unmatched_items (first_seen_ms, last_seen_ms, seen_count, "
+        "side, identifier, league, detail, reason, resolved) "
+        "VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0) "
+        # The conflict target must restate the index's `COALESCE` expressions
+        # exactly, or SQLite cannot match it to `idx_unmatched_item` and raises
+        # rather than upserting. It is not decoration: SQLite treats NULLs as
+        # distinct in a unique index, and `league` and `detail` are both
+        # nullable, so bare columns here would let every NULL-league item
+        # insert afresh on every pass -- restoring the exact behaviour this
+        # replaces, behind an index that reads as though it prevents it.
+        "ON CONFLICT(side, identifier, COALESCE(league, ''), "
+        "COALESCE(detail, ''), reason) DO UPDATE SET "
+        # `excluded.last_seen_ms`, not the bare parameter: the row being
+        # inserted is the sighting, and reading it back from `excluded` keeps
+        # this clause true if the VALUES list is ever reordered.
+        "last_seen_ms = excluded.last_seen_ms, "
+        "seen_count = unmatched_items.seen_count + 1",
+        (observed_ms, observed_ms, side, identifier, league, detail, reason),
     )
     conn.commit()
 

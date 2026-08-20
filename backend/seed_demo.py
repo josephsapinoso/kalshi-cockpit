@@ -445,7 +445,7 @@ def seed_all(
     #   fair_prices -> event_links, event_links -> kalshi_events.
     for table in (
         "fills", "settlements", "orders", "recommendations", "closing_lines",
-        "fair_prices", "event_links", "unmatched_events", "kalshi_quotes",
+        "fair_prices", "event_links", "unmatched_items", "kalshi_quotes",
         "odds_snapshots", "api_credits", "model_ratings", "lessons",
         "kalshi_markets", "kalshi_events", "kalshi_series", "strategy_configs",
     ):

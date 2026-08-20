@@ -41,7 +41,7 @@ class TestSchemaApplication:
             "odds_snapshots",
             "api_credits",
             "event_links",
-            "unmatched_events",
+            "unmatched_items",
             "fair_prices",
             "model_ratings",
             "strategy_configs",

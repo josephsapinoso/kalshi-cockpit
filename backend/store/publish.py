@@ -44,7 +44,7 @@ PUBLISHED_TABLES: tuple[str, ...] = (
     "closing_lines",
     "fair_prices",
     "event_links",
-    "unmatched_events",
+    "unmatched_items",
     "api_credits",
     "strategy_configs",
     "kalshi_markets",

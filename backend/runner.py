@@ -804,7 +804,7 @@ def link_discovered_events(
     """Link each discovered event to a sportsbook fixture.
 
     Returns `event_ticker -> (link_id, commence_skew_ms)` for the ones that
-    resolved. Everything else goes to `unmatched_events` with a reason, because
+    resolved. Everything else goes to `unmatched_items` with a reason, because
     a matcher that silently drops what it cannot resolve looks identical to one
     with nothing to do.
     """

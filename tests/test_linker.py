@@ -293,7 +293,7 @@ class TestWorkQueue:
             league="Pro Football", detail="New York G vs Dallas",
             reason="no_counterpart",
         )
-        row = conn.execute("SELECT * FROM unmatched_events").fetchone()
+        row = conn.execute("SELECT * FROM unmatched_items").fetchone()
         assert row["identifier"] == "KXNFLGAME-X"
         assert row["resolved"] == 0
         assert "New York G" in row["detail"], "detail must carry the names to alias"
@@ -401,7 +401,7 @@ class TestPropEventsInheritTheirGamesLink:
 
     `link_event` matches a two-team bijection. A prop event names players, not
     teams, so it can never pass that test -- and the failure is not "no match",
-    it is twelve hundred `unmatched_events` rows a pass describing a comparison
+    it is twelve hundred `unmatched_items` rows a pass describing a comparison
     nobody asked for.
 
     The route below adds no new way to be wrong: a prop's link is exactly the

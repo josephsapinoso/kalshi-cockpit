@@ -30,39 +30,45 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,565 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,589 passed / 10 xfailed, ruff clean, tsc clean.
 
-**Live is on `f198404` with 2 GB and is healthy for the first time today.**
-Measured 20:41-22:08Z, 234 passes, inside an open `baseball_mlb` sweep window:
+**Live is on `f198404` with 2 GB and held for 2h40m. The 12-hour question is
+still open, because only 2h40m has elapsed.** The handoff before this one was
+written at ~22:10Z and the check was run at 23:19Z **the same evening** — not
+the next morning. Re-read `date -u` before believing any elapsed-time sentence
+here, including this one.
+
+Checked 23:19Z, deploy 20:39:34Z, and all three asks came back clean:
 
 ```
-                 before (a482fea, 1gb)      after (f198404, 2gb)
-took_s              18-35s  (limit 15)      2.9-3.4s
-leg_store_ms         8,000-21,400ms         123-232ms
-leg_price_link_ms   11,000-20,000 bad       58-258ms
-cadence warnings    nearly every pass       0
-quote rows/day       7.77M written          2.25M written, 13.47M pruned
+                        last night         at 23:19Z
+took_s                  2.9-3.4s           2.8-3.9s
+recorder.age_ms         ~30s               5.9s
+MemAvailable            --                 1.03 GB
+page cache              27-135 MB (sick)   1.09 GB
+link slow / OOM         0                  0
+machine restarts        --                 0  (one start event, 20:39:34Z)
 ```
 
-`link slow`: **never fired** in the window. The previous handoff's job is done.
+**`MemFree` was 69 MB and that is not the leak returning.** Linux spends spare
+RAM on page cache; `MemAvailable` is the number, and 1.09 GB of cache is exactly
+what the starved box did not have. **Read `MemAvailable`, never `MemFree`** — the
+naive read says "69 MB left" and would have reopened a closed investigation.
 
-**THE JOB: watch it hold, and do not fix anything yet.** Everything below is
-open, and none of it is urgent in the way this morning's was. The single most
-valuable thing the next session can do is confirm this is stable over hours
-rather than 87 minutes — specifically that memory does **not** climb into the
-new ceiling. Read `/api/health` (`recorder.age_ms`) and the pass lines. **Do
-NOT sample live over `flyctl ssh console` on a loop** — see `lessons.md`, that
-mistake is one day old.
+**Nothing went quiet, so ADR 0055 is correct as well as fast.**
+`dropped_no_kalshi_quote` is **0** — it is absent from the pass line and it is
+not in `runner.py`'s `ALWAYS_REPORT`, so absent means zero, which was checked in
+the code rather than assumed. `suppressed` is 0 on quiet passes and **8 beside 20
+recommendations** on the 23:15Z sweep pass, so the pipeline decides rather than
+sleeps. Drift: 4,384 distinct tickers wrote a quote in the last hour, ~100%
+carrying `confirmed_ms`, and `slate.py:255` returns a measured **0** for an
+unmoved market instead of blanking it. **The live Board itself was NOT read** —
+`/api/slate` is 401 and Chrome is still blocked on the live host.
 
-**Two things shipped today and both need a second look, not more work.**
-
-1. **ADR 0055** — a quote row is written only when it moves; `confirmed_ms`
-   carries freshness. Working: **5-14% of ~6,900 markets written per pass**.
-   The check that matters is *correctness*, not speed: has anything gone quiet?
-   `dropped_no_kalshi_quote`, `suppressed`, and the Board's drift column are
-   where a mistake here would show, and it would look like a market politely
-   having no opinion rather than an error.
-2. **2 GB** (`fly.live.toml`). Bought headroom; did not fix growth.
+**Two things to keep watching, neither urgent.** IO pressure `avg60` is 52-55%
+(the pre-OOM figure was 90%). `kalshi_quotes` is back to **6.35M rows** from the
+4.9M the prune reached — the prune skips open windows and windows have been
+open, so 4.9M is not a floor.
 
 **A CORRECTION LANDED AT 22:10Z AND IT IS THE MOST IMPORTANT THING TO READ.**
 `2026-08-19-the-prune-loses-to-the-writer.md` claimed the prune *"cannot win at
@@ -184,6 +190,104 @@ is real.
 
 Delete this box when its job is taken — a stale session-start box is a
 handoff claiming work that is already done.
+
+---
+
+## 2026-08-19 ~23:20Z-00:30Z — THE FIXES HELD FOR 2H40M, NOT 12 HOURS; AND THE UNMATCHED QUEUE'S OBVIOUS FIX WAS AN OUTAGE
+
+Two jobs. The watch is in the box above. This entry is the second one, and the
+useful part is what the measurement stopped.
+
+### ADR 0056 — the unmatched queue is one row per work item
+
+`unmatched_events` had the shape ADR 0055 had just fixed for `kalshi_quotes`.
+Measured on live:
+
+```
+total rows                              788,944
+distinct work items                       1,376      <- 573:1
+rows ever marked resolved                     0
+```
+
+The eight worst items had **2,477 rows each with exactly one distinct reason** —
+out-of-season NFL and NCAA fixtures with no sportsbook counterpart, so the linker
+fails on them every pass and will until those seasons start. 2,477 is the number
+of passes since the last prune, not a coincidence.
+
+**`resolved` is 0 on all 788,944 rows.** This is a queue meant to be worked by
+hand and it has never been worked. `seen_count` is the fix's actual product:
+"failed once during a rename" and "has failed every pass for a week" were the
+same row repeated a different number of times.
+
+Shipped: `unmatched_items`, identity `(side, identifier, league, detail, reason)`,
+upsert on a `UNIQUE` index, retention on `last_seen_ms`.
+
+### THE MIGRATION WAS BUILT, GUARDED ELEVEN WAYS, AND THROWN AWAY
+
+The obvious change is a v14 migration collapsing the table in place. It was
+written and every guard verified by breaking it. Then it was rehearsed against
+live, which took two minutes:
+
+```
+COUNT(*)  over 788,944 rows        1.6 s
+GROUP BY  over the same rows     229.4 s     <- 143x
+DROP TABLE (181,154 pages)       217.6 s
+```
+
+**Migrations run at boot, before uvicorn binds.** That is a four-to-eight minute
+startup under a health check that gives seconds — and the version stamp is
+written only after the step succeeds, so a machine killed part-way re-runs it
+from the top. **A crash loop on the volume that cannot be recreated**, which is
+the v11 failure this repo already survived once.
+
+So there is **no migration and `SCHEMA_VERSION` does not move.** `unmatched_items`
+is created empty by `schema.sql`, the linker writes there from the first pass,
+and `unmatched_events` is left where it is — drained by `prune_legacy_unmatched`
+in ADR 0054's existing batched, budgeted, full-pass-only machinery, then dropped
+**once empty**, when the drop is free.
+
+**Do not "finish the migration".** There is nothing unfinished. A proposal to
+collapse the old table in place must first answer the 229s.
+
+### The timings are NOT properties of the disk, and the design does not care
+
+They came off a box concurrently serving quote passes at ~50% IO pressure; the
+rehearsal itself pushed `recorder.age_ms` from 5.9s to 28s. A quiet boot would be
+faster by an unknown factor. **That was not re-measured, deliberately** — the
+design chosen is O(1) at boot whether the disk is fast or slow, so the uncertain
+number stopped being load-bearing. Do not quote 229s as a fact about SQLite.
+
+### A guard came back green, and it taught the more useful thing
+
+The mutation test for the migration's `GROUP BY ... COALESCE` **passed with the
+`COALESCE` removed**. It seeded 500 all-NULL rows — and **`GROUP BY` treats NULLs
+as equal while a `UNIQUE` index treats them as distinct.** The two clauses were
+written to mirror each other and are governed by opposite rules. The `COALESCE`
+only bites where NULL *and* `''` both occur. Both patterns are in `lessons.md`.
+
+Found only because the harness was run. One of eleven, on the run that mattered.
+
+### Verification
+
+Suite **3,589 passed / 10 xfailed** (was 3,565), ruff clean. **12 of 12
+mutations turned a guard red**, re-run after the redesign.
+`docs/measurements/2026-08-19-the-unmatched-queue-is-573-to-1-duplicate.md`.
+
+### STILL OPEN
+
+1. **Not deployed.** Live still writes `unmatched_events`. The drain does not
+   start until this ships, and the live dispatch needs Joe:
+
+       gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+
+2. **Watch the drain and then delete its scaffolding.** `LEGACY_UNMATCHED_TABLE`
+   in `retention.py` is a named constant so `grep` finds everything that goes
+   when the table does. 788,944 rows / 20,000 per batch = 40 batches; one to
+   three full passes is an expectation, not a measurement.
+3. **The 12-hour watch still has not happened.** Everything above is 2h40m.
+4. Everything from the previous entries: the window gate reading a stale flag,
+   `QUOTE_PASS_DURATION_BUDGET_S`, Chrome's live-host permission, the digest
+   leading with `x / 300`.
 
 ---
 
