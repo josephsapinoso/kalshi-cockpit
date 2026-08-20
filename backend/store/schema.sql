@@ -904,6 +904,11 @@ CREATE TABLE IF NOT EXISTS venue_settlements (
     position_time_source    TEXT,
     is_taker                INTEGER,
     n_fills_in_position     INTEGER,
+    -- Amendment 3 (A13, v15): the position-side half of section 7.5 coverage.
+    -- 'matched' | 'position_unlogged' | 'out_of_scope'; NULL = not yet
+    -- examined, never a default. Lives here and not on bet_estimates because
+    -- an unlogged position HAS no estimate row to carry a status.
+    estimate_match_status   TEXT,
     UNIQUE (ticker, settled_ms),
     CHECK (side IN ('yes', 'no')),
     CHECK (is_taker IS NULL OR is_taker IN (0, 1))

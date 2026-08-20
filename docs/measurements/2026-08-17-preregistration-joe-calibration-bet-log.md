@@ -1372,3 +1372,55 @@ pass — re-matched where a settlement row now matches in-window,
 `fills WHERE source = 'venue_hand'` rows in each estimate's window, so the
 recovered matches reconcile against the venue's own record of Joe's hand
 bets. No analysis output is consulted in the repair; the embargo stands.
+
+---
+
+# Amendment 3 — 2026-08-20
+
+**Written before the code it describes, while the analysis is embargoed.** No
+coverage rate has ever been computed; this amendment makes one computable at
+the stop by fixing three things §7.5 left unfixable, and it changes no
+decision rule — the 0.90 floor, the CONTAMINATED-ATTRITION prefix, and A1's
+gap tripwires all stand exactly as written.
+
+## A13 — `position_unlogged` was registered onto a table it cannot exist on
+
+The registered schema table lists `match_status:
+'matched'|'unmatched_no_position'|'position_unlogged'` on `bet_estimates`.
+The third value is a **position-side** fact — a venue position with no
+estimate — and a position with no estimate has **no `bet_estimates` row to
+carry it**. As registered, the coverage denominator's complement had nowhere
+to be written, which is why no matcher has ever written it.
+
+The verdict moves to where the fact lives: a new nullable column
+`venue_settlements.estimate_match_status` (schema v15), written by the match
+pass:
+
+- `'matched'` — a `bet_estimates` row points at this position
+  (`matched_position_id`);
+- `'position_unlogged'` — in scope, inside the study window, and no estimate
+  matches it: the §7.5 denominator's unlogged half, now a row instead of an
+  inference;
+- `'out_of_scope'` — outside the study window or outside §2's population
+  (non-sports, multi-leg): present so scope exclusion is a recorded verdict;
+- `NULL` — not yet examined. Never a default meaning anything else.
+
+## A14 — The denominator, scoped and stamped
+
+§7.5's `venue positions observed` is now precise: rows of `venue_settlements`
+whose **first venue evidence** — `COALESCE(position_first_seen_ms,
+settled_ms)`, the §7.2 chain — is at or after `calibration_study_start_ms`,
+and whose ticker passes §2's own scope rules via `classify_ticker`
+(sports, non-multi-leg). The account's pre-study history (2025-11 onward)
+exists in the same table and must not dilute the rate; it stamps
+`out_of_scope`.
+
+## A15 — Written now, computed at the stop
+
+The per-row stamps are bookkeeping, exactly like `match_status`, and are
+written on every match pass from deploy. **The rate itself remains embargoed
+until the registered stop**: §7.5 pre-commits `coverage` to be printed at the
+top of the result file, and nothing in this amendment computes, renders, or
+logs it earlier. The one number that may appear before the stop is the count
+of rows still `NULL` — "not yet examined" is a pipeline-health fact, not a
+study statistic.

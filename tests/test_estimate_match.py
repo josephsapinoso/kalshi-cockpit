@@ -447,3 +447,115 @@ class TestTheWholePass:
             "SELECT COUNT(*) AS n FROM recommendations"
         ).fetchone()["n"]
         assert n_recs == 0
+
+
+def _study_start(conn, at):
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value, updated_ms) "
+        "VALUES ('calibration_study_start_ms', ?, 0)",
+        (str(at),),
+    )
+    conn.commit()
+
+
+class TestPositionSideCoverage:
+    """Amendment 3 (A13/A14): the §7.5 denominator's rows, stamped where a
+    position actually lives. Mutation observed red: point the UPDATE at
+    match_status instead of estimate_match_status -- every test below fails
+    on the column read."""
+
+    @staticmethod
+    def _status(conn, position_id):
+        return conn.execute(
+            "SELECT estimate_match_status FROM venue_settlements WHERE id = ?",
+            (position_id,),
+        ).fetchone()[0]
+
+    def test_a_matched_position_is_stamped_matched(self, conn):
+        from backend.estimate_match import classify_positions
+
+        _study_start(conn, NOW - HOUR)
+        est = _estimate(conn)
+        _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        match_estimates(conn, now_ms=NOW + 3 * HOUR)
+        counts = classify_positions(conn)
+        assert counts["matched"] == 1
+        row = conn.execute(
+            "SELECT matched_position_id FROM bet_estimates WHERE id = ?",
+            (est,),
+        ).fetchone()
+        assert self._status(conn, row["matched_position_id"]) == "matched"
+
+    def test_an_unmatched_in_window_sports_position_is_the_unlogged_half(
+        self, conn
+    ):
+        from backend.estimate_match import classify_positions
+
+        _study_start(conn, NOW - HOUR)
+        pos = _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        counts = classify_positions(conn)
+        assert counts["position_unlogged"] == 1
+        assert self._status(conn, pos) == "position_unlogged"
+
+    def test_a_pre_study_position_is_out_of_scope_not_unlogged(self, conn):
+        """The account's history goes back to 2025-11; §7.5's denominator
+        must not be diluted by it."""
+        from backend.estimate_match import classify_positions
+
+        _study_start(conn, NOW + 10 * HOUR)
+        pos = _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        classify_positions(conn)
+        assert self._status(conn, pos) == "out_of_scope"
+
+    def test_a_non_sports_position_is_out_of_scope(self, conn):
+        from backend.estimate_match import classify_positions
+        from backend.estimates import classify_ticker
+
+        assert classify_ticker("KXTRUMPSAY-26AUG20-X")[0] == 0
+        _study_start(conn, NOW - HOUR)
+        conn.execute(
+            "INSERT INTO kalshi_markets (ticker, first_seen_ms, last_seen_ms) "
+            "VALUES ('KXTRUMPSAY-26AUG20-X', 1, 1)"
+        )
+        pos = _settlement(
+            conn, ticker="KXTRUMPSAY-26AUG20-X",
+            first_seen=NOW + 2 * HOUR, source="fill",
+        )
+        classify_positions(conn)
+        assert self._status(conn, pos) == "out_of_scope"
+
+    def test_no_study_start_means_out_of_scope_never_unlogged(self, conn):
+        """No study window exists, so nothing can be inside it. `NULL start`
+        must not read as `always in window` -- that would stamp the account's
+        whole pre-study history into the denominator."""
+        from backend.estimate_match import classify_positions
+
+        pos = _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        classify_positions(conn)
+        assert self._status(conn, pos) == "out_of_scope"
+
+    def test_a_late_match_moves_unlogged_to_matched(self, conn):
+        """A11's late-arriving settlement, seen from the position's side:
+        re-stamping is why the column is not write-once."""
+        from backend.estimate_match import classify_positions
+
+        _study_start(conn, NOW - HOUR)
+        pos = _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        classify_positions(conn)
+        assert self._status(conn, pos) == "position_unlogged"
+        _estimate(conn)
+        match_estimates(conn, now_ms=NOW + 3 * HOUR)
+        classify_positions(conn)
+        assert self._status(conn, pos) == "matched"
+
+    def test_it_computes_no_rate(self, conn):
+        """A15: the stamps are bookkeeping; coverage itself stays embargoed
+        until the registered stop. The function returns counts and nothing
+        with a division in it."""
+        from backend.estimate_match import classify_positions
+
+        _study_start(conn, NOW - HOUR)
+        _settlement(conn, first_seen=NOW + 2 * HOUR, source="fill")
+        counts = classify_positions(conn)
+        assert set(counts) == {"matched", "position_unlogged", "out_of_scope"}
+        assert all(isinstance(v, int) for v in counts.values())

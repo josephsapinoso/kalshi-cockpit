@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -729,6 +729,19 @@ _MIGRATIONS: dict[int, _Migration] = {
         # a pre-amendment stamp genuinely has no observed instant, and the
         # repair pass (A12) re-buckets those rows rather than inventing one.
         columns=(("bet_estimates", "match_status_ms", "INTEGER"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
+        ),
+    ),
+    15: _Migration(
+        # Amendment 3 (A13): the position-side match verdict, on the table
+        # where a position actually lives. The registered enum put
+        # 'position_unlogged' on bet_estimates, and a position with no
+        # estimate has no bet_estimates row to carry it -- the coverage
+        # denominator's complement had nowhere to be written. Nullable, no
+        # backfill: NULL is "not yet examined" and the match pass stamps
+        # every in-scope row on its next run.
+        columns=(("venue_settlements", "estimate_match_status", "TEXT"),),
         undo_statements=(
             # Dropping the column takes everything this step wrote.
         ),

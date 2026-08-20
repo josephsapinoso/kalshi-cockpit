@@ -38,7 +38,10 @@ import logging
 import sqlite3
 from typing import Any
 
+from .estimates import classify_ticker
 from .kalshi.quotes import LiveQuoteSource, QuoteUnavailable
+from .portfolio_poll import STUDY_START_MS_KEY
+from .store import db
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +415,70 @@ def score_outcomes(conn: sqlite3.Connection, *, now_ms: int) -> dict[str, int]:
     return {"scored": scored, "awaiting": awaiting}
 
 
+def classify_positions(conn: sqlite3.Connection) -> dict[str, int]:
+    """A13/A14: stamp the position-side half of §7.5 coverage, row by row.
+
+    The registered enum put `position_unlogged` on `bet_estimates`, and a
+    position with no estimate has no `bet_estimates` row to carry it -- the
+    coverage denominator's complement had nowhere to be written, which is why
+    no pass ever wrote it. It lives here now, on `venue_settlements`:
+
+        matched            an estimate's `matched_position_id` points here
+        position_unlogged  in scope, in the study window, and no estimate
+                           matched -- the denominator's unlogged half
+        out_of_scope       pre-study first evidence, or outside §2's
+                           population (non-sports, multi-leg)
+        NULL               not yet examined; never a default
+
+    Re-stamped on every pass rather than write-once: a late-arriving match
+    (A11's whole point) must be able to move a row from `position_unlogged`
+    to `matched`, and scope rules are deterministic so re-deriving them is
+    idempotent. **No rate is computed here** -- A15 keeps `coverage` itself
+    embargoed until the registered stop; these are the rows it will be
+    computed from.
+    """
+    study_start = db.get_meta(conn, STUDY_START_MS_KEY)
+    counts = {"matched": 0, "position_unlogged": 0, "out_of_scope": 0}
+    rows = conn.execute(
+        "SELECT id, ticker, position_first_seen_ms, settled_ms, "
+        "       estimate_match_status FROM venue_settlements"
+    ).fetchall()
+    matched_ids = {
+        r["matched_position_id"]
+        for r in conn.execute(
+            "SELECT matched_position_id FROM bet_estimates "
+            "WHERE matched_position_id IS NOT NULL"
+        )
+    }
+    for row in rows:
+        if row["id"] in matched_ids:
+            status = "matched"
+        else:
+            first_evidence = (
+                row["position_first_seen_ms"]
+                if row["position_first_seen_ms"] is not None
+                else row["settled_ms"]
+            )
+            is_sports, _, is_multi_leg = classify_ticker(row["ticker"])
+            in_scope = bool(is_sports) and not is_multi_leg
+            in_window = (
+                study_start is not None
+                and first_evidence >= int(study_start)
+            )
+            status = (
+                "position_unlogged" if in_scope and in_window else "out_of_scope"
+            )
+        counts[status] += 1
+        if status != row["estimate_match_status"]:
+            conn.execute(
+                "UPDATE venue_settlements SET estimate_match_status = ? "
+                "WHERE id = ?",
+                (status, row["id"]),
+            )
+    conn.commit()
+    return counts
+
+
 async def run_match_pass(
     conn: sqlite3.Connection, source: LiveQuoteSource, *, now_ms: int
 ) -> dict[str, Any]:
@@ -432,11 +499,13 @@ async def run_match_pass(
         repair = repair_false_absence(conn, now_ms=now_ms)
         logger.info("A12 repair pass: %s", repair)
     matches = match_estimates(conn, now_ms=now_ms)
+    positions = classify_positions(conn)
     outcomes = score_outcomes(conn, now_ms=now_ms)
     summary = {
         "ensure": known,
         "first_seen_upgraded": refined,
         "match": matches,
+        "positions": positions,
         "outcomes": outcomes,
     }
     if repair is not None:
