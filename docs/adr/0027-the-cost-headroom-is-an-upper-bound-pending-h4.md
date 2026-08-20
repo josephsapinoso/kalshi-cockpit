@@ -206,3 +206,28 @@ corrections of exactly this shape (the one-signal correction, and *"52.00%, not
 the 51.75% this file used to claim"*), and this is the third.
 
 No other file is edited by this ADR.
+
+---
+
+## Correction, 2026-08-20 — the "1 of 3" denominator is dated arithmetic; the conclusion stands and is strengthened
+
+Appended after the partner triage of 2026-08-20; nothing above is edited.
+
+- **The eligible denominator of 1 was derived when 3 positions had
+  settled.** `venue_settlements` now holds **35**, and the committed capture
+  `data/captures/portfolio_settlements.json` alone shows 22 records with 6
+  winners carrying nonzero revenue. "1 of 3" is 2026-08 arithmetic that no
+  longer describes the table: the eligible count must be **re-derived, not
+  cited**.
+- **The re-derivation is blocked on tooling, not on data.** It needs
+  `market_result` per settled row, which no shipped whitelisted query emits;
+  it is unblocked by the `h4-settlement-balance` query specified in the same
+  triage (four sections, no join).
+- **The conclusion is unchanged and in fact strengthened**: the headroom
+  stays an upper bound pending H4, and H4 is now known to be additionally
+  blocked by the `parse_portfolio_value_tenths` defect
+  (`backend/portfolio_poll.py:252-266`, every stored
+  `portfolio_value_tenths` is NULL) and by `KalshiRestClient.orders()`
+  having zero callers. A wrong-sized *reason* under an unchanged conclusion
+  is exactly when the reason survives unexamined — the combo-row precedent
+  in `CLAUDE.md` — which is why this correction is recorded at all.
