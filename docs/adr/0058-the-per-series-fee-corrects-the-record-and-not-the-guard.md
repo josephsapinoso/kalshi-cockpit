@@ -4,6 +4,13 @@ Date: 2026-08-20. Status: ACCEPTED (partner review 2026-08-20 ~21:20Z:
 approved subject to three amendments, all incorporated — the
 `fills.fee_predicted` exclusion with its ADR 0043 reasoning, its tripwire
 test, and the settlements basis-boundary requirement). Supersedes nothing.
+
+**Implemented in `3b572c5`** (same day): migration v16 adds
+`settlements.fee_model_used` as the basis marker — NULL is the pre-v16
+flat-model regime — the settlement pass reads `/series/{ticker}` live and
+tags every row, and both tripwire halves are armed
+(`tests/test_portfolio_poll.py::test_an_mlb_fills_predicted_fee_stays_on_the_flat_model`,
+`tests/test_gate_counts_engine_fills_only.py`), mutation-verified red.
 Decided at the partner triage of 2026-08-20 ~21:10Z, on the evidence of
 `tests/fixtures/series_fee_fields.json` (fleet convening item 9) and the
 engine split check taken the same evening.

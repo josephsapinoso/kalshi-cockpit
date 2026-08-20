@@ -70,19 +70,21 @@ implementing commit must add a fee-regime marker to `settlements` (or
 append its SHA to the ADR as the basis boundary) and the ADR 0058 tripwire
 test.
 
-**The partner's remaining execution list** (its triage + review are in this
-session's transcript; the ADR-0027 spec is exact): (1) implement ADR 0058's
-settled-PnL half + tripwire test; (2) append the dated correction to ADR
-0027 — the "1 of 3" eligible denominator is 2026-08 arithmetic, now 35
-settled positions, re-derivation blocked on the h4 query; (3) build the
-`h4-settlement-balance` whitelisted query — FOUR SECTIONS, NO JOIN
-(A venue_settlements post-study with market_result; B balance snapshots
-±900s emitting the all-NULL portfolio_value_tenths; C fills in-window;
-D poll_log including ok) with the docstring naming deposits-unrecorded and
-the $0.001 balance resolution vs $0.0063 quantity; (4) log
-`KalshiRestClient.orders()` as the fifth zero-caller instance. Killed by
-the partner, do not revive: per-series fee on any guard path, stale-book
-devig exclusion, generic UX polish, anything gated on H4 or beta.
+**The partner's execution list is DONE, all four items** (~21:45Z):
+(1) ADR 0058 implemented in `3b572c5` — migration **v16** adds
+`settlements.fee_model_used` (NULL = pre-v16 flat regime), the settlement
+pass reads `/series/{ticker}` live and tags every row
+(`series_mult_0.5:override_unchecked` / `flat_0.070:series_unread`), fees
+take keyword-only `fee_multiplier` refusing outside (0,1], both tripwire
+halves armed and mutation-red; suite 3,718 passed. **NOT yet deployed —
+deploy after the 22:21Z window closes, before WNBA 22:45Z if possible.**
+(2) ADR 0027 carries the dated denominator correction (`e3986fb`).
+(3) `h4-settlement-balance` shipped (`a02e8d2`), four sections, no join,
+three guards mutation-red — run it after the deploy for the H4 read and
+the ADR 0027 re-derivation. (4) `orders()` logged as the fifth zero-caller
+instance (memory + ADR 0027 correction, grep-verified). Killed by the
+partner, do not revive: per-series fee on any guard path, stale-book devig
+exclusion, generic UX polish, anything gated on H4 or beta.
 
 **Joe's one open decision:** the calibration study (day 3, exactly 1
 estimate logged, match_status NULL=pending which is correct) — cut the
