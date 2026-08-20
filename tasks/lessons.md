@@ -25,6 +25,60 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — "One source of truth" is a claim about the *clock* as much as the source. A flag written at the end of a step and read at the start of the next is already two clocks
+
+A prune was supposed to be skipped while a betting window was open. It ran
+anyway, for 94 seconds, inside a window that had been open for eleven minutes.
+
+The gate was present and correct-looking. The loop assigned
+`tempo.window_open = window.is_open` after each pass and handed that flag to the
+prune at the start of the next one. There was exactly one place the window was
+computed, so it passed every "single source of truth" reading.
+
+**It was one source sampled at the wrong time, which is indistinguishable from
+two sources at a glance and behaves identically.** The value was up to 900
+seconds old by the time the decision used it.
+
+The test that was supposed to prevent this asserted
+`"window_open=tempo.window_open" in source`, with a docstring warning that "a
+prune reading a different clock from the cadence could prune during exactly the
+minutes the cadence had sped up for." The reasoning was right and the object was
+wrong: the stored flag *was* the different clock. **A guard can name the correct
+hazard and then pin the thing that causes it.** When a source-text guard exists,
+check that the string it pins is the property the docstring describes, not
+merely the code that happened to be there when it was written.
+
+The general form, which is what to carry: **for any cached decision input, ask
+what can change between the write and the read.** If anything can, the cache is
+a second clock and the "one source" property is not what protects you.
+
+### And the second half: when a handoff names one way a gate fails, look for a second way inside the same function
+
+The stale flag was the *reported* fault, and a fix that re-read the window at
+the top of the pass would have closed it. Reading the function showed a second
+route the handoff had not named: the pass fires the odds sweep and *then*
+prunes, and the sweep is what opens the window. So a pass that opens a window
+prunes inside the first ~40–94s of it — every time — and no pre-pass read can
+see that. It was plausibly the more common of the two, because the passes that
+fire sweeps are exactly the passes that prune.
+
+**A fix aimed at the reported instance would have shipped, tested green, and
+left the dominant case running.** Before fixing a gate, read the whole function
+the gate sits in and ask what else changes the gated condition between the read
+and the use. Fix the read *at the use*, not at the top.
+
+### Corollary: check the loop's own noise before adding a bound to it
+
+The sleep bound added here divides by `1 + JITTER` because the sleep is jittered
+±15% downstream. Without that, a 900s bound stretches to 1035s and overshoots
+the thing it was bounding by 135 seconds — the fix would have been mostly
+inert, and its unit test would have passed, because the test would have measured
+the bound and not the sleep. **When you bound a value that something else
+perturbs later, the bound has to survive the perturbation. Test the number that
+actually gets used, not the number you computed.**
+
+---
+
 ## 2026-08-20 — A job that only runs when a gate is open looks exactly like a job that has died. Poll the thing that says it ran, not the thing it changes
 
 A backlog drain was watched by polling its row count every ten minutes. It went

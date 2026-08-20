@@ -32,37 +32,50 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,589 passed / 10 xfailed, ruff clean, tsc clean.
 
-**THE JOB: fix the window gate. `scripts/run_loop.py`.** Everything else below
-is open and none of it is urgent. This is the last item that costs *bettable
-minutes*, which is the only currency this loop has.
+**THE JOB IS DONE AND UNVERIFIED. Your job is the verification.** The window
+gate was fixed in two commits on 2026-08-20 (~03:30-04:00Z) and deployed to live
+before the betting window opened. **ADR 0057.** Nothing about it has been seen
+running.
 
-**It is TWO fixes, not one, and the previous handoff calling it "one fix, its
-own ADR" was wrong.** Verified in the code at 03:00Z on 2026-08-20 — re-verify,
-do not inherit:
+- `6b0b7ee` — the prune asks whether a window is open **at the prune**.
+- `a1d0242` — a closed-window sleep is **bounded by the next window-open time**.
 
-- `run_loop.py:543` assigns `tempo.window_open` **after** the pass body.
-- `run_loop.py:577` reads it **before**, to decide whether to prune.
+**The correction worth carrying forward:** the handoff described fault 1 as a
+stale flag, which was the measured incident and was real. Reading the function
+showed a **second** route it had not named — `run_once` fires the odds sweep and
+*then* prunes, and the sweep is what opens the window, so a full pass that opens
+a window prunes inside the first ~40-94s of it every time. A fix that read the
+window at the top of the pass would have shipped green and left the likely
+*dominant* case running. The gate is now read at the use, not at the top.
 
-1. **The prune runs during open windows.** Measured 2026-08-19:
-   `15:32:14 full took_s 94.3 quotes_pruned 40000`, window open since 15:21Z. A
-   94-second pass inside the minutes the 15s cadence exists to serve. **Small
-   fix** — read `window.is_open` fresh where the decision is made instead of the
-   stored flag.
-2. **After a restart the loop can take a full 900s to notice a window exists.**
-   This is the expensive half and it is **not** a reorder: `tempo.pass_kind`
-   picks the cadence at the top of a pass, and with the window closed the loop
-   then sleeps 900s. A window opening inside that sleep is invisible until it
-   ends. The sleep has to be bounded by the next window-open time. **Design this
-   before writing it.**
+**READ THE REGISTRATION BEFORE LOOKING AT ANY LOG.**
+`docs/measurements/2026-08-20-window-gate-plan.md`, written before the code
+changed. Four observations are registered against the `baseball_mlb`
+15:26Z-16:26Z window; do not choose new ones after seeing the output.
 
-Do (1) and (2) as separate commits with separate reasoning even if one ADR
-covers both. They have different risk: (1) cannot change the cadence, (2) can.
+    1. no `quotes_pruned` > 0 on any pass stamped 15:26Z-16:26Z   (falsifies fix 1)
+    2. first pass after 15:26Z within ~17s of it, not up to 900s  (falsifies fix 2)
+    3. `window_open` latches true within one pass of 15:26Z
+    4. passes stay ~900s apart BEFORE 15:26Z, except 2-4 in the last ~15 min
 
-**The timing was chosen deliberately and decays.** At 03:00Z the next window was
-`baseball_mlb 15:26Z-16:26Z`, twelve hours out. That quiet stretch is both the
-uninterrupted 12-hour stability watch and the live test of this fix at the
-moment it matters. **Run `date -u` first**: if 15:26Z has passed, that setup is
-spent and the next slot is the new deadline — do not deploy into an open window.
+**Observation 4 is the one that catches this fix going wrong**, and it is the
+one that will look like a bug if you have not read the registration. Two to four
+extra quote passes in the quarter-hour before a window are *designed*: the sleep
+bound recomputes and converges. More than that, or early wakes with no window
+coming, means the "already due" spin guard has failed and it is burning Kalshi
+requests — see ADR 0057.
+
+**The null result to watch for.** If no window opens at 15:26Z at all — empty
+slate, or the odds budget is spent — then observations 1-3 have no denominator
+and this is **untested, not confirmed**. Check `next_sweep_ms` and
+`sweeps_remaining_today` on `/api/health` before reading a quiet window as a
+pass. `tempo.next_wake_ms` is now published in the loop's exit-state line and in
+`as_dict`, which is how an early wake is told apart from a random one.
+
+**The 12-hour stability watch rides on the same deploy and is a SEPARATE
+observation.** It must not be reported as evidence for either fix.
+
+Everything else below is open and none of it is urgent.
 
 ### Live state at 03:00Z 2026-08-20, verified not inherited
 
@@ -117,11 +130,6 @@ from an OOM kill and only one was suspected of being a symptom.
   table fills. Same fix shape as ADR 0055 is available — it re-records the same
   unmatched event hundreds of times a day — and **no production code reads it**
   (`retention.py` says so; verify before acting).
-- **The window gate is one pass late, and after a restart the loop can take a
-  full 900s to notice a window at all.** Confirmed twice, most recently at
-  20:39Z: the deploy restarted the box mid-window and only full passes ran until
-  the next one latched. `run_loop.py:543` assigns `tempo.window_open` *after*
-  the pass; `:577` reads it *before*. One fix, its own ADR.
 - **What holds the ~585 MB is still unverified**, and it is now cheap to check
   rather than urgent. No `cache_size`/`mmap_size` pragma is set, so SQLite is
   not the holder. `run_kalshi_pass` does
@@ -159,12 +167,6 @@ Also open, and now measured rather than suspected:
   quote is superseded** — after 2 GB and ADR 0055 the table *shrinks* 11.2M/day
   (written 2.25M, pruned 13.47M). See the CORRECTION at the foot of
   `2026-08-19-the-prune-loses-to-the-writer.md`.
-- **The window gate is one pass late, confirmed by prediction.**
-  `scripts/run_loop.py:543` assigns `tempo.window_open` *after* the pass;
-  `:577` reads it *before*. So the first full pass after a window opens still
-  prunes (measured: 15:32:14 pruned 40000 with the window open since 15:21Z).
-  Same root cause makes the loop take up to 900s to notice a window at all,
-  which is the more expensive half. One fix, its own ADR.
 
 **Health check flapping: the keep-alive fix is sound and live has failed
 checks again anyway.** Both are true and the order matters. The fix was two
