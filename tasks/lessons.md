@@ -25,6 +25,19 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — A claim about git state is verified with git, never asserted from prose
+
+A test shipped with a docstring stating its data file was "tracked in git
+despite living under the gitignored data/". It never was — the force-add
+never happened, `git ls-files data/` was empty — so the suite passed only
+on the one machine holding the file and CI was red from the moment it
+landed. This is the second silent-git-no-op incident (the first: `git add
+tasks/next.md` matching nothing); the family trait is that git's failure
+mode for "the thing you meant didn't happen" is often *no output and exit
+0*, so the follow-up check has to be affirmative: after any add/force-add,
+`git ls-files <path>` must SHOW the file before any sentence claims it is
+tracked. A docstring is where such a claim goes to stop being checked.
+
 ## 2026-08-20 — Two readers can share a word and not a definition, and the disagreement will be filed as a stale value
 
 The cadence dropouts were handed off as a stale-flag bug because the pass log
