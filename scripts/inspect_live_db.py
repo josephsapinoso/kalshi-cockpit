@@ -2025,6 +2025,130 @@ def _q_book_rows(conn: sqlite3.Connection, args) -> list[Section]:
 
 
 # ---------------------------------------------------------------------------
+# h4-settlement-balance: the raw material for settling H4, four sections,
+# deliberately NOT joined
+# ---------------------------------------------------------------------------
+#
+# H4 (ADR 0026/0027): does settlement carry its own fee? The decisive
+# observation is a balance step around a settlement that differs from
+# recorded proceeds-minus-known-fees. A join would need a tolerance, a
+# tolerance is a matching decision, and matching decisions are where the
+# flattering error lives in this repo -- so this emits four independent
+# sections keyed by their own clocks and computes NO delta. The human does
+# the subtraction where the confounds are visible on the same screen.
+
+# The calibration study's start instant, 2026-08-18 09:15:03.594Z. The H4
+# population is the settlements the balance poller could have witnessed, and
+# the poller shipped with the study.
+_H4_STUDY_START_MS = 1_787_044_503_594
+# +/- 900s around each settlement: ~3 balance snapshots per side at the
+# poller's 300s cadence.
+_H4_WINDOW_MS = 900_000
+
+_SQL_H4_SETTLEMENTS = (
+    "SELECT id, ticker, side, contracts, entry_price_tenths,"
+    "       fee_cost_tenths, market_result, settled_ms "
+    "FROM venue_settlements WHERE settled_ms >= :study_start "
+    "ORDER BY settled_ms"
+)
+
+_SQL_H4_BALANCE = (
+    "SELECT b.observed_ms, b.balance_tenths, b.portfolio_value_tenths "
+    "FROM venue_balance_snapshots b WHERE EXISTS ("
+    "  SELECT 1 FROM venue_settlements s WHERE s.settled_ms >= :study_start"
+    "  AND b.observed_ms BETWEEN s.settled_ms - :half AND s.settled_ms + :half"
+    ") ORDER BY b.observed_ms"
+)
+
+_SQL_H4_FILLS = (
+    "SELECT f.id, f.ticker, f.filled_ms, f.count, f.price_tenths,"
+    "       f.is_taker, f.fee_actual, f.source "
+    "FROM fills f WHERE EXISTS ("
+    "  SELECT 1 FROM venue_settlements s WHERE s.settled_ms >= :study_start"
+    "  AND f.filled_ms BETWEEN s.settled_ms - :half AND s.settled_ms + :half"
+    ") ORDER BY f.filled_ms"
+)
+
+_SQL_H4_POLLS = (
+    "SELECT p.polled_ms, p.ok, p.row_count, p.error "
+    "FROM poll_log p WHERE p.endpoint = 'balance' AND EXISTS ("
+    "  SELECT 1 FROM venue_settlements s WHERE s.settled_ms >= :study_start"
+    "  AND p.polled_ms BETWEEN s.settled_ms - :half AND s.settled_ms + :half"
+    ") ORDER BY p.polled_ms"
+)
+
+
+def _q_h4_settlement_balance(conn: sqlite3.Connection, args) -> list[Section]:
+    """H4's raw material: settlements, balance, fills and polls, unjoined.
+
+    Section B emits `portfolio_value_tenths` even though it is NULL on every
+    row today -- that NULL is `parse_portfolio_value_tenths`'s deliberate
+    refusal (`backend/portfolio_poll.py:252`: any non-zero value is refused
+    until the field's unit is pinned), and dropping the column would hide
+    the very blocker ADR 0027's correction names.
+    Section D includes `ok` on purpose: without the poll record, a missing
+    balance snapshot reads as a zero delta instead of an outage.
+
+    What this does not establish
+    ----------------------------
+    - **No verdict and no delta.** Rows only; the H4 arithmetic needs a
+      registration first, and the subtraction belongs where these confounds
+      are visible together.
+    - **Deposits are unrecorded by design** (`backend/config.py:499`), so a
+      balance step is not attributable to settlement activity by this data
+      alone.
+    - **Balance resolution is $0.001 against a $0.0063 quantity in
+      dispute**: `dollars_to_tenths` discards a digit the venue supplies, so
+      a per-settlement fee smaller than a tenth of a cent may be invisible
+      here even if real.
+    """
+    settlements = _fetch(
+        conn,
+        _SQL_H4_SETTLEMENTS,
+        {"study_start": _H4_STUDY_START_MS},
+        title=(
+            f"A. venue_settlements since study start {_iso(_H4_STUDY_START_MS)}"
+        ),
+        cap=args.limit,
+    )
+    settlements = _derive_iso(settlements, "settled_ms", "settled_iso")
+    window = {"study_start": _H4_STUDY_START_MS, "half": _H4_WINDOW_MS}
+    balance = _fetch(
+        conn,
+        _SQL_H4_BALANCE,
+        window,
+        title=(
+            "B. venue_balance_snapshots within +/-900s of an A settlement "
+            "(portfolio_value_tenths NULL = the parser's deliberate "
+            "refusal, shown on purpose)"
+        ),
+        cap=args.limit,
+    )
+    balance = _derive_iso(balance, "observed_ms", "observed_iso")
+    fills = _fetch(
+        conn,
+        _SQL_H4_FILLS,
+        window,
+        title="C. fills within the same windows (the fill confound, visible)",
+        cap=args.limit,
+    )
+    fills = _derive_iso(fills, "filled_ms", "filled_iso")
+    polls = _fetch(
+        conn,
+        _SQL_H4_POLLS,
+        window,
+        title=(
+            "D. poll_log endpoint='balance' within the same windows, "
+            "including ok (a missing snapshot must read as an outage, not "
+            "a zero delta)"
+        ),
+        cap=args.limit,
+    )
+    polls = _derive_iso(polls, "polled_ms", "polled_iso")
+    return [settlements, balance, fills, polls]
+
+
+# ---------------------------------------------------------------------------
 # estimate-match-status: the calibration study's coverage cells
 # ---------------------------------------------------------------------------
 
@@ -2230,6 +2354,14 @@ QUERIES: dict[str, QueryDef] = {
         "runner's consensus, one = dropped as incomplete. Answers: did the "
         "laggard book's stamp age the consensus, or only the window flag?",
         _q_book_rows,
+    ),
+    "h4-settlement-balance": QueryDef(
+        "H4's raw material, four sections and NO join: A settlements since "
+        "study start (with market_result), B balance snapshots +/-900s of "
+        "each (portfolio_value_tenths NULLs shown), C fills in the same "
+        "windows, D balance poll_log including ok. Emits rows, no delta; "
+        "the subtraction is done by a human beside the stated confounds.",
+        _q_h4_settlement_balance,
     ),
     "estimate-match-status": QueryDef(
         "Calibration §7.5 coverage: venue_settlements by estimate_match_status "

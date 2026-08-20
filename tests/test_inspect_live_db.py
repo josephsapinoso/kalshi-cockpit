@@ -2532,3 +2532,121 @@ class TestBookRowsShowsWhetherABookContributes:
         books = {r[cols.index("bookmaker")] for r in section["rows"]}
         assert books == {"twosided", "onesided"}
         assert len(section["rows"]) == 3
+
+
+def _h4_db(tmp_path) -> Path:
+    """One in-study settlement, one pre-study, and rows straddling the window.
+
+    The in-study settlement sits at START+1_000_000; its +/-900s window is
+    [START+100_000, START+1_900_000]. One balance snapshot, fill and poll sit
+    inside it, and one of each sits 1ms outside -- the boundary rows are what
+    the window predicate is measured against.
+    """
+    from scripts.inspect_live_db import _H4_STUDY_START_MS as S
+
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    inside = S + 1_000_000
+    conn.executemany(
+        "INSERT INTO venue_settlements"
+        " (ticker, settled_ms, side, contracts, market_result)"
+        " VALUES (?, ?, 'yes', 1.0, ?)",
+        [
+            ("KXMLBGAME-INSTUDY", inside, "yes"),
+            ("KXMLBGAME-PRESTUDY", S - 5_000_000, "no"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO venue_balance_snapshots"
+        " (observed_ms, balance_tenths, portfolio_value_tenths)"
+        " VALUES (?, ?, NULL)",
+        [
+            (inside - 900_000, 206_583),      # on the window edge: in
+            (inside + 900_001, 206_600),      # 1ms past: out
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO fills (ticker, filled_ms, count, price_tenths, is_taker,"
+        " fee_actual, fee_predicted, fee_model_used, source)"
+        " VALUES (?, ?, 1.0, 500, 1, 0.0088, 0.0176, 'model_a_deci',"
+        " 'venue_hand')",
+        [
+            ("KXMLBGAME-INSTUDY", inside - 100_000),
+            ("KXMLBGAME-FAR", inside - 2_000_000),  # outside every window
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count)"
+        " VALUES (?, ?, ?, ?)",
+        [
+            (inside + 300_000, "balance", 0, None),   # a FAILED poll, in-window
+            (inside + 300_001, "fills", 1, 3),        # wrong endpoint
+            (inside - 2_000_000, "balance", 1, 1),    # right endpoint, outside
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+class TestH4SectionsAreWindowedAndUnjoined:
+    """`h4-settlement-balance` emits the registered populations, no delta.
+
+    Mutation: change `BETWEEN s.settled_ms - :half` to `- :half * 2` in
+    `_SQL_H4_BALANCE` -- the out-by-1ms snapshot enters section B.
+    """
+
+    def _payload(self, tmp_path, capsys):
+        return _run_json(
+            capsys,
+            ["h4-settlement-balance", "--db", str(_h4_db(tmp_path))],
+        )
+
+    def test_a_holds_only_in_study_settlements_with_market_result(
+        self, tmp_path, capsys
+    ):
+        section = _named(self._payload(tmp_path, capsys), "A. venue_settlements")
+        cols = section["columns"]
+        assert [r[cols.index("ticker")] for r in section["rows"]] == [
+            "KXMLBGAME-INSTUDY"
+        ]
+        assert "market_result" in cols
+
+    def test_b_keeps_the_edge_snapshot_and_drops_the_one_past_it(
+        self, tmp_path, capsys
+    ):
+        section = _named(self._payload(tmp_path, capsys), "B. venue_balance")
+        cols = section["columns"]
+        assert [r[cols.index("balance_tenths")] for r in section["rows"]] == [
+            206_583
+        ]
+        # The refusal-NULL column is present and NULL, not dropped.
+        assert "portfolio_value_tenths" in cols
+        assert section["rows"][0][cols.index("portfolio_value_tenths")] is None
+
+    def test_c_windows_the_fills(self, tmp_path, capsys):
+        section = _named(self._payload(tmp_path, capsys), "C. fills")
+        cols = section["columns"]
+        assert [r[cols.index("ticker")] for r in section["rows"]] == [
+            "KXMLBGAME-INSTUDY"
+        ]
+
+    def test_d_keeps_the_failed_balance_poll_and_only_balance(
+        self, tmp_path, capsys
+    ):
+        """Mutation: drop `p.endpoint = 'balance'` -- the fills poll enters;
+        or filter `ok = 1` -- the outage row this section exists for leaves.
+        """
+        section = _named(self._payload(tmp_path, capsys), "D. poll_log")
+        cols = section["columns"]
+        assert len(section["rows"]) == 1
+        assert section["rows"][0][cols.index("ok")] == 0
+
+    def test_no_section_computes_a_delta(self, tmp_path, capsys):
+        """The no-join rule, asserted on the output: no column mixes the
+        tables' vocabularies (a delta would need a name like diff/delta)."""
+        payload = self._payload(tmp_path, capsys)
+        for section in payload["sections"]:
+            for col in section["columns"]:
+                assert "delta" not in col and "diff" not in col
