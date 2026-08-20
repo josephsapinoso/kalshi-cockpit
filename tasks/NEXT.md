@@ -82,11 +82,36 @@ descending (it was right only while no later migration touched a rebuilt
 table), and `migrate()` skips a column-add on a mid-migration-missing table
 (v11 drops `bet_estimates` for schema.sql to rebuild in the same boot).
 
-**Deploying is the next session's first move** (`gh workflow run deploy.yml -f
-instance=live -f confirm_live=kalshi-cockpit`), then: the A12 repair line, a
-`prune-frontier` read (the query shipped this morning, unused until the box
-has it), and plan items 4–10 in order. Nothing below this line is newer than
-2026-08-20 03:00Z.
+**Superseded the same evening — the deploys happened and the plan is nearly
+done.** Live is on `99e10c3` (four deploys today: 03:54Z the gate fix, then
+items 1–3, then 4–6+10, then 7), migrations v13→v14→v15 ran clean, and the
+A12 repair found **zero falsely-stamped rows** — the bug was fixed before it
+bit the live data. Items **1–7, 9, 10 of the convening plan are BUILT AND
+DEPLOYED**; item 8 (the registered spread/total test,
+`docs/measurements/2026-08-20-preregistration-spread-total-edge.md`) has its
+instrument shaken down free (`scripts/measure_spread_edge.py`, `--replay`
+mode) and fires inside the 21:21Z window.
+
+**The finding of the day is item 9:** Kalshi's public `/series` metadata
+carries `fee_multiplier` — 0.5 on both MLB series, 1 on ATP/WNBA — captured
+as `tests/fixtures/series_fee_fields.json` and verified by predicting **all
+11 attributed fills to $0.0001** (`tests/test_series_fee_multiplier.py`).
+That is the durable source ADR 0028 said was missing; moving
+`TAKER_COEFFICIENT` or making the fee model read per-series is now an
+ADR-sized decision with evidence, not a guess.
+
+**One suspicious zero to verify next session:** the first `classify_positions`
+pass stamped all 35 venue positions `out_of_scope`, 0 `position_unlogged`.
+The benign explanation checks out locally — every post-study-start fill in
+the committed capture is a KXMVE combo (multi-leg → out of §2's population)
+— but the live table's later settlements were not directly inspected.
+Add a whitelisted `inspect_live_db.py` query for `estimate_match_status`
+at the next natural deploy and read the composition; a zero in the
+denominator's most interesting cell is checked, never believed.
+
+Also still open, unchanged: the two mid-window cadence dropouts (top item,
+above), the ~585 MB holder, `unmatched_events` growth. Nothing below this
+line is newer than 2026-08-20 03:00Z.
 
 ---
 

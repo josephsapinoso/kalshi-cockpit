@@ -25,6 +25,53 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — A status that can only be stamped after an event must never be stamped by a clock alone
+
+`estimate_match` wrote "he estimated and did not bet" the moment a 24-hour
+window closed, against a candidate table whose rows exist only after
+settlement. Absence of evidence was read as evidence of absence, permanently
+and self-concealingly, on every market that settles slower than the window.
+The pattern: before stamping any negative ("no X happened"), name the event
+that would have MADE the evidence visible and require proof that the event
+has occurred — here, the market's result being known AND an ingestion sweep
+postdating that knowledge. Until both hold, "pending" is the honest state,
+however old the row. Same family as "unreadable resolves to None, never 0":
+a clock is not a observation.
+
+## 2026-08-20 — Undo walks run in reverse, and a walk that happens to work forwards is a latent bug, not a working one
+
+The migration tests undid versions in ASCENDING order and stayed green for
+eleven versions — until v14 added a column to a table v10's undo rebuilds,
+and undoing the rebuild first restored a shape the newer column-drop could
+not find. The inverse of an ordered apply is the reverse-ordered undo, always;
+an ascending undo is correct only while no later step touches what an earlier
+step rebuilds, which is a property of the current contents, not of the code.
+When writing any do/undo pair, state the order as part of the contract and
+test it with steps that overlap, because the non-overlapping case passes by
+accident.
+
+## 2026-08-20 — Fixing a stale-flag read at one use site does not fix the flag; every other reader is still wrong
+
+The window-gate fix moved the PRUNE's read of `window_open` to the moment of
+use, and the measurement then caught the CADENCE — a different reader of the
+same end-of-pass flag — sleeping 370s and 468s inside an open window. When a
+value is discovered to be stale-at-read, grep for every reader of that value
+before declaring the defect fixed; patching the reader that bit costs the
+next reader its own incident. The measured dropouts are the open item; the
+pattern is: the fix's scope is the FLAG, not the symptom.
+
+## 2026-08-20 — A number that explains a mystery is captured and committed the day it is seen, or it is a rumour
+
+The k=0.035/0.070 fee split sat "unresolved: sport, series, or liquidity
+tier" for six days while the answer — `fee_multiplier` on the public
+`/series` endpoint, 0.5 on MLB — had been seen once in a live read nobody
+committed. Ten minutes of capture script turned it into a fixture that
+predicts all 11 real fills to $0.0001. When a live read explains something,
+the capture IS the finding; an uncommitted observation ages into an
+unverifiable claim at the speed the venue changes.
+
+---
+
 ## 2026-08-20 — When local and CI disagree, do not ask which to trust. Ask which one matches production, because the answer can be neither
 
 Two tests passed locally and failed in CI with no code change between the runs.
