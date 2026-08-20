@@ -25,6 +25,19 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — Two readers can share a word and not a definition, and the disagreement will be filed as a stale value
+
+The cadence dropouts were handed off as a stale-flag bug because the pass log
+said "window is open" while the sleep branch behaved as if it were closed.
+Both readings were current and correct: the log line was the *slot* view
+(kickoff arithmetic plus a recent sweep) and the flag was the *freshness*
+view (oldest book stamp against the 900s limit) — one word, two quantities.
+The previous incident in the same code genuinely was a stale flag, which is
+exactly why the new one was pattern-matched to it. When a log line and a
+control flag disagree, before asking WHEN each was read, ask WHAT each
+measures; a vocabulary collision looks identical to a staleness bug from the
+outside, and the fix for one is a no-op for the other.
+
 ## 2026-08-20 — A status that can only be stamped after an event must never be stamped by a clock alone
 
 `estimate_match` wrote "he estimated and did not bet" the moment a 24-hour

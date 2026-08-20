@@ -57,6 +57,54 @@ The previous session's timer died with it; nothing else is armed.
 
 ---
 
+## 2026-08-20 ~19:45Z — the dropouts are diagnosed, the zero is verified, and the spread test is armed for 21:21Z
+
+State when this was written: tests 3,675 passed / 10 xfailed, tsc clean, live
+on `faa46b9` (deployed ~19:20Z via the dispatch, which went through in auto
+mode this time). The 21:21Z–22:21Z MLB window had not yet opened; the session
+timer is armed to fire `measure_spread_edge.py` at ~21:26Z.
+
+**The top open item is closed: both mid-window cadence dropouts are one
+mechanism, and nothing is broken.**
+`docs/measurements/2026-08-20-cadence-dropouts-are-the-freshness-floor.md`,
+with two committed retrospective pulls beside it. Short version: a new book in
+the feed, `everygame`, sat on all 9 MLB fixtures with a `last_update` stamp
+~13 minutes behind each sweep, so every fixture's oldest-book age crossed the
+900s limit ~2 minutes after the sweep, `is_open` correctly flipped False, and
+the cadence correctly took ADR 0057's bounded sleep to the next refresh.
+Dropout 2's "468s matches nothing cleanly" matched to 3 seconds once the
+bound was computed from the actual 16:16:37.974 sweep instead of the nominal
+minute. Two corrections recorded: the flag was NOT stale (the handoff's
+hypothesis is refuted — `interval_s()` runs after the assignment), and the
+in-pass "window is open" lines are `decide_sweeps`' *slot* view, a different
+quantity sharing a word with the freshness flag. **No code change was made
+and none should be made without an ADR**: excluding stale books from the
+consensus alters the devig population (rule 2), and the alternative —
+accepting that the effective window is `900s − laggard_lag` — costs only
+passes that would (on the likely, unverified branch) have confirmed
+suppressed rows. Open sliver: whether everygame quoted both h2h sides those
+passes (decides if the sleeps cost anything real); no whitelisted query emits
+outcome rows yet.
+
+**The suspicious zero is verified benign, row by row.** New whitelisted
+`estimate-match-status` query, run against live: all 35 positions are
+`out_of_scope` and correctly so — 12 combos (multi-leg), 23 singles of which
+22 pre-date the study start and the one post-study single is
+`KXEARNINGSMENTIONKLAR` (not sports). `position_unlogged = 0` is real: no
+sports single-leg venue position exists inside the study window at all. The
+one `bet_estimates` row has `match_status` NULL, which is the designed
+"pending" state (24h window open or result not yet known), not a fault.
+
+**Tooling shipped for both** (`faa46b9`): `window-freshness --at <ISO|ms>`
+(fixture ages per the production measure, then per-book stamps, stalest
+first — the retrospective instrument for any future "why did the window
+close" question) and `estimate-match-status` (the §7.5 coverage cells).
+Four guards mutation-verified red. The mutation-testing byte-restore gotcha
+bit again — `write_text` on Windows rewrote every line ending; restored from
+the byte copy, which is why the backup rule exists.
+
+---
+
 ## 2026-08-20 ~17:00Z — the gate is measured, the product has a plan, and a slice is built but NOT deployed
 
 **The window-gate fix passed its measurement. All four registered observations,
