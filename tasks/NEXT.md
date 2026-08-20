@@ -32,43 +32,67 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 
 Expected: 3,589 passed / 10 xfailed, ruff clean, tsc clean.
 
-**Live is on `f198404` with 2 GB and held for 2h40m. The 12-hour question is
-still open, because only 2h40m has elapsed.** The handoff before this one was
-written at ~22:10Z and the check was run at 23:19Z **the same evening** — not
-the next morning. Re-read `date -u` before believing any elapsed-time sentence
-here, including this one.
+**THE JOB: fix the window gate. `scripts/run_loop.py`.** Everything else below
+is open and none of it is urgent. This is the last item that costs *bettable
+minutes*, which is the only currency this loop has.
 
-Checked 23:19Z, deploy 20:39:34Z, and all three asks came back clean:
+**It is TWO fixes, not one, and the previous handoff calling it "one fix, its
+own ADR" was wrong.** Verified in the code at 03:00Z on 2026-08-20 — re-verify,
+do not inherit:
+
+- `run_loop.py:543` assigns `tempo.window_open` **after** the pass body.
+- `run_loop.py:577` reads it **before**, to decide whether to prune.
+
+1. **The prune runs during open windows.** Measured 2026-08-19:
+   `15:32:14 full took_s 94.3 quotes_pruned 40000`, window open since 15:21Z. A
+   94-second pass inside the minutes the 15s cadence exists to serve. **Small
+   fix** — read `window.is_open` fresh where the decision is made instead of the
+   stored flag.
+2. **After a restart the loop can take a full 900s to notice a window exists.**
+   This is the expensive half and it is **not** a reorder: `tempo.pass_kind`
+   picks the cadence at the top of a pass, and with the window closed the loop
+   then sleeps 900s. A window opening inside that sleep is invisible until it
+   ends. The sleep has to be bounded by the next window-open time. **Design this
+   before writing it.**
+
+Do (1) and (2) as separate commits with separate reasoning even if one ADR
+covers both. They have different risk: (1) cannot change the cadence, (2) can.
+
+**The timing was chosen deliberately and decays.** At 03:00Z the next window was
+`baseball_mlb 15:26Z-16:26Z`, twelve hours out. That quiet stretch is both the
+uninterrupted 12-hour stability watch and the live test of this fix at the
+moment it matters. **Run `date -u` first**: if 15:26Z has passed, that setup is
+spent and the next slot is the new deadline — do not deploy into an open window.
+
+### Live state at 03:00Z 2026-08-20, verified not inherited
+
+`8efc706`, 2 GB, healthy. Both instances current, nothing unpushed.
 
 ```
-                        last night         at 23:19Z
-took_s                  2.9-3.4s           2.8-3.9s
-recorder.age_ms         ~30s               5.9s
-MemAvailable            --                 1.03 GB
-page cache              27-135 MB (sick)   1.09 GB
-link slow / OOM         0                  0
-machine restarts        --                 0  (one start event, 20:39:34Z)
+quote passes     3.0-3.2s        MemAvailable   951 MB
+full passes      33-114s         page cache     1.0 GB
+IO pressure      avg60 0.00      disk           1.9G/4.9G, 39%
+link slow / OOM  0               unmatched_items 494 rows
 ```
 
-**`MemFree` was 69 MB and that is not the leak returning.** Linux spends spare
-RAM on page cache; `MemAvailable` is the number, and 1.09 GB of cache is exactly
-what the starved box did not have. **Read `MemAvailable`, never `MemFree`** — the
-naive read says "69 MB left" and would have reopened a closed investigation.
+**Two numbers that look like faults and are not.** Meet them before you
+investigate them:
 
-**Nothing went quiet, so ADR 0055 is correct as well as fast.**
-`dropped_no_kalshi_quote` is **0** — it is absent from the pass line and it is
-not in `runner.py`'s `ALWAYS_REPORT`, so absent means zero, which was checked in
-the code rather than assumed. `suppressed` is 0 on quiet passes and **8 beside 20
-recommendations** on the 23:15Z sweep pass, so the pipeline decides rather than
-sleeps. Drift: 4,384 distinct tickers wrote a quote in the last hour, ~100%
-carrying `confirmed_ms`, and `slate.py:255` returns a measured **0** for an
-unmoved market instead of blanking it. **The live Board itself was NOT read** —
+- **`recorder.age_ms` of 637,514.** The window was closed, so the loop is on its
+  900s slow cadence and runs *no quote passes at all*; age climbs toward 900s
+  and resets. Verified against the log — last pass 02:50:05, read at 03:00:28.
+  **Check whether a window is open before reading a high age as a fault.** Third
+  session to meet this.
+- **`MemFree` of 69 MB** (23:19Z reading). Linux spends spare RAM on page cache.
+  **Read `MemAvailable`, never `MemFree`** — the naive read says "69 MB left" and
+  reopens a closed investigation.
+
+**ADR 0055 is correct as well as fast, checked 23:19Z.**
+`dropped_no_kalshi_quote` is **0** — absent from the pass line and not in
+`runner.py`'s `ALWAYS_REPORT`, so absent means zero, read in the code rather than
+assumed. `suppressed` was 8 beside 20 recommendations on a sweep pass, so the
+pipeline decides rather than sleeps. **The live Board itself was NOT read** —
 `/api/slate` is 401 and Chrome is still blocked on the live host.
-
-**Two things to keep watching, neither urgent.** IO pressure `avg60` is 52-55%
-(the pre-OOM figure was 90%). `kalshi_quotes` is back to **6.35M rows** from the
-4.9M the prune reached — the prune skips open windows and windows have been
-open, so 4.9M is not a floor.
 
 **A CORRECTION LANDED AT 22:10Z AND IT IS THE MOST IMPORTANT THING TO READ.**
 `2026-08-19-the-prune-loses-to-the-writer.md` claimed the prune *"cannot win at
