@@ -266,6 +266,21 @@ class PassCounts:
     # all until 2026-08-19 are the ones where that distinction matters.
     quotes_pruned: int = 0
     unmatched_pruned: int = 0
+    # Rows removed from the pre-ADR-0056 `unmatched_events` table, which is no
+    # longer written and is draining to nothing.
+    #
+    # **Separate from `unmatched_pruned`, because the two mean opposite
+    # things.** One is steady-state housekeeping that should stay small
+    # forever; this is a finite backlog that should reach zero and stay there.
+    # Summed, a draining backlog reads exactly like the steady-state rule
+    # misbehaving.
+    #
+    # Reported even when zero, like every other prune count: the drain is the
+    # only evidence that a 788,944-row table is going away, and **a missing key
+    # cannot be told from a prune that ran and found nothing** -- one means the
+    # drain is not wired up, the other that it has finished. Delete this field
+    # with `LEGACY_UNMATCHED_TABLE` when the table is gone.
+    legacy_unmatched_pruned: int = 0
     # Rows `store_quotes_from_discovery` actually inserted, against
     # `markets_quoted` which counts markets carrying a readable quote. Equal
     # before ADR 0055 and deliberately reported separately after it: the ratio
@@ -313,6 +328,7 @@ class PassCounts:
         "leg_price_persist_ms",
         "quotes_pruned",
         "unmatched_pruned",
+        "legacy_unmatched_pruned",
         "quote_rows_written",
     )
 
@@ -2333,6 +2349,7 @@ async def run_once(
         pruned = retention.prune(conn, now=stamp)
     counts.quotes_pruned = pruned.quotes_deleted
     counts.unmatched_pruned = pruned.unmatched_deleted
+    counts.legacy_unmatched_pruned = pruned.legacy_unmatched_deleted
 
     return run_pricing_pass(
         conn, events, risk=risk, suppression=suppression, now=stamp, counts=counts,

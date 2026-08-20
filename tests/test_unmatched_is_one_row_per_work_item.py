@@ -349,3 +349,89 @@ class TestTheLegacyTableIsDrainedNotMigrated:
         assert result.unmatched_deleted == 1
         assert result.legacy_unmatched_deleted == 10
         assert result.total == 11
+
+
+class TestTheDrainIsVisibleOnThePassLine:
+    """The drain is a background process on the live volume, and the pass line
+    is the only place a future session reliably sees it.
+
+    `flyctl logs` returned **14 minutes** of history when this was written, so
+    a one-off `logger.info` is not a record of anything. The count has to be on
+    the pass line, which is the surface that gets read.
+    """
+
+    def test_every_prune_result_field_reaches_the_pass_line(self):
+        """Derived from `PruneResult`, never listed here.
+
+        **This defect shipped and this test is what would have caught it.**
+        `legacy_unmatched_deleted` was computed, returned, and never assigned
+        onto `counts`, so the drain of a 788,944-row table was invisible on the
+        only surface anyone reads. A hand-written list of fields would have had
+        exactly the same blind spot as the code it checks -- both are written
+        from the same mental model, at the same moment, by the same person.
+        Deriving the list from the dataclass is what makes the fourth field
+        covered on the day it is added rather than the day someone remembers.
+        """
+        import dataclasses
+        import inspect
+
+        from backend import runner
+        from backend.store import retention
+
+        source = inspect.getsource(runner.run_once)
+        for field in dataclasses.fields(retention.PruneResult):
+            assert f"pruned.{field.name}" in source, (
+                f"PruneResult.{field.name} is computed by the prune and never "
+                f"reaches the pass line -- it is invisible in the logs"
+            )
+
+    def test_each_count_is_assigned_from_its_own_prune_field(self):
+        """One field in, one field out, with no arithmetic between.
+
+        Summing the backlog into the steady-state count would keep every field
+        `dataclasses.fields` can see present in the source, so the check above
+        cannot notice it. The failure it would produce is the reason both exist:
+        a draining backlog added to `unmatched_pruned` reads as the steady-state
+        rule deleting tens of thousands of rows a pass, which is what that rule
+        looks like when it has gone wrong.
+        """
+        import inspect
+
+        from backend import runner
+
+        source = inspect.getsource(runner.run_once)
+        for counts_field, prune_field in (
+            ("quotes_pruned", "quotes_deleted"),
+            ("unmatched_pruned", "unmatched_deleted"),
+            ("legacy_unmatched_pruned", "legacy_unmatched_deleted"),
+        ):
+            assert (
+                f"counts.{counts_field} = pruned.{prune_field}\n" in source
+            ), (
+                f"counts.{counts_field} is no longer assigned exactly "
+                f"pruned.{prune_field} -- the counts have been combined"
+            )
+
+    def test_it_is_reported_even_when_zero(self):
+        """A missing key cannot be told from a prune that found nothing.
+
+        One means the drain was never wired up; the other means it has
+        finished. Those need opposite responses, and an absent key gives them
+        the same appearance -- which is exactly how this field came to be
+        computed and never reported in the first place.
+        """
+        from backend.runner import PassCounts
+
+        assert "legacy_unmatched_pruned" in PassCounts().as_dict()
+
+    def test_the_two_counts_are_separate_fields_on_the_line(self):
+        """Distinct keys, so a reader can tell the backlog from the routine."""
+        from backend.runner import PassCounts
+
+        counts = PassCounts()
+        counts.unmatched_pruned = 3
+        counts.legacy_unmatched_pruned = 40_000
+        got = counts.as_dict()
+
+        assert got["unmatched_pruned"] == 3
+        assert got["legacy_unmatched_pruned"] == 40_000
