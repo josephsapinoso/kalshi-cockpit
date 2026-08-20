@@ -71,19 +71,22 @@ everygame's happened to as well.
   9.9min old" (fetch-age) beside a window flag that had read closed for
   eight minutes (stamp-age).
 
-## 4. What this does not establish
+## 4. The conditional branch is resolved: everygame contributed, so the sleeps cost nothing
 
-- **Whether everygame contributed to the runner's consensus.** The runner
-  (`book_quotes_for_event`) drops books that fail to quote every outcome and
-  then takes the same worst-book age. If everygame quoted both h2h sides —
-  near-universal for moneylines, but **not verified for these passes** — the
-  runner's `odds_age_ms` also read >900s, every row would have been
-  suppressed `stale_odds`, and the sleeps skipped passes that could have
-  confirmed nothing. If it was one-sided, the runner was fresher than the
-  window flag and the sleeps cost real quote coverage. Deciding which needs
-  the outcome rows, which no whitelisted query currently emits. everygame
-  appears in **zero** committed odds captures (2026-08-07 fixture, both
-  repeat-poll sets), so it is new to the feed and nothing on file answers it.
+*(This section replaced an open question the same evening; the `book-rows`
+query was added in `481d772` and run against live at both instants.)*
+
+everygame quoted **both h2h outcomes on all 9 MLB fixtures in both sweeps**
+(18 rows at 15:28:55, 9 of 9 two-sided at 16:18:50, single stamp each —
+15:13:31Z and 16:03:34Z). A two-sided book survives
+`book_quotes_for_event`'s completeness filter and enters the consensus, so
+the runner's `odds_age_ms` — the same worst-contributing-book measure — also
+read >900s throughout both dropouts, and every recommendation on the slate
+would have carried `stale_odds` suppression. The bounded sleeps skipped
+quote passes that had nothing surfaceable to confirm. **The dropouts cost
+zero live coverage.**
+
+## What this does not establish
 - **Why everygame's stamp lags.** The 2026-08-11 repeat-poll result
   restricts `last_update` to a book-scoped scrape stamp; a 13-minute lag
   cannot separate "the book has not repriced" from "the aggregator has not
@@ -96,7 +99,7 @@ everygame's happened to as well.
 ## 5. Cost, restated
 
 ~14 minutes of a 60-minute window with no quote passes — during which every
-recommendation was, on the likely branch, suppressed as stale anyway. The
+recommendation was suppressed as stale anyway (§4). The
 loop, the gate fix (ADR 0057), and the bounded sleep all behaved exactly as
 designed. The finding is about the freshness *definition*: with a laggard
 book on every fixture, `max_odds_age_ms − laggard_lag_at_fetch` is the real

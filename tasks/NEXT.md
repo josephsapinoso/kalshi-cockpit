@@ -82,9 +82,26 @@ and none should be made without an ADR**: excluding stale books from the
 consensus alters the devig population (rule 2), and the alternative —
 accepting that the effective window is `900s − laggard_lag` — costs only
 passes that would (on the likely, unverified branch) have confirmed
-suppressed rows. Open sliver: whether everygame quoted both h2h sides those
-passes (decides if the sleeps cost anything real); no whitelisted query emits
-outcome rows yet.
+suppressed rows. The sliver closed the same evening: `book-rows`
+(`481d772`, deployed) shows everygame two-sided on all 9 fixtures in both
+sweeps, so it contributed to the runner's consensus, `odds_age_ms` read
+>900s alongside the window flag, and **the sleeps cost zero live coverage**
+— every row was suppressed `stale_odds` throughout. §4 of the doc has the
+rows.
+
+**CI was red from ~14:30Z to ~20:00Z and the cause predates this session.**
+`tests/test_series_fee_multiplier.py` (convening item 9) read the raw fills
+capture under a docstring claiming it was "tracked in git"; it never was
+(`data/` is gitignored, the force-add never happened), so the suite passed
+only on Joe's machine and failed in CI on every push since it landed. Fixed
+in `9eb699f`: `scripts/sanitize_fills_capture.py` derives a committed
+fixture carrying exactly the six consumed fields with pseudonymous
+`order_id`s — the raw capture's account-linked identifiers (order/trade/
+fill ids, subaccount_number) stay out of the public repo, and every
+retained value was already public row-by-row in the 2026-08-14 attribution
+doc. **Joe should know**: a sanitized slice of the fills capture is now a
+committed fixture; if any of it should not be public, say so and it comes
+out.
 
 **The suspicious zero is verified benign, row by row.** New whitelisted
 `estimate-match-status` query, run against live: all 35 positions are
