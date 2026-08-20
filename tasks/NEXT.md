@@ -99,9 +99,15 @@ fixture carrying exactly the six consumed fields with pseudonymous
 `order_id`s — the raw capture's account-linked identifiers (order/trade/
 fill ids, subaccount_number) stay out of the public repo, and every
 retained value was already public row-by-row in the 2026-08-14 attribution
-doc. **Joe should know**: a sanitized slice of the fills capture is now a
-committed fixture; if any of it should not be public, say so and it comes
-out.
+doc. **Superseded ~21:05Z by Joe's ruling: operator account data never enters
+the repo, sanitized or otherwise — anticipate operators other than the
+author.** The fixture and sanitizer are removed (`fc88a31`); the fills
+prediction now runs only where the private capture exists and skips loudly
+elsewhere (verified both ways: 3 passed/4 skipped without, 7 passed with).
+Open sliver, Joe's call if he ever wants it: the sanitized fixture lives on
+in public git history (9eb699f..2aebfaf), and the same values sit in the
+committed 2026-08-14 attribution doc — a history rewrite is pointless
+without redacting those docs too, so nothing was rewritten.
 
 **The suspicious zero is verified benign, row by row.** New whitelisted
 `estimate-match-status` query, run against live: all 35 positions are
