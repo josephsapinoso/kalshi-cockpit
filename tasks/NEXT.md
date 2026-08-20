@@ -31,29 +31,67 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     cd frontend && npx tsc --noEmit
 
 Expected: 3,675 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+(The previous box's first act — the 21:21Z spread test — was TAKEN 2026-08-20
+21:26Z, verdict UNDERPOWERED both arms; see the latest entry.)
 
-**YOUR FIRST ACT, before reading anything else: check the clock against the
-21:21Z–22:21Z baseball window.** The registered spread/total test (item 8,
-the last open item of the convening plan) must run INSIDE that window,
->=15 min before the earliest first pitch:
+---
 
-    date -u
-    # before ~21:21Z : set yourself a background wake for 21:26Z, then read on
-    # 21:21Z-22:21Z  : run it NOW, then read on
-    # after 22:21Z   : the window passed; check whether a later window is open
-    #                  (WNBA 22:45Z-23:45Z is NOT valid -- the registration is
-    #                  MLB-only). If none, the test is UNTAKEN tonight: rerun
-    #                  against the next MLB slate, no cost, say so plainly.
+## 2026-08-20 ~21:35Z — the spread test is TAKEN: UNDERPOWERED both arms, and the partner's list is the open work
 
-    .venv\Scripts\python.exe scripts\measure_spread_edge.py
+**The registered spread/total test ran at 21:26:16Z**, inside the window, 70
+min before first pitch, 4 credits.
+`docs/measurements/2026-08-20-spread-total-edge-result.md` + raw/rows
+artifacts beside it. **Verdict per the registered floor: UNDERPOWERED on
+both arms** (3 sharp-anchored spread rows, 2 totals, against a floor of 8) —
+no pass, no fail, the ADR 0038 quadrant row unchanged. All 5 sharp rows were
+negative at the charged fee; that is a description under an UNDERPOWERED
+verdict, not a finding, and the result doc says so. A second look on a
+fuller slate (≥5 games, ~1.7 sharp rows/game observed) is a NEW
+authorization, not a continuation — the convening bought one sweep.
 
-Registration: `docs/measurements/2026-08-20-preregistration-spread-total-edge.md`
-— read it BEFORE the output; the verdict rules and the UNDERPOWERED floor are
-fixed there. The script saves raw + rows artifacts beside it and `--replay
-<raw.json>` recomputes without spending, so a computation bug never costs a
-second sweep (4 credits, authorized, spent outside `api_credits`
-deliberately). Write the result doc, cite the registration, update this file.
-The previous session's timer died with it; nothing else is armed.
+**Protocol notes worth keeping:** the first attempt 401'd on a stale local
+`ODDS_API_KEY` (no spend); Joe fixed `.env` and the sweep ran five minutes
+later. The 401 traceback printed the dead key into the transcript —
+`raise_for_status` embeds the URL — and the instrument now fails with the
+status alone (`095c1e9`, lessons.md has the pattern; other capture scripts
+still share it and are owed a sweep). The new key sits on a 20K/month plan
+per the vendor counter (1336 used), which changes the credit arithmetic
+whenever a bigger look is authorized.
+
+**ADR 0058 landed (partner-approved, `e6ba046`):** the per-series fee
+(`fee_multiplier` 0.5 MLB) corrects **settled PnL only**
+(`settlement.py:244`). Guards stay on 0.070 — a cost correction cannot
+create an edge. `fills.fee_predicted` is excluded because
+`_fee_model_verified` (`gate.py:738-748`) reads it and correcting it would
+decide ADR 0043's open hand-fills question permissively as a side effect;
+`recommendations.fee_predicted` is excluded because engine.py computes it
+and the gate's edge from one EV object. **Not yet implemented** — the
+implementing commit must add a fee-regime marker to `settlements` (or
+append its SHA to the ADR as the basis boundary) and the ADR 0058 tripwire
+test.
+
+**The partner's remaining execution list** (its triage + review are in this
+session's transcript; the ADR-0027 spec is exact): (1) implement ADR 0058's
+settled-PnL half + tripwire test; (2) append the dated correction to ADR
+0027 — the "1 of 3" eligible denominator is 2026-08 arithmetic, now 35
+settled positions, re-derivation blocked on the h4 query; (3) build the
+`h4-settlement-balance` whitelisted query — FOUR SECTIONS, NO JOIN
+(A venue_settlements post-study with market_result; B balance snapshots
+±900s emitting the all-NULL portfolio_value_tenths; C fills in-window;
+D poll_log including ok) with the docstring naming deposits-unrecorded and
+the $0.001 balance resolution vs $0.0063 quantity; (4) log
+`KalshiRestClient.orders()` as the fifth zero-caller instance. Killed by
+the partner, do not revive: per-series fee on any guard path, stale-book
+devig exclusion, generic UX polish, anything gated on H4 or beta.
+
+**Joe's one open decision:** the calibration study (day 3, exactly 1
+estimate logged, match_status NULL=pending which is correct) — cut the
+target blind, fix the logging funnel, or stop. Asked 2026-08-20 evening;
+not yet answered.
+
+Also open, unchanged: the two `parse_portfolio_value_tenths` defect notes
+(portfolio_poll.py:252-266) the partner cited as H4 blockers, and the
+`fee_multiplier_override` field no backend code reads (ADR 0058 hole 2).
 
 ---
 
