@@ -86,10 +86,12 @@ instance (memory + ADR 0027 correction, grep-verified). Killed by the
 partner, do not revive: per-series fee on any guard path, stale-book devig
 exclusion, generic UX polish, anything gated on H4 or beta.
 
-**Joe's one open decision:** the calibration study (day 3, exactly 1
-estimate logged, match_status NULL=pending which is correct) — cut the
-target blind, fix the logging funnel, or stop. Asked 2026-08-20 evening;
-not yet answered.
+**Joe decided: the calibration study is STOPPED** (~22:05Z, "just scrap
+it. I am a newbie bettor."). Amendment 2 on the registration records the
+terminal state — STOPPED WITHOUT RESULT, nothing scored, machinery kept
+(`ed9dd03`). Follow-up for a future partner triage, not urgent: whether
+the phone UI's estimate form should come out now that nothing consumes
+it — a form feeding a stopped study is quiet misdirection.
 
 Also open, unchanged: the two `parse_portfolio_value_tenths` defect notes
 (portfolio_poll.py:252-266) the partner cited as H4 blockers, and the
