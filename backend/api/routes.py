@@ -19,6 +19,7 @@ import logging
 import math
 import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from statistics import NormalDist
 from typing import Annotated, Optional
 
@@ -2089,7 +2090,40 @@ def create_app(
             "stopped": None
             if loss is None
             else loss >= bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
+            # The self-lockout's release instant, or null. On this payload
+            # rather than a route of its own because the strip that renders
+            # the money arm is the strip that renders this -- one fetch, one
+            # state, no second poller.
+            "lockout_until_ms": bet_estimates.lockout_until(
+                conn, now_ms=db.now_ms()
+            ),
         }
+
+    @app.post("/api/estimates/lockout", dependencies=[Depends(require_auth)])
+    def engage_self_lockout(conn=Depends(get_conn)) -> dict:
+        """One tap of "not tonight" (fleet convening item 10).
+
+        Locks `POST /api/estimates` -- the action performed before every hand
+        bet -- until the next day roll at the odds budget's own hour, via the
+        same 423 shape the $100 stop uses. **No parameters and no disengage
+        endpoint**, deliberately: a lockout with a duration picker is a
+        negotiation, and one that can be cancelled is a speed bump. Tapping
+        again is idempotent; the release instant is a property of the clock.
+
+        The write needs a writable connection; `get_conn` serves the API's
+        usual read-only handle, so this opens its own, exactly as
+        `log_estimate` does for its write.
+        """
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            until_ms = bet_estimates.engage_lockout(
+                write_conn,
+                now_ms=db.now_ms(),
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+        finally:
+            write_conn.close()
+        return {"locked": True, "until_ms": until_ms}
 
     @app.post("/api/estimates", dependencies=[Depends(require_auth)])
     async def log_estimate(request: EstimateRequest) -> dict:
@@ -2114,6 +2148,9 @@ def create_app(
         stop_conn = db.open_db(app_config.db_path, read_only=True)
         try:
             stop_loss = bet_estimates.study_loss_dollars(stop_conn)
+            lockout_release = bet_estimates.lockout_until(
+                stop_conn, now_ms=db.now_ms()
+            )
         finally:
             stop_conn.close()
         if (
@@ -2127,6 +2164,24 @@ def create_app(
                     f"since study start is ${stop_loss:.2f} "
                     f"(registration §5 arm 3, as amended by A2). The study "
                     f"is stopped and logging is closed, permanently."
+                ),
+            )
+        # The self-lockout, second and server-side (fleet convening item 10):
+        # a disabled button is a hint to a human; this is the control. Same
+        # 423 shape as the stop -- nothing about the request is wrong, the
+        # resource is locked, and it unlocks itself at the day roll.
+        # Guard verified by disabling: predicate forced False -> the 423
+        # lockout test fails; restored -> green.
+        if lockout_release is not None:
+            release_iso = datetime.fromtimestamp(
+                lockout_release / 1000, timezone.utc
+            ).strftime("%H:%M UTC on %Y-%m-%d")
+            raise HTTPException(
+                status_code=423,
+                detail=(
+                    f"You locked yourself out until {release_iso}. Nothing "
+                    f"is wrong with the request; you asked not to be able to "
+                    f"do this tonight, and there is no early unlock."
                 ),
             )
 

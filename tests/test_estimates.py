@@ -694,6 +694,8 @@ class TestTheMoneyArmOverTheApi:
             "loss_dollars": None,
             "ceiling_dollars": STUDY_LOSS_CEILING_DOLLARS,
             "stopped": None,
+            # Item 10: the self-lockout rides this payload; none is engaged.
+            "lockout_until_ms": None,
         }
         _assert_embargo_holds(payload)
 
@@ -731,3 +733,74 @@ class TestTheMoneyArmOverTheApi:
             _app(db_path), "POST", "/api/estimates", json=_body(), headers=AUTH
         )
         assert response.status_code == 200
+
+
+class TestTheSelfLockout:
+    """Fleet convening item 10: one tap of "not tonight", released only by the
+    day roll. Guard verified by disabling: with the `lockout_release`
+    predicate forced False in `log_estimate`, `test_a_lockout_locks_the_log`
+    fails; restored, green."""
+
+    async def test_engaging_returns_the_next_day_roll(self, db_path):
+        app = _app(db_path)
+        response = await _request(
+            app, "POST", "/api/estimates/lockout", headers=AUTH
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["locked"] is True
+        from datetime import datetime, timezone
+
+        release = datetime.fromtimestamp(body["until_ms"] / 1000, timezone.utc)
+        assert release.hour == 10 and release.minute == 0
+        assert body["until_ms"] > db.now_ms()
+        assert body["until_ms"] <= db.now_ms() + 24 * 3_600_000
+
+    async def test_a_lockout_locks_the_log(self, db_path):
+        app = _app(db_path)
+        await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        response = await _request(
+            app, "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 423
+        assert "locked yourself out" in response.json()["detail"]
+
+    async def test_an_expired_lockout_releases_by_itself(self, db_path):
+        """The release is the clock, not an unlock action -- there is no
+        disengage endpoint to test, which is itself the design."""
+        handle = db.init_db(db_path)
+        handle.execute(
+            "INSERT INTO self_lockouts (requested_ms, until_ms) VALUES (?, ?)",
+            (db.now_ms() - 7_200_000, db.now_ms() - 3_600_000),
+        )
+        handle.commit()
+        handle.close()
+        app = _app(db_path)
+        response = await _request(
+            app, "POST", "/api/estimates", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200
+
+    async def test_tapping_twice_is_idempotent(self, db_path):
+        app = _app(db_path)
+        first = (
+            await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        ).json()["until_ms"]
+        second = (
+            await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        ).json()["until_ms"]
+        assert first == second
+
+    async def test_the_stop_payload_carries_the_release(self, db_path):
+        app = _app(db_path)
+        before = (await _request(app, "GET", "/api/estimates/stop")).json()
+        assert before["lockout_until_ms"] is None
+        until = (
+            await _request(app, "POST", "/api/estimates/lockout", headers=AUTH)
+        ).json()["until_ms"]
+        after = (await _request(app, "GET", "/api/estimates/stop")).json()
+        assert after["lockout_until_ms"] == until
+
+    async def test_engaging_requires_auth(self, db_path):
+        response = await _request(_app(db_path), "POST", "/api/estimates/lockout")
+        assert response.status_code in (401, 403)

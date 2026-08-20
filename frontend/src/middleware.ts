@@ -44,6 +44,7 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/refresh-odds",
   "/log-estimate",
   "/revise-estimate",
+  "/lockout",
 ]);
 
 export async function middleware(request: NextRequest) {

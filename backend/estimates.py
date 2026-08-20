@@ -336,3 +336,58 @@ def study_stop_fired(conn: sqlite3.Connection) -> Optional[bool]:
     if loss is None:
         return None
     return loss >= STUDY_LOSS_CEILING_DOLLARS
+
+
+# ---------------------------------------------------------------------------
+# The self-lockout (fleet convening item 10)
+# ---------------------------------------------------------------------------
+
+def engage_lockout(
+    conn: sqlite3.Connection, *, now_ms: int, day_start_hour: int
+) -> int:
+    """One tap of "not tonight": lock the estimate log until the next day roll.
+
+    The first control in this product that lets Joe act on the recognition
+    that he should not be betting *right now* -- the tilt review's finding was
+    that every existing guard fires on money already lost, never on the
+    decision to sit down.
+
+    The release instant is the next `day_start_hour`:00Z strictly after now --
+    the same roll hour the odds budget and the risk day already use, because a
+    third definition of "tomorrow" is how the looser one wins in silence.
+    Tapping twice is idempotent by construction: the target instant is a
+    property of the clock, not of the tap count, so a second row carries the
+    same `until_ms` and MAX() over the table changes nothing.
+
+    **There is deliberately no disengage.** A lockout that can be talked back
+    open ten minutes later is a speed bump, not a control; the release is the
+    day roll and nothing else. If that ever needs to change, it is a decision
+    for an ADR, not a parameter.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.fromtimestamp(now_ms / 1000, timezone.utc)
+    release = now.replace(hour=day_start_hour, minute=0, second=0, microsecond=0)
+    if release <= now:
+        release += timedelta(days=1)
+    until_ms = int(release.timestamp() * 1000)
+    conn.execute(
+        "INSERT INTO self_lockouts (requested_ms, until_ms) VALUES (?, ?)",
+        (now_ms, until_ms),
+    )
+    conn.commit()
+    return until_ms
+
+
+def lockout_until(conn: sqlite3.Connection, *, now_ms: int) -> Optional[int]:
+    """When the active lockout releases, or None if none is active.
+
+    `None` and "a lockout exists but has expired" are the same answer on
+    purpose: an expired lockout is over, and surfacing its corpse would turn
+    "you said not tonight, and tonight ended" into a nag.
+    """
+    row = conn.execute(
+        "SELECT MAX(until_ms) AS until_ms FROM self_lockouts WHERE until_ms > ?",
+        (now_ms,),
+    ).fetchone()
+    return row["until_ms"] if row and row["until_ms"] is not None else None

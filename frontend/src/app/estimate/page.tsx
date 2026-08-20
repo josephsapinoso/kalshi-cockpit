@@ -25,6 +25,7 @@ import Term from "@/components/Term";
 
 import {
   DISPLAY_TIME_ZONE,
+  engageLockout,
   fetchRecentEstimates,
   fetchStudyStop,
   logEstimate,
@@ -64,6 +65,9 @@ export default function EstimatePage() {
   const [revising, setRevising] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [stop, setStop] = useState<StudyStop | null>(null);
+  // Set the instant the tap lands, so the lock is visible without a refetch.
+  const [localLockout, setLocalLockout] = useState<number | null>(null);
+  const [lockingOut, setLockingOut] = useState(false);
   const [extremeConfirmed, setExtremeConfirmed] = useState(false);
   const probabilityInput = useRef<HTMLInputElement>(null);
 
@@ -146,6 +150,30 @@ export default function EstimatePage() {
     }
   };
 
+  // Active lockout: the tap's own answer wins over the fetched strip, and an
+  // expired release renders nothing — "you said not tonight, and tonight
+  // ended" must not become a nag.
+  const lockedUntil =
+    localLockout !== null && localLockout > Date.now()
+      ? localLockout
+      : stop?.lockout_until_ms != null && stop.lockout_until_ms > Date.now()
+        ? stop.lockout_until_ms
+        : null;
+
+  const notTonight = async () => {
+    if (lockingOut) return;
+    setLockingOut(true);
+    setError(null);
+    try {
+      const { until_ms } = await engageLockout();
+      setLocalLockout(until_ms);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lockout failed.");
+    } finally {
+      setLockingOut(false);
+    }
+  };
+
   const flagRevised = async (id: number) => {
     const text = reason.trim();
     if (!text) return;
@@ -210,7 +238,39 @@ export default function EstimatePage() {
           </p>
         ))}
 
-      {stop?.stopped === true ? null : saved ? (
+      {/* One tap of "not tonight" (fleet convening item 10). Rendered only
+          while it would do something: not during a lockout, not after the
+          permanent stop. No confirm step — the whole point is that the
+          moment of clarity is brief, and a dialog gives the impulse a veto. */}
+      {stop?.stopped !== true && lockedUntil === null && (
+        <button
+          onClick={notTonight}
+          disabled={lockingOut}
+          className="mb-6 w-full rounded-xl border border-border px-4 py-3 text-sm text-muted transition-colors hover:border-accent-2/60 hover:text-accent-2"
+        >
+          {lockingOut
+            ? "Locking…"
+            : "Not tonight — lock the log until the day rolls over"}
+        </button>
+      )}
+
+      {stop?.stopped === true ? null : lockedUntil !== null ? (
+        <section className="rounded-2xl border bg-card p-5">
+          <div className="text-xs font-semibold uppercase tracking-widest text-muted">
+            Locked, at your request
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            You said not tonight. Logging opens again at{" "}
+            {new Date(lockedUntil).toLocaleTimeString("en-US", {
+              timeZone: DISPLAY_TIME_ZONE,
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            . There is no early unlock — that is the point. The server
+            enforces this too; hiding the form is a courtesy, not the control.
+          </p>
+        </section>
+      ) : saved ? (
         <section className="rounded-2xl border bg-card p-6">
           <div className="text-xs font-semibold uppercase tracking-widest text-accent">
             Logged

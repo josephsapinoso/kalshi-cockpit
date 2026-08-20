@@ -1133,3 +1133,17 @@ CREATE INDEX IF NOT EXISTS idx_poll_log_endpoint_time
     ON poll_log(endpoint, polled_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_poll_log_ok
     ON poll_log(polled_ms DESC) WHERE ok = 1;
+
+-- One tap of "not tonight" (fleet convening item 10, 2026-08-20). Append-only:
+-- a lockout is never deleted or shortened, because a control that can be
+-- talked back open is a speed bump. Release is implicit -- rows whose
+-- `until_ms` has passed simply stop mattering -- so the table is also the
+-- record of every time the control was reached for, which the tilt review
+-- called the most decision-relevant fact this product could collect about
+-- its own user.
+CREATE TABLE IF NOT EXISTS self_lockouts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_ms INTEGER NOT NULL,
+    until_ms     INTEGER NOT NULL,
+    CHECK (until_ms > requested_ms)
+);

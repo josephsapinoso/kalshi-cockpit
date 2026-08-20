@@ -1404,9 +1404,29 @@ export type StudyStop = {
   loss_dollars: number | null;
   ceiling_dollars: number;
   stopped: boolean | null;
+  /** When the self-lockout releases (next 10:00Z), or null if none is live. */
+  lockout_until_ms: number | null;
 };
 
 export const fetchStudyStop = () => get<StudyStop>("/api/estimates/stop");
+
+/**
+ * One tap of "not tonight": lock the estimate log until the next day roll.
+ * No parameters and no cancel — the release is the clock. The backend owns
+ * both the 423 and the release instant; this only carries the tap.
+ */
+export async function engageLockout(): Promise<{ until_ms: number }> {
+  const response = await fetch(`/lockout`, { method: "POST", cache: "no-store" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `lockout failed (${response.status})`;
+    throw new Error(detail);
+  }
+  return payload as { until_ms: number };
+}
 
 /** What `POST /log-estimate` answers with. Quote-free by construction. */
 export type EstimateLogged = {
