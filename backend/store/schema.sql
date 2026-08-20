@@ -762,6 +762,12 @@ CREATE TABLE IF NOT EXISTS settlements (
     -- assuming the fill, so it is what a re-analysis needs in order to weaken
     -- the assumption.
     depth_at_order      REAL,
+    -- ADR 0058's basis marker (v16): which fee model computed pnl_cents.
+    -- NULL = written before the marker existed, i.e. under the flat 0.070
+    -- model. 'series_mult_<m>:override_unchecked' when the venue's
+    -- per-series fee_multiplier was read live; 'flat_0.070:series_unread'
+    -- when the fetch failed and the flat model stood in, said out loud.
+    fee_model_used      TEXT,
     CHECK (result IN ('yes','no')),
     UNIQUE (order_id)
 );

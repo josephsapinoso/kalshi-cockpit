@@ -571,3 +571,29 @@ class TestFractionalCountsAreExact:
 
     def test_integral_counts_are_unchanged(self):
         assert fees.calculate_fee(500, 10) == fees.calculate_fee(500, 10.0)
+
+
+class TestTheFeeMultiplierIsForTheRecordOnly:
+    """ADR 0058: `fee_multiplier` scales k for record-writing callers.
+
+    Mutation: drop `* fee_multiplier` from `_model_a`'s coefficient -- the
+    halving test pins the exact arithmetic and goes red.
+    """
+
+    def test_the_mlb_multiplier_halves_the_fee(self):
+        # 40 contracts at 50c: flat ceil(0.07*40*0.25) = $0.70; at the
+        # venue's MLB multiplier, ceil(0.035*40*0.25) = $0.35.
+        assert fees.calculate_fee(500, 40) == 0.70
+        assert fees.calculate_fee(500, 40, fee_multiplier=0.5) == 0.35
+
+    def test_the_default_is_the_flat_model(self):
+        assert fees.calculate_fee(500, 40, fee_multiplier=1.0) == fees.calculate_fee(500, 40)
+
+    def test_a_multiplier_outside_the_published_range_refuses(self):
+        """The venue has never published a multiplier above 1; a typo'd 5.0
+        silently quintupling a recorded fee must refuse, not compute."""
+        for bad in (0.0, -0.5, 1.01, 5.0, float("nan"), float("inf")):
+            assert fees.calculate_fee(500, 40, fee_multiplier=bad) is None, bad
+
+    def test_cents_spelling_takes_it_too(self):
+        assert fees.calculate_fee_cents(500, 40, fee_multiplier=0.5) == 35

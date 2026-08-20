@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -742,6 +742,18 @@ _MIGRATIONS: dict[int, _Migration] = {
         # backfill: NULL is "not yet examined" and the match pass stamps
         # every in-scope row on its next run.
         columns=(("venue_settlements", "estimate_match_status", "TEXT"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
+        ),
+    ),
+    16: _Migration(
+        # ADR 0058's basis marker: which fee model computed a settlement's
+        # pnl_cents. Nullable, no backfill -- NULL is the honest value for
+        # every row written under the flat 0.070 model before the marker
+        # existed, and it IS the regime boundary a cross-model comparison
+        # must respect. The settlement pass stamps every row it writes from
+        # this version on.
+        columns=(("settlements", "fee_model_used", "TEXT"),),
         undo_statements=(
             # Dropping the column takes everything this step wrote.
         ),

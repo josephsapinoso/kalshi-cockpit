@@ -217,7 +217,12 @@ def read_outcome(payload: dict) -> Optional[MarketOutcome]:
 
 
 def position_pnl_cents(
-    *, side: str, count: int, price_tenths: int, result: str
+    *,
+    side: str,
+    count: int,
+    price_tenths: int,
+    result: str,
+    fee_multiplier: float = 1.0,
 ) -> Optional[int]:
     """Realised P&L for one settled position, in whole cents, net of fee.
 
@@ -242,7 +247,10 @@ def position_pnl_cents(
     if gross_tenths % 10:
         return None
 
-    fee_cents = calculate_fee_cents(price_tenths, count)
+    # ADR 0058: `fee_multiplier` is the venue's own per-series field, passed
+    # only by the settlement pass -- the RECORD path. Guards never reach this
+    # function, so the per-series rate cannot leak into a decision from here.
+    fee_cents = calculate_fee_cents(price_tenths, count, fee_multiplier=fee_multiplier)
     if fee_cents is None:
         # An untradeable price has no defined fee, and a zero there would
         # overstate the result. Same refusal as `calculate_fee`'s own.
@@ -439,14 +447,27 @@ def _depth_at_order(row: dict) -> Optional[float]:
     return float(depth) if isinstance(depth, (int, float)) else None
 
 
-def settle_position(conn, row: dict, outcome: MarketOutcome, *, pnl_cents: int) -> None:
-    """Write one settlement. Raises rather than swallowing a failed insert."""
+def settle_position(
+    conn,
+    row: dict,
+    outcome: MarketOutcome,
+    *,
+    pnl_cents: int,
+    fee_model_used: Optional[str] = None,
+) -> None:
+    """Write one settlement. Raises rather than swallowing a failed insert.
+
+    `fee_model_used` is ADR 0058's basis marker: which fee model computed the
+    `pnl_cents` being written. NULL on every row written before the marker
+    existed -- the honest value, and the boundary a cross-regime comparison
+    must respect.
+    """
     conn.execute(
         """
         INSERT INTO settlements (
             order_id, ticker, settled_ms, result, contracts, pnl_cents,
-            dry_run, fill_assumption, depth_at_order
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            dry_run, fill_assumption, depth_at_order, fee_model_used
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(row["id"]),
@@ -461,9 +482,27 @@ def settle_position(conn, row: dict, outcome: MarketOutcome, *, pnl_cents: int) 
             int(row["dry_run"]),
             row["fill_assumption"],
             _depth_at_order(row),
+            fee_model_used,
         ),
     )
     conn.commit()
+
+
+def read_series_fee_multiplier(payload: dict) -> Optional[float]:
+    """The venue's `fee_multiplier` off one `/series/{ticker}` payload.
+
+    `None` on anything but a finite number in (0, 1] -- absent, unparseable,
+    or outside the range the venue has ever published. Callers fall back to
+    the flat model and SAY SO in `fee_model_used`, per the module rule that
+    unreadable never resolves to a value.
+    """
+    block = payload.get("series", payload)
+    value = block.get("fee_multiplier")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not 0 < float(value) <= 1:
+        return None
+    return float(value)
 
 
 async def run_settlement_pass(conn, kalshi_client) -> SettlementCounts:
@@ -507,17 +546,44 @@ async def run_settlement_pass(conn, kalshi_client) -> SettlementCounts:
             counts.errors.append(f"{ticker}: {exc}")
             logger.warning("could not read %s for settlement: %s", ticker, exc)
 
+    # ADR 0058: the venue's own per-series `fee_multiplier`, one unmetered
+    # GET per distinct series per pass, read at settlement time rather than
+    # cached across days because the schedule has changed before. A failed or
+    # unreadable fetch falls back to the flat model AND SAYS SO in the row's
+    # `fee_model_used` -- the record never guesses silently. The event-level
+    # `fee_multiplier_override` (ADR 0058 hole 2) is NOT consulted here, and
+    # the tag says that too.
+    multipliers: dict[str, Optional[float]] = {}
+    for series in dict.fromkeys(
+        p["ticker"].split("-")[0] for p in open_positions
+    ):
+        try:
+            payload = await kalshi_client.get(f"/series/{series}")
+            multipliers[series] = read_series_fee_multiplier(payload)
+        except Exception as exc:                              # noqa: BLE001
+            multipliers[series] = None
+            logger.warning("could not read /series/%s: %s", series, exc)
+
     for row in open_positions:
         outcome = outcomes.get(row["ticker"])
         if outcome is None:
             counts.still_unresolved += 1
             continue
 
+        multiplier = multipliers.get(row["ticker"].split("-")[0])
+        if multiplier is None:
+            fee_multiplier = 1.0
+            fee_model_used = "flat_0.070:series_unread"
+        else:
+            fee_multiplier = multiplier
+            fee_model_used = f"series_mult_{multiplier:g}:override_unchecked"
+
         pnl = position_pnl_cents(
             side=row["side"],
             count=int(row["assumed_filled_count"] or row["count"]),
             price_tenths=int(row["limit_price_tenths"]),
             result=outcome.result,
+            fee_multiplier=fee_multiplier,
         )
         if pnl is None:
             counts.skipped_sub_cent += 1
@@ -529,7 +595,9 @@ async def run_settlement_pass(conn, kalshi_client) -> SettlementCounts:
             continue
 
         try:
-            settle_position(conn, row, outcome, pnl_cents=pnl)
+            settle_position(
+                conn, row, outcome, pnl_cents=pnl, fee_model_used=fee_model_used
+            )
         except Exception as exc:                              # noqa: BLE001
             counts.errors.append(f"order {row['id']}: {exc}")
             logger.exception("could not write the settlement for order %s", row["id"])

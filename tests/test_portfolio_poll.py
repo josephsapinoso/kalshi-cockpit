@@ -355,6 +355,39 @@ class TestPollPortfolio:
         assert row["fee_actual"] == pytest.approx(0.007)
         assert row["fee_predicted"] > 0
 
+    async def test_an_mlb_fills_predicted_fee_stays_on_the_flat_model(
+        self, conn
+    ):
+        """ADR 0058's tripwire, half one. `fills.fee_predicted` must keep
+        being written under the flat 0.070 model even on a series whose true
+        multiplier is 0.5 -- because `_fee_model_verified`
+        (`backend/gate.py`) compares this exact column against `fee_actual`,
+        and moving it to per-series would decide ADR 0043's open hand-fills
+        question in the permissive direction as a side effect. (Half two --
+        the `source = 'engine'` filter -- is pinned by
+        `tests/test_gate_counts_engine_fills_only.py`.)
+
+        Arithmetic by hand: 10 contracts at 1c taker, flat model
+        ceil(0.07*10*0.01*0.99) at $0.0001 = $0.0070; a per-series MLB model
+        would predict $0.0035. If this fails, read ADR 0058 before touching
+        the assertion.
+
+        Verified red by passing `fee_multiplier=0.5` into the poller's
+        `calculate_fee` call.
+        """
+        mlb = fill_row(
+            fill_id="adr58", trade_id="adr58", order_id="adr58",
+            ticker="KXMLBGAME-26AUG20TEST-NYY",
+            market_ticker="KXMLBGAME-26AUG20TEST-NYY",
+        )
+        await poll_portfolio(conn, FakeClient(fills=[mlb]), now_ms=1)
+
+        row = conn.execute(
+            "SELECT fee_predicted, fee_model_used FROM fills"
+        ).fetchone()
+        assert row["fee_predicted"] == pytest.approx(0.0070)
+        assert row["fee_model_used"] == "model_a_deci"
+
     async def test_positions_are_counted_never_parsed(self, conn):
         """The shape has never been observed; a parser would be imagined."""
         client = FakeClient(positions=[{"never": "observed"}])

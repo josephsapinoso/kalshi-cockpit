@@ -176,16 +176,26 @@ def _exact_count(contracts: float) -> Optional[Decimal]:
     return count
 
 
-def _model_a(price_tenths: int, contracts: Decimal, maker: bool) -> Decimal:
+def _model_a(
+    price_tenths: int,
+    contracts: Decimal,
+    maker: bool,
+    fee_multiplier: Decimal = Decimal(1),
+) -> Decimal:
     """Single coefficient, rounded up to `FEE_GRID_DOLLARS` on the whole order.
 
     **This is the observed model**, not a candidate. On 11 real taker fills the
-    charged fee is exactly `ceil(k * C * P * (1-P))` to $0.0001 per order. The
-    only thing still hedged is `k`: baseball measured `(0.034969, 0.035008]`,
-    the two non-baseball fills `(0.069961, 0.070000]`, and `TAKER_COEFFICIENT`
-    stays at the **higher** of the two deliberately -- see `calculate_fee`.
+    charged fee is exactly `ceil(k * C * P * (1-P))` to $0.0001 per order.
+
+    `fee_multiplier` is the venue's own per-series `fee_multiplier` field
+    (`/series/{ticker}`; 0.5 on both MLB series, 1 on KXATPDOUBLES and
+    KXWNBAGAME, fixture-pinned by `tests/test_series_fee_multiplier.py`,
+    which predicts all 11 fills to $0.0001). **ADR 0058 restricts who may
+    pass it**: record-writing callers only (settled PnL). Every
+    decision-bearing path calls without it and charges the flat coefficient,
+    because a cost correction cannot create an edge.
     """
-    coefficient = MAKER_COEFFICIENT if maker else TAKER_COEFFICIENT
+    coefficient = (MAKER_COEFFICIENT if maker else TAKER_COEFFICIENT) * fee_multiplier
     price = _price_dollars(price_tenths)
     raw = coefficient * contracts * price * (Decimal(1) - price)
     return raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING)
@@ -240,26 +250,34 @@ def fee_candidates(
 
 
 def calculate_fee(
-    price_tenths: int, contracts: float, maker: bool = False
+    price_tenths: int,
+    contracts: float,
+    maker: bool = False,
+    *,
+    fee_multiplier: float = 1.0,
 ) -> Optional[float]:
     """Return the Kalshi fee for an order, in dollars.
 
     Returns the **measured** model (`_model_a`): `ceil(k * C * P * (1-P))` to
     $0.0001, per order. See the module docstring for the 11 fills that pin it.
 
-    **`TAKER_COEFFICIENT` stays at 0.07 and that is deliberate, not an
-    oversight.** Baseball measured `k = 0.035`, but *which* market attribute
-    carries that split is unresolved -- sport, series, and a per-market
-    liquidity tier all fit the observations identically -- and the whole
-    `k = 0.035` record spans **four days** on a venue whose schedule demonstrably
-    changed within the preceding six months. So this function charges the
-    **higher** measured rate everywhere. On the observed fills that is exact on
-    non-baseball and exactly 2.00x on baseball: never under, which is the
-    direction the module has always chosen, and now overstating by a known
-    factor rather than an unknown one.
+    **`TAKER_COEFFICIENT` stays at 0.07 by default and that is deliberate,
+    not an oversight.** The attribute carrying the baseball split is now
+    resolved -- it is the series, via Kalshi's own `/series` `fee_multiplier`
+    field (0.5 on MLB), captured 2026-08-20 and verified by predicting all 11
+    attributed fills to $0.0001 (`tests/test_series_fee_multiplier.py`). But
+    **ADR 0058 confines that knowledge to the record**: only record-writing
+    callers (settled PnL) may pass `fee_multiplier`; every decision-bearing
+    path -- suppression, sizing, the gate, order-time EV -- calls without it
+    and keeps charging the flat 0.070, because a cost correction cannot
+    create an edge (ADR 0038) and relaxing a guard buys nothing. On those
+    paths the charge stays exact on non-baseball and exactly 2.00x on
+    baseball: never under, overstating by a known factor.
 
-    Hardcoding 0.035 needs a second MLB observation window >= 3-4 weeks after
-    2026-08-14, and a series argument this signature does not take.
+    `fee_multiplier` outside (0, 1] refuses with None: the venue has never
+    published a multiplier above 1, and a typo'd 5.0 silently quintupling a
+    recorded fee is the flattering-to-nobody error this module refuses
+    everywhere else.
 
     Args:
         price_tenths: Execution price in integer tenths of a cent, 1-999.
@@ -294,6 +312,12 @@ def calculate_fee(
         return 0.0
     if not is_valid_price(price_tenths):
         return None
+    try:
+        multiplier = Decimal(str(fee_multiplier))
+    except (InvalidOperation, ValueError):
+        return None
+    if not multiplier.is_finite() or not 0 < multiplier <= 1:
+        return None
 
     # **The hedge is retired.** This was `max(fee_candidates(...).values())`
     # until 2026-08-14. Model B -- per-category multiplier, rounded to the
@@ -307,14 +331,18 @@ def calculate_fee(
     #
     # `fee_candidates` still reports B, because the harness's job is to show a
     # refuted model failing. Pricing no longer consults it.
-    return float(_model_a(price_tenths, count, maker))
+    return float(_model_a(price_tenths, count, maker, multiplier))
 
 
 def calculate_fee_cents(
-    price_tenths: int, contracts: int, maker: bool = False
+    price_tenths: int,
+    contracts: int,
+    maker: bool = False,
+    *,
+    fee_multiplier: float = 1.0,
 ) -> Optional[int]:
     """Same as :func:`calculate_fee` but returns whole cents, or None."""
-    fee = calculate_fee(price_tenths, contracts, maker)
+    fee = calculate_fee(price_tenths, contracts, maker, fee_multiplier=fee_multiplier)
     return None if fee is None else int(round(fee * 100))
 
 

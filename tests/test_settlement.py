@@ -25,6 +25,7 @@ from backend.settlement import (
     position_pnl_cents,
     positions_awaiting_settlement,
     read_outcome,
+    read_series_fee_multiplier,
     run_settlement_pass,
 )
 from backend.store import db
@@ -80,11 +81,23 @@ def _order(conn, *, ticker="T", side="yes", count=10, price=500, dry_run=True,
 
 
 class FakeKalshi:
-    """Returns a canned payload per ticker, and records what was asked."""
+    """Returns a canned payload per ticker, and records what was asked.
 
-    def __init__(self, payloads: dict, *, fail: set[str] = frozenset()):
+    `series` holds `/series/{ticker}` payloads (ADR 0058); a series absent
+    from it raises, which is the live shape of a failed fetch and exercises
+    the flat-model fallback path.
+    """
+
+    def __init__(
+        self,
+        payloads: dict,
+        *,
+        fail: set[str] = frozenset(),
+        series: dict | None = None,
+    ):
         self.payloads = payloads
         self.fail = fail
+        self.series = series or {}
         self.asked: list[str] = []
 
     async def get(self, path: str) -> dict:
@@ -92,6 +105,8 @@ class FakeKalshi:
         self.asked.append(ticker)
         if ticker in self.fail:
             raise RuntimeError("boom")
+        if path.startswith("/series/"):
+            return self.series[ticker]
         return {"market": self.payloads[ticker]}
 
 
@@ -305,7 +320,11 @@ class TestThePass:
 
         counts = await run_settlement_pass(conn, client)
 
-        assert client.asked == [market["ticker"]]
+        # One market ask, then one series ask (ADR 0058) -- each once,
+        # despite two positions.
+        assert client.asked == [
+            market["ticker"], market["ticker"].split("-")[0],
+        ]
         assert counts.settled == 2
 
     async def test_one_unreadable_market_does_not_stop_the_others(
@@ -647,3 +666,87 @@ class TestTheCountsSurviveTheFilter:
         """Or the assertions above would pass against a serialiser that had
         abandoned filtering entirely."""
         assert "markets_queried" not in SettlementCounts().as_dict()
+
+
+class TestTheRecordFeeIsPerSeries:
+    """ADR 0058's record half: settled PnL charges the venue's own
+    per-series multiplier, and every row says which model priced it.
+
+    Arithmetic pinned by hand, not by calling the fee module in the test:
+    count 40 at 50c, won -- gross 2,000 cents; flat fee
+    ceil(0.07*40*0.25) = $0.70 -> pnl 1,930; at the MLB multiplier 0.5,
+    ceil(0.035*40*0.25) = $0.35 -> pnl 1,965.
+
+    Mutation: drop `fee_multiplier=fee_multiplier` from
+    `position_pnl_cents`'s call into `calculate_fee_cents` -- the multiplier
+    test stays at 1,930 and goes red.
+    """
+
+    async def test_the_series_multiplier_halves_the_recorded_fee(
+        self, conn, finalized
+    ):
+        market = finalized[0]
+        series = market["ticker"].split("-")[0]
+        _order(conn, ticker=market["ticker"], side=market["result"],
+               count=40, price=500)
+        client = FakeKalshi(
+            {market["ticker"]: market},
+            series={series: {"series": {"fee_multiplier": 0.5}}},
+        )
+
+        counts = await run_settlement_pass(conn, client)
+
+        assert counts.settled == 1
+        row = conn.execute(
+            "SELECT pnl_cents, fee_model_used FROM settlements"
+        ).fetchone()
+        assert row["pnl_cents"] == 1_965
+        assert row["fee_model_used"] == "series_mult_0.5:override_unchecked"
+
+    async def test_an_unreadable_series_falls_back_to_flat_and_says_so(
+        self, conn, finalized
+    ):
+        """The fake carries no series payload, so the fetch raises -- the
+        live shape of an outage. The record takes the flat model and the
+        row's tag admits the series was not read.
+
+        Mutation: swap the fallback tag for the multiplier tag -- this and
+        the test above disagree about which string marks which regime.
+        """
+        market = finalized[0]
+        _order(conn, ticker=market["ticker"], side=market["result"],
+               count=40, price=500)
+        client = FakeKalshi({market["ticker"]: market})
+
+        counts = await run_settlement_pass(conn, client)
+
+        assert counts.settled == 1
+        row = conn.execute(
+            "SELECT pnl_cents, fee_model_used FROM settlements"
+        ).fetchone()
+        assert row["pnl_cents"] == 1_930
+        assert row["fee_model_used"] == "flat_0.070:series_unread"
+
+
+class TestReadSeriesFeeMultiplier:
+    """Unreadable resolves to None, never to a number."""
+
+    def test_the_captured_shape_parses(self):
+        assert read_series_fee_multiplier(
+            {"series": {"fee_multiplier": 0.5}}
+        ) == 0.5
+        assert read_series_fee_multiplier({"fee_multiplier": 1}) == 1.0
+
+    def test_absent_wild_or_typed_wrong_is_none(self):
+        for payload in (
+            {},
+            {"series": {}},
+            {"series": {"fee_multiplier": None}},
+            {"series": {"fee_multiplier": "0.5"}},
+            {"series": {"fee_multiplier": True}},
+            {"series": {"fee_multiplier": 0}},
+            {"series": {"fee_multiplier": 5.0}},
+            {"series": {"fee_multiplier": -0.5}},
+            {"series": {"fee_multiplier": float("nan")}},
+        ):
+            assert read_series_fee_multiplier(payload) is None, payload
