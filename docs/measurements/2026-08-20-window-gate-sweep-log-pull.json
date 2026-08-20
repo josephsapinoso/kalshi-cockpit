@@ -1,0 +1,3665 @@
+{
+  "query": "sweep-log",
+  "db": "/data/cockpit.db",
+  "sections": [
+    {
+      "title": "odds_sweep_log: count and pass_ms range by outcome",
+      "columns": [
+        "outcome",
+        "n",
+        "min_pass_ms",
+        "min_pass_iso",
+        "max_pass_ms",
+        "max_pass_iso"
+      ],
+      "rows": [
+        [
+          "refused",
+          2,
+          1786822913073,
+          "2026-08-15T19:41:53.073000Z",
+          1786830991890,
+          "2026-08-15T21:56:31.890000Z"
+        ],
+        [
+          "served",
+          172,
+          1786401261768,
+          "2026-08-10T22:34:21.768000Z",
+          1787242597974,
+          "2026-08-20T16:16:37.974000Z"
+        ],
+        [
+          "skipped",
+          2646,
+          1786393147418,
+          "2026-08-10T20:19:07.418000Z",
+          1787243194860,
+          "2026-08-20T16:26:34.860000Z"
+        ]
+      ],
+      "row_count": 3,
+      "empty": false,
+      "truncated": false,
+      "row_cap": 600
+    },
+    {
+      "title": "odds_sweep_log: last 400 rows, newest first",
+      "columns": [
+        "id",
+        "pass_ms",
+        "pass_iso",
+        "sport_key",
+        "outcome",
+        "detail",
+        "quotes_stored"
+      ],
+      "rows": [
+        [
+          2820,
+          1787243194860,
+          "2026-08-20T16:26:34.860000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.9min old; next refresh at 16:26Z (every 10min until 16:56Z)",
+          null
+        ],
+        [
+          2819,
+          1787242726972,
+          "2026-08-20T16:18:46.972000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.1min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2818,
+          1787242707914,
+          "2026-08-20T16:18:27.914000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.8min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2817,
+          1787242688419,
+          "2026-08-20T16:18:08.419000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.5min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2816,
+          1787242670387,
+          "2026-08-20T16:17:50.387000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.2min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2815,
+          1787242650482,
+          "2026-08-20T16:17:30.482000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.9min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2814,
+          1787242632994,
+          "2026-08-20T16:17:12.994000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2813,
+          1787242616348,
+          "2026-08-20T16:16:56.348000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 16:26Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2812,
+          1787242597974,
+          "2026-08-20T16:16:37.974000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2811,
+          1787242597974,
+          "2026-08-20T16:16:37.974000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff; holding the window open",
+          558
+        ],
+        [
+          2810,
+          1787242578499,
+          "2026-08-20T16:16:18.499000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.8min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2809,
+          1787242560840,
+          "2026-08-20T16:16:00.840000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.5min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2808,
+          1787242541799,
+          "2026-08-20T16:15:41.799000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.2min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2807,
+          1787242522221,
+          "2026-08-20T16:15:22.221000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.9min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2806,
+          1787242502137,
+          "2026-08-20T16:15:02.137000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.6min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2805,
+          1787242482278,
+          "2026-08-20T16:14:42.278000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.2min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2804,
+          1787242465822,
+          "2026-08-20T16:14:25.822000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.0min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2803,
+          1787242448445,
+          "2026-08-20T16:14:08.445000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.7min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2802,
+          1787242431724,
+          "2026-08-20T16:13:51.724000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.4min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2801,
+          1787242413288,
+          "2026-08-20T16:13:33.288000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.1min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2800,
+          1787242394881,
+          "2026-08-20T16:13:14.881000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.8min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2799,
+          1787242377214,
+          "2026-08-20T16:12:57.214000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.5min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2798,
+          1787242361334,
+          "2026-08-20T16:12:41.334000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.2min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2797,
+          1787242343799,
+          "2026-08-20T16:12:23.799000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.9min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2796,
+          1787242327314,
+          "2026-08-20T16:12:07.314000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.6min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2795,
+          1787242309466,
+          "2026-08-20T16:11:49.466000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.4min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2794,
+          1787242290395,
+          "2026-08-20T16:11:30.395000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.0min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2793,
+          1787242270568,
+          "2026-08-20T16:11:10.568000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.7min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2792,
+          1787242250946,
+          "2026-08-20T16:10:50.946000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.4min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2791,
+          1787242232277,
+          "2026-08-20T16:10:32.277000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.1min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2790,
+          1787242214873,
+          "2026-08-20T16:10:14.873000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.8min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2789,
+          1787242196038,
+          "2026-08-20T16:09:56.038000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.5min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2788,
+          1787242178829,
+          "2026-08-20T16:09:38.829000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.2min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2787,
+          1787242160912,
+          "2026-08-20T16:09:20.912000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.9min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2786,
+          1787242141679,
+          "2026-08-20T16:09:01.679000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.6min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2785,
+          1787242091754,
+          "2026-08-20T16:08:11.754000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.7min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2784,
+          1787242075970,
+          "2026-08-20T16:07:55.970000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.5min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2783,
+          1787242059061,
+          "2026-08-20T16:07:39.061000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.2min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2782,
+          1787242041239,
+          "2026-08-20T16:07:21.239000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.9min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2781,
+          1787242024857,
+          "2026-08-20T16:07:04.857000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2780,
+          1787242007779,
+          "2026-08-20T16:06:47.779000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 16:16Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2779,
+          1787241988427,
+          "2026-08-20T16:06:28.427000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2778,
+          1787241988427,
+          "2026-08-20T16:06:28.427000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff; holding the window open",
+          558
+        ],
+        [
+          2777,
+          1787241969283,
+          "2026-08-20T16:06:09.283000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.7min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2776,
+          1787241950722,
+          "2026-08-20T16:05:50.722000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.4min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2775,
+          1787241931176,
+          "2026-08-20T16:05:31.176000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.1min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2774,
+          1787241915190,
+          "2026-08-20T16:05:15.190000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.8min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2773,
+          1787241895426,
+          "2026-08-20T16:04:55.426000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.5min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2772,
+          1787241876730,
+          "2026-08-20T16:04:36.730000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.2min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2771,
+          1787241858590,
+          "2026-08-20T16:04:18.590000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.9min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2770,
+          1787241840461,
+          "2026-08-20T16:04:00.461000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.6min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2769,
+          1787241824486,
+          "2026-08-20T16:03:44.486000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.3min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2768,
+          1787241808630,
+          "2026-08-20T16:03:28.630000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.0min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2767,
+          1787241790678,
+          "2026-08-20T16:03:10.678000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.7min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2766,
+          1787241772966,
+          "2026-08-20T16:02:52.966000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.4min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2765,
+          1787241757254,
+          "2026-08-20T16:02:37.254000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.2min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2764,
+          1787241737288,
+          "2026-08-20T16:02:17.288000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.8min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2763,
+          1787241719262,
+          "2026-08-20T16:01:59.262000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.5min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2762,
+          1787241701922,
+          "2026-08-20T16:01:41.922000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.3min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2761,
+          1787241684275,
+          "2026-08-20T16:01:24.275000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.0min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2760,
+          1787241667379,
+          "2026-08-20T16:01:07.379000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.7min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2759,
+          1787241649524,
+          "2026-08-20T16:00:49.524000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.4min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2758,
+          1787241630251,
+          "2026-08-20T16:00:30.251000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.1min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2757,
+          1787241610420,
+          "2026-08-20T16:00:10.420000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.7min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2756,
+          1787241590342,
+          "2026-08-20T15:59:50.342000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.4min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2755,
+          1787241573924,
+          "2026-08-20T15:59:33.924000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.1min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2754,
+          1787241554073,
+          "2026-08-20T15:59:14.073000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.8min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2753,
+          1787241534047,
+          "2026-08-20T15:58:54.047000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.5min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2752,
+          1787241514022,
+          "2026-08-20T15:58:34.022000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.1min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2751,
+          1787241495710,
+          "2026-08-20T15:58:15.710000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.8min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2750,
+          1787241476074,
+          "2026-08-20T15:57:56.074000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.5min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2749,
+          1787241458051,
+          "2026-08-20T15:57:38.051000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.2min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2748,
+          1787241439464,
+          "2026-08-20T15:57:19.464000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.9min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2747,
+          1787241421305,
+          "2026-08-20T15:57:01.305000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2746,
+          1787241403653,
+          "2026-08-20T15:56:43.653000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 16:06Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2745,
+          1787241386551,
+          "2026-08-20T15:56:26.551000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2744,
+          1787241386551,
+          "2026-08-20T15:56:26.551000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff; holding the window open",
+          540
+        ],
+        [
+          2743,
+          1787241367000,
+          "2026-08-20T15:56:07Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.7min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2742,
+          1787241350008,
+          "2026-08-20T15:55:50.008000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.4min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2741,
+          1787241331940,
+          "2026-08-20T15:55:31.940000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.1min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2740,
+          1787241312058,
+          "2026-08-20T15:55:12.058000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.8min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2739,
+          1787241293314,
+          "2026-08-20T15:54:53.314000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.5min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2738,
+          1787241274061,
+          "2026-08-20T15:54:34.061000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.2min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2737,
+          1787241255723,
+          "2026-08-20T15:54:15.723000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.8min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2736,
+          1787241237994,
+          "2026-08-20T15:53:57.994000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.6min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2735,
+          1787241190234,
+          "2026-08-20T15:53:10.234000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.8min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2734,
+          1787241170020,
+          "2026-08-20T15:52:50.020000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.4min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2733,
+          1787241150714,
+          "2026-08-20T15:52:30.714000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.1min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2732,
+          1787241132254,
+          "2026-08-20T15:52:12.254000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.8min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2731,
+          1787241112808,
+          "2026-08-20T15:51:52.808000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.5min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2730,
+          1787241095527,
+          "2026-08-20T15:51:35.527000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.2min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2729,
+          1787241076935,
+          "2026-08-20T15:51:16.935000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.9min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2728,
+          1787241056902,
+          "2026-08-20T15:50:56.902000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.5min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2727,
+          1787241037798,
+          "2026-08-20T15:50:37.798000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.2min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2726,
+          1787241018369,
+          "2026-08-20T15:50:18.369000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.9min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2725,
+          1787240998617,
+          "2026-08-20T15:49:58.617000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.6min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2724,
+          1787240981179,
+          "2026-08-20T15:49:41.179000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.3min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2723,
+          1787240963407,
+          "2026-08-20T15:49:23.407000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.0min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2722,
+          1787240946767,
+          "2026-08-20T15:49:06.767000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.7min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2721,
+          1787240927853,
+          "2026-08-20T15:48:47.853000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.4min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2720,
+          1787240908252,
+          "2026-08-20T15:48:28.252000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.1min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2719,
+          1787240889623,
+          "2026-08-20T15:48:09.623000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.7min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2718,
+          1787240872603,
+          "2026-08-20T15:47:52.603000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.5min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2717,
+          1787240853865,
+          "2026-08-20T15:47:33.865000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.1min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2716,
+          1787240835700,
+          "2026-08-20T15:47:15.700000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.8min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2715,
+          1787240819201,
+          "2026-08-20T15:46:59.201000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2714,
+          1787240803395,
+          "2026-08-20T15:46:43.395000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 15:56Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2713,
+          1787240784979,
+          "2026-08-20T15:46:24.979000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2712,
+          1787240784979,
+          "2026-08-20T15:46:24.979000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff; holding the window open",
+          540
+        ],
+        [
+          2711,
+          1787240767155,
+          "2026-08-20T15:46:07.155000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.8min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2710,
+          1787240749786,
+          "2026-08-20T15:45:49.786000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.5min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2709,
+          1787240731777,
+          "2026-08-20T15:45:31.777000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.2min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2708,
+          1787240713088,
+          "2026-08-20T15:45:13.088000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.9min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2707,
+          1787240693301,
+          "2026-08-20T15:44:53.301000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.6min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2706,
+          1787240674592,
+          "2026-08-20T15:44:34.592000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.3min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2705,
+          1787240658748,
+          "2026-08-20T15:44:18.748000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.0min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2704,
+          1787240639331,
+          "2026-08-20T15:43:59.331000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.7min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2703,
+          1787240621037,
+          "2026-08-20T15:43:41.037000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.4min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2702,
+          1787240604108,
+          "2026-08-20T15:43:24.108000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 7.1min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2701,
+          1787240585715,
+          "2026-08-20T15:43:05.715000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.8min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2700,
+          1787240568785,
+          "2026-08-20T15:42:48.785000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.5min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2699,
+          1787240552416,
+          "2026-08-20T15:42:32.416000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 6.2min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2698,
+          1787240532835,
+          "2026-08-20T15:42:12.835000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.9min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2697,
+          1787240516313,
+          "2026-08-20T15:41:56.313000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.6min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2696,
+          1787240500177,
+          "2026-08-20T15:41:40.177000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.4min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2695,
+          1787240481165,
+          "2026-08-20T15:41:21.165000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 5.0min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2694,
+          1787240463295,
+          "2026-08-20T15:41:03.295000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.7min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2693,
+          1787240446871,
+          "2026-08-20T15:40:46.871000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.5min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2692,
+          1787240430222,
+          "2026-08-20T15:40:30.222000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 4.2min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2691,
+          1787240413451,
+          "2026-08-20T15:40:13.451000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.9min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2690,
+          1787240395733,
+          "2026-08-20T15:39:55.733000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.6min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2689,
+          1787240377194,
+          "2026-08-20T15:39:37.194000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.3min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2688,
+          1787240361149,
+          "2026-08-20T15:39:21.149000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 3.0min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2687,
+          1787240341782,
+          "2026-08-20T15:39:01.782000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.7min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2686,
+          1787240325385,
+          "2026-08-20T15:38:45.385000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.4min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2685,
+          1787240274770,
+          "2026-08-20T15:37:54.770000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.6min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2684,
+          1787240255106,
+          "2026-08-20T15:37:35.106000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.3min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2683,
+          1787240235222,
+          "2026-08-20T15:37:15.222000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.9min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2682,
+          1787240216503,
+          "2026-08-20T15:36:56.503000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2681,
+          1787240196995,
+          "2026-08-20T15:36:36.995000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 15:46Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2680,
+          1787240178995,
+          "2026-08-20T15:36:18.995000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2679,
+          1787240178995,
+          "2026-08-20T15:36:18.995000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff; holding the window open",
+          540
+        ],
+        [
+          2678,
+          1787240162757,
+          "2026-08-20T15:36:02.757000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 9.9min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2677,
+          1787240094652,
+          "2026-08-20T15:34:54.652000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 8.8min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2676,
+          1787239724941,
+          "2026-08-20T15:28:44.941000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.6min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2675,
+          1787239707006,
+          "2026-08-20T15:28:27.006000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.3min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2674,
+          1787239688164,
+          "2026-08-20T15:28:08.164000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 2.0min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2673,
+          1787239670998,
+          "2026-08-20T15:27:50.998000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.7min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2672,
+          1787239652153,
+          "2026-08-20T15:27:32.153000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.4min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2671,
+          1787239634767,
+          "2026-08-20T15:27:14.767000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 1.1min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2670,
+          1787239616665,
+          "2026-08-20T15:26:56.665000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.8min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2669,
+          1787239600744,
+          "2026-08-20T15:26:40.744000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.6min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2668,
+          1787239583985,
+          "2026-08-20T15:26:23.985000Z",
+          null,
+          "skipped",
+          "no sweep: baseball_mlb's window is open and its odds are 0.3min old; next refresh at 15:36Z (every 10min until 16:26Z)",
+          null
+        ],
+        [
+          2667,
+          1787239566904,
+          "2026-08-20T15:26:06.904000Z",
+          "baseball_mlb",
+          "skipped",
+          "props: scheduled prop buying is off for baseball_mlb, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2666,
+          1787239566904,
+          "2026-08-20T15:26:06.904000Z",
+          "baseball_mlb",
+          "served",
+          "6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          558
+        ],
+        [
+          2665,
+          1787239548740,
+          "2026-08-20T15:25:48.740000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2664,
+          1787239367693,
+          "2026-08-20T15:22:47.693000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2663,
+          1787238380236,
+          "2026-08-20T15:06:20.236000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2662,
+          1787237399765,
+          "2026-08-20T14:49:59.765000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2661,
+          1787236576765,
+          "2026-08-20T14:36:16.765000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2660,
+          1787235808221,
+          "2026-08-20T14:23:28.221000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2659,
+          1787234943589,
+          "2026-08-20T14:09:03.589000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2658,
+          1787233982406,
+          "2026-08-20T13:53:02.406000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2657,
+          1787233021043,
+          "2026-08-20T13:37:01.043000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2656,
+          1787232020516,
+          "2026-08-20T13:20:20.516000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2655,
+          1787231143970,
+          "2026-08-20T13:05:43.970000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2654,
+          1787230234246,
+          "2026-08-20T12:50:34.246000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2653,
+          1787229200407,
+          "2026-08-20T12:33:20.407000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2652,
+          1787228275705,
+          "2026-08-20T12:17:55.705000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2651,
+          1787227388942,
+          "2026-08-20T12:03:08.942000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2650,
+          1787226476080,
+          "2026-08-20T11:47:56.080000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2649,
+          1787225602667,
+          "2026-08-20T11:33:22.667000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2648,
+          1787224639131,
+          "2026-08-20T11:17:19.131000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2647,
+          1787223809143,
+          "2026-08-20T11:03:29.143000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2646,
+          1787222865266,
+          "2026-08-20T10:47:45.266000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2645,
+          1787221900702,
+          "2026-08-20T10:31:40.702000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2644,
+          1787220967965,
+          "2026-08-20T10:16:07.965000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2643,
+          1787220006066,
+          "2026-08-20T10:00:06.066000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2642,
+          1787219114513,
+          "2026-08-20T09:45:14.513000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2641,
+          1787218060656,
+          "2026-08-20T09:27:40.656000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2640,
+          1787217151956,
+          "2026-08-20T09:12:31.956000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2639,
+          1787216182696,
+          "2026-08-20T08:56:22.696000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2638,
+          1787215121395,
+          "2026-08-20T08:38:41.395000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2637,
+          1787214098041,
+          "2026-08-20T08:21:38.041000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2636,
+          1787213176819,
+          "2026-08-20T08:06:16.819000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2635,
+          1787212247470,
+          "2026-08-20T07:50:47.470000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2634,
+          1787211324050,
+          "2026-08-20T07:35:24.050000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2633,
+          1787210471171,
+          "2026-08-20T07:21:11.171000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2632,
+          1787209608338,
+          "2026-08-20T07:06:48.338000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2631,
+          1787208546827,
+          "2026-08-20T06:49:06.827000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2630,
+          1787207572977,
+          "2026-08-20T06:32:52.977000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2629,
+          1787206622161,
+          "2026-08-20T06:17:02.161000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2628,
+          1787205642582,
+          "2026-08-20T06:00:42.582000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2627,
+          1787204584170,
+          "2026-08-20T05:43:04.170000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2626,
+          1787203586236,
+          "2026-08-20T05:26:26.236000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2625,
+          1787202695488,
+          "2026-08-20T05:11:35.488000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2624,
+          1787201787443,
+          "2026-08-20T04:56:27.443000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2623,
+          1787200925807,
+          "2026-08-20T04:42:05.807000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2622,
+          1787199937756,
+          "2026-08-20T04:25:37.756000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2621,
+          1787199129651,
+          "2026-08-20T04:12:09.651000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2620,
+          1787198137406,
+          "2026-08-20T03:55:37.406000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2619,
+          1787197757955,
+          "2026-08-20T03:49:17.955000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2618,
+          1787196914387,
+          "2026-08-20T03:35:14.387000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2617,
+          1787196101244,
+          "2026-08-20T03:21:41.244000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2616,
+          1787195143151,
+          "2026-08-20T03:05:43.151000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2615,
+          1787194171619,
+          "2026-08-20T02:49:31.619000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2614,
+          1787193115825,
+          "2026-08-20T02:31:55.825000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2613,
+          1787192090398,
+          "2026-08-20T02:14:50.398000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2612,
+          1787191244750,
+          "2026-08-20T02:00:44.750000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2611,
+          1787191228688,
+          "2026-08-20T02:00:28.688000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2610,
+          1787191212271,
+          "2026-08-20T02:00:12.271000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2609,
+          1787191194069,
+          "2026-08-20T01:59:54.069000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2608,
+          1787191175530,
+          "2026-08-20T01:59:35.530000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2607,
+          1787191159387,
+          "2026-08-20T01:59:19.387000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2606,
+          1787191141072,
+          "2026-08-20T01:59:01.072000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2605,
+          1787191124514,
+          "2026-08-20T01:58:44.514000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2604,
+          1787191107116,
+          "2026-08-20T01:58:27.116000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2603,
+          1787191090560,
+          "2026-08-20T01:58:10.560000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2602,
+          1787191071734,
+          "2026-08-20T01:57:51.734000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2601,
+          1787191055142,
+          "2026-08-20T01:57:35.142000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2600,
+          1787191035732,
+          "2026-08-20T01:57:15.732000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2599,
+          1787190985094,
+          "2026-08-20T01:56:25.094000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2598,
+          1787190966514,
+          "2026-08-20T01:56:06.514000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2597,
+          1787190947825,
+          "2026-08-20T01:55:47.825000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2596,
+          1787190929367,
+          "2026-08-20T01:55:29.367000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2595,
+          1787190909862,
+          "2026-08-20T01:55:09.862000Z",
+          null,
+          "skipped",
+          "no sweep: next slot is baseball_mlb at 15:26Z-16:26Z for 6 game(s) from 16:41Z, sweeping 75-15 min before first kickoff",
+          null
+        ],
+        [
+          2594,
+          1787190892950,
+          "2026-08-20T01:54:52.950000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.0min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2593,
+          1787190875738,
+          "2026-08-20T01:54:35.738000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.7min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2592,
+          1787190859041,
+          "2026-08-20T01:54:19.041000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.5min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2591,
+          1787190843050,
+          "2026-08-20T01:54:03.050000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.2min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2590,
+          1787190825553,
+          "2026-08-20T01:53:45.553000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.9min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2589,
+          1787190806249,
+          "2026-08-20T01:53:26.249000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.6min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2588,
+          1787190786592,
+          "2026-08-20T01:53:06.592000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.3min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2587,
+          1787190766426,
+          "2026-08-20T01:52:46.426000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.9min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2586,
+          1787190747428,
+          "2026-08-20T01:52:27.428000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.6min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2585,
+          1787190727547,
+          "2026-08-20T01:52:07.547000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.3min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2584,
+          1787190710989,
+          "2026-08-20T01:51:50.989000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.0min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2583,
+          1787190691738,
+          "2026-08-20T01:51:31.738000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.7min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2582,
+          1787190673039,
+          "2026-08-20T01:51:13.039000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.4min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2581,
+          1787190656195,
+          "2026-08-20T01:50:56.195000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.1min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2580,
+          1787190640138,
+          "2026-08-20T01:50:40.138000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.8min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2579,
+          1787190621270,
+          "2026-08-20T01:50:21.270000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.5min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2578,
+          1787190604346,
+          "2026-08-20T01:50:04.346000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.2min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2577,
+          1787190584751,
+          "2026-08-20T01:49:44.751000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.9min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2576,
+          1787190566093,
+          "2026-08-20T01:49:26.093000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.6min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2575,
+          1787190549933,
+          "2026-08-20T01:49:09.933000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.3min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2574,
+          1787190532794,
+          "2026-08-20T01:48:52.794000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.0min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2573,
+          1787190515158,
+          "2026-08-20T01:48:35.158000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.7min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2572,
+          1787190497550,
+          "2026-08-20T01:48:17.550000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.4min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2571,
+          1787190479816,
+          "2026-08-20T01:47:59.816000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.1min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2570,
+          1787190461391,
+          "2026-08-20T01:47:41.391000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.8min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2569,
+          1787190445103,
+          "2026-08-20T01:47:25.103000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.6min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2568,
+          1787190428383,
+          "2026-08-20T01:47:08.383000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.3min old; next refresh at 01:56Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2567,
+          1787190411316,
+          "2026-08-20T01:46:51.316000Z",
+          "basketball_wnba",
+          "skipped",
+          "props: scheduled prop buying is off for basketball_wnba, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2566,
+          1787190411316,
+          "2026-08-20T01:46:51.316000Z",
+          "basketball_wnba",
+          "served",
+          "1 game(s) from 02:10Z, sweeping 75-15 min before first kickoff; holding the window open",
+          234
+        ],
+        [
+          2565,
+          1787190392304,
+          "2026-08-20T01:46:32.304000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 10.0min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2564,
+          1787190372770,
+          "2026-08-20T01:46:12.770000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.7min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2563,
+          1787190353764,
+          "2026-08-20T01:45:53.764000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.3min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2562,
+          1787190337802,
+          "2026-08-20T01:45:37.802000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.1min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2561,
+          1787190320869,
+          "2026-08-20T01:45:20.869000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.8min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2560,
+          1787190302951,
+          "2026-08-20T01:45:02.951000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.5min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2559,
+          1787190286739,
+          "2026-08-20T01:44:46.739000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.2min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2558,
+          1787190268888,
+          "2026-08-20T01:44:28.888000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.9min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2557,
+          1787190251522,
+          "2026-08-20T01:44:11.522000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.6min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2556,
+          1787190233577,
+          "2026-08-20T01:43:53.577000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.3min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2555,
+          1787190214124,
+          "2026-08-20T01:43:34.124000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.0min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2554,
+          1787190197692,
+          "2026-08-20T01:43:17.692000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.7min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2553,
+          1787190178127,
+          "2026-08-20T01:42:58.127000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.4min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2552,
+          1787190161760,
+          "2026-08-20T01:42:41.760000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.1min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2551,
+          1787190142268,
+          "2026-08-20T01:42:22.268000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.8min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2550,
+          1787190125764,
+          "2026-08-20T01:42:05.764000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.5min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2549,
+          1787190078454,
+          "2026-08-20T01:41:18.454000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.8min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2548,
+          1787190059509,
+          "2026-08-20T01:40:59.509000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.4min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2547,
+          1787190039646,
+          "2026-08-20T01:40:39.646000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.1min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2546,
+          1787190022703,
+          "2026-08-20T01:40:22.703000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.8min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2545,
+          1787190003298,
+          "2026-08-20T01:40:03.298000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.5min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2544,
+          1787189985087,
+          "2026-08-20T01:39:45.087000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.2min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2543,
+          1787189968955,
+          "2026-08-20T01:39:28.955000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.9min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2542,
+          1787189950595,
+          "2026-08-20T01:39:10.595000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.6min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2541,
+          1787189934510,
+          "2026-08-20T01:38:54.510000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.4min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2540,
+          1787189918203,
+          "2026-08-20T01:38:38.203000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.1min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2539,
+          1787189898913,
+          "2026-08-20T01:38:18.913000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.8min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2538,
+          1787189882250,
+          "2026-08-20T01:38:02.250000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.5min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2537,
+          1787189865551,
+          "2026-08-20T01:37:45.551000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.2min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2536,
+          1787189848330,
+          "2026-08-20T01:37:28.330000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.9min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2535,
+          1787189830642,
+          "2026-08-20T01:37:10.642000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.6min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2534,
+          1787189810640,
+          "2026-08-20T01:36:50.640000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.3min old; next refresh at 01:46Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2533,
+          1787189793170,
+          "2026-08-20T01:36:33.170000Z",
+          "basketball_wnba",
+          "skipped",
+          "props: scheduled prop buying is off for basketball_wnba, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2532,
+          1787189793170,
+          "2026-08-20T01:36:33.170000Z",
+          "basketball_wnba",
+          "served",
+          "1 game(s) from 02:10Z, sweeping 75-15 min before first kickoff; holding the window open",
+          225
+        ],
+        [
+          2531,
+          1787189773323,
+          "2026-08-20T01:36:13.323000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.9min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2530,
+          1787189755656,
+          "2026-08-20T01:35:55.656000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.7min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2529,
+          1787189735521,
+          "2026-08-20T01:35:35.521000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.3min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2528,
+          1787189716467,
+          "2026-08-20T01:35:16.467000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.0min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2527,
+          1787189699418,
+          "2026-08-20T01:34:59.418000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.7min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2526,
+          1787189683079,
+          "2026-08-20T01:34:43.079000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.4min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2525,
+          1787189664498,
+          "2026-08-20T01:34:24.498000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.1min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2524,
+          1787189644764,
+          "2026-08-20T01:34:04.764000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2523,
+          1787189625201,
+          "2026-08-20T01:33:45.201000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.5min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2522,
+          1787189605352,
+          "2026-08-20T01:33:25.352000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.2min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2521,
+          1787189586183,
+          "2026-08-20T01:33:06.183000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2520,
+          1787189569272,
+          "2026-08-20T01:32:49.272000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.5min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2519,
+          1787189553180,
+          "2026-08-20T01:32:33.180000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.3min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2518,
+          1787189533817,
+          "2026-08-20T01:32:13.817000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.0min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2517,
+          1787189517520,
+          "2026-08-20T01:31:57.520000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.7min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2516,
+          1787189500710,
+          "2026-08-20T01:31:40.710000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.4min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2515,
+          1787189481221,
+          "2026-08-20T01:31:21.221000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.1min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2514,
+          1787189462869,
+          "2026-08-20T01:31:02.869000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2513,
+          1787189443037,
+          "2026-08-20T01:30:43.037000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.4min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2512,
+          1787189423963,
+          "2026-08-20T01:30:23.963000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.1min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2511,
+          1787189407023,
+          "2026-08-20T01:30:07.023000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2510,
+          1787189388125,
+          "2026-08-20T01:29:48.125000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.5min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2509,
+          1787189371961,
+          "2026-08-20T01:29:31.961000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.3min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2508,
+          1787189352813,
+          "2026-08-20T01:29:12.813000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.9min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2507,
+          1787189334989,
+          "2026-08-20T01:28:54.989000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.6min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2506,
+          1787189317880,
+          "2026-08-20T01:28:37.880000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.4min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2505,
+          1787189299208,
+          "2026-08-20T01:28:19.208000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.0min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2504,
+          1787189281824,
+          "2026-08-20T01:28:01.824000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2503,
+          1787189262617,
+          "2026-08-20T01:27:42.617000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.4min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2502,
+          1787189244399,
+          "2026-08-20T01:27:24.399000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.1min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2501,
+          1787189226734,
+          "2026-08-20T01:27:06.734000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.8min old; next refresh at 01:36Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2500,
+          1787189176341,
+          "2026-08-20T01:26:16.341000Z",
+          "basketball_wnba",
+          "skipped",
+          "props: scheduled prop buying is off for basketball_wnba, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2499,
+          1787189176341,
+          "2026-08-20T01:26:16.341000Z",
+          "basketball_wnba",
+          "served",
+          "1 game(s) from 02:10Z, sweeping 75-15 min before first kickoff; holding the window open",
+          212
+        ],
+        [
+          2498,
+          1787189158627,
+          "2026-08-20T01:25:58.627000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.8min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2497,
+          1787189142573,
+          "2026-08-20T01:25:42.573000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.5min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2496,
+          1787189126518,
+          "2026-08-20T01:25:26.518000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2495,
+          1787189106247,
+          "2026-08-20T01:25:06.247000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.9min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2494,
+          1787189088338,
+          "2026-08-20T01:24:48.338000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.6min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2493,
+          1787189068679,
+          "2026-08-20T01:24:28.679000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2492,
+          1787189048626,
+          "2026-08-20T01:24:08.626000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.0min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2491,
+          1787189030735,
+          "2026-08-20T01:23:50.735000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.7min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2490,
+          1787189011579,
+          "2026-08-20T01:23:31.579000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2489,
+          1787188991975,
+          "2026-08-20T01:23:11.975000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.0min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2488,
+          1787188972610,
+          "2026-08-20T01:22:52.610000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.7min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2487,
+          1787188953854,
+          "2026-08-20T01:22:33.854000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.4min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2486,
+          1787188937221,
+          "2026-08-20T01:22:17.221000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.1min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2485,
+          1787188918794,
+          "2026-08-20T01:21:58.794000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.8min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2484,
+          1787188900250,
+          "2026-08-20T01:21:40.250000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.5min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2483,
+          1787188880103,
+          "2026-08-20T01:21:20.103000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.2min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2482,
+          1787188862475,
+          "2026-08-20T01:21:02.475000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.9min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2481,
+          1787188842498,
+          "2026-08-20T01:20:42.498000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.5min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2480,
+          1787188825225,
+          "2026-08-20T01:20:25.225000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.2min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2479,
+          1787188808439,
+          "2026-08-20T01:20:08.439000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.0min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2478,
+          1787188788230,
+          "2026-08-20T01:19:48.230000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.6min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2477,
+          1787188771046,
+          "2026-08-20T01:19:31.046000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2476,
+          1787188754016,
+          "2026-08-20T01:19:14.016000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.1min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2475,
+          1787188734710,
+          "2026-08-20T01:18:54.710000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.7min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2474,
+          1787188717251,
+          "2026-08-20T01:18:37.251000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.4min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2473,
+          1787188700874,
+          "2026-08-20T01:18:20.874000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.2min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2472,
+          1787188684495,
+          "2026-08-20T01:18:04.495000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.9min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2471,
+          1787188666196,
+          "2026-08-20T01:17:46.196000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.6min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2470,
+          1787188648951,
+          "2026-08-20T01:17:28.951000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2469,
+          1787188628469,
+          "2026-08-20T01:17:08.469000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.0min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2468,
+          1787188608207,
+          "2026-08-20T01:16:48.207000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.6min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2467,
+          1787188590719,
+          "2026-08-20T01:16:30.719000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.3min old; next refresh at 01:26Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2466,
+          1787188570947,
+          "2026-08-20T01:16:10.947000Z",
+          "basketball_wnba",
+          "skipped",
+          "props: scheduled prop buying is off for basketball_wnba, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2465,
+          1787188570947,
+          "2026-08-20T01:16:10.947000Z",
+          "basketball_wnba",
+          "served",
+          "1 game(s) from 02:10Z, sweeping 75-15 min before first kickoff; holding the window open",
+          205
+        ],
+        [
+          2464,
+          1787188554515,
+          "2026-08-20T01:15:54.515000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.7min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2463,
+          1787188538257,
+          "2026-08-20T01:15:38.257000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.5min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2462,
+          1787188521284,
+          "2026-08-20T01:15:21.284000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.2min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2461,
+          1787188501632,
+          "2026-08-20T01:15:01.632000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.9min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2460,
+          1787188482885,
+          "2026-08-20T01:14:42.885000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.6min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2459,
+          1787188464459,
+          "2026-08-20T01:14:24.459000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.2min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2458,
+          1787188446888,
+          "2026-08-20T01:14:06.888000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.0min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2457,
+          1787188430444,
+          "2026-08-20T01:13:50.444000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.7min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2456,
+          1787188410924,
+          "2026-08-20T01:13:30.924000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.4min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2455,
+          1787188391941,
+          "2026-08-20T01:13:11.941000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.0min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2454,
+          1787188374973,
+          "2026-08-20T01:12:54.973000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.8min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2453,
+          1787188355060,
+          "2026-08-20T01:12:35.060000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.4min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2452,
+          1787188337857,
+          "2026-08-20T01:12:17.857000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.1min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2451,
+          1787188319468,
+          "2026-08-20T01:11:59.468000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.8min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2450,
+          1787188267768,
+          "2026-08-20T01:11:07.768000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 5.0min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2449,
+          1787188250730,
+          "2026-08-20T01:10:50.730000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.7min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2448,
+          1787188232506,
+          "2026-08-20T01:10:32.506000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.4min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2447,
+          1787188215262,
+          "2026-08-20T01:10:15.262000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 4.1min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2446,
+          1787188195316,
+          "2026-08-20T01:09:55.316000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.8min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2445,
+          1787188178680,
+          "2026-08-20T01:09:38.680000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.5min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2444,
+          1787188162144,
+          "2026-08-20T01:09:22.144000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 3.2min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2443,
+          1787188145907,
+          "2026-08-20T01:09:05.907000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.9min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2442,
+          1787188129523,
+          "2026-08-20T01:08:49.523000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.7min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2441,
+          1787188113566,
+          "2026-08-20T01:08:33.566000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.4min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2440,
+          1787188095972,
+          "2026-08-20T01:08:15.972000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 2.1min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2439,
+          1787188079093,
+          "2026-08-20T01:07:59.093000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.8min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2438,
+          1787188059791,
+          "2026-08-20T01:07:39.791000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.5min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2437,
+          1787188041414,
+          "2026-08-20T01:07:21.414000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 1.2min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2436,
+          1787188024434,
+          "2026-08-20T01:07:04.434000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.9min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2435,
+          1787188007557,
+          "2026-08-20T01:06:47.557000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.6min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2434,
+          1787187988268,
+          "2026-08-20T01:06:28.268000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 0.3min old; next refresh at 01:16Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2433,
+          1787187969663,
+          "2026-08-20T01:06:09.663000Z",
+          "basketball_wnba",
+          "skipped",
+          "props: scheduled prop buying is off for basketball_wnba, so this window buys team lines only. A single fixture's ladder is still available on demand for the cost of one fixture rather than the whole slate.",
+          null
+        ],
+        [
+          2432,
+          1787187969663,
+          "2026-08-20T01:06:09.663000Z",
+          "basketball_wnba",
+          "served",
+          "1 game(s) from 02:10Z, sweeping 75-15 min before first kickoff; holding the window open",
+          209
+        ],
+        [
+          2431,
+          1787187949139,
+          "2026-08-20T01:05:49.139000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.9min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2430,
+          1787187930026,
+          "2026-08-20T01:05:30.026000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.6min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2429,
+          1787187911506,
+          "2026-08-20T01:05:11.506000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 9.3min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2428,
+          1787187891952,
+          "2026-08-20T01:04:51.952000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.9min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2427,
+          1787187872865,
+          "2026-08-20T01:04:32.865000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.6min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2426,
+          1787187853646,
+          "2026-08-20T01:04:13.646000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.3min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2425,
+          1787187837305,
+          "2026-08-20T01:03:57.305000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 8.0min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2424,
+          1787187821084,
+          "2026-08-20T01:03:41.084000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.8min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2423,
+          1787187803754,
+          "2026-08-20T01:03:23.754000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.5min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2422,
+          1787187783487,
+          "2026-08-20T01:03:03.487000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 7.1min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ],
+        [
+          2421,
+          1787187766580,
+          "2026-08-20T01:02:46.580000Z",
+          null,
+          "skipped",
+          "no sweep: basketball_wnba's window is open and its odds are 6.8min old; next refresh at 01:05Z (every 10min until 01:55Z)",
+          null
+        ]
+      ],
+      "row_count": 400,
+      "empty": false,
+      "truncated": false,
+      "row_cap": 600
+    }
+  ]
+}

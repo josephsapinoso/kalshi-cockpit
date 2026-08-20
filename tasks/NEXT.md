@@ -30,9 +30,69 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,589 passed / 10 xfailed, ruff clean, tsc clean.
+Expected: 3,643 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 
-**THE JOB IS DONE AND UNVERIFIED. Your job is the verification.** The window
+---
+
+## 2026-08-20 ~17:00Z — the gate is measured, the product has a plan, and a slice is built but NOT deployed
+
+**The window-gate fix passed its measurement. All four registered observations,
+plus the 12-hour stability watch, separately.**
+`docs/measurements/2026-08-20-window-gate-observations-result.md`; the durable
+evidence is the committed sweep-log pull beside it. Headlines: first pass
+**+6.9s** after the 15:26Z open (pre-fix worst case 900s); 3 in-window full
+passes all `quotes_pruned: 0` against a backlog proven live by the **8,148-row
+prune 45 seconds after the close**; 0 early wakes all day; 0 restarts since the
+03:54Z deploy.
+
+**The top open item is new: two mid-window cadence dropouts, same signature.**
+15:28:50→15:34:54 (370s) and 16:18:49→16:26:34 (468s) — healthy quote pass,
+total log silence, healthy quote pass, pass numbers consecutive, every in-pass
+decision reading `window is open`. The first dropout's arithmetic lands exactly
+on the bounded-sleep branch (369.7 × 1.15 = the 15:36:00 refresh), which only
+runs when `tempo.window_open` is False — **the cadence still reads the flag
+assigned at the END of the previous pass**, the same staleness family fix 1
+cured at the prune. Cost: ~14 min of a 60-min window. Unexplained; do not
+force-fit the second dropout (468s matches nothing cleanly). Start at
+`scripts/run_loop.py`'s end-of-pass `tempo.window_open = window.is_open`
+assignment and what it evaluates against.
+
+**The fleet convened (Joe called it) and the plan is recorded:**
+`docs/reviews/2026-08-20-fleet-convening.md`. Ten items, blast-radius first.
+Items 1–3 are BUILT, tested, and green locally — **not deployed**:
+
+- **Item 1** — `estimate_match` no longer stamps "he did not bet" on evidence
+  of nothing. Amendment 2 (A10–A12) is in the registration *before* the code;
+  schema **v14** adds `match_status_ms`; the absence proof is
+  window-closed ∧ result-known ∧ settlements-poll-postdates-knowing;
+  `absence_pending` rows stay matchable; the A12 repair pass is **self-running
+  and self-extinguishing** inside `run_match_pass` (pre-amendment stamps are
+  `unmatched_no_position` + NULL ms). Three guards mutation-verified red.
+  **After deploying, read the `A12 repair pass:` log line and reconcile its
+  counts** — that is the repair's one observable.
+- **Item 2** — `/gate` now says its caps cannot see hand bets (they are
+  structural: `settlements.order_id` NOT NULL → orders only).
+- **Item 3** — `/` now lands on the **Slate** (re-export, so the two routes
+  cannot drift); the Board moved to `/board`; nav reads **Games / Picks /
+  Log / Ledger**; `/slate` still served, linked from the Footer. Five python
+  test files followed the Board to its new path.
+
+Also this session: migration-undo order in `tests/test_store.py` corrected to
+descending (it was right only while no later migration touched a rebuilt
+table), and `migrate()` skips a column-add on a mid-migration-missing table
+(v11 drops `bet_estimates` for schema.sql to rebuild in the same boot).
+
+**Deploying is the next session's first move** (`gh workflow run deploy.yml -f
+instance=live -f confirm_live=kalshi-cockpit`), then: the A12 repair line, a
+`prune-frontier` read (the query shipped this morning, unused until the box
+has it), and plan items 4–10 in order. Nothing below this line is newer than
+2026-08-20 03:00Z.
+
+---
+
+**THE JOB IS DONE AND UNVERIFIED. Your job is the verification.**
+*(Superseded 17:00Z — the verification above is taken. Kept for the
+correction it carries about the second prune route.)* The window
 gate was fixed in two commits on 2026-08-20 (~03:30-04:00Z) and deployed to live
 before the betting window opened. **ADR 0057.** Nothing about it has been seen
 running.
