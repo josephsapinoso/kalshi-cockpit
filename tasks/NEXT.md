@@ -299,16 +299,55 @@ mutations turned a guard red**, re-run after the redesign.
    `last_seen_ms - first_seen_ms` is 156,031ms on the worst item: 2.6 minutes
    tracked across 4 sightings, in one row.
 
-2. **Watch the drain finish, then delete its scaffolding.** 651,955 rows left.
-   It is **paused while a betting window is open**, by ADR 0054's gate — that is
-   correct, and it means the drain only advances between windows, so expect it
-   to take longer than the batch arithmetic suggests. Watch for
-   `retention: unmatched_events is empty and has been dropped` in the log; until
-   that line appears, do not remove `LEGACY_UNMATCHED_TABLE` from
-   `retention.py`, which is a named constant so `grep` finds everything that
-   goes when the table does. 40 batches at `DELETE_BATCH`; one to three
-   *prune-running* passes is an expectation, not a measurement.
-3. **The 12-hour watch still has not happened.** Everything above is 2h40m.
+2. **THE DRAIN IS FINISHED.** `retention: unmatched_events is empty and has
+   been dropped` appeared at ~02:33Z. `sqlite_master` now lists
+   **`unmatched_items` only**. 788,944 rows removed across six prune-running
+   full passes:
+
+   ```
+   00:37Z  791,955      02:16:44  full  113.7s  legacy_unmatched_pruned 180,000
+   00:56Z  491,955      02:33:33  full   97.3s  legacy_unmatched_pruned 151,955
+   01:06Z  331,955      02:50:05  full   33.7s  legacy_unmatched_pruned       0
+   02:33Z        0                                     <- table dropped
+   ```
+
+   **A watcher polling every 10 minutes called this stalled, and it was not.**
+   The count sat at 331,955 from 01:06Z to 02:07Z — an hour of nothing — because
+   a `basketball_wnba` window was open and ADR 0054's gate correctly skips the
+   prune while one is. **A drain that only advances between windows looks
+   identical to a drain that has died**, and the thing that separated them was
+   `legacy_unmatched_pruned` on the pass line, which had to be added first
+   because it was computed and never reported. Read the pass line, not the row
+   count, before calling this class of job stuck.
+
+3. **`LEGACY_UNMATCHED_TABLE` is deliberately NOT removed yet**, against the
+   previous entry's own instruction, and the reason is rollback rather than
+   caution. A rollback to any pre-ADR-0056 image writes `unmatched_events`
+   again and never creates `unmatched_items`; rolling forward with the drain
+   still present clears it, and rolling forward without it strands a table
+   nothing drains. The cost of keeping it is one `sqlite_master` query per full
+   pass.
+
+   **Trigger for removing it, so this does not become permanent:** the next
+   session that touches `retention.py` for any other reason, or 2026-08-27,
+   whichever comes first. It takes `prune_legacy_unmatched`, `_table_exists`,
+   `PruneResult.legacy_unmatched_deleted`, `PassCounts.legacy_unmatched_pruned`
+   and its `ALWAYS_REPORT` entry, plus `TestTheLegacyTableIsDrainedNotMigrated`
+   and `TestTheDrainIsVisibleOnThePassLine`. `grep LEGACY_UNMATCHED_TABLE` finds
+   the constant; the rest hang off it.
+4. **The 12-hour watch still has not happened.** The box has now been up since
+   00:55Z on `8efc706` with two deploys in between, so the longest unbroken
+   run is ~2h. Health at 03:00Z: `MemAvailable` **951 MB**, page cache
+   **1.0 GB**, IO pressure `avg60` **0.00** (was 52-55% before the drain).
+
+   **`recorder.age_ms` was 637,514 at 03:00Z and that is not a stall.** The
+   window closed at ~02:01Z, so the loop is on its 900s slow cadence and no
+   quote passes run at all — age climbs toward 900s between full passes and
+   resets. Verified against the log rather than assumed: last pass 02:50:05,
+   read at 03:00:28. `sweep_decision` says the next slot is `baseball_mlb
+   15:26Z`, twelve hours out. **Do not read a high recorder age as a fault
+   without checking whether a window is open first** — this is the third
+   session to meet it.
 4. Everything from the previous entries: the window gate reading a stale flag,
    `QUOTE_PASS_DURATION_BUDGET_S`, Chrome's live-host permission, the digest
    leading with `x / 300`.

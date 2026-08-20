@@ -25,6 +25,41 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — A job that only runs when a gate is open looks exactly like a job that has died. Poll the thing that says it ran, not the thing it changes
+
+A backlog drain was watched by polling its row count every ten minutes. It went
+791,955 -> 651,955 -> 491,955 -> 331,955 and then **sat at 331,955 for an
+hour**. Seven consecutive identical readings. Everything else on the box was
+healthy — passes running, other counters climbing — which made it look like the
+drain specifically had died.
+
+It had not. The drain runs only on full passes and only while no betting window
+is open, and a `basketball_wnba` window had opened. It resumed the moment the
+window closed and finished in two passes.
+
+**The row count cannot distinguish "did not run" from "ran and was skipped" from
+"ran and found nothing".** Those are three different situations needing three
+different responses, and the metric being watched collapsed all of them into
+"the number did not change".
+
+**The pattern: poll the record of the attempt, not the state it mutates.** The
+thing that separated the three was `legacy_unmatched_pruned` on the pass line —
+present-and-zero means it ran and was skipped, absent means it never ran at all.
+That distinction is the same one `ALWAYS_REPORT` already exists for in this
+repo, applied one level out, and it only worked because the field had been added
+**before** the watch started. It had been computed and never reported, which is
+this project's recurring defect and would have made the hour unreadable.
+
+The corollary is about watch windows: **a poller whose interval is shorter than
+the gate's period will spend most of its life looking at a paused system.** The
+gate here has a period of hours; the poll was ten minutes. Seven of eight
+readings were guaranteed uninformative before it started, and the watch expired
+six minutes before the job finished. Size the window against the *gate*, not
+against how often the number could in principle move — or watch the log line
+instead and stop guessing.
+
+---
+
 ## 2026-08-19 — A schema change costs its time at boot, under a health check that does not wait; and rehearse the migration before writing it
 
 A table needed collapsing: 788,944 rows carrying 1,376 distinct work items. The
