@@ -200,14 +200,13 @@ export default function EstimatePage() {
             </span>{" "}
             of the ${stop.ceiling_dollars.toFixed(0)} stop used &mdash;{" "}
             <Term k="realised_loss">realised loss</Term> since the study
-            opened
-            {(stop.loss_dollars ?? 0) < 0 && (
-              <span className="text-muted">
-                {" "}
-                (you&rsquo;re net up ${(-(stop.loss_dollars ?? 0)).toFixed(2)})
-              </span>
-            )}
-            .
+            opened.
+            {/* The "(you're net up $X)" parenthetical was deleted here on
+                2026-08-20 (fleet convening item 5). A signed running P&L on
+                the screen where bets begin is the chase trigger the tilt
+                review refused — winning reads as licence exactly the way
+                losing reads as a hole to fill. The stop line above is a cap,
+                not a score. */}
           </p>
         ))}
 

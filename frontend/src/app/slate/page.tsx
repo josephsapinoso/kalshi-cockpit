@@ -86,6 +86,37 @@ export default async function SlatePage() {
         </p>
       </header>
 
+      {/* His actual money, where he decides (fleet convening item 5; A7 rules
+          this outside the study embargo). **Cash and open positions render
+          separately and are never summed** — a sum is a signed P&L, and a
+          signed P&L on the deciding screen is the chase trigger the tilt
+          review refused. The only denominator on this line is the daily-loss
+          cap Joe set himself; the $100 study ceiling must not appear here,
+          because "cash against $100" reads as budget remaining. */}
+      {data.money && (
+        <p className="mt-4 text-sm">
+          <span className="font-semibold tabular">
+            {data.money.cash_tenths === null
+              ? "Cash unread"
+              : `$${(data.money.cash_tenths / 1000).toFixed(2)} cash`}
+          </span>
+          {data.money.open_positions_tenths !== null && (
+            <span className="tabular text-muted">
+              {" "}
+              · ${(data.money.open_positions_tenths / 1000).toFixed(2)} sitting
+              in open positions
+            </span>
+          )}
+          {data.money.daily_line_dollars !== null && (
+            <span className="text-muted">
+              {" "}
+              · your daily-loss line is $
+              {data.money.daily_line_dollars.toFixed(2)}
+            </span>
+          )}
+        </p>
+      )}
+
       {/* **Two book counts, and they mean different things.** The distribution
           spans every usable book; `fair_prices.book_count` is what survived the
           sharp anchoring. Where those differ, the gap *is* ADR 0021 §7.2 — the
@@ -131,6 +162,7 @@ export default async function SlatePage() {
                 row={row}
                 driftWindowMs={data.drift_window_ms}
                 maxQuoteAgeMs={data.staleness.max_kalshi_quote_age_s * 1000}
+                maxOddsAgeMs={data.staleness.max_odds_age_s * 1000}
               />
             </li>
           ))}
@@ -187,10 +219,12 @@ function Row({
   row,
   driftWindowMs,
   maxQuoteAgeMs,
+  maxOddsAgeMs,
 }: {
   row: SlateRowData;
   driftWindowMs: number;
   maxQuoteAgeMs: number;
+  maxOddsAgeMs: number;
 }) {
   const tone = edgeTone(row);
 
@@ -212,6 +246,20 @@ function Row({
         {row.ask_display} <Term k="ask">ask</Term>
       </span>
 
+      {/* The number that makes the price a decision (fleet convening item 6):
+          how often this bet must win, fee included, computed by the same
+          `breakeven_win_rate` the order path uses. **The consensus fair value
+          is deliberately NOT on this row** — `edge_tenths` is exactly
+          1000 × (fair − break-even), so rendering both hands the reader the
+          measured-negative edge by subtraction. The edge column stands; the
+          fair number does not co-render. */}
+      {row.breakeven_win_rate !== null && (
+        <span className="tabular text-sm text-muted">
+          {(row.breakeven_win_rate * 100).toFixed(1)}%{" "}
+          <Term k="breakeven">to break even</Term>
+        </span>
+      )}
+
       <span className={`tabular text-sm font-semibold ${EDGE_TONE_CLASS[tone]}`}>
         {EDGE_TONE_MARK[tone]}
         {row.edge_cents > 0 ? "+" : ""}
@@ -222,12 +270,12 @@ function Row({
       <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
       <Capacity row={row} />
       <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
-      {/* xl-only, like the CrewBubble below: two more wrapped fragments per
-          row would cost the phone a line each, and the phone row already
-          carries the suppression code in full. */}
-      <span className="hidden xl:inline">
-        <Anchor anchored={row.anchored_on_sharp} />
-      </span>
+      {/* On every width since 2026-08-20 (fleet convening item 4). This is
+          the most consequential caveat in the product — all three actionable
+          rows ever written were soft fallbacks — and it was desktop-only on a
+          tool operated from a phone. It costs the phone row a short fragment;
+          that price was the finding, not an oversight to re-hide. */}
+      <Anchor anchored={row.anchored_on_sharp} />
       <span className="hidden xl:inline">
         <Width width={row.market_width} edgeCents={row.edge_cents} />
       </span>
@@ -241,6 +289,20 @@ function Row({
       <span className="ml-auto hidden shrink-0 sm:inline-flex">
         <CrewBubble row={row} />
       </span>
+
+      {/* The status line: the single most urgent clock-or-tape fact on this
+          row, in words, on every width (fleet convening item 4). Priority is
+          registered in the convening record: staleness, then old consensus,
+          then the tape — and the suppression code below is the bar, which
+          keeps the fourth rung where it already renders. **This is a
+          selection, not a composite** (ADR 0021 §9): one line voices one
+          fact from one source; choosing WHICH fact by fixed priority weighs
+          nothing against anything. */}
+      <StatusLine
+        row={row}
+        maxQuoteAgeMs={maxQuoteAgeMs}
+        maxOddsAgeMs={maxOddsAgeMs}
+      />
 
       {row.suppressed_reason && (
         <span className="w-full break-words font-mono text-xs text-accent xl:col-span-full">
@@ -351,6 +413,67 @@ function QuoteAge({
       className={`tabular text-xs ${stale ? "text-accent" : "text-muted"}`}
     >
       <Term k="quote_age">quote</Term> {formatAge(ageMs)}
+    </span>
+  );
+}
+
+/**
+ * One warning in words, or nothing.
+ *
+ * The columns above carry every number; this line exists because a phone
+ * reader meeting a greyed-out row needs the *reason* without decoding four
+ * ages. It voices exactly one fact, by fixed priority:
+ *
+ *   1. the Kalshi quote is past the staleness limit  — the ask may be gone
+ *   2. the consensus is past the odds limit          — the row cannot be
+ *      actionable until the books are re-bought (the button above the list)
+ *   3. the tape has moved ≥ 1.0c in the drift window — the price being
+ *      compared is not the price that was compared
+ *
+ * Rendering nothing is the fourth state and it is deliberate: a status line
+ * that always says something becomes furniture, and the suppression code
+ * below already voices the bar. The 1.0c drift threshold is a display choice
+ * (when to speak, never what to compute) — the Drift column shows the exact
+ * figure at any size.
+ *
+ * `odds_age_now_ms` is optional on the wire; absent means the server did not
+ * compute it, and no clock claim is made from a missing clock.
+ */
+function StatusLine({
+  row,
+  maxQuoteAgeMs,
+  maxOddsAgeMs,
+}: {
+  row: SlateRowData;
+  maxQuoteAgeMs: number;
+  maxOddsAgeMs: number;
+}) {
+  let line: string | null = null;
+  if (
+    row.quote_age_now_ms !== null &&
+    row.quote_age_now_ms !== undefined &&
+    row.quote_age_now_ms > maxQuoteAgeMs
+  ) {
+    line = `Kalshi quote is ${Math.round((row.quote_age_now_ms ?? 0) / 1000)}s old — past the ${Math.round(maxQuoteAgeMs / 1000)}s limit, so the ask shown may already be gone.`;
+  } else if (
+    row.odds_age_now_ms !== null &&
+    row.odds_age_now_ms !== undefined &&
+    row.odds_age_now_ms > maxOddsAgeMs
+  ) {
+    line = `Books last read ${Math.round((row.odds_age_now_ms ?? 0) / 60_000)} min ago — past the ${Math.round(maxOddsAgeMs / 60_000)} min limit. Not actionable until the odds are refreshed.`;
+  } else if (
+    row.kalshi_drift_tenths !== null &&
+    Math.abs(row.kalshi_drift_tenths) >= 10
+  ) {
+    const cents = row.kalshi_drift_tenths / 10;
+    line = `Kalshi has moved ${cents > 0 ? "+" : ""}${cents.toFixed(1)}c since the books were read — the edge shown compares prices from different moments.`;
+  }
+  if (line === null) {
+    return null;
+  }
+  return (
+    <span className="w-full break-words text-xs leading-snug text-accent-2 xl:col-span-full">
+      {line}
     </span>
   );
 }

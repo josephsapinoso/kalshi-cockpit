@@ -728,3 +728,57 @@ class TestThePhoneReachesAPriceBeforeALesson:
             "about two cents against a",
         ):
             assert phrase in page
+
+
+class TestBreakevenShipsAloneOnTheScreen:
+    """Fleet convening item 6, the screen half. The API half (the identity
+    itself) is `test_api.py::TestBreakevenShipsAlone`."""
+
+    def test_the_slate_row_renders_breakeven(self):
+        assert "breakeven_win_rate" in code(SLATE_PAGE)
+
+    def test_fair_probability_does_not_co_render(self):
+        """Mutation observed red: interpolate `row.fair_probability` anywhere
+        in the slate page. `edge_tenths` is exactly 1000 x (fair - breakeven),
+        so fair beside break-even hands the reader the measured-negative edge
+        by subtraction -- the adjudication in the 2026-08-20 convening."""
+        assert "fair_probability" not in code(SLATE_PAGE)
+        for method in ("p_multiplicative", "p_additive", "p_power", "p_shin",
+                       "p_conservative"):
+            assert method not in code(SLATE_PAGE)
+
+
+class TestMoneyRendersWithoutAVerdict:
+    """Fleet convening item 5, the screen half."""
+
+    def test_cash_and_open_positions_render_separately(self):
+        page = code(SLATE_PAGE)
+        assert "cash_tenths" in page
+        assert "open_positions_tenths" in page
+
+    def test_nothing_arithmetically_combines_them(self):
+        """Mutation observed red: render
+        `(cash_tenths + open_positions_tenths) / 1000` as a total."""
+        page = code(SLATE_PAGE)
+        for expr in (
+            "cash_tenths +",
+            "+ data.money.cash_tenths",
+            "open_positions_tenths +",
+            "+ data.money.open_positions_tenths",
+            "cash_tenths -",
+            "- data.money.open_positions_tenths",
+        ):
+            assert expr not in page, f"the money line combines its facts: {expr!r}"
+
+    def test_the_study_ceiling_is_not_the_denominator(self):
+        """The $100 ceiling reads as budget remaining to a reader holding $8.
+        The only line on this screen is the daily-loss cap Joe set."""
+        page = code(SLATE_PAGE)
+        assert "ceiling_dollars" not in page
+        assert "daily_line_dollars" in page
+
+    def test_the_net_up_parenthetical_is_gone(self):
+        """Deleted 2026-08-20: a signed running P&L where bets begin is the
+        chase trigger the tilt review refused, in both directions."""
+        estimate = code(FRONTEND / "app" / "estimate" / "page.tsx")
+        assert "net up" not in estimate

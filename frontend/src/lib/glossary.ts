@@ -56,6 +56,14 @@ export const GLOSSARY = {
       "price. There is also a “mid” (an average of buy and sell), " +
       "but nobody gets to pay the mid, so every judgement here uses the ask.",
   },
+  breakeven: {
+    label: "break-even",
+    definition:
+      "How often a bet at this price has to win for you to come out even, " +
+      "with Kalshi's fee already counted. Pay 50c and you need about 51.75% " +
+      "— not 50% — because the fee eats the difference. If you don't " +
+      "honestly think it wins more often than this number, pass.",
+  },
   fee: {
     label: "fee",
     definition:

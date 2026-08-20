@@ -933,12 +933,36 @@ export type SlateRowData = Recommendation & {
    */
   kalshi_drift_tenths: number | null;
   books: BookDistribution | null;
+  /**
+   * How often a taker at this ask must win to break even, fee included —
+   * `breakeven_win_rate(ask, 1)` on the server, never recomputed here (the
+   * fee curve stays in one implementation). **Deliberately unaccompanied:**
+   * `edge_tenths` is exactly `1000 × (fair − this)`, so a screen that puts
+   * the consensus fair value beside it hands the reader the measured-negative
+   * edge by subtraction. `null` when the ask is not a tradeable price.
+   */
+  breakeven_win_rate: number | null;
 };
 
 export type Slate = {
   /** One flat list in kickoff order. No bucketing by verdict — that is the
    *  point: edge is a column here, not a gate. */
   rows: SlateRowData[];
+  /**
+   * The venue's own reading of Joe's money: cash and the value sitting in
+   * open positions, **separately and never summed** — a sum would sign a
+   * P&L, and a signed P&L on the screen where bets are decided is the chase
+   * trigger the tilt review refused. `daily_line_dollars` is the deployed
+   * daily-loss cap (the line Joe set), the only denominator this may be
+   * read against; the $100 study ceiling is deliberately absent. `null`
+   * when no balance snapshot exists yet.
+   */
+  money: {
+    observed_ms: number;
+    cash_tenths: number | null;
+    open_positions_tenths: number | null;
+    daily_line_dollars: number | null;
+  } | null;
   counts: {
     returned: number;
     /** Rows a book distribution could be computed for. Its own number because

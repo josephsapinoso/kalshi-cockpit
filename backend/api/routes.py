@@ -54,7 +54,7 @@ from ..core.parlay import (
     kalshi_equivalent,
     value_parlay,
 )
-from ..core.ev import edge_after_fees_tenths
+from ..core.ev import breakeven_win_rate, edge_after_fees_tenths
 from ..core.prices import (
     format_price,
     format_probability,
@@ -1086,6 +1086,23 @@ def create_app(
             item["kalshi_drift_tenths"] = kalshi_drift(
                 conn, row["ticker"], row["side"], now_ms=now
             )
+            # **Break-even at this price, and deliberately nothing beside it**
+            # (fleet convening item 6). `edge_tenths` is exactly
+            # `1000 x (fair_probability - breakeven)`, so rendering fair next
+            # to this number would hand the reader the measured-negative edge
+            # by subtraction to the last decimal -- the identity the convening
+            # adjudicated. Taker at one contract, because that is the trade
+            # Joe actually makes by hand; the taker fee makes the rate
+            # size-independent anyway (see `breakeven_win_rate`'s table).
+            # `None` when the ask is not a tradeable price -- the function
+            # refuses 0 and 1000 rather than pricing a settled outcome, and
+            # this route passes the refusal through rather than guessing.
+            try:
+                item["breakeven_win_rate"] = breakeven_win_rate(
+                    row["entry_ask_tenths"], 1
+                )
+            except (ValueError, TypeError):
+                item["breakeven_win_rate"] = None
             item["books"] = None
 
             odds_event_id = row["odds_event_id"]
@@ -1126,8 +1143,32 @@ def create_app(
             )
         )
 
+        # **Cash and open positions, separately, never summed** (fleet
+        # convening item 5, permitted by the calibration registration's A7:
+        # a live balance display reads the venue's own record, not the
+        # estimate log, so the embargo does not touch it). The snapshot is
+        # the operational clock's -- the analysis clock still reads one row
+        # per day, exactly as A7 separates them. `daily_line_dollars` is the
+        # deployed daily-loss cap, which is the line Joe set for himself;
+        # the $100 study ceiling is deliberately NOT here, because "cash
+        # against $100" reads as budget remaining to a reader holding $8.
+        # No field on this payload sums the two numbers or signs a P&L.
+        snapshot = conn.execute(
+            "SELECT observed_ms, balance_tenths, portfolio_value_tenths "
+            "FROM venue_balance_snapshots ORDER BY observed_ms DESC LIMIT 1"
+        ).fetchone()
+        money = None
+        if snapshot is not None:
+            money = {
+                "observed_ms": snapshot["observed_ms"],
+                "cash_tenths": snapshot["balance_tenths"],
+                "open_positions_tenths": snapshot["portfolio_value_tenths"],
+                "daily_line_dollars": risk.max_daily_loss_dollars,
+            }
+
         return {
             "rows": items,
+            "money": money,
             "counts": {
                 "returned": len(items),
                 # Rows for which a book distribution could actually be

@@ -1209,6 +1209,115 @@ class TestMarketResults:
         )
 
 
+class TestBreakevenShipsAlone:
+    """Fleet convening item 6: the break-even rate is on every priced row,
+    computed by the same code the order path uses, and the reason it ships
+    without the consensus fair value beside it is an exact identity -- which
+    this class proves on real payloads rather than asserts in prose."""
+
+    async def test_every_priced_row_carries_a_breakeven(self, demo_app):
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        priced = [r for r in rows if r["ask_tenths"] not in (None, 0, 1000)]
+        assert priced, "the seeded demo slate has no priced rows"
+        for row in priced:
+            assert row["breakeven_win_rate"] is not None
+            assert 0.0 < row["breakeven_win_rate"] < 1.0
+
+    async def test_the_adjudicated_identity_actually_holds(self, demo_app):
+        """`edge_tenths == 1000 x (fair - breakeven)` -- with one honest
+        wrinkle this test exists to have found: the identity is exact only at
+        MATCHING contracts, because the fee rounds up on the whole order and
+        the stored edge was computed at the sized position
+        (`engine.py`: `max(1, sizing.contracts)`), while the wire serves the
+        one-contract taker figure, which is the trade Joe actually makes by
+        hand. So two claims, both proven: the identity is exact at the row's
+        own size, and the served figure differs from that by less than one
+        tenth -- pure fee-rounding amortisation, invisible at the displayed
+        decimal. Either way, fair beside break-even hands the reader the
+        measured-negative edge by subtraction, which is why it may not
+        co-render."""
+        from backend.core.ev import breakeven_win_rate
+
+        rows = (await get(demo_app, "/api/slate")).json()["rows"]
+        checked = 0
+        for row in rows:
+            if row["breakeven_win_rate"] is None:
+                continue
+            if row["fair_probability"] is None or row["edge_tenths"] is None:
+                continue
+            # The engine sized this row BEFORE suppression zeroed the stored
+            # size columns (a suppressed demo row carries suggested and
+            # reference both 0 while its edge was computed at, e.g., 26), so
+            # the exact size is not recoverable from the payload. The claim
+            # that IS provable: some contract count makes the identity exact
+            # to float precision -- edge really is fair minus a breakeven,
+            # nothing else added.
+            exact_at = next(
+                (
+                    c
+                    for c in range(1, 201)
+                    if abs(
+                        row["edge_tenths"]
+                        - 1000.0
+                        * (
+                            row["fair_probability"]
+                            - breakeven_win_rate(row["ask_tenths"], c)
+                        )
+                    )
+                    < 1e-9
+                ),
+                None,
+            )
+            assert exact_at is not None, (
+                f"{row['ticker']}: no contract count in 1..200 makes "
+                f"edge_tenths == 1000*(fair - breakeven); the identity the "
+                f"convening adjudicated does not hold, so the no-co-render "
+                f"rule is resting on a false premise"
+            )
+            served = 1000.0 * (row["fair_probability"] - row["breakeven_win_rate"])
+            assert abs(row["edge_tenths"] - served) < 1.0, (
+                f"{row['ticker']}: the served one-contract breakeven is "
+                f"{abs(row['edge_tenths'] - served):.3f} tenths from the "
+                f"stored edge -- more than fee-rounding amortisation can "
+                f"explain"
+            )
+            checked += 1
+        assert checked, "no row exercised the identity"
+
+    async def test_an_untradeable_ask_refuses_rather_than_prices(self, demo_app):
+        """0 and 1000 are settled outcomes; `breakeven_win_rate` raises and
+        the route passes the refusal through as null, never as a number."""
+        from backend.core.ev import breakeven_win_rate
+
+        with pytest.raises(ValueError):
+            breakeven_win_rate(0, 1)
+        with pytest.raises(ValueError):
+            breakeven_win_rate(1000, 1)
+
+
+class TestMoneyIsNeverSummed:
+    """Fleet convening item 5. Cash and open positions are separate facts;
+    their sum is a signed P&L, and the payload must make the summing
+    impossible to do accidentally rather than merely not do it."""
+
+    async def test_the_slate_carries_the_money_block(self, demo_app):
+        body = (await get(demo_app, "/api/slate")).json()
+        assert "money" in body
+
+    async def test_no_summed_or_signed_field_exists(self, demo_app):
+        money = (await get(demo_app, "/api/slate")).json()["money"]
+        if money is None:
+            return  # no snapshot seeded -- absence is the honest payload
+        forbidden = {"total", "net", "pnl", "profit", "loss", "change"}
+        assert not (set(money) & forbidden)
+        assert set(money) == {
+            "observed_ms",
+            "cash_tenths",
+            "open_positions_tenths",
+            "daily_line_dollars",
+        }
+
+
 class TestExecutionBoundary:
     """The security boundary between the public demo and the live instance."""
 
