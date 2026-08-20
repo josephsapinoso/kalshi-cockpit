@@ -557,6 +557,15 @@ async def main() -> int:
             # the window is open and the loop should speed up now, not in
             # fifteen minutes.
             tempo.window_open = window.is_open
+            # And when the next one opens, so a closed-window sleep is bounded
+            # by it. Without this the loop picks 900s at the top of a pass and a
+            # window opening inside that sleep is invisible until it ends -- up
+            # to fifteen minutes of an open window lost after a restart,
+            # observed 20:39Z 2026-08-19. `next_call_ms` is the planner's own
+            # answer, through `firing_for_slot`, the same predicate the loop
+            # fires on; computing a second schedule here is how the screen and
+            # the control come to disagree.
+            tempo.next_wake_ms = window.next_call_ms
             elapsed = time.monotonic() - started
             tempo.observe_pass_duration(
                 elapsed,

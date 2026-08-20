@@ -177,10 +177,75 @@ class Tempo:
     fast_passes: int = 0
     quote_passes_overrun: int = 0
     full_passes_overrun_in_window: int = 0
+    # When the next `/odds` call is wanted -- `ActionableWindow.next_call_ms`,
+    # set by the caller beside `window_open`. Firing that call is what makes
+    # odds fresh, and fresh odds is the definition of an open window, so this is
+    # already "when the next window opens", computed by the planner rather than
+    # by a second schedule here.
+    next_wake_ms: Optional[int] = None
+    # Injected so this stays "a pure object testable without a clock". Resolved
+    # lazily rather than defaulted to the real function, for the same reason
+    # `run_forever` imports it inside the body.
+    clock: Optional[Callable[[], int]] = None
+
+    def _now_ms(self) -> int:
+        if self.clock is not None:
+            return self.clock()
+        from .store.db import now_ms
+
+        return now_ms()
 
     def interval_s(self) -> float:
-        """The sleep to take next. Passed to `run_forever` as a callable."""
-        return self.fast_interval_s if self.window_open else self.slow_interval_s
+        """The sleep to take next. Passed to `run_forever` as a callable.
+
+        **Bounded by the next window-open time, and that is not a reorder.**
+        `pass_kind` picks the cadence at the top of a pass; with the window
+        closed the loop then sleeps `slow_interval_s`. A window opening inside
+        that sleep is invisible until it ends -- worst case, a pass landing at
+        15:25:50Z against a 15:26Z window sleeps to 15:40:50Z and loses nearly
+        the whole thing. Confirmed live 2026-08-19 at 20:39Z, when a deploy
+        restarted the box mid-window and only full passes ran until the next
+        one latched.
+
+        The three branches that are *not* the bound, and why each one is not:
+
+        - **Window open** -- the fast cadence already applies. Unchanged.
+        - **No `next_wake_ms`** -- `next_slot` is `None`, which means no sweep is
+          planned, usually because the budget is spent. No window is coming, so
+          there is nothing to wake for.
+        - **Already due** (`next_wake_ms <= now`). This is the guard that
+          matters. `window_status` sets `next_call_ms = now_ms` whenever a slot
+          is firing *right now*. If the pass that just ran served it, the window
+          is open and the first branch has already taken over. If it was
+          refused, the refusal repeats, and a floor-length sleep would spin this
+          loop at 15s against Kalshi with the window shut -- the 4,300 polls a
+          day this class exists to prevent. Treating "already due" as no useful
+          bound removes that failure rather than bounding it.
+
+        The `(1 + JITTER)` divisor is not cosmetic. `run_forever` sleeps
+        `next_delay(interval)`, which multiplies by up to `1 + JITTER`; an
+        unadjusted 900s bound could stretch to 1035s and overshoot the open by
+        135s, which is most of what this fix is for. Dividing means the *worst*
+        case lands on the open and the typical case lands early -- and early is
+        free, because the bound recomputes against the time actually left. It
+        converges in two or three passes, since each sleep consumes ~87% of the
+        remaining gap.
+
+        The floor is `fast_interval_s`: never faster than the rate this loop is
+        designed for even at its busiest, so a bound a fraction of a second away
+        arrives at most one fast interval late instead of spinning.
+        """
+        if self.window_open:
+            return self.fast_interval_s
+        if self.next_wake_ms is None:
+            return self.slow_interval_s
+        until_s = (self.next_wake_ms - self._now_ms()) / 1000.0
+        if until_s <= 0:
+            return self.slow_interval_s
+        return max(
+            self.fast_interval_s,
+            min(self.slow_interval_s, until_s / (1.0 + JITTER)),
+        )
 
     def pass_kind(self, now_ms: int) -> str:
         """`"full"` or `"quote"`.
@@ -277,6 +342,9 @@ class Tempo:
     def as_dict(self) -> dict[str, Any]:
         return {
             "window_open": self.window_open,
+            # Published so an early wake is legible in the log rather than
+            # looking like the loop firing at random with the window shut.
+            "next_wake_ms": self.next_wake_ms,
             "slow_passes": self.slow_passes,
             "fast_passes": self.fast_passes,
             # Named for the population each counts. One aggregate covering both

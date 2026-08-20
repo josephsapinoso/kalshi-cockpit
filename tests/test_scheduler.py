@@ -334,6 +334,130 @@ class TestTempo:
         assert tempo.full_passes_overrun_in_window == 0
 
 
+class TestTheSleepIsBoundedByTheNextWindow:
+    """A window opening inside a 900s sleep used to be invisible until it ended.
+
+    Not a reordering bug. `pass_kind` picks the cadence at the top of a pass,
+    and with the window closed the loop then sleeps `slow_interval_s`. A pass
+    landing at 15:25:50Z against a 15:26Z window slept to 15:40:50Z and lost
+    nearly the whole thing -- observed live 20:39Z 2026-08-19, when a deploy
+    restarted the box mid-window and only full passes ran until the next one
+    latched.
+
+    `next_wake_ms` is `ActionableWindow.next_call_ms`: when the next `/odds`
+    call is wanted, from the planner rather than a second schedule.
+    """
+
+    NOW = 1_787_000_000_000
+
+    def _tempo(self, **kw):
+        return Tempo(
+            slow_interval_s=900.0, fast_interval_s=15.0,
+            clock=lambda: self.NOW, **kw,
+        )
+
+    def test_a_window_inside_the_sleep_shortens_it(self):
+        """The whole point: 660s away, so do not sleep 900s past it."""
+        tempo = self._tempo(next_wake_ms=self.NOW + 660_000)
+        assert tempo.interval_s() == pytest.approx(660.0 / 1.15)
+
+    def test_the_bound_survives_the_jitter_run_forever_adds(self):
+        """`next_delay` multiplies by up to `1 + JITTER`.
+
+        An unadjusted 900s bound would stretch to 1035s and overshoot the open
+        by 135s, which is most of what this fix exists to prevent. The worst
+        case must land on the open, not past it.
+        """
+        until_s = 600.0
+        tempo = self._tempo(next_wake_ms=self.NOW + int(until_s * 1000))
+        worst_case = tempo.interval_s() * (1.0 + JITTER)
+        assert worst_case <= until_s + 1e-6, (
+            f"worst-case sleep {worst_case:.1f}s overshoots the {until_s:.0f}s "
+            f"until the window opens"
+        )
+
+    def test_a_window_further_out_than_the_slow_interval_changes_nothing(self):
+        """A window six hours away must not make the loop poll faster."""
+        tempo = self._tempo(next_wake_ms=self.NOW + 6 * 3_600_000)
+        assert tempo.interval_s() == 900.0
+
+    def test_no_planned_sweep_means_no_bound(self):
+        """`next_slot` is None -- usually the budget is spent. Nothing is
+        coming, so there is nothing to wake early for."""
+        assert self._tempo(next_wake_ms=None).interval_s() == 900.0
+
+    def test_an_already_due_wake_does_not_shorten_the_sleep(self):
+        """The guard that matters, and it is a spin-prevention guard.
+
+        `window_status` sets `next_call_ms = now_ms` whenever a slot is firing
+        right now. If the pass that just ran served it the window is open and
+        the open-window branch applies. If it was *refused* -- budget spent --
+        the refusal repeats, and shortening here would run this loop at 15s
+        against Kalshi with the window shut: the 4,300 polls a day `Tempo`
+        exists to prevent.
+        """
+        assert self._tempo(next_wake_ms=self.NOW).interval_s() == 900.0
+        assert self._tempo(next_wake_ms=self.NOW - 60_000).interval_s() == 900.0
+
+    def test_the_bound_never_goes_below_the_fast_interval(self):
+        """A bound a fraction of a second out arrives one fast interval late
+        rather than spinning."""
+        tempo = self._tempo(next_wake_ms=self.NOW + 200)
+        assert tempo.interval_s() == 15.0
+
+    def test_an_open_window_still_wins(self):
+        """The bound is for the closed case only; it must not slow the fast
+        cadence down when a window is actually open."""
+        tempo = self._tempo(window_open=True, next_wake_ms=self.NOW + 600_000)
+        assert tempo.interval_s() == 15.0
+
+    def test_it_converges_on_the_window_rather_than_creeping_up_on_it(self):
+        """Waking early is only free if it does not cost many extra passes.
+
+        Each sleep consumes ~87% of the gap, so the remainder collapses fast.
+        Pinned because the alternative -- a bound that shrinks slowly -- would
+        put dozens of extra Kalshi polls in front of every window.
+        """
+        opens_at = self.NOW + 900_000
+        now = self.NOW
+        passes = 0
+        while now < opens_at and passes < 20:
+            tempo = Tempo(
+                slow_interval_s=900.0, fast_interval_s=15.0,
+                next_wake_ms=opens_at, clock=lambda now=now: now,
+            )
+            now += int(tempo.interval_s() * 1000)
+            passes += 1
+        assert 2 <= passes <= 4, (
+            f"took {passes} passes to reach a window 900s out. Below 2 means "
+            f"the loop never woke early at all and the bound is not applied; "
+            f"above 4 means each one is an extra Kalshi poll with the window "
+            f"shut"
+        )
+
+    def test_the_wake_time_is_published(self):
+        """An early wake has to be legible in the log, or it reads as the loop
+        firing at random with the window shut."""
+        tempo = self._tempo(next_wake_ms=self.NOW + 60_000)
+        assert tempo.as_dict()["next_wake_ms"] == self.NOW + 60_000
+
+    def test_the_loop_sets_it_from_the_planners_own_answer(self):
+        """Not a second schedule computed here.
+
+        `next_call_ms` goes through `firing_for_slot`, the same predicate the
+        loop fires on. A control and a screen that compute the same thing two
+        ways eventually disagree.
+        """
+        from pathlib import Path
+
+        source = Path("scripts/run_loop.py").read_text(encoding="utf-8")
+        assert "tempo.next_wake_ms = window.next_call_ms" in source, (
+            "run_loop no longer tells the scheduler when the next window "
+            "opens, so a closed-window sleep is unbounded again and a window "
+            "opening inside it is invisible for up to 900s"
+        )
+
+
 class TestACallableInterval:
     async def test_the_interval_is_read_after_each_pass(self):
         """The pass is what changes the state the cadence depends on.
