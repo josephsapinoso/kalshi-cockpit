@@ -306,6 +306,56 @@ _SQL_SWEEP_LOG_TAIL = (
     "FROM odds_sweep_log ORDER BY pass_ms DESC, id DESC"
 )
 
+# The prune's own retention window, duplicated here rather than imported: this
+# script is deliberately stdlib-only so the code that runs against the money box
+# carries no import graph. `tests/test_inspect_live_db.py` asserts it still
+# equals `retention.DEFAULT_QUOTE_RETENTION_MS`, so the duplication is checked
+# rather than trusted.
+_QUOTE_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
+
+# **The prune frontier: how far `prune_quotes` has actually got.**
+#
+# `quotes_pruned` is persisted nowhere -- it exists only in a `PassCounts` field
+# that reaches the process log, and `flyctl logs` drops lines. So on 2026-08-20
+# the window-gate registration's observation 1 ("no prune inside an open
+# window") had no durable reading at all and had to be reported at log strength.
+# This is that reading.
+#
+# **`COALESCE(confirmed_ms, observed_ms)`, matching `retention.py:206` exactly.**
+# The obvious `MIN(observed_ms)` is wrong and wrong in the direction that
+# flatters: ADR 0055 made the table a change log, so a market whose price has
+# not moved in three days keeps one row with an ancient `observed_ms` and a
+# current `confirmed_ms`. That row survives every prune, and a frontier computed
+# on `observed_ms` therefore sits still through a prune that deleted 40,000
+# rows -- reading as "no prune ran" when one did.
+#
+# The `NOT IN (SELECT ticker FROM recommendations)` half matters for the same
+# reason: rows the prune is not allowed to touch are not part of its frontier.
+#
+# How to use it. `frontier_iso` advances only when a prune actually deletes, so
+# comparing it either side of a window says whether one ran inside. When the
+# backlog is 0 the frontier also tracks `cutoff_iso`, and then
+# `frontier + retention` dates the last prune on its own.
+#
+# `backlog_rows` is the denominator, and it is the check to make first: if it is
+# 0 the prune would delete nothing whenever it ran, and a zero prune inside a
+# window says nothing about any gate.
+_SQL_PRUNE_FRONTIER = (
+    "SELECT "
+    "  (SELECT MIN(COALESCE(confirmed_ms, observed_ms)) FROM kalshi_quotes"
+    "     WHERE ticker NOT IN (SELECT ticker FROM recommendations))"
+    "    AS frontier_ms, "
+    "  :cutoff AS cutoff_ms, "
+    "  (SELECT COUNT(*) FROM kalshi_quotes"
+    "     WHERE COALESCE(confirmed_ms, observed_ms) < :cutoff"
+    "       AND ticker NOT IN (SELECT ticker FROM recommendations))"
+    "    AS backlog_rows, "
+    "  (SELECT COUNT(*) FROM kalshi_quotes"
+    "     WHERE ticker NOT IN (SELECT ticker FROM recommendations))"
+    "    AS prunable_rows, "
+    "  (SELECT COUNT(*) FROM kalshi_quotes) AS total_rows"
+)
+
 # The pinned population: recommendations up to `--pin`, and the Kalshi rows
 # they reach. Identical to the population in the clean-shortfall pull, so the
 # `result` column joins onto it row for row.
@@ -1310,6 +1360,36 @@ def _q_sweep_log(conn: sqlite3.Connection, args) -> list[Section]:
     return [groups, _derive_iso(tail, "pass_ms", "pass_iso")]
 
 
+def _q_prune_frontier(conn: sqlite3.Connection, args) -> list[Section]:
+    """How far `prune_quotes` has got, and whether it still has anything to do.
+
+    `now` is stamped here and printed, because a frontier is a claim about a
+    moment and the moment is half the reading.
+
+    What this does not establish
+    ----------------------------
+    - **Not when the last prune ran**, on its own, while `backlog_rows > 0`. A
+      backlogged prune deletes a bounded batch and stops, so the frontier lags
+      the cutoff by an unknown amount and only *changes* are interpretable.
+      Take it either side of the window you care about.
+    - **Nothing about `unmatched_items`**, which has its own retention, its own
+      budget and its own frontier. This reads the quotes prune only.
+    """
+    now = int(datetime.now(timezone.utc).timestamp() * 1000)
+    section = _fetch(
+        conn,
+        _SQL_PRUNE_FRONTIER,
+        {"cutoff": now - _QUOTE_RETENTION_MS},
+        title=(
+            f"prune frontier at {_iso(now)} "
+            f"(retention {_QUOTE_RETENTION_MS // 86_400_000}d)"
+        ),
+        cap=args.limit,
+    )
+    section = _derive_iso(section, "frontier_ms", "frontier_iso")
+    return [_derive_iso(section, "cutoff_ms", "cutoff_iso")]
+
+
 def _q_results_for_pull(conn: sqlite3.Connection, args) -> list[Section]:
     return [
         _fetch(
@@ -1799,6 +1879,14 @@ QUERIES: dict[str, QueryDef] = {
         "odds_sweep_log: COUNT and pass_ms range grouped by outcome, then the "
         "last N rows in full (-n, default 5).",
         _q_sweep_log,
+    ),
+    "prune-frontier": QueryDef(
+        "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
+        "observed_ms)) over prunable rows, the 3-day cutoff, and the backlog "
+        "still below it. The durable stand-in for `quotes_pruned`, which is "
+        "persisted nowhere. Take it either side of a window to say whether a "
+        "prune ran inside one.",
+        _q_prune_frontier,
     ),
     "results-for-pull": QueryDef(
         "kalshi_markets (incl. result) for the pinned recommendation "
