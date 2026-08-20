@@ -112,7 +112,16 @@ async def capture() -> dict:
             f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds",
             params=params,
         )
-    response.raise_for_status()
+    # NOT `raise_for_status()`: its message embeds the full request URL,
+    # apiKey included, and a traceback goes to the terminal no matter what
+    # `configure_logging()` redacts. Observed 2026-08-20 21:21Z — a 401
+    # printed the key into the transcript. Fail with the status alone.
+    if response.status_code != 200:
+        raise SystemExit(
+            f"odds request failed: HTTP {response.status_code} "
+            f"(no credits spent on 4xx; the URL is withheld because it "
+            f"carries the API key)"
+        )
     meta = {
         "requests_used": response.headers.get("x-requests-used"),
         "requests_remaining": response.headers.get("x-requests-remaining"),
