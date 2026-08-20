@@ -25,6 +25,22 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — A stored number answers the question it was stored for, not the question you are asking now
+
+Two triage calls in one session went wrong the same way: a betting slate was
+counted from a captured artifact (which answers "what was captured", not
+"what exists today" — the day happened to be the thinnest slate in the
+14-day record), and a disk item was ranked on ADR 0054's growth numbers,
+which were three fixes stale. Neither number was wrong when written; both
+were wrong when reused. The pattern: before a stored number carries a
+decision, ask what question it answered when it was taken and whether
+anything between then and now could have changed the answer — and if the
+current value is cheap to take (a schedule endpoint, a `df`), take it
+instead of remembering it. Same family as "every number taken from a
+degraded system describes the degradation"; this is the time-axis version.
+
+---
+
 ## 2026-08-20 — Log redaction does not reach exceptions: raise_for_status prints the URL, key and all
 
 `configure_logging()` exists precisely because the Odds API key rides in the

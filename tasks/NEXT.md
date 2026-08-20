@@ -83,9 +83,12 @@ deploy after the 22:21Z window closes, before WNBA 22:45Z if possible.**
 flat balance beside the 08-18/19 cluster then $8.31 on 08-20, ZERO fills
 inside any window -- no fill confound -- and every balance poll ok=1. The
 H4 subtraction itself is NOT taken: it needs a pre-registration first,
-and the pre-registrar owns that. The next session should also watch the
+and the pre-registrar owns that. ~~The next session should also watch the
 first settlement row written under v16 for its `fee_model_used` tag --
-that is the implementation's one live observable.)*
+that is the implementation's one live observable.~~ **Watch KILLED by the
+partner 2026-08-20: the `settlements` table is fed from `orders`, and no
+order has ever been placed (`ORDERS_ARE_DRY_RUNS = True`), so the row this
+watch waits for is unreachable — it would idle forever.**)*
 (2) ADR 0027 carries the dated denominator correction (`e3986fb`).
 (3) `h4-settlement-balance` shipped (`a02e8d2`), four sections, no join,
 three guards mutation-red — run it after the deploy for the H4 read and
@@ -392,20 +395,15 @@ from an OOM kill and only one was suspected of being a symptom.
 
 **Still open, in the order they are worth doing.**
 
-- **`unmatched_events` is the next table with this shape.** ~451 rows a pass at
-  the new cadence is **~1.7M rows/day**, 7-day retention, so a ~12M-row steady
-  state it has not reached. `record_unmatched` was **8,162ms** in the one
-  `link slow` line today (19:31Z) and is 60-260ms now. It will come back as the
-  table fills. Same fix shape as ADR 0055 is available — it re-records the same
-  unmatched event hundreds of times a day — and **no production code reads it**
-  (`retention.py` says so; verify before acting).
-- **What holds the ~585 MB is still unverified**, and it is now cheap to check
-  rather than urgent. No `cache_size`/`mmap_size` pragma is set, so SQLite is
-  not the holder. `run_kalshi_pass` does
-  `raw_events = [e async for e in kalshi_client.events(...)]`, and a **full**
-  pass passes no `series_tickers` — the whole catalogue, materialised into one
-  list, over what is already an async generator. Falsifiable: RSS should rise
-  during `leg_walk_ms` on a full pass and not on a quote pass.
+- ~~**`unmatched_events` is the next table with this shape.**~~ **DISCHARGED
+  by ADR 0056 — the table was drained and dropped, verified absent from live
+  `sqlite_master`/`dbstat` on 2026-08-20.** This bullet outlived its fix and
+  cost a recon agent to re-eliminate; deleted as work, not tidying.
+- ~~**What holds the ~585 MB is still unverified**~~ **MEASURED 2026-08-20:
+  it is a level, not a leak** —
+  `docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md`. Killed
+  by the partner as a line of work; the number to carry is ~644 MiB per-pass
+  ceiling on a 2 GB box.
 - **The 84.5% dedup is a property of the slate, not of Kalshi.** College
   football and NFL are 57% of today's markets at 98-99% unchanged; today's
   baseball runs 51-74%. As sports come into season the saving falls. Re-measure
