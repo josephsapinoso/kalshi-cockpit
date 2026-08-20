@@ -2468,3 +2468,67 @@ class TestEstimateMatchStatusSplitsComboFromSingle:
         estimates = _named(payload, "bet_estimates by match_status")
         rows = {r[0]: r[1] for r in estimates["rows"]}
         assert rows == {"matched": 1, "absence_pending": 1}
+
+
+class TestBookRowsShowsWhetherABookContributes:
+    """`book-rows` separates a contributing book from a dropped one.
+
+    Mutation: drop `(:book IS NULL OR o.bookmaker = :book)` from
+    `_SQL_BOOK_ROWS` -- the filtered read then returns every book and the
+    one-sided book under test drowns among the two-sided ones.
+    """
+
+    def _db(self, tmp_path) -> Path:
+        path = tmp_path / "cockpit.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+        rows = [
+            # A two-sided book and a one-sided book, one fixture, latest
+            # sweep at 2_000_000; an older sweep that must not appear.
+            (2_000_000, 1_990_000, "F1", 5_000_000, "twosided", "H"),
+            (2_000_000, 1_990_000, "F1", 5_000_000, "twosided", "A"),
+            (2_000_000, 1_090_000, "F1", 5_000_000, "onesided", "H"),
+            (1_000_000, 990_000, "F1", 5_000_000, "onesided", "A"),
+        ]
+        conn.executemany(
+            "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms,"
+            " sport_key, odds_event_id, commence_ms, home_team, away_team,"
+            " bookmaker, market, outcome_name, price_decimal)"
+            " VALUES (?, ?, 'baseball_mlb', ?, ?, 'H', 'A', ?, 'h2h', ?, 1.9)",
+            rows,
+        )
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_the_filter_returns_only_the_named_books_rows(
+        self, tmp_path, capsys
+    ):
+        payload = _run_json(
+            capsys,
+            [
+                "book-rows",
+                "--db", str(self._db(tmp_path)),
+                "--at", "2100000",
+                "--book", "onesided",
+            ],
+        )
+        section = _named(payload, "h2h rows")
+        cols = section["columns"]
+        assert [r[cols.index("bookmaker")] for r in section["rows"]] == [
+            "onesided"
+        ]
+        # One row: the A outcome lives only in the older sweep, which the
+        # latest-sweep join must exclude.
+        assert [r[cols.index("outcome_name")] for r in section["rows"]] == ["H"]
+
+    def test_without_book_every_book_is_listed(self, tmp_path, capsys):
+        payload = _run_json(
+            capsys,
+            ["book-rows", "--db", str(self._db(tmp_path)), "--at", "2100000"],
+        )
+        section = _named(payload, "h2h rows")
+        cols = section["columns"]
+        books = {r[cols.index("bookmaker")] for r in section["rows"]}
+        assert books == {"twosided", "onesided"}
+        assert len(section["rows"]) == 3

@@ -1971,6 +1971,59 @@ def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
     return [fixtures, books]
 
 
+# The h2h rows ONE book contributed to the exact population `window-freshness`
+# reads -- the latest sweep per not-yet-commenced fixture at `:at`. Written to
+# answer the question the dropout diagnosis had to leave conditional: a book
+# quoting both outcomes *contributes* to the runner's consensus, so its stale
+# stamp ages `odds_age_ms` and every row suppresses with the window; a book
+# quoting one outcome is dropped by `book_quotes_for_event` and its stamp gates
+# only the window flag, in which case the bounded sleeps skipped passes that
+# could have confirmed live rows.
+_SQL_BOOK_ROWS = (
+    "WITH latest AS ("
+    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
+    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
+    "  GROUP BY odds_event_id"
+    ") "
+    "SELECT o.bookmaker, o.odds_event_id, o.outcome_name, o.price_decimal,"
+    "       o.book_updated_ms, o.fetched_ms "
+    "FROM odds_snapshots o JOIN latest l"
+    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
+    "WHERE o.market = 'h2h' AND (:book IS NULL OR o.bookmaker = :book) "
+    "ORDER BY o.bookmaker, o.odds_event_id, o.outcome_name"
+)
+
+
+def _q_book_rows(conn: sqlite3.Connection, args) -> list[Section]:
+    """A book's h2h rows in the window-freshness population at `--at`.
+
+    Two rows per fixture means the book quotes both outcomes and contributes
+    to the runner's consensus; one row means `book_quotes_for_event` drops it.
+    Without `--book` every book's rows are listed, which on a live slate is
+    ~30 books x 2 outcomes x the slate and still inside the default cap.
+
+    What this does not establish
+    ----------------------------
+    - **Nothing about other markets.** h2h only, matching the freshness
+      population; a book can be two-sided on h2h and absent on spreads.
+    - **Nothing about the price's quality** -- presence, not correctness.
+    """
+    at_ms = _parse_at_ms(args.at)
+    who = f"{args.book!r}" if args.book else "every book"
+    section = _fetch(
+        conn,
+        _SQL_BOOK_ROWS,
+        {"at": at_ms, "book": args.book},
+        title=(
+            f"h2h rows from {who} in the latest-sweep population "
+            f"at {_iso(at_ms)}"
+        ),
+        cap=args.limit,
+    )
+    section = _derive_iso(section, "book_updated_ms", "book_updated_iso")
+    return [_derive_iso(section, "fetched_ms", "fetched_iso")]
+
+
 # ---------------------------------------------------------------------------
 # estimate-match-status: the calibration study's coverage cells
 # ---------------------------------------------------------------------------
@@ -2171,6 +2224,13 @@ QUERIES: dict[str, QueryDef] = {
         "own last_update stamp closed the window mid-refresh-interval?",
         _q_window_freshness,
     ),
+    "book-rows": QueryDef(
+        "One bookmaker's h2h rows (--book, required) in the window-freshness "
+        "population at --at: two rows per fixture = contributes to the "
+        "runner's consensus, one = dropped as incomplete. Answers: did the "
+        "laggard book's stamp age the consensus, or only the window flag?",
+        _q_book_rows,
+    ),
     "estimate-match-status": QueryDef(
         "Calibration §7.5 coverage: venue_settlements by estimate_match_status "
         "(total, then split combo vs single ticker, then every non-combo row), "
@@ -2337,6 +2397,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "instant for window-freshness, ISO-8601 or epoch milliseconds "
             "(default: now)"
         ),
+    )
+    parser.add_argument(
+        "--book",
+        default=None,
+        help="bookmaker key for book-rows (e.g. everygame)",
     )
     parser.add_argument(
         "--limit",
