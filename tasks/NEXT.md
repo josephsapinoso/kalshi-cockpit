@@ -78,6 +78,14 @@ pass reads `/series/{ticker}` live and tags every row
 take keyword-only `fee_multiplier` refusing outside (0,1], both tripwire
 halves armed and mutation-red; suite 3,718 passed. **NOT yet deployed —
 deploy after the 22:21Z window closes, before WNBA 22:45Z if possible.**
+*(Done 22:26Z: live is on `1539f76`, healthy, v16 ran at boot. The first
+`h4-settlement-balance` pull works on live: 13 post-study settlements, a
+flat balance beside the 08-18/19 cluster then $8.31 on 08-20, ZERO fills
+inside any window -- no fill confound -- and every balance poll ok=1. The
+H4 subtraction itself is NOT taken: it needs a pre-registration first,
+and the pre-registrar owns that. The next session should also watch the
+first settlement row written under v16 for its `fee_model_used` tag --
+that is the implementation's one live observable.)*
 (2) ADR 0027 carries the dated denominator correction (`e3986fb`).
 (3) `h4-settlement-balance` shipped (`a02e8d2`), four sections, no join,
 three guards mutation-red — run it after the deploy for the H4 read and
