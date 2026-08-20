@@ -38,8 +38,18 @@ human — exception messages, tracebacks, assertion reprs — needs the secret
 kept out of the URL (headers, not query params) or the error rebuilt
 without it. When a vendor forces the key into the URL, no call to that
 vendor may use raise_for_status or let its exceptions escape unredacted.
-Several capture scripts still share the pattern; sweep them before their
-next use.
+
+**Corrected 2026-08-20, second half of the day: the detection rule above
+was itself wrong.** The sweep this lesson demanded, done by grepping for
+`raise_for_status`, would have found nothing and declared victory — the
+one vulnerable file (`scripts/probe_prop_dispersion.py`, since fixed)
+contained no `raise_for_status` at all. The defect is *a query-param
+credential reaching any escaping exception*, whatever raises it; so the
+grep is for the credential entering `params=`/the URL (`apiKey`), and the
+audit question at each hit is "can any exception leave this call site
+carrying the URL?" — not "does it call raise_for_status". Sweep taken:
+`backend/odds/client.py` was already correct, the probe script is fixed,
+no other hit remains.
 
 ## 2026-08-20 — A claim about git state is verified with git, never asserted from prose
 

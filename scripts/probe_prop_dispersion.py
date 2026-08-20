@@ -133,16 +133,40 @@ def norm(name: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
 
 
+def _get_with_key(client: httpx.Client, url: str, params: dict) -> httpx.Response:
+    """GET a URL whose query string carries the API key, without letting that
+    URL reach the terminal. `raise_for_status()` embeds the full request URL —
+    apiKey included — in its message, and an escaping httpx exception's
+    traceback bypasses every `configure_logging()` filter (observed 2026-08-20
+    21:21Z: a 401 printed the key into the transcript). Fail with the status
+    or the exception class alone."""
+    try:
+        response = client.get(url, params=params)
+    except httpx.HTTPError as exc:
+        raise SystemExit(
+            f"odds request failed: {type(exc).__name__} "
+            f"(URL withheld because it carries the API key)"
+        ) from None
+    if response.status_code != 200:
+        raise SystemExit(
+            f"odds request failed: HTTP {response.status_code} "
+            f"(no credits spent on 4xx; URL withheld because it carries "
+            f"the API key)"
+        )
+    return response
+
+
 def fetch_book_props(client: httpx.Client, api_key: str) -> tuple[dict, dict]:
     """`{(player, threshold, market): {book: (over_odds, under_odds)}}` and counters."""
-    events = client.get(
-        f"{ODDS_BASE}/sports/baseball_mlb/events", params={"apiKey": api_key}
+    events = _get_with_key(
+        client, f"{ODDS_BASE}/sports/baseball_mlb/events", params={"apiKey": api_key}
     ).json()
     counts = {"events": len(events), "credits_used": 0, "non_integral_lines": 0}
     quotes: dict = defaultdict(lambda: defaultdict(dict))
 
     for event in events:
-        response = client.get(
+        response = _get_with_key(
+            client,
             f"{ODDS_BASE}/sports/baseball_mlb/events/{event['id']}/odds",
             params={
                 "apiKey": api_key,
