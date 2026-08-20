@@ -91,11 +91,17 @@ alone and `fly.toml` sets neither variable, so **live takes the `h2h` default an
 a sweep costs 2, not 6**. CI was accidentally right. `conftest.py` now pins both
 variables to the `.env.example` contract.
 
-**Joe's local `.env` carries `ODDS_MARKETS=h2h,spreads,totals` and `.env.example`
-says `h2h`.** The tests no longer care, but anything run locally against the real
-loop still would — it would buy three markets where live buys one, at 3x the
-credit cost per sweep. Worth reconciling; not changed here, because which one is
-intended is his call.
+**The `.env` divergence is reconciled.** Joe's local `.env` carried
+`ODDS_MARKETS=h2h,spreads,totals` against `.env.example`'s `h2h`; he chose to
+match the contract, and it was changed on 2026-08-20. Laptop, CI and live now
+all compute a sweep at **2 credits**. Nothing was committed — `.env` is
+gitignored, which is exactly why the drift was invisible for the life of the
+project. `conftest.py` pins both variables regardless, so tests do not depend on
+it either way.
+
+**Live sets neither variable**, so its values are the *defaults*: `flyctl secrets
+list` shows `ODDS_API_KEY` alone. Absence is the config, and that is the part
+that is easy to misread as "unset means unused".
 
 Everything else below is open and none of it is urgent.
 
