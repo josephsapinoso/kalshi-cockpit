@@ -75,6 +75,28 @@ pass. `tempo.next_wake_ms` is now published in the loop's exit-state line and in
 **The 12-hour stability watch rides on the same deploy and is a SEPARATE
 observation.** It must not be reported as evidence for either fix.
 
+**CI was red and is green again, and it was never the window gate.** An email
+alert at ~04:15Z flagged `Tests + warehouse` failing. The identical two failures
+were already on `0d18825` and `82b47c6`, both pre-session, so the gate commits
+did not cause it. Fixed in `82cd2aa`; run 32331675208 is green on all three
+jobs. **Live was not redeployed** — CI runs on push, Deploy is dispatch-only, so
+the box has been on `5656133` and untouched since 03:54Z.
+
+**The finding underneath it is worth more than the fix, and it touches config
+rather than tests.** `credits_per_sweep_per_sport` is
+`len(markets) * len(regions)`, read from the environment via `load_dotenv()`, so
+the tests were measuring whichever `.env` the machine held. The values they
+passed under **run on no instance**: `flyctl secrets list` shows `ODDS_API_KEY`
+alone and `fly.toml` sets neither variable, so **live takes the `h2h` default and
+a sweep costs 2, not 6**. CI was accidentally right. `conftest.py` now pins both
+variables to the `.env.example` contract.
+
+**Joe's local `.env` carries `ODDS_MARKETS=h2h,spreads,totals` and `.env.example`
+says `h2h`.** The tests no longer care, but anything run locally against the real
+loop still would — it would buy three markets where live buys one, at 3x the
+credit cost per sweep. Worth reconciling; not changed here, because which one is
+intended is his call.
+
 Everything else below is open and none of it is urgent.
 
 ### Live state at 03:00Z 2026-08-20, verified not inherited

@@ -25,6 +25,54 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — When local and CI disagree, do not ask which to trust. Ask which one matches production, because the answer can be neither
+
+Two tests passed locally and failed in CI with no code change between the runs.
+The reflex reading is "CI is flaky" or "CI's environment is wrong". Both were
+wrong. So was the opposite reflex.
+
+The tests asserted a credit cost computed as `len(markets) * len(regions)`, both
+read from the environment. Local `.env` gave 6. CI, which sets nothing, gave 2.
+
+**The deciding question was not local-versus-CI. It was: what does the deployed
+instance do?** `flyctl secrets list` showed one secret and `fly.toml` set neither
+variable, so live takes the defaults — cost 2. CI was accidentally right, local
+was wrong, and the tests had been asserting a number **no running instance
+charges**, on every machine, since they were written.
+
+Had the disagreement been resolved by picking a side, there was a 50% chance of
+pinning the fiction permanently and a 100% chance of never learning that the
+committed contract (`.env.example`) and the developer's `.env` had drifted
+apart.
+
+**The move: when two environments disagree about a value, go and read the value
+off the thing that actually runs before changing either one.** A third
+observation settles it; two never can.
+
+### The corollary that made this invisible for so long
+
+`conftest.py` already carried an autouse fixture deleting `ANTHROPIC_API_KEY`,
+with a docstring naming the exact principle — *a test that depends on an input
+it does not supply is measuring the environment*. The principle was written
+down, understood, and applied to precisely one variable.
+
+**A fixture that neutralises one ambient input is evidence about that input and
+nothing else.** It reads, at a glance, as though the whole class is handled. When
+you find such a guard, the useful question is not "is this correct?" but "what
+else reaches the code by the same route that this one does not cover?" Here the
+route was `load_dotenv()` at import, and everything in `.env` came through it.
+
+### And the reason this was worth stopping for
+
+The failure predated the session's actual job and could have been left. It could
+not: a red CI is a broken instrument. The next day's window-gate verification
+would have produced a red run that nobody could distinguish from new breakage,
+because the baseline was already red. **Fix the instrument before you take the
+measurement, even when the instrument is not the thing you were asked to work
+on.**
+
+---
+
 ## 2026-08-20 — "One source of truth" is a claim about the *clock* as much as the source. A flag written at the end of a step and read at the start of the next is already two clocks
 
 A prune was supposed to be skipped while a betting window was open. It ran
