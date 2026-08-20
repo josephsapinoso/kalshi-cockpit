@@ -32,6 +32,14 @@ import { SHELL_WIDTH } from "@/lib/shell";
  */
 const SECONDARY = [
   {
+    // The landing screen's old address. "/" renders the same component since
+    // 2026-08-20 (fleet convening item 3), so this link exists for bookmarks
+    // and muscle memory, not for a second screen.
+    href: "/slate",
+    label: "Slate",
+    blurb: "The Games screen at its old address — same page the app now opens on.",
+  },
+  {
     // Lost its nav slot to Log on 2026-08-18 (the calibration study makes
     // logging the per-bet action; dbt marts are read weekly at most).
     href: "/dashboards",

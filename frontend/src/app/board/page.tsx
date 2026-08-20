@@ -198,7 +198,7 @@ export default async function BoardPage({
           <Stat label="Suppressed" value={board.counts.suppressed} />
           <Stat label="No edge" value={board.counts.no_edge} />
           <Link
-            href={showRejected ? "/?rejected=0" : "/"}
+            href={showRejected ? "/board?rejected=0" : "/board"}
             className="ml-auto rounded-full border px-4 py-2 text-sm font-semibold transition-colors hover:bg-card"
           >
             {showRejected ? "Hide rejected" : "Show rejected"}
@@ -414,7 +414,7 @@ export default async function BoardPage({
             {hidden > 0 && (
               <p className="mt-4 max-w-[65ch] text-sm text-muted">
                 {hidden} further {hidden === 1 ? "row is" : "rows are"} hidden.{" "}
-                <Link href="/" className="underline">
+                <Link href="/board" className="underline">
                   Show rejected
                 </Link>
                 .

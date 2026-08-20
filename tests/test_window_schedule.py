@@ -27,7 +27,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 SCHEDULE = FRONTEND / "components" / "WindowSchedule.tsx"
-BOARD = FRONTEND / "app" / "page.tsx"
+# Followed the Board to /board, 2026-08-20 -- "/" is the Slate now.
+BOARD = FRONTEND / "app" / "board" / "page.tsx"
 API = FRONTEND / "lib" / "api.ts"
 
 

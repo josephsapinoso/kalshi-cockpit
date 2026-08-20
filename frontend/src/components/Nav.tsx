@@ -35,9 +35,19 @@ import type { Chip } from "@/lib/windowChip";
 // budgeted at twelve seconds and a link that must be hunted for blows the
 // budget. Data renders dbt marts that are read weekly at most, and
 // `/dashboards` is still served, exactly as `/builder` and `/rejections` are.
+//
+// **The Slate became the landing screen and the words became plain,
+// 2026-08-20** (fleet convening, docs/reviews/2026-08-20-fleet-convening.md).
+// "Board", "Slate", "Log", "Ledger" were four nouns a beginner cannot tell
+// apart, and the one the app opened on was the screen that had shown nothing
+// for 1,005 straight passes. "Games" is every game today; "Picks" is the
+// filter's output, still one tap away at `/board`. "Log" stays -- it is the
+// action the calibration study budgets twelve seconds for -- and "Ledger"
+// stays because its page is titled that; renaming a tab away from its own
+// page title trades one confusion for another.
 const LINKS = [
-  { href: "/", label: "Board" },
-  { href: "/slate", label: "Slate" },
+  { href: "/", label: "Games" },
+  { href: "/board", label: "Picks" },
   { href: "/estimate", label: "Log" },
   { href: "/ledger", label: "Ledger" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest

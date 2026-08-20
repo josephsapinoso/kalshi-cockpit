@@ -54,7 +54,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "src"
 API_TS = FRONTEND / "lib" / "api.ts"
 SLATE_ROW = FRONTEND / "components" / "SlateRow.tsx"
-BOARD_PAGE = FRONTEND / "app" / "page.tsx"
+# The Board moved to /board on 2026-08-20 (fleet convening item 3): "/" now
+# lands on the Slate. Every claim in this file is about the BOARD screen, so
+# the path follows the screen, not the route.
+BOARD_PAGE = FRONTEND / "app" / "board" / "page.tsx"
 LEDGER_PAGE = FRONTEND / "app" / "ledger" / "page.tsx"
 SLATE_PAGE = FRONTEND / "app" / "slate" / "page.tsx"
 

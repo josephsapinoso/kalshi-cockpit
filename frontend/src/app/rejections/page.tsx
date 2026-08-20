@@ -402,7 +402,7 @@ export default async function RejectionsPage() {
         refusals can come from fewer rows than that. And rows with no edge at all never appear
         here: &ldquo;there is no bet&rdquo; is the ordinary answer, not a
         rejection, and logging it would drown every real diagnostic. The{" "}
-        <Link href="/" className="underline">
+        <Link href="/board" className="underline">
           Board
         </Link>{" "}
         shows those separately.

@@ -26,7 +26,7 @@ PROSE_FILES = [
     SRC / "components" / "SignalStrip.tsx",
     SRC / "components" / "WindowSchedule.tsx",
     SRC / "components" / "HowToRead.tsx",
-    SRC / "app" / "page.tsx",
+    SRC / "app" / "board" / "page.tsx",
 ]
 
 # `<p className="...">` with a static string, or `<p className={`...`}` with a
@@ -74,7 +74,7 @@ class TestTheChromeAndTheContentShareOneWidth:
 
     def test_all_three_import_the_constant(self):
         for path in (
-            SRC / "app" / "page.tsx",
+            SRC / "app" / "board" / "page.tsx",
             SRC / "components" / "Nav.tsx",
             SRC / "components" / "Footer.tsx",
         ):
@@ -101,7 +101,7 @@ class TestTheRailIsALayoutAndNotAReordering:
     UX change smuggled in as a layout change."""
 
     def test_the_phone_reading_order_is_unchanged_in_the_dom(self):
-        page = (SRC / "app" / "page.tsx").read_text(encoding="utf-8")
+        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
         sequence = [
             "<WindowBanner",
             "<WindowSchedule",
@@ -118,7 +118,7 @@ class TestTheRailIsALayoutAndNotAReordering:
         )
 
     def test_the_rail_is_assigned_to_the_second_column_at_xl_only(self):
-        page = (SRC / "app" / "page.tsx").read_text(encoding="utf-8")
+        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
         assert "xl:grid-cols-[minmax(0,1fr)_24rem]" in page
         rail = page.index("xl:col-start-2")
         main = page.index("xl:col-start-1")
@@ -134,7 +134,7 @@ class TestTheRailIsALayoutAndNotAReordering:
         """`minmax(0,1fr)` + `min-w-0`: without the min-width release, one
         long unbroken string in a card would widen the whole column past the
         shell and push the rail off-screen."""
-        page = (SRC / "app" / "page.tsx").read_text(encoding="utf-8")
+        page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
         assert 'className="min-w-0 xl:col-start-1 xl:row-start-1"' in page
 
 

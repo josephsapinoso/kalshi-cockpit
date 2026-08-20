@@ -56,6 +56,17 @@ export default async function GatePage() {
           with per-bet, per-position and total-exposure caps, plus a daily-loss
           kill switch.
         </p>
+        {/* Structural, not copy: `settlements.order_id` is NOT NULL and
+            references `orders(id)`, so every cap above is evaluated against
+            orders this tool placed -- and it has never placed one. A hand bet
+            in the Kalshi app is invisible to all of it, and a screen that
+            advertises a kill switch without saying so is advertising
+            protection Joe does not have. Fleet convening item 2,
+            docs/reviews/2026-08-20-fleet-convening.md. */}
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          These caps govern orders this tool would place. They do not see, and
+          cannot stop, bets you place yourself in the Kalshi app.
+        </p>
       </div>
 
       <h2 className="text-sm font-semibold uppercase tracking-widest text-muted">

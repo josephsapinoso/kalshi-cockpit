@@ -82,8 +82,10 @@ class TestTheNeutralCountIsNotPaintedAsAVerdict:
         """`--accent` is byte-identical to `--negative` in every theme block,
         so a Stat rendered in it reads as a loss. "Bettable now" — nightly
         value 0 — was the one Stat so painted."""
+        # The Board moved to /board on 2026-08-20; "/" is a re-export of the
+        # Slate and defines no Stat. The claim follows the screens that do.
         for page_path in (
-            GLOBALS.parent / "page.tsx",
+            GLOBALS.parent / "board" / "page.tsx",
             GLOBALS.parent / "slate" / "page.tsx",
         ):
             page = page_path.read_text(encoding="utf-8")
