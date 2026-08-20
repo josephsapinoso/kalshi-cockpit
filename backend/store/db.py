@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -721,6 +721,18 @@ _MIGRATIONS: dict[int, _Migration] = {
             # Dropping the column takes everything this step wrote.
         ),
     ),
+    14: _Migration(
+        # Amendment 2 (A11) of the calibration registration: when was this
+        # row's `match_status` written? The absence proof needs a settlements
+        # poll that POSTDATES the matcher first seeing the market's result,
+        # and this column is the record of that moment. Nullable, no backfill:
+        # a pre-amendment stamp genuinely has no observed instant, and the
+        # repair pass (A12) re-buckets those rows rather than inventing one.
+        columns=(("bet_estimates", "match_status_ms", "INTEGER"),),
+        undo_statements=(
+            # Dropping the column takes everything this step wrote.
+        ),
+    ),
     12: _Migration(
         statements=_QUANTITIES_ARE_REAL,
         indexes=("idx_fills_time", "idx_fills_mismatch"),
@@ -867,7 +879,17 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
             continue
         step = _MIGRATIONS[version]
         for table, column, decl in step.columns:
-            if column in _columns(conn, table):
+            existing = _columns(conn, table)
+            if not existing:
+                # The table is missing mid-migration. Only one thing does
+                # that: an earlier step dropped it for `schema.sql` to
+                # rebuild -- v11's documented design -- and `init_db` applies
+                # the schema file right after this loop, in the same boot.
+                # The file carries every migrated column (the agreement is
+                # itself under test), so ALTERing a table that is about to be
+                # recreated complete is both impossible and unnecessary.
+                continue
+            if column in existing:
                 continue
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
         # A non-additive step says how to tell that it has already run. Without

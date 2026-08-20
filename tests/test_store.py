@@ -141,13 +141,19 @@ class TestMigration:
         path = tmp_path / "v1.db"
         conn = db.init_db(path)
         added = self._migrated_columns()
-        for version in sorted(db._MIGRATIONS):
+        # Descending, and each version's columns drop inside its own step.
+        # The inverse of an ascending apply is a descending undo: v14 adds a
+        # column to a table v10's undo REBUILDS, so undoing v10 first restores
+        # a shape that never had the column and v14's drop then finds nothing.
+        # The old ascending walk with all column-drops at the end was correct
+        # only while no later migration touched a rebuilt table.
+        for version in sorted(db._MIGRATIONS, reverse=True):
             for name in db._MIGRATIONS[version].indexes:
                 conn.execute(f"DROP INDEX IF EXISTS {name}")
+            for table, column, _ in db._MIGRATIONS[version].columns:
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
             for statement in db._MIGRATIONS[version].undo_statements:
                 conn.execute(statement)
-        for table, column in added:
-            conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
         conn.execute(
             "INSERT INTO strategy_configs (version, created_ms, effective_from_ms, "
             "config_json, rationale, approved_by_user) VALUES (1, 0, 0, '{}', '', 0)"
@@ -475,15 +481,18 @@ class TestMigration:
         path = tmp_path / f"v{version - 1}.db"
         connection = db.init_db(path)
         # Undo this version and everything after it, leaving the ones before.
-        for later in sorted(db._MIGRATIONS):
+        # Descending -- the inverse of the ascending apply. Undoing an older
+        # rebuild first restores a table shape from before a newer migration's
+        # column existed, and that newer column-drop then has nothing to drop.
+        for later in sorted(db._MIGRATIONS, reverse=True):
             if later < version:
                 continue
             for name in db._MIGRATIONS[later].indexes:
                 connection.execute(f"DROP INDEX IF EXISTS {name}")
-            for statement in db._MIGRATIONS[later].undo_statements:
-                connection.execute(statement)
             for table, column, _ in db._MIGRATIONS[later].columns:
                 connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+            for statement in db._MIGRATIONS[later].undo_statements:
+                connection.execute(statement)
         connection.execute(
             "UPDATE meta SET value = ? WHERE key = 'schema_version'",
             (str(version - 1),),

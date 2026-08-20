@@ -84,11 +84,18 @@ class TestMatching:
         assert row["match_status"] == "matched"
 
     def test_the_window_is_half_open_on_the_left(self, conn):
-        """A position first seen AT the estimate instant did not follow it."""
+        """A position first seen AT the estimate instant did not follow it.
+
+        Asserted on the match itself since Amendment 2: the row's terminal
+        status now runs through the A11 absence ladder, but the boundary
+        claim was always that this settlement must not MATCH."""
         est = _estimate(conn, at=NOW)
         _settlement(conn, first_seen=NOW, source="poll_instant")
-        match_estimates(conn, now_ms=NOW + 30 * HOUR)
-        assert _row(conn, est)["match_status"] == "unmatched_no_position"
+        counts = match_estimates(conn, now_ms=NOW + 30 * HOUR)
+        row = _row(conn, est)
+        assert counts["matched"] == 0
+        assert row["matched_position_id"] is None
+        assert row["match_status"] != "matched"
 
     def test_the_later_of_two_competing_estimates_wins(self, conn):
         """Registered §7.3 conflict rule, chosen before any data existed."""
@@ -100,11 +107,16 @@ class TestMatching:
         assert _row(conn, later)["matched_position_id"] == position
         assert _row(conn, earlier)["matched_position_id"] is None
 
-    def test_an_expired_window_is_a_status_not_a_deletion(self, conn):
+    def test_a_closed_window_alone_no_longer_expires_anything(self, conn):
+        """Amendment 2 (A10): this asserted `expired == 1` until 2026-08-20,
+        pinning the stamp that wrote "he did not bet" on bets Joe made. A
+        closed window with the market's result unknown now stays pending --
+        the market may simply not have settled yet."""
         est = _estimate(conn)
         counts = match_estimates(conn, now_ms=NOW + 25 * HOUR)
-        assert counts["expired"] == 1
-        assert _row(conn, est)["match_status"] == "unmatched_no_position"
+        assert counts["expired"] == 0
+        assert counts["pending"] == 1
+        assert _row(conn, est)["match_status"] is None
 
     def test_a_window_still_open_stays_pending(self, conn):
         est = _estimate(conn)
@@ -131,6 +143,151 @@ class TestMatching:
         counts = match_estimates(conn, now_ms=NOW + 30 * HOUR)
         assert counts["matched"] == 1
         assert _row(conn, est)["match_status"] == "matched"
+
+
+def _market_result(conn, *, ticker=TICKER, result="yes"):
+    conn.execute(
+        "INSERT INTO kalshi_markets (ticker, result, first_seen_ms, "
+        "last_seen_ms) VALUES (?, ?, 1, 1) "
+        "ON CONFLICT(ticker) DO UPDATE SET result = excluded.result",
+        (ticker, result),
+    )
+    conn.commit()
+
+
+def _settlements_poll(conn, *, at):
+    conn.execute(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+        "VALUES (?, 'settlements', 1, 0)",
+        (at,),
+    )
+    conn.commit()
+
+
+class TestAbsenceNeedsProof:
+    """Amendment 2 (A11): 'he did not bet' takes three proofs, not a clock.
+
+    Each guard below was verified red under a named mutation of
+    `match_estimates` -- the mutation is stated on the test.
+    """
+
+    def test_result_known_moves_to_absence_pending_not_expired(self, conn):
+        """Mutation: stamp `unmatched_no_position` directly when the result
+        is known (skip the intermediate state). Red on the status assert."""
+        est = _estimate(conn)
+        _market_result(conn)
+        counts = match_estimates(conn, now_ms=NOW + 25 * HOUR)
+        row = _row(conn, est)
+        assert counts["absence_pending"] == 1
+        assert counts["expired"] == 0
+        assert row["match_status"] == "absence_pending"
+        assert row["match_status_ms"] == NOW + 25 * HOUR
+
+    def test_a_poll_after_the_stamp_proves_absence(self, conn):
+        est = _estimate(conn)
+        _market_result(conn)
+        match_estimates(conn, now_ms=NOW + 25 * HOUR)
+        _settlements_poll(conn, at=NOW + 26 * HOUR)
+        counts = match_estimates(conn, now_ms=NOW + 27 * HOUR)
+        assert counts["expired"] == 1
+        assert _row(conn, est)["match_status"] == "unmatched_no_position"
+
+    def test_a_poll_before_the_stamp_proves_nothing(self, conn):
+        """Mutation: drop the `polled_ms > match_status_ms` comparison and
+        accept any successful settlements poll. Red here -- this poll
+        pre-dates our sight of the result, so the sweep it describes cannot
+        have carried the settlement row."""
+        est = _estimate(conn)
+        _settlements_poll(conn, at=NOW + 20 * HOUR)
+        _market_result(conn)
+        match_estimates(conn, now_ms=NOW + 25 * HOUR)
+        counts = match_estimates(conn, now_ms=NOW + 27 * HOUR)
+        assert counts["expired"] == 0
+        assert _row(conn, est)["match_status"] == "absence_pending"
+
+    def test_a_failed_poll_is_not_proof(self, conn):
+        """Mutation: drop `ok = 1` from the poll predicate. Red here."""
+        est = _estimate(conn)
+        _market_result(conn)
+        match_estimates(conn, now_ms=NOW + 25 * HOUR)
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, error) "
+            "VALUES (?, 'settlements', 0, 'boom')",
+            (NOW + 26 * HOUR,),
+        )
+        conn.commit()
+        counts = match_estimates(conn, now_ms=NOW + 27 * HOUR)
+        assert counts["expired"] == 0
+        assert _row(conn, est)["match_status"] == "absence_pending"
+
+    def test_absence_pending_is_still_matchable(self, conn):
+        """The load-bearing half of the amendment: a settlement row arriving
+        late for a position opened INSIDE the window still matches. Mutation:
+        restore the old candidate filter (`match_status IS NULL OR ''`). Red
+        here -- the row would be invisible to its own settlement."""
+        est = _estimate(conn)
+        _market_result(conn)
+        match_estimates(conn, now_ms=NOW + 25 * HOUR)
+        _settlement(conn, settled=NOW + 30 * HOUR, first_seen=NOW + 2 * HOUR,
+                    source="fill")
+        counts = match_estimates(conn, now_ms=NOW + 31 * HOUR)
+        row = _row(conn, est)
+        assert counts["matched"] == 1
+        assert row["match_status"] == "matched"
+        assert row["matched_position_id"] is not None
+
+
+class TestRepairFalseAbsence:
+    """A12: the rows the pre-amendment stamp falsified are re-bucketed once.
+
+    A pre-amendment stamp is `unmatched_no_position` with `match_status_ms`
+    NULL -- the column arrived with the amendment, so the pair is its own
+    signature and the repair guard self-extinguishes.
+    """
+
+    @staticmethod
+    def _false_stamp(conn, est_id):
+        conn.execute(
+            "UPDATE bet_estimates SET match_status = 'unmatched_no_position', "
+            "match_status_ms = NULL WHERE id = ?",
+            (est_id,),
+        )
+        conn.commit()
+
+    def test_a_falsely_stamped_bet_is_recovered(self, conn):
+        """The defect verbatim: Joe bet inside the window, the market settled
+        after 24h, the old pass stamped 'he did not bet'. Repair matches it."""
+        est = _estimate(conn)
+        self._false_stamp(conn, est)
+        _settlement(conn, settled=NOW + 40 * HOUR, first_seen=NOW + 3 * HOUR,
+                    source="fill")
+        from backend.estimate_match import repair_false_absence
+
+        counts = repair_false_absence(conn, now_ms=NOW + 41 * HOUR)
+        row = _row(conn, est)
+        assert counts["reset"] == 1
+        assert counts["matched"] == 1
+        assert row["match_status"] == "matched"
+
+    def test_a_stamped_row_with_no_bet_reenters_the_ladder(self, conn):
+        """No settlement exists: the row goes back to pending/absence_pending
+        rather than keeping a stamp it never earned."""
+        est = _estimate(conn)
+        self._false_stamp(conn, est)
+        from backend.estimate_match import repair_false_absence
+
+        counts = repair_false_absence(conn, now_ms=NOW + 41 * HOUR)
+        assert counts["reset"] == 1
+        assert _row(conn, est)["match_status"] is None  # result unknown
+
+    def test_unexplained_hand_fills_are_reported_not_assumed_zero(self, conn):
+        est = _estimate(conn)
+        self._false_stamp(conn, est)
+        _fill(conn, filled=NOW + 2 * HOUR)
+        from backend.estimate_match import repair_false_absence
+
+        counts = repair_false_absence(conn, now_ms=NOW + 41 * HOUR)
+        assert counts["unexplained_hand_fills"] == 1
 
 
 class TestFirstSeenRefinement:

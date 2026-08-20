@@ -170,25 +170,72 @@ def _first_seen(row: Any) -> int:
     return row["settled_ms"]
 
 
+def _absence_provable(conn: sqlite3.Connection, since_ms: int) -> bool:
+    """A11 condition 3: a successful settlements poll postdating `since_ms`.
+
+    Venue finalisation strictly precedes our reading of the market's result,
+    so a settlements sweep completed after that reading would have carried the
+    settlement row if a position existed. Only then is an absent row evidence
+    of no position rather than of an unfinished pipeline.
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM poll_log WHERE endpoint = 'settlements' "
+            "AND ok = 1 AND polled_ms > ? LIMIT 1",
+            (since_ms,),
+        ).fetchone()
+        is not None
+    )
+
+
+def _result_known(conn: sqlite3.Connection, ticker: str) -> bool:
+    row = conn.execute(
+        "SELECT result FROM kalshi_markets WHERE ticker = ?", (ticker,)
+    ).fetchone()
+    return row is not None and row["result"] is not None
+
+
 def match_estimates(conn: sqlite3.Connection, *, now_ms: int) -> dict[str, int]:
-    """§7.3, exactly as registered. Returns counts, never statistics."""
+    """§7.3 as registered, with Amendment 2's evidence standard for absence.
+
+    The match rule is untouched: earliest position, half-open 24h window on
+    `position_first_seen_ms`, later-estimate-wins on conflict. What A10/A11
+    changed is *expiry*: `unmatched_no_position` used to be stamped the moment
+    the window closed, against a candidate set (`venue_settlements`) whose
+    rows exist only after settlement -- so every bet on a market settling
+    more than 24h out was stamped "he did not bet" while the position was
+    still open, permanently, and the status filter then hid the row from
+    every later pass.
+
+    Now the stamp needs three proofs (A11): window closed, market result
+    known, and a successful settlements poll postdating our first sight of
+    that result. The middle state is `absence_pending`, which is visible,
+    timestamped via `match_status_ms`, and -- deliberately -- still in the
+    candidate set below: a settlement row arriving late for a position opened
+    inside the window still matches, which is §7.3's own rule doing what it
+    always said.
+
+    Returns counts, never statistics.
+    """
     estimates = conn.execute(
         """
-        SELECT id, ticker, estimate_server_ms FROM bet_estimates
+        SELECT id, ticker, estimate_server_ms, match_status, match_status_ms
+        FROM bet_estimates
         WHERE matched_position_id IS NULL
           AND stated_probability_is_revised = 0
-          AND (match_status IS NULL OR match_status = '')
+          AND (match_status IS NULL OR match_status = ''
+               OR match_status = 'absence_pending')
         ORDER BY estimate_server_ms
         """
     ).fetchall()
     if not estimates:
-        return {"matched": 0, "expired": 0, "pending": 0}
+        return {"matched": 0, "expired": 0, "pending": 0, "absence_pending": 0}
 
     by_ticker: dict[str, list[Any]] = {}
     for est in estimates:
         by_ticker.setdefault(est["ticker"], []).append(est)
 
-    matched = expired = pending = 0
+    matched = expired = pending = absence_pending = 0
     taken: set[int] = set()
     for ticker, ests in by_ticker.items():
         positions = sorted(
@@ -224,19 +271,90 @@ def match_estimates(conn: sqlite3.Connection, *, now_ms: int) -> dict[str, int]:
         for est in ests:
             if est["id"] in assigned:
                 continue
-            if now_ms > est["estimate_server_ms"] + MATCH_WINDOW_MS:
-                # He estimated and did not bet. Leaves the primary population,
-                # enters the §9.5(a) sensitivity -- a status, not a deletion.
+            if now_ms <= est["estimate_server_ms"] + MATCH_WINDOW_MS:
+                pending += 1
+                continue
+            # Window closed. A10: absence of a settlement row proves nothing
+            # by itself -- the row only exists after settlement. Walk the A11
+            # ladder instead, one visible state per proof.
+            if est["match_status"] == "absence_pending":
+                if est["match_status_ms"] is not None and _absence_provable(
+                    conn, est["match_status_ms"]
+                ):
+                    # All three proofs hold. He estimated and did not bet.
+                    # Leaves the primary population, enters the §9.5(a)
+                    # sensitivity -- a status, not a deletion.
+                    conn.execute(
+                        "UPDATE bet_estimates SET match_status = "
+                        "'unmatched_no_position', match_status_ms = ? "
+                        "WHERE id = ?",
+                        (now_ms, est["id"]),
+                    )
+                    expired += 1
+                else:
+                    absence_pending += 1
+            elif _result_known(conn, est["ticker"]):
+                # First sight of the result. Stamp the instant; the absence
+                # proof needs a poll that postdates exactly this moment.
                 conn.execute(
                     "UPDATE bet_estimates SET match_status = "
-                    "'unmatched_no_position' WHERE id = ?",
-                    (est["id"],),
+                    "'absence_pending', match_status_ms = ? WHERE id = ?",
+                    (now_ms, est["id"]),
                 )
-                expired += 1
+                absence_pending += 1
             else:
+                # Result unknown: the market may not have settled at all yet.
+                # Pending indefinitely is the honest state -- §7.5/§9.5
+                # already account for attrition, and a false "did not bet" is
+                # the one error this pass may never make again.
                 pending += 1
     conn.commit()
-    return {"matched": matched, "expired": expired, "pending": pending}
+    return {
+        "matched": matched,
+        "expired": expired,
+        "pending": pending,
+        "absence_pending": absence_pending,
+    }
+
+
+def repair_false_absence(conn: sqlite3.Connection, *, now_ms: int) -> dict[str, int]:
+    """A12: re-bucket every row the pre-amendment stamp may have falsified.
+
+    Every `unmatched_no_position` row is reset to pending and pushed back
+    through the corrected pass in one transaction-shaped sweep: re-matched
+    where a settlement row now matches inside its window, `absence_pending`
+    where the market's result is known, pending otherwise. Analysis is
+    embargoed until the registered stop, so these rows have decided nothing
+    yet and this is bookkeeping repair, not selection.
+
+    Returns the reset count, the re-bucketed counts, and -- for the
+    reconciliation the amendment requires -- how many of Joe's own hand fills
+    (`fills WHERE source = 'venue_hand'`) sit inside a still-unmatched
+    estimate's window afterwards. That last number is the residue the repair
+    could not explain, and it is reported rather than assumed zero.
+    """
+    reset = conn.execute(
+        "UPDATE bet_estimates SET match_status = NULL, match_status_ms = NULL "
+        "WHERE match_status = 'unmatched_no_position'"
+    ).rowcount
+    conn.commit()
+    rebucketed = match_estimates(conn, now_ms=now_ms)
+    unexplained = conn.execute(
+        """
+        SELECT COUNT(*) FROM fills f
+        WHERE f.source = 'venue_hand'
+          AND EXISTS (
+            SELECT 1 FROM bet_estimates e
+            WHERE e.ticker = f.ticker
+              AND e.matched_position_id IS NULL
+              AND e.stated_probability_is_revised = 0
+              AND f.filled_ms > e.estimate_server_ms
+              AND f.filled_ms <= e.estimate_server_ms + ?
+          )
+        """,
+        (MATCH_WINDOW_MS,),
+    ).fetchone()[0]
+    return {"reset": reset, "unexplained_hand_fills": unexplained, **rebucketed}
 
 
 def score_outcomes(conn: sqlite3.Connection, *, now_ms: int) -> dict[str, int]:
@@ -300,11 +418,27 @@ async def run_match_pass(
     """The whole pass, in dependency order. One summary dict for the log."""
     known = await ensure_estimate_markets_known(conn, source, now_ms=now_ms)
     refined = refine_first_seen(conn)
+    # A12, self-running and self-extinguishing: a pre-amendment stamp is
+    # exactly `unmatched_no_position` with no `match_status_ms` (the column
+    # arrived with the amendment). Repair re-buckets them once; every row it
+    # touches leaves with a stamp instant, so the guard never fires again.
+    # In the pass rather than a script because this tool is operated from a
+    # phone -- a repair that needs an ssh session is a repair that never runs.
+    repair = None
+    if conn.execute(
+        "SELECT 1 FROM bet_estimates WHERE match_status = "
+        "'unmatched_no_position' AND match_status_ms IS NULL LIMIT 1"
+    ).fetchone():
+        repair = repair_false_absence(conn, now_ms=now_ms)
+        logger.info("A12 repair pass: %s", repair)
     matches = match_estimates(conn, now_ms=now_ms)
     outcomes = score_outcomes(conn, now_ms=now_ms)
-    return {
+    summary = {
         "ensure": known,
         "first_seen_upgraded": refined,
         "match": matches,
         "outcomes": outcomes,
     }
+    if repair is not None:
+        summary["repair"] = repair
+    return summary

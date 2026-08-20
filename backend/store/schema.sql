@@ -983,10 +983,19 @@ CREATE TABLE IF NOT EXISTS bet_estimates (
     is_multi_leg                INTEGER NOT NULL DEFAULT 0,
     sport                       TEXT,
     matched_position_id         INTEGER REFERENCES venue_settlements(id),
-    -- matched | unmatched_no_position | position_unlogged. The last one is how
-    -- attrition becomes a measured rate instead of an invisible bias: the venue
-    -- reports a position whether or not an estimate was logged for it.
+    -- matched | absence_pending | unmatched_no_position | position_unlogged.
+    -- `position_unlogged` is how attrition becomes a measured rate instead of
+    -- an invisible bias: the venue reports a position whether or not an
+    -- estimate was logged for it. `absence_pending` is Amendment 2 (A11): the
+    -- window has closed and the market's result is known, but no settlements
+    -- poll has yet postdated that knowledge -- so "he did not bet" is not yet
+    -- provable and must not be stamped. Rows in it remain matchable.
     match_status                TEXT,
+    -- When the current match_status was written (v14, Amendment 2). The
+    -- absence proof compares a settlements poll against this instant. NULL on
+    -- rows stamped before the amendment -- the honest value; the A12 repair
+    -- re-buckets those rather than inventing an instant for them.
+    match_status_ms             INTEGER,
     -- NULL when unsettled or void. **Never 0** -- a loss and "we do not know"
     -- are different states and this repo has collapsed them before.
     outcome_win                 INTEGER,

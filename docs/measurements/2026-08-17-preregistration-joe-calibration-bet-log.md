@@ -1293,3 +1293,82 @@ unchanged. Three things moved:
 
 That is a worse measurement than the one registered yesterday. It is the one the
 data supports.
+
+---
+
+# Amendment 2 — 2026-08-20
+
+**Written before the code change it describes, while the analysis is still
+embargoed.** No aggregate, coverage rate, or calibration statistic has been
+computed from the primary population; §9.5 has not been run. So the rows this
+amendment re-stamps have decided nothing yet, and correcting them is
+bookkeeping repair, not post-hoc selection.
+
+## A10 — The `unmatched` stamp asserts absence on evidence of nothing
+
+§7.3 registers: *"An estimate with no match in the window is `unmatched` — he
+estimated and did not bet."* The implementation (`backend/estimate_match.py`)
+draws its candidate positions from `venue_settlements`, whose rows exist only
+**after settlement** (`settled_ms INTEGER NOT NULL`; written only by
+`portfolio_poll.py` from the venue's settlements endpoint). The stamp fires
+when `now > estimate + 24h`.
+
+So an estimate on a market that settles more than 24 hours after the estimate
+— a bet on tomorrow's game, every future-dated fight card, anything — is
+stamped `unmatched_no_position` **while Joe's position is still open**, and
+the top-of-pass filter (`match_status IS NULL OR ''`) then excludes the row
+from every later pass. The false stamp is permanent and self-concealing. The
+same false stamp fires on a same-day market whenever the settlements poller
+lags the 24-hour boundary.
+
+This is an implementation defect against §7.3's own intent, not a flaw in the
+registered rule: "no match in the window" was always a claim about whether a
+position **was opened** in the window, and the window's own clock is
+`position_first_seen_ms` — venue-side *entry* evidence. Absence of a
+*settlement* row is evidence of absence only after the market has settled and
+the settlement sweep has been read.
+
+## A11 — The corrected evidence standard for absence
+
+`unmatched_no_position` may be stamped only when all three hold:
+
+1. `now_ms > estimate_server_ms + 24h` — the registered window has closed
+   (unchanged);
+2. the market's own result is known — `kalshi_markets.result IS NOT NULL` for
+   the ticker; and
+3. a successful settlements poll postdates our learning that result —
+   `poll_log(endpoint='settlements', ok=1)` with `polled_ms` after the moment
+   condition 2 was first observed by the matcher.
+
+Condition 3 is what makes absence provable: venue finalisation strictly
+precedes our reading of the result, so a settlements sweep completed after
+that reading would have carried Joe's settlement row if one existed. An
+absent row is then evidence of no position, rather than of an unfinished
+pipeline.
+
+Mechanically: a new visible intermediate status `absence_pending` records the
+moment condition 2 is first met (`match_status_ms`, a new nullable column,
+schema v14). Rows in `absence_pending` remain in the matching candidate set —
+a settlement row arriving late for a position opened inside the window still
+matches, which is §7.3's registered rule doing exactly what it always said.
+Rows whose window has closed but whose market result is unknown stay pending
+indefinitely; pending is the honest state and §7.5/§9.5 already account for
+attrition.
+
+**What this cannot do:** move any estimate into `matched` that §7.3 would not
+have matched — the match rule (earliest position, half-open 24h window on
+`position_first_seen_ms`, later-estimate-wins conflict rule) is untouched. It
+can only stop rows from being falsely *removed* from the primary population.
+The direction of the correction is against the analyst's convenience: it
+keeps rows in the study that the bug was silently discarding.
+
+## A12 — The repair pass, and its reconciliation
+
+One-time repair, run before any analysis ever fires: every row stamped
+`unmatched_no_position` is reset to pending and re-bucketed by the corrected
+pass — re-matched where a settlement row now matches in-window,
+`absence_pending` where the result is known, pending otherwise. The counts
+(reset / re-matched / awaiting proof) are reported beside the count of
+`fills WHERE source = 'venue_hand'` rows in each estimate's window, so the
+recovered matches reconcile against the venue's own record of Joe's hand
+bets. No analysis output is consulted in the repair; the embargo stands.
