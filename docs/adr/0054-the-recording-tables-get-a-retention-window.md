@@ -172,3 +172,27 @@ observed at all, so the prediction below is completely untested.
 mean the insert cost is not driven by index size, and the latency argument
 above would have to be withdrawn — leaving the disk argument, which stands on
 its own measurement.
+
+## Amendment, 2026-08-20 — the auto-extend net is exhausted, and the ceiling's tripwire fired by the wrong route
+
+Recorded on the day the disk question was re-measured and closed (live
+volume 42.77% used, `cockpit.db` byte-identical across a 17-minute window,
+measured growth 0 B/day with ADR 0055 retention deployed and verified
+running).
+
+The volume sits at its `auto_extend_size_limit = "5GB"`. **The net that
+saved the instance on 2026-08-16 cannot fire again** — any further growth
+ends in ENOSPC, a hard down that a restart does not clear, and recovery is
+a manual `fly volumes extend` from a laptop. Not urgent at 0 B/day; it must
+exist in writing because the failure mode is silent until it is total.
+
+The second fact is about the tripwire itself: `fly.live.toml`'s comment
+said reaching 5GB means "something is growing that should have a retention
+rule — find it, not raise the number". The 5GB was reached by *this ADR's
+own manual extend*, not by unbounded growth — **the trigger fired without
+its condition being true**, and the comment as written would have
+misdirected the responder who hit it. The comment is corrected in the same
+commit as this amendment. The pattern (a relaxed bound leaves the next
+bound binding silently, with the symptom unchanged) is the two-limits
+pattern; treat any future "we raised the limit" as also creating the next
+tripwire to document.

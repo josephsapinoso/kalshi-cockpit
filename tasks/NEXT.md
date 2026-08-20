@@ -105,8 +105,24 @@ the phone UI's estimate form should come out now that nothing consumes
 it — a form feeding a stopped study is quiet misdirection.
 
 Also open, unchanged: the two `parse_portfolio_value_tenths` defect notes
-(portfolio_poll.py:252-266) the partner cited as H4 blockers, and the
-`fee_multiplier_override` field no backend code reads (ADR 0058 hole 2).
+(portfolio_poll.py:252-266) — the partner re-examined them 2026-08-20 and
+ruled them NOT H4 blockers — and the `fee_multiplier_override` field no
+backend code reads (ADR 0058 hole 2; observation note appended to the ADR:
+absent from 24/24 events in the one committed sweep).
+
+New open item, found 2026-08-20 (code-change-sized, no ADR; low urgency —
+no frontend consumer reads it — but it sits on the registered evidence
+route): **every `/api/ledger` row carries `commence_ms: null`.** The route
+(`backend/api/routes.py:1260`, SQL ~1404-1412) joins only `fair_prices`,
+never `kalshi_events`, yet `_serialise` (`routes.py:3563`) emits the key
+anyway — the exact null-pretending-the-join-was-attempted anti-pattern the
+same function's `methods` block was built to avoid. A consumer cannot
+distinguish "never joined" from "event unknown", and pre/post-commence
+bucketing (the axis behind the clv-coverage denominator error) silently
+returns nothing. **Trap for the fixer:** `kalshi_events.commence_ms` stores
+the RAW `occurrence_datetime`, which runs exactly 3 hours late (ADR 0006;
+the −3h correction lives in `scripts/inspect_live_db.py:1141-1148`) —
+adding the join without deciding the offset ships a second defect.
 
 ---
 

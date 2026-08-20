@@ -130,3 +130,29 @@ ADR 0019 exists to prevent. This paragraph is the tripwire.
   (ADR 0027), and the cost headroom stays an upper bound.
 - Nothing about the applied *bar* (51.75% taker): the bar is a guard
   quantity and this ADR leaves guards where they stand.
+
+## Observation note, 2026-08-20 (appended after acceptance; changes no decision)
+
+Two facts observed while executing this ADR, recorded so the holes above
+carry their evidence rather than only their names:
+
+1. **Hole 2's override has never been observed non-absent.** The committed
+   raw sweep `docs/measurements/2026-08-20-spread-sweep-raw-2026-08-20T212616Z.json`
+   holds 24 Kalshi event payloads and `fee_multiplier_override` is absent
+   from all 24 — the key does not appear, as distinct from present-as-null.
+   The only reader (`scripts/measure_spread_edge.py`, `charged_k`) has never
+   once seen it set; every charged fee came from the series value. The hole
+   stays open — 24 events on one date is not a schedule survey — but the
+   record now says what has actually been seen: nothing.
+2. **The live correction is inert by construction, until the gate first
+   opens.** The settlement pass settles only positions derived from
+   `orders` (`backend/settlement.py:261-282`); `settlements.order_id` is
+   `NOT NULL REFERENCES orders(id)`; and `ORDERS_ARE_DRY_RUNS = True`
+   (`backend/store/orders.py:129`) means no order has ever existed, so
+   `run_settlement_pass` early-returns and **no `settlements` row — and
+   hence no `fee_model_used` tag — can be written under current config.**
+   This is the designed consequence of correcting the record and not the
+   guard, not a defect; it is recorded because a session was about to watch
+   live for the first tagged row, an event of probability zero. Do not
+   conflate this table with the venue account settlements the H4 balance
+   pull reads (`portfolio_poll.py`, Joe's hand bets): same word, two tables.

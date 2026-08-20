@@ -405,10 +405,17 @@ primary_region = "ord"
   # roughly the whole file free on the same filesystem. A volume that only
   # extends at 90% can still be unable to run the repair.
   #
-  # The limit is a real ceiling, not a formality. If this reaches 5GB then
-  # something is growing that should have a retention rule -- see
-  # `unmatched_events` below -- and the right response is to find it, not to
-  # raise the number.
+  # The limit is a real ceiling, not a formality — AND IT HAS BEEN REACHED,
+  # by the wrong route. The volume was extended to 5GB manually on
+  # 2026-08-16 (ADR 0054's own extend), not by unbounded growth, so the
+  # tripwire this comment used to describe ("reaching 5GB means something
+  # is growing without a retention rule") fired without its condition being
+  # true. What matters now (recorded 2026-08-20, measured growth 0 B/day
+  # with retention deployed): **the auto-extend net cannot fire again.**
+  # Any further growth ends in ENOSPC — a hard down that a restart does not
+  # clear — and recovery is a manual `fly volumes extend` from a laptop.
+  # If usage climbs again, first ask what lost its retention rule; raise
+  # the number only with the answer in hand.
   auto_extend_size_threshold = 80
   auto_extend_size_increment = "1GB"
   auto_extend_size_limit = "5GB"
