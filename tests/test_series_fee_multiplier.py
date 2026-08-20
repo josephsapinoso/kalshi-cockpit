@@ -41,7 +41,15 @@ from backend.core.fees import TAKER_COEFFICIENT
 
 ROOT = Path(__file__).resolve().parents[1]
 SERIES_FIXTURE = ROOT / "tests" / "fixtures" / "series_fee_fields.json"
-FILLS_CAPTURE = ROOT / "data" / "captures" / "portfolio_fills.json"
+# The SANITIZED capture, committed -- not the raw one under `data/`, which is
+# gitignored and carries account-linked identifiers (order_id, trade_id,
+# fill_id, subaccount_number). This file originally read the raw path with a
+# docstring asserting it was "tracked in git"; it never was (`git ls-files
+# data/` is empty -- the force-add never happened), so CI failed on every
+# push from the moment this suite landed. `scripts/sanitize_fills_capture.py`
+# derives the fixture: the six consumed fields, order_id pseudonymised with
+# distinctness preserved.
+FILLS_CAPTURE = ROOT / "tests" / "fixtures" / "portfolio_fills_sanitized.json"
 
 DECI_CENT = Decimal("0.0001")
 
@@ -138,10 +146,13 @@ class TestTheCaptureIsReplayableNotAssumed:
         assert payload["captured_at"].startswith("2026-")
 
     def test_a_missing_capture_fails_loudly(self):
-        """The fills capture is tracked in git despite living under the
-        gitignored `data/`; if it ever vanishes, this suite must say which
-        file to regenerate rather than skipping into a silent pass."""
+        """If the sanitized fixture ever vanishes, this suite must say how to
+        regenerate it rather than skipping into a silent pass. (Its
+        predecessor claimed the raw capture was "tracked in git"; it was not,
+        and CI was red from the day the claim shipped -- a tracked-file claim
+        is checked with `git ls-files`, never asserted from memory.)"""
         assert FILLS_CAPTURE.exists(), (
-            "data/captures/portfolio_fills.json is missing -- regenerate "
-            "with scripts/capture_fills_fixture.py"
+            "tests/fixtures/portfolio_fills_sanitized.json is missing -- "
+            "regenerate with scripts/capture_fills_fixture.py (raw capture) "
+            "then scripts/sanitize_fills_capture.py"
         )

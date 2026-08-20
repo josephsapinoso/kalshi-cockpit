@@ -1,0 +1,274 @@
+{
+  "note": "Sanitized from data/captures/portfolio_fills.json by scripts/sanitize_fills_capture.py. order_id values are first-appearance pseudonyms; trade_id, fill_id, subaccount_number, timestamps and all other fields are dropped.",
+  "captured_at": "2026-08-18T09:57:58.754911+00:00",
+  "endpoint": "/portfolio/fills",
+  "record_count": 33,
+  "payload": {
+    "fills": [
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S202691A9C21C4C5-B2A89BE285D",
+        "is_taker": true,
+        "count_fp": "227.27",
+        "yes_price_dollars": "0.0010",
+        "fee_cost": "0.015930",
+        "order_id": "order-01"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S20261C4CEC39067-58D6FC56310",
+        "is_taker": true,
+        "count_fp": "90.90",
+        "yes_price_dollars": "0.0010",
+        "fee_cost": "0.006400",
+        "order_id": "order-02"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S2026C50D8B8D4B1-3044DC63514",
+        "is_taker": true,
+        "count_fp": "90.90",
+        "yes_price_dollars": "0.0010",
+        "fee_cost": "0.006400",
+        "order_id": "order-03"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S20267CAC22FF5AF-FBAA3CF5828",
+        "is_taker": true,
+        "count_fp": "45.45",
+        "yes_price_dollars": "0.0020",
+        "fee_cost": "0.006400",
+        "order_id": "order-04"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S20265F5BDD0558B-958B06B5233",
+        "is_taker": true,
+        "count_fp": "28.32",
+        "yes_price_dollars": "0.0330",
+        "fee_cost": "0.063340",
+        "order_id": "order-05"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S2026F702637F93A-68F9DFB7657",
+        "is_taker": true,
+        "count_fp": "71.94",
+        "yes_price_dollars": "0.0130",
+        "fee_cost": "0.064780",
+        "order_id": "order-06"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S202638F2A5B879C-AB2DBEBAE27",
+        "is_taker": true,
+        "count_fp": "4.15",
+        "yes_price_dollars": "0.2280",
+        "fee_cost": "0.051200",
+        "order_id": "order-07"
+      },
+      {
+        "ticker": "KXMVECROSSCATEGORY-SHARD1-S2026A25239B35C6-B277E06D7E2",
+        "is_taker": true,
+        "count_fp": "909.09",
+        "yes_price_dollars": "0.0010",
+        "fee_cost": "0.063610",
+        "order_id": "order-08"
+      },
+      {
+        "ticker": "KXTOPUSAGEAI-26AUG10-ANTH",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.0100",
+        "fee_cost": "0.007000",
+        "order_id": "order-09"
+      },
+      {
+        "ticker": "KXTRUMPSAY-26AUG17-JD",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.0400",
+        "fee_cost": "0.026900",
+        "order_id": "order-10"
+      },
+      {
+        "ticker": "KXUFCFIGHT-26AUG15MAKMGI-MAK",
+        "is_taker": true,
+        "count_fp": "15.00",
+        "yes_price_dollars": "0.7400",
+        "fee_cost": "0.202100",
+        "order_id": "order-11"
+      },
+      {
+        "ticker": "KXUFCMOV-26AUG15MAKMGI-MAKSUB",
+        "is_taker": true,
+        "count_fp": "20.00",
+        "yes_price_dollars": "0.3300",
+        "fee_cost": "0.309600",
+        "order_id": "order-12"
+      },
+      {
+        "ticker": "KXUFCFIGHT-26AUG15MAKMGI-MGI",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.2700",
+        "fee_cost": "0.138000",
+        "order_id": "order-13"
+      },
+      {
+        "ticker": "KXUFCMOV-26AUG15DERROB-DERSUB",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.2800",
+        "fee_cost": "0.141200",
+        "order_id": "order-14"
+      },
+      {
+        "ticker": "KXUFCMOV-26AUG15DERROB-DERKOTKODQ",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.0800",
+        "fee_cost": "0.051600",
+        "order_id": "order-15"
+      },
+      {
+        "ticker": "KXUFCFIGHT-26AUG15TURFER-TUR",
+        "is_taker": true,
+        "count_fp": "3.00",
+        "yes_price_dollars": "0.5200",
+        "fee_cost": "0.052500",
+        "order_id": "order-16"
+      },
+      {
+        "ticker": "KXUFCMOV-26AUG15TURFER-FERDEC",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.1300",
+        "fee_cost": "0.079200",
+        "order_id": "order-17"
+      },
+      {
+        "ticker": "KXUFCMOV-26AUG15ABDSTO-ABDDEC",
+        "is_taker": true,
+        "count_fp": "5.00",
+        "yes_price_dollars": "0.2400",
+        "fee_cost": "0.063900",
+        "order_id": "order-18"
+      },
+      {
+        "ticker": "KXUFCFIGHT-26AUG15ABDSTO-ABD",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.8400",
+        "fee_cost": "0.094100",
+        "order_id": "order-19"
+      },
+      {
+        "ticker": "KXUFCFIGHT-26AUG15BARRIB-RIB",
+        "is_taker": true,
+        "count_fp": "20.00",
+        "yes_price_dollars": "0.8500",
+        "fee_cost": "0.178500",
+        "order_id": "order-20"
+      },
+      {
+        "ticker": "KXMLBKS-26AUG142215COLSF-SFLROUPP65-6",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.5100",
+        "fee_cost": "0.008800",
+        "order_id": "order-21"
+      },
+      {
+        "ticker": "KXPGATOUR-FESJC26-SIM",
+        "is_taker": true,
+        "count_fp": "20.00",
+        "yes_price_dollars": "0.1300",
+        "fee_cost": "0.158400",
+        "order_id": "order-22"
+      },
+      {
+        "ticker": "KXWNBAGAME-26AUG14DALIND-DAL",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.2800",
+        "fee_cost": "0.014200",
+        "order_id": "order-23"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG141810MIACIN-CIN",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.5200",
+        "fee_cost": "0.008800",
+        "order_id": "order-24"
+      },
+      {
+        "ticker": "KXMLBSPREAD-26AUG141420STLCHC-STL2",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.2700",
+        "fee_cost": "0.006900",
+        "order_id": "order-25"
+      },
+      {
+        "ticker": "KXMLBSPREAD-26AUG141420STLCHC-STL4",
+        "is_taker": true,
+        "count_fp": "20.00",
+        "yes_price_dollars": "0.1300",
+        "fee_cost": "0.079200",
+        "order_id": "order-26"
+      },
+      {
+        "ticker": "KXMLBSPREAD-26AUG141420STLCHC-STL4",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.1300",
+        "fee_cost": "0.004000",
+        "order_id": "order-27"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG102138TEXLAA-LAA",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.4800",
+        "fee_cost": "0.008800",
+        "order_id": "order-28"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG101940BALMIN-MIN",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.4800",
+        "fee_cost": "0.008800",
+        "order_id": "order-29"
+      },
+      {
+        "ticker": "KXATPDOUBLES-26AUG10HELPATCERETC-CERETC",
+        "is_taker": true,
+        "count_fp": "20.00",
+        "yes_price_dollars": "0.1500",
+        "fee_cost": "0.178500",
+        "order_id": "order-30"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG102210KCLAD-KC",
+        "is_taker": true,
+        "count_fp": "10.00",
+        "yes_price_dollars": "0.2700",
+        "fee_cost": "0.069000",
+        "order_id": "order-31"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG102210KCLAD-KC",
+        "is_taker": true,
+        "count_fp": "1.00",
+        "yes_price_dollars": "0.2700",
+        "fee_cost": "0.006900",
+        "order_id": "order-32"
+      },
+      {
+        "ticker": "KXMLBGAME-26AUG102210KCLAD-KC",
+        "is_taker": true,
+        "count_fp": "0.27",
+        "yes_price_dollars": "0.2700",
+        "fee_cost": "0.001900",
+        "order_id": "order-33"
+      }
+    ]
+  }
+}
