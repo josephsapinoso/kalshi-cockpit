@@ -20,7 +20,7 @@ Repo: `C:\Users\josep\Documents\Claude\Projects\kalshi_betting_tool`,
 branch `main`. Check `git status` and `git log origin/main..main` rather than
 trusting any sentence here, and read the LIVE instance's `/api/health` for its
 `git_sha` — it sits under `build`, not at the top level. The calibration study
-is OPEN (day 1 stamped 2026-08-18 09:15Z at $20.658). Joe is a beginner and has
+is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is a beginner and has
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
