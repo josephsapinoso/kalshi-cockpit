@@ -443,6 +443,26 @@ async def main() -> int:
             name="portfolio-poll",
         )
 
+        def window_now():
+            """The window as of *this instant*, from one expression.
+
+            **One source, and it is the environment's.** ADR 0019 section 6.
+            `staleness.max_odds_age_s * 1000` rather than
+            `suppression.max_odds_age_ms`: the startup assertion guarantees they
+            are equal today, and writing it once means they cannot drift if that
+            assertion is ever relaxed.
+
+            A function rather than a value because the answer changes *during* a
+            pass -- the odds sweep inside `run_once` is what makes odds fresh,
+            and fresh odds is the whole definition of `is_open`. Every caller
+            asks at the moment it needs to know.
+            """
+            return window_status(
+                conn, budget=budget, now_ms=db.now_ms(),
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                sweep_cost=odds_config.credits_per_sweep_per_sport,
+            )
+
         async def score_settle_and_alert(kind, counts, stamp, started):
             """Everything after the recording half of a pass.
 
@@ -482,11 +502,7 @@ async def main() -> int:
             # The startup assertion above guarantees these are equal today; this
             # makes them the same expression, so they cannot drift even if that
             # assertion is ever relaxed.
-            window = window_status(
-                conn, budget=budget, now_ms=db.now_ms(),
-                max_odds_age_ms=staleness.max_odds_age_s * 1000,
-                sweep_cost=odds_config.credits_per_sweep_per_sport,
-            )
+            window = window_now()
             # Alerting on a quote pass too, deliberately. A quote pass is when a
             # price moves inside the window, so it is exactly when a new
             # opportunity appears -- and the dedupe lives in `notifications`, so
@@ -570,11 +586,20 @@ async def main() -> int:
                     conn, kalshi, odds, budget,
                     config=odds_config, risk=risk, suppression=suppression,
                     now=stamp,
-                    # Retention is skipped while a window is open. Read off
-                    # the same `tempo` the cadence is, so the prune cannot
-                    # disagree with the scheduler about whether the minutes
-                    # it is about to spend are bettable ones.
-                    window_open=tempo.window_open,
+                    # Retention is skipped while a window is open, and this
+                    # is a **callable** so the answer is read at the prune
+                    # rather than here.
+                    #
+                    # It used to pass `tempo.window_open`, which is assigned at
+                    # the *end* of a pass and read at the *start* of the next
+                    # one. That let the prune through two ways. The stale flag
+                    # is the measured one -- `15:32:14 full took_s 94.3
+                    # quotes_pruned 40000` on 2026-08-19 with the window open
+                    # since 15:21Z. The other is worse and a pre-pass read
+                    # cannot catch it: `run_once` fires the odds sweep and
+                    # *then* prunes, so a full pass that opens a window prunes
+                    # inside the first ~40-94s of it, every time.
+                    window_open=lambda: window_now().is_open,
                 )
             else:
                 # Kalshi, plus the odds refresh that keeps an already-open

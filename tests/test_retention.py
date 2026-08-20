@@ -30,7 +30,18 @@ import sqlite3
 
 import pytest
 
+from backend.config import OddsConfig
 from backend.store import retention
+
+# Enough of an `OddsConfig` for `run_once` to reach its prune gate. The pass
+# itself is monkeypatched out -- nothing here calls The Odds API.
+_ODDS_CONFIG = OddsConfig(
+    api_key="test-odds-key",
+    base_url="https://example.invalid",
+    daily_credit_budget=16,
+    regions=["us"],
+    markets=["h2h"],
+)
 
 _MS_PER_DAY = 24 * 60 * 60 * 1000
 NOW = 1_787_000_000_000
@@ -345,30 +356,119 @@ class TestRetentionYieldsToABettableWindow:
         from backend import runner
 
         source = inspect.getsource(runner.run_once)
-        assert "if window_open:" in source, (
+        assert "callable(window_open)" in source, (
             "the full pass no longer checks window_open before pruning; a "
             "~40s prune inside a bettable window is the incident retention "
             "was written to prevent"
         )
-        gate = source.index("if window_open:")
+        gate = source.index("callable(window_open)")
         call = source.index("retention.prune(")
         assert gate < call, (
             "the prune runs before the window check, so the check cannot "
             "prevent it"
         )
 
-    def test_the_loop_passes_the_schedulers_own_window_state(self):
-        """One source of truth for 'is this minute bettable'.
+    async def test_the_window_is_read_after_the_sweep_not_before(
+        self, monkeypatch, conn
+    ):
+        """The decision is read at the prune, not at the top of the pass.
 
-        A prune reading a different clock from the cadence could prune during
-        exactly the minutes the cadence had sped up for.
+        This is the half a reordering cannot fix and the half that is probably
+        more common. `run_ingest_pass` fires the odds sweep; the sweep is what
+        makes odds fresh; fresh odds *is* `ActionableWindow.is_open`. So a full
+        pass that opens a window opened it moments earlier, in itself. A flag
+        sampled before the pass -- or, as shipped, at the end of the *previous*
+        pass -- still says closed, and the prune runs through the first ~40-94s
+        of a bettable window.
+
+        Asserting the call order rather than just the outcome, because a gate
+        that happens to be `True` for the wrong reason passes an outcome test.
+        """
+        from backend import runner
+        from backend.store import retention
+
+        order: list[str] = []
+
+        async def fake_ingest(*args, **kwargs):
+            order.append("ingest")
+            return [], runner.PassCounts()
+
+        def fake_prune(*args, **kwargs):
+            order.append("prune")
+            return retention.PruneResult()
+
+        def fake_pricing(*args, **kwargs):
+            return kwargs["counts"]
+
+        def window_is_open():
+            order.append("asked")
+            return True
+
+        monkeypatch.setattr(runner, "run_ingest_pass", fake_ingest)
+        monkeypatch.setattr(runner, "run_pricing_pass", fake_pricing)
+        monkeypatch.setattr(runner.retention, "prune", fake_prune)
+
+        await runner.run_once(
+            conn, None, None, None,
+            config=_ODDS_CONFIG,
+            window_open=window_is_open,
+        )
+
+        assert order == ["ingest", "asked"], (
+            f"expected the window to be read after ingest and the prune to be "
+            f"skipped; got {order}"
+        )
+
+    async def test_a_closed_window_still_prunes(self, monkeypatch, conn):
+        """The gate has to let the prune through, or retention never runs."""
+        from backend import runner
+        from backend.store import retention
+
+        order: list[str] = []
+
+        async def fake_ingest(*args, **kwargs):
+            order.append("ingest")
+            return [], runner.PassCounts()
+
+        def fake_prune(*args, **kwargs):
+            order.append("prune")
+            return retention.PruneResult()
+
+        monkeypatch.setattr(runner, "run_ingest_pass", fake_ingest)
+        monkeypatch.setattr(runner, "run_pricing_pass", lambda *a, **k: k["counts"])
+        monkeypatch.setattr(runner.retention, "prune", fake_prune)
+
+        await runner.run_once(
+            conn, None, None, None,
+            config=_ODDS_CONFIG,
+            window_open=lambda: False,
+        )
+
+        assert order == ["ingest", "prune"]
+
+    def test_the_loop_hands_the_prune_a_fresh_read_not_a_stored_flag(self):
+        """One source of truth for 'is this minute bettable' -- and one *clock*.
+
+        This used to assert `window_open=tempo.window_open`, on the reasoning
+        that the prune and the cadence should read the same state. The reasoning
+        was right and the object was wrong: `tempo.window_open` is assigned at
+        `run_loop.py`'s end-of-pass hook and read at the *start* of the next
+        pass, so it is the same source at a different time -- which is exactly
+        the different clock the old docstring warned about. Measured
+        2026-08-19: `15:32:14 full took_s 94.3 quotes_pruned 40000`, window open
+        since 15:21Z.
         """
         from pathlib import Path
 
         source = Path("scripts/run_loop.py").read_text(encoding="utf-8")
-        assert "window_open=tempo.window_open" in source, (
-            "run_loop no longer hands run_once the scheduler's window state, "
-            "so the prune falls back to the default and runs during windows"
+        assert "window_open=lambda: window_now().is_open" in source, (
+            "run_loop no longer hands run_once a callable that reads the window "
+            "at the prune, so the prune is back on a stale flag and runs during "
+            "windows"
+        )
+        assert "window_open=tempo.window_open" not in source, (
+            "run_loop is passing the stored end-of-previous-pass flag again; "
+            "that is the 2026-08-19 incident"
         )
 
 

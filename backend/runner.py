@@ -66,7 +66,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Collection, Iterable, Optional, Sequence
+from typing import Any, Callable, Collection, Iterable, Optional, Sequence
 
 from .agents.review import ReviewCandidate, review_surfaced
 from .config import (
@@ -2317,7 +2317,7 @@ async def run_once(
     risk: Optional[RiskConfig] = None,
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
-    window_open: bool = False,
+    window_open: bool | Callable[[], bool] = False,
 ) -> PassCounts:
     """One full pass: ingest, then price. The unit the scheduler repeats.
 
@@ -2343,7 +2343,16 @@ async def run_once(
     # 2026-08-19, full passes going 50s -> 87s. That is affordable between
     # windows and is exactly the gap the fast cadence exists to close
     # while one is open. Retention has no deadline; a bettable minute does.
-    if window_open:
+    # **Asked here, not at the top of the pass**, and `run_ingest_pass` above is
+    # exactly why. That call fires the odds sweep, the sweep is what makes odds
+    # fresh, and fresh odds *is* `ActionableWindow.is_open`. So a full pass that
+    # opens a window opened it a moment ago, inside this same pass, and a flag
+    # read before the pass -- or worse, one assigned at the end of the previous
+    # pass, which is what shipped -- still says closed. A callable is how the
+    # caller keeps one spelling of `max_odds_age_ms` (ADR 0019 section 6) while
+    # letting the decision be read at the instant it is made. A plain `bool`
+    # still works and is what the tests pass.
+    if window_open() if callable(window_open) else window_open:
         pruned = retention.PruneResult()
     else:
         pruned = retention.prune(conn, now=stamp)
