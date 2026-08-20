@@ -19,7 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from probe_prop_dispersion import _get_with_key  # noqa: E402
 
-SECRET = "SECRETKEY123456"
+# A deliberately fake credential, asserted to never reach output. The
+# low-entropy value and the allow marker keep the CI secret scanner from
+# flagging it as a real key, which it did on the first commit of this file.
+SECRET = "fake-key-for-leak-assertions"  # gitleaks:allow
 
 
 class TestProbeKeyWithheld:
