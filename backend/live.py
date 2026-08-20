@@ -15,11 +15,32 @@ module in this project to be complete, tested and orphaned. This is its caller.
 What streaming does not fix, and must not be allowed to imply
 -------------------------------------------------------------
 **It does not widen the actionable window.** The fair value on every card comes
-from a devigged sportsbook consensus costing ~16 credits a day, six a sweep.
-A live Kalshi ask against a consensus swept fourteen minutes ago is a live
-number on one side of a comparison. The window is an odds-budget fact and no
-amount of Kalshi streaming touches it — which is why `odds_age` still expires a
-row and this module does not report it as fresh.
+from a devigged sportsbook consensus, and that consensus costs credits while a
+Kalshi frame costs nothing. A live Kalshi ask against a consensus swept fourteen
+minutes ago is a live number on one side of a comparison. The window is an
+odds-budget fact and no amount of Kalshi streaming touches it — which is why
+`odds_age` still expires a row and this module does not report it as fresh.
+
+**The two numbers this paragraph used to carry were both wrong**, and they are
+replaced with sourced ones rather than corrected in place, because one of them
+should never have been a number at all.
+
+- *"six a sweep"*. A sweep costs `len(markets) x len(regions)`
+  (`odds/budget.py:68`), and `fly.live.toml` sets `ODDS_MARKETS = "h2h"` and
+  `ODDS_REGIONS = "us,eu"`. **A deployed sweep costs 2**, and has for as long as
+  that file has said so — the 6 described a three-market configuration that ran
+  on a laptop, never on the box.
+- *"~16 credits a day"*. That is `ODDS_DAILY_CREDIT_BUDGET`'s **code default**
+  (`config.py:253`), not a rate anybody measured, and the deployed value is
+  `600` (`fly.live.toml:214`) under a 13,000 monthly ceiling. The measurement
+  that would have supported a daily figure declines to publish one —
+  `docs/measurements/2026-08-17-odds-credit-run-rate.md` section 6: *"No daily
+  rate is published from this. One window is not a day."* So no daily figure is
+  quoted here either.
+
+Both came from `docs/adr/0003-parallel-sessions-and-subagents.md:61`, which is
+from before either value was deployed. A number copied out of an early ADR into
+a docstring is not sourced; it is laundered.
 
 **It does not replace the order-time refresh.** A price that arrived over this
 feed is a *client-supplied* price by the time it is on screen, and the server

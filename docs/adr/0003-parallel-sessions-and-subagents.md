@@ -61,6 +61,18 @@ These are not merge conflicts; they are real-world collisions no VCS will catch.
 - **The Odds API budget.** ~16 credits/day, 6 per sweep. Two workers each running
   a live sweep burns the day's allowance in minutes. **No worker runs
   `scripts/run_chain.py` or `run_loop.py` without `--no-odds`.**
+
+  > **Both figures are stale as of 2026-08-20, and the decision is not.** The
+  > deployed sweep costs **2** (`fly.live.toml` sets `ODDS_MARKETS = "h2h"` and
+  > `ODDS_REGIONS = "us,eu"`; `odds/budget.py:68` multiplies them) against a
+  > **600**/day, 13,000/month ceiling (`fly.live.toml:214`, `:220`). The 16 was
+  > `ODDS_DAILY_CREDIT_BUDGET`'s code default (`config.py:253`), never a
+  > measured rate. Noted here rather than edited above because an ADR records
+  > what was decided and when — but these two numbers were copied out of this
+  > line into `backend/live.py`'s docstring and read as sourced there for
+  > months, so the correction belongs beside the source as well as at the copy.
+  > The decision itself — one worker owns the odds path — is unaffected and
+  > stands: it is about contention, not about the size of the allowance.
 - **`data/`** — the local SQLite database and Parquet lake. Gitignored, so it is
   invisible to merge, and `publish` + `dbt build` overwrite it wholesale. Give
   each worker its own path, or let only the warehouse lane touch it.
