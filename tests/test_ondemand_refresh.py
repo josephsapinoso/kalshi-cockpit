@@ -688,7 +688,11 @@ class TestTheEndpoint:
         ).json()
         assert body["accepted"] is False
         assert "the day's odds budget refuses this call" in body["detail"]
-        assert "26" in body["detail"]
+        # 22, not 26: ten prop markets plus the one core market, across two
+        # regions. `conftest.py` pins both, because this literal used to come
+        # from whatever `.env` the machine held -- and the 26 it read there is
+        # a cost no deployed instance charges.
+        assert "22" in body["detail"]
 
     async def test_a_sport_with_no_stored_fixture_is_refused_with_a_reason(
         self, live_app

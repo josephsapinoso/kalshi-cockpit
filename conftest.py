@@ -49,6 +49,38 @@ def no_live_agent_calls(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def odds_sweep_cost_is_supplied_not_ambient(monkeypatch):
+    """The sweep cost is pinned to the deployed contract, for every test.
+
+    `credits_per_sweep_per_sport` is `len(markets) * len(regions)`, both read
+    from the environment through `load_dotenv()`. So any test that asserts a
+    credit figure was reading whatever `.env` the machine happened to hold --
+    the same failure `no_live_agent_calls` above exists for, with the odds
+    config as the hidden input instead of a secret.
+
+    It was not hypothetical. Two tests passed locally and failed in CI from
+    2026-08-20, with no code change between them:
+
+        test_it_reports_the_remaining_budget_in_sweeps   assert 2 == 0
+        test_the_day_s_budget_still_refuses_a_tap...     '26' not in '...22'
+
+    **And the values they were passing under run nowhere.** `ODDS_MARKETS` is
+    not set on the live instance -- `flyctl secrets list` shows `ODDS_API_KEY`
+    alone, and `fly.toml` sets neither -- so live takes the `h2h` default and a
+    sweep costs 2. CI sets nothing either, so CI was right. The only machine
+    that said 6 was a developer laptop whose `.env` disagrees with
+    `.env.example`, which CLAUDE.md calls the contract. The green local run was
+    the wrong one.
+
+    Pinned to the contract rather than to the laptop, so a test that asserts a
+    credit figure is asserting one the deployed system would actually produce.
+    A test that wants different values sets them itself.
+    """
+    monkeypatch.setenv("ODDS_MARKETS", "h2h")
+    monkeypatch.setenv("ODDS_REGIONS", "us,eu")
+
+
+@pytest.fixture(autouse=True)
 def forget_scope_warnings():
     """Unknown-scope warnings are deduplicated for the life of the *process*.
 

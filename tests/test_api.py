@@ -971,10 +971,18 @@ class TestActionableWindow:
         assert body["fixtures_upcoming"] > body["fixtures_fresh"] >= 1
 
     async def test_it_reports_the_remaining_budget_in_sweeps(self, fresh_app):
-        """16 credits a day at 6 a call is two sweeps, and the seed spends both."""
+        """16 credits a day at 2 a call, and the seed's 12 leaves two.
+
+        **The 2 is the deployed cost, and this used to say 6.** A sweep is
+        `len(markets) * len(regions)`; live sets neither variable, so it takes
+        the `h2h` default against `us,eu`. The 6 came from a developer `.env`
+        carrying `h2h,spreads,totals` -- a configuration that runs on no
+        instance. `conftest.py` now pins both, so this figure is one the
+        deployed system would actually report.
+        """
         body = (await get(fresh_app, "/api/window")).json()
         assert body["spent_today"] == 12
-        assert body["sweeps_remaining_today"] == 0
+        assert body["sweeps_remaining_today"] == 2
 
     async def test_the_demo_needs_no_odds_credential_to_render_it(self, tmp_path):
         """The demo instance holds no keys. A timetable must not require one."""
