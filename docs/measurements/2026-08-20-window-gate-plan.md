@@ -190,3 +190,126 @@ For contrast, the pre-fix behaviour at this same alignment would have put the
 first post-open pass at 15:27:41Z, 101s late — and that is the *lucky* case. The
 old 900s grid's offset is set by whenever the process last restarted, so the
 loss ranged from ~0 to 900s, up to a quarter of a 60-minute window.
+
+---
+
+## Second pre-flight, 13:35Z 2026-08-20 — how each observation will be read
+
+Taken 1h51m before the window opens, so nothing below was chosen after seeing
+an in-window result. Everything here is re-verified live rather than inherited
+from the 03:57Z pre-flight, which had a synthetic clock.
+
+### The box is on the build under test and has not restarted
+
+`/api/health` at 13:34Z: `build.git_sha` `5656133f34d9…`, `status` `ok`, one
+machine `7812601a239428`. The loop's own pass counter reached **37** at 13:20Z
+against a 03:54Z deploy — 9h26m at ~15.3 min a pass, which is the count a
+process that never restarted would have. **The 12-hour stability watch matures
+at ~15:54Z, inside the window**, and is still a separate observation.
+
+`recorder.age_ms` was 817,336 (13.6 min) at 13:34Z. The window is closed and
+the loop is on its slow cadence; this is the idle number, not a fault.
+
+### The null result is ruled out, on all three of its routes
+
+The registration's "no window opens at all" escape has three ways to happen —
+empty slate, day budget spent, month budget spent. None holds:
+
+```
+slate    odds_sweep_log:2656 @13:20:20Z  "next slot is baseball_mlb at
+         15:26Z-16:26Z for 6 game(s) from 16:41Z"      <- read off live, not the plan
+day      api_credits for budget day 20260820 (starts 10:00Z): 0 rows, cost 0
+month    1302 of ~20,000 spent August to date; a sweep costs 2
+```
+
+The slot arithmetic checks out against the rule in its own `detail` string:
+16:41Z − 75 min = 15:26Z, 16:41Z − 15 min = 16:26Z.
+
+### `odds_sweep_log` is the instrument for observations 2, 3 and 4
+
+Verified rather than assumed, because the handoff's description was loose.
+The table is **one row per sweep *decision***, not one per pass — `sport_key`
+is nullable and a pass that fires several sports writes several rows. But
+`fetch_and_store_odds` writes a row on **every** outcome including "nothing"
+(`backend/runner.py:1793`), and the live ids are contiguous one-per-pass across
+the whole quiet stretch (2645–2656 for the twelve passes 10:31Z–13:20Z). So
+**`SELECT DISTINCT pass_ms` is the durable pass grid** and no log is needed for
+observations 2, 3 or 4. Use `DISTINCT`, never `COUNT(*)`.
+
+The pre-window cadence, read off that grid at 13:34Z, twelve consecutive gaps:
+
+```
+966 944 830 963 874 913 887 925 1034 909 877   (seconds)
+```
+
+All within ±15% of 900s, which is the registered jitter. Observation 4's "before"
+arm is behaving so far.
+
+### Observation 1 has a denominator, and it is not the one the plan implies
+
+Two things had to be true for a zero prune inside the window to mean anything.
+Both were checked, and the first was **not** what the plan assumed.
+
+**A full pass really does land inside an open window.** `Tempo.pass_kind`
+(`backend/scheduler.py`) returns `"full"` whenever
+`now >= last_full_ms + slow_interval_s`, and that test does not consult
+`window_open` at all. So the fast cadence does not suppress full passes — it
+just runs ~60 quote passes between them. Expect **~4 full passes inside the
+60-minute window**, each of which reaches the prune. If instead the window
+contained no full pass, observation 1 would have been vacuous and would have
+read as a pass. It is not vacuous.
+
+**The prune still has work every time it runs.** Out-of-window full passes
+today:
+
+```
+10:32  1975    11:34  3950    12:34  4074    13:06  2037
+10:48  1975    12:04  3950    12:51  2037
+```
+
+and every quote pass in the same stretch reports `quotes_pruned: 0`, which is
+the control. So a 0 on a *full* pass inside the window is a real observation
+and not an artifact of an empty backlog.
+
+### How observation 1 will actually be evidenced, and its known weakness
+
+**`quotes_pruned` is persisted nowhere.** Confirmed by search, not assumed:
+the only references are `PassCounts` (`backend/runner.py:267`), the log-field
+list (`:329`), the assignment (`:2359`), and tests. No table, no API field.
+
+**The handoff's suggested fallback is wrong and must not be used.** It proposed
+the oldest `observed_ms` in `kalshi_quotes` as a proxy that "jumps if a prune
+ran". `prune_quotes` selects on `COALESCE(confirmed_ms, observed_ms)`
+(`backend/store/retention.py:206`), deliberately — ADR 0055 made the table a
+change log, so a row can carry a three-day-old `observed_ms` and a current
+`confirmed_ms`, and the prune keeps it. `MIN(observed_ms)` can therefore sit
+still through a prune that deleted tens of thousands of rows. The prune
+frontier is `MIN(COALESCE(confirmed_ms, observed_ms))` over tickers **not** in
+`recommendations`, and no whitelisted query in `inspect_live_db.py` exposes it.
+Adding one needs a deploy, a deploy restarts the box, and a restart would reset
+the 12-hour stability watch riding on the same build. **Not worth it for one
+observation; registered as a gap, and the query is being added for the *next*
+window instead.**
+
+So observation 1 is read from the process log, and **asymmetrically**:
+
+- a `quotes_pruned` > 0 on a pass stamped 15:26Z–16:26Z **falsifies fix 1**.
+  `flyctl logs` drops lines, but a line that appears was really emitted, so
+  this direction is sound.
+- the **absence** of such a line does **not** confirm fix 1. It is consistent
+  with the gate holding and equally consistent with the log having dropped the
+  line.
+
+To make the absence worth something, the log arm is paired with the durable
+grid: `odds_sweep_log` names every pass in the window, so a full pass whose
+prune line is missing from the log can be *identified* rather than assumed
+away. A window in which every full pass is present in the log with
+`quotes_pruned: 0` is the strongest reading available today, and it is still
+weaker than the other three observations. It will be reported at that strength
+and **not** inferred from the fact that 2, 3 and 4 passed.
+
+### What this second pre-flight does not establish
+
+Nothing about the fix. Every number above is either the state of the box
+before the window or a property of the code read in the repo. Observations 1–4
+are still untaken at the time of writing.
