@@ -1852,6 +1852,207 @@ def _q_kalshi_quotes_band(conn: sqlite3.Connection, args) -> list[Section]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# window-freshness: `fixture_freshness` recomputed at a stated instant
+# ---------------------------------------------------------------------------
+
+# The same shape as `backend/odds/timing.py::fixture_freshness`, with ONE
+# deliberate addition: `fetched_ms <= :at`, so the query can be pinned at a
+# past instant. At `--at now` the predicate is vacuous (no fetch is in the
+# future) and the two are the same query. Ages here are `:at - oldest`, where
+# oldest is the production measure -- within each fixture's most recent sweep,
+# the oldest contributing book's own `last_update`, falling back to our fetch
+# time. The production function's known approximation is inherited unchanged:
+# it does NOT drop books that fail to quote every outcome, so a fixture can
+# read staler here than the runner will find it.
+_SQL_FRESHNESS_AT_FIXTURES = (
+    "WITH latest AS ("
+    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
+    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
+    "  GROUP BY odds_event_id"
+    ") "
+    "SELECT o.odds_event_id, o.sport_key,"
+    "       MIN(o.commence_ms) AS commence_ms,"
+    "       l.m AS fetched_ms,"
+    "       COUNT(DISTINCT o.bookmaker) AS books,"
+    "       MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms,"
+    "       MAX(COALESCE(o.book_updated_ms, o.fetched_ms)) AS newest_ms,"
+    "       :at - MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS age_ms "
+    "FROM odds_snapshots o JOIN latest l"
+    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
+    "WHERE o.market = 'h2h' "
+    "GROUP BY o.odds_event_id "
+    "ORDER BY age_ms"
+)
+
+# The same latest-sweep population, grouped by book instead of fixture. The
+# window indicator takes MIN over books per fixture, so ONE book whose
+# `last_update` the aggregator has not advanced drags every fixture it quotes
+# toward "stale". This section is what names that book.
+_SQL_FRESHNESS_AT_BOOKS = (
+    "WITH latest AS ("
+    "  SELECT odds_event_id, MAX(fetched_ms) AS m FROM odds_snapshots"
+    "  WHERE market = 'h2h' AND fetched_ms <= :at AND commence_ms >= :at"
+    "  GROUP BY odds_event_id"
+    ") "
+    "SELECT o.bookmaker,"
+    "       COUNT(DISTINCT o.odds_event_id) AS fixtures,"
+    "       MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS oldest_ms,"
+    "       MAX(COALESCE(o.book_updated_ms, o.fetched_ms)) AS newest_ms,"
+    "       :at - MIN(COALESCE(o.book_updated_ms, o.fetched_ms)) AS worst_age_ms "
+    "FROM odds_snapshots o JOIN latest l"
+    "  ON o.odds_event_id = l.odds_event_id AND o.fetched_ms = l.m "
+    "WHERE o.market = 'h2h' "
+    "GROUP BY o.bookmaker "
+    "ORDER BY worst_age_ms DESC"
+)
+
+
+def _parse_at_ms(value: Optional[str]) -> int:
+    """`--at` as epoch milliseconds. Digits pass through; ISO-8601 is parsed.
+
+    A malformed value raises ValueError (exit 2 via main) rather than falling
+    back to "now": a typo'd instant answered with the present would read as a
+    retrospective measurement and be one silently taken today.
+    """
+    if value is None:
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
+    if value.isdigit():
+        return int(value)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"--at {value!r} is neither epoch milliseconds nor ISO-8601"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _q_window_freshness(conn: sqlite3.Connection, args) -> list[Section]:
+    """`fixture_freshness` at `--at`, per fixture and then per book.
+
+    What this does not establish
+    ----------------------------
+    - **Not what the loop read at that instant.** Rows written or pruned since
+      then change the answer; a retrospective read is honest only while the
+      sweeps around the instant are still in `odds_snapshots`. Compare
+      `fetched_ms` against the sweep log before believing an age.
+    - **Nothing about why a stamp is old** -- a stale `last_update` cannot
+      separate "the book has not repriced" from "the aggregator has not
+      re-crawled it" (2026-08-11 repeat-poll result).
+    """
+    at_ms = _parse_at_ms(args.at)
+    fixtures = _fetch(
+        conn,
+        _SQL_FRESHNESS_AT_FIXTURES,
+        {"at": at_ms},
+        title=f"fixture_freshness at {_iso(at_ms)}: per fixture, freshest first",
+        cap=args.limit,
+    )
+    for col, iso in (
+        ("commence_ms", "commence_iso"),
+        ("fetched_ms", "fetched_iso"),
+        ("oldest_ms", "oldest_iso"),
+    ):
+        fixtures = _derive_iso(fixtures, col, iso)
+    books = _fetch(
+        conn,
+        _SQL_FRESHNESS_AT_BOOKS,
+        {"at": at_ms},
+        title=(
+            f"same population by book at {_iso(at_ms)}: worst own-stamp age "
+            "across the fixtures each book quotes, stalest first"
+        ),
+        cap=args.limit,
+    )
+    books = _derive_iso(books, "oldest_ms", "oldest_iso")
+    return [fixtures, books]
+
+
+# ---------------------------------------------------------------------------
+# estimate-match-status: the calibration study's coverage cells
+# ---------------------------------------------------------------------------
+
+_SQL_MATCH_STATUS_POSITIONS = (
+    "SELECT estimate_match_status, COUNT(*) AS n,"
+    "       MIN(settled_ms) AS min_settled_ms, MAX(settled_ms) AS max_settled_ms "
+    "FROM venue_settlements GROUP BY estimate_match_status ORDER BY n DESC"
+)
+
+# The benign explanation for `out_of_scope = everything` is "every one is a
+# multi-leg combo". `venue_settlements` carries no multi-leg flag, so the
+# ticker prefix is the observable: KXMVE is the combo series. Splitting the
+# status counts by that prefix is what lets a single non-combo `out_of_scope`
+# row show up instead of drowning in the aggregate.
+_SQL_MATCH_STATUS_POSITIONS_BY_KIND = (
+    "SELECT estimate_match_status,"
+    "       CASE WHEN ticker LIKE 'KXMVE%' THEN 'combo' ELSE 'single' END AS kind,"
+    "       COUNT(*) AS n "
+    "FROM venue_settlements "
+    "GROUP BY estimate_match_status, kind ORDER BY n DESC"
+)
+
+_SQL_MATCH_STATUS_NONCOMBO_ROWS = (
+    "SELECT id, ticker, side, contracts, settled_ms, estimate_match_status "
+    "FROM venue_settlements "
+    "WHERE ticker NOT LIKE 'KXMVE%' "
+    "ORDER BY settled_ms DESC"
+)
+
+_SQL_MATCH_STATUS_ESTIMATES = (
+    "SELECT match_status, COUNT(*) AS n,"
+    "       MIN(match_status_ms) AS min_status_ms,"
+    "       MAX(match_status_ms) AS max_status_ms "
+    "FROM bet_estimates GROUP BY match_status ORDER BY n DESC"
+)
+
+
+def _q_estimate_match_status(conn: sqlite3.Connection, args) -> list[Section]:
+    """The §7.5 coverage cells: position-side and estimate-side status counts.
+
+    Emits rows and no verdict. The zero being checked -- 0 `position_unlogged`
+    against 35 `out_of_scope` on the first classify pass -- is interesting
+    exactly if a NON-combo position sits in `out_of_scope`, which section 3
+    lists row by row.
+    """
+    positions = _fetch(
+        conn,
+        _SQL_MATCH_STATUS_POSITIONS,
+        (),
+        title="venue_settlements by estimate_match_status (NULL = not yet examined)",
+        cap=args.limit,
+    )
+    positions = _derive_iso(positions, "min_settled_ms", "min_settled_iso")
+    positions = _derive_iso(positions, "max_settled_ms", "max_settled_iso")
+    by_kind = _fetch(
+        conn,
+        _SQL_MATCH_STATUS_POSITIONS_BY_KIND,
+        (),
+        title="the same statuses split combo (KXMVE) vs single-market ticker",
+        cap=args.limit,
+    )
+    noncombo = _fetch(
+        conn,
+        _SQL_MATCH_STATUS_NONCOMBO_ROWS,
+        (),
+        title="every non-combo position row, newest first",
+        cap=args.limit,
+    )
+    noncombo = _derive_iso(noncombo, "settled_ms", "settled_iso")
+    estimates = _fetch(
+        conn,
+        _SQL_MATCH_STATUS_ESTIMATES,
+        (),
+        title="bet_estimates by match_status (NULL = never examined)",
+        cap=args.limit,
+    )
+    estimates = _derive_iso(estimates, "min_status_ms", "min_status_iso")
+    estimates = _derive_iso(estimates, "max_status_ms", "max_status_iso")
+    return [positions, by_kind, noncombo, estimates]
+
+
 @dataclass(frozen=True)
 class QueryDef:
     description: str
@@ -1962,6 +2163,20 @@ QUERIES: dict[str, QueryDef] = {
         "Answers: are the prop rows unscorable, and is the 300-game floor "
         "counting one game more than once?",
         _q_clv_coverage,
+    ),
+    "window-freshness": QueryDef(
+        "fixture_freshness recomputed at --at (ISO or epoch ms, default now): "
+        "per-fixture consensus ages the window indicator would compute, then "
+        "the same population by book, stalest first. Answers: which book's "
+        "own last_update stamp closed the window mid-refresh-interval?",
+        _q_window_freshness,
+    ),
+    "estimate-match-status": QueryDef(
+        "Calibration §7.5 coverage: venue_settlements by estimate_match_status "
+        "(total, then split combo vs single ticker, then every non-combo row), "
+        "and bet_estimates by match_status. Answers: is the 0-position_unlogged "
+        "cell real, or is a non-combo position sitting in out_of_scope?",
+        _q_estimate_match_status,
     ),
     "kalshi-quotes-band": QueryDef(
         "Q-W: was a WNBA market in 270-390 tenths (excl. 300) with depth >= 1 "
@@ -2113,6 +2328,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "restrict prop-rungs to one Odds API fixture. Default None means "
             "every fixture, which will truncate on a full slate"
+        ),
+    )
+    parser.add_argument(
+        "--at",
+        default=None,
+        help=(
+            "instant for window-freshness, ISO-8601 or epoch milliseconds "
+            "(default: now)"
         ),
     )
     parser.add_argument(

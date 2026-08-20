@@ -2225,3 +2225,246 @@ class TestTheDumpTruncatesLoudlyBecauseItIsOrderedById:
         (section,) = _dump(path, limit=DEFAULT_ROW_CAP)
         assert section.truncated is False
         assert section.row_count == 6
+
+
+def _freshness_db(tmp_path) -> Path:
+    """Two sweeps of two fixtures, with one deliberately laggard book.
+
+    Instants (ms): sweep 1 at 1_000_000, sweep 2 at 2_000_000. Fixture F1
+    commences at 5_000_000, F2 at 3_500_000. In sweep 2, book `sharp` carries
+    a stamp 10s before the fetch and book `laggard` a stamp 900s older -- so
+    F1's oldest contributing stamp is the laggard's, which is the exact shape
+    suspected of closing the 2026-08-20 window mid-refresh-interval.
+    """
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    rows = [
+        # fetched, book_updated, event, commence, book, market
+        (1_000_000, 990_000, "F1", 5_000_000, "sharp", "h2h"),
+        (1_000_000, 980_000, "F1", 5_000_000, "laggard", "h2h"),
+        (2_000_000, 1_990_000, "F1", 5_000_000, "sharp", "h2h"),
+        (2_000_000, 1_090_000, "F1", 5_000_000, "laggard", "h2h"),
+        (2_000_000, 1_995_000, "F2", 3_500_000, "sharp", "h2h"),
+        # A spreads row on F1 with a far older stamp: must not contribute.
+        (2_000_000, 100_000, "F1", 5_000_000, "sharp", "spreads"),
+    ]
+    conn.executemany(
+        "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key,"
+        " odds_event_id, commence_ms, home_team, away_team, bookmaker, market,"
+        " outcome_name, price_decimal)"
+        " VALUES (?, ?, 'baseball_mlb', ?, ?, 'H', 'A', ?, ?, 'H', 1.9)",
+        [(f, b, e, c, bk, m) for f, b, e, c, bk, m in rows],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+class TestWindowFreshnessMirrorsTheProductionMeasure:
+    """`window-freshness` computes the ages `fixture_freshness` would.
+
+    Mutation: change `MIN(COALESCE(o.book_updated_ms, o.fetched_ms))` to
+    `MAX(...)` in `_SQL_FRESHNESS_AT_FIXTURES` -- the fixture age becomes the
+    freshest book's and the laggard disappears from the reading.
+    """
+
+    def test_a_fixtures_age_is_its_oldest_books_stamp(self, tmp_path, capsys):
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "2100000",
+            ],
+        )
+        fixtures = _named(payload, "per fixture")
+        by_id = {r[0]: r for r in fixtures["rows"]}
+        cols = fixtures["columns"]
+        age = cols.index("age_ms")
+        # F1's oldest contributing stamp is the laggard's 1_090_000.
+        assert by_id["F1"][age] == 2_100_000 - 1_090_000
+        # F2 has only the sharp book.
+        assert by_id["F2"][age] == 2_100_000 - 1_995_000
+
+    def test_only_the_latest_sweep_contributes(self, tmp_path, capsys):
+        """Sweep 1's rows (stamps ~990_000) never reach the reading."""
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "2100000",
+            ],
+        )
+        fixtures = _named(payload, "per fixture")
+        cols = fixtures["columns"]
+        fetched = cols.index("fetched_ms")
+        assert all(r[fetched] == 2_000_000 for r in fixtures["rows"])
+
+    def test_another_market_key_does_not_contaminate_h2h(self, tmp_path, capsys):
+        """The spreads row's 100_000 stamp must not become F1's age.
+
+        Mutation: drop either `market = 'h2h'` predicate from
+        `_SQL_FRESHNESS_AT_FIXTURES`.
+        """
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "2100000",
+            ],
+        )
+        fixtures = _named(payload, "per fixture")
+        cols = fixtures["columns"]
+        by_id = {r[0]: r for r in fixtures["rows"]}
+        assert by_id["F1"][cols.index("oldest_ms")] == 1_090_000
+
+    def test_a_commenced_fixture_leaves_the_population(self, tmp_path, capsys):
+        """At an instant past F2's commence, only F1 is upcoming."""
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "3600000",
+            ],
+        )
+        fixtures = _named(payload, "per fixture")
+        assert [r[0] for r in fixtures["rows"]] == ["F1"]
+
+    def test_the_instant_pins_which_sweep_is_latest(self, tmp_path, capsys):
+        """At --at between the sweeps, sweep 2 does not exist yet.
+
+        Mutation: drop `fetched_ms <= :at` -- the retrospective read then
+        answers with a sweep that had not happened, which is a measurement
+        taken today wearing yesterday's title.
+        """
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "1500000",
+            ],
+        )
+        fixtures = _named(payload, "per fixture")
+        cols = fixtures["columns"]
+        assert all(
+            r[cols.index("fetched_ms")] == 1_000_000 for r in fixtures["rows"]
+        )
+
+    def test_the_book_section_names_the_laggard_stalest_first(
+        self, tmp_path, capsys
+    ):
+        payload = _run_json(
+            capsys,
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "2100000",
+            ],
+        )
+        books = _named(payload, "by book")
+        cols = books["columns"]
+        first = books["rows"][0]
+        assert first[cols.index("bookmaker")] == "laggard"
+        assert first[cols.index("worst_age_ms")] == 2_100_000 - 1_090_000
+
+    def test_a_malformed_at_exits_2_rather_than_answering_now(
+        self, tmp_path, capsys
+    ):
+        rc = main(
+            [
+                "window-freshness",
+                "--db", str(_freshness_db(tmp_path)),
+                "--at", "yesterdayish",
+            ]
+        )
+        err = capsys.readouterr().err
+        assert rc == 2
+        assert "yesterdayish" in err
+
+    def test_an_iso_at_equals_its_epoch_spelling(self, tmp_path, capsys):
+        db = _freshness_db(tmp_path)
+        iso = _run_json(
+            capsys,
+            ["window-freshness", "--db", str(db), "--at", "1970-01-01T00:35:00Z"],
+        )
+        ms = _run_json(
+            capsys,
+            ["window-freshness", "--db", str(db), "--at", "2100000"],
+        )
+        assert iso["sections"] == ms["sections"]
+
+
+def _match_status_db(tmp_path) -> Path:
+    """Three positions -- two combo, one single -- and two estimates."""
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    conn.executemany(
+        "INSERT INTO venue_settlements"
+        " (ticker, settled_ms, side, contracts, estimate_match_status)"
+        " VALUES (?, ?, 'yes', 1.0, ?)",
+        [
+            ("KXMVE-25AUG18ABC", 1_000, "out_of_scope"),
+            ("KXMVE-25AUG18DEF", 2_000, "out_of_scope"),
+            ("KXMLBGAME-25AUG18-NYY", 3_000, "out_of_scope"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO bet_estimates"
+        " (ticker, stated_probability_bp, estimate_server_ms, cluster_key,"
+        "  match_status, match_status_ms)"
+        " VALUES (?, 5000, 1, 'C1', ?, ?)",
+        [
+            ("KXMLBGAME-25AUG18-NYY", "matched", 10),
+            ("KXMLBGAME-25AUG18-BOS", "absence_pending", None),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+class TestEstimateMatchStatusSplitsComboFromSingle:
+    """The suspicious zero is checkable only if a non-combo row is visible.
+
+    Mutation: drop the CASE from `_SQL_MATCH_STATUS_POSITIONS_BY_KIND` --
+    every position then pools into one cell, and the single-market
+    `out_of_scope` row this query exists to expose drowns in the aggregate.
+    """
+
+    def test_the_by_kind_split_separates_the_single_ticker(
+        self, tmp_path, capsys
+    ):
+        payload = _run_json(
+            capsys,
+            ["estimate-match-status", "--db", str(_match_status_db(tmp_path))],
+        )
+        kinds = _named(payload, "split combo")
+        rows = {(r[0], r[1]): r[2] for r in kinds["rows"]}
+        assert rows[("out_of_scope", "combo")] == 2
+        assert rows[("out_of_scope", "single")] == 1
+
+    def test_every_non_combo_row_is_listed_row_by_row(self, tmp_path, capsys):
+        payload = _run_json(
+            capsys,
+            ["estimate-match-status", "--db", str(_match_status_db(tmp_path))],
+        )
+        noncombo = _named(payload, "non-combo")
+        cols = noncombo["columns"]
+        assert [r[cols.index("ticker")] for r in noncombo["rows"]] == [
+            "KXMLBGAME-25AUG18-NYY"
+        ]
+
+    def test_the_estimate_side_counts_both_statuses(self, tmp_path, capsys):
+        payload = _run_json(
+            capsys,
+            ["estimate-match-status", "--db", str(_match_status_db(tmp_path))],
+        )
+        estimates = _named(payload, "bet_estimates by match_status")
+        rows = {r[0]: r[1] for r in estimates["rows"]}
+        assert rows == {"matched": 1, "absence_pending": 1}
