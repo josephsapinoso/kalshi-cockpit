@@ -17,6 +17,12 @@ fixed now so that none of them can be made after the number exists.
 > and **it, not the original text, governs**.
 > **The registered estimand did not change. The power did.**
 > See [Amendment 1](#amendment-1--2026-08-18).
+>
+> **AMENDMENT 2, 2026-08-20 — THE STUDY IS STOPPED, WITHOUT RESULT.**
+> Joe closed it on day 3 with one estimate logged. Nothing below is a
+> live protocol any more; the recording machinery survives for its own
+> reasons. See the amendment at the end. Reopening is a NEW
+> registration.
 
 ## Filing note — why this is not in `docs/preregistrations/`
 
@@ -1424,3 +1430,25 @@ top of the result file, and nothing in this amendment computes, renders, or
 logs it earlier. The one number that may appear before the stop is the count
 of rows still `NULL` — "not yet examined" is a pipeline-health fact, not a
 study statistic.
+
+## AMENDMENT 2 — 2026-08-20 ~22:05Z: STOPPED BY THE OWNER, WITHOUT RESULT
+
+Joe stopped the study on 2026-08-20 ("just scrap it. I am a newbie
+bettor."), day 3, with **one estimate logged and zero matched**. The
+terminal state is **STOPPED WITHOUT RESULT** — not a calibration finding,
+not a negative result, and not evidence about Joe's forecasting in either
+direction. Nothing was scored: the §5 statistic was never computed, the
+embargoed coverage rate was never rendered, and both stay uncomputed —
+a rate over one row would be an anecdote wearing a denominator.
+
+What stops: the study. What does not stop: the recording machinery.
+`poll_portfolio_forever` (settlements, fills, balance) keeps running
+because the venue drops history and the mirror is the only durable copy
+(its balance snapshots also serve H4, ADR 0027); the estimate-match pass
+keeps running because it is idempotent bookkeeping over whatever rows
+exist and costs nothing. The one `bet_estimates` row remains, status
+honest, forever unscored.
+
+Reopening this study is a NEW registration, not a resumption: the
+population cut, the funnel, and the target were all sized for a user who
+has since said plainly he is not ready to feed them.
