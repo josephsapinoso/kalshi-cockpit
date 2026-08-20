@@ -43,7 +43,7 @@ import asyncio
 import json
 import statistics
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -223,7 +223,34 @@ def compute(raw: dict) -> dict:
         "not_active": 0, "no_strike": 0, "no_ask": 0, "unnamed_team": 0,
         "unmatched_game": 0, "no_spread_sibling": 0, "no_exact_line": 0,
         "one_sided_book_dropped": 0, "lt_two_books": 0,
+        # The second-look registration's per-game commence rule (edit 1 of
+        # the three permitted; see that file's section 4 and 9).
+        "commenced_or_imminent": 0, "outside_window": 0,
+        "unreadable_commence": 0,
     }
+
+    def commence_window_counter(odds_event: dict) -> Optional[str]:
+        """The registered per-game commence rule: a matched game enters the
+        population only if its odds-fixture `commence_time` lies in
+        `[taken_at + 15 min, taken_at + 12 h]` (closed interval; the stamp
+        is fixed before the sweep, so this cannot reference the outcome).
+        Returns the exclusion counter to bump, or None to admit. An
+        unreadable stamp refuses the game -- unreadable resolves to a
+        refusal, never a pass."""
+        try:
+            commence = datetime.fromisoformat(
+                str(odds_event["commence_time"]).replace("Z", "+00:00")
+            )
+            taken = datetime.fromisoformat(
+                str(raw["taken_at"]).replace("Z", "+00:00")
+            )
+        except (KeyError, ValueError):
+            return "unreadable_commence"
+        if commence < taken + timedelta(minutes=15):
+            return "commenced_or_imminent"
+        if commence > taken + timedelta(hours=12):
+            return "outside_window"
+        return None
 
     def charged_k(series: str, event: dict) -> tuple[Decimal, str]:
         override = event.get("fee_multiplier_override")
@@ -244,6 +271,10 @@ def compute(raw: dict) -> dict:
                 ] += 1
                 continue
             gi, mapping = game
+            window_counter = commence_window_counter(odds_events[gi])
+            if window_counter is not None:
+                excluded[window_counter] += 1
+                continue
             k_charged, k_source = charged_k(series, event)
 
             for market in event.get("markets", []):
@@ -366,7 +397,7 @@ def main(argv: list[str]) -> int:
     else:
         raw = asyncio.run(capture())
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
-        out = OUT_DIR / f"2026-08-20-spread-sweep-raw-{stamp}.json"
+        out = OUT_DIR / f"2026-08-21-spread-sweep-raw-{stamp}.json"
         out.write_text(json.dumps(raw, indent=1, default=str), encoding="utf-8")
         print(f"raw artifact: {out}")
         print(f"vendor counter: {raw['vendor_meta']}")
@@ -374,10 +405,11 @@ def main(argv: list[str]) -> int:
 
     result = compute(raw)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
-    rows_path = OUT_DIR / f"2026-08-20-spread-edge-rows-{stamp}.json"
+    rows_path = OUT_DIR / f"2026-08-21-spread-edge-rows-{stamp}.json"
     rows_path.write_text(
         json.dumps(
-            {"registration": "2026-08-20-preregistration-spread-total-edge.md",
+            {"registration":
+                 "2026-08-21-preregistration-spread-total-edge-second-look.md",
              **result},
             indent=1,
         ),

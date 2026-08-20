@@ -519,3 +519,200 @@ FAULT applies.
 
 *Registered before the anchor. Committed before the sweep. Scored against, not
 rewritten.*
+
+---
+
+## Amendment 1 — 2026-08-20, before the anchor and before any 2026-08-21 datum
+
+**Additive. No sentence above is edited, deleted or reworded.** Where this
+amendment corrects a statement above, the wrong statement stays in place and is
+quoted here, because a registration that silently repairs itself is not a
+registration.
+
+### A1.1 What happened
+
+The three permitted edits of §9 were made exactly as §4/§9 specify — the
+per-game commence window `[taken_at + 15 min, taken_at + 12 h]` with counters
+`commenced_or_imminent` / `outside_window`, the artifact filename prefix, and
+the `"registration"` field — plus one counter not named in §9,
+`unreadable_commence`, ruled on in A1.5. The §9 replay gate was then run on
+look 1's raw artifact, free, before the anchor.
+
+Result (the gate evidence, quoted in full):
+
+    edges (sharp, charged fee)  -25.0, -3.5, -19.2, -15.3, -2.9 tenths  EXACT
+    KXMLBSPREAD  sharp 3 rows / 3 games  EXACT   arm verdict UNDERPOWERED  EXACT
+    KXMLBTOTAL   sharp 2 rows / 2 games  EXACT   arm verdict UNDERPOWERED  EXACT
+    KXMLBSPREAD  total rows 3   (published 11)   CHANGED
+    KXMLBTOTAL   total rows 4   (published 12)   CHANGED
+    excluded = {'not_active': 0, 'no_strike': 0, 'no_ask': 0,
+                'unnamed_team': 0, 'unmatched_game': 1, 'no_spread_sibling': 1,
+                'no_exact_line': 41, 'one_sided_book_dropped': 75,
+                'lt_two_books': 3, 'commenced_or_imminent': 0,
+                'outside_window': 16, 'unreadable_commence': 0}
+
+Cause: `outside_window = 16`. Look 1's matched population contained fixtures at
++22h to +28h — the next day's listings — which produced non-sharp rows and which
+the §4 filter now excludes by design.
+
+### A1.2 The premise in §9 was false, and it is a transcription slip provable from this file's own §2.1
+
+§9 says, verbatim:
+
+> Look 1's three matched games commence at +70 min, +2h40 and +2h45, all inside
+> the new window, so edit 1 must be a **no-op on that artifact**.
+
+That is wrong. **Look 1 matched 11 games, not 3.** Three of them were
+*sharp-anchored*; §9 conflated "matched" with "sharp-anchored". The evidence
+that this is a slip rather than a discovery is inside this same document: §2.1's
+own table already lists "every other 2026-08-21/22 fixture (+22h to +28h)" with
+8–13 books each. The information needed to write §9 correctly was two pages
+above it and was already written down. Nothing was learned from data that was
+not already in the registration.
+
+§2.1 carries the same slip and is corrected here too. It says look 1 "yielded 3
+matched games out of 12 Kalshi-listed events". It yielded **11 matched games, of
+which 3 were sharp-anchored**. Matching was never the bottleneck; **Pinnacle
+quoting both sides at Kalshi's exact line** was, and is.
+
+**The direction of that correction is inconvenient and is stated as such.** It
+means §2.2's yield table, which is conditioned on *sharp-anchored games at the
+anchor*, rests on a rate look 1 supports less generously than §2.1's wording
+implied: 3 of 11 matched games were sharp-anchored, and they were the three
+nearest to first pitch. **UNDERPOWERED is therefore more likely than §2.2's
+optimistic rows suggest, on both arms.** Registered now, at zero cost, so it
+cannot be discovered afterwards as an excuse. **No number in §2.2 is changed, no
+floor is moved, and no verdict rule is touched** — the correction bears on
+expectation only. C3 (≥8 matched events) becomes easier to satisfy and is
+correspondingly less informative; the binding constraint is unrelieved.
+
+### A1.3 The ruling: (b). The §9 gate's factual premise is corrected pre-anchor and pre-data, and the anchor stands.
+
+The gate is restated, for this replay and for any future one under this
+registration:
+
+> **The replay gate passes when every verdict-bearing figure reproduces
+> exactly, and every changed figure is accounted for, one-for-one, by the §4
+> exclusion counters.** Verdict-bearing figures are: the sharp-anchored row
+> count per arm, the distinct sharp-anchored game count per arm, each
+> sharp-anchored row's fee-net edge at the charged fee, and each arm's verdict
+> under §6.1. A changed figure that no §4 counter accounts for is
+> **INSTRUMENT FAULT** and the anchor is not taken.
+
+Against the evidence in A1.1 the gate **passes**: all five edges, both sharp
+counts, both sharp game counts and both arm verdicts reproduce to the digit, and
+every changed figure is `outside_window = 16` and its downstream consequences.
+
+**A second, stronger check was run and is the load-bearing evidence.** Edit 1
+was neutralised (the window widened to admit every fixture) and look 1's
+artifact replayed through the *current* instrument, filename edits, registration
+field, new counters and all:
+
+    NO-FILTER   total rows 23
+      KXMLBSPREAD  rows 11  sharp 3  games 11  sharp games 3
+      KXMLBTOTAL   rows 12  sharp 2  games 11  sharp games 2
+      excluded {'unmatched_game': 1, 'no_spread_sibling': 1,
+                'no_exact_line': 152, 'one_sided_book_dropped': 136,
+                'lt_two_books': 11, 'commenced_or_imminent': 0,
+                'outside_window': 0, 'unreadable_commence': 0}
+    REGISTERED  total rows 7
+      KXMLBSPREAD  rows 3   sharp 3  games 3   sharp games 3
+      KXMLBTOTAL   rows 4   sharp 2  games 3   sharp games 2
+    dropped rows 16, sharp among dropped 0, across 8 games
+    kept tickers are a strict subset of unfiltered tickers: True
+
+With edit 1 off, the instrument reproduces **every published look-1 number
+including all five exclusion counters** — 11/12 rows, 3/2 sharp, 152, 136, 11,
+1, 1 — which are exactly the figures §1, §3 and §4 of
+`2026-08-20-spread-total-edge-result.md` publish. So edits 2 and 3 and the new
+counters are provably inert, the §4 filter is a **pure partition** (kept tickers
+are a strict subset; no row is created, altered or re-valued), and **not one of
+the 16 dropped rows is sharp-anchored**. The fault the gate exists to catch —
+an edit that reached matching, devig, the fee model, the statistic, the floor or
+the verdict logic — is demonstrably absent.
+
+Why not (a). §9's operative clause is "**If the replay differs in any figure**",
+and read literally it fails the instrument for obeying §4. A gate that fires on
+compliance is not a fault detector; it is testing its own false premise. The
+purpose sentence in §9 is explicit and is what governs — the edits are permitted
+because "none touches matching, devig, the fee model, the statistic, the floor
+or the verdict logic", and that is exactly what the evidence above establishes.
+The restated gate is **stricter than the original in the direction that
+matters**: it adds the requirement that every changed figure be attributed to a
+named counter, one-for-one, which the original never demanded.
+
+### A1.4 Why this choice cannot have been steered by outcome knowledge
+
+- **The only numbers seen are look 1's.** All of them are already published in
+  the committed `2026-08-20-spread-total-edge-result.md` and already declared as
+  contamination in §0 of this file. The two replays above produced no number
+  that is not either already published or an exclusion count.
+- **No 2026-08-21 datum exists.** The sweep has not run, the vendor has not been
+  called, the anchor is in the future, and the credits are unspent. Look 2's
+  direction is unknown under branch (a) and under branch (b) alike, so no
+  preference between them can be a preference for a result.
+- **The decision rules are untouched.** No floor moved, no arm added or dropped,
+  no exclusion added or removed, no statistic changed, no fee arm changed. Under
+  (b) the document scored against on 2026-08-21 is the same document, so the
+  freedom exercised here cannot select an outcome.
+- **§6.4's no-pooling rule seals it.** Look 1's rows are not pooled into look 2's
+  verdict under any branch, so a ruling about a replay of *look 1's* artifact is
+  arithmetically incapable of moving look 2's median, on either arm, in either
+  direction.
+- **Neither branch is neutral, and the tie-break is evidence, not convenience.**
+  (b) preserves the look, which is the convenient outcome, and the burden is
+  therefore on (b) — met by A1.3's neutralised replay. But (a) is not the safe
+  default either: killing the measurement on a clerical slip in my own §9 leaves
+  the h2h prior (`beta = −0.141`) standing unchallenged on spreads and totals,
+  which is also a direction. The choice is made on the demonstration that the
+  instrument is unaltered, not on which verdict either branch protects.
+
+### A1.5 `unreadable_commence` is accepted as within edit 1's scope
+
+**Accepted.** §9's edit 1 authorises "the per-game commence window filter of §4,
+with the two new exclusion counters". A filter that reads a timestamp must
+decide what it does when it cannot read one, and only three behaviours exist:
+admit, crash, or refuse-and-count.
+
+- **Admit** substitutes a pass for an unknown. It violates this repo's standing
+  convention (*"Unreadable resolves to `None`, never `0`. Callers refuse rather
+  than substitute"*) and admits a game whose commence status is unknown — the
+  exact contamination §4 exists to prevent.
+- **Crash** converts a data-shape defect into an UNTAKEN look, spending a
+  terminal authorization on a clerical issue.
+- **Refuse-and-count** is the only behaviour consistent with §4's own logic.
+
+It is outcome-independent by the same argument §4 already makes for
+`commence_time`: whether a scheduling stamp parses cannot reference the fee-net
+edge, the ask or the consensus fair. It reads **0** on look 1's artifact, so it
+is a no-op on all data now in existence.
+
+Two conditions bind it, registered now:
+
+1. **If `unreadable_commence` is non-zero at the anchor it must be reported in
+   the result file beside the other exclusion counts, with the affected games
+   named.** An unreadable stamp is a fact about the join and may not be
+   silently swallowed.
+2. It may not be zeroed, bypassed, widened or re-interpreted after the sweep.
+   §9's post-sweep rule applies to it in full.
+
+### A1.6 One reading hazard created by this amendment
+
+§10 says "Look 1 excluded 152 rows as `no_exact_line`". **That remains true of
+look 1 as published** and is the number to quote for look 1. The
+`no_exact_line = 41` in A1.1 is a *counterfactual* population — look 1's
+artifact under look 2's filter — and must never be quoted as look 1's exclusion
+profile. Look 2's result file reports its own counts under the registered
+filter, and **no direct comparison of look 2's exclusion counts to look 1's
+published ones is available**, because the two are computed over different
+populations.
+
+*Amendment written before the anchor, committed before the sweep. The anchor of
+§3 — 2026-08-21 22:40:00Z, band 22:35–22:45Z — is unchanged and stands.*
+
+**Artifact naming, to keep that hazard out of the file listing.** The gate's
+replay output is filed as
+`docs/measurements/2026-08-20-replay-gate-look1-under-look2-filter-2026-08-20T232121Z.json`
+(the instrument wrote it under the look-2 rows name; it was renamed, unchanged in
+content, before commit). It is **look 1's artifact under look 2's filter** and is
+not a rows artifact of any look.
