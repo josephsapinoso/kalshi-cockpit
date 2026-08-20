@@ -41,15 +41,26 @@ from backend.core.fees import TAKER_COEFFICIENT
 
 ROOT = Path(__file__).resolve().parents[1]
 SERIES_FIXTURE = ROOT / "tests" / "fixtures" / "series_fee_fields.json"
-# The SANITIZED capture, committed -- not the raw one under `data/`, which is
-# gitignored and carries account-linked identifiers (order_id, trade_id,
-# fill_id, subaccount_number). This file originally read the raw path with a
-# docstring asserting it was "tracked in git"; it never was (`git ls-files
-# data/` is empty -- the force-add never happened), so CI failed on every
-# push from the moment this suite landed. `scripts/sanitize_fills_capture.py`
-# derives the fixture: the six consumed fields, order_id pseudonymised with
-# distinctness preserved.
-FILLS_CAPTURE = ROOT / "tests" / "fixtures" / "portfolio_fills_sanitized.json"
+# The operator's PRIVATE capture, under gitignored `data/` -- deliberately
+# not in the repo, and (2026-08-20, Joe's ruling) never to be, sanitized or
+# otherwise: this tool should anticipate operators other than its author,
+# and a repo whose tests require the operator's account data cannot be
+# handed to one. The fills half of this suite therefore runs ONLY on a
+# machine holding the capture and skips loudly elsewhere; CI green means
+# the fixture-side tests passed and the fills prediction was NOT exercised.
+# (History: this path was once claimed to be "tracked in git" -- it never
+# was, CI was red from the day the claim shipped, and a sanitized committed
+# copy existed for ~90 minutes before the privacy ruling removed it.)
+FILLS_CAPTURE = ROOT / "data" / "captures" / "portfolio_fills.json"
+
+requires_private_capture = pytest.mark.skipif(
+    not FILLS_CAPTURE.exists(),
+    reason=(
+        "data/captures/portfolio_fills.json is the operator's private fills "
+        "capture and is never committed; the fee prediction runs only where "
+        "it exists (regenerate with scripts/capture_fills_fixture.py)"
+    ),
+)
 
 DECI_CENT = Decimal("0.0001")
 
@@ -93,6 +104,7 @@ class TestTheFixtureCarriesTheSplit:
         assert multipliers["KXWNBAGAME"] == Decimal("1")
 
 
+@requires_private_capture
 class TestTheMultiplierPredictsEveryFill:
     """The verification the convening required: all 11, to $0.0001, from the
     fixture and the deployed base coefficient alone.
@@ -145,14 +157,19 @@ class TestTheCaptureIsReplayableNotAssumed:
         assert payload["endpoint"] == "/series/{ticker}"
         assert payload["captured_at"].startswith("2026-")
 
-    def test_a_missing_capture_fails_loudly(self):
-        """If the sanitized fixture ever vanishes, this suite must say how to
-        regenerate it rather than skipping into a silent pass. (Its
-        predecessor claimed the raw capture was "tracked in git"; it was not,
-        and CI was red from the day the claim shipped -- a tracked-file claim
-        is checked with `git ls-files`, never asserted from memory.)"""
-        assert FILLS_CAPTURE.exists(), (
-            "tests/fixtures/portfolio_fills_sanitized.json is missing -- "
-            "regenerate with scripts/capture_fills_fixture.py (raw capture) "
-            "then scripts/sanitize_fills_capture.py"
-        )
+    @requires_private_capture
+    def test_the_capture_is_the_shape_the_predictions_consume(self):
+        """Where the private capture exists, it must be readable and carry
+        the consumed fields -- a malformed capture must fail here, by name,
+        rather than inside a prediction assertion. Where it does not exist,
+        the skip reason on the class says what is NOT being verified; a
+        skip is the honest state for data the repo deliberately excludes
+        (2026-08-20 ruling: operator account data never enters the repo,
+        sanitized or otherwise)."""
+        fills = json.loads(FILLS_CAPTURE.read_text(encoding="utf-8"))[
+            "payload"
+        ]["fills"]
+        assert fills, "capture holds no fills"
+        for field in ("ticker", "is_taker", "order_id", "count_fp",
+                      "yes_price_dollars", "fee_cost"):
+            assert field in fills[0], field
