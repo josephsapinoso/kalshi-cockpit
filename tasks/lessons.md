@@ -25,6 +25,22 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-20 — Log redaction does not reach exceptions: raise_for_status prints the URL, key and all
+
+`configure_logging()` exists precisely because the Odds API key rides in the
+query string, and it was in place when a stale key 401'd the registered
+spread sweep — and the key still landed in the transcript, because
+`httpx.raise_for_status()` embeds the full request URL in its exception
+message and a traceback goes to the terminal through a channel no logging
+filter touches. The pattern: redaction applied at the logging layer only
+covers the logging layer; every path that can carry a request URL to a
+human — exception messages, tracebacks, assertion reprs — needs the secret
+kept out of the URL (headers, not query params) or the error rebuilt
+without it. When a vendor forces the key into the URL, no call to that
+vendor may use raise_for_status or let its exceptions escape unredacted.
+Several capture scripts still share the pattern; sweep them before their
+next use.
+
 ## 2026-08-20 — A claim about git state is verified with git, never asserted from prose
 
 A test shipped with a docstring stating its data file was "tracked in git
