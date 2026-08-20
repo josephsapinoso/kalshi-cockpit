@@ -271,6 +271,16 @@ def search_markets(
 # amended by A2), and changing this number is amending the registration.
 STUDY_LOSS_CEILING_DOLLARS = 100.0
 
+# The study's terminal state. Joe stopped it on 2026-08-20 ~22:05Z ("just
+# scrap it. I am a newbie bettor.") -- registration Amendment 2: STOPPED
+# WITHOUT RESULT, nothing scored, the recording machinery kept on its own
+# justifications. A constant rather than a DB row, deliberately: the stop is
+# REGISTERED and terminal, and reopening is a NEW registration (new code),
+# so representing it as mutable state would misdescribe it. This is
+# 2026-08-20T22:05:00Z in epoch milliseconds.
+STUDY_STOPPED_BY_OWNER_MS = 1787263500000
+STUDY_TERMINAL_STATE = "stopped_without_result"
+
 
 def study_loss_dollars(conn: sqlite3.Connection) -> Optional[float]:
     """Cumulative net realised loss since study start, in dollars. §5 arm 3.

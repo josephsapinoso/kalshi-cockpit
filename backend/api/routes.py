@@ -2085,6 +2085,12 @@ def create_app(
         """
         loss = bet_estimates.study_loss_dollars(conn)
         return {
+            # The registration's terminal state (Amendment 2, 2026-08-20):
+            # Joe stopped the study, without result. Distinct from `stopped`
+            # below, which is the $100 money arm and never fired -- the strip
+            # must not render "the $100 stop has fired" for an owner stop.
+            "study_state": bet_estimates.STUDY_TERMINAL_STATE,
+            "stopped_by_owner_ms": bet_estimates.STUDY_STOPPED_BY_OWNER_MS,
             "loss_dollars": loss,
             "ceiling_dollars": bet_estimates.STUDY_LOSS_CEILING_DOLLARS,
             "stopped": None

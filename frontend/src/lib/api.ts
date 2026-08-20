@@ -1401,6 +1401,14 @@ export const fetchRecentEstimates = () =>
  * "cannot read the record right now", which is a state, not a zero.
  */
 export type StudyStop = {
+  /**
+   * The registration's terminal state (Amendment 2, 2026-08-20):
+   * "stopped_without_result" — Joe stopped the study; nothing was scored.
+   * Distinct from `stopped`, the $100 money arm, which never fired.
+   */
+  study_state: string;
+  /** When the owner stopped the study, epoch ms. */
+  stopped_by_owner_ms: number;
   loss_dollars: number | null;
   ceiling_dollars: number;
   stopped: boolean | null;

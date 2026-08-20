@@ -204,7 +204,24 @@ export default function EstimatePage() {
           embargo-safe. No win rate, no per-bet attribution, no study-scoped
           P&L: those ARE the estimate log and stay embargoed until the stop. */}
       {stop !== null &&
-        (stop.stopped === true ? (
+        (stop.study_state === "stopped_without_result" ? (
+          <section className="mb-6 rounded-2xl border bg-card p-5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-muted">
+              Study stopped
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              You closed the calibration study on{" "}
+              {new Date(stop.stopped_by_owner_ms).toLocaleDateString("en-US", {
+                timeZone: DISPLAY_TIME_ZONE,
+                month: "long",
+                day: "numeric",
+              })}
+              , without a result. Nothing was scored then, and nothing entered
+              here is scored now &mdash; the $100 stop never fired. Starting
+              again would be a fresh study, not a resume.
+            </p>
+          </section>
+        ) : stop.stopped === true ? (
           <section className="mb-6 rounded-2xl border border-negative/50 bg-negative/10 p-5">
             <div className="text-xs font-semibold uppercase tracking-widest text-negative">
               Study stopped

@@ -26,6 +26,8 @@ from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.estimates import (
     STUDY_LOSS_CEILING_DOLLARS,
+    STUDY_STOPPED_BY_OWNER_MS,
+    STUDY_TERMINAL_STATE,
     classify_ticker,
     record_estimate,
     recent_estimates,
@@ -691,12 +693,32 @@ class TestTheMoneyArmOverTheApi:
         assert response.status_code == 200
         payload = response.json()
         assert payload == {
+            # Amendment 2's terminal state rides every strip payload, so the
+            # phone can never render the study as live again.
+            "study_state": STUDY_TERMINAL_STATE,
+            "stopped_by_owner_ms": STUDY_STOPPED_BY_OWNER_MS,
             "loss_dollars": None,
             "ceiling_dollars": STUDY_LOSS_CEILING_DOLLARS,
             "stopped": None,
             # Item 10: the self-lockout rides this payload; none is engaged.
             "lockout_until_ms": None,
         }
+        _assert_embargo_holds(payload)
+
+    async def test_the_owner_stop_is_terminal_and_distinct_from_the_money_arm(
+        self, db_path
+    ):
+        """Amendment 2: stopped WITHOUT result. The money arm never fired, so
+        `stopped` must stay the arm's answer (False on a readable record) while
+        `study_state` carries the owner stop -- conflating them would render
+        "the $100 stop has fired", which is false."""
+        self._seed(db_path, loss_dollars=12.5)
+        payload = (
+            await _request(_app(db_path), "GET", "/api/estimates/stop")
+        ).json()
+        assert payload["study_state"] == "stopped_without_result"
+        assert payload["stopped_by_owner_ms"] == 1787263500000
+        assert payload["stopped"] is False
         _assert_embargo_holds(payload)
 
     async def test_the_strip_shows_the_loss(self, db_path):
