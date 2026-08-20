@@ -140,3 +140,53 @@ quiet window as a pass.
   flap. Those stay open.
 - The 12-hour stability watch riding on the same deploy is a *separate*
   observation and must not be reported as evidence for either fix.
+
+---
+
+## Pre-flight, 03:57Z 2026-08-20 — taken after deploy, before the window
+
+Deployed `5656133` to live, `/api/health` `build.git_sha` confirms it. Health
+`ok`, one machine, 1 of 1 checks passing.
+
+**The denominator exists.** The registration's null result — "no window opens at
+15:26Z at all" — is ruled out. Computed on the live database through the repo's
+own `plan_sweep_slots`, not from the handoff:
+
+```
+now 08-20 03:57:41Z
+  baseball_mlb     fire 15:26:00Z -> 16:26:00Z   games 6
+  baseball_mlb     fire 21:21:00Z -> 22:21:00Z   games 3
+  basketball_wnba  fire 22:45:00Z -> 23:45:00Z   games 3
+```
+
+Earliest stored MLB fixture is 16:41:00Z, 9 events. So observations 1-3 have a
+population to be measured against.
+
+**What the deployed cadence will do**, simulated with the real `Tempo` against
+the real 15:26:00Z open:
+
+```
+ 03:57:41Z   900.0s   slow (unchanged)
+ 04:12:41Z   900.0s   slow (unchanged)
+ ...         45 passes at the slow interval, unchanged
+ 15:12:41Z   694.8s   BOUNDED
+ 15:24:15Z    90.6s   BOUNDED
+ 15:25:46Z    15.0s   BOUNDED
+ 15:26:01Z            first pass after the open, +1.4s
+```
+
+Three bounded passes, inside the registered 2-4. Worst case with every sleep
+stretched the full +15%: **+0.0s**. Mean case **+1.4s**.
+
+**This is a simulation of the deployed logic, not an observation of it.** It
+uses the real `Tempo` and the real slot times but a synthetic clock, so it
+establishes that the arithmetic is right and establishes nothing about the
+process actually running. Observations 1-4 still have to be taken off the live
+log after 16:26Z. In particular it cannot see: a pass overrunning its sleep, the
+sweep being refused, the box restarting, or the prune behaving differently under
+memory pressure than it does in a test.
+
+For contrast, the pre-fix behaviour at this same alignment would have put the
+first post-open pass at 15:27:41Z, 101s late — and that is the *lucky* case. The
+old 900s grid's offset is set by whenever the process last restarted, so the
+loss ranged from ~0 to 900s, up to a quarter of a 60-minute window.
