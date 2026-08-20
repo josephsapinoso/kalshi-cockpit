@@ -112,6 +112,18 @@ sports single-leg venue position exists inside the study window at all. The
 one `bet_estimates` row has `match_status` NULL, which is the designed
 "pending" state (24h window open or result not yet known), not a fault.
 
+**The ~585 MB question has its first observation, and it is a level, not a
+leak.** `docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md`,
+raw samples committed. New read-only `/proc` reader
+(`scripts/inspect_live_proc.py`, `a41f20e`, deployed) sampled the loop's RSS
+every 45s across three full passes on the freshly booted box: the first full
+pass builds ~583 MiB within a minute of boot, the level is dead flat between
+passes (17 min), and passes 2 and 3 moved it +61 then −55 MiB — a breathing
+band, no monotonic growth. Consistent with the `raw_events` materialisation
+suspect but does not name it (RSS is a size, not an inventory). Not urgent
+at 2 GB; the number to carry is ~644 MiB as the loop's per-pass ceiling.
+CI is green again as of `a41f20e`.
+
 **Tooling shipped for both** (`faa46b9`): `window-freshness --at <ISO|ms>`
 (fixture ages per the production measure, then per-book stamps, stalest
 first — the retrospective instrument for any future "why did the window
