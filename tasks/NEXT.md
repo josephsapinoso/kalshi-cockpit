@@ -275,15 +275,39 @@ mutations turned a guard red**, re-run after the redesign.
 
 ### STILL OPEN
 
-1. **Not deployed.** Live still writes `unmatched_events`. The drain does not
-   start until this ships, and the live dispatch needs Joe:
+1. **DEPLOYED AND VERIFIED ON LIVE.** Both instances are on `c41ce52`. The live
+   dispatch **went through from here** this session, unlike the previous three —
+   the classifier is not a standing block on `deploy.yml -f instance=live`, so
+   try it once before handing it over. (A plain `curl` of `/api/health` was
+   blocked minutes later in the same session, so the classifier's shape is not
+   "live things" and is not worth predicting. Issue commands singly — a
+   combined edit-commit-push was refused as a unit.)
 
-       gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
+   Boot was clean, which was the entire design goal: the deploy took 50s, there
+   is no `no such table` and no traceback in the log, and passes came back at
+   **2.8-3.8s**.
 
-2. **Watch the drain and then delete its scaffolding.** `LEGACY_UNMATCHED_TABLE`
-   in `retention.py` is a named constant so `grep` finds everything that goes
-   when the table does. 788,944 rows / 20,000 per batch = 40 batches; one to
-   three full passes is an expectation, not a measurement.
+   ```
+                        at deploy      +6 min
+   unmatched_events      791,955       651,955     <- drain, -140,000
+   unmatched_items             0           472     <- the whole work list
+   seen_count (max/min)        -           4 / 3   <- upserting, not appending
+   ```
+
+   **472 rows at `seen_count` 4 is the proof, not the row count alone.** Under
+   the old shape those four passes would have written ~1,880 rows.
+   `last_seen_ms - first_seen_ms` is 156,031ms on the worst item: 2.6 minutes
+   tracked across 4 sightings, in one row.
+
+2. **Watch the drain finish, then delete its scaffolding.** 651,955 rows left.
+   It is **paused while a betting window is open**, by ADR 0054's gate — that is
+   correct, and it means the drain only advances between windows, so expect it
+   to take longer than the batch arithmetic suggests. Watch for
+   `retention: unmatched_events is empty and has been dropped` in the log; until
+   that line appears, do not remove `LEGACY_UNMATCHED_TABLE` from
+   `retention.py`, which is a named constant so `grep` finds everything that
+   goes when the table does. 40 batches at `DELETE_BATCH`; one to three
+   *prune-running* passes is an expectation, not a measurement.
 3. **The 12-hour watch still has not happened.** Everything above is 2h40m.
 4. Everything from the previous entries: the window gate reading a stale flag,
    `QUOTE_PASS_DURATION_BUDGET_S`, Chrome's live-host permission, the digest
