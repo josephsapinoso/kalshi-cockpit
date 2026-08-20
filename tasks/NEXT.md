@@ -30,7 +30,30 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,643 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 3,675 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+
+**YOUR FIRST ACT, before reading anything else: check the clock against the
+21:21Z–22:21Z baseball window.** The registered spread/total test (item 8,
+the last open item of the convening plan) must run INSIDE that window,
+>=15 min before the earliest first pitch:
+
+    date -u
+    # before ~21:21Z : set yourself a background wake for 21:26Z, then read on
+    # 21:21Z-22:21Z  : run it NOW, then read on
+    # after 22:21Z   : the window passed; check whether a later window is open
+    #                  (WNBA 22:45Z-23:45Z is NOT valid -- the registration is
+    #                  MLB-only). If none, the test is UNTAKEN tonight: rerun
+    #                  against the next MLB slate, no cost, say so plainly.
+
+    .venv\Scripts\python.exe scripts\measure_spread_edge.py
+
+Registration: `docs/measurements/2026-08-20-preregistration-spread-total-edge.md`
+— read it BEFORE the output; the verdict rules and the UNDERPOWERED floor are
+fixed there. The script saves raw + rows artifacts beside it and `--replay
+<raw.json>` recomputes without spending, so a computation bug never costs a
+second sweep (4 credits, authorized, spent outside `api_credits`
+deliberately). Write the result doc, cite the registration, update this file.
+The previous session's timer died with it; nothing else is armed.
 
 ---
 
