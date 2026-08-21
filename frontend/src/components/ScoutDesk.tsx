@@ -13,7 +13,14 @@
  * good at both widths — he reads on the desktop and the phone.
  *
  * The colours make honest claims (the graphic-designer's standing rule):
- * - gold (accent-2) is reserved for FRESH — the market may not know this yet;
+ * - FRESH is glyph-and-weight only (▲, strong border, full ink) — **no hue,
+ *   since 2026-08-21**. It wore gold (accent-2) until the partner's
+ *   betting-desk ruling neutralised it: `likely_already_priced` is the
+ *   staff's own unfalsifiable guess about *pricing*, and lighting it in
+ *   colour renders the tool's opinion of an edge — the exact thing ADR 0062
+ *   demoted — in the palette slot every other screen reserves for "do not
+ *   trust this" warnings (see test_palette_contrast.py). The fact still
+ *   renders, in words and weight; it no longer glows.
  * - a dashed border and "?" is UNCHECKED — searched, could not verify.
  *   A gap must never render as calm; the first briefing's most useful fact
  *   was an unchecked weather instrument.
@@ -81,7 +88,7 @@ type TileState = BoardTile["state"] | "no_notes";
  * two flavours of "we don't know" are the same fact for a decision.
  */
 const TILE_STATES: Record<TileState, { glyph: string; className: string }> = {
-  fresh: { glyph: "▲", className: "border-accent-2 text-accent-2" },
+  fresh: { glyph: "▲", className: "border-border-strong" },
   unconfirmed: { glyph: "?", className: "border-dashed border-border-strong" },
   stale_only: { glyph: "○", className: "text-muted" },
   clear: { glyph: "", className: "text-muted" },
@@ -180,10 +187,10 @@ function VerdictStrip({
 }) {
   if (fresh) {
     return (
-      <div className="rounded-xl border border-accent-2 px-3 py-2 text-sm font-semibold text-accent-2 xl:px-4 xl:py-3">
+      <div className="rounded-xl border border-border-strong px-3 py-2 text-sm font-semibold xl:px-4 xl:py-3">
         <p className="max-w-[65ch]">
-          The desk found something the market may not have priced — read the
-          lit tiles.
+          The desk filed something recent — read the marked tiles, then judge
+          it yourself. Recent is not the same as unpriced.
         </p>
       </div>
     );
@@ -235,7 +242,7 @@ function StaffNoteCard({ note }: { note: ScoutStaffNote }) {
                 className={`mr-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                   finding.likely_already_priced
                     ? "bg-card text-muted"
-                    : "bg-accent-2 text-background"
+                    : "border border-border-strong"
                 }`}
               >
                 {CATEGORY_LABELS[finding.category] ?? finding.category}
@@ -336,8 +343,8 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
       </button>
       <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
         {again
-          ? "Three more metered calls. The board above stays until they file."
-          : "Three metered calls from the fleet’s shared daily budget. The desk reports facts with sources; it never prices anything."}
+          ? "Three more metered calls, up to a dozen web searches. The board above stays until they file."
+          : "Three metered calls and up to a dozen web searches, from the fleet’s shared daily budget — the Scout screen shows today’s running total. The desk reports facts with sources; it never prices anything."}
       </p>
       {sendError && (
         <p className="mt-2 max-w-[65ch] text-sm text-negative" role="alert">

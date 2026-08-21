@@ -97,18 +97,21 @@ class TestEveryScreenCanBeArrivedAt:
             f"the one option that is not a decision."
         )
 
-    def test_the_nav_budget_is_still_five(self):
+    def test_the_nav_budget_is_still_six(self):
         """`Nav.tsx` argues the count is load-bearing: a seventh link pushes the
         Gate -- the screen that says whether money can move -- off the row at
         390px. If that stops being true it should stop being true on purpose.
 
-        It stopped being six on purpose, 2026-08-21: Log's slot was retired
-        when Joe stopped the calibration study (Amendment 2), and nothing
-        took it -- the budget is a ceiling, not a quota.
+        It went five on purpose, 2026-08-21 (Log's slot retired with the
+        stopped calibration study, Amendment 2), and back to six the same day
+        on purpose: Scout took the open slot (betting-desk item 6, metered
+        then promoted in one change), placed so Gate keeps a visible slot at
+        390px and Playbook stays the link that scrolls.
 
-        Mutation observed red: add a sixth entry to `LINKS`.
+        Mutation observed red (as five): add a sixth entry to `LINKS`.
+        The seventh is the one the budget refuses.
         """
-        assert len(linked_routes(NAV)) == 5
+        assert len(linked_routes(NAV)) == 6
 
     def test_the_footer_does_not_quietly_absorb_the_whole_app(self):
         """A footer is where a screen goes when it is worth keeping and not

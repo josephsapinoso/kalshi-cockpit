@@ -1709,3 +1709,54 @@ export async function fetchMarketDetail(
   }
   return response.json() as Promise<MarketDetail>;
 }
+
+/**
+ * The desk's own screen (`/scout`): what it has done, and what today cost.
+ *
+ * `spend` is the v17 token meter -- counts in the three units that actually
+ * bill (calls, web searches, tokens), never dollars: the per-token rate in
+ * this repo is assumed, not invoiced, and a number on a screen outranks the
+ * caveat attached to it. `spend: null` means no Anthropic account is
+ * configured (the demo) -- there is no meter to read, which is a different
+ * fact from a meter reading zero.
+ */
+export type ScoutOverviewRow = {
+  id: number;
+  ticker: string;
+  event_title: string;
+  league: string;
+  home_team: string;
+  away_team: string;
+  commence_ms: number | null;
+  requested_ms: number;
+  completed_ms: number | null;
+  status: "running" | "complete" | "partial" | "failed" | "refused";
+  gone_quiet: boolean;
+  refusal_reason: string | null;
+  has_briefing: boolean;
+};
+
+export type ScoutSpend = {
+  calls_today: number;
+  calls_daily_budget: number;
+  searches_today: number;
+  searches_daily_budget: number;
+  tokens_today: number;
+  tokens_daily_budget: number;
+  /** Calls whose usage never came back -- the sums above do not cover them. */
+  calls_unmetered_today: number;
+  day_start_ms: number;
+};
+
+export type ScoutOverview = {
+  briefings: ScoutOverviewRow[];
+  spend: ScoutSpend | null;
+};
+
+export async function fetchScoutOverview(): Promise<ScoutOverview> {
+  const response = await fetch(`${BASE}/api/scout`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`the scout desk overview returned ${response.status}`);
+  }
+  return response.json() as Promise<ScoutOverview>;
+}

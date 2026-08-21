@@ -96,6 +96,8 @@ from typing import Optional
 from ..config import configured_day_start_utc_hour
 from ..odds.timing import DEFAULT_DAY_START_UTC_HOUR, day_start_ms
 
+from .base import CallUsage
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,6 +106,15 @@ class AgentBudgetState:
     per_pass_budget: int
     daily_budget: int
     spent_today: int
+    # The token meter (v17). Sums over today's SETTLED usage; a reserved call
+    # whose response never arrived contributes nothing here and is counted in
+    # `calls_unmetered_today` instead -- the sums must state what they do not
+    # cover, and the call cap (which needs no response) stays the outer bound.
+    searches_today: int = 0
+    tokens_today: int = 0
+    searches_daily_budget: int = 0
+    tokens_daily_budget: int = 0
+    calls_unmetered_today: int = 0
 
     @property
     def remaining_today(self) -> int:
@@ -131,6 +142,13 @@ class AgentSpendSummary:
     per_pass_budget: int
     day_start_ms: int
     day_start_hour: int
+    # The token meter (v17): sums of settled usage, plus the count of calls
+    # whose usage never arrived -- so the sums always say what they miss.
+    searches_today: int = 0
+    searches_daily_budget: int = 0
+    tokens_today: int = 0
+    tokens_daily_budget: int = 0
+    calls_unmetered_today: int = 0
 
 
 class AgentBudget:
@@ -149,11 +167,19 @@ class AgentBudget:
         daily_budget: int,
         *,
         day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
+        searches_daily_budget: int = 0,
+        tokens_daily_budget: int = 0,
     ):
         self.conn = conn
         self.per_pass_budget = per_pass_budget
         self.daily_budget = daily_budget
         self.day_start_hour = day_start_hour
+        # 0 means "no separate token/search ceiling" -- the call caps alone
+        # bound the day. `from_config` always passes real ceilings; the 0
+        # default keeps the many existing test constructors meaning what they
+        # meant (call caps only), rather than silently gaining two brakes.
+        self.searches_daily_budget = searches_daily_budget
+        self.tokens_daily_budget = tokens_daily_budget
 
     @classmethod
     def from_config(cls, conn: sqlite3.Connection, config) -> "AgentBudget":
@@ -181,20 +207,36 @@ class AgentBudget:
             per_pass_budget=config.max_calls_per_pass,
             daily_budget=config.max_calls_per_day,
             day_start_hour=configured_day_start_utc_hour(),
+            searches_daily_budget=config.max_searches_per_day,
+            tokens_daily_budget=config.max_tokens_per_day,
         )
 
     def day_start_ms(self, now_ms: int) -> int:
         return day_start_ms(now_ms, hour=self.day_start_hour)
 
     def state(self, now_ms: int) -> AgentBudgetState:
-        spent = self.conn.execute(
-            "SELECT COUNT(*) AS c FROM agent_calls WHERE called_ms >= ?",
+        row = self.conn.execute(
+            # COALESCE on the SUMs, not the columns: a NULL usage row is a
+            # call the meter could not see, and it must raise
+            # `calls_unmetered_today` rather than quietly add 0 to a sum.
+            "SELECT COUNT(*) AS calls, "
+            "COALESCE(SUM(web_searches), 0) AS searches, "
+            "COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) "
+            "AS tokens, "
+            "SUM(CASE WHEN input_tokens IS NULL THEN 1 ELSE 0 END) "
+            "AS unmetered "
+            "FROM agent_calls WHERE called_ms >= ?",
             (self.day_start_ms(now_ms),),
-        ).fetchone()["c"]
+        ).fetchone()
         return AgentBudgetState(
             per_pass_budget=self.per_pass_budget,
             daily_budget=self.daily_budget,
-            spent_today=int(spent),
+            spent_today=int(row["calls"]),
+            searches_today=int(row["searches"]),
+            tokens_today=int(row["tokens"]),
+            searches_daily_budget=self.searches_daily_budget,
+            tokens_daily_budget=self.tokens_daily_budget,
+            calls_unmetered_today=int(row["unmetered"] or 0),
         )
 
     def allowance(self, now_ms: int) -> int:
@@ -209,11 +251,24 @@ class AgentBudget:
         state = self.state(now_ms)
         return max(0, min(state.per_pass_budget, state.remaining_today))
 
-    def refusal_reason(self, requested: int, now_ms: int) -> Optional[str]:
+    def refusal_reason(
+        self, requested: int, now_ms: int, *, searches_worst_case: int = 0
+    ) -> Optional[str]:
         """Which ceiling refuses part of a `requested`-call fan-out, or `None`.
 
-        Checked hardest-to-recover-from first, as in `odds/budget.py`: the daily
-        cap needs a rollover, the per-pass cap needs only a smaller batch.
+        Checked hardest-to-recover-from first, as in `odds/budget.py`: the
+        three daily caps need a rollover, the per-pass cap needs only a
+        smaller batch.
+
+        **The token and search brakes are evaluated over spend already
+        recorded, before the next reserve** -- never over a field the call
+        being gated will write (`tasks/lessons.md`: a field written after the
+        spend is a receipt, not a brake). The caller states the fan-out's
+        `searches_worst_case` (the sum of its tools' `max_uses`) because a
+        search, unlike a token, has a pre-known per-call ceiling; tokens are
+        gated on the recorded total alone. A ceiling of 0 means "not
+        configured" and refuses nothing -- `from_config` always configures
+        both.
 
         **The reason is returned as well as logged.** It is written onto the
         rows that went unreviewed, where the operator actually looks -- a phone
@@ -229,6 +284,28 @@ class AgentBudget:
             )
             logger.warning("refusing part of a %d-call batch: %s", requested, reason)
             return reason
+        if (
+            self.tokens_daily_budget > 0
+            and state.tokens_today >= self.tokens_daily_budget
+        ):
+            reason = (
+                f"{state.tokens_today} of {self.tokens_daily_budget} Anthropic "
+                f"tokens already recorded today"
+            )
+            logger.warning("refusing a %d-call batch: %s", requested, reason)
+            return reason
+        if (
+            self.searches_daily_budget > 0
+            and state.searches_today + searches_worst_case
+            > self.searches_daily_budget
+        ):
+            reason = (
+                f"{state.searches_today} of {self.searches_daily_budget} web "
+                f"searches already recorded today, and this pass could spend "
+                f"{searches_worst_case} more"
+            )
+            logger.warning("refusing a %d-call batch: %s", requested, reason)
+            return reason
         if state.per_pass_budget < requested:
             reason = (
                 f"one pass may make at most {self.per_pass_budget} Anthropic "
@@ -238,14 +315,21 @@ class AgentBudget:
             return reason
         return None
 
-    def can_afford(self, requested: int, now_ms: int) -> bool:
+    def can_afford(
+        self, requested: int, now_ms: int, *, searches_worst_case: int = 0
+    ) -> bool:
         """Whether the whole fan-out fits, defined in terms of `refusal_reason`.
 
-        One implementation of the two ceilings, for the reason `CreditBudget`
+        One implementation of the ceilings, for the reason `CreditBudget`
         gives: two would drift, and the drift would be invisible -- the guard
         would still refuse and the recorded reason would name the wrong limit.
         """
-        return self.refusal_reason(requested, now_ms) is None
+        return (
+            self.refusal_reason(
+                requested, now_ms, searches_worst_case=searches_worst_case
+            )
+            is None
+        )
 
     def today_summary(self, now_ms: int) -> AgentSpendSummary:
         """The read side of the meter: what has been spent today, and of what.
@@ -265,6 +349,11 @@ class AgentBudget:
             per_pass_budget=state.per_pass_budget,
             day_start_ms=self.day_start_ms(now_ms),
             day_start_hour=self.day_start_hour,
+            searches_today=state.searches_today,
+            searches_daily_budget=state.searches_daily_budget,
+            tokens_today=state.tokens_today,
+            tokens_daily_budget=state.tokens_daily_budget,
+            calls_unmetered_today=state.calls_unmetered_today,
         )
 
     def reserve(
@@ -311,6 +400,7 @@ class AgentBudget:
         *,
         verdict: Optional[str] = None,
         blocked: Optional[bool] = None,
+        usage: Optional[CallUsage] = None,
     ) -> None:
         """Fill in what a reserved call came back with. Never adds to the count.
 
@@ -321,7 +411,19 @@ class AgentBudget:
         that is correct rather than a no-op worth optimising away.
         """
         self.conn.execute(
-            "UPDATE agent_calls SET verdict = ?, blocked = ? WHERE id = ?",
-            (verdict, None if blocked is None else int(blocked), call_id),
+            "UPDATE agent_calls SET verdict = ?, blocked = ?, "
+            "input_tokens = ?, output_tokens = ?, web_searches = ? "
+            "WHERE id = ?",
+            (
+                verdict,
+                None if blocked is None else int(blocked),
+                # NULL, never 0, when no response carried a usage block: a
+                # crashed call's cost is unknown, and `calls_unmetered_today`
+                # counts the row so the sums say what they do not cover.
+                None if usage is None else usage.input_tokens,
+                None if usage is None else usage.output_tokens,
+                None if usage is None else usage.web_searches,
+                call_id,
+            ),
         )
         self.conn.commit()

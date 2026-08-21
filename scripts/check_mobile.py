@@ -51,6 +51,10 @@ PAGES = [
     # still served and both still have to fit a phone. A page nobody links to
     # is a page nobody notices has broken.
     "/slate",
+    # The desk's own screen (2026-08-21). Against a bare local stack it
+    # renders the no-account meter and the never-sent empty state -- the
+    # shell and the prose, not the populated meter grid or briefing rows.
+    "/scout",
 ]
 
 # `/market/{ticker}` needs a ticker, so it cannot sit in PAGES as a literal --

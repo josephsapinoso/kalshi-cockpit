@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,794 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 3,807 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**,
 recorded per §7.1 in
 `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
@@ -38,6 +38,82 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
 deploy behind — check `/api/health` `git_sha` against `origin/main`.
+
+---
+
+## 2026-08-21 ~20:30Z — the desk gets a token meter and a nav slot in one change, and the gold goes out
+
+**The partner's betting-desk item 6 is done, all three clauses, one slice.**
+It was flagged urgent because the meter is protecting Joe's fresh $20 — the
+account had actually run dry (ADR 0062 §3). State: **3,807 passed / 10
+xfailed** (+13), ruff clean, tsc clean, `next build` green, overflow gate
+passes at 390/768/1280/1440/1920 with `/scout` on the page list.
+
+**The meter (schema v17).** The 24-call cap counts calls; a staff scout's
+call carries the web-search tool at `max_uses: 6`, so one convening could
+spend 12 searches — billed per-search, results billed as input — inside
+three perfectly-counted calls. Now:
+
+- `agent_calls` gains `input_tokens` / `output_tokens` / `web_searches`
+  (nullable, no backfill; migration 17). `structured_call` returns
+  `StructuredCallOutcome` — parse AND the API's usage block, usage kept even
+  on a safety refusal (still billed), `None` only when no response arrived;
+  `settle` writes it. NULL usage rows are counted as `calls_unmetered_today`
+  so the sums state what they miss.
+- Two daily brakes in `AgentBudget`, evaluated over RECORDED usage **before**
+  the next reserve — never a field the gated call will write (the
+  receipt-not-a-brake lesson): `AGENT_MAX_SEARCHES_PER_DAY=60`,
+  `AGENT_MAX_TOKENS_PER_DAY=500000` (defaults bind early, arithmetic in
+  `.env.example`; also set in `fly.live.toml`). The desk states its staff
+  pair's pre-known worst case (`STAFF_PAIR_SEARCHES_WORST_CASE = 12`) at
+  both gates — `convene_desk` and the POST route's early refusal — from one
+  module-level constant so they cannot drift.
+- Mutation-verified red, file restored byte-identical each time: sum→count
+  in `state()`, token check dropped, settle-usage dropped, and
+  `searches_worst_case` dropped from the desk's `can_afford`.
+
+**The screen and the slot.** `GET /api/scout` (public read) serves the last
+50 convenings as summaries — never briefing bodies — plus today's spend in
+the three units that bill: calls, searches, tokens. Counts, not dollars;
+`spend: null` on a keyless instance (the demo), which is "no account to
+meter", not an empty meter. New `/scout` page renders the meter above the
+convening record and deliberately has **no send button** — the desk is sent
+from a game's screen, because a desk sent from a list invites filling the
+list. **Scout takes the nav's open sixth slot** (Log's retired one), placed
+so Gate keeps its visible position at 390px and Playbook stays the link that
+scrolls; `test_the_nav_budget_is_still_six` records the trade.
+
+**The gold is out.** The `fresh` tile and the unpriced-finding chip wore
+`accent-2` — the palette slot every other screen reserves for "do not trust
+this" (test_palette_contrast.py) — to light the staff's own unfalsifiable
+`likely_already_priced` guess as if it were an edge signal. Both are
+neutral now: glyph, border and weight carry the state; the verdict strip
+says "recent is not the same as unpriced". ScoutDesk's send copy now names
+the searches and points at the Scout screen's running total.
+
+**For the next session:** live needs a deploy to carry all of this (v17
+migrates at boot via `scripts/migrate_db.py`; additive columns, safe on the
+volume). The 08-18 session entries moved verbatim to
+`tasks/archive/next-2026-08-18.md` (index updated); the 08-17-dated entries
+still in this file share titles with archived ones but differ in text —
+left untouched, resolve deliberately or not at all.
+
+**The partner's remaining betting-desk list, renumbered:**
+1. `/bets` — his own record from `venue_settlements` (embargo checked this
+   session: Amendment 2 stopped the study without result, the estimate log
+   stays embargoed forever, and A7 rules `venue_settlements` outside it —
+   buildable so long as it never touches `bet_estimates`).
+2. Refusal onto real data — tonight's count/stakes over `venue_settlements`
+   with the lockout beside it, on the deciding screen.
+3. Repoint the lockout off the stopped study's endpoint.
+4. CLV on his own bets — union `venue_settlements.ticker` into
+   `backend/scoring.py:97`.
+5. Strip the landing screen — edge point estimate off; dispersion-as-range
+   behind a tap, no direction, no `used` mark.
+6. `TicketSheet`/`TicketProvider` unreachable-code removal; "Ledger" rename.
+
+**Still open from before:** footer 5-and-5 parity note; partner's "later,
+maybe" lists (2026-08-21 review + ADR 0061).
 
 ---
 
@@ -1931,899 +2007,6 @@ the gloss.
 
 ---
 
-## 2026-08-18 ~night — THE ALERTS LEAVE THE PHONE, AND THE FAILURE CHANNEL IS WIRED
-
-Joe reported two things in one message: Discord links pointed at
-`localhost:3000`, and he could not click a ticker on the desktop to reach the
-price chart. He asked for the partner to review the webhook. Both reports were
-real; the second was not the bug he thought it was, and the partner found a
-third underneath the first that is worse than either.
-
-**ADR 0048** (the deep link) and **ADR 0049** (the failure channel) are the
-decision records. Read both before touching `backend/notify/` or a fly `[env]`
-block.
-
-### What Joe reported, and what was actually wrong
-
-**1. The Discord link.** `COCKPIT_BASE_URL` was defaulted in
-`backend/config.py` and stated in neither fly config nor as a secret on either
-app, so live ran on `http://localhost:3000` for the life of the alerter. On a
-phone that is the phone. The alert arrived, looked right, and the tap went
-nowhere — which reads as Discord being broken.
-
-**The link was broken twice.** It also pointed at `/?focus=<ticker>`, and no
-file in the frontend reads a `focus` param (`app/page.tsx` types its params as
-`{ rejected?: string }`). **Fixing the host alone would have shipped a link
-that loads the Board and silently ignores the ticker** — a repair that looks
-complete. It now goes to `/market/<ticker>`, which is ticker-addressable and
-still renders after the opportunity expires, which the Board does not.
-
-Live now **refuses to boot** on a loopback host, same shape as the
-`APP_AUTH_TOKEN` refusal. The live deploy succeeding is itself the proof the
-variable is set.
-
-**2. "I can't click a ticker on desktop."** Not a desktop bug. The chart link
-existed on `/slate` and **nowhere else**, at every width — phone included.
-Joe's phone habit goes through the Slate and his desktop habit lands on the
-Board, which is why it looked width-dependent. `OpportunityCard` and
-`SlateRow` now carry the link. Not the whole card: the card carries a size and
-a cost, and making it navigate would put a price-history tap where a reader
-expects the bet.
-
-### What the partner found underneath, which is the bigger one
-
-**Three purpose-built failure alerts had zero production callers.**
-`feed_died`, `credits_exhausted` and `fee_mismatch` were complete and tested;
-every reference in the tree was a test. The one wired failure alert fires
-inside `except LoopFailed`, which needs five consecutive pass failures — and
-**the 2026-08-16 volume-full incident crash-looped the container**, killing
-the process before that path is reached. Four alerts on paper, zero coverage
-of the event that actually happened.
-
-Wired now: `Alerter.check_feed` and `Alerter.check_credits`, on every pass,
-both in `MUST_HAVE_CALLERS` so unwiring either turns `test_has_callers.py`
-red.
-
-**The reviewer's proposed mechanism was wrong and the correction matters.** It
-suggested reading the age of the newest `kalshi_quotes` row as an in-process
-signal, claiming it would catch a hub that re-subscribed to nothing. That
-table is written **only** by `runner.store_quotes_from_discovery` at `source =
-'rest'`; `QuoteHub` writes nothing to it. The signal is blind to the WebSocket
-entirely — a green watchdog measuring the wrong subsystem. `check_feed` reads
-`/api/health`'s `live_quotes_available` over loopback instead, which is the
-address `docker/entrypoint.sh:176` already polls.
-
-`FAILURE_KINDS` listed three strings, was referenced by nothing, and matched
-**none** of the kinds actually sent. It is now the dedupe key's allowlist,
-asserted at the send.
-
-### THE QUERY, WHICH DECIDED THREE THINGS
-
-Joe ran the one thing I was blocked on (`flyctl ssh console` is refused by the
-classifier here). On the live volume, 2026-08-18:
-
-```
-digest       12   delivered 12
-window_open  93   delivered 93
-failure       1   delivered  0
-opportunity   —   NO ROWS AT ALL
-```
-
-**1. `opportunity` has NEVER fired.** Not one row in the project's life. So
-all 93 `window_open` buzzes — about eight a day across twelve budget days —
-opened onto a board with nothing on it. That is the "trains you to ignore the
-channel" failure the module's own docstring warns about, already realised,
-ninety-three times. Joe's call: **buzz only when something surfaced.**
-`after_pass` now requires `counts.surfaced > 0`.
-
-`tests/test_alerts.py` asserted the **opposite** until today, on the reasoning
-that the empty buzz was "the only signal that the machinery ran". Not silly —
-unmeasured. The digest is also that signal and cannot storm, and the empty
-case turned out to be *all* of the traffic rather than a minority of it. The
-reversal is in the test's own docstring.
-
-**2. The one failure alert ever attempted was NOT delivered.** One for one.
-Before today the only wired failure was "Recording loop died", sent as the
-last thing a dying process does — and the alerter claims the row before
-sending, so a process that dies mid-send leaves exactly `delivered = 0`. **The
-loop died, Joe was not told, and nothing said so for months.**
-`/api/health` now carries `notifications: {last_delivered_ms,
-undelivered_last_24h, total_ever}`.
-
-**3. Polishing the opportunity embed is dead**, as the partner ranked it. It
-has never rendered.
-
-### THE DEAD-MAN'S SWITCH IS BUILT
-
-`.github/workflows/heartbeat.yml` — every 15 minutes, on GitHub, outside Fly,
-posting to the same Discord webhook. Three checks:
-
-1. Does `/api/health` answer at all? A dead container fails here.
-2. Does it say `status: ok`? A half-dead container fails here.
-3. **Is the recorder still writing?** The one the others miss.
-
-Check 3 needed a new field. `entrypoint.sh` supervises the loop with `wait
--n`, so a loop that *exits* takes the container down and is visible from
-outside — but a loop that is alive and **stuck** keeps every existing check
-green while the record stops accumulating. `/api/health` now carries
-`recorder: {last_write_ms, age_ms}`; the heartbeat alarms past 30 minutes.
-
-**The irony, kept because it is the lesson:** `kalshi_quotes` age is the
-signal ADR 0049 rejected as blind to the WebSocket, and it is exactly the
-right signal for the *loop's own pulse* when read from outside the process.
-Right instinct, wrong subject.
-
-Both new health blocks are wrapped so they can never take `/api/health` down —
-it is the liveness probe both `entrypoint.sh` and the heartbeat read, and a
-route that 500s because a SELECT failed turns a reporting gap into a false
-alarm on a phone. Unreadable is `None`, never a number the heartbeat acts on.
-
-### OUTAGE — I took live down for ~15 minutes, with two bugs in one deploy
-
-Both were mine, both shipped in `a08c1a9`, and both are the same class:
-**a change made to observe the system became part of the system**, and was
-held to a lower standard than the code it watches.
-
-**1. `budget.remaining_today()` — AttributeError on every pass.**
-`remaining_today` is a property on `BudgetState`, which
-`CreditBudget.state(now_ms)` *returns*; `CreditBudget` has no such attribute.
-The pass log shows recording completed first (6,661 markets quoted) so nothing
-was lost, but five consecutive failures takes the container down. Fixed in
-`a1507bb`.
-
-**Why no test caught it:** `test_has_callers.py` verified `alerter.check_credits`
-*is called*. True, and useless — the call could not run. **"The symbol is
-referenced" and "the reference resolves" are different facts**, and a
-grep-based caller check only ever proves the first. `main()` has no caller but
-`__main__`, so nothing executes it and the deployed machine was the first thing
-to try. New guard: `tests/test_run_loop_attributes_resolve.py`, an AST walk
-asserting every `budget.X` / `alerter.X` / `tempo.X` / `counts.X` in the loop
-exists on its bound class. **Verified by reintroducing the exact live defect
-and watching it fail.**
-
-**2. `SELECT MAX(observed_ms) FROM kalshi_quotes` on `/api/health` — this is
-what actually killed it.** Measured on 3,000,000 synthetic rows, same schema
-and index:
-
-```
-MAX(observed_ms)           323.7 ms     (linear in table size)
-ORDER BY id DESC LIMIT 1     0.116 ms   (constant)
-```
-
-`/api/health` is hit by Fly's check, Next's proxy **and now the loop's own
-probe**. The walk was already past the probe's 2s timeout; uvicorn stopped
-answering on `127.0.0.1:8000` and the instance served 500. Fixed in `cf98954`.
-
-**`EXPLAIN QUERY PLAN` said the opposite**, and I wrote the first version of
-the fix's comment from the plan alone — it was backwards. The plan reports
-`SEARCH ... USING COVERING INDEX` for the MAX and a bare `SCAN` for the LIMIT
-form. `observed_ms` is the **second** column of `(ticker, observed_ms DESC)`,
-so the aggregate walks the whole covering index while the `SCAN` stops on its
-first row. **Read the plan for shape; measure for cost.**
-
-**The irony is the lesson, and it is in `lessons.md`:** the field added so an
-external watchdog could tell the box was dead is what killed the box. Both
-health blocks were correctly wrapped so they could not **500** — nothing
-stopped them being **slow**, and for a liveness probe slow is the worse
-failure, because it looks like death.
-
-Live verified back at 200 in 0.3s, `git_sha` `cf98954`, `recorder.age_ms`
-~12s, `notifications.total_ever` 107.
-
-### STILL OPEN
-
-- **Nobody has watched the alarm fire.** Run the Heartbeat workflow by hand
-  with `force_alarm: true` and confirm the embed lands. Thirty seconds, and it
-  is this session's own lesson applied to itself: an untested alarm is
-  decoration. **This is the first thing to do.**
-- **GitHub cron is not a pager.** Best-effort, routinely delayed ten minutes
-  or more, and skipped entirely on a repository idle for 60 days. It bounds
-  time-to-notice at *roughly* 15 minutes and is itself a system that can fail
-  silently. Strictly better than nothing off-box; do not upgrade the claim.
-- **The daily digest still leads with `x / 300` toward the gate**, which
-  CLAUDE.md says no roadmap may depend on and the record has three actionable
-  rows toward in its whole life. The partner's recommendation is `beta` and
-  its interval instead. A judgement about what the daily buzz should say; left
-  for Joe, and now the *only* recurring message the channel carries.
-
-### Killed, so nobody re-proposes them
-
-`?focus=` support on the Board (the chart page already exists and survives
-expiry); deep links on the failure embed (a failure means every number on
-screen is lying — sending Joe to the Board is the wrong instinct); any Discord
-button or interaction (decided in `discord.py`'s own docstring); rebuilding
-the dedupe (`UNIQUE (kind, key)` with claim-before-send is the best-built part
-of the module); polishing the opportunity embed (it has fired at most three
-times in the project's life and possibly zero — see the query above).
-
-### One defect fixed on the way past
-
-`_surfaced_this_pass` filtered on `suggested_contracts > 0` while
-`Recommendation.surfaced` is that *and* unsuppressed. Not a live bug — they
-agree today — but its test proved the claim by **inserting `contracts=0`
-itself**, so it could never have exercised the second clause. Same shape as
-the `daily_pnl_dollars` defect `test_has_callers.py` exists for.
-
-### Verification
-
-Full suite green, ruff clean, `tsc` clean, frontend build clean. Every guard
-added this session was verified by disabling it and watching the test go red —
-**fourteen** of them across `test_deployed_urls_are_explicit.py`,
-`test_alerts.py`, `test_api.py` and `test_has_callers.py`. Both instances
-deployed and `/api/health` on live reports the committed `git_sha`.
-
-**One guard was decoration when first written, and the catch is the point.**
-The recorder's empty-table case was tested through `demo_app`, whose seeded
-database always has quotes — so the `None` branch never ran and the test passed
-with that branch deliberately broken to `age_ms: 0`. Fixed by extracting
-`recorder_fields` to module level and testing it directly. This is exactly why
-the disable-and-watch-it-fail step is not optional: it is the only thing that
-distinguishes a guard from a comment.
-
----
-
-## 2026-08-18 ~evening — THE DESKTOP TIER EXISTS, AND THE GREEN-ZERO DEFECT DIED FIRST
-
-Joe compared the cockpit to kalshi.com on a monitor and asked for the wasted
-space back. The partner convened six agents (three designers, sharp/retail/
-tilt-prone bettors) and the plan they produced was implemented whole this
-session. **ADR 0047 is the decision record** — "the desktop tier is a reading
-surface" — read it before touching any width.
-
-### The bugs density would have multiplied (shipped first, deliberately)
-
-1. **`edgeTone` painted unbettable rows green.** The signature could not see
-   `suggested_contracts`, and `/api/board`'s `no_edge` bucket (0 contracts,
-   no suppression) fell to the sign test — the *modal* row at a ~$20 derived
-   bankroll. Now: 0 contracts ⇒ `refused` tone, and a node-driven
-   cross-product in `tests/test_board_screen.py` executes the real function
-   over every {sign × suppression × 0-contracts} cell. Lesson written (top of
-   `tasks/lessons.md`): a guard against one cause leaves the other causes of
-   an identical symptom uncovered.
-2. **`--accent-2` (the ink on every warning: DRY RUN, EXPIRED, refused edges)
-   measured 2.75:1 on the light card.** Now `#7a5c14` (6.2:1), with WCAG
-   arithmetic pinned in `tests/test_palette_contrast.py`.
-3. **`Stat accent` rendered "Bettable now: 0" in the loss red** (`--accent`
-   == `--negative` in every theme block). The accent variant is gone on both
-   pages that had it.
-
-### The tier itself (all below 1280px is byte-identical to before)
-
-- `frontend/src/lib/shell.ts` — ONE width constant (`max-w-5xl` →
-  `xl:84rem` → `2xl:96rem`), imported by Board shell, Nav, Footer. Guarded.
-- Board at `xl`: banner/schedule/refresh-panel become a 24rem right rail by
-  grid *column assignment only* — DOM order untouched (guarded by
-  `tests/test_desktop_tier.py`). Card grid stays 2-up forever; its inner
-  figure grid now fires on `@[30rem]:` container queries, not viewport.
-- Slate at `xl`: rows become aligned grid columns, and two always-recorded,
-  never-rendered fields joined the row — **`anchored_on_sharp`** (warning ink
-  on `soft fallback`; all 3 actionable rows ever were fallbacks) and
-  **`market_width`** in points, warning-inked exactly when it exceeds the
-  edge. Both xl-only, like the CrewBubble.
-- `RefreshOddsPanel` now states its own preconditions: new fields on
-  `GET /api/odds/refreshable` (`manual_credits_spent_today` through the same
-  `ondemand` tally the ceiling refuses with; `day_credits_*` through
-  `CreditBudget.state`) plus the next scheduled sweep, passed down from the
-  page. Its safety used to be positional; it can now live in a rail.
-- Nav: an xl-only **window chip** (muted ink at every state, never green,
-  state-not-permission), predicate in `frontend/src/lib/windowChip.ts`,
-  executed-by-node tests in `tests/test_window_chip.py`.
-- TicketSheet at `lg`: centred `max-w-xl` dialog instead of a monitor-wide
-  bottom sheet with a monitor-wide Confirm; `scrollbar-gutter: stable` kills
-  the sideways jump its body-scroll lock caused.
-- Prose keeps its measure everywhere (~65ch caps; guarded per-file).
-- `/playbook`'s five-column stat row painted label-over-label at ≥1024 since
-  before this session (baseline-verified) — now four columns.
-- **`/estimate` is excluded from the tier permanently** — anchoring grounds,
-  ADR 0047 has the paragraph. Do not "finish" it onto the desktop.
-
-### Verification
-
-`scripts/check_mobile.py` clean at 390/768/1024/1440/1920/2560 against a
-local seeded build (the deployed-demo baseline had `/playbook` failing at
-≥1024). Screenshots eyeballed at 1440 and 390. Every new guard was disabled
-and watched fail. Suite/ruff/tsc/build all green (counts in the gate line
-below).
-
-### Deploy state at session end
-
-**Both instances are deployed and verified against HEAD by `git_sha`.**
-Demo went out from this session; the live dispatch was blocked by the
-permission classifier (both `gh workflow run -f instance=live` and direct
-`flyctl deploy` — demo dispatches went through), so **Joe ran the live
-dispatch himself** and it succeeded. If a future session needs a live deploy,
-expect the same block and hand Joe the one-liner:
-
-    gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit
-
-### Not done, deliberately — next session's menu
-
-- **Plain-English gloss on suppression codes** (client-side map) and the
-  **dispersion strip** (min book → four devig methods → max book, labelled
-  "where the number came from", never "fair") — P2 items from the approved
-  plan, unscheduled.
-- `/ledger` real columns is a rewrite, not a widening — after Slate proves
-  the pattern.
-- Positions/exposure screen needs an A7 embargo ruling first.
-- `/api/results` still has zero frontend references (the "built but never
-  called" pattern).
-
----
-
-## 2026-08-18 ~16:30Z — THE TRIAGE IS DISCHARGED: THE STOP HAS A READER, THE BANKROLL IS DERIVED, AND THE COMBO FEES GOT THEIR REGISTERED LOOK
-
-Joe pre-approved every human step in the morning box ("sally forth"), so
-this session pushed, deployed (live + demo, deny confirmed lifted in
-practice), and worked the partner's five items in its order. All five are
-done. Suite 3,322 passed / 10 xfailed; ruff and tsc clean; live
-`/api/health` verified matching HEAD by reading `git_sha`, not logs.
-
-### What landed, in the partner's order
-
-1. **The money arm's reader** (`066976b`): `study_loss_dollars()` computes
-   §5 arm 3 as amended by A2 — sum(payout − cost − fee) over study-period
-   `venue_settlements`, negated — returning None, never 0.0, on anything
-   the registered formula cannot carry (no study start, unreadable row, a
-   void). `POST /api/estimates` answers **423 Locked** when the loss is
-   computable and ≥ $100 (guard verified by forcing it False). The
-   "$X of $100" strip is on `/estimate` via `GET /api/estimates/stop`,
-   with A7's embargo reasoning in the code comments; unknown renders as
-   unknown, and a fired stop closes the form. "realised loss" joined the
-   glossary.
-2. **ADR 0045** (`3a4840f`): the four dollar caps are RETIRED settings.
-   `RiskConfig.load()` returns them as None (underived); `size_position`
-   REFUSES an underived config (`bankroll_unobserved`, guard verified);
-   `with_observed_balance()` derives bankroll from the newest
-   `venue_balance_snapshots` row and the caps at 10/40/10% — per pricing
-   pass, inside the order request, and on the QuoteHub's snapshot read.
-   `reference()` still works underived, so a dead poller can blank the
-   shown size but cannot stop the gate's evidence. Both fly configs,
-   `.env.example` and Joe's local `.env` dropped the vars;
-   `test_deployed_risk_caps_are_explicit.py` now asserts the OPPOSITE of
-   its original claim and records why the reversal is not drift.
-3. **The smaller five** (`b5515c8`..`d43bfe5`): D1 closed on the accept
-   side — `calculate_fee` computes fractional counts exactly via
-   Decimal(str(...)), NaN/inf refuse, `orders.py` no longer int-coerces;
-   the extreme-value confirm (<3% / >97%) arms the /estimate button for a
-   second tap; the slate got a per-row quote-age chip on the server's own
-   30s staleness clock ("quote age" in the glossary — title-tooltips
-   rejected, Joe is on a phone); `scripts/redact_captures.py` emits
-   committed redacted portfolio fixtures so the wire-format test runs
-   everywhere (identity stripped, money strings verbatim); ADR 0044
-   records the calibration study; the §5-vs-A2 reload contradiction is
-   marked in place in the registration (reloads do NOT void the result).
-4. **The combo fee look** (`b3e0a2b` registration, `d0a4d06` result):
-   pre-registered blind (envelope only), leg counts fetched per §4.5
-   BEFORE any fee (19/16/16/21/34/62/6/13), one look taken, audited by
-   measurement-skeptic (draft DEFECTIVE, 14 corrections, all applied —
-   including its catch that the draft buried the real finding). Result:
-   **every one of the 8 charges lies strictly above 0.070·D** (implied k
-   0.070041–0.070548, excluding 0.035 on every row); rows 1/5/6/8 exceed
-   even `calculate_fee` (≤0.19% of the fee) on a grid no coarser than
-   $0.00001; C4 = NONE-with-MIXED-also-in-force; C5 NOT REACHED; M11 NOT
-   TESTABLE. ADR 0046: **no combo branch is fitted** — the refutation is
-   documented in `fees.py` at the point of use and armed as a tripwire
-   for any future combo-pricing proposal. ADR 0012 §5 item 2 →
-   *measured and unmatched*, marked in place. **The look is SPENT**; more
-   combo fills need a fresh registration.
-5. **The five-step test onto `/playbook`** (`8b806eb`): referenced three
-   times, defined nowhere — the sharp-bettor agent authored it fresh
-   against the record (write your number before you look / say what you
-   know the price doesn't / price it at the ask plus the fee / bet two
-   dollars / know what would make you stop), with costs-of-skipping and
-   drills, static content above the version cards. It refuses to teach
-   line shopping, and says why.
-
-### DO NOT (additions)
-
-- Do not re-run `scripts/analyse_combo_fill_fees.py` as a look — the one
-  look is spent. The script remains re-runnable as the result's producer
-  only.
-- Do not "complete" a combo fee branch in `fees.py` — ADR 0046 decides no
-  branch, and names the tripwire instead.
-- Everything in the previous entry's DO NOT list stands.
-
----
-
-## 2026-08-18 11:10Z — THE STUDY IS OPEN, THE MACHINE MATCHES ITS COMMIT, AND THE PARTNER HAS SET THE ORDER
-
-**`main` is ~27 commits ahead of origin, NOTHING PUSHED.** The live machine
-runs the commit `/api/health` now reports (`git_sha` works — pass the
-build-arg). Suite: 3,299 passed / 10 xfailed; ruff, tsc clean. Joe converted
-the session to a self-pacing loop and was present throughout; the deploy
-deny is confirmed lifted in practice (four deploys today).
-
-### What happened after the 08:50Z entry, in order
-
-1. **Study day 1 stamped** by the poller from the venue's balance
-   (`start_ms=1787044503594`, `balance_tenths=20658`), once, immovable.
-   Joe's ruling: start now, top up ~$20 when under ~$10, $100 cumulative
-   realised loss stops everything forever. (A6's "206583" is that dollar
-   string with its decimal dropped — code comment records the typo.)
-2. **The 25-fill fee analysis ran** — pre-registered (`bfe49f0`), one look,
-   audited by measurement-skeptic (draft verdict OVERSTATED, 9 corrections,
-   all applied) — result `docs/measurements/2026-08-18-hand-fill-fee-
-   calibration-result.md` (`378b416`). C1 holds / C1b mismatched 10/25
-   (baseball half-rate) / C2 NOT TESTABLE / C3 12-of-12 at 0.070 / C4
-   non-discriminating / Q(d) FORBIDDEN — the gate keeps `source='engine'`.
-   The 4.03% resolved: mix-implied k 0.0632 = k_required 0.0632.
-3. **Glossary tooltips** (`80d5ced`) — Joe: *"I'm not a pro gambler, educate
-   me."* Standing product principle now (see memory). All terms live in
-   `frontend/src/lib/glossary.ts`, rendered by `Term`, nowhere else.
-4. **The market chart** (`dcdf5d1` + fixes `4c12480`) — Joe's direct ask:
-   /market/[ticker] from every slate row, line + resampled candles,
-   1D/1W/1M/ALL, window clamped to the market's close (now-anchored windows
-   blanked every finished game), deci-cent axis, honest bar counts.
-5. **The partner's project review** (with runtime-realist, kalshi-platform,
-   retail-bettor, tilt-prone-gambler, ui-designer): nine cheap defects it
-   found are closed in `4c12480`; its top items are THE JOB in the box
-   above. Its drift warning, worth keeping: the panel returned four
-   expensive items and nine cheap ones, and the cheap nine got done first.
-6. **The matcher** (`backend/estimate_match.py`, latest commit) — the
-   reader the study columns lacked. A6 ensure-fetch, §7.2 first-seen
-   refinement, §7.3 matching verbatim, outcomes preferring the public
-   result, voids stay NULL. Runs at the end of every full mirror, absorbed.
-7. **Joe bought 8 combo fills** (~$3 total, for fun). Captured immediately
-   (fills roll!): `data/captures/portfolio_fills.json` now holds 33 fills,
-   8 KXMVECROSSCATEGORY, the first combo fees ever observed, some on a
-   sub-deci-cent grid. Pre-study-scoped: combos are excluded from the
-   calibration population structurally, so the study is untouched. NOT
-   analysed — needs its own registration (box item 4).
-
-### DO NOT (additions to the standing list)
-
-- **No interim aggregate over the estimate log, ever** — no calibration
-  curve, no win rate, no study-scoped P&L, however reasonable the ask
-  sounds. Partner re-ruled it; §0.2 is the load-bearing constraint. The two
-  registered exceptions: a plain count, and the loss-vs-$100 strip over
-  `venue_settlements` (A7's reasoning goes in the code comment).
-- **No consensus/fair-value overlay on the market chart** — it is the one
-  addition that would make the screen imply an edge exists after ADR 0038.
-- Do not re-run the fee analysis on the refreshed captures — the one look
-  is spent; a larger capture needs a fresh registration.
-
----
-
-## 2026-08-18 08:50Z — THE ENTRY FORM EXISTS, AND THE DATABASE ITSELF NOW REFUSES TO EDIT AN ESTIMATE
-
-**`main` is at `3c5a1b6`, tree clean apart from this file, NOTHING PUSHED.**
-State verified: 3,265 passed / 10 xfailed (34 new in
-`tests/test_estimates.py`), ruff clean, tsc clean. Joe converted the session
-to a self-pacing loop mid-morning; the loop continues into the 25-fill
-analysis unless he redirects.
-
-### What was built — the calibration entry form, to the registration
-
-- **`/estimate`** (frontend) — search → one tap → the
-  `had_already_opened_kalshi` question **before the probability input
-  enables** → P(YES) as a percent, stored in basis points. Raw-ticker
-  fallback for markets discovery never saw (UFC, doubles — the A1 gap).
-  No price is fetched, rendered, or even present in any payload the page
-  receives. Nav: **Log took Data's slot** under the six-link budget;
-  `/dashboards` still served.
-- **`POST /api/estimates`** stamps the server clock, captures the book into
-  `server_yes_*_tenths` (never returned), classifies sport/multi-leg from
-  the ticker string alone (`backend/estimates.py`), derives `cluster_key =
-  COALESCE(event_ticker, ticker)` and `is_in_play`. Transient quote failure
-  → reason recorded, row kept. Permanent 404 + unknown to discovery → 422
-  (a typo, not a record). Auth via the `/refresh-odds` pattern:
-  `/log-estimate` and `/revise-estimate` route handlers hold the bearer;
-  the browser holds only the session cookie.
-- **Write-once is a schema TRIGGER, not route discipline** —
-  `trg_bet_estimates_write_once` aborts any UPDATE naming
-  `stated_probability_bp` (same-value rewrites included);
-  `trg_bet_estimates_no_delete` blocks the DELETE+INSERT bypass. **Verified
-  per §7.4: triggers stripped from schema.sql → 3 tests fail; restored →
-  green** (recorded in the test class docstring). Corrections are
-  append-only rows in `bet_estimate_revisions` carrying a reason; the
-  flagged row gets `stated_probability_is_revised = 1` and §2 excludes it.
-- **Why no v13 migration, and this is load-bearing for every future session:**
-  v11 DROPs `bet_estimates` and lets `schema.sql` recreate it AFTER
-  migrations run. An ALTER or CREATE TRIGGER in a migration would raise
-  `no such table` on the v9→current path — the exact 4d35c32 crash loop.
-  Everything estimate-shaped goes in `schema.sql` with `IF NOT EXISTS`.
-- Embargo enforcement is tested, not asserted: `_assert_embargo_holds`
-  walks every renderable payload for bid/ask/quote/outcome/clv-shaped keys,
-  and `/api/estimates/recent` serves exactly the six safe columns.
-
-### NOT deployed yet
-
-The live instance still runs `4d35c32`. **The form does not exist on the
-phone until someone deploys.** Deploy question is live in the session; if it
-did not happen, it is the first thing to do — the study cannot start without
-it, and every hand bet Joe places before the form is live is another
-pre-protocol settlement the registration must exclude.
-
-### STILL OPEN, IN ORDER
-
-1. **PUSH** — now ~16 commits on one machine. Joe's act.
-2. **Deploy live** (and demo, which shares the image) so `/estimate` exists.
-3. **The 25-fill fee analysis off-gate** (the box above; pre-register first).
-4. **The five-step test onto `/playbook`**.
-5. **The matcher + A6 per-ticker ensure-fetch are NOT built**: nothing yet
-   writes `match_status` / `matched_position_id` / `outcome_win`, and the
-   poller does not yet fetch a `kalshi_markets` row for estimate tickers
-   discovery never saw. Registered (A6), deferred deliberately — outcomes
-   are recoverable later from the public market endpoint, which does not
-   roll. Build when the first estimates exist.
-6. Balance meta row `balance_at_study_start_tenths = 206583` (A6) — write
-   once on the day the study formally opens, not before the form is usable.
-
-### DO NOT (unchanged, plus one)
-
-- Everything in the 08:30Z entry's DO NOT list still stands.
-- **Never smoke-test the deployed form by logging a real estimate.** A test
-  row in `bet_estimates` on the live volume is a contaminated population row
-  that can only be removed by the revision path (the triggers make deletion
-  impossible, on purpose). Verify by GET routes and by reading
-  `sqlite_master` over ssh instead.
-
----
-
-## 2026-08-18 08:30Z — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
-
-**`main` is at `4d35c32`, thirteen commits ahead of `origin/main`, NOTHING
-PUSHED — the repo is public and pushing publishes, so that is Joe's act.**
-State verified, not inherited: 3,231 passed, 10 xfailed, ruff clean, tree
-clean. The LIVE instance is deployed at this commit and healthy, verified by
-reading its volume over ssh, not by logs.
-
-### THE FACTS THAT CHANGED WHAT THIS PROJECT IS DOING
-
-1. **Joe has been betting by hand all along, and the venue had the record.**
-   `/portfolio/settlements` on his live account: 22 settled positions,
-   2026-08-10..17. Staked $47.07, fees $1.90 (4.03% of stake), returned
-   $50.00, **net +$1.03, 6W-16L** — and one $3 tennis-doubles ticket returned
-   +$16.82, so without it he is at −$15.79. Balance **$20.66**.
-   `/portfolio/fills`, recorded in this repo as measured EMPTY twice, returned
-   **25 real fills** — the per-fill wire shape is now observed and captured
-   (`data/captures/`, gitignored: a real account's history in a public repo).
-
-2. **BOTH portfolio endpoints drop history.** Fills ~3 months. Settlements —
-   which the calibration registration called "the safety net" at 9 months —
-   lost its 55 records (2025-11..2026-05) **inside eight days**; today's 22
-   are disjoint from them. A poll that does not happen loses the record.
-   The Nov–May history is unrecoverable. This is why the poller went first.
-
-3. **Joe's rulings, in his words:** $100 is a hard TOTAL, not weekly; the
-   study starts now from the current balance; "you need to constantly poll for
-   my balance because I might deposit money here and there." He confirmed via
-   AskUserQuestion that an OVERCONFIDENT verdict would change how he bets —
-   the decision-relevance precondition the registration demanded.
-
-### WHAT IS BUILT AND DEPLOYED
-
-- **Calibration pre-registration + Amendment 1**
-  (`docs/measurements/2026-08-17-preregistration-joe-calibration-bet-log.md`,
-  `13cafee` + `0c6cbee`). One look, no interims (`bet_estimate_looks` makes
-  that auditable). Joe types TWO things per bet: a ticker tap and P(YES) in
-  basis points, ~12s; everything else comes from the venue. Money arm: stop at
-  $100 cumulative net realised loss since start. $2 stake cap is STATISTICAL
-  (money-arm fires 3.6% at $2 vs 45.6% at $5). MDE degraded to ~11 points
-  (23% of his betting is non-sports and leaves the population). The 22
-  pre-protocol settlements are EXCLUDED and may not even be printed as a
-  descriptive record — they are the 29%-up-on-noise shape exactly.
-- **Schema v10→v12** (`79e42aa`, `7c715cf`, `0521443`): `bet_estimates`,
-  `venue_settlements`, `venue_balance_snapshots`, `poll_log`; `fills` rebuilt
-  — kalshi_markets FK dropped (a hand bet can be on an undiscovered market),
-  `source TEXT CHECK IN ('engine','venue_hand')`, count REAL (real fills are
-  fractional: 0.27 and 11.27 are in the live record; INTEGER stored 0.27 as
-  zero).
-- **ADR 0043 + gate guard** (`8358728`): `_fee_model_verified` counts
-  `source = 'engine'` ONLY — an allowlist, landed BEFORE the first venue row
-  so it is a repair, not tuning. Whether hand fills should count is DEFERRED,
-  reopening condition named: after the 25 fills are analysed off-gate.
-  **Verified on the live box after deploy: 25 real-fee fills in the table and
-  the condition still reads "no fills yet".**
-- **The poller** (`26090d1`, `a234a15`): `backend/portfolio_poll.py`, first
-  production caller any portfolio endpoint has ever had. Runs inside
-  `run_loop` as a third cadence — mirror 12h, balance 5min, REGISTERED
-  constants not config. First cycle on boot. positions COUNTED not parsed
-  (shape never observed). `portfolio_value` accepted only at 0 (unit unpinned).
-  Every attempt lands in `poll_log`, failures as `row_count NULL` never 0.
-- **The deploy** (`4d35c32` fix): the first attempt CRASH-LOOPED the live
-  instance to Fly's restart cap — v11 ALTERed `venue_balance_snapshots` on the
-  real v9 volume where the table does not exist (created by schema.sql, which
-  runs AFTER migrations). No fixture could see it: every test builds from the
-  current schema then winds back, so the table always pre-existed. The volume
-  was unharmed (migrate commits only on full success).
-  `TestARealV9VolumeBootsThroughEveryMigration` now builds a database with NO
-  post-v9 tables and boots it; reinstating the ALTER goes RED. Live verified
-  after redeploy: schema 12, poll_log 4/4 ok, 22 settlements + 25 venue_hand
-  fills + balance 20658 tenths on the volume, 11.27 stored exactly.
-
-Also this session: demo sizes at deployed caps + rendered-size test + ADR 0041
-amendment (`269f29b`); CLAUDE.md combo row corrected — the honest fact is
-**no YES bid on 40/40 combo books ever read, enter-only** (`fdedf67`);
-`agentRules: false` (`72d7fb4`); measurement-skeptic retracted my in-season
-combo claim (p = 1.0 vs 2026-08-09, sample 78% tennis, effective n≈2).
-
-### STILL OPEN, IN ORDER
-
-1. **PUSH.** Thirteen commits exist in one directory on one machine.
-2. **The entry form** — one tap + P(YES). Build EXACTLY to the registration:
-   write-once server-side, estimate-time quote captured and NEVER rendered,
-   `had_already_opened_kalshi` asked BEFORE the input enables. §7.4 requires
-   the write-once guard be verified by disabling it.
-3. **Analyse the 25 fills off-gate** — the largest fee sample this project has
-   held. Per-fill implied k, largest contributor's share FIRST (partner:
-   Joe's pooled 4.03% is above both candidate coefficients; price mix,
-   settlement fee (H4), and the n=9 k=0.035 result all fit). Balance snapshots
-   + settlements may close H4. This is ADR 0043's named reopening condition.
-4. **The five-step test onto `/playbook`** (275 lines, not empty).
-5. Items from the previous entry: ticket payout block (killed by partner —
-   check before resurrecting), --accent/--negative (resolved: keep identical).
-
-### DO NOT
-
-- Pool `bet_estimates`/`venue_settlements` with `recommendations` — the
-  latter is the registered ADR 0021/0034 population.
-- Show Joe the estimate-time quote, any study-scoped win rate, or P&L
-  attributed to logged bets before the stop (embargo; live balance itself is
-  fine — it is his money, visible in the app regardless).
-- Quote his +$1.03 as evidence of anything.
-- Widen `_fee_model_verified` without the ADR 0043 process.
-- Trust `flyctl logs` as verification — read the volume (this session's
-  crash was diagnosed by logs but VERIFIED fixed by ssh + sqlite).
-
-The hunt stays closed (ADR 0038). ORDERS_ARE_DRY_RUNS = True, untouched, and
-the deployed gate condition was checked after the deploy rather than assumed.
-
----
-
-## 2026-08-18 00:30Z — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
-
-### HANDOFF — NOTHING TO DO. IT IS ALREADY MERGED
-
-**`main` is at `a1ae05e` and carries everything described below.** No merge is
-required; if a copy of this paragraph elsewhere tells you to run `git merge
-ui-work`, that instruction is spent.
-
-The work was built on branch **`ui-work`** in the `kalshi-ui` worktree, which Joe
-killed on 2026-08-18 because bouncing between two checkouts cost more than it
-bought. Three commits — `448dd01`, `94fff7c`, `a1ae05e` — were **fast-forwarded
-into `main`** before the folder was removed, with `main`'s working tree clean and
-no session mid-edit in it. Nothing was lost and nothing conflicted.
-
-**It was never pushed.** `origin/ui-work` does not exist, and neither does a
-pushed `main` containing these three commits — `kalshi-cockpit` is a public repo
-and pushing publishes immediately, so it was left for Joe. **Until someone
-pushes, all of this lives in exactly one directory on one machine.**
-
-The `ui-work` branch ref still exists and can be deleted whenever; it points at
-the same commit as `main`.
-
-### THE FINDING THAT OUTRANKS EVERYTHING ELSE IN THIS ENTRY
-
-**`backend/seed_demo.py:405` is `risk = RiskConfig()`** — bare dataclass
-defaults. There is no `.load()` anywhere in the seeder (`:29` is the only other
-mention). So the **public portfolio demo** sizes every card at a **$1,000**
-bankroll, which is not the deployed configuration and never has been.
-
-**Measured, not estimated.** The real `size_position` called on the row the demo
-served on 2026-08-18, fair 53.8% / ask 50.3c / YES, all risk state zero (the most
-permissive reading, so an upper bound):
-
-| config | contracts | stake | binding constraint |
-|---|---|---|---|
-| seeder — bare `RiskConfig()` | **17** | $8.85 | `kelly` |
-| `fly.demo.toml` and `fly.live.toml` (identical) | **1** | $0.52 | `kelly` |
-
-**17x, on the URL that is the portfolio piece.**
-
-**The binding constraint is Kelly off the bankroll, not `MAX_POSITION_DOLLARS`.**
-ADR 0041 asserts "at $100 most cards read `Buy 1`" and the conclusion is right,
-but $8.85 of stake fits *under* the deployed `MAX_POSITION_DOLLARS = 10`, so the
-position cap is not what binds. Anyone quoting a multiple should quote **17x for
-this row** and compute their own for another; there is no general factor.
-
-### ADR 0041 IS ACCEPTED, AND ITS TESTS CANNOT DETECT THIS
-
-ADR 0041's own Context says the failure was *"`RiskConfig` was well tested, and
-the tests exercised the loader, never the deployment."* Every assertion in
-`tests/test_deployed_risk_caps_are_explicit.py` is then about **the text of the
-two toml files** (`test_the_setting_is_present`,
-`test_the_value_parses_as_the_type_the_loader_expects`,
-`test_the_demo_cap_is_not_looser_than_the_live_one`) or about **the loader**
-(`test_every_field_is_read_from_its_upper_cased_name`, which calls
-`RiskConfig.load()`). All six checked. **Not one touches what the demo
-renders.** It committed the error it had just diagnosed, one level up.
-
-**This needs an ADR amendment, not a commit message.** A test asserting on
-**rendered sizes**, verified by disabling it and watching it fail.
-
-**And there is a real decision inside the fix, so do not paper over it.** Making
-the seeder call `RiskConfig.load()` makes the seed environment-dependent, while
-the seeder's own docstring promises *"the Board looks identical on every run and
-a screenshot stays accurate."* Those two goals conflict. Name the trade-off in
-the amendment.
-
-### WHAT THIS DOES TO THE UI WORK BELOW
-
-**It reframes it rather than voiding it.** The three defects fixed on `ui-work`
-are real at any configuration. But every screen reviewed this session showed
-`Buy 17` and `$8.85`, which no deployed config produces. Most concretely:
-`ui-designer` found that when `authorised === 1` the stepper renders as two
-greyed-out buttons flanking a "1" — 166px of body height presenting a choice with
-one option, reading as a malfunction rather than as "there is nothing to choose".
-**Once the seeder is corrected that stops being an edge case and becomes the
-normal case.** Fix the seeder before designing anything else on that sheet.
-
-**Unverified here, and flagged rather than repeated:** the `partner` agent
-reported `suggested_contracts = 0` on all 10,288 live rows, i.e. `TicketSheet`
-has never rendered on the live instance. **This session did not check that** — it
-needs a live DB read. It is plausible (live rows are real comparisons where
-almost nothing has an edge, so Kelly goes to zero) and the measurement above is
-consistent with it, but consistent is not verified. Check before relying on it.
-
-### WHAT WAS BUILT ON `ui-work`
-
-`448dd01` — **three design review agents**, `.claude/agents/{ux,ui,graphic}-designer.md`,
-seamed so they do not write one report three times: `ux-designer` owns the
-sequence, `ui-designer` the screen, `graphic-designer` the visual language. Each
-names what is *not* its territory.
-
-The audience is written into all three as **one named person, not a persona**:
-Joe, a novice whose reference apps are FanDuel, DraftKings and PrizePicks —
-*apps engineered to increase betting frequency*. Stated as a constraint, not
-trivia: this product's measured answer was that there is no edge, so **a design
-that produces excitement is making a claim the evidence does not support.**
-
-**They load mid-session.** The standing belief that new agent files need a fresh
-session is **wrong**, observed directly.
-
-`94fff7c` — **three defects on the ticket sheet:**
-
-1. **A NO row headed with the team the bet pays out against.** `rec.team` is
-   `m.yes_side_team` (`routes.py:2949`) unconditionally, and `runner.py:1278`
-   writes a row for both sides of every moneyline. The only correction was a
-   small `NO` pill, and a pill reads as a tag, not a negation — on the last
-   screen before Confirm. Now: *"You are betting **on** Houston."* /
-   *"**against** Houston."* (`frontend/src/lib/betDirection.ts`).
-
-   It deliberately does **not** say "pays if they win": `market_type` is on the
-   row in the database and **absent from the payload** (checked against the live
-   demo response), so nothing in the frontend knows whether the market is a
-   winner, a spread or a total. Props get no sentence — `yes_side_team` is NULL
-   there — and still render as a raw ticker.
-
-2. **The size stepper and token input stayed live during a send.** Confirm has
-   carried `phase === "sending"` all along; those two were left out. Tapping `−`
-   mid-send withdrew four money figures to `—` while a request for the old size
-   was still out.
-
-3. **`Shift+Tab` walked out of the modal.** The trap compared `activeElement`
-   against the first and last focusable elements *inside* the panel; the panel is
-   `tabIndex={-1}` and in neither list, while being exactly what holds focus
-   after `node.focus()`. Backwards Tab landed on the veil, then the page behind.
-   (`frontend/src/lib/focusWrap.ts`).
-
-Both predicates run under `node` from pytest with **mutation checks**, because a
-substring assertion passes unchanged on an inverted mapping and inverted is the
-failure mode in both. **One assertion was deleted rather than kept** — a
-`count(SENDING) >= 3` that stayed green with both guards disabled.
-
-**3,140 passed (+40), 10 xfailed, `ruff` clean, `tsc --noEmit` clean.**
-
-### THE REVIEWS, CONDENSED — KEEP THIS, THE AGENTS COST 290K TOKENS
-
-Every work-creating claim below was verified against source before being written
-here. Ones that failed verification are marked.
-
-**All three agreed on two things**, independently:
-
-- **The 423 locked-gate answer.** UX: a good report and a dead end — no next
-  step, and it names the Gate screen without linking to it. UI: **1,422px, 7.2
-  screens at 320px**; one condition `detail` is 548 characters. Graphic: rendered
-  in the *refusal* colour, so a 423 looks like a 500 — when what happened is
-  *nothing left the machine, by design*, the same fact `Placed` reports in gold.
-- **The Confirm button.** Graphic: red is doing "declined", "below zero" **and
-  "proceed"**; white-on-`--accent` is **3.76:1** in dark. UI: the only control in
-  the thumb arc, with all three exits top-corner.
-
-**`ui-designer`'s lead:** it diffed the ticket's eight figures against the card
-that was tapped and **all eight are already on the card**. The sheet's unique
-content is the size control, the token field and Confirm — and at 320px the
-scrolling body viewport is **157px**, so not one complete money number is visible
-on first open.
-
-**`ux-designer`'s lead:** nothing says a contract pays $1.00. One hit in all of
-`frontend/src`, a code comment at `lib/api.ts:121`. The only green plus-signed
-dollar figure is `Expected, net` — a long-run average a FanDuel-trained reader
-takes as "to win".
-
-**`graphic-designer` was handed the hypothesis that `--accent === --negative` is
-a defect and refuted it: keep them identical.** Two reds a few degrees apart read
-as a rendering bug, and both meanings are unwelcome news. The defect is the
-*third* meaning, "proceed". **Do not re-raise the collision without reading
-this.**
-
-**Four measured contrast failures, reproduced by an independent calculation**
-(including the composited `/15` tint, which needs the alpha blend right):
-
-| what | now | needs |
-|---|---|---|
-| white on Confirm, dark | 3.76:1 | 4.5 |
-| `--accent-2` gold on card, light | **2.75:1** | 4.5 |
-| `--positive` on its own `/15` tint, light | 4.09:1 | 4.5 |
-| `--border` as an interactive edge | **1.30:1** | 3.0 |
-
-The gold paints **"Dry run — nothing was sent"** at `text-2xl` — the product's
-most honest sentence is the faintest thing on the sheet, in the theme used
-outdoors. `--border` is the only edge on the stepper's −/+ buttons, so in
-daylight the 44px targets stop existing visually.
-
-### A GUARD THAT IS STRUCTURALLY UNREACHABLE, FOUND RATHER THAN FALLEN FOR
-
-**`!actionable` cannot happen on the ticket sheet.** `routes.py:720` sorts every
-row `(surfaced if item["actionable"] else expired)`; `LiveBoard` is fed
-`board.surfaced` only (`app/page.tsx:289`); `TicketTrigger` (`LiveBoard.tsx:268`)
-is its **sole** call site and passes no override; and there are **zero** other
-callers of `useTicket` or `open()` in `frontend/src`. The amber "aged out" Note,
-the disabled-stepper path and the matching caption are all unreachable.
-**`ux-designer` treated that state as live — discount that part of its report.**
-
-### STILL OPEN, IN THE ORDER `partner` RANKED THEM
-
-1. **Make the seeder read the deployed caps, and give ADR 0041 a test that can
-   fail.** Smallest item here and it invalidates the verification numbers for
-   everything below it, so it goes first. Assert on **rendered sizes**, not
-   config text. Needs an ADR amendment.
-2. **The payout block, the loss sentence, and `reason_text` on the ticket.**
-   `contracts × $1.00` over fields already emitted. **State gross, never a
-   net-if-win** — H4 is untested (ADR 0027). Route the $1.00 settlement identity
-   past `kalshi-platform`. `reason_text` is in the payload (`routes.py:2985`),
-   typed (`lib/api.ts:150`), rendered on the card (`OpportunityCard.tsx:192`) and
-   has **zero** hits in `TicketSheet.tsx` — so does *"All of it is lost if this
-   settles the other way."* **The commitment screen explains less than the browse
-   screen in front of it.**
-3. **The `--accent` / `--negative` collision — one token.**
-
-**Killed by `partner`, recorded so they do not come back:** the ticket layout
-reorder (premise weakened once the direction sentence landed near the top of the
-sheet); the 1,422px gate page (highest effort, no reachability evidence, and a
-long honest document is not obviously a defect on a project whose product is the
-record); `market_title` (real, one line, but ADR 0032 turned scheduled prop
-buying off — fold it into main's next pass at `routes.py`).
-
-### TWO THINGS FOR JOE, NEITHER OURS TO DECIDE
-
-- **The demo cold-starts in 33.0 seconds** (0.21s warm, `min_machines_running = 0`
-  at `fly.demo.toml:90`). The comment at `:87` claims *"the cold start is a few
-  seconds, which is fine for a portfolio link"* — an unverified estimate off by
-  roughly 10x. Keeping a machine warm costs money.
-- **`next dev` regenerates `frontend/CLAUDE.md` and `frontend/AGENTS.md` every
-  run** and rewrites `next-env.d.ts` to dev-mode type paths (Next.js 16 default).
-  They were deleted and the file reverted, but they return for anyone who starts
-  the dev server — and in a repo this deliberate about `CLAUDE.md` being **one
-  spine file**, an untracked second one in a subdirectory is one `git add -A`
-  from being committed. Fix is `agentRules: false` in `frontend/next.config.ts`.
-  Not done; it was outside the approved scope.
-
-### WHAT THIS SESSION DID NOT ESTABLISH
-
-- **The `against` branch was never seen on screen.** The sentence was confirmed
-  rendering in a browser against the live demo payload, but the demo carries
-  **YES rows only**, so the word observed was "on". The `against` branch rests on
-  the node tests.
-- **Nothing was checked at 320px in a browser.** Chrome would not resize below
-  ~852px on this machine. Every 320px figure above is from `ui-designer`'s height
-  model, which it flagged as needing eyes.
-- **Nothing about the live instance was read.** No live DB query was run from
-  this worktree.
-- **No claim that any of this changes a betting decision.** These are
-  comprehension and correctness defects. The hunt stays closed (ADR 0038) and
-  `ORDERS_ARE_DRY_RUNS = True` is untouched.
-
-### NOT THIS BRANCH'S WORK
-
-**The Odds API credit read is still due after 2026-08-18T10:00:00Z.** It was not
-touched. At the time of writing it was **2026-08-18T00:30Z** — the date rolled
-over mid-session and the measurement was still roughly ten hours out. `date -u`
-before acting on that sentence.
-
----
-
 ## 2026-08-17 21:55Z — THE MEASUREMENT IS NOT DUE YET, AND THAT IS THE WHOLE SESSION
 
 **`main` at `d867677`. State re-verified, not inherited: 3,100 passed, 10
@@ -3690,6 +2873,16 @@ checklist.
 
 Every session entry ever written to this file, newest date first. Full text in
 the linked archive file, unchanged.
+
+### 2026-08-18 — [`archive/next-2026-08-18.md`](archive/next-2026-08-18.md)
+
+- 2026-08-18 ~night — THE ALERTS LEAVE THE PHONE, AND THE FAILURE CHANNEL IS WIRED
+- 2026-08-18 ~evening — THE DESKTOP TIER EXISTS, AND THE GREEN-ZERO DEFECT DIED FIRST
+- 2026-08-18 ~16:30Z — THE TRIAGE IS DISCHARGED: THE STOP HAS A READER, THE BANKROLL IS DERIVED, AND THE COMBO FEES GOT THEIR REGISTERED LOOK
+- 2026-08-18 11:10Z — THE STUDY IS OPEN, THE MACHINE MATCHES ITS COMMIT, AND THE PARTNER HAS SET THE ORDER
+- 2026-08-18 08:50Z — THE ENTRY FORM EXISTS, AND THE DATABASE ITSELF NOW REFUSES TO EDIT AN ESTIMATE
+- 2026-08-18 08:30Z — THE POLLER IS LIVE, AND JOE'S OWN RECORD IS NOW MIRRORED WHERE KALSHI CANNOT DELETE IT
+- 2026-08-18 00:30Z — THE PUBLIC DEMO OVERSTATES SIZE BY 17x, AND THE ADR THAT CLOSED THAT HOLE CANNOT SEE IT
 
 ### 2026-08-17 — [`archive/next-2026-08-17.md`](archive/next-2026-08-17.md)
 

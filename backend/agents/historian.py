@@ -153,7 +153,7 @@ async def review(
     call. `tests/test_has_callers.py` fails if an import connects it to a
     deployed entry point.
     """
-    return await structured_call(
+    outcome = await structured_call(
         client,
         model=config.model,
         system=SYSTEM,
@@ -164,6 +164,10 @@ async def review(
         # and resisting the pull toward finding something.
         effort="high",
     )
+    # Usage is discarded here because nothing meters it: this module is
+    # QUARANTINED (ADR 0022) and has no caller. Whoever wires it up owes it
+    # the same reserve/settle-with-usage flow the desk uses.
+    return outcome.parsed
 
 
 def store_report(conn, report: HistorianReport, *, created_ms: int) -> int:

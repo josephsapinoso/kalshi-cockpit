@@ -89,9 +89,12 @@ class DeskStubClient:
         self.messages = DeskStubMessages(**kwargs)
 
 
-def _budget(tmp_path, *, daily=24):
+def _budget(tmp_path, *, daily=24, searches_daily=0, tokens_daily=0):
     conn = db.init_db(tmp_path / "desk.db")
-    return conn, AgentBudget(conn, per_pass_budget=8, daily_budget=daily)
+    return conn, AgentBudget(
+        conn, per_pass_budget=8, daily_budget=daily,
+        searches_daily_budget=searches_daily, tokens_daily_budget=tokens_daily,
+    )
 
 
 async def _convene(client, budget):
@@ -153,6 +156,33 @@ class TestTheDeskIsMetered:
         assert client.messages.calls == []
         count = conn.execute("SELECT COUNT(*) AS c FROM agent_calls").fetchone()["c"]
         assert count == 0
+
+    async def test_the_search_brake_refuses_the_desk_with_call_budget_left(
+        self, tmp_path
+    ):
+        """The v17 brake: the day has 22 of 24 calls left, but the searches
+        already recorded leave no room for the staff pair's worst case
+        (2 x max_uses = 12), so the desk is refused BEFORE any reserve --
+        nothing spent, nothing half-filed. Mutation run: the
+        `searches_worst_case` argument dropped from `convene_desk`'s
+        `can_afford` call -- this test goes red (the desk would convene).
+        File restored byte-identical."""
+        from backend.agents.base import CallUsage
+
+        conn, budget = _budget(tmp_path, searches_daily=12)
+        spent = budget.reserve(called_ms=1, agent="scout_staff_home", model="m")
+        budget.settle(spent, verdict="filed",
+                      usage=CallUsage(input_tokens=1, output_tokens=1,
+                                      web_searches=6))
+        client = DeskStubClient()
+        result = await _convene(client, budget)
+        assert result.status == "refused"
+        assert "web searches" in result.refusal_reason
+        assert client.messages.calls == []
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM agent_calls"
+        ).fetchone()["c"]
+        assert count == 1  # only the seeded row; the desk reserved nothing
 
     async def test_the_staff_pair_is_reserved_before_the_first_request(self, tmp_path):
         """Crash direction: over-count. If the process dies mid-desk, the day

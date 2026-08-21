@@ -141,6 +141,109 @@ class TestSendingTheDeskIsGuarded:
         assert count == 0
 
 
+class TestTheDeskOverview:
+    """`GET /api/scout`: the desk's own screen -- recent work, and its cost.
+
+    The spend block is the v17 token meter; what these tests pin is its
+    honesty rules, not its arithmetic (`tests/test_agent_budget.py` owns
+    that): None when there is no account to meter, and summaries only --
+    no briefing bodies -- in the rows.
+    """
+
+    async def test_no_key_means_spend_is_none_not_zeroes(
+        self, demo_app, monkeypatch
+    ):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        response = await get(demo_app, "/api/scout")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["spend"] is None
+        assert payload["briefings"] == []
+
+    async def test_the_spend_block_reports_all_three_billing_units(
+        self, live_app, scout_db, monkeypatch
+    ):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        monkeypatch.setenv("AGENT_MAX_SEARCHES_PER_DAY", "60")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_DAY", "500000")
+        from backend.agents.base import CallUsage
+        from backend.agents.budget import AgentBudget
+
+        conn = db.open_db(scout_db)
+        try:
+            meter = AgentBudget(conn, per_pass_budget=8, daily_budget=24)
+            paid = meter.reserve(
+                called_ms=db.now_ms(), agent="scout_staff_home", model="m"
+            )
+            meter.settle(
+                paid,
+                verdict="filed",
+                usage=CallUsage(
+                    input_tokens=1000, output_tokens=200, web_searches=5
+                ),
+            )
+            dead = meter.reserve(
+                called_ms=db.now_ms(), agent="scout_staff_away", model="m"
+            )
+            meter.settle(dead, verdict=None)
+        finally:
+            conn.close()
+
+        response = await get(live_app, "/api/scout")
+        assert response.status_code == 200
+        spend = response.json()["spend"]
+        assert spend["calls_today"] == 2
+        assert spend["calls_daily_budget"] == 24
+        assert spend["searches_today"] == 5
+        assert spend["searches_daily_budget"] == 60
+        assert spend["tokens_today"] == 1200
+        assert spend["tokens_daily_budget"] == 500000
+        # The dead call's usage never arrived; the sums do not cover it and
+        # the payload says so rather than undercounting in silence.
+        assert spend["calls_unmetered_today"] == 1
+
+    async def test_rows_are_summaries_and_never_carry_the_briefing_body(
+        self, demo_app, scout_db
+    ):
+        conn = db.open_db(scout_db)
+        try:
+            conn.execute(
+                "INSERT INTO scout_briefings (ticker, event_title, league, "
+                "home_team, away_team, commence_ms, requested_ms, status, "
+                "model, completed_ms, briefing_json) "
+                "VALUES ('KXTEST-LINKED', 'A at B', 'baseball_mlb', 'B', 'A', "
+                "2000000, 5000, 'complete', 'm', 6000, ?)",
+                (json.dumps({"headline": "secret body"}),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        response = await get(demo_app, "/api/scout")
+        payload = response.json()
+        assert len(payload["briefings"]) == 1
+        row = payload["briefings"][0]
+        assert row["status"] == "complete"
+        assert row["has_briefing"] is True
+        assert "secret body" not in response.text
+
+    async def test_a_stale_running_row_reads_gone_quiet_here_too(
+        self, demo_app, scout_db
+    ):
+        conn = db.open_db(scout_db)
+        try:
+            conn.execute(
+                "INSERT INTO scout_briefings (ticker, event_title, league, "
+                "home_team, away_team, requested_ms, status, model) "
+                "VALUES ('KXTEST-LINKED', 'A at B', 'baseball_mlb', 'B', 'A', "
+                "1, 'running', 'm')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        response = await get(demo_app, "/api/scout")
+        assert response.json()["briefings"][0]["gone_quiet"] is True
+
+
 class TestReadingTheDesk:
     async def test_never_sent_is_its_own_state(self, demo_app):
         body = (await get(demo_app, "/api/scout/KXTEST-LINKED")).json()

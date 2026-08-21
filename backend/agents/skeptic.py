@@ -29,7 +29,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, structured_call
+from .base import AgentConfig, StructuredCallOutcome, structured_call
 
 logger = logging.getLogger(__name__)
 
@@ -166,12 +166,13 @@ async def evaluate(
     client,
     config: AgentConfig,
     **prompt_kwargs: Any,
-) -> Optional[SkepticVerdict]:
+) -> StructuredCallOutcome:
     """Run the Skeptic on one candidate.
 
-    Returns None when unavailable or refused. A None verdict means "no
+    `parsed` is None when unavailable or refused. A None verdict means "no
     opinion" — the deterministic suppression checks stand on their own, which
-    they were always designed to do.
+    they were always designed to do. `usage` rides alongside so the caller
+    can settle what the call actually consumed (v17 token meter).
     """
     return await structured_call(
         client,

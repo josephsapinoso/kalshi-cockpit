@@ -53,11 +53,18 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, structured_call
+from .base import AgentConfig, CallUsage, structured_call
 from .budget import AgentBudget
 from .scout import WEB_SEARCH_TOOL, ScoutReport
 
 logger = logging.getLogger(__name__)
+
+# The staff pair's pre-known search ceiling: each staff call carries the
+# web-search tool at `max_uses`, the master carries no tools. Stated once at
+# module level because two call sites gate on it (the desk itself, and the
+# route's early refusal) and a drifted copy would let a tap through that the
+# desk then refuses -- a `running` row with nothing running.
+STAFF_PAIR_SEARCHES_WORST_CASE = 2 * int(WEB_SEARCH_TOOL["max_uses"])
 
 # One staff scout's brief. The two hard rules are copied from `scout.SYSTEM`
 # verbatim rather than referenced, because a system prompt is the one place a
@@ -221,6 +228,10 @@ class StaffNote:
     role: Literal["home", "away"]
     team: str
     report: Optional[ScoutReport]
+    # Meter bookkeeping only -- what the scout's one call consumed, for
+    # `budget.settle`. Never serialized into the briefing; the desk's output
+    # schema stays free of numbers (ADR 0060) and this is not part of it.
+    usage: Optional[CallUsage] = None
 
 
 @dataclass(frozen=True)
@@ -292,7 +303,7 @@ async def _staff_call(
         venue_clause=HOME_VENUE_CLAUSE if role == "home" else AWAY_VENUE_CLAUSE,
     )
     try:
-        report = await structured_call(
+        outcome = await structured_call(
             client,
             model=config.model,
             system=system,
@@ -307,10 +318,11 @@ async def _staff_call(
             effort="high",
             tools=[WEB_SEARCH_TOOL],
         )
+        report, usage = outcome.parsed, outcome.usage
     except Exception:
         logger.exception("the %s scout (%s) died", team, role)
-        report = None
-    return StaffNote(role=role, team=team, report=report)
+        report, usage = None, None
+    return StaffNote(role=role, team=team, report=report, usage=usage)
 
 
 async def convene_desk(
@@ -336,8 +348,15 @@ async def convene_desk(
     2. The master is reserved only after at least one scout filed. No notes,
        no synthesis call.
     """
-    if not budget.can_afford(2, now_ms):
-        reason = budget.refusal_reason(2, now_ms)
+    # The staff pair's search ceiling is pre-known, so the brake can be
+    # evaluated before any money leaves. The master carries no tools and its
+    # later `can_afford(1, ...)` asks for 0.
+    if not budget.can_afford(
+        2, now_ms, searches_worst_case=STAFF_PAIR_SEARCHES_WORST_CASE
+    ):
+        reason = budget.refusal_reason(
+            2, now_ms, searches_worst_case=STAFF_PAIR_SEARCHES_WORST_CASE
+        )
         logger.warning("the desk is refused: %s", reason)
         return DeskResult(
             status="refused", staff=[], briefing=None, refusal_reason=reason
@@ -383,6 +402,7 @@ async def convene_desk(
                 if note.report is None
                 else f"{len(note.report.findings)} findings"
             ),
+            usage=note.usage,
         )
 
     filed = [n for n in staff if n.report is not None]
@@ -402,7 +422,7 @@ async def convene_desk(
         called_ms=now_ms, agent="scout_master", model=config.model, ticker=ticker
     )
     try:
-        briefing = await structured_call(
+        outcome = await structured_call(
             client,
             model=config.model,
             system=MASTER_SYSTEM,
@@ -411,11 +431,14 @@ async def convene_desk(
             max_tokens=4000,
             effort="high",
         )
+        briefing, master_usage = outcome.parsed, outcome.usage
     except Exception:
         logger.exception("the master scout died")
-        briefing = None
+        briefing, master_usage = None, None
     budget.settle(
-        master_id, verdict="briefing" if briefing is not None else "filed_nothing"
+        master_id,
+        verdict="briefing" if briefing is not None else "filed_nothing",
+        usage=master_usage,
     )
     if briefing is not None:
         briefing = complete_board(briefing, staff)

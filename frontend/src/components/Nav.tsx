@@ -52,9 +52,18 @@ import type { Chip } from "@/lib/windowChip";
 // with the study. `/estimate` is still served -- the page renders the
 // terminal state at the top -- exactly as `/builder`, `/rejections` and
 // `/dashboards` are.
+// **Scout takes the open sixth slot, 2026-08-21** (betting-desk item 6:
+// metered first, promoted in the same change -- the desk arrives in the nav
+// already wearing its meter). It is the one feature Joe asked for by shape
+// (ADR 0060) on a tool he has ruled is a betting desk (ADR 0062), and its
+// page is where today's Anthropic spend is read before sending it again.
+// Placed before Ledger so Gate keeps its visible slot at 390px: with six
+// links the row scrolls, and the one that scrolls off is Playbook -- still
+// the newest-least-urgent trade the comment below records.
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/board", label: "Picks" },
+  { href: "/scout", label: "Scout" },
   { href: "/ledger", label: "Ledger" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.

@@ -21,11 +21,30 @@ from backend.agents.skeptic import SkepticVerdict
 from backend.store import db
 
 
+class StubUsage:
+    """The SDK usage block, down to the one nested field the meter reads."""
+
+    def __init__(self, input_tokens=0, output_tokens=0, web_searches=None,
+                 cache_creation=0, cache_read=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_creation_input_tokens = cache_creation
+        self.cache_read_input_tokens = cache_read
+        # Absent (None) means no server tool ran, matching the wire shape.
+        self.server_tool_use = (
+            None
+            if web_searches is None
+            else type("S", (), {"web_search_requests": web_searches})()
+        )
+
+
 class StubResponse:
-    def __init__(self, parsed=None, stop_reason="end_turn", category=None):
+    def __init__(self, parsed=None, stop_reason="end_turn", category=None,
+                 usage=None):
         self.parsed_output = parsed
         self.stop_reason = stop_reason
         self.stop_details = type("D", (), {"category": category})() if category else None
+        self.usage = usage
 
 
 class StubMessages:
@@ -96,21 +115,57 @@ class TestSharedCall:
         # again without moving.
         assert system[-1]["text"] == "agent specific"
 
-    async def test_an_api_failure_returns_none_rather_than_raising(self):
+    async def test_an_api_failure_returns_no_parse_and_no_usage(self):
+        """No response arrived, so both halves are None -- the caller settles
+        NULL usage, never 0, and `calls_unmetered_today` counts the row."""
         client = StubClient(raises=RuntimeError("down"))
-        assert await structured_call(
+        outcome = await structured_call(
             client, model="m", system="s", user_content="u",
             output_model=SkepticVerdict,
-        ) is None
+        )
+        assert outcome.parsed is None
+        assert outcome.usage is None
 
-    async def test_a_refusal_returns_none(self):
+    async def test_a_refusal_returns_no_parse_but_keeps_the_usage(self):
         """A safety refusal is HTTP 200 with content that will not match the
-        schema, so it must be caught before touching parsed_output."""
-        client = StubClient(StubResponse(stop_reason="refusal", category="cyber"))
-        assert await structured_call(
+        schema, so it must be caught before touching parsed_output -- and it
+        was still BILLED, so the usage block must survive for the meter."""
+        client = StubClient(StubResponse(
+            stop_reason="refusal", category="cyber",
+            usage=StubUsage(input_tokens=100, output_tokens=7),
+        ))
+        outcome = await structured_call(
             client, model="m", system="s", user_content="u",
             output_model=SkepticVerdict,
-        ) is None
+        )
+        assert outcome.parsed is None
+        assert outcome.usage is not None
+        assert outcome.usage.input_tokens == 100
+        assert outcome.usage.output_tokens == 7
+
+    async def test_usage_sums_the_cache_classes_and_reads_searches(self):
+        """`input_tokens` is the whole presented prompt -- uncached plus cache
+        write plus cache read -- and `web_searches` comes from the nested
+        `server_tool_use` block. Absent `server_tool_use` is an observed zero
+        (no server tool ran), not a substitution."""
+        client = StubClient(StubResponse(
+            usage=StubUsage(input_tokens=10, output_tokens=5, web_searches=4,
+                            cache_creation=700, cache_read=300),
+        ))
+        outcome = await structured_call(
+            client, model="m", system="s", user_content="u",
+            output_model=SkepticVerdict,
+        )
+        assert outcome.usage.input_tokens == 1010
+        assert outcome.usage.output_tokens == 5
+        assert outcome.usage.web_searches == 4
+        assert outcome.usage.total_tokens == 1015
+
+        quiet = StubClient(StubResponse(usage=StubUsage(input_tokens=1)))
+        assert (await structured_call(
+            quiet, model="m", system="s", user_content="u",
+            output_model=SkepticVerdict,
+        )).usage.web_searches == 0
 
     async def test_house_context_states_the_two_cent_reality(self):
         """The agents' priors have to match the venue's."""

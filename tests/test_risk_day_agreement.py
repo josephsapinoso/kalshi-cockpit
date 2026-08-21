@@ -311,6 +311,8 @@ class TestTheAgentBudgetUsesTheConfiguredDay:
         class _Cfg:
             max_calls_per_pass = 8
             max_calls_per_day = 24
+            max_searches_per_day = 60
+            max_tokens_per_day = 500_000
 
         meter = AgentBudget.from_config(conn, _Cfg())
         assert meter.day_start_hour == 3
@@ -330,6 +332,8 @@ class TestTheAgentBudgetUsesTheConfiguredDay:
         class _Cfg:
             max_calls_per_pass = 8
             max_calls_per_day = 24
+            max_searches_per_day = 60
+            max_tokens_per_day = 500_000
 
         configured = AgentBudget.from_config(conn, _Cfg())
         hardcoded = AgentBudget(conn, per_pass_budget=8, daily_budget=24)

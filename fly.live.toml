@@ -262,6 +262,13 @@ primary_region = "ord"
   AGENT_MAX_CALLS_PER_PASS = "8"
   AGENT_MAX_CALLS_PER_DAY = "24"
 
+  # The token meter's daily brakes (v17): the call caps cannot see the up-to-12
+  # web searches a scout-desk convening can spend, nor the search results it
+  # bills as input tokens. Evaluated over recorded usage BEFORE the next
+  # reserve -- a brake, not a receipt. See .env.example for the arithmetic.
+  AGENT_MAX_SEARCHES_PER_DAY = "60"
+  AGENT_MAX_TOKENS_PER_DAY = "500000"
+
   ODDS_REGIONS = "us,eu"
 
   # **`h2h` only, and this is a 3x cost cut that loses nothing.** Changed

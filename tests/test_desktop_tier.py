@@ -32,6 +32,9 @@ PROSE_FILES = [
     # paragraph would hit ~190ch.
     SRC / "components" / "ScoutDesk.tsx",
     SRC / "app" / "market" / "[ticker]" / "page.tsx",
+    # The desk's own screen (2026-08-21, betting-desk item 6): a nav-level
+    # surface whose meter and explanatory prose face the same widths.
+    SRC / "app" / "scout" / "page.tsx",
 ]
 
 # `<p className="...">` with a static string, or `<p className={`...`}` with a
@@ -86,6 +89,9 @@ class TestTheChromeAndTheContentShareOneWidth:
             # narrower than its own nav -- the "photocopied phone screen"
             # Joe reported. The width literal ban below now covers it.
             SRC / "app" / "market" / "[ticker]" / "page.tsx",
+            # Born in the shell (2026-08-21): the Scout screen never carried
+            # its own width literal, and this keeps it that way.
+            SRC / "app" / "scout" / "page.tsx",
         ):
             text = path.read_text(encoding="utf-8")
             assert 'from "@/lib/shell"' in text, f"{path.name} does not import shell.ts"

@@ -849,6 +849,18 @@ CREATE TABLE IF NOT EXISTS agent_calls (
     side        TEXT,
     verdict     TEXT,               -- defect | suspicious | plausible | NULL
     blocked     INTEGER,            -- 1 | 0 | NULL when there was no verdict
+    -- What the call actually consumed, filled in by `settle` from the API's
+    -- own usage report (v17). NULL -- never 0 -- when the response never
+    -- arrived: a reserve with no settle, a network death, a crash. A NULL row
+    -- is spend the token meter could not see, and `calls_unmetered_today`
+    -- counts them so the sums state what they do not cover. The call-count
+    -- cap, which needs no response to enforce, remains the outer bound.
+    -- `input_tokens` is the whole presented prompt (uncached + cache read +
+    -- cache write) -- a token meter, not a dollar meter; rates differ by
+    -- cache class and this column does not pretend otherwise.
+    input_tokens    INTEGER,
+    output_tokens   INTEGER,
+    web_searches    INTEGER,
     CHECK (blocked IS NULL OR blocked IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);

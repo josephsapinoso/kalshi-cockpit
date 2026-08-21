@@ -1461,9 +1461,14 @@ def create_app(
                 )
             # Refuse before writing anything, so a tap against an exhausted
             # day answers immediately and spends nothing -- the same check the
-            # desk itself makes, done early where the phone can see it.
+            # desk itself makes (searches worst case included, v17), done
+            # early where the phone can see it.
             budget = AgentBudget.from_config(write_conn, config)
-            reason = budget.refusal_reason(2, now)
+            reason = budget.refusal_reason(
+                2,
+                now,
+                searches_worst_case=scout_desk.STAFF_PAIR_SEARCHES_WORST_CASE,
+            )
             if reason is not None:
                 raise HTTPException(status_code=429, detail=reason)
             cursor = write_conn.execute(
@@ -1487,6 +1492,72 @@ def create_app(
             write_conn.close()
         asyncio.create_task(_run_scout_desk(row_id, config, fixture, ticker))
         return {"accepted": True, "id": row_id}
+
+    @app.get("/api/scout")
+    def scout_desk_overview(conn=Depends(get_conn)) -> dict:
+        """The desk's own screen: recent briefings, and today's metered spend.
+
+        The spend block is the v17 token meter made phone-readable -- the one
+        place Joe can see what the desk has cost TODAY before sending it
+        again, in the three units that actually bill: calls, web searches,
+        tokens. Counts, never dollars (`AgentSpendSummary` has the argument:
+        the per-token rate in this repo is assumed, not invoiced).
+        `calls_unmetered` is the number of today's calls whose usage never
+        came back -- the sums do not cover them, and saying so beats a
+        confident undercount. `spend` is None when no ANTHROPIC_API_KEY is
+        configured (the demo): the desk does not exist there, and a row of
+        zeroes would claim a meter where there is no account to meter.
+
+        Briefing rows are summaries only -- status and identity, no
+        `staff_json`/`briefing_json` -- because this screen answers "what has
+        the desk done and what did it cost", and the briefing itself is read
+        on the game's own screen via `GET /api/scout/{ticker}`.
+        """
+        rows = conn.execute(
+            "SELECT id, ticker, event_title, league, home_team, away_team, "
+            "commence_ms, requested_ms, completed_ms, status, refusal_reason, "
+            "model, briefing_json IS NOT NULL AS has_briefing "
+            "FROM scout_briefings ORDER BY requested_ms DESC, id DESC LIMIT 50"
+        ).fetchall()
+        now = db.now_ms()
+        briefings = []
+        for row in rows:
+            gone_quiet = (
+                row["status"] == "running"
+                and now - row["requested_ms"] > SCOUT_DESK_PATIENCE_MS
+            )
+            briefings.append(
+                {
+                    "id": row["id"],
+                    "ticker": row["ticker"],
+                    "event_title": row["event_title"],
+                    "league": row["league"],
+                    "home_team": row["home_team"],
+                    "away_team": row["away_team"],
+                    "commence_ms": row["commence_ms"],
+                    "requested_ms": row["requested_ms"],
+                    "completed_ms": row["completed_ms"],
+                    "status": row["status"],
+                    "gone_quiet": gone_quiet,
+                    "refusal_reason": row["refusal_reason"],
+                    "has_briefing": bool(row["has_briefing"]),
+                }
+            )
+        config = AgentConfig.from_env()
+        spend = None
+        if config is not None:
+            summary = AgentBudget.from_config(conn, config).today_summary(now)
+            spend = {
+                "calls_today": summary.calls_today,
+                "calls_daily_budget": summary.daily_budget,
+                "searches_today": summary.searches_today,
+                "searches_daily_budget": summary.searches_daily_budget,
+                "tokens_today": summary.tokens_today,
+                "tokens_daily_budget": summary.tokens_daily_budget,
+                "calls_unmetered_today": summary.calls_unmetered_today,
+                "day_start_ms": summary.day_start_ms,
+            }
+        return {"briefings": briefings, "spend": spend}
 
     @app.get("/api/scout/{ticker}")
     def scout_briefing(ticker: str, conn=Depends(get_conn)) -> dict:

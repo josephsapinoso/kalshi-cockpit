@@ -93,6 +93,31 @@ DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_MAX_CALLS_PER_PASS = 8
 DEFAULT_MAX_CALLS_PER_DAY = 24
 
+# **The token and search caps see what the call cap cannot** (2026-08-21,
+# betting-desk item 6). A scout-desk staff call carries the web-search tool
+# with `max_uses: 6`, and each search bills per-search AND injects its results
+# as input tokens -- so one metered "call" can be a small fixed spend or a
+# large one, and the 24-call cap cannot tell them apart. These two are brakes
+# evaluated over *recorded* usage (`agent_calls.input_tokens` etc.) BEFORE the
+# next reserve -- never over a post-hoc field of the work the money bought
+# (`tasks/lessons.md`, "a field written after the spend is not a spend gate").
+#
+# The defaults are chosen to bind early and be raised deliberately, like the
+# call caps above. Arithmetic, on the same [ASSUMED] rates and the desk's own
+# ceilings (staff `max_tokens=6000`, up to 6 searches each; master 4000):
+#
+#   one saturated convening  ~2 x (50K in + 6K out) + (5K in + 4K out)  ~ 121K
+#   tokens: 500K a day  ~ 4 saturated convenings, more when calls run lean
+#   searches: 60 a day  ~ 5 convenings that spend all 12, more when fewer
+#
+# The call cap alone would allow 8 convenings x 12 searches = 96 searches and
+# an unbounded token day. A crashed call settles no usage (NULL, never 0), so
+# these sums can under-count -- the call cap, which needs no response to
+# enforce, remains the outer bound, and `calls_unmetered_today` reports how
+# many rows the sums do not cover.
+DEFAULT_MAX_SEARCHES_PER_DAY = 60
+DEFAULT_MAX_TOKENS_PER_DAY = 500_000
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -125,6 +150,65 @@ class AgentUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CallUsage:
+    """What one billed call consumed, from the API's own usage block.
+
+    `input_tokens` is the whole presented prompt -- uncached plus cache read
+    plus cache write -- because this is a token meter, not a dollar meter:
+    the three classes bill at different rates and summing them does not
+    pretend otherwise (`AgentSpendSummary` has the counts-not-dollars rule).
+    `web_searches` is the server-tool count the API reports; those bill
+    per-search on top of tokens.
+    """
+
+    input_tokens: int
+    output_tokens: int
+    web_searches: int
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
+class StructuredCallOutcome:
+    """One call's parsed result and its recorded cost, separately nullable.
+
+    The two halves fail independently and the meter needs the difference:
+    a safety refusal or unparseable output has `parsed=None` with real
+    `usage` -- the call was billed and must be counted -- while a transport
+    death has `usage=None`, which settles NULL usage columns ("unreadable
+    resolves to None, never 0") and is counted by `calls_unmetered_today`.
+    """
+
+    parsed: Optional[Any]
+    usage: Optional[CallUsage]
+
+
+def _usage_from(response) -> Optional[CallUsage]:
+    """Read the usage block off a response, or None when there is none.
+
+    `server_tool_use` absent means no server tool ran, so 0 searches is an
+    observation there, not a substitution; a missing `usage` object entirely
+    is the unreadable case and resolves to None.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    server = getattr(usage, "server_tool_use", None)
+    searches = getattr(server, "web_search_requests", 0) if server is not None else 0
+    return CallUsage(
+        input_tokens=(
+            int(getattr(usage, "input_tokens", 0) or 0)
+            + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+            + int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        ),
+        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        web_searches=int(searches or 0),
+    )
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     api_key: str
     model: str = DEFAULT_MODEL
@@ -134,6 +218,8 @@ class AgentConfig:
     # shape that let the spend path ship with no ceiling at all.
     max_calls_per_pass: int = DEFAULT_MAX_CALLS_PER_PASS
     max_calls_per_day: int = DEFAULT_MAX_CALLS_PER_DAY
+    max_searches_per_day: int = DEFAULT_MAX_SEARCHES_PER_DAY
+    max_tokens_per_day: int = DEFAULT_MAX_TOKENS_PER_DAY
 
     @classmethod
     def from_env(cls) -> Optional["AgentConfig"]:
@@ -160,6 +246,12 @@ class AgentConfig:
             ),
             max_calls_per_day=_positive_int_env(
                 "AGENT_MAX_CALLS_PER_DAY", DEFAULT_MAX_CALLS_PER_DAY
+            ),
+            max_searches_per_day=_positive_int_env(
+                "AGENT_MAX_SEARCHES_PER_DAY", DEFAULT_MAX_SEARCHES_PER_DAY
+            ),
+            max_tokens_per_day=_positive_int_env(
+                "AGENT_MAX_TOKENS_PER_DAY", DEFAULT_MAX_TOKENS_PER_DAY
             ),
         )
 
@@ -259,13 +351,16 @@ async def structured_call(
     max_tokens: int = 4096,
     effort: str = "medium",
     tools: Optional[list[dict]] = None,
-) -> Optional[T]:
-    """One structured call. Returns a validated model, or None on failure.
+) -> StructuredCallOutcome:
+    """One structured call. Returns the parsed model and the recorded usage.
 
-    Returning None rather than raising is deliberate: an agent is advisory, and
-    a Claude outage must not take down a recommendation pipeline. Callers treat
-    a None verdict as "no opinion", which for the Skeptic means the suppression
-    layer's own deterministic checks stand alone — as they always do anyway.
+    `parsed` is None rather than raised on failure, deliberately: an agent is
+    advisory, and a Claude outage must not take down a recommendation
+    pipeline. Callers treat a None verdict as "no opinion", which for the
+    Skeptic means the suppression layer's own deterministic checks stand alone
+    — as they always do anyway. `usage` is carried even when `parsed` is None
+    (a refusal or unparseable output was still billed) and is None only when
+    no response arrived at all — the caller settles that as NULL, never 0.
 
     **The cache breakpoint is on the last system block, not the shared one.**
     The shared house context is 401 tokens and the minimum cacheable prefix is
@@ -314,7 +409,9 @@ async def structured_call(
         response = await client.messages.parse(**kwargs)
     except Exception:
         logger.exception("agent call failed; continuing without a verdict")
-        return None
+        return StructuredCallOutcome(parsed=None, usage=None)
+
+    usage = _usage_from(response)
 
     # A safety refusal returns HTTP 200 with stop_reason "refusal" and content
     # that will not match the schema. Check before touching parsed_output.
@@ -323,9 +420,9 @@ async def structured_call(
             "agent call refused (%s)",
             getattr(getattr(response, "stop_details", None), "category", "unknown"),
         )
-        return None
+        return StructuredCallOutcome(parsed=None, usage=usage)
 
     parsed = getattr(response, "parsed_output", None)
     if parsed is None:
         logger.warning("agent returned no parseable structured output")
-    return parsed
+    return StructuredCallOutcome(parsed=parsed, usage=usage)

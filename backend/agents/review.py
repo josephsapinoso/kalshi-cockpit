@@ -101,7 +101,7 @@ from typing import Any, Callable, Optional, Sequence
 from ..engine import Recommendation, with_added_suppression
 from ..store.db import now_ms
 from . import skeptic
-from .base import AgentConfig, build_client
+from .base import AgentConfig, StructuredCallOutcome, build_client
 from .budget import AgentBudget
 
 logger = logging.getLogger(__name__)
@@ -201,7 +201,9 @@ async def _evaluate_one(client, config: AgentConfig, candidate: ReviewCandidate)
             "skeptic review failed for %s; continuing with no opinion",
             candidate.recommendation.ticker,
         )
-        return None
+        # No response arrived, so there is no usage to record either; the
+        # reserve row settles to NULLs, and `calls_unmetered_today` counts it.
+        return StructuredCallOutcome(parsed=None, usage=None)
 
 
 async def _review_batch(
@@ -339,7 +341,8 @@ def review_surfaced(
 
     out: list[Recommendation] = []
     blocked = 0
-    for candidate, call_id, verdict in zip(reviewable, reservations, verdicts):
+    for candidate, call_id, outcome in zip(reviewable, reservations, verdicts):
+        verdict = outcome.parsed
         row, did_block = _amend(candidate, verdict)
         # Settled here rather than inside the batch because the batch runs on a
         # dedicated thread with its own event loop and a sqlite3 connection is
@@ -351,6 +354,7 @@ def review_surfaced(
             call_id,
             verdict=None if verdict is None else verdict.verdict,
             blocked=None if verdict is None else did_block,
+            usage=outcome.usage,
         )
         out.append(row)
         blocked += 1 if did_block else 0

@@ -84,6 +84,7 @@ from backend.agents.base import (
     DEFAULT_MAX_CALLS_PER_DAY,
     DEFAULT_MAX_CALLS_PER_PASS,
     AgentConfig,
+    CallUsage,
     build_client,
 )
 from backend.agents.budget import AgentBudget
@@ -1077,3 +1078,114 @@ class TestTheMeterCannotBeReachedWithoutADatabase:
 
         assert outcome.recommendations == []
         assert _rows(conn) == []
+
+
+class TestTheTokenMeterSeesWhatTheCallCapCannot:
+    """The v17 brakes: searches and tokens, evaluated before the reserve.
+
+    The 24-call cap counts calls; a scout-desk staff call carries the
+    web-search tool at `max_uses: 6`, so one convening can spend 12 searches
+    and an unbounded prompt inside three perfectly-counted calls. These caps
+    read spend already RECORDED (settled usage) before the next reserve --
+    never a field the gated call itself will write, which is the
+    "receipt, not a brake" lesson (`tasks/lessons.md`, 2026-08-21).
+
+    Mutations run: (1) `state()` summing `web_searches` changed to count
+    rows -- the search test goes red; (2) the `tokens_today >=` check
+    removed from `refusal_reason` -- the token test goes red; (3) `settle`
+    writing usage columns dropped -- the settle test goes red. File restored
+    byte-identical after each.
+    """
+
+    def _spend_one(self, meter, *, searches=0, input_tokens=0, output_tokens=0):
+        call_id = meter.reserve(called_ms=NOW, agent="scout_staff_home", model="m")
+        meter.settle(
+            call_id,
+            verdict="filed",
+            usage=CallUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                web_searches=searches,
+            ),
+        )
+
+    def test_settle_records_the_usage_and_null_stays_null(self, conn):
+        meter = AgentBudget(conn, per_pass_budget=8, daily_budget=24)
+        self._spend_one(meter, searches=5, input_tokens=1000, output_tokens=200)
+        # A second call whose response never arrived settles no usage: the
+        # columns stay NULL, never 0.
+        dead = meter.reserve(called_ms=NOW, agent="scout_staff_away", model="m")
+        meter.settle(dead, verdict=None)
+        rows = conn.execute(
+            "SELECT input_tokens, output_tokens, web_searches FROM agent_calls "
+            "ORDER BY id"
+        ).fetchall()
+        assert tuple(rows[0]) == (1000, 200, 5)
+        assert tuple(rows[1]) == (None, None, None)
+        state = meter.state(NOW)
+        assert state.searches_today == 5
+        assert state.tokens_today == 1200
+        assert state.calls_unmetered_today == 1
+
+    def test_the_search_brake_refuses_before_the_money_leaves(self, conn):
+        """With 50 of 60 searches recorded, a fan-out that could spend 12 more
+        is refused up front -- the worst case would cross the ceiling."""
+        meter = AgentBudget(
+            conn, per_pass_budget=8, daily_budget=24,
+            searches_daily_budget=60, tokens_daily_budget=500_000,
+        )
+        for _ in range(5):
+            self._spend_one(meter, searches=10)
+        assert not meter.can_afford(2, NOW, searches_worst_case=12)
+        reason = meter.refusal_reason(2, NOW, searches_worst_case=12)
+        assert "50 of 60 web searches" in reason
+        # The same fan-out with no tools is still affordable: the call caps
+        # alone govern it.
+        assert meter.can_afford(2, NOW, searches_worst_case=0)
+
+    def test_the_token_brake_refuses_once_the_recorded_total_crosses(self, conn):
+        meter = AgentBudget(
+            conn, per_pass_budget=8, daily_budget=24,
+            searches_daily_budget=60, tokens_daily_budget=10_000,
+        )
+        self._spend_one(meter, input_tokens=9_000, output_tokens=999)
+        assert meter.can_afford(2, NOW)
+        self._spend_one(meter, input_tokens=0, output_tokens=1)
+        assert not meter.can_afford(2, NOW)
+        assert "10000 of 10000 Anthropic tokens" in meter.refusal_reason(2, NOW)
+
+    def test_a_zero_ceiling_means_unconfigured_and_refuses_nothing(self, conn):
+        """The many existing constructors that pass only call caps must keep
+        meaning what they meant: call caps only, no token/search brakes."""
+        meter = AgentBudget(conn, per_pass_budget=8, daily_budget=24)
+        for _ in range(3):
+            self._spend_one(meter, searches=1000, input_tokens=10**9)
+        assert meter.can_afford(2, NOW, searches_worst_case=12)
+
+    def test_from_config_wires_both_ceilings(self, conn, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+        monkeypatch.setenv("AGENT_MAX_SEARCHES_PER_DAY", "7")
+        monkeypatch.setenv("AGENT_MAX_TOKENS_PER_DAY", "123")
+        meter = AgentBudget.from_config(conn, AgentConfig.from_env())
+        assert meter.searches_daily_budget == 7
+        assert meter.tokens_daily_budget == 123
+        summary = meter.today_summary(NOW)
+        assert summary.searches_daily_budget == 7
+        assert summary.tokens_daily_budget == 123
+        assert summary.searches_today == 0
+        assert summary.tokens_today == 0
+        assert summary.calls_unmetered_today == 0
+
+    def test_an_unmetered_call_cannot_slip_under_the_search_brake(self, conn):
+        """NULL usage adds nothing to the sums -- the brake under-counts, by
+        design, and the call cap stays the outer bound. What must hold is
+        that the NULL rows are COUNTED as unmetered, so the summary can say
+        what the sums do not cover."""
+        meter = AgentBudget(
+            conn, per_pass_budget=8, daily_budget=24,
+            searches_daily_budget=60, tokens_daily_budget=500_000,
+        )
+        dead = meter.reserve(called_ms=NOW, agent="scout_staff_home", model="m")
+        meter.settle(dead, verdict=None)
+        assert meter.state(NOW).calls_unmetered_today == 1
+        assert meter.can_afford(2, NOW, searches_worst_case=12)

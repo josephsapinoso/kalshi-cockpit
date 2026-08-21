@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -794,6 +794,23 @@ _MIGRATIONS: dict[int, _Migration] = {
         columns=(("api_credits", "trigger", "TEXT"),),
         undo_statements=(
             # Dropping the column takes everything this step wrote.
+        ),
+    ),
+    17: _Migration(
+        # The token meter (2026-08-21 partner ruling, betting-desk item 6):
+        # the 24-call daily cap meters calls, and a scout-desk call with the
+        # web-search tool can spend up to 6 searches and an unbounded prompt
+        # inside one call -- spend the meter could not see. `settle` now
+        # writes what the API's usage block reported. Nullable, no backfill:
+        # every pre-v17 row genuinely did not observe its usage, and NULL is
+        # the honest value ("unreadable resolves to None, never 0").
+        columns=(
+            ("agent_calls", "input_tokens", "INTEGER"),
+            ("agent_calls", "output_tokens", "INTEGER"),
+            ("agent_calls", "web_searches", "INTEGER"),
+        ),
+        undo_statements=(
+            # Dropping the columns takes everything this step wrote.
         ),
     ),
 }
