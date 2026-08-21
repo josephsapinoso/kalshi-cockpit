@@ -19,7 +19,7 @@ The tool has never placed an order — `ORDERS_ARE_DRY_RUNS = True`
 |---|---|---|
 | Information vs sportsbook consensus | `beta = −0.141`, **negative** | [0021](docs/adr/0021-the-consensus-only-strategy-is-refuted.md), [0034](docs/adr/0034-the-a-versus-f-call-is-f-for-a-fortnight-against-the-annotation.md) |
 | Information vs Kalshi's own prices | our model's error **exceeds** its disagreement with Kalshi | [0036](docs/adr/0036-pitcher-strikeouts-cannot-be-priced-from-public-rate-data.md), [0037](docs/adr/0037-the-in-house-prop-model-line-is-closed.md) |
-| Venue structure (`KXMVE` combos) | zero volume, zero open interest | [0012 §5](docs/adr/0012-a-combo-price-is-read-not-created.md) |
+| Venue structure (`KXMVE` combos) | **enter-only**: no YES bid on 40/40 books ever read, ≤18 units deep | [0012 §5](docs/adr/0012-a-combo-price-is-read-not-created.md) |
 | Speed (stale-quote pick-off) | edge lives at ~400ms; too fast to reach | predecessor project |
 | Cost headroom | a **discount, not a signal** | [0027](docs/adr/0027-the-cost-headroom-is-an-upper-bound-pending-h4.md), [0028](docs/adr/0028-the-fee-hedge-is-retired-and-the-grid-is-deci-cent.md) |
 
