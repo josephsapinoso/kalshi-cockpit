@@ -65,8 +65,12 @@ never measured this page) and passes at 390/768/1280/1440/1920 with the
 real MIL ticker; ScoutDesk + market page joined `PROSE_FILES`.
 
 State: **3,791 passed / 10 xfailed**, ruff clean, tsc clean, build green,
-deployed. **Joe owns one look-at-it question:** whether six ~193px tiles in
-one row read as one glance on his monitor, or want to be three-up.
+deployed (`9952a0f` verified on live). **Joe answered the look-at-it
+question 2026-08-21 ~15:20Z: "6 tiles across one row is fine"** — the
+six-across pin stands as built. He also re-sent the scouts post-board
+(filed 15:17Z): the master's own tiles rendered correctly on live, and his
+read correctly named the unchecked same-day lineups as the briefing's real
+content. Session ended here at Joe's request; this entry is the handoff.
 
 **Still open:** tonight's terminal spread/total look at 22:40Z (session
 alive in band 22:35–22:45Z; replay gate PASSED 04:04Z); footer 5-and-5
