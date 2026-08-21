@@ -41,6 +41,69 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~23:30Z — the landing screen stops claiming an edge, and the session hands off
+
+**"Strip the landing screen" is DONE** — the last slice this session ships.
+State: **3,825 passed / 10 xfailed**, ruff clean, tsc clean, build green,
+overflow gate green at 390/768/1280/1440/1920, deployed (verify
+`/api/health` `git_sha` against `origin/main` — the deploy was dispatched
+at the end of this entry's session).
+
+- **The edge point estimate is off the slate rows** (`+X.Xc`, tone, mark
+  — all gone). The Board (`/board`) is the edge-finder feature and still
+  renders it through `EDGE_TONE_CLASS`; the landing screen now leads with
+  ask, break-even, books, freshness. Page docstring names the ruling.
+- **`DispersionStrip` is a range behind a tap**: summary shows the spread
+  in points on every width (the ADR 0052 phone reader still sees the
+  magnitude untapped); the tap reveals the two ranges and the caveat. The
+  ask is no longer drawn against the readings (direction claim) and the
+  `used` mark is gone (the point estimate one layer down). The geometry
+  lib is untouched; its tests still run.
+- **`Width` stands alone** — its warning ink compared against the edge,
+  which is no longer shown, so the comparison went with it.
+- **Two pins inverted with dated docstrings** citing the ruling:
+  `test_board_screen.py` now bans `edge_cents`/`edgeTone` from the slate
+  page (mutation verified red: re-adding `row.edge_cents` fails it);
+  `test_dispersion_strip.py` now bans `d.kalshi` from the component.
+
+**NEXT SESSION STARTS HERE — CLV on his own bets** (the ruling's
+re-scope, `docs/reviews/2026-08-21-items-2-3-ruling.md`). Scoped this
+session, ready to build:
+
+1. **Union into `backend/scoring.py` `markets_awaiting_scoring`**: a
+   second SELECT over `venue_settlements` v JOIN `kalshi_markets` m ON
+   m.ticker = v.ticker JOIN `event_links` l ON l.kalshi_event_ticker =
+   m.event_ticker JOIN the same MIN(commence) odds subquery — so closes
+   get captured for his markets. Stop-predicate: NOT EXISTS a
+   `closing_lines` row for the ticker (else refetched every pass
+   forever). Most hand-bet tickers will refuse structurally (no link) —
+   that is expected and honest; the partner said so.
+2. **`/api/bets` computes per-bet CLV on read** (like the matcher: on
+   read, not at ingest — no new columns): LEFT JOIN `closing_lines` at
+   `DEFAULT_HORIZON_HOURS`, then the EXACT existing convention —
+   `backend/analysis/clv.py:clv_tenths(entry_price_tenths, close_mid,
+   side)` (close mid = (yes_bid+yes_ask)/2; entry is already
+   side-denominated in both tables). Apply the same entry-before-close
+   exclusion using `position_first_seen_ms` (NULL → refuse; a bet placed
+   after the close observation must not be scored against it —
+   `clv.py:234` has the argument).
+3. **Render per-bet rows ONLY on `/bets`**: your price, Kalshi's close,
+   the difference — server-rendered display strings. **NO average, NO
+   hit rate, NO "you beat the close X% of the time"** until n ≥ 30 with
+   the per-group view printed beside it — the partner's hard constraint,
+   on the most ego-loaded quantity in the product.
+
+Then the last item: **ticket cleanup** — `TicketSheet`/`TicketProvider`
+dead-code removal + "Ledger" rename, janitorial, one slice. The nav-swap
+clause is dropped (Scout holds the sixth slot).
+
+**Still open from before:** footer parity (6-and-6, at the bound);
+partner's "later, maybe" lists (2026-08-21 review + ADR 0061); the Fly
+invoice and first Anthropic invoice remain the two unpulled numbers
+(ADR 0062 §4).
+
+---
+
 ## 2026-08-21 ~22:45Z — the refusal lands on real data, and the lockout gets the desk's name
 
 **"The refusal on real data + the desk lockout" is DONE, built exactly to

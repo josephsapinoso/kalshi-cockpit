@@ -10,7 +10,6 @@ import type {
   Slate,
   SlateRowData,
 } from "@/lib/api";
-import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import Link from "next/link";
 
@@ -24,7 +23,16 @@ import TonightStrip from "@/components/TonightStrip";
 export const dynamic = "force-dynamic";
 
 /**
- * The whole slate, with edge as a column rather than a gate.
+ * The whole slate. The edge is not on it, since 2026-08-21.
+ *
+ * The point-estimate column (`+2.3c` with tone and mark) came off on the
+ * partner's betting-desk ruling (docs/reviews/2026-08-21-items-2-3-ruling.md,
+ * re-affirming the standing "strip the landing screen" item, under ADR 0062:
+ * the edge-finder is a feature, not a determiner, and Joe's own words were
+ * "I don't care about 1-2 cent diffs"). The Board (/board, one tap away) is
+ * where the edge-finder lives and still renders it; this screen keeps the
+ * facts a bettor transacts against -- ask, break-even, books, freshness --
+ * and the record's own caveats.
  *
  * The Board splits tonight on one question — did this clear the fee against a
  * devigged sharp consensus? — and the answer has been "no" on every row this
@@ -79,7 +87,8 @@ export default async function SlatePage() {
       <header>
         <h1 className="text-2xl font-extrabold tracking-tight">Slate</h1>
         <p className="mt-2 max-w-prose text-sm text-muted">
-          Everything on the record for tonight, with the edge as one column.
+          Everything on the record for tonight — the facts you would transact
+          against, not a verdict.
           {/* The sentence that stops every other column reading as a signal.
               Taken from the payload rather than written here, so the server and
               the screen cannot come to disagree about what this page claims. */}{" "}
@@ -147,10 +156,9 @@ export default async function SlatePage() {
         </p>
       )}
 
-      {/* Above the rows, because it is what the edge column is worth. The
-          header sentence already stops the other columns reading as signals;
-          this one says what happened when the edge column itself was measured
-          against Kalshi's own close. */}
+      {/* Above the rows: what the edge-finder was worth when it was
+          measured against Kalshi's own close. It stays even though the edge
+          column is gone — it is the reason the column is gone. */}
       <div className="mt-6">
         <SignalStrip signal={signal} now={Date.now()} />
       </div>
@@ -232,8 +240,6 @@ function Row({
   maxQuoteAgeMs: number;
   maxOddsAgeMs: number;
 }) {
-  const tone = edgeTone(row);
-
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 xl:grid xl:grid-cols-[3rem_minmax(0,1fr)_5.5rem_5rem_8rem_6.5rem_11rem_6rem_7rem_6.5rem_2.5rem] xl:gap-x-4 xl:items-baseline">
       <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
@@ -257,20 +263,16 @@ function Row({
           `breakeven_win_rate` the order path uses. **The consensus fair value
           is deliberately NOT on this row** — `edge_tenths` is exactly
           1000 × (fair − break-even), so rendering both hands the reader the
-          measured-negative edge by subtraction. The edge column stands; the
-          fair number does not co-render. */}
+          measured-negative edge by subtraction. Since 2026-08-21 the edge
+          point estimate itself is off this row too (the ruling above): the
+          Board renders it, one tap away, and this screen makes no claim
+          about mispricing in either direction. */}
       {row.breakeven_win_rate !== null && (
         <span className="tabular text-sm text-muted">
           {(row.breakeven_win_rate * 100).toFixed(1)}%{" "}
           <Term k="breakeven">to break even</Term>
         </span>
       )}
-
-      <span className={`tabular text-sm font-semibold ${EDGE_TONE_CLASS[tone]}`}>
-        {EDGE_TONE_MARK[tone]}
-        {row.edge_cents > 0 ? "+" : ""}
-        {row.edge_cents.toFixed(1)}c
-      </span>
 
       <Books row={row} />
       <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />
@@ -283,7 +285,7 @@ function Row({
           that price was the finding, not an oversight to re-hide. */}
       <Anchor anchored={row.anchored_on_sharp} />
       <span className="hidden xl:inline">
-        <Width width={row.market_width} edgeCents={row.edge_cents} />
+        <Width width={row.market_width} />
       </span>
 
       {/* **Desktop only, and nothing is lost by that.** The bubble opens on
@@ -472,7 +474,7 @@ function StatusLine({
     Math.abs(row.kalshi_drift_tenths) >= 10
   ) {
     const cents = row.kalshi_drift_tenths / 10;
-    line = `Kalshi has moved ${cents > 0 ? "+" : ""}${cents.toFixed(1)}c since the books were read — the edge shown compares prices from different moments.`;
+    line = `Kalshi has moved ${cents > 0 ? "+" : ""}${cents.toFixed(1)}c since the books were read — this row's readings compare prices from different moments.`;
   }
   if (line === null) {
     return null;
@@ -573,31 +575,24 @@ function Anchor({ anchored }: { anchored: boolean | null | undefined }) {
 }
 
 /**
- * The books' own disagreement, beside the edge it bounds.
+ * The books' own disagreement, in points.
  *
- * In points, same unit as the edge, so the comparison is one glance: a width
- * larger than the edge means the books disagree with each other by more than
- * they disagree with Kalshi, and the edge is inside the consensus's error
- * bar. Warning ink exactly then — arithmetic, not judgement. `null` renders
+ * Until 2026-08-21 this compared itself against the edge and wore warning
+ * ink when it drowned it. With the edge off this screen (the ruling in the
+ * module docstring) the comparison has nothing shown to compare against, so
+ * the width stands alone as the consensus's own error bar. `null` renders
  * as an em dash: one book cannot disagree with itself, and `0.0` is a real
  * measured value two identical quotes legitimately produce.
  */
-function Width({
-  width,
-  edgeCents,
-}: {
-  width: number | null | undefined;
-  edgeCents: number;
-}) {
+function Width({ width }: { width: number | null | undefined }) {
   if (width === null || width === undefined) {
     return <span className="tabular text-xs text-muted">width —</span>;
   }
   const points = width * 100;
-  const drowns = points > Math.abs(edgeCents);
   return (
     <span
-      className={`tabular text-xs ${drowns ? "text-accent-2" : "text-muted"}`}
-      title={`The devigged books disagree with each other by ${points.toFixed(1)} points on this outcome.${drowns ? " That exceeds the edge, so the edge is inside the consensus's own error bar." : ""}`}
+      className="tabular text-xs text-muted"
+      title={`The devigged books disagree with each other by ${points.toFixed(1)} points on this outcome.`}
     >
       width {points.toFixed(1)}c
     </span>

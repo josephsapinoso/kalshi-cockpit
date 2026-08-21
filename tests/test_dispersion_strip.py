@@ -216,11 +216,24 @@ class TestTheAskDoesNotSetTheScale:
         assert d["kalshi"]["x"] is not None
         assert 0.0 <= d["kalshi"]["x"] <= 1.0
 
-    def test_the_screen_says_off_this_scale_rather_than_going_quiet(self):
-        """A reader who does not see the dashed line must not conclude the ask
-        was unreadable."""
+    def test_the_screen_no_longer_draws_the_ask_at_all(self):
+        """Inverted 2026-08-21. The component used to draw the ask among the
+        readings (with "off this scale" wording when it fell outside), and
+        this test pinned that wording. The partner's betting-desk ruling
+        (docs/reviews/2026-08-21-items-2-3-ruling.md, "no direction") took
+        the ask off the strip entirely: its position relative to the
+        readings renders "Kalshi is low/high here", which is the tool's
+        opinion of an edge on the landing screen. The ask is still on the
+        row, as a price; the geometry above stays because the lib still
+        computes it and any future consumer inherits the never-stretch
+        rule. What the component must now do is not consult it."""
         source = STRIP_TSX.read_text(encoding="utf-8")
-        assert "off this scale" in source
+        without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+        assert "d.kalshi" not in without_comments, (
+            "DispersionStrip renders the ask against the readings again -- "
+            "that is a direction claim the 2026-08-21 ruling removed"
+        )
+        assert "off this scale" not in without_comments
 
 
 class TestItRefusesToDrawRatherThanMislead:

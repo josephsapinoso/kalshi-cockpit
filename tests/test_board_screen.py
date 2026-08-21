@@ -352,33 +352,32 @@ class TestEveryPathASuppressedRowCanReachTheScreenBy:
     def test_the_board_slate_row_takes_the_shared_tone(self):
         assert "edgeTone" in source(SLATE_ROW)
 
-    def test_the_slate_screen_takes_the_shared_tone(self):
-        """The third screen that colours an edge, and the widest of them.
+    def test_the_slate_screen_renders_no_edge_at_all(self):
+        """Inverted 2026-08-21, and the inversion is the point.
 
-        `colouring_screens` above finds a screen by the *literal* strings
-        `text-positive` and `"positive"`, so a screen doing it correctly --
-        through `EDGE_TONE_CLASS` -- is invisible to that inventory and passes
-        it vacuously. That is the right behaviour for a ratchet (hardcoding a
-        tone here turns it red) and it is not a check that this screen is
-        correct today. This is that check, in the same form the Ledger's is:
-        the helper is *called*, and the class map is keyed on what it returned.
+        This test used to require the Slate to colour its edge column through
+        the shared tone. The partner's betting-desk ruling (docs/reviews/
+        2026-08-21-items-2-3-ruling.md, executing ADR 0062) took the edge
+        point estimate OFF the landing screen entirely: the Board, one tap
+        away, is the edge-finder feature and still renders it through the
+        tone map, which the tests around this one still enforce. What the
+        landing screen must now do is stronger than colouring correctly --
+        it must not render the number at all, in any ink, because a point
+        estimate the record measured at beta = -0.141 is not a fact a
+        deciding screen may lead with.
 
-        It matters most here. The Slate shows every row in the window including
-        every refused one, so a sign-of-edge colouring would paint each
-        `suspicious_edge` row -- the largest apparent edges the recorder has --
-        in the colour that means take this.
+        `edge_tenths`/`edge_cents` may appear in comments explaining their
+        own absence; `code()` strips those. Mutation observed red: re-add
+        `row.edge_cents.toFixed(1)` to the row.
         """
         slate = code(SLATE_PAGE)
-
-        call = re.search(r"(?:const|let)\s+(\w+)\s*=\s*edgeTone\(\s*row\s*\)", slate)
-        assert call, (
-            "the Slate screen does not call edgeTone on its row, so any tone "
-            "name it mentions came from somewhere else"
+        assert "edge_cents" not in slate, (
+            "the Slate renders the edge point estimate again -- the ruling "
+            "that removed it is dated and named in the page docstring"
         )
-        tone = call.group(1)
-        assert f"EDGE_TONE_CLASS[{tone}]" in slate, (
-            "the Slate screen computes the shared tone and colours the edge "
-            "with something else, which renders exactly as the original defect"
+        assert "edgeTone" not in slate and "EDGE_TONE_CLASS" not in slate, (
+            "the Slate consults the edge tone machinery, which means an edge "
+            "is being coloured somewhere on the landing screen"
         )
 
     def test_the_ledger_takes_the_shared_tone(self):
