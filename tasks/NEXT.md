@@ -30,11 +30,11 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,762 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
-One timed thing may be live when you read this: the terminal spread/total
-look fires **2026-08-21 22:40:00Z**, band 22:35–22:45Z (Joe can veto until
-the anchor; registration + its Amendment 1 govern; every branch including
-VETOED and UNTAKEN writes the result file). **The H4 look series is CLOSED
+Expected: 3,794 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**,
+recorded per §7.1 in
+`docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
+nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look series is CLOSED
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
 deploy behind — check `/api/health` `git_sha` against `origin/main`.
@@ -71,9 +71,15 @@ purpose. Gate, dry-run constant, suppression rules, odds feed: untouched.
   credits/day measured, sole reason the $30/mo tier exists, plus 2GB
   always-on machine. Recorder keeps running (feeds Board + scout desk).
 
-**Joe's two open calls (only he can):** pull the Fly and Anthropic
-invoices so the cost line stops being an estimate; decide whether the
-$30/mo Odds tier stays.
+**Joe answered three of the open calls, same day (~16:10Z):**
+- **The Anthropic account had actually run DRY** — "I ran out of API
+  credits, so its a fresh new $20 i just deposited." This retroactively
+  hardens ADR 0062 §3: the spend was not hypothetical, it emptied the
+  account. The Skeptic retirement and the coming scout-desk token meter
+  are protecting a fresh $20, so treat that meter (work item 6) as urgent.
+- **The $30/mo Odds tier stays.** His call, recorded.
+- **The 22:40Z look is VETOED** — result file committed, see SESSION START
+  box. Fly invoice remains the one unpulled number.
 
 **The partner's remaining betting-desk work list, in priority order** (full
 reasoning in its 2026-08-21 ruling; each is a vertical slice):
@@ -93,11 +99,8 @@ reasoning in its 2026-08-21 ruling; each is a vertical slice):
 7. `TicketSheet`/`TicketProvider` unreachable-code removal; nav swap;
    "Ledger" rename.
 
-**Still open from before:** tonight's terminal spread/total look at 22:40Z —
-the partner recommends VETO under ADR 0059 grounds (best outcome changes
-nothing under the 0062 ruling); Joe can veto until the anchor, and whichever
-branch happens must be recorded per the registration by a session alive in
-22:35–22:45Z. Footer 5-and-5 parity note; partner's "later, maybe" lists.
+**Still open from before:** footer 5-and-5 parity note; partner's
+"later, maybe" lists (2026-08-21 review + ADR 0061).
 
 ---
 
