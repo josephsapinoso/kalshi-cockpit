@@ -41,6 +41,61 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~06:30Z — the Scout desk is switched on, on Joe's word: a staff of two and a master, metered
+
+**ADR 0060.** Joe asked for it by shape ("the master scout … a team report to
+him … each knowing their own home teams player status, team statuses, weather
+if they're playing at home … an expert opinion that would finally serve me at
+my desk"). That is the decision ADR 0022 §4 recorded as not-yet-taken, now
+taken by the person whose money it spends.
+
+**What shipped, all tested:**
+
+- `backend/agents/scout_desk.py` — one convening = two staff scouts (one per
+  club; the home scout owns the venue/weather) + one master who synthesises
+  their notes and may not add facts. Three metered calls via the existing
+  `AgentBudget` against the same `agent_calls` day as the Skeptic (24/day →
+  ≤8 briefings). Staff pair reserved before the first request; master reserved
+  only after a note exists; a refusal spends zero. **No numeric field exists
+  anywhere in `DeskBriefing`** — walked by test, not trusted to the prompt.
+- `scout.py`'s unmetered solo `research()` is **deleted**, not wired; the
+  module survives as the desk's schema home. Quarantine row removed from
+  `test_has_callers.py`; `scout_desk.py` and `routes.py` allowlisted in
+  `BILLED_PATH_CALL_SITES` with their meter named; the historian is now the
+  set's only member.
+- `scout_briefings` table (schema.sql, IF-NOT-EXISTS so no migration);
+  `POST /api/scout/{ticker}` (auth, 202 accepted-never-briefed, 429 before
+  writing on an exhausted day, 422 unlinked ticker, 503 no key, 409 already
+  running) + public `GET /api/scout/{ticker}` with `gone_quiet` for a
+  `running` row older than 15 min.
+- Frontend: `/scout-desk` Next route handler holds the bearer server-side
+  (same pattern and same widening statement as `/refresh-odds`; middleware
+  names the path), `ScoutDesk.tsx` on the Market screen — send button says
+  "three metered calls" before the tap, filed-nothing renders dark vs
+  looked-found-nothing, refused/failed/gone-quiet all have words. Crew
+  bubble's Scout line updated (still an admission; pinned test still holds).
+- Mutation-verified guards: numeric field into the briefing schema, dropped
+  budget pre-check, reserve-after-call — each red, file restored each time.
+
+**Verification:** 3,782 passed / 10 xfailed (+17 new: 9 desk, 8 API, minus
+the timezone guard that caught `ScoutDesk.tsx` rendering device-zone clocks
+— fixed with `DISPLAY_TIME_ZONE`), ruff clean, tsc clean, `next build` green.
+
+**What the desk does not do, so nobody re-litigates it:** no probability, no
+price, no bet verdict — schemas make those unrepresentable; ADR 0038 is
+untouched (§5 of ADR 0060 has the argument). The demo cannot send it (no key,
+no token, both halves refuse independently).
+
+**First real convening is the open question.** Nothing has run against a live
+game. When Joe sends it, read the briefing critically: quality is unmeasured,
+and the `likely_already_priced` flags are the honesty valve to check first.
+
+**Still open, unchanged:** tonight's terminal spread/total look at 22:40Z
+(band 22:35–22:45Z; a session must be alive in the band; replay gate already
+passed at 04:04Z), and the footer 5-and-5 parity note.
+
+---
+
 ## 2026-08-21 ~04:30Z — the replay gate passes exactly, and the ledger's null kickoff is fixed
 
 State at close: tests **3,766 passed / 10 xfailed** (+4), ruff clean, tsc

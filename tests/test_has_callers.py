@@ -949,36 +949,19 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     ),
 
     # -- Quarantined ---------------------------------------------------------
-    # ADR 0040 declares quarantine the *settled* state for these two, closing
-    # ADR 0038's pre-commitment that they be "either wired or deleted". Deletion
-    # was measured rather than argued: removing both empties the left-hand side
-    # of `test_the_unmetered_callers_are_exactly_the_quarantined_ones`, whose
-    # only repair is `== set()` -- vacuous in both directions, on the one
-    # mechanism in this file that fails closed. They are also the only members
-    # `_unmetered_but_unreachable()` has ever had.
-    "backend/agents/scout.py": Quarantined(
-        reason="The information-gathering half of the agent fleet. Complete and "
-               "tested; no caller anywhere. The only file that imports it is "
-               "`scripts/measure_agent_cache_prefix.py`, which reads its prompt "
-               "constants to measure cache prefixes and never calls `research`. "
-               "It does not read as dead code to a stranger: the product says "
-               "so on screen. `frontend/src/components/CrewBubble.tsx` renders "
-               "a Scout on every board row whose whole line is an admission -- "
-               "'I have not looked at this game. I am not switched on yet' -- "
-               "because silence and a disconnected wire are different states. "
-               "Pinned by `test_the_scout_says_it_has_not_looked`.",
-        revive_if="a *new* signal clears `backend/analysis/signal_test.py` on "
-                  "the registered clock, and the Anthropic spend of decorating "
-                  "it is budgeted. Stated this way on purpose: the previous "
-                  "condition was 'a strategy is adopted that needs qualitative "
-                  "context', which ADR 0038 closed the door to when it closed "
-                  "the hunt -- so it had quietly become a condition that could "
-                  "not fire. Today the bill is held at zero by `surfaced == 0`, "
-                  "and there is no line to decorate.",
-        adr="docs/adr/0040-quarantine-is-the-settled-state-for-scout-and-historian.md",
-    ),
+    # ADR 0040 declared quarantine the *settled* state for Scout and Historian,
+    # closing ADR 0038's pre-commitment that they be "either wired or deleted".
+    # **The Scout left quarantine on 2026-08-21 (ADR 0060), the third way ADR
+    # 0040 did not enumerate: revived on the owner's word.** Joe asked for the
+    # desk by name; `backend/agents/scout.py` is now the desk's schema module,
+    # its unmetered solo `research()` was deleted rather than wired, and the
+    # spending happens only in `backend/agents/scout_desk.py`, metered by
+    # `AgentBudget` -- see BILLED_PATH_CALL_SITES. The Historian remains, now
+    # the only member `_unmetered_but_unreachable()` has.
     "backend/agents/historian.py": Quarantined(
-        reason="The weekly post-mortem. Same state as Scout, same importer, and "
+        reason="The weekly post-mortem. The last quarantined agent since the "
+               "Scout's ADR 0060 revival; its importer is only "
+               "`scripts/measure_agent_cache_prefix.py`, and "
                "`review` is called by nothing. It is the ONE writer of the "
                "`lessons` table, which is why deleting it is not a no-op: "
                "`backend/playbook.py` is live and reports "
@@ -1234,6 +1217,21 @@ BILLED_PATH_CALL_SITES: dict[str, str] = {
         "a reference rather than a call, which is exactly why the scanner below "
         "counts references too."
     ),
+    "backend/agents/scout_desk.py": (
+        "The scout desk (ADR 0060). `convene_desk` makes at most three "
+        "`structured_call`s per convening and every one is metered by "
+        "`AgentBudget` against the same `agent_calls` day as the Skeptic: the "
+        "staff pair is affordability-checked and reserved before the first "
+        "request, and the master is reserved only after a staff note exists. "
+        "A refusal makes zero calls."
+    ),
+    "backend/api/routes.py": (
+        "The desk's caller. `send_scout_desk` requires auth, re-checks "
+        "`AgentBudget.refusal_reason` *before* accepting the request (a tap "
+        "against an exhausted day answers 429 and spends nothing), and "
+        "`build_client` is called only inside the background task that "
+        "`convene_desk` -- the metered site above -- immediately consumes."
+    ),
 }
 
 
@@ -1294,12 +1292,14 @@ def _billed_path_sites(symbol: str) -> list[tuple[str, int, str]]:
 def _unmetered_but_unreachable() -> set[str]:
     """Quarantined modules the deployed entry points cannot reach.
 
-    The derived half of the allowed set. `scout.py` and `historian.py` call
-    `structured_call` and nothing meters them -- they are tolerable only because
-    ADR 0022 holds them off the chain, and that is a computed property here
+    The derived half of the allowed set. `historian.py` calls
+    `structured_call` and nothing meters it -- tolerable only because
+    ADR 0022 holds it off the chain, and that is a computed property here
     rather than a sentence: both halves, `QUARANTINED` **and** not in
     `reachable_modules()`, are evaluated at assertion time. Wiring one up
     removes it from this set on the same commit that makes it billable.
+    (`scout.py` was this set's other member for the project's whole life;
+    it left via ADR 0060, and its unmetered `research()` left with it.)
     """
     reachable = reachable_modules()
     return {
@@ -1417,11 +1417,12 @@ class TestNothingNewCanReachTheBilledPath:
             if rel not in BILLED_PATH_CALL_SITES
         }
         assert unmetered == {
-            "backend/agents/scout.py",
             "backend/agents/historian.py",
         }, (
             f"the unmetered callers of `structured_call` are {sorted(unmetered)}, "
-            f"not the two quarantined agents ADR 0022 parked. If a module has "
+            f"not the one quarantined agent still parked (the Scout left via "
+            f"ADR 0060, and its `research()` was deleted rather than allowed "
+            f"to stand unmetered). If a module has "
             f"left this set it should be in BILLED_PATH_CALL_SITES with its "
             f"meter named; if one has joined, it is spending money with nothing "
             f"counting."

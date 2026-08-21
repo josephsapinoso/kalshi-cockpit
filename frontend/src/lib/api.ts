@@ -1536,3 +1536,125 @@ export async function fetchMarketCandles(
   }
   return response.json() as Promise<MarketCandles>;
 }
+
+/**
+ * The scout desk (ADR 0060): two staff scouts and a master, sent on one game.
+ *
+ * The desk never outputs a probability, a price, or "bet it" -- its schema
+ * has no field to put one in, which is enforcement rather than etiquette.
+ * Everything numeric on this screen still comes from the deterministic
+ * pipeline; the desk carries sourced facts and the master's qualitative read.
+ */
+export type ScoutFinding = {
+  category: "injury" | "lineup" | "weather" | "rest_travel" | "venue" | "other";
+  fact: string;
+  source: string;
+  source_url: string | null;
+  reported_when: string;
+  likely_already_priced: boolean;
+  affects_side: string | null;
+};
+
+export type ScoutStaffReport = {
+  game: string;
+  findings: ScoutFinding[];
+  summary: string;
+  searched_for: string[];
+};
+
+/** `report: null` means that scout FILED nothing (the call failed) -- a
+ * different fact from a report whose findings list is empty. */
+export type ScoutStaffNote = {
+  role: "home" | "away";
+  team: string;
+  report: ScoutStaffReport | null;
+};
+
+export type DeskBriefing = {
+  headline: string;
+  assessment: string;
+  what_matters: string[];
+  conflicts: string[];
+  unanswered: string[];
+};
+
+export type ScoutBriefingState =
+  | { state: "never_sent" }
+  | {
+      state: "sent";
+      id: number;
+      status: "running" | "complete" | "partial" | "failed" | "refused";
+      gone_quiet: boolean;
+      ticker: string;
+      event_title: string;
+      league: string;
+      home_team: string;
+      away_team: string;
+      commence_ms: number | null;
+      requested_ms: number;
+      completed_ms: number | null;
+      refusal_reason: string | null;
+      staff: ScoutStaffNote[] | null;
+      briefing: DeskBriefing | null;
+      model: string;
+    };
+
+export async function fetchScoutBriefing(
+  ticker: string,
+): Promise<ScoutBriefingState> {
+  const response = await fetch(
+    `${BASE}/api/scout/${encodeURIComponent(ticker)}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const detail =
+      payload && typeof payload.detail === "string"
+        ? payload.detail
+        : `the scout desk returned ${response.status}`;
+    throw new Error(detail);
+  }
+  return response.json() as Promise<ScoutBriefingState>;
+}
+
+export type SendDeskResult =
+  | { accepted: true; id: number }
+  | { accepted: false; status: number; detail: string };
+
+/**
+ * Send the desk, via the `/scout-desk` Next route handler -- the browser
+ * deliberately holds no bearer token (`lib/session.ts`), so the handler adds
+ * it server-side, exactly as `/refresh-odds` does for odds credits.
+ */
+export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
+  let response: Response;
+  try {
+    response = await fetch(`/scout-desk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ ticker }),
+    });
+  } catch (error) {
+    return {
+      accepted: false,
+      status: 0,
+      detail: `The request did not reach the cockpit (${
+        error instanceof Error ? error.message : "network error"
+      }). Nothing was spent.`,
+    };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    const id =
+      body && typeof body === "object" && "id" in body
+        ? Number((body as { id: unknown }).id)
+        : 0;
+    return { accepted: true, id };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { accepted: false, status: response.status, detail };
+}

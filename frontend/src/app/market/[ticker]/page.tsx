@@ -25,6 +25,7 @@ import {
   type MarketCandles,
 } from "@/lib/api";
 import PriceChart from "@/components/PriceChart";
+import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 
 const RANGES = ["1d", "1w", "1m", "all"] as const;
@@ -169,6 +170,11 @@ export default function MarketPage() {
           </>
         ) : null}
       </section>
+
+      {/* The scout desk (ADR 0060). Qualitative context only — the desk's
+          schema has no numeric field, so nothing here can contradict the
+          "history, not a quote" boundary above with a number of its own. */}
+      <ScoutDesk ticker={ticker} />
     </main>
   );
 }

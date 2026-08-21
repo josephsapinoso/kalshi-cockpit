@@ -15,18 +15,23 @@ price, not an adjustment factor. The moment an agent starts producing numbers
 that feed a bet, the tool has an unfalsifiable component in its money path.
 Its output is context a person reads, and its schema has no numeric field to
 put a forecast in — that is enforcement, not etiquette.
+
+**Since 2026-08-21 this module holds the desk's shared schema and prompt
+material, and nothing that spends.** The solo `research()` function this file
+carried through its quarantine years (ADR 0022, ADR 0040) was deleted rather
+than wired: the revival that finally came (ADR 0060, on the owner's word) is a
+*desk* — two staff scouts and a master in `scout_desk.py`, metered by
+`AgentBudget` — and an unmetered solo function beside a metered desk would
+have been exactly the back door `tests/test_has_callers.py` exists to shut.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Literal, Optional
+
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .base import AgentConfig, structured_call
-
-logger = logging.getLogger(__name__)
 
 # Server-side web search. Injury reports, weather and lineup news are exactly
 # what it is for, and results come back with citations.
@@ -103,53 +108,3 @@ class ScoutReport(BaseModel):
         """Any finding recent enough to plausibly explain a current mispricing."""
         return any(f for f in self.findings if not f.likely_already_priced)
 
-
-async def research(
-    client,
-    config: AgentConfig,
-    *,
-    event_title: str,
-    league: str,
-    commence_iso: Optional[str],
-    focus_team: Optional[str] = None,
-) -> Optional[ScoutReport]:
-    """Research one game. **Nothing calls this.**
-
-    There is no Market-screen caller and there never has been: no scout route in
-    `backend/api/routes.py`, no reference anywhere in `frontend/`. This
-    docstring used to say *"Runs on demand, from the Market screen"*, which
-    described an intended UI rather than a deployed one -- the exact shape
-    `tasks/lessons.md` names as *code with no caller is not a feature, it is a
-    plan*, and the reason `docs/adr/0022-quarantine-the-orphaned-modules.md`
-    classifies this module **QUARANTINED**.
-
-    Do not wire it up to make this sentence true. Wiring Scout on means live
-    Anthropic calls, and ADR 0022 §4 records that as a decision Joe has not
-    taken. `tests/test_has_callers.py` enforces it: an import that connects this
-    module to a deployed entry point turns that file red.
-
-    The on-demand design below is still the right one *if* it is ever revived --
-    cost would scale with attention, where pre-running a full slate would spend
-    tokens on games nobody opens.
-    """
-    focus = f"\nThe tool flagged the {focus_team} side." if focus_team else ""
-    prompt = (
-        f"Research this game: {event_title}\n"
-        f"League: {league}\n"
-        f"Scheduled start (UTC): {commence_iso or 'unknown'}{focus}\n\n"
-        "Search for current news. Report only sourced facts, and flag anything "
-        "old enough to already be priced in."
-    )
-
-    return await structured_call(
-        client,
-        model=config.model,
-        system=SYSTEM,
-        user_content=prompt,
-        output_model=ScoutReport,
-        max_tokens=6000,
-        # Higher effort: this one runs several searches and has to judge
-        # recency across them.
-        effort="high",
-        tools=[WEB_SEARCH_TOOL],
-    )

@@ -157,16 +157,19 @@ function willyLine(books: BookDistribution | null): string {
 /**
  * The Scout's line, which is an admission rather than a report.
  *
- * `backend/agents/scout.py` researches exactly the things Joe asked for and is
- * called by nothing — ADR 0022 quarantines it, and `tests/test_has_callers.py`
- * turns red if anything wires it up without the spend being budgeted first.
+ * Since ADR 0060 the Scout runs a desk — two staff scouts and a master,
+ * metered, sent on demand from the Market screen. This bubble is still a code
+ * persona with no network and no data, so its line stays an admission: the
+ * desk has not looked *from here*, and the place its work actually appears is
+ * named instead of imitated. Rendering a stored briefing in the bubble would
+ * break the one-voice-one-data-source rule this component is built on.
  *
  * Takes no argument, deliberately: a Scout line that read the row could drift
  * into inventing context from a price, which is the one thing a scout must not
  * do.
  */
 function scoutLine(): string {
-  return "I have not looked at this game. I am not switched on yet — nobody has budgeted the calls.";
+  return "I have not looked at this game from here. Open its market screen and send my desk — my staff and I file there.";
 }
 
 export default function CrewBubble({ row }: { row: SlateRowData }) {

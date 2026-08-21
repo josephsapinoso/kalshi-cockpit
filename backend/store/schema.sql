@@ -853,6 +853,41 @@ CREATE TABLE IF NOT EXISTS agent_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_calls_time ON agent_calls(called_ms DESC);
 
+-- One convening of the scout desk (ADR 0060): two staff scouts and a master,
+-- sent on demand from the game screen. The spend itself is metered in
+-- `agent_calls` (three rows per convening); this table holds what came back,
+-- so a briefing outlives the request that paid for it and the phone can read
+-- it later for free.
+--
+-- `status` is the desk's honest one-word state. `running` is written before
+-- the first call and belongs to a background task; a `running` row older than
+-- the reader's patience window is reported as gone-quiet rather than left
+-- looking alive forever (the reader owns that judgement -- a crashed process
+-- cannot come back to update its own row).
+--
+-- `staff_json` / `briefing_json` are NULL until something came back, never
+-- `{}`: nothing filed and an empty filing are different facts.
+CREATE TABLE IF NOT EXISTS scout_briefings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker          TEXT NOT NULL,
+    event_title     TEXT NOT NULL,
+    league          TEXT NOT NULL,
+    home_team       TEXT NOT NULL,
+    away_team       TEXT NOT NULL,
+    commence_ms     INTEGER,            -- the sportsbook's clock, never Kalshi's
+    requested_ms    INTEGER NOT NULL,
+    completed_ms    INTEGER,
+    status          TEXT NOT NULL,      -- running | complete | partial | failed | refused
+    refusal_reason  TEXT,               -- which ceiling refused, when status = refused
+    staff_json      TEXT,               -- list of staff notes incl. filed-nothing markers
+    briefing_json   TEXT,               -- the master's DeskBriefing
+    model           TEXT NOT NULL,
+    CHECK (status IN ('running', 'complete', 'partial', 'failed', 'refused')),
+    CHECK ((status = 'running') = (completed_ms IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_scout_briefings_ticker
+    ON scout_briefings(ticker, requested_ms DESC);
+
 -- ============================================================================
 -- Joe's own hand-placed bets, and his stated probability before each one
 --
