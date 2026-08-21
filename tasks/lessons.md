@@ -25,6 +25,25 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-21 — When a rule and its floor are defined over different units, the smaller unit's zero-information observations vote
+
+The H4 span design (Amendment 1, A12.2) made every adjacent balance-snapshot
+pair an observation, while the voting floor (A9.2) was defined over clusters
+— and between the looks the record accrues roughly 4,000 adjacent pairs with
+nothing in them (no settlement, prediction 0, delta 0). Read literally, those
+empty pairs entered the voting population, so a floor meant to demand two
+independent confirmations could have been met by arithmetic noise, and the
+registration could have handed back a flattering terminal verdict from
+nothing. Caught before any data was pulled; closed by dated amendment
+(only spans containing a settlement become clusters and vote). The pattern:
+whenever an aggregate rule is stated over one unit and its threshold over
+another, enumerate what the denominator is actually made of — and ask
+whether a row can satisfy the rule while carrying no information. Same
+fortnight as the two-limits-on-one-quantity lesson; unit mismatch is the
+sibling failure.
+
+---
+
 ## 2026-08-20 — A stored number answers the question it was stored for, not the question you are asking now
 
 Two triage calls in one session went wrong the same way: a betting slate was
