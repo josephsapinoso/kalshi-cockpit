@@ -103,11 +103,17 @@ Bounding observations, from data already in the pull:
   unattributable here.** Whether that span contains a transfer is part of
   the §6.1 question below; no cause is asserted.
 
-**§6.1's required question, PENDING:** *Joe — did you deposit, withdraw, or
-transfer money in or out of Kalshi around 2026-08-18 14:51–14:56 UTC (about
-7:51–7:56 AM PT that Tuesday)? And more broadly, any transfer on 08-18/08-19?*
-His answer is to be added to this file, dated, before the single-kind cell's
-classification is treated as final.
+**§6.1's required question, ANSWERED 2026-08-21:** *Joe — did you deposit,
+withdraw, or transfer money in or out of Kalshi around 2026-08-18
+14:51–14:56 UTC (about 7:51–7:56 AM PT that Tuesday)? And more broadly, any
+transfer on 08-18/08-19?* Joe's answer, verbatim: **"I don't know maybe."**
+Per Amendment 1 A13 this is the **UNANSWERED / cannot recall** branch:
+recorded as UNANSWERED, the cluster stays non-voting with its
+BANKING-CONTAMINATED label as registered, no verdict changes anywhere, the
+question is **not re-asked**, and Look 2 proceeds on schedule. It neither
+confirms nor eliminates rule 1's transfer explanation, so all accounts of
+`r_c = −P_c` remain open exactly as listed in A13's NO branch plus the
+transfer itself.
 
 ## The E6 finding — the guard is structurally blind in one direction
 
