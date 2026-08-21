@@ -41,6 +41,50 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~04:30Z — the replay gate passes exactly, and the ledger's null kickoff is fixed
+
+State at close: tests **3,766 passed / 10 xfailed** (+4), ruff clean, tsc
+clean, pushed through `6a23920`. Live stays on `349dca0`; pending for the
+next deploy: `d487d2d` (estimate-form demotion) and `6a23920` (below).
+Nothing tonight's look needs is on live — the sweep is a local script.
+
+**The free replay gate for tonight's look was run at 04:04Z and PASSES
+exactly.** All five sharp edge values (−25.0, −3.5, −19.2, −15.3, −2.9
+tenths), sharp counts 3/3 games and 2/2, both UNDERPOWERED verdicts, total
+rows 3 and 4, and the full exclusion dict (incl. `outside_window: 16`)
+match Amendment 1's registered gate evidence line for line. The rows
+artifact sits uncommitted at
+`docs/measurements/2026-08-21-spread-edge-rows-2026-08-21T040406Z.json`
+(replay by-product, reproducible free). The band session should still
+re-run the gate before the anchor — it is free and the registration says
+before the anchor, not eighteen hours before.
+
+**The `/api/ledger` `commence_ms` defect is FIXED (`6a23920`).** The route
+now joins `r.link_id → event_links → MIN(odds_snapshots.commence_ms)` —
+the scorer's own definition (`backend/scoring.py:markets_awaiting_scoring`)
+— so the ledger's pre/post-commence axis agrees with the machinery that
+writes the clv fields. The documented 3-hour trap was refused, not merely
+avoided: `kalshi_events.commence_ms` is never touched, and a test plants
+the raw `occurrence_datetime` value three hours late and asserts it does
+not surface. Unlinked rows resolve to `None`, never a substitute. Four
+guards, each verified red by mutation (MIN→MAX, the kalshi_events join,
+COALESCE-to-0). Note for any consumer: rows written before the linker had
+a `link_id` still read `None` — that is honest, not a regression.
+
+**Open, in order:**
+
+1. **Tonight's terminal spread/total look, 22:40:00Z** (band 22:35–22:45Z,
+   4 credits, Joe's veto until the anchor). A session must be alive in the
+   band or the look goes UNTAKEN — session timers cap at 1h and die with
+   the session, so this needs Joe (or a session he starts) around 22:30Z.
+   Every branch writes
+   `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
+2. The next deploy carries `d487d2d` + `6a23920` (no urgency).
+3. The footer 5-and-5 parity note (a constraint on future nav work, not a
+   task — `tests/test_every_screen_is_reachable.py` docstring).
+
+---
+
 ## 2026-08-21 ~03:15Z — the H4 series closes on a measured reason: the channel diagnostic is BLIND on a denominator of 1
 
 State at close: tests **3,762 passed / 10 xfailed**, ruff clean, tsc clean,
