@@ -45,6 +45,7 @@ import {
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
+import { SHELL_WIDTH } from "@/lib/shell";
 
 const RANGES = [
   { key: "1d", label: "Today" },
@@ -111,22 +112,31 @@ function QuoteStrip({ detail, now }: { detail: MarketDetail; now: number }) {
   // beside it reads as a price, and it is not one.
   if (detail.price_is_current !== true || age === null || age === undefined) {
     return (
-      <p className="mt-3 rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm text-muted">
-        The recorded ask is{" "}
-        {age !== null && age !== undefined ? `${agoWord(age)} old` : "of unknown age"}
-        {" "}— not a price you can transact on. The live book is on Kalshi.
-      </p>
+      <div className="mt-3 rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm text-muted">
+        <p className="max-w-[65ch]">
+          The recorded ask is{" "}
+          {age !== null && age !== undefined
+            ? `${agoWord(age)} old`
+            : "of unknown age"}
+          {" "}— not a price you can transact on. The live book is on Kalshi.
+        </p>
+      </div>
     );
   }
+  // No size step at any width: the ask never exceeds body size, because a
+  // page whose hero is a price says "buy" (the convening's rule for the
+  // record).
   return (
-    <p className="mt-3 rounded-xl border px-3 py-2 text-sm">
-      <span className="font-semibold tabular">
-        Ask ${detail.ask_dollars.toFixed(2)}
-      </span>
-      <span className="text-muted">
-        {" "}per YES contract · quote checked {agoWord(age)} ago
-      </span>
-    </p>
+    <div className="mt-3 rounded-xl border px-3 py-2 text-sm">
+      <p className="max-w-[65ch]">
+        <span className="font-semibold tabular">
+          Ask ${detail.ask_dollars.toFixed(2)}
+        </span>
+        <span className="text-muted">
+          {" "}per YES contract · quote checked {agoWord(age)} ago
+        </span>
+      </p>
+    </div>
   );
 }
 
@@ -192,28 +202,29 @@ export default function MarketPage() {
     : 0;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
+    <main className={`${SHELL_WIDTH} px-4 py-8 sm:px-6 sm:py-12 xl:px-8`}>
       <header className="mb-4">
-        <h1 className="display text-3xl sm:text-4xl">{matchup}</h1>
+        <h1 className="display text-3xl sm:text-4xl xl:text-5xl">{matchup}</h1>
         {detail?.team && (
-          <p className="mt-1 text-sm font-semibold">
+          <p className="mt-1 max-w-[65ch] text-sm font-semibold">
             YES = {detail.team}
             <span className="ml-2 font-normal text-muted">
               this contract pays $1 if the {detail.team} win
             </span>
           </p>
         )}
-        <p className="mt-1 text-sm text-muted">
+        <p className="mt-1 max-w-[65ch] text-sm text-muted">
           {league && <span>{league} · </span>}
           {detail ? statusLine(detail, now) : ""}
         </p>
         {detail && <QuoteStrip detail={detail} now={now} />}
-        <p className="mt-1 font-mono text-xs text-muted">{ticker}</p>
       </header>
 
       {/* The desk first: the reason this page exists is what the scouts know
           about THIS game, and it must start above the fold at every width. */}
       <ScoutDesk ticker={ticker} />
+
+      <p className="mt-2 max-w-[65ch] font-mono text-xs text-muted">{ticker}</p>
 
       <details className="mt-6 rounded-2xl border bg-card px-4 py-3 sm:px-6">
         <summary className="cursor-pointer text-sm font-semibold">
@@ -239,11 +250,11 @@ export default function MarketPage() {
           </div>
 
           {loading ? (
-            <p className="py-16 text-center text-sm text-muted">
+            <p className="mx-auto max-w-[65ch] py-16 text-center text-sm text-muted">
               Loading&hellip;
             </p>
           ) : error ? (
-            <p className="py-16 text-center text-sm text-muted">{error}</p>
+            <p className="mx-auto max-w-[65ch] py-16 text-center text-sm text-muted">{error}</p>
           ) : data ? (
             <>
               {/* YES only: NO is 1000 - YES by arithmetic, so a second line

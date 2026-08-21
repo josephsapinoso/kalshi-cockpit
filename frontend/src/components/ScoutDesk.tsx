@@ -124,7 +124,7 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
   const byCategory = new Map(tiles.map((t) => [t.category, t]));
   return (
     <div>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 xl:gap-3">
         {CATEGORY_ORDER.map((category) => {
           const tile = byCategory.get(category);
           const state: TileState = tile ? tile.state : "no_notes";
@@ -132,21 +132,21 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
           return (
             <div
               key={category}
-              className={`rounded-xl border p-2 ${style.className}`}
+              className={`rounded-xl border p-2 xl:min-h-[132px] xl:p-4 ${style.className}`}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+              <p className="max-w-[65ch] text-[10px] font-semibold uppercase tracking-wide text-muted xl:text-xs">
                 {CATEGORY_LABELS[category]}
               </p>
               {/* Label-and-caption (ADR 0050): the state renders verbatim,
                   the model's own note glosses it beneath. Never translated. */}
-              <p className="mt-1 flex items-center gap-1.5 font-mono text-xs font-semibold">
-                <span className="inline-block w-3.5 shrink-0 text-sm leading-none">
+              <p className="mt-1 flex max-w-[65ch] items-center gap-1.5 font-mono text-xs font-semibold xl:text-base">
+                <span className="inline-block w-3.5 shrink-0 text-sm leading-none xl:w-5 xl:text-lg">
                   {style.glyph}
                 </span>
                 {(tile ? tile.state : "no notes").replace("_", " ")}
               </p>
               {tile?.note && (
-                <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-muted">
+                <p className="mt-1 max-w-[65ch] line-clamp-2 text-[11px] leading-tight text-muted xl:line-clamp-3 xl:text-sm">
                   {tile.note}
                 </p>
               )}
@@ -155,7 +155,7 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
         })}
       </div>
       {derived && (
-        <p className="mt-1.5 text-[11px] text-muted">
+        <p className="mt-1.5 max-w-[65ch] text-[11px] text-muted">
           Board derived from the staff&rsquo;s filings — this briefing predates
           the master&rsquo;s own board, so &ldquo;no notes&rdquo; may mean
           clear or unchecked.
@@ -180,24 +180,30 @@ function VerdictStrip({
 }) {
   if (fresh) {
     return (
-      <p className="rounded-xl border border-accent-2 px-3 py-2 text-sm font-semibold text-accent-2">
-        The desk found something the market may not have priced — read the lit
-        tiles.
-      </p>
+      <div className="rounded-xl border border-accent-2 px-3 py-2 text-sm font-semibold text-accent-2 xl:px-4 xl:py-3">
+        <p className="max-w-[65ch]">
+          The desk found something the market may not have priced — read the
+          lit tiles.
+        </p>
+      </div>
     );
   }
   if (unconfirmed) {
     return (
-      <p className="rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm">
-        Nothing fresh — but some instruments went unchecked. Unverified is not
-        benign.
-      </p>
+      <div className="rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm xl:px-4 xl:py-3">
+        <p className="max-w-[65ch]">
+          Nothing fresh — but some instruments went unchecked. Unverified is
+          not benign.
+        </p>
+      </div>
     );
   }
   return (
-    <p className="rounded-xl border px-3 py-2 text-sm text-muted">
-      Nothing here the market doesn&rsquo;t already know. That is a finding.
-    </p>
+    <div className="rounded-xl border px-3 py-2 text-sm text-muted xl:px-4 xl:py-3">
+      <p className="max-w-[65ch]">
+        Nothing here the market doesn&rsquo;t already know. That is a finding.
+      </p>
+    </div>
   );
 }
 
@@ -212,12 +218,12 @@ function StaffNoteCard({ note }: { note: ScoutStaffNote }) {
         </span>
       </div>
       {note.report === null ? (
-        <p className="text-sm text-muted">
+        <p className="max-w-[65ch] text-sm text-muted">
           Filed nothing — the call failed. This side of the desk is dark, which
           is not the same as there being nothing to report.
         </p>
       ) : note.report.findings.length === 0 ? (
-        <p className="text-sm text-muted">
+        <p className="max-w-[65ch] text-sm text-muted">
           Looked and found nothing noteworthy. Searched:{" "}
           {note.report.searched_for.join(", ")}.
         </p>
@@ -308,21 +314,33 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
     load();
   };
 
-  const sendButton = (label: string) => (
+  /**
+   * Only the FIRST send wears the filled accent; every re-send is a bordered
+   * secondary. ADR 0047 made the same call for TicketSheet: a filled accent
+   * control must not be the brightest thing on a wide screen unless it spends
+   * money it has not spent before -- and a red button under a completed board
+   * invites re-rolling the desk until it says something.
+   */
+  const sendButton = (label: string, again = false) => (
     <div>
       <button
         onClick={send}
         disabled={sending}
-        className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        className={
+          again
+            ? "rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-muted disabled:opacity-50"
+            : "rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        }
       >
         {sending ? "Sending…" : label}
       </button>
-      <p className="mt-1.5 text-xs text-muted">
-        Three metered calls from the fleet&rsquo;s shared daily budget. The
-        desk reports facts with sources; it never prices anything.
+      <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
+        {again
+          ? "Three more metered calls. The board above stays until they file."
+          : "Three metered calls from the fleet’s shared daily budget. The desk reports facts with sources; it never prices anything."}
       </p>
       {sendError && (
-        <p className="mt-2 text-sm text-negative" role="alert">
+        <p className="mt-2 max-w-[65ch] text-sm text-negative" role="alert">
           {sendError}
         </p>
       )}
@@ -330,19 +348,19 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
   );
 
   return (
-    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
       <div className="mb-3 flex items-center gap-2">
         <CrewAvatar kind="scout" className="h-7 w-7 shrink-0" />
-        <h2 className="text-lg font-semibold">The scout desk</h2>
+        <h2 className="text-lg font-semibold xl:text-xl">The scout desk</h2>
       </div>
 
       {error ? (
-        <p className="text-sm text-muted">{error}</p>
+        <p className="max-w-[65ch] text-sm text-muted">{error}</p>
       ) : state === null ? (
-        <p className="text-sm text-muted">Checking the desk&hellip;</p>
+        <p className="max-w-[65ch] text-sm text-muted">Checking the desk&hellip;</p>
       ) : state.state === "never_sent" ? (
         <div className="space-y-3">
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
             The desk has not been sent on this game. Send it and two staff
             scouts — one per team — will file notes on player status, team
             status, and conditions at the venue, and the master scout will
@@ -351,33 +369,33 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
           {sendButton("Send the scouts")}
         </div>
       ) : state.status === "running" && !state.gone_quiet ? (
-        <p className="text-sm leading-relaxed text-muted">
+        <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
           The desk is out on {state.event_title}: the {state.home_team} scout,
           the {state.away_team} scout, then the master. This takes a few
           minutes; the board appears here when they file.
         </p>
       ) : state.status === "running" && state.gone_quiet ? (
         <div className="space-y-3">
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
             The desk went quiet — a convening started {when(state.requested_ms)}{" "}
             and never filed, which usually means the process restarted under
             it. Nothing more will arrive from that convening.
           </p>
-          {sendButton("Send them again")}
+          {sendButton("Send them again", true)}
         </div>
       ) : state.status === "refused" ? (
-        <p className="text-sm leading-relaxed text-muted">
+        <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
           The desk was refused by the day&rsquo;s budget:{" "}
           {state.refusal_reason ?? "the daily call ceiling"}. Nothing was
           spent. The day rolls over on its own.
         </p>
       ) : state.status === "failed" ? (
         <div className="space-y-3">
-          <p className="text-sm leading-relaxed text-muted">
+          <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
             The desk was sent {when(state.requested_ms)} and nothing came back
             — both scouts&rsquo; calls failed. The calls were still metered.
           </p>
-          {sendButton("Send them again")}
+          {sendButton("Send them again", true)}
         </div>
       ) : (
         (() => {
@@ -399,7 +417,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
 
           {state.briefing ? (
             <>
-              <p className="text-sm font-semibold leading-snug">
+              <p className="max-w-[65ch] text-sm font-semibold leading-snug xl:text-base">
                 {state.briefing.headline}
               </p>
               <details className="rounded-xl border px-3 py-2">
@@ -407,7 +425,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
                   The master&rsquo;s read
                 </summary>
                 <div className="mt-2 space-y-3">
-                  <p className="text-sm leading-relaxed">
+                  <p className="max-w-[65ch] text-sm leading-relaxed xl:text-[15px]">
                     {state.briefing.assessment}
                   </p>
                   {state.briefing.what_matters.length > 0 && (
@@ -450,7 +468,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
               </details>
             </>
           ) : (
-            <p className="text-sm leading-relaxed text-muted">
+            <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
               The staff filed, but the master&rsquo;s synthesis is missing —
               the day&rsquo;s budget could not afford it, or his call failed.
               The raw notes below are still the desk&rsquo;s work.
@@ -476,7 +494,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
               {" · "}sent {when(state.requested_ms)}
               {" · "}facts with sources only; the desk never prices a bet.
             </p>
-            <div className="mt-2">{sendButton("Send them again")}</div>
+            <div className="mt-2">{sendButton("Send them again", true)}</div>
           </div>
         </div>
           );

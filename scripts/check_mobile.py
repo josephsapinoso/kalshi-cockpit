@@ -53,6 +53,13 @@ PAGES = [
     "/slate",
 ]
 
+# `/market/{ticker}` needs a ticker, so it cannot sit in PAGES as a literal --
+# which is how ADR 0047's own verification tool went without ever measuring
+# that page at any width (found at the 2026-08-21 desktop convening). Pass
+# --market-ticker to append it. The check is partial without a ticker whose
+# scout board has filed: a data-less render exercises the shell, not the
+# tiles.
+
 # The measurement, run inside the page. Reports every element whose right edge
 # lands past the viewport, deepest-first, with enough identity to fix it.
 PROBE = """
@@ -204,6 +211,11 @@ async def measure(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--width", type=int, default=390)
+    parser.add_argument(
+        "--market-ticker",
+        default=None,
+        help="also measure /market/<ticker> (see the note beside PAGES)",
+    )
     parser.add_argument("--height", type=int, default=844)
     parser.add_argument("--base", default="http://localhost:3000")
     parser.add_argument("--port", type=int, default=9333)
@@ -250,6 +262,8 @@ def main() -> int:
         if not ws_url:
             raise SystemExit("Chrome did not expose a debugging endpoint.")
 
+        if args.market_ticker:
+            PAGES.append(f"/market/{args.market_ticker}")
         results = asyncio.run(
             measure(ws_url, args.base, args.width, args.height, shot_dir)
         )

@@ -41,6 +41,39 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~16:45Z — the market screen joins the shell, and the desk scales to a real instrument panel
+
+Joe saw the desktop render ("it's so small") and directed the process
+himself: graphic-designer briefed first, then a partner convening with
+ui-designer and ux-designer. **ADR 0061** records the outcome; the two
+decisions that will be re-derived at full cost if lost:
+
+- **Root cause:** the market page hardcoded `max-w-3xl` — narrower than its
+  own Nav. It now imports `SHELL_WIDTH`, and `test_desktop_tier.py` bans
+  `max-w-3xl` in shell surfaces alongside `max-w-5xl`.
+- **The 24rem facts rail all three designers first assumed was killed on
+  arithmetic** (main would be 856px → 122px tiles; the rail eats exactly
+  the pixels that answer the complaint). Rule: a data band goes full shell
+  width, prose caps at 65ch inside it; a rail must earn its content.
+
+Also: tiles ~193px at xl (`xl:` variants only — container queries rejected
+for breaking sub-xl byte-identity), six-across pinned; re-send buttons lose
+`bg-accent` (red = money; pinned, mutation-verified both); quote strip takes
+no size step (the ask never exceeds body size); ticker demoted below the
+board; `check_mobile.py` gained `--market-ticker` (ADR 0047's own gate had
+never measured this page) and passes at 390/768/1280/1440/1920 with the
+real MIL ticker; ScoutDesk + market page joined `PROSE_FILES`.
+
+State: **3,791 passed / 10 xfailed**, ruff clean, tsc clean, build green,
+deployed. **Joe owns one look-at-it question:** whether six ~193px tiles in
+one row read as one glance on his monitor, or want to be three-up.
+
+**Still open:** tonight's terminal spread/total look at 22:40Z (session
+alive in band 22:35–22:45Z; replay gate PASSED 04:04Z); footer 5-and-5
+parity note; partner's "later, maybe" lists (2026-08-21 review + ADR 0061).
+
+---
+
 ## 2026-08-21 ~15:30Z — the briefing becomes a cockpit, and the market screen serves the venue's facts
 
 Joe read the desk's first real briefing (Braves–Brewers, filed 14:03Z) and

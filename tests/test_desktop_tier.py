@@ -27,6 +27,11 @@ PROSE_FILES = [
     SRC / "components" / "WindowSchedule.tsx",
     SRC / "components" / "HowToRead.tsx",
     SRC / "app" / "board" / "page.tsx",
+    # The market screen joined the shell on 2026-08-21 (the desktop
+    # convening); its widened main column is exactly where an uncapped
+    # paragraph would hit ~190ch.
+    SRC / "components" / "ScoutDesk.tsx",
+    SRC / "app" / "market" / "[ticker]" / "page.tsx",
 ]
 
 # `<p className="...">` with a static string, or `<p className={`...`}` with a
@@ -72,11 +77,15 @@ class TestTheChromeAndTheContentShareOneWidth:
     which reads as a bug at every width — and three copies of one decision
     held only as long as nobody edited one of them."""
 
-    def test_all_three_import_the_constant(self):
+    def test_every_shell_surface_imports_the_constant(self):
         for path in (
             SRC / "app" / "board" / "page.tsx",
             SRC / "components" / "Nav.tsx",
             SRC / "components" / "Footer.tsx",
+            # Joined 2026-08-21: this page hardcoded `max-w-3xl`, rendering
+            # narrower than its own nav -- the "photocopied phone screen"
+            # Joe reported. The width literal ban below now covers it.
+            SRC / "app" / "market" / "[ticker]" / "page.tsx",
         ):
             text = path.read_text(encoding="utf-8")
             assert 'from "@/lib/shell"' in text, f"{path.name} does not import shell.ts"
@@ -84,6 +93,10 @@ class TestTheChromeAndTheContentShareOneWidth:
             assert "max-w-5xl" not in text, (
                 f"{path.name} still carries its own width literal beside the "
                 f"shared one — the drift this constant exists to prevent"
+            )
+            assert "max-w-3xl" not in text, (
+                f"{path.name} carries a narrower width literal than the "
+                f"shell it sits in — the market page's original defect"
             )
 
     def test_the_constant_is_one_complete_literal(self):
@@ -191,4 +204,29 @@ class TestTheRecordsHiddenFactorsReachTheSlate:
         assert "text-accent-2" in fallback, (
             "the soft-fallback state renders muted; it is the one factor that "
             "invalidates the edge's reference class and must read as a warning"
+        )
+
+
+class TestTheMarketScreenStaysOnItsInstruments:
+    """The 2026-08-21 desktop convening's load-bearing choices, pinned.
+
+    The board stays six-across at every width where it is six-across today --
+    one row of lamps is one glance, and a 3x2 fold makes it two. And the
+    re-send control must not wear the filled accent: a red button under a
+    completed board invites re-rolling the desk until it says something.
+    """
+
+    def test_the_board_keeps_its_six_lamp_row(self):
+        text = (SRC / "components" / "ScoutDesk.tsx").read_text(encoding="utf-8")
+        assert "sm:grid-cols-6" in text, (
+            "the board no longer promises six-across above sm; the convening "
+            "chose one row of lamps over a 3x2 fold deliberately"
+        )
+
+    def test_only_the_first_send_wears_the_accent(self):
+        text = (SRC / "components" / "ScoutDesk.tsx").read_text(encoding="utf-8")
+        assert text.count("bg-accent ") == 1, (
+            "more than one filled-accent control in the desk; re-sends are "
+            "bordered secondaries so the brightest thing on the screen is "
+            "never an invitation to re-roll a metered request"
         )
