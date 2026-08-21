@@ -107,15 +107,18 @@ unit-mismatch lesson (`6a8092e`).
 5. Session timers cap at 1h and die with the session; if no session is
    alive in the band, the look goes UNTAKEN and that too is written up.
 
-**TWO QUESTIONS FOR JOE when he wakes (the partner asked; answers dated
-into the record, no urgency):**
+**TWO QUESTIONS FOR JOE — ANSWERED 2026-08-21 (~03:45Z), verbatim:**
 
-1. **How many open Kalshi positions do you have right now?**
-2. **Are you still placing bets?**
+1. How many open Kalshi positions right now? — **"1"**
+2. Are you still placing bets? — **"here and there. not much. just some
+   fun parlays."**
 
-If the answers are none and no, no new winners accrue at all, and every
-remaining measurement line dries up on that ground independently of any
-instrument — worth knowing before anything else is planned.
+So the drying-up branch did NOT fire: winners will still trickle in,
+occasionally, mostly KXMVE combos (multi-leg, so outside the stopped
+study's scope anyway). This changes nothing already decided — the H4
+series stays closed on its own ground (BLOCKED ON INSTRUMENT), the
+recorder keeps running because it costs nothing — but a future partner
+triage should know the account is quiet-but-alive, not dead.
 
 **Still open, in order:** the `/api/ledger` `commence_ms` defect (partner
 ranked it last, "droppable without guilt"; the 3-hour-offset trap is
