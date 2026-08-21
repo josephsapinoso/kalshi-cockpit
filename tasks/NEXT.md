@@ -30,9 +30,90 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,675 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
-(The previous box's first act — the 21:21Z spread test — was TAKEN 2026-08-20
-21:26Z, verdict UNDERPOWERED both arms; see the latest entry.)
+Expected: 3,737 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Two timed things may be live when you read this: the terminal spread/total
+look fires 2026-08-21 22:40Z (Joe can veto; registration + Amendment 1 govern)
+and H4 Look 2 is 2026-09-03 (needs `h4-balance-spans` shipped first or it
+self-caps). Live may be one deploy behind — check `/api/health` `git_sha`
+against `origin/main`.
+
+---
+
+## 2026-08-21 ~00:20Z — H4 Look 1 is taken and moves nothing, tomorrow's terminal spread look is armed, and one deploy waits on Joe
+
+State at close: tests **3,737 passed / 10 xfailed**, ruff clean, tsc clean,
+CI green on `883c884`+; live on `1539f76` — **one deploy behind, see the
+first open item**. The partner convened at session start and set the list;
+all six items are done or armed.
+
+**H4 Look 1 is TAKEN and recorded** —
+`docs/measurements/2026-08-20-h4-settlement-fee-result.md` (`883c884`).
+Chain, in order: registration `4e0a025` (23:13Z), analyzer pre-committed
+`4dbd3e2` (23:29Z), pull 23:44:23Z, two measurement-skeptic audits (first
+draft FAILED on six defects, second on one — the record carries the
+corrections). Verdict per kind: single-kind UNDERPOWERED (1 cluster),
+combo-kind **S1 UNTESTABLE (W = 0)**. **H4 stays untested, ADR 0027
+unchanged, no U2 figure is a bound** — the pull's own positive control (a
+$5.00 predicted credit, observed $0.00) shows the balance channel did not
+respond inside ±900s, which is E6's structural blindness: a flat balance
+passes "stopped moving" whether the credit settled or never came.
+**Amendment 1 (`9bc9dad`) now governs Looks 2–3**: total seven-branch
+aggregate tree (A9), E7 + a positive-control gate (A10), the early-credit
+scan (A11), span-based windows replacing ±900s (A12, with a registered
+fallback: if the `h4-balance-spans` query has not shipped by 2026-09-03,
+Look 2 runs the old design **capped at UNDECIDABLE-COVERAGE on winning
+clusters**), and the consequence of each §6.1 answer (A13 — no answer
+changes any verdict). The raw pull is operator data: NOT committed, held at
+`data/captures/h4_look1_pull_2026-08-20T234423Z.json`, SHA-256 in the
+result file. **One tension flagged for Joe in the result file:** the
+cluster table carries derived position facts (tickers, counts, win/loss);
+if he rules even derived aggregates out, the table moves private.
+
+**The terminal spread/total look is armed for 2026-08-21 22:40:00Z** (band
+22:35–22:45Z, 4 credits, **Joe holds a veto until the anchor**).
+Registration `5f890b5` + Amendment 1 `5438d9b`: the replay gate first
+FAILED by its letter (row counts 3/4 vs 11/12) because its premise
+conflated matched with sharp-anchored games; the pre-registrar ruled the
+premise wrong and the instrument right — all five edge values, sharp
+counts, games and verdicts reproduce exactly, all 16 dropped rows non-sharp
+— and restated the gate stricter. The instrument
+(`scripts/measure_spread_edge.py`) carries the three permitted edits:
+per-game commence window [taken_at+15m, +12h] with counters, 08-21
+filenames, the new registration name. Floors unchanged (8 sharp rows / 3
+games per arm); NO pooling with look 1; totals arm registered as
+more-likely-than-not UNDERPOWERED again. Every branch — including VETOED
+and UNTAKEN — writes
+`docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
+
+**§6.1 QUESTION PENDING FOR JOE (H4):** did you deposit, withdraw, or
+transfer money in/out of Kalshi around **2026-08-18 14:51–14:56 UTC
+(~7:51–7:56 AM PT Tue)**, or anywhere on 08-18/08-19? Answer goes into the
+result file dated; per A13 no answer changes any verdict, so no urgency.
+
+**Open items, in order:**
+
+1. **Live is one deploy behind.** `6cef368` makes the phone's estimate page
+   tell the truth about Amendment 2 (study stopped by owner; it currently
+   renders "$X of $100" as if live). My live dispatch was blocked by the
+   permission classifier (tried once, per rule). Joe: GitHub app → Actions
+   → Deploy → Run workflow → instance `live`, type `kalshi-cockpit`. Or a
+   future session tries the dispatch once again.
+2. **`h4-balance-spans` whitelisted query** (A12) — ship before 2026-09-03
+   or Look 2 self-caps. Code-change-sized; the registration specifies it.
+3. **The `/api/ledger` `commence_ms` defect** (below, 2026-08-20 entry) —
+   unchanged, low urgency, 3-hour-offset trap documented.
+4. **Analyzer E1–E6 had zero test coverage at look time** — fixed same day
+   (`tests/test_analyze_h4_look.py`, 15 tests, two guards mutation-red),
+   noted here because the first result draft *claimed* coverage that did
+   not exist and the skeptic caught it. Pattern already in lessons.md
+   (git-state claims; this is the test-state twin).
+
+Also this session: the probe key-leak fix + corrected lesson (`450557a`),
+the secret-scan false positive on the test's own fake key (`5a047b8`,
+nothing real, nothing rotated), four findings recorded (`8358c9b`: ADR 0058
+observation note, ADR 0054 5GB-ceiling amendment + fly.live.toml correction,
+ledger defect filed), housekeeping (`1202d6e`: two discharged bullets
+struck, v16 watch killed as unreachable, stored-number lesson written).
 
 ---
 
