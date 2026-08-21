@@ -1243,21 +1243,42 @@ def create_app(
 
     @app.get("/api/market/{ticker}")
     def market(ticker: str, conn=Depends(get_conn)) -> dict:
+        # The clock is the linked odds fixture's, never `kalshi_events` --
+        # that column is `occurrence_datetime` raw, ~3h late on game series
+        # (ADR 0006). `/api/ledger` was moved off it on 2026-08-21 and this
+        # route follows: a "starts at" line computed from the Kalshi field
+        # would be wrong by the length of the game's first half.
         row = conn.execute(
             "SELECT r.*, m.title AS market_title, m.yes_side_team, m.volume_24h, "
-            "m.open_interest, e.title AS event_title, e.commence_ms "
+            "m.open_interest, m.close_ms, m.status AS market_status, "
+            "e.title AS event_title, "
+            "o.commence_ms, o.home_team, o.away_team, o.sport_key "
             "FROM recommendations r "
             "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
             "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+            "LEFT JOIN event_links l ON l.id = r.link_id "
+            "LEFT JOIN ( "
+            "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms, "
+            "           home_team, away_team, sport_key "
+            "    FROM odds_snapshots GROUP BY odds_event_id "
+            ") o ON o.odds_event_id = l.odds_event_id "
             "WHERE r.ticker = ? ORDER BY r.created_ms DESC LIMIT 1",
             (ticker,),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"No data for {ticker}")
 
-        detail = _serialise(row)
+        # `now_ms`/`staleness` make the ages live rather than frozen at write
+        # time: without them a 6pm quote still reads "30s ago" at 11pm, on the
+        # one screen with no list of fresher rows beside it to give the lie.
+        detail = _serialise(row, now_ms=db.now_ms(), staleness=staleness)
         detail["volume_24h"] = row["volume_24h"]
         detail["open_interest"] = row["open_interest"]
+        detail["close_ms"] = row["close_ms"]
+        detail["market_status"] = row["market_status"]
+        detail["home_team"] = row["home_team"]
+        detail["away_team"] = row["away_team"]
+        detail["league"] = row["sport_key"]
         return detail
 
     def _resolve_scout_fixture(conn, ticker: str) -> Optional[dict]:

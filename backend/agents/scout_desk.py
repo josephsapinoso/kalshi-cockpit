@@ -417,7 +417,100 @@ async def convene_desk(
     budget.settle(
         master_id, verdict="briefing" if briefing is not None else "filed_nothing"
     )
+    if briefing is not None:
+        briefing = complete_board(briefing, staff)
 
     if briefing is not None and len(filed) == len(staff):
         return DeskResult(status="complete", staff=staff, briefing=briefing)
     return DeskResult(status="partial", staff=staff, briefing=briefing)
+
+
+BOARD_CATEGORIES: tuple[str, ...] = (
+    "lineup", "injury", "weather", "rest_travel", "venue", "other",
+)
+
+# Most-alarming first. Used when the master files two tiles for one category:
+# the one demanding more caution wins, because a collapse that picks the calm
+# tile is a collapse that hides a warning.
+_STATE_SEVERITY = {"fresh": 0, "unconfirmed": 1, "stale_only": 2, "clear": 3}
+
+# What a staff scout's `searched_for` entry must mention for a category to
+# count as *searched*. Free text against fixed words is a heuristic and is
+# used only in the safe direction: failing to match turns a `clear` into an
+# `unconfirmed`, never the reverse.
+_CATEGORY_HINTS: dict[str, tuple[str, ...]] = {
+    "lineup": ("lineup", "starter", "starting", "scratch", "probable"),
+    "injury": ("injur", "suspens", "designat"),
+    "weather": ("weather", "forecast", "wind", "rain", "roof", "temperature"),
+    "rest_travel": ("travel", "rest", "back-to-back", "schedule", "fatigue"),
+    "venue": ("venue", "stadium", "park", "arena", "ground", "field", "court"),
+}
+
+
+def _searched_categories(staff: list[StaffNote]) -> set[str]:
+    """Categories some scout actually looked at: filed a finding in it, or
+    named it in `searched_for`. `other` is covered by any filing at all --
+    it is the catch-all, and demanding a search string for it would turn
+    every quiet briefing's sixth tile amber for no reason."""
+    covered: set[str] = set()
+    searched_text = " ".join(
+        term.lower()
+        for note in staff
+        if note.report is not None
+        for term in note.report.searched_for
+    )
+    for note in staff:
+        if note.report is None:
+            continue
+        covered.add("other")
+        for finding in note.report.findings:
+            covered.add(finding.category)
+    for category, hints in _CATEGORY_HINTS.items():
+        if any(hint in searched_text for hint in hints):
+            covered.add(category)
+    return covered
+
+
+def complete_board(briefing: DeskBriefing, staff: list[StaffNote]) -> DeskBriefing:
+    """Project the master's board onto exactly the six categories, safely.
+
+    The schema alone cannot promise a complete board: `board` has no length or
+    uniqueness validator, so the model can file four tiles -- and a missing
+    tile would render as *nothing*, which reads calmer than "unconfirmed".
+    That is the exact defect the board was written to close (an unchecked
+    instrument must never look like a clear one), reintroduced by omission.
+
+    Three rules, each in the safe direction only:
+
+    - A category the master did not file becomes `unconfirmed`.
+    - Duplicate tiles collapse to the most-alarming state filed.
+    - `clear` must be earned: if no scout filed a finding in the category or
+      named it in `searched_for`, the tile is rewritten `unconfirmed` --
+      "nothing notable" from a desk that never looked is not a finding.
+    """
+    by_category: dict[str, BoardTile] = {}
+    for tile in briefing.board:
+        held = by_category.get(tile.category)
+        if held is None or (
+            _STATE_SEVERITY[tile.state] < _STATE_SEVERITY[held.state]
+        ):
+            by_category[tile.category] = tile
+
+    covered = _searched_categories(staff)
+    completed: list[BoardTile] = []
+    for category in BOARD_CATEGORIES:
+        tile = by_category.get(category)
+        if tile is None:
+            tile = BoardTile(
+                category=category,  # type: ignore[arg-type]
+                state="unconfirmed",
+                note="the master filed no tile here",
+            )
+        elif tile.state == "clear" and category not in covered:
+            tile = BoardTile(
+                category=tile.category,
+                state="unconfirmed",
+                note=(tile.note + " — but no scout searched this").strip(" —"),
+            )
+        completed.append(tile)
+    return briefing.model_copy(update={"board": completed})

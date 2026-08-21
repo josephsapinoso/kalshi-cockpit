@@ -98,9 +98,15 @@ function resample(candles: ChartCandle[], buckets: number): ChartCandle[] {
 export default function PriceChart({
   candles,
   view,
+  yesOnly = false,
 }: {
   candles: ChartCandle[];
   view: "line" | "candles";
+  /** Drop the NO series. NO is `1000 - YES` by arithmetic, so the mirror
+   * line adds no information and halves the vertical resolution -- the
+   * market screen asked for it gone (2026-08-21 direction). Default keeps
+   * the historical both-sides view for any other caller. */
+  yesOnly?: boolean;
 }) {
   const drawn = useMemo(() => {
     const source = view === "candles" ? resample(candles, 48) : candles;
@@ -116,8 +122,13 @@ export default function PriceChart({
     const domain =
       view === "line"
         ? // Both lines share one axis, so the domain must hold YES and its
-          // complement or one of the two runs off the plot.
-          fitDomain([...yesValues, ...yesValues.map((v) => 1000 - v)])
+          // complement or one of the two runs off the plot. YES-only frees
+          // the full height for the one line that carries information.
+          fitDomain(
+            yesOnly
+              ? yesValues
+              : [...yesValues, ...yesValues.map((v) => 1000 - v)],
+          )
         : fitDomain(
             usable.flatMap((c) =>
               [c.low_tenths, c.high_tenths, c.close_tenths].filter(
@@ -141,7 +152,7 @@ export default function PriceChart({
     );
     const last = usable[usable.length - 1];
     return { usable, x, y, path, gridLevels, last, yesValues };
-  }, [candles, view]);
+  }, [candles, view, yesOnly]);
 
   if (!drawn) {
     return (
@@ -193,13 +204,15 @@ export default function PriceChart({
             strokeWidth="1.8"
             className="text-positive"
           />
-          <path
-            d={path(yesValues.map((v) => 1000 - v))}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            className="text-negative"
-          />
+          {!yesOnly && (
+            <path
+              d={path(yesValues.map((v) => 1000 - v))}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="text-negative"
+            />
+          )}
           <text
             x={W - PAD.right + 4}
             y={y(lastYes) + 3}
@@ -209,15 +222,17 @@ export default function PriceChart({
           >
             Y {pct(lastYes)}
           </text>
-          <text
-            x={W - PAD.right + 4}
-            y={y(1000 - lastYes) + 3}
-            className="fill-current text-negative"
-            fontSize="9"
-            fontWeight="700"
-          >
-            N {pct(1000 - lastYes)}
-          </text>
+          {!yesOnly && (
+            <text
+              x={W - PAD.right + 4}
+              y={y(1000 - lastYes) + 3}
+              className="fill-current text-negative"
+              fontSize="9"
+              fontWeight="700"
+            >
+              N {pct(1000 - lastYes)}
+            </text>
+          )}
         </>
       ) : (
         usable.map((c) => {

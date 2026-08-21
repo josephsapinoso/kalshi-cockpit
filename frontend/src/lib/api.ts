@@ -1668,3 +1668,44 @@ export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
       : `HTTP ${response.status}`;
   return { accepted: false, status: response.status, detail };
 }
+
+/**
+ * What the market screen renders of `/api/market/{ticker}` — the venue's own
+ * facts (what you transact against), never the tool's opinion of them. The
+ * payload also carries fair/edge/EV fields; they are deliberately not typed
+ * here, because a single-game page is the screen with the least context to
+ * hold a refuted signal's numbers honestly (ADR 0038).
+ */
+export type MarketDetail = {
+  ticker: string;
+  event_title: string | null;
+  team: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  league: string | null;
+  commence_ms: number | null;
+  close_ms: number | null;
+  market_status: string | null;
+  ask_display: string;
+  ask_dollars: number;
+  quote_age_now_ms?: number | null;
+  price_is_current?: boolean;
+  volume_24h: number | null;
+  open_interest: number | null;
+};
+
+/** `null` when the record has no row for this ticker — a market the runner
+ * never priced still gets its history page, just without the venue facts. */
+export async function fetchMarketDetail(
+  ticker: string,
+): Promise<MarketDetail | null> {
+  const response = await fetch(
+    `${BASE}/api/market/${encodeURIComponent(ticker)}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`market detail returned ${response.status}`);
+  }
+  return response.json() as Promise<MarketDetail>;
+}

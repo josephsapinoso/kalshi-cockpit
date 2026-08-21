@@ -41,6 +41,50 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~15:30Z — the briefing becomes a cockpit, and the market screen serves the venue's facts
+
+Joe read the desk's first real briefing (Braves–Brewers, filed 14:03Z) and
+gave three directions, verbatim in the memory file
+`briefings-are-visual-first-and-sport-neutral.md`: visual like a cockpit,
+sport-neutral, good on desktop AND phone. He then asked for the market
+screen itself to be made more useful, "ask the partner to consult with the
+relevant agents."
+
+**The partner convened seven agents and ruled: render the venue's facts,
+never the tool's opinion** — full direction + the explicitly-not-doing list
+in `docs/reviews/2026-08-21-market-screen-direction.md`. All eight build-now
+items are built, tested, mutation-verified where they guard money or
+honesty:
+
+- **The board**: the master scout fills six sport-neutral instrument tiles
+  (fresh / stale_only / unconfirmed / clear), completed server-side
+  (`complete_board` — missing→unconfirmed, duplicates→most-alarming,
+  unearned clear→unconfirmed). Binary verdict strip, no counts — a count
+  was the one number the schema forbids, manufactured client-side. Glyphs
+  as primary channel; `clear` unlit; only `fresh` carries hue.
+- **The market screen**: ScoutDesk above the fold, chart in a closed
+  details with the history-not-a-quote caveat in its summary; header is
+  `Away @ Home / YES = team / league · start · status` off the odds clock
+  (never `kalshi_events.commence_ms`, ADR 0006); quote strip with LIVE ages
+  (`_serialise` now gets `now_ms`/`staleness` — they were frozen at write
+  time) and a stale ask refused outright; `close_ms`/`market_status`
+  served so settled markets say so. NO line and candles toggle gone,
+  ranges Today/All.
+- `--border-strong` token added (dashed borders were 1.30:1 — invisible).
+
+State: **3,789 passed / 10 xfailed**, ruff clean, tsc clean, `next build`
+green. The first briefing predates the board; its screen shows a derived
+board and says so. **The Braves game is worth re-sending to see the real
+board** — and the fixture's fun wrinkle (a two-city series claim the scout
+couldn't verify) is exactly what the unconfirmed state was built for.
+
+**Still open:** tonight's terminal spread/total look at 22:40Z (band
+22:35–22:45Z, session must be alive, replay gate PASSED at 04:04Z); the
+footer 5-and-5 parity note; the partner's "later, maybe" list in the
+review doc.
+
+---
+
 ## 2026-08-21 ~06:30Z — the Scout desk is switched on, on Joe's word: a staff of two and a master, metered
 
 **ADR 0060.** Joe asked for it by shape ("the master scout … a team report to

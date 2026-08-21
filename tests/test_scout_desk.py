@@ -26,7 +26,13 @@ import typing
 from backend.agents.base import AgentConfig
 from backend.agents.budget import AgentBudget
 from backend.agents.scout import ScoutReport
-from backend.agents.scout_desk import DeskBriefing, convene_desk
+from backend.agents.scout_desk import (
+    BoardTile,
+    DeskBriefing,
+    StaffNote,
+    complete_board,
+    convene_desk,
+)
 from backend.store import db
 
 CONFIG = AgentConfig(api_key="test", model="claude-opus-5")
@@ -162,7 +168,10 @@ class TestTheDeskIsMetered:
         client = DeskStubClient()
         result = await _convene(client, budget)
         assert result.status == "complete"
-        assert result.briefing == BRIEFING
+        # The board is completed server-side on the way out, so compare the
+        # prose; the six-tile projection has its own test class.
+        assert result.briefing.headline == BRIEFING.headline
+        assert len(result.briefing.board) == 6
         agents = [
             r["agent"]
             for r in conn.execute(
@@ -197,7 +206,8 @@ class TestFiledNothingIsNotFoundNothing:
         client = DeskStubClient(staff_raises={0})  # the home scout dies
         result = await _convene(client, budget)
         assert result.status == "partial"
-        assert result.briefing == BRIEFING  # the master still ran
+        assert result.briefing is not None  # the master still ran
+        assert result.briefing.headline == BRIEFING.headline
         master_call = client.messages.calls[-1]
         assert master_call["output_format"] is DeskBriefing
         prompt = master_call["messages"][0]["content"]
@@ -229,3 +239,86 @@ class TestFiledNothingIsNotFoundNothing:
         assert "your team is the host" in home
         assert "You are the A scout" in away
         assert "Your team is the visitor" in away
+
+
+class TestTheBoardIsCompletedServerSide:
+    """The schema cannot promise six tiles; `complete_board` must.
+
+    A missing tile renders as nothing, and nothing reads calmer than
+    "unconfirmed" -- the exact defect the board exists to close. Every rule
+    here moves in the safe direction only: omission and unearned calm become
+    warnings, never the reverse.
+    """
+
+    def _report(self, *, findings=(), searched=("injuries",)):
+        return ScoutReport(
+            game="A at B", findings=list(findings),
+            summary="s", searched_for=list(searched),
+        )
+
+    def _staff(self, report):
+        return [
+            StaffNote(role="home", team="B", report=report),
+            StaffNote(role="away", team="A", report=report),
+        ]
+
+    def test_a_missing_tile_becomes_unconfirmed_not_nothing(self):
+        briefing = DeskBriefing(
+            headline="h", assessment="a",
+            board=[BoardTile(category="lineup", state="stale_only", note="n")],
+        )
+        completed = complete_board(briefing, self._staff(self._report()))
+        assert [t.category for t in completed.board] == [
+            "lineup", "injury", "weather", "rest_travel", "venue", "other",
+        ]
+        weather = next(t for t in completed.board if t.category == "weather")
+        assert weather.state == "unconfirmed"
+
+    def test_duplicate_tiles_collapse_to_the_most_alarming(self):
+        briefing = DeskBriefing(
+            headline="h", assessment="a",
+            board=[
+                BoardTile(category="injury", state="clear", note="calm"),
+                BoardTile(category="injury", state="fresh", note="new IL move"),
+            ],
+        )
+        completed = complete_board(briefing, self._staff(self._report()))
+        injury = next(t for t in completed.board if t.category == "injury")
+        assert injury.state == "fresh"
+
+    def test_an_unearned_clear_is_rewritten_unconfirmed(self):
+        """"Nothing notable" from a desk that never looked is not a finding."""
+        briefing = DeskBriefing(
+            headline="h", assessment="a",
+            board=[BoardTile(category="weather", state="clear", note="fine")],
+        )
+        # Nobody searched weather and nobody filed a weather finding.
+        completed = complete_board(
+            briefing, self._staff(self._report(searched=("injuries",)))
+        )
+        weather = next(t for t in completed.board if t.category == "weather")
+        assert weather.state == "unconfirmed"
+
+    def test_an_earned_clear_survives(self):
+        briefing = DeskBriefing(
+            headline="h", assessment="a",
+            board=[BoardTile(category="weather", state="clear", note="roof shut")],
+        )
+        completed = complete_board(
+            briefing,
+            self._staff(self._report(searched=("game-day weather and roof",))),
+        )
+        weather = next(t for t in completed.board if t.category == "weather")
+        assert weather.state == "clear"
+
+    async def test_the_desk_serves_a_completed_board(self, tmp_path):
+        """Wired, not just available: `convene_desk` must run the projection,
+        so a briefing leaving the desk always carries all six tiles."""
+        conn, budget = _budget(tmp_path)
+        client = DeskStubClient(
+            briefing=DeskBriefing(headline="h", assessment="a", board=[])
+        )
+        result = await _convene(client, budget)
+        assert result.briefing is not None
+        assert len(result.briefing.board) == 6
+        assert all(t.state == "unconfirmed" for t in result.briefing.board)

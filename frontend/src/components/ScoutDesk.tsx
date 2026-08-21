@@ -17,7 +17,9 @@
  * - a dashed border and "?" is UNCHECKED — searched, could not verify.
  *   A gap must never render as calm; the first briefing's most useful fact
  *   was an unchecked weather instrument.
- * - muted is old news; green (positive) is checked-and-clear.
+ * - muted is old news; `clear` is deliberately unlit — an annunciator panel
+ *   is dark at rest, and green tiles above a price would argue with the
+ *   tool's own measured no-edge conclusion.
  *
  * Honesty rules carried over from v1, all load-bearing:
  * - **No number renders here that could feed a bet.** The desk's schema has
@@ -68,35 +70,22 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 type TileState = BoardTile["state"] | "no_notes";
 
-const TILE_STATES: Record<
-  TileState,
-  { word: string; className: string; dot: string }
-> = {
-  fresh: {
-    word: "FRESH",
-    className: "border-accent-2 text-accent-2",
-    dot: "bg-accent-2",
-  },
-  unconfirmed: {
-    word: "UNCHECKED ?",
-    className: "border-dashed",
-    dot: "bg-muted",
-  },
-  stale_only: {
-    word: "old news",
-    className: "text-muted",
-    dot: "bg-muted",
-  },
-  clear: {
-    word: "clear",
-    className: "text-positive",
-    dot: "bg-positive",
-  },
-  no_notes: {
-    word: "no notes",
-    className: "text-muted opacity-60",
-    dot: "bg-muted",
-  },
+/**
+ * The glyph is the primary channel -- it survives greyscale and sunlight,
+ * which a 6px coloured dot does not. `clear` is deliberately unlit (muted
+ * ink, default border, blank glyph slot): an annunciator panel is dark at
+ * rest, and that darkness is where a lit segment gets its authority. On a
+ * quiet night six green tiles above a price would argue with the tool's own
+ * measured conclusion that there is no edge. Only `fresh` carries hue.
+ * `no_notes` (legacy derived boards only) renders exactly as `unconfirmed`:
+ * two flavours of "we don't know" are the same fact for a decision.
+ */
+const TILE_STATES: Record<TileState, { glyph: string; className: string }> = {
+  fresh: { glyph: "▲", className: "border-accent-2 text-accent-2" },
+  unconfirmed: { glyph: "?", className: "border-dashed border-border-strong" },
+  stale_only: { glyph: "○", className: "text-muted" },
+  clear: { glyph: "", className: "text-muted" },
+  no_notes: { glyph: "?", className: "border-dashed border-border-strong" },
 };
 
 function when(ms: number): string {
@@ -107,21 +96,6 @@ function when(ms: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-/** Everything not flagged as already priced, straight from the raw filings —
- * the one count the verdict strip states, and it is a count of facts, never
- * a rating. */
-function freshFindings(staff: ScoutStaffNote[] | null): number {
-  if (!staff) return 0;
-  return staff.reduce(
-    (sum, note) =>
-      sum +
-      (note.report
-        ? note.report.findings.filter((f) => !f.likely_already_priced).length
-        : 0),
-    0,
-  );
 }
 
 /** Fallback for briefings stored before the master filled a board: derive
@@ -163,11 +137,13 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                 {CATEGORY_LABELS[category]}
               </p>
-              <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold">
-                <span
-                  className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${style.dot}`}
-                />
-                {style.word}
+              {/* Label-and-caption (ADR 0050): the state renders verbatim,
+                  the model's own note glosses it beneath. Never translated. */}
+              <p className="mt-1 flex items-center gap-1.5 font-mono text-xs font-semibold">
+                <span className="inline-block w-3.5 shrink-0 text-sm leading-none">
+                  {style.glyph}
+                </span>
+                {(tile ? tile.state : "no notes").replace("_", " ")}
               </p>
               {tile?.note && (
                 <p className="mt-1 line-clamp-2 text-[11px] leading-tight text-muted">
@@ -189,27 +165,32 @@ function Board({ tiles, derived }: { tiles: BoardTile[]; derived: boolean }) {
   );
 }
 
+/**
+ * Binary on purpose -- no counts. The desk's schema structurally forbids any
+ * number a forecast could hide in, and a "3 items" hero line manufactures the
+ * one number the backend refuses to produce, in the slot where a magnitude
+ * goes. Three stale-adjacent items are not more edge than one.
+ */
 function VerdictStrip({
   fresh,
   unconfirmed,
 }: {
-  fresh: number;
-  unconfirmed: number;
+  fresh: boolean;
+  unconfirmed: boolean;
 }) {
-  if (fresh > 0) {
+  if (fresh) {
     return (
       <p className="rounded-xl border border-accent-2 px-3 py-2 text-sm font-semibold text-accent-2">
-        {fresh} {fresh === 1 ? "item" : "items"} the market may not have priced
-        yet — check the gold tiles.
+        The desk found something the market may not have priced — read the lit
+        tiles.
       </p>
     );
   }
-  if (unconfirmed > 0) {
+  if (unconfirmed) {
     return (
-      <p className="rounded-xl border border-dashed px-3 py-2 text-sm">
-        Nothing fresh — but {unconfirmed}{" "}
-        {unconfirmed === 1 ? "instrument is" : "instruments are"} unchecked.
-        Unverified is not benign.
+      <p className="rounded-xl border border-dashed border-border-strong px-3 py-2 text-sm">
+        Nothing fresh — but some instruments went unchecked. Unverified is not
+        benign.
       </p>
     );
   }
@@ -248,7 +229,7 @@ function StaffNoteCard({ note }: { note: ScoutStaffNote }) {
                 className={`mr-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                   finding.likely_already_priced
                     ? "bg-card text-muted"
-                    : "bg-accent-2 text-white"
+                    : "bg-accent-2 text-background"
                 }`}
               >
                 {CATEGORY_LABELS[finding.category] ?? finding.category}
@@ -399,24 +380,22 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
           {sendButton("Send them again")}
         </div>
       ) : (
+        (() => {
+          const derived = !state.briefing?.board?.length;
+          const tiles = derived
+            ? deriveBoard(state.staff)
+            : state.briefing!.board!;
+          return (
         <div className="space-y-4">
           <VerdictStrip
-            fresh={freshFindings(state.staff)}
+            fresh={tiles.some((t) => t.state === "fresh")}
             unconfirmed={
-              (state.briefing?.board ?? []).filter(
-                (t) => t.state === "unconfirmed",
-              ).length
+              tiles.some((t) => t.state === "unconfirmed") ||
+              tiles.length < CATEGORY_ORDER.length
             }
           />
 
-          <Board
-            tiles={
-              state.briefing?.board?.length
-                ? state.briefing.board
-                : deriveBoard(state.staff)
-            }
-            derived={!state.briefing?.board?.length}
-          />
+          <Board tiles={tiles} derived={derived} />
 
           {state.briefing ? (
             <>
@@ -500,6 +479,8 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
             <div className="mt-2">{sendButton("Send them again")}</div>
           </div>
         </div>
+          );
+        })()
       )}
     </section>
   );

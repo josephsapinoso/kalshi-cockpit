@@ -191,3 +191,57 @@ class TestReadingTheDesk:
         body = (await get(demo_app, "/api/scout/KXTEST-LINKED")).json()
         assert body["status"] == "running"
         assert body["gone_quiet"] is True
+
+
+class TestTheMarketRouteServesTheFixtureFacts:
+    """`/api/market/{ticker}` grew the game facts the market screen renders
+    (2026-08-21, the partner's direction). Lives here because this file's
+    fixture already builds the full link chain the route joins through.
+
+    The load-bearing claim: **the clock is the odds fixture's** (2000000 in
+    the fixture), never `kalshi_events.commence_ms` -- the fixture plants a
+    3-hour-late value there and this fails if it ever surfaces.
+    """
+
+    KALSHI_TRAP_MS = 2000000 + 3 * 60 * 60 * 1000
+
+    @pytest.fixture
+    def trapped_app(self, scout_db):
+        conn = db.open_db(scout_db)
+        try:
+            conn.execute(
+                "UPDATE kalshi_events SET commence_ms = ? "
+                "WHERE event_ticker = 'KXTEST-EVENT'",
+                (self.KALSHI_TRAP_MS,),
+            )
+            conn.execute(
+                "UPDATE kalshi_markets SET close_ms = 1999000, "
+                "status = 'open' WHERE ticker = 'KXTEST-LINKED'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        from backend.api.routes import create_app
+        from backend.config import AppConfig
+        return create_app(AppConfig(instance_mode="demo", db_path=scout_db))
+
+    async def test_the_clock_is_the_sportsbooks_and_the_facts_arrive(
+        self, trapped_app
+    ):
+        body = (await get(trapped_app, "/api/market/KXTEST-LINKED")).json()
+        assert body["commence_ms"] == 2000000
+        assert body["commence_ms"] != self.KALSHI_TRAP_MS
+        assert body["home_team"] == "B"
+        assert body["away_team"] == "A"
+        assert body["league"] == "baseball_mlb"
+        assert body["close_ms"] == 1999000
+        assert body["market_status"] == "open"
+
+    async def test_an_unlinked_ticker_still_serves_with_unknowns_as_none(
+        self, trapped_app
+    ):
+        """The join is LEFT: a market with no linked fixture keeps its page,
+        and the unknowable facts resolve to None, never a substitute."""
+        body = (await get(trapped_app, "/api/market/KXTEST-UNLINKED")).json()
+        assert body["home_team"] is None
+        assert body["commence_ms"] is None
