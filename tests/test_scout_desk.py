@@ -100,8 +100,11 @@ async def _convene(client, budget):
 class TestNoNumberCanLeaveTheDesk:
     def test_the_briefing_schema_is_prose_only_all_the_way_down(self):
         """Walked, not trusted. A numeric field added anywhere in
-        `DeskBriefing` -- however nested -- fails here, because the schema is
-        the enforcement layer the prompts merely describe."""
+        `DeskBriefing` -- however nested, including the board tiles and any
+        `Literal` member -- fails here, because the schema is the enforcement
+        layer the prompts merely describe."""
+        from pydantic import BaseModel as PydanticBase
+
         def leaves(annotation):
             args = typing.get_args(annotation)
             if not args:
@@ -109,16 +112,29 @@ class TestNoNumberCanLeaveTheDesk:
             for arg in args:
                 yield from leaves(arg)
 
-        for name, field in DeskBriefing.model_fields.items():
-            for leaf in leaves(field.annotation):
-                assert leaf not in (int, float, complex), (
-                    f"DeskBriefing.{name} can carry a number; the desk must "
-                    f"not have a field a forecast could hide in"
-                )
-                assert leaf in (str, list, type(None)) or leaf is str, (
-                    f"DeskBriefing.{name} has unexpected leaf {leaf!r}; keep "
-                    f"the briefing prose-only"
-                )
+        def check_model(model, path):
+            for name, field in model.model_fields.items():
+                where = f"{path}.{name}"
+                for leaf in leaves(field.annotation):
+                    if isinstance(leaf, type) and issubclass(leaf, PydanticBase):
+                        check_model(leaf, where)
+                        continue
+                    if isinstance(leaf, str):
+                        continue  # a Literal member: words, never numbers
+                    assert not isinstance(leaf, (int, float, complex)), (
+                        f"{where} has a numeric Literal member {leaf!r}; the "
+                        f"desk must not have a field a forecast could hide in"
+                    )
+                    assert leaf not in (int, float, complex), (
+                        f"{where} can carry a number; the desk must not have "
+                        f"a field a forecast could hide in"
+                    )
+                    assert leaf in (str, list, type(None)), (
+                        f"{where} has unexpected leaf {leaf!r}; keep the "
+                        f"briefing words-only"
+                    )
+
+        check_model(DeskBriefing, "DeskBriefing")
 
 
 class TestTheDeskIsMetered:
@@ -210,6 +226,6 @@ class TestFiledNothingIsNotFoundNothing:
         ]
         home, away = staff_systems
         assert "You are the B scout" in home
-        assert "your club is the host" in home
+        assert "your team is the host" in home
         assert "You are the A scout" in away
-        assert "Your club is the visitor" in away
+        assert "Your team is the visitor" in away

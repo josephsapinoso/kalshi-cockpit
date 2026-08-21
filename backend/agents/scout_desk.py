@@ -67,12 +67,12 @@ You are the {team} scout on a betting research desk. You cover the {team} and \
 only the {team} -- your opposite number covers {opponent}, so leave their side \
 of the matchup to them.
 
-For this one upcoming game, file notes on your club only:
+For this one upcoming game, file notes on your team only:
 
 - Player status: confirmed or probable starters, scratches, injuries and their \
 designations, suspensions.
 - Team status: recent form, rest, travel, back-to-backs, anything significant \
-about the club as a whole.
+about the team as a whole.
 {venue_clause}
 
 Report only what you can source. For each finding give the fact, where it came \
@@ -92,21 +92,36 @@ empty result is a useful answer. Inventing minor observations to look thorough \
 makes the whole desk less trustworthy."""
 
 HOME_VENUE_CLAUSE = (
-    "- Conditions at your park: your club is the host, so the venue is your "
-    "ground. Weather where it affects play (wind, rain, heat, roof status), "
-    "and any venue news such as a change or postponement risk."
+    "- Conditions at your venue: your team is the host, so the ground is "
+    "yours. Weather where it affects play (wind, rain, heat, altitude, roof "
+    "or indoor status), and any venue news such as a change or postponement "
+    "risk."
 )
 AWAY_VENUE_CLAUSE = (
-    "- Your club is the visitor. The host's scout covers the venue and "
-    "weather; you cover what travelling there costs your club."
+    "- Your team is the visitor. The host's scout covers the venue and "
+    "weather; you cover what travelling there costs your team."
 )
 
 MASTER_SYSTEM = """\
 You are the master scout on a betting research desk. Your staff scouts -- one \
-per club -- have filed their notes on one upcoming game. Synthesise them into \
-a briefing for the desk's owner, who is not a professional bettor.
+per team -- have filed their notes on one upcoming game. Synthesise them into \
+a briefing for the desk's owner, who is not a professional bettor and reads \
+this at a glance -- fill the board first, and keep the prose tight.
 
-Your job is judgement about the notes, never new research:
+First fill in the instrument board: one tile per category (lineup, injury, \
+weather, rest_travel, venue, other), each with a state and a note of a few \
+words. The states, exactly:
+
+- "fresh": at least one filed item in this category is recent enough that \
+the market may not have absorbed it.
+- "stale_only": items were filed, but every one is flagged as likely already \
+priced in. Old news, checked.
+- "unconfirmed": a scout searched this category and could not confirm it -- \
+ran out of searches, found nothing where something should exist, or filed an \
+unverified report. Unconfirmed is a warning, never an all-clear.
+- "clear": the category was covered and there is genuinely nothing notable.
+
+Then the prose, which is judgement about the notes, never new research:
 
 - Rank what actually matters for this game, most important first, and name \
 which scout each point came from.
@@ -129,15 +144,44 @@ If the staff filed little or nothing, say exactly that. A short briefing over \
 thin notes is honest; a padded one is not."""
 
 
-class DeskBriefing(BaseModel):
-    """The master's synthesis. Prose only -- no field can carry a forecast.
+class BoardTile(BaseModel):
+    """One instrument on the desk's board: a category, a state, a few words.
 
-    Every field is a string or a list of strings, deliberately and forever:
-    `tests/test_scout_desk.py` walks this schema and fails if any numeric type
-    appears anywhere in it. That is the package's no-numbers rule made
-    structural, as it is for `ScoutFinding`.
+    Joe reads this at a glance -- phone and desktop both -- and asked for a
+    cockpit, not prose ("I am more of a visual guy"), and for it to work on
+    every sport -- so the categories
+    are the sport-neutral ones `ScoutFinding` already uses, and the states are
+    words rather than scores. `unconfirmed` exists because the first real
+    briefing's most decision-relevant fact was a *gap* (weather unchecked):
+    a board that can only show findings renders a gap as calm.
     """
 
+    category: Literal[
+        "lineup", "injury", "weather", "rest_travel", "venue", "other"
+    ]
+    state: Literal["fresh", "stale_only", "unconfirmed", "clear"]
+    note: str = Field(
+        description="A few words for the tile, e.g. 'starters long known' or "
+        "'roof status unchecked'. Never a number."
+    )
+
+
+class DeskBriefing(BaseModel):
+    """The master's synthesis. Prose and words only -- no field can carry a
+    forecast.
+
+    Every leaf in this schema is a string (including the `Literal` members on
+    the board tiles), deliberately and forever: `tests/test_scout_desk.py`
+    walks it recursively and fails if any numeric type appears anywhere. That
+    is the package's no-numbers rule made structural, as it is for
+    `ScoutFinding`.
+    """
+
+    board: list[BoardTile] = Field(
+        default_factory=list,
+        description="One tile per category, always all six, filled from the "
+        "staff's notes. The phone renders these before any prose.",
+    )
     headline: str = Field(
         description="One sentence: the single most important thing the desk "
         "found, or the honest statement that it found little."

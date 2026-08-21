@@ -1570,7 +1570,17 @@ export type ScoutStaffNote = {
   report: ScoutStaffReport | null;
 };
 
+/** One instrument on the desk's board. States are words, never scores:
+ * `unconfirmed` is a warning (searched, could not verify), not an all-clear. */
+export type BoardTile = {
+  category: "lineup" | "injury" | "weather" | "rest_travel" | "venue" | "other";
+  state: "fresh" | "stale_only" | "unconfirmed" | "clear";
+  note: string;
+};
+
 export type DeskBriefing = {
+  /** Absent on briefings filed before the board existed (2026-08-21). */
+  board?: BoardTile[];
   headline: string;
   assessment: string;
   what_matters: string[];
