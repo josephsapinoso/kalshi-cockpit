@@ -793,3 +793,541 @@ ordering itself is left exactly as registered for every other configuration.
 - **Amendment 1 is itself post-hoc.** The three guards at the head of this section
   are the whole defence, and a reader who thinks they are insufficient should
   discount Look 2 accordingly rather than be talked out of it here.
+
+---
+
+# Amendment 3 — 2026-08-21 ~02:15Z, before the channel diagnostic runs
+
+**Status, standing and numbering, stated first because everything below depends
+on them.**
+
+This amendment is **additive**. Nothing above it is edited. §§0–11 stand
+byte-for-byte as committed in `4e0a025`, and Amendment 1 (A9–A14) stands
+byte-for-byte as committed in `9bc9dad`. Clauses continue at **A15** from
+Amendment 1's A14.
+
+**On the number 3.** *There is no Amendment 2 in this file.* The designation is
+the partner agent's (2026-08-21) and the gap is recorded here rather than
+silently closed, so that a future reader does not go hunting for a document that
+was never written. The two commits that could be mistaken for it are `9bc9dad`
+(Amendment 1 to this registration) and `30f1c2e` (Joe's §6.1 answer, recorded as
+an addendum to the *result* file under A13, amending nothing here). The
+"Amendment 2 (A10–A12)" referenced at `tasks/NEXT.md:357` belongs to
+`2026-08-17-preregistration-joe-calibration-bet-log.md`, a different
+registration. Renumbering this to 2 would break the partner's ruling as issued;
+skipping is the smaller lie and it is written down.
+
+**When this was written, relative to what.** It is written **after** Look 1's
+residuals were seen (Amendment 1's disclosure carries forward unchanged) **and
+after a second, larger partial unblinding disclosed in A15 below**. It is
+written **before** the A17 diagnostic's pull exists, and it must be committed
+before that pull is taken — that is the entire reason it exists as a document
+rather than as a decision at run time.
+
+> **This amendment governs Look 2, Look 3 and the A17 diagnostic only. It does
+> not reach Look 1.** Look 1's classifications and its verdicts (single-kind
+> UNDERPOWERED, combo-kind S1 UNTESTABLE, aggregate H4 untested) stand exactly
+> as written in `docs/measurements/2026-08-20-h4-settlement-fee-result.md` and
+> are **not re-scored** under anything below. No verdict anywhere is narrowed,
+> widened or moved by this amendment, and ADR 0027 is untouched.
+
+**The contamination guards, since a post-hoc amendment written by someone who
+has now read the balance series is the textbook place to manufacture a
+finding.** Five properties, each checkable against this text:
+
+1. **No threshold moves.** `$0.0063` (the deciding scale), `$0.05/contract`
+   (rule 1's plausibility ceiling), `tau = 1 + n_win`, the `|V| >= 2` on 2
+   distinct UTC days floor, and the factor-of-2 agreement requirement are all
+   unchanged. A17 introduces exactly one new constant, the `±24h` HIT-WIDE
+   neighbourhood (A17.4), and it is fixed here before any span delta has been
+   paired to any settlement by anyone.
+2. **A16 can only subtract observations.** It moves settlement-free spans out
+   of the voting set. Removing votes cannot create a verdict that the full set
+   could not already have produced — the same arithmetic CLAUDE.md uses on the
+   missing second signal.
+3. **A17's one widening runs against the terminal verdict, not toward it.**
+   HIT-WIDE makes **BLIND** — the verdict that kills the analyzer and closes
+   the series — *harder* to reach, never easier. A design change that makes it
+   harder to stop work is not a change that flatters a finding.
+4. **A17.11 forecloses relitigation in advance.** The overturn condition for a
+   BLIND verdict is written now, while it costs nothing, rather than at the
+   moment someone dislikes the verdict.
+5. **There is no blind arm for A17, and pretending otherwise would be the
+   dishonest move.** §0.3 could offer one because the settlements had not yet
+   happened. Here the channel record is finite and already partially read
+   (A15). The defence is *not* that the analyst is blind; it is that the
+   population, the statistic, the decision rule, **both** consequences, the
+   stopping rule and the terminal-state overturn condition are all fixed in
+   this file before the pull. That is a weaker defence than blinding and it is
+   named as weaker here rather than dressed up.
+
+---
+
+## A15. The second disclosure — a partial unblinding occurred before Look 2
+
+This is disclosed first, in §0's shape, because it is the strongest reason to
+distrust A16 and A17.
+
+**What was derived, and by whom.** On 2026-08-21, before Look 2 and before the
+A17 diagnostic was designed, the partner agent derived new inference about the
+study population from data **already on disk** — no new pull, no new query. The
+present author then re-derived every number below independently from the same
+files before writing them here. Both are Claude instances. Joe has not been
+shown the rows.
+
+**The three findings, with the arithmetic that reproduces them.**
+
+*Finding 1 — the balance channel responded to debits.*
+
+| quantity | value | source |
+|---|---|---|
+| balance at study start | `20658` tenths, from venue string `balance_dollars` `"20.6583"` | `balance_at_study_start_tenths`; documented at `backend/portfolio_poll.py:246` and `2026-08-17-preregistration-joe-calibration-bet-log.md:1092,1243` |
+| balance at 2026-08-18T14:41:03.714Z | `15923` tenths (`$15.923`) | Look 1 pull, section B, first row |
+| drop | **`$4.7353`** | `$20.6583 − $15.9230` |
+| captured fills dated 2026-08-18 | **`$4.503100`** = notional `$4.225040` + fees `$0.278060`, over 8 buys from 09:45:59.143Z to 09:57:31.141Z | `data/captures/portfolio_fills.json` |
+| unexplained remainder | **`$0.2322`** | `$4.7353 − $4.5031` |
+
+*Finding 2 — and then it did not respond to a payout.* Section B's first **25**
+rows are contiguous and all read `balance_tenths = 15923`, **unchanged to the
+tenth**, from `2026-08-18T14:41:03.714Z` to `2026-08-19T01:43:08.954Z` —
+**11h02m05.24s**. Section C (fills in window) is empty and section D's 37
+balance polls are all `ok = 1`, so no fill and no outage explains the flatness.
+
+*Finding 3 — a $5.00 credit was predicted inside that flat run.* Nine of
+section A's 13 settlements have `settled_ms` inside the span. Exactly one wins:
+`id 177`, `KXEARNINGSMENTIONKLAR-26AUG18-WALM`, `side = yes`,
+`market_result = yes`, `contracts = 5.0`, settled `2026-08-18T14:54:02.349Z` —
+predicted gross payout **`$5.0000`** by §5's `P_c`. The other eight are `KXMVE`
+losers at `$0`.
+
+**Said in one line: debits moved the channel; a payout did not.**
+
+**Three things that did not reproduce cleanly, flagged rather than smoothed.**
+
+- **The `$4.735` drop is not an adjacent-snapshot delta and is not derivable
+  from the two named files alone.** Section B's *first* row is already `15923`;
+  the opening endpoint `$20.6583` comes from a **third** source (the study-start
+  meta value, documented in `backend/portfolio_poll.py`). So this is an
+  **interval-level** match over roughly 09:15Z→14:41Z on 08-18, not a
+  delta-level one. It is weaker evidence than "a delta matched a debit" and must
+  be quoted as the weaker thing.
+- **`$4.5031` is a lower bound on the debits in that interval.**
+  `portfolio_fills.json` was captured at `2026-08-18T09:57:58.754911Z`; any fill
+  between then and 14:41Z is simply not in the file. The `$0.2322` remainder is
+  therefore *unexplained or uncaptured* and may not be called a fee, a rounding
+  artifact, or anything else. (The last captured fill's cash cost is `$0.2432` —
+  near it and **not equal**, differing by `$0.0110`. Noted so nobody
+  re-discovers the coincidence and builds on it.)
+- **The fourth decimal is ambiguous, for a documented reason.** Against the
+  stored `20658` tenths the drop is `$4.7350` and the remainder `$0.2319`;
+  against the venue's `"20.6583"` string they are `$4.7353` and `$0.2322`. The
+  `$0.0003` is the half-up rounding in `dollars_to_tenths` — the same term §6
+  already carries as `tau`. Both roundings support the quoted `$4.735` and
+  "within `$0.232`"; neither supports a claim at that resolution.
+
+**What this discloses.** The direction of the channel's sensitivity (it responds
+to debits), one instance of its insensitivity (a `$5.00` predicted credit against
+25 flat snapshots over 11h02m), and the identity and size of the record's only
+known covered winning settlement. All of it was already implicit in the
+committed Look 1 result file; A15 makes it explicit and numeric.
+
+**What it does not disclose.** No span-design residual. `scripts/` contains no
+span analyzer — `analyze_h4_look.py` implements the ±900s cluster design only —
+so **no `D_j`, `P_j`, `r_j` or `tau_j` under A12.2 has been computed by anyone.**
+Section E of `h4-balance-spans` (the whole `venue_settlements` table, pre-study
+rows included) has never been pulled or read. No balance snapshot after
+`2026-08-20T04:20:39.418Z` has been read.
+
+**The honest consequence for A17, stated before the run rather than discovered
+after it.** Because A15's findings are on the record, **the post-study slice of
+A17's question is already largely visible**, and this file will not pretend
+otherwise. What A17 still adds, and the only reasons it earns a pull:
+
+1. the **whole-table** denominator (section E), never read;
+2. every settlement after `2026-08-20T04:20:39.418Z`, never read;
+3. the **HIT-WIDE** scan (A17.4) over the unwindowed record, which no
+   instrument in this repo has ever performed in either time direction.
+
+If the diagnostic returns BLIND, a fair reader is entitled to say it was
+foreseeable from Look 1. **That is not a defect in the diagnostic; it is the
+reason its value is a clean ending rather than a result** (A17.9).
+
+---
+
+## A16. Spans are not clusters — the voting defect, closed as a rule
+
+**The defect.** A12.2 makes **every adjacent snapshot pair** an observation.
+A9.2's floor (`|V| >= 2` on 2 distinct UTC days) is defined over **clusters**.
+Nothing in Amendment 1 says which spans become clusters, so read literally,
+every pair enters `V`. At `BALANCE_INTERVAL_S = 300` that is `86400/300 = 288`
+pairs per day: **~4,000 pairs from 2026-08-20 to 2026-09-03**, ~4,600 from
+study start, minus whatever the observed cadence gaps remove. The overwhelming
+majority carry `P_j = 0` **and** `D_j = 0` — zero-information observations that
+would each classify NO-CHARGE-AT-TOLERANCE under §6 rule 5 and **vote**. A floor
+of two, satisfied four thousand times over by spans containing nothing, is not a
+floor.
+
+There is a second, arithmetic half to the same defect: on a settlement-free span
+`N_j = 0`, so §6 rule 1's ceiling `$0.05 × N_j` is **`$0`** and *any* non-zero
+residual classifies BANKING-CONTAMINATED. The classification rules degenerate on
+exactly the spans A16 removes.
+
+**A16.1 — The rule, fixed now.**
+
+> A span `(s_j, s_{j+1}]` becomes a **cluster** — and is therefore eligible to
+> enter `V` and to be classified by §6 rules 1–5 — **if and only if it contains
+> at least one settlement row**: some row of `h4-balance-spans` section E (the
+> whole `venue_settlements` table, pre-study rows included) with
+> `settled_ms in (s_j, s_{j+1}]`. A span containing **no settlement of any kind**
+> is **COVERAGE-ONLY**: it is computed, printed and counted, and it **never
+> votes**.
+
+**A16.2 — The discriminator is containment of a settlement, not `P_j > 0`.** A
+span holding only **losing** settlements has `P_j = 0` and *does* become a
+cluster and *does* vote. That is not a loophole, it is **the S2 cell** as
+registered in §4 — "a charge per contract regardless of outcome... shows there
+as a negative step against a zero prediction". Using `P_j > 0` as the
+discriminator would silently delete S2 from the study. `N_j > 0` is what
+distinguishes the two cases and it is also what makes rule 1 well-defined.
+
+**A16.3 — What this changes.** Exactly one thing: **the membership of `V`**, and
+therefore the denominators A9.2 reads — `|V|`, `d(V)`, `W_V`, `N_V` — and
+A10.3's positive-control search, which now looks only among clusters. Nothing
+else.
+
+**A16.4 — What this does not change.** The arithmetic of A12.2 is **untouched**:
+`D_j`, `P_j`, `r_j = D_j - P_j` and `tau_j = 1 + n_win_j` are computed for
+**every** adjacent pair exactly as registered, COVERAGE-ONLY spans included, and
+every one of them is printed. In particular COVERAGE-ONLY spans remain fully
+available to, and are required by:
+
+- **A11.1's deterministic step scan**, which looks for payout-shaped steps
+  *outside* the containing span in both time directions — a step that arrives
+  early or late lands in a COVERAGE-ONLY span by definition, and discarding
+  those spans would destroy A11 entirely;
+- **A11.2's paired-cancellation rule**, whose adjacent interval is frequently
+  settlement-free;
+- **A17's HIT-WIDE scan** (A17.4);
+- the **coverage accounting** — total pairs, COVERAGE-ONLY count, cluster count,
+  and any pair dropped for `ok = 0` or a NULL endpoint — all of which is printed
+  in the result file. A12.2's property that "every settlement is accounted and
+  every cash movement is attributed" survives intact, because nothing is
+  dropped from the computation; the change is only about what is allowed to
+  vote.
+
+**A16.5 — No verdict moves.** Look 1 ran the ±900s cluster design and had no
+spans at all, so A16 cannot reach it. No look has been taken under the span
+design. A16 is registered before the first one, which is the only time this
+rule could have been written without choosing an answer.
+
+---
+
+## A17. The channel-only diagnostic, registered before it runs
+
+**Standing.** The partner agent ruled on 2026-08-21 that **the A9–A12 analyzer
+is not built until this diagnostic runs**. A17 registers the diagnostic. The
+instrument it reads — `h4-balance-spans` (A12.3) — shipped tonight in commit
+`349dca0` (`scripts/inspect_live_db.py:2488`, sections A–E, no join and no
+computed delta, window-mutation guards mutation-verified red in
+`tests/test_inspect_live_db.py`) and is deployed to live. **This clause is
+committed before the pull; the pull may not be taken before it is.**
+
+**A17.1 — The question, as a claim that can come back false.**
+
+> **Claim D:** *there exists at least one winning settlement in the whole
+> `venue_settlements` record for which the account's `balance_dollars` moves by
+> that settlement's predicted credit, within the registered tolerance, in some
+> adjacent-snapshot delta of the span record.*
+
+**Direction.** One-sided and existential. Claim D is **refuted** by the whole
+covered record producing no such match, and **confirmed** by one. It cannot be
+"confirmed" by a partial or suggestive pattern: a delta either matches within
+`tau` or it does not.
+
+**What is deliberately not claimed.** This is a question about **the
+instrument**, not about the venue and not about H4. Confirming Claim D does not
+say a settlement fee is zero, non-zero, or anything else. Refuting it does not
+say Kalshi withholds proceeds. It says the cash-balance channel does or does not
+carry payouts at the resolution this study reads it.
+
+**A17.2 — The population, and the exclusions.**
+
+**Eligible:** every row of `h4-balance-spans` **section E** — the whole
+`venue_settlements` table, pre-study rows included, no window — with
+`market_result in {yes, no}`, `side == market_result` (a **winner**), and
+`contracts > 0`.
+
+| # | Exclusion | Why it is independent of the outcome |
+|---|---|---|
+| D1 | `market_result` NULL or not in `{yes, no}` | Payout undefined, not zero. §2's E1 verbatim |
+| D2 | `side != market_result` (a loser) | Predicted credit is `$0`; a zero prediction cannot demonstrate that a channel carries credits in either direction |
+| D3 | **UNCOVERED** — `settled_ms` earlier than the first balance snapshot or later than the last, so no span contains it | A property of the balance poller's clock, fixed by when the poller shipped. Every pre-study settlement is expected to fall here and that is not a finding |
+| D4 | **UNPOLLED** — the containing span has a `poll_log` row with `ok = 0`, or either endpoint's `balance_tenths` is NULL | A missing snapshot reads as an outage, not a zero delta (§2 E3/E4) |
+
+D3 and D4 rows are **counted and printed with their reasons** and are
+**neither confirmations nor refutations** — they cannot vote in either
+direction. **No exclusion may be added after the pull.**
+
+**A17.3 — The unit of observation.** The unit is **the winning settlement**,
+matched to the unique span `(s_j, s_{j+1}]` containing its `settled_ms`. Not the
+span, not the snapshot, not the cluster.
+
+**Independence is not required and no clustering variable applies**, and that is
+said out loud because §3 required one and this statistic does not. The estimand
+is an **existential over a finite enumerated record**, not a mean over a sample.
+There is no sampling distribution, **no standard error may be attached, and no
+p-value may appear in the diagnostic's write-up** (§5's rule, carried forward).
+Two winners settling in the same batch are not "two observations" in any sense
+that could inflate an `n`, because no `n` is used inferentially — the denominator
+is reported only to size how much of a chance Claim D was given.
+
+**A17.4 — The statistic.** In integer tenths (`$1.00 = 1000`), by A12.2's
+arithmetic exactly:
+
+```
+For adjacent snapshot pair j:   D_j = balance(s_{j+1}) - balance(s_j)
+For the span containing winner i:
+    P_j     = sum of round(1000 * contracts) over ALL winning settlements
+              with settled_ms in (s_j, s_{j+1}]
+    n_win_j = the count of those winning settlements
+    tau_j   = 1 + n_win_j                       tenths
+```
+
+Two nested tests, both fixed here:
+
+- **HIT-STRICT(i):** the pair `j` containing winner `i` satisfies `P_j > 0` and
+  `|D_j - P_j| <= tau_j`. The credit landed inside its own span.
+- **HIT-WIDE(i):** there exists **any** adjacent pair `k` with `s_k` and
+  `s_{k+1}` both within **24 hours** of winner `i`'s `settled_ms` (a ±24h
+  neighbourhood, fixed now, chosen as one venue day and **not** tuned to any
+  observed gap) such that `|D_k - P_i| <= tau_i`, where
+  `P_i = round(1000 * contracts_i)` and `tau_i = 2` tenths. This is A11.1's
+  payout-shaped-step scan applied in both time directions, and the **lead or
+  lag** of any hit is recorded as its own line.
+
+`HIT-STRICT ⇒ HIT-WIDE` by construction (the containing pair is inside the
+neighbourhood), so the two are nested and cannot disagree in the direction that
+matters.
+
+**Reported quantities, in every branch:** the eligible winner count; D1–D4
+counts by reason; total adjacent pairs; COVERAGE-ONLY pairs (A16); per eligible
+winner its `P_i`, its containing span's `D_j`, `P_j`, `tau_j`, `r_j`, and its
+HIT-STRICT and HIT-WIDE flags; the number of deltas scanned per HIT-WIDE test;
+and the lead/lag of every hit.
+
+**A17.5 — The decision rule, with both consequences fixed now.**
+
+> **BLIND** — **no** eligible winner returns HIT-WIDE (and therefore none
+> returns HIT-STRICT), on an eligible-winner count of **at least 1**.
+>
+> **CARRIES CREDITS** — **at least one** eligible winner returns HIT-WIDE.
+> Stamped **CARRIES CREDITS (STRICT)** if any hit is HIT-STRICT, otherwise
+> **CARRIES CREDITS (WIDE)**; both route to the same consequence.
+>
+> **UNTESTED (no covered winner)** — the eligible-winner count after D1–D4 is
+> **zero**.
+
+**The consequences, both directions, fixed before the pull:**
+
+- **BLIND ⇒** Look 2 is written up **early** as **BLOCKED ON INSTRUMENT**, at
+  the diagnostic's date rather than on 2026-09-03. **Look 3 is cancelled.** The
+  H4 look series **closes**. **The A9–A12 analyzer is never built**, and the
+  `h4-balance-spans` query stays shipped but unused. **ADR 0027's upper-bound
+  caveat stands permanently as worded** and `settlement_fee()`'s docstring stays
+  **UNTESTED** — not confirmed, not refuted. §6's prohibition on the words
+  "zero", "no settlement fee" and "H4 confirmed" is carried into this verdict
+  and applies to it.
+- **CARRIES CREDITS ⇒** the A9–A12 analyzer gets **one dedicated build session**
+  before 2026-09-03 — its code committed before the Look 2 pull as Look 1's was
+  (`4dbd3e2`) — and **Look 2 proceeds on 2026-09-03 under Amendments 1 and 3**.
+  A CARRIES CREDITS (WIDE)-only result additionally requires the build session's
+  **first** act to reconcile the recorded lead/lag against A11.1's EARLY-CREDIT
+  branch, because a wide-only hit *is* the early/late-credit case A11 exists for.
+- **UNTESTED (no covered winner) ⇒ this is not BLIND and may not be reported as
+  BLIND.** Absence of winners is not evidence of blindness — the trap §11 already
+  registered as `W = 0`, and the trap that made the denominator 1 of 3 in
+  2026-08. The analyzer is **not** built, Look 2 is **not** brought forward, the
+  series stays open, and Look 2 runs on 2026-09-03 as scheduled under A12.4's
+  fallback if the analyzer still does not exist. **The diagnostic does not
+  re-run** (A17.6); this outcome is recorded and the Look 2 date carries it.
+
+**Multiplicity.** Cells tested: **1**. There is no cell grid, no bucketing, no
+kind split and no threshold sweep here. HIT-WIDE scans many deltas per winner
+and that count is printed; the guard is that a coincidental match requires an
+unrelated cash movement equal to a specific winner's payout to within `$0.002`,
+and any HIT-WIDE that is not HIT-STRICT is reported with its lead/lag so a reader
+can judge it rather than take it on the verdict's word. **No correction is
+applied and none is needed, because the scan can only make the terminal verdict
+harder to reach.**
+
+**A17.6 — The stopping rule.** The diagnostic runs **exactly once**, on
+**exactly one** `h4-balance-spans` pull, dated in the result file.
+
+- The pull is taken **no earlier than 30 minutes after this amendment is
+  committed** (Look 1's rule, verbatim) and **no later than
+  2026-08-27T00:00:00Z**.
+- If it has not been taken by then, the diagnostic **lapses**: no verdict is
+  recorded, the analyzer is not built, and Look 2 runs on 2026-09-03 under
+  A12.4's fallback.
+- **No second pull, for any reason** — not to widen a horizon, not because the
+  first looked inconclusive, not because a new settlement arrived. A technical
+  failure (query error, database unreachable, empty response) is **not a look**;
+  it may be re-attempted, and **every attempt is logged in the result file with
+  its timestamp and its failure mode**, so a silent retry cannot become a second
+  look.
+
+**A17.7 — What data it reads, and how the data is handled.** One read-only
+`h4-balance-spans` pull from **live** via the whitelisted
+`scripts/inspect_live_db.py`. No writes to any production table, no orders, no
+Odds API credits. **Nothing is spent.**
+
+The pull is **operator account data and is NOT committed**, per Joe's
+2026-08-20 ruling. It is held privately at
+`data/captures/h4_spans_pull_<ISO8601>.json` (under `data/`, gitignored at
+`.gitignore:33`), and its **SHA-256 is recorded in the result file** — the same
+handling as Look 1's pull. Reproduction needs the operator's own pull, and the
+result file must say so.
+
+**The result file, fixed now:**
+`docs/measurements/2026-08-21-h4-channel-diagnostic-result.md`. **Every outcome
+writes to it, including BLIND and UNTESTED**, and a run that produces no file is
+a protocol violation to be recorded as such (§10's rule, carried forward). If
+the derived table would carry position facts, the handling follows the tension
+already flagged in Look 1's result file rather than being re-decided here.
+
+**A17.8 — Who audits.** The **measurement-skeptic** audits the diagnostic's
+output **before it enters the record**, the same discipline as Look 1's two
+audits — where the first draft **failed** on six prose defects and the failure
+is recorded in the file rather than erased. A failed audit here is corrected and
+the failure noted the same way. **The audit precedes the record; a verdict that
+was recorded before audit is void and must be re-recorded after one.**
+
+**A17.9 — Why this earns a session at all, in the partner's framing.**
+
+> **This diagnostic buys a clean ending, not a result.**
+
+Stated with §10's honesty: **no live trading decision hangs on it.** The gate is
+closed, `ORDERS_ARE_DRY_RUNS = True`, ADR 0038 closed the hunt, and neither
+branch opens a quadrant. What it buys is that the H4 series stops for a
+**stated, measured reason** — the channel cannot see payouts — instead of
+drifting to Look 3 and expiring on a schedule. A study that ends because its
+instrument was shown blind has a record; a study that ends because the dates ran
+out has a gap. **That difference is the whole return, and it is the only reason
+this earns time.**
+
+**A17.10 — The transfer confound, and its asymmetry.** A deposit or withdrawal
+inside a span can **mask** a credit (a `$5.00` withdrawal against a `$5.00`
+credit gives `D_j = 0`, which reads as blindness) or **mimic** one (a `$5.00`
+deposit inside a span containing a `$5.00` winner gives a HIT with no credit
+behind it). Deposits are unrecorded by design (`backend/config.py:499`) and
+**Joe's §6.1 answer is already on the record as UNANSWERED / cannot recall**
+(A13, committed `30f1c2e`), so this cannot be resolved by asking. **The question
+is not re-asked** — A13: an open question may not become a reason to delay a
+look. Registered treatment:
+
+- **Masking is the direction that would manufacture a BLIND, and under an
+  existential rule it must be universal to do so.** One unmasked winner returns
+  CARRIES CREDITS. So a transfer-induced BLIND requires a transfer of exactly
+  the predicted credit, to within `$0.002`, inside the containing span, for
+  **every** eligible winner in the record. This is registered as **implausible
+  but not impossible**, and it goes into the BLIND verdict's written caveat —
+  **not** into a rule that anyone may invoke afterwards to reopen the verdict
+  (A17.11 governs that, and this is not it).
+- **Mimicry is the direction that would manufacture a CARRIES CREDITS**, and its
+  cost is one build session and no verdict. That is the cheap direction and it
+  is **accepted**. It is bounded in the write-up by printing the lead/lag of
+  every hit: a genuine credit's step sits at or near its settlement, and a
+  mimicking transfer has no reason to.
+- **The confound is not excluded and is not claimed to be.** It is bounded by
+  asymmetry, and the asymmetry is stated here before the pull rather than
+  discovered in the direction that suits the answer.
+
+**A17.11 — Can a BLIND verdict be overturned, and by what. Fixed now, so the
+terminal state cannot be relitigated at look time.**
+
+> A **BLIND** verdict is **terminal for this instrument**. It may **not** be
+> overturned by: a later look at the same channel; a wider horizon; a faster
+> poll cadence; a re-run of `h4-balance-spans`; a re-reading of the same pull; a
+> new analyzer over the same rows; more settlements accumulating; or any
+> argument about what the record "would show with more data". Every one of those
+> reads the **cash-balance channel**, and BLIND is precisely the finding that
+> the cash-balance channel does not carry the quantity.
+>
+> It may be overturned by **exactly one thing: a new instrument reading a
+> different channel**, introduced by a **further dated amendment to this file**
+> which (a) names the channel, (b) states why that channel carries settlement
+> proceeds where the balance channel does not, (c) ships its query with
+> mutation-verified guards **before** any pull, and (d) registers its own
+> decision rule with both consequences fixed. Three candidate channels are named
+> now so the bar is concrete and not invented later: a settlement-time endpoint
+> reporting proceeds directly; `portfolio_value` **after its unit is pinned** by
+> the observation `parse_portfolio_value_tenths` already demands
+> (`backend/portfolio_poll.py:252-266`); or a venue-issued transaction ledger or
+> statement.
+>
+> Absent such an amendment, **H4 stays UNTESTED**, ADR 0027 §1 stands, and
+> `settlement_fee()`'s docstring is neither confirmed nor refuted. **BLIND is
+> not a verdict about the venue.**
+
+**A17.12 — The power check, done before the pull.** The estimand is an
+**existence**, so the detectable effect is not an effect size:
+
+- **In the CARRIES direction the diagnostic is powered at `n = 1`.** One eligible
+  winner whose credit lands as a step of the predicted size returns CARRIES
+  CREDITS. The tolerance is `tau_i = 2` tenths = **`$0.002`** against a smallest
+  possible credit of `$1.00` (one contract) — a match window of 0.2% of the
+  smallest quantity it must recognise, and 0.04% of the one known `$5.00` case.
+  There is no `n` argument for delay.
+- **In the BLIND direction the strength is entirely the covered-winner
+  denominator**, which is why **that denominator is printed first, before any
+  hit flag** — the repo's "read `n` before the effect size" rule, applied to a
+  count that is known to be small. A BLIND on a denominator of 1 is a much
+  weaker statement than a BLIND on a denominator of 10, and the write-up must
+  state the denominator **in the same sentence as the verdict**, every time it
+  is quoted.
+- **At a denominator of zero the diagnostic returns UNTESTED, not BLIND**
+  (A17.5), which is the arithmetic that stops a zero from being read as an
+  answer.
+
+**Verdict: powered to confirm at the smallest sample that can exist; its
+refutation is exactly as strong as the denominator it prints, and never
+stronger.**
+
+---
+
+## A18. What Amendment 3 does not establish
+
+- It **measures nothing.** No residual, no delta pairing and no verdict is
+  computed here. A15 re-derives figures already implicit in the committed Look 1
+  record and computes no new statistic. ADR 0027's upper-bound language stands
+  unchanged in every branch.
+- It **does not answer H4**, and A17 is not a test of H4. A17 tests the
+  *instrument*. Both of its verdicts leave `settlement_fee()`'s *"exactly one
+  fee"* exactly as untested as it was on 2026-08-20.
+- It **does not rescue Look 1**, which lost its only proceeds-bearing
+  observation. No amendment recovers it.
+- It **does not authorise a code change to the fee path.** `settlement_fee()` is
+  untouched. A17 authorises exactly one read-only pull of an already-shipped
+  whitelisted query, and — on CARRIES CREDITS only — one analyzer build session
+  whose output is code, not a verdict.
+- **A16 is registered on arithmetic, not on a run.** No look has been taken under
+  the span design, so A16's rule has never been executed. A defect found in it
+  before Look 2 must be fixed by a **further dated amendment**, not by a decision
+  at look time — Amendment 1's A14 rule, carried forward.
+- **A17's `±24h` neighbourhood is a choice, and it is the only new constant
+  here.** It is fixed before the pull and it can only make BLIND harder to
+  reach, but a credit landing more than a day from its settlement would be
+  missed and would read as blindness. That is the caveat most likely to overturn
+  a BLIND verdict, and it is written **before** the run rather than after.
+- **A17 cannot separate "proceeds never credited to cash", "credited outside the
+  ±24h neighbourhood", and "credited to a channel this study does not read."**
+  Those three remain fused, exactly as A11.3 already recorded, and BLIND names
+  the fused state rather than choosing among them.
+- **A15's disclosure is a mitigation, not a cure.** The author of this amendment
+  has read the balance series and one predicted payout. Nothing here restores
+  blinding, and the five head guards are the whole defence. A reader who finds
+  them insufficient should discount A17's verdict accordingly rather than be
+  talked out of it here.
+- It **bears on no signal.** `beta`, ADR 0021's refutation and ADR 0038's closure
+  are untouched in every branch. A settlement fee, whatever its size, makes the
+  refuted strategy worse and never better.
