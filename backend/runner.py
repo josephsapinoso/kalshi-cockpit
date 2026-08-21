@@ -68,7 +68,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Collection, Iterable, Optional, Sequence
 
-from .agents.review import ReviewCandidate, review_surfaced
+from .agents.review import ReviewCandidate, review_retired
 from .config import (
     REFERENCE_BANKROLL_DOLLARS,
     REFERENCE_MAX_DAILY_LOSS_DOLLARS,
@@ -1236,7 +1236,7 @@ def run_pricing_pass(
     suppression: Optional[SuppressionConfig] = None,
     now: Optional[int] = None,
     counts: Optional[PassCounts] = None,
-    review=review_surfaced,
+    review=review_retired,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
 ) -> PassCounts:
     """Devig what is stored and write recommendations. Touches no network.
@@ -1253,6 +1253,11 @@ def run_pricing_pass(
     reads the database, not this function's local variables. So every row is
     collected first, the surfaced ones are reviewed as one batch, verdicts are
     applied, and only then does anything reach the database.
+
+    The default reviewer is `review_retired` (ADR 0062): every surfaced row is
+    refused as unreviewed and no Anthropic call is made. The two-phase shape
+    stays because `review` is injectable and `review_surfaced` still honours it
+    for a caller that deliberately opts back in.
 
     Persisting in a second loop is safe for the dedupe in `persist_if_changed`,
     which compares against the most recent stored row for a `(ticker, side)`:

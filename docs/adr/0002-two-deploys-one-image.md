@@ -61,3 +61,9 @@ volume snapshot carries whatever is on it; an image layer is even worse.
 
 ~$5/month for the live instance (shared-cpu-1x, 1GB, always on) plus a volume.
 The demo is effectively free since it scales to zero.
+
+**Correction, 2026-08-21 (ADR 0062):** this figure describes a machine that no
+longer exists. The live machine is shared-cpu-1x with **2 GB** (doubled after
+the 2026-08-19 OOM) and its 5 GB volume is at its auto-extend limit (2026-08-16
+incident), so the real Fly line is roughly double this and only the invoice can
+say exactly. The repo carries no other Fly price; do not cite this one.

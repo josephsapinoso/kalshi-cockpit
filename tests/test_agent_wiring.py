@@ -415,12 +415,16 @@ class TestASkepticOutageDoesNotStopThePass:
     def test_an_unconfigured_fleet_reviews_nothing_and_refuses_nothing(
         self, conn, surfacing_slate
     ):
-        """The state on every instance without `ANTHROPIC_API_KEY` set.
+        """`review_surfaced` without a key degrades to pass-through.
 
-        Including the live one until the secret is added, so this is the
-        production behaviour today rather than a hypothetical.
+        This was the scheduled default's behaviour until ADR 0062 retired it;
+        `review_surfaced` is now opt-in only, so the reviewer is injected
+        explicitly here. The degradation itself is unchanged: no key, no
+        calls, rows untouched.
         """
-        counts = run_pricing_pass(conn, surfacing_slate, now=NOW)
+        counts = run_pricing_pass(
+            conn, surfacing_slate, now=NOW, review=review_surfaced
+        )
 
         assert counts.skeptic_reviewed == 0
         assert counts.skeptic_blocked == 0
@@ -622,3 +626,63 @@ class TestHealthSaysWhetherTheFleetIsConfigured:
         needs it to be. It reports a boolean or it reports a leak."""
         body = self._health(monkeypatch, "sk-ant-secret-value")
         assert "sk-ant-secret-value" not in json.dumps(body)
+
+
+class TestTheScheduledSkepticIsRetired:
+    """ADR 0062: the pass's default reviewer spends nothing and promotes nothing.
+
+    Verified by disabling: put `review=review_surfaced` back as the
+    `run_pricing_pass` default and the first test fails -- with no key in the
+    test environment that reviewer returns the surfaced row *untouched*, so it
+    persists orderable and the suppression assertion goes red. The distinction
+    matters because "no agent_calls rows" alone cannot separate the two
+    defaults on a keyless machine; what separates them is what the row is
+    allowed to become.
+    """
+
+    def test_the_default_pass_refuses_the_surfaced_row_and_spends_nothing(
+        self, conn, surfacing_slate
+    ):
+        counts = run_pricing_pass(conn, surfacing_slate, now=NOW)
+
+        assert counts.skeptic_reviewed == 0
+        assert counts.skeptic_unreviewed == 1
+        assert counts.surfaced == 0
+        assert _orderable(conn) == [], (
+            "a surfaced row persisted orderable under the retired default; "
+            "retiring the reviewer must not promote the rows it reviewed"
+        )
+        suppressed = [r for r in _rows(conn) if r["suppressed_reason"]]
+        assert any(
+            "skeptic_unreviewed" in r["suppressed_reason"]
+            and "retired (ADR 0062)" in (r["reason_text"] or "")
+            for r in suppressed
+        ), f"no row carries the retirement refusal. Rows: {_rows(conn)}"
+
+        spent = conn.execute("SELECT COUNT(*) AS c FROM agent_calls").fetchone()["c"]
+        assert spent == 0, "the retired default reserved or settled a metered call"
+
+    def test_review_retired_needs_no_database_and_no_client(self, conn, surfacing_slate):
+        """The signature is the proof there is no billed path: it takes no
+        client factory, no config, no budget -- and `conn` is accepted unused,
+        so even a caller with no database cannot reach a meter."""
+        from backend.agents.review import review_retired
+
+        reviewer = _Reviewer()
+        run_pricing_pass(conn, surfacing_slate, now=NOW, review=reviewer)
+        candidate = reviewer.batches[0][0]
+
+        outcome = review_retired([candidate], conn=None)
+
+        assert outcome.reviewed == 0
+        assert outcome.blocked == 0
+        assert outcome.unreviewed == 1
+        row = outcome.recommendations[0]
+        assert row.suggested_contracts == 0
+        assert "skeptic_unreviewed" in row.suppressed_reason
+
+    def test_an_empty_batch_stays_empty(self):
+        from backend.agents.review import review_retired
+
+        outcome = review_retired([], conn=None)
+        assert outcome == ReviewOutcome(recommendations=[], unreviewed=0)

@@ -41,6 +41,66 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 
 ---
 
+## 2026-08-21 ~18:30Z — Joe rules the purpose, the Skeptic retires, and the cost record gets honest
+
+**The ruling, verbatim and now in ADR 0062 + agent memory:** *"I always
+wanted this to be a betting desk. the edge-finder should have been a
+feature, but not a determiner."* Preceded by "I don't care about 1-2 cent
+diffs" — his position size makes the venue's whole cost advantage ~15
+cents/bet. ADR 0038 closed the hunt on measurement; 0062 closes it on
+purpose. Gate, dry-run constant, suppression rules, odds feed: untouched.
+
+**Built this session (the partner's item 3, the one bleeding money):**
+
+- **Scheduled Skeptic killed.** The partner's cost audit found `agent_calls`
+  refuting `fly.live.toml`'s "surfaced=0 protects the bill": **24 Opus calls
+  in 4m22s on 2026-08-16** (whole daily cap, four prop rows re-reviewed 6x),
+  all blocked — so `surfaced` read 0 *after* the spend. `run_pricing_pass`
+  now defaults to `review_retired` (refuses every surfaced row as
+  `skeptic_unreviewed` / "retired (ADR 0062)", zero Anthropic calls;
+  `review_surfaced` stays importable, opt-in only). Mutation-verified:
+  restoring the old default turns `TestTheScheduledSkepticIsRetired` red.
+  From now on `surfaced` is frozen at its historical values.
+- **Four doc corrections**, all understating deployed reality:
+  `fly.live.toml` spend-trap block rewritten with the refutation; sweep cost
+  6→2 (h2h only); "400/day"→600; `.env.example` 400→600; ADR 0002 "$5/mo,
+  1GB" gets a dated correction (live is 2GB, volume at auto-extend limit).
+- **Lesson written:** a field computed after the spend is a receipt, not a
+  brake — the money-shaped case of "verification methods that lie".
+- **"The recorder costs nothing" is retired** (ADR 0062 §4): ~70 Odds
+  credits/day measured, sole reason the $30/mo tier exists, plus 2GB
+  always-on machine. Recorder keeps running (feeds Board + scout desk).
+
+**Joe's two open calls (only he can):** pull the Fly and Anthropic
+invoices so the cost line stops being an estimate; decide whether the
+$30/mo Odds tier stays.
+
+**The partner's remaining betting-desk work list, in priority order** (full
+reasoning in its 2026-08-21 ruling; each is a vertical slice):
+1. `/bets` — his own record from `venue_settlements` (zero routes/screens
+   today; check the ADR 0044 embargo release first).
+2. Move the refusal onto real data — tonight's count/stakes over
+   `venue_settlements` with the lockout beside it, on the deciding screen.
+3. Repoint the lockout off the stopped study's endpoint.
+4. CLV on his own bets — union `venue_settlements.ticker` into
+   `backend/scoring.py:97`.
+5. Strip the landing screen — edge point estimate off; dispersion-as-range
+   behind a tap, no direction, no `used` mark.
+6. Meter the scout desk by tokens/searches, THEN promote it to nav — same
+   change, not sequential (its 24-call cap meters calls, not the up-to-12
+   web searches per convening); neutralise the gold
+   `likely_already_priced` tile in the same change.
+7. `TicketSheet`/`TicketProvider` unreachable-code removal; nav swap;
+   "Ledger" rename.
+
+**Still open from before:** tonight's terminal spread/total look at 22:40Z —
+the partner recommends VETO under ADR 0059 grounds (best outcome changes
+nothing under the 0062 ruling); Joe can veto until the anchor, and whichever
+branch happens must be recorded per the registration by a session alive in
+22:35–22:45Z. Footer 5-and-5 parity note; partner's "later, maybe" lists.
+
+---
+
 ## 2026-08-21 ~16:45Z — the market screen joins the shell, and the desk scales to a real instrument panel
 
 Joe saw the desktop render ("it's so small") and directed the process

@@ -373,3 +373,36 @@ def review_surfaced(
         blocked=blocked,
         unreviewed=len(refused),
     )
+
+
+def review_retired(
+    candidates: Sequence[ReviewCandidate],
+    *,
+    conn,
+    now: Optional[int] = None,
+) -> ReviewOutcome:
+    """The scheduled Skeptic is retired (ADR 0062). Refuse every row, call nothing.
+
+    This is the production default for `run_pricing_pass` since 2026-08-21.
+    The edge surface no longer determines any decision (the tool is a betting
+    desk; the edge-finder is a feature, not a determiner), so a metered LLM
+    re-attacking surfaced rows was spend against a decision nobody makes --
+    measured at 24 Opus calls in 4m22s on 2026-08-16, the whole daily cap,
+    re-reviewing four prop rows six times over.
+
+    Refusal, not pass-through, on purpose: `_refuse_unreviewed` moves the same
+    four fields a Skeptic block moves, so an unattacked row still cannot reach
+    `POST /api/orders` as buyable. Retiring the reviewer must not quietly
+    promote the rows it used to review. `review_surfaced` stays importable for
+    a caller that deliberately opts back in; nothing scheduled does.
+
+    `conn` and `now` are accepted unused so this drops into the seam
+    `_review_and_persist` calls without a second calling convention.
+    """
+    del conn, now
+    return ReviewOutcome(
+        recommendations=[
+            _refuse_unreviewed(c, "retired (ADR 0062)") for c in candidates
+        ],
+        unreviewed=len(candidates),
+    )

@@ -42,27 +42,23 @@
 #     `run_once` and `run_quote_pass` -- go through it. The LLM Skeptic runs on
 #     every pricing pass.
 #
-# **The trap, and it applies to THIS file specifically.** There are two
-# independent reasons the Anthropic bill is zero, and only one of them is
-# config:
+# **The claim that used to live here was refuted by the live table, and the
+# refutation is worth more than the claim.** Until 2026-08-21 this block said
+# the only thing standing between this deployment and an Anthropic bill was
+# `surfaced` having been 0 for the life of the record. `agent_calls` says
+# otherwise: on 2026-08-16 the Skeptic made **24 metered Opus calls in 4m22s**
+# -- the entire daily cap -- re-reviewing the same four prop rows six times at
+# quote-pass cadence. And `surfaced` still read 0 afterwards, because the
+# Skeptic blocked all 24: the field is written AFTER the spend it was cited as
+# preventing. A zero produced by the thing you are paying for is a receipt,
+# not a brake (`tasks/lessons.md`, 2026-08-21).
 #
-#   1. `review_surfaced` (backend/agents/review.py:194) returns on an empty
-#      candidate list *before* it reads the environment.
-#   2. Failing that, `AgentConfig.from_env()` returns None without a key and
-#      every row comes back untouched (review.py:197-200).
-#
-# On a local instance reason 2 is doing the work. **On live it is not**: live
-# reports `agent_fleet_configured: true`, so the key IS set, and the only thing
-# standing between this deployment and a live Anthropic bill is reason 1 --
-# `_review_and_persist` (backend/runner.py:750) passes only rows where
-# `recommendation.surfaced` holds, and `surfaced` has been 0 for the life of
-# the record.
-#
-# So on live the spend is gated by a *measurement outcome*, not by config. The
-# first slate that surfaces a row starts billing -- one call per surfaced row
-# per pass, against a pass cadence of ~96 a day -- with nobody having budgeted
-# it. Set a spend limit on the Anthropic account; do not rely on the key being
-# absent, because here it is not.
+# Since ADR 0062 the pricing pass defaults to `review_retired`
+# (backend/agents/review.py): every surfaced row is refused as unreviewed and
+# **no Anthropic call is made from the scheduled path at all**. The key stays
+# set because the scout desk uses it; the desk is metered separately by
+# AGENT_MAX_CALLS_* below. Keep the spend limit on the Anthropic account
+# regardless -- config in this file has been wrong about this bill once.
 #
 # The Kalshi RSA private key is a file rather than a string, so it travels as
 # KALSHI_PRIVATE_KEY_B64 and `docker/entrypoint.sh` decodes it into /dev/shm --
@@ -121,9 +117,12 @@ primary_region = "ord"
   LIVE_GATE_MIN_SCORED_RECOMMENDATIONS = "300"
 
   # 20K tier, 20,000 credits/month (2026-08-09). A sweep costs markets x
-  # regions = 6.
+  # regions -- since 2026-08-16 that is 1 x 2 = **2** (`h2h` only; the "= 6"
+  # this line carried until 2026-08-21 described the retired three-market
+  # fetch, contradicting the ODDS_MARKETS note further down this same file).
   #
-  # 400/day. Briefly set to 16 on 2026-08-09 and reverted the same day, because
+  # 600/day (raised from 400; the paragraphs below argued about 400 and the
+  # arithmetic in them is per-sweep, so it survives the raise). Briefly set to 16 on 2026-08-09 and reverted the same day, because
   # on a flat-fee plan the cap saves nothing: **the scheduler, not the budget,
   # decides what gets spent.**
   #

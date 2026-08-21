@@ -320,10 +320,23 @@ MUST_HAVE_CALLERS = [
         "safety layer that can block nothing -- the fourth module in this "
         "project to be complete, tested, and called by nothing",
     ),
+    # `review_surfaced` was an entry here from 2026-08-08 to 2026-08-21, when
+    # ADR 0062 retired it as the pass default: a metered LLM re-attacking an
+    # edge surface that no longer determines anything was spend against a
+    # decision nobody makes (24 Opus calls in 4m22s on 2026-08-16, all
+    # blocked). It is now opt-in only -- kept importable as the one metered
+    # reviewer implementation, exercised by `test_agent_wiring.py` /
+    # `test_agent_budget.py` as an *injected* reviewer -- so by this file's
+    # definition it has no production caller, deliberately. What replaced the
+    # ratchet on it: the entry below on its replacement, and
+    # `TestTheScheduledSkepticIsRetired`, which goes red if the default is
+    # flipped back (mutation-verified 2026-08-21).
     (
-        "review_surfaced",
-        "`apply_verdict` has a definition and no path to it from a pass, so "
-        "the Skeptic is wired up on paper only",
+        "review_retired",
+        "the pricing pass falls back to whatever reviewer someone wires next "
+        "-- and the last time that seam was wired by default it billed the "
+        "whole daily Opus cap in 4m22s guarding a decision nobody makes "
+        "(ADR 0062 SS3)",
     ),
 ]
 
@@ -445,7 +458,7 @@ def _uses_beyond_import(tree: ast.AST, symbol: str) -> bool:
     `_uses` counts `ast.alias`, so `from x import y` alone reads as a caller.
     That is right for module reachability -- importing a module runs it -- and
     wrong for a symbol, where a stale import is the residue of a caller that
-    was deleted. `review_surfaced` passes this because `runner.py` names it as
+    was deleted. `review_retired` passes this because `runner.py` names it as
     a parameter default, which is a reference; a forgotten import would not.
     """
     for node in ast.walk(tree):

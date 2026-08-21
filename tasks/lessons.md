@@ -25,6 +25,23 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-21 — A field written after the spend is not a spend gate
+
+`fly.live.toml` cited `surfaced == 0` as the reason the Anthropic bill was
+zero. The live `agent_calls` table showed 24 metered Opus calls on 2026-08-16
+— the whole daily cap in 4m22s — after which `surfaced` *still* read 0,
+because the Skeptic blocked every row it billed for. The zero everyone read
+as "no spend possible" was produced *by* the spend.
+
+**The pattern:** if the guard's reassuring value is computed by the thing you
+are paying for, it is a receipt, not a brake. A spend gate must be evaluated
+before the money leaves — a config value, a budget check, a count of calls —
+never a post-hoc field of the work product. This is the money-shaped case of
+"verification methods that lie": the check reported safety because the
+dangerous thing had already run and cleaned up after itself. ADR 0062 §3.
+
+---
+
 ## 2026-08-21 — When a rule and its floor are defined over different units, the smaller unit's zero-information observations vote
 
 The H4 span design (Amendment 1, A12.2) made every adjacent balance-snapshot
