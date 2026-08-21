@@ -64,6 +64,7 @@ from ..core.prices import (
     tenths_to_dollars,
 )
 from ..core.sizing import size_position, verify_positive_after_fees
+from .. import bets as bets_module
 from .. import estimates as bet_estimates
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
@@ -1599,6 +1600,24 @@ def create_app(
             ),
             "model": row["model"],
         }
+
+    @app.get("/api/bets")
+    def bets(conn=Depends(get_conn), limit: int = Query(200, le=1000)) -> dict:
+        """Joe's own settled bets, from the venue's settlement mirror.
+
+        The first screen of the betting desk (ADR 0062, partner item 1):
+        `venue_settlements` has been mirrored since 2026-08-18 and nothing
+        ever read it back to him. Public read for the same reason the ledger
+        is -- on live the middleware gates every route, and the demo's table
+        is empty by construction (the poller needs credentials).
+
+        Honesty contract, enforced in `backend/bets.py`: per-row net uses the
+        one registered settlement formula (A2), a row that cannot carry it is
+        None -- never 0 -- and the totals say how many rows they exclude.
+        This endpoint never touches `bet_estimates`; the estimate log stays
+        embargoed (Amendment 2 stopped the study without result).
+        """
+        return bets_module.bets_record(conn, limit=limit)
 
     @app.get("/api/ledger")
     def ledger(

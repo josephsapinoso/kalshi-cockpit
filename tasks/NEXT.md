@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,807 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 3,816 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**,
 recorded per §7.1 in
 `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
@@ -38,6 +38,59 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
 deploy behind — check `/api/health` `git_sha` against `origin/main`.
+
+---
+
+## 2026-08-21 ~21:45Z — /bets ships, and the partner re-rules the refusal work by name
+
+**"His own record" is DONE** (the top item of the betting-desk list): the
+poller has mirrored `venue_settlements` since 2026-08-18 and nothing had
+ever read it back to him. `backend/bets.py` computes per-settlement net via
+the ONE registered settlement formula (A2: payout − cost − fee, integer
+tenths, `Decimal` multiply) — a void or unreadable price/fee is **None,
+never $0.00**, and the totals count what they exclude. Totals cover the
+whole table while the list is windowed (the /api/ledger lesson).
+`GET /api/bets` + `/bets` page (net strip, W/L, per-position rows linking
+to market screens, the mirror caveat in words), linked from the footer —
+nav is deliberately not decided here. Money display strings render
+server-side (`format_net_dollars`), per `lib/api.ts`'s no-arithmetic rule.
+The embargo line: this never touches `bet_estimates` (Amendment 2 stopped
+the study without result; A7 rules the wallet outside the embargo).
+State: **3,816 passed / 10 xfailed**, ruff clean, tsc clean, build green,
+overflow gate green at all five widths with `/bets` listed.
+
+**The partner convened on the two refusal items and ruled — full text in
+`docs/reviews/2026-08-21-items-2-3-ruling.md`.** The load-bearing calls:
+tonight's count/stakes come from **fills, not settlements** (settlements
+are the wrong clock and can only produce a net — the chase trigger this
+repo already deleted twice); **fills join the 300s balance cadence** (the
+12h mirror at 8pm renders "no bets tonight" while three are on — a false
+negative on the interrupting screen; not an amendment, cadence is a floor);
+the strip **refuses when stale** (as_of > 30 min → null, never 0); it lands
+on **the landing screen only**, as a sibling `tonight` key beside `money`
+(never inside it); the lockout **repoints to `POST /api/desk/lockout`,
+render-only**, honest that it cannot stop a hand bet, no show-anyway, no
+counter, old study routes left deprecated in place.
+
+**The work list is now BY NAME (the numbering collided across entries —
+the partner's call). In order:**
+1. **The refusal on real data + the desk lockout** — build per the ruling
+   doc, one slice (fills cadence, `tonight` payload, landing strip, banner,
+   `/api/desk/lockout`).
+2. **Strip the landing screen** — promoted: edge point estimate off,
+   dispersion-as-range behind a tap, no direction, no `used` mark. Same
+   file as the refusal work.
+3. **CLV on his own bets** — demoted and re-scoped: per-bet rows only
+   (your price, Kalshi's close, the difference), NO average or hit rate
+   until n ≥ 30 with the per-group view beside it.
+4. **Ticket cleanup, janitorial, last** — `TicketSheet`/`TicketProvider`
+   dead-code removal + "Ledger" rename. The nav-swap clause is DROPPED
+   (Scout took the sixth slot).
+
+**Still open from before:** footer parity note (footer is now 6-and-6 with
+nav — at the bound, so the next footer addition must answer the
+delete-commit question); partner's "later, maybe" lists (2026-08-21 review
++ ADR 0061).
 
 ---
 

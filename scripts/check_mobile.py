@@ -55,6 +55,9 @@ PAGES = [
     # renders the no-account meter and the never-sent empty state -- the
     # shell and the prose, not the populated meter grid or briefing rows.
     "/scout",
+    # Joe's record (2026-08-21). Bare stack renders the zero-state strip and
+    # the mirror caveat; populated rows are truncate + shrink-0 by design.
+    "/bets",
 ]
 
 # `/market/{ticker}` needs a ticker, so it cannot sit in PAGES as a literal --

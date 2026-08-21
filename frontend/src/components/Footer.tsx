@@ -32,6 +32,17 @@ import { SHELL_WIDTH } from "@/lib/shell";
  */
 const SECONDARY = [
   {
+    // Born 2026-08-21 (betting-desk item 1): Joe's own settled bets, read
+    // off the venue-settlement mirror. In the footer rather than the nav
+    // because the nav's six slots are spent; the partner's later nav-swap
+    // item (the "Ledger" rename question) is where it may earn one -- that
+    // decision is deliberately not being made here by default.
+    href: "/bets",
+    label: "Your bets",
+    blurb:
+      "Every settled position the recorder mirrored from your account, with the net.",
+  },
+  {
     // Lost its nav slot on 2026-08-21: Joe stopped the calibration study
     // (Amendment 2, stopped without result), and a nav slot opening a form
     // that feeds a stopped study is quiet misdirection. The page stays: it

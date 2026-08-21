@@ -35,6 +35,9 @@ PROSE_FILES = [
     # The desk's own screen (2026-08-21, betting-desk item 6): a nav-level
     # surface whose meter and explanatory prose face the same widths.
     SRC / "app" / "scout" / "page.tsx",
+    # Joe's own record (2026-08-21, betting-desk item 1): the mirror caveat
+    # is a paragraph, and a paragraph faces every width.
+    SRC / "app" / "bets" / "page.tsx",
 ]
 
 # `<p className="...">` with a static string, or `<p className={`...`}` with a
@@ -92,6 +95,7 @@ class TestTheChromeAndTheContentShareOneWidth:
             # Born in the shell (2026-08-21): the Scout screen never carried
             # its own width literal, and this keeps it that way.
             SRC / "app" / "scout" / "page.tsx",
+            SRC / "app" / "bets" / "page.tsx",
         ):
             text = path.read_text(encoding="utf-8")
             assert 'from "@/lib/shell"' in text, f"{path.name} does not import shell.ts"

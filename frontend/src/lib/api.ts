@@ -1760,3 +1760,50 @@ export async function fetchScoutOverview(): Promise<ScoutOverview> {
   }
   return response.json() as Promise<ScoutOverview>;
 }
+
+/**
+ * Joe's own settled bets (`/bets`): the venue's settlement mirror read back
+ * to its owner. `net_tenths`/`net_display` are null on a row that cannot
+ * carry the registered formula (a void, an unreadable price or fee) -- a
+ * refusal, never $0.00 -- and `totals` covers the WHOLE table while `bets`
+ * is a window, with `uncomputable` counting what the sum excludes.
+ */
+export type SettledBet = {
+  ticker: string;
+  event_ticker: string | null;
+  side: "yes" | "no";
+  contracts: number;
+  entry_price_tenths: number | null;
+  entry_price_display: string;
+  fee_cost_tenths: number | null;
+  market_result: string | null;
+  won: boolean | null;
+  net_tenths: number | null;
+  net_display: string | null;
+  settled_ms: number;
+  position_first_seen_ms: number | null;
+  is_taker: number | null;
+  n_fills_in_position: number | null;
+};
+
+export type BetsRecord = {
+  bets: SettledBet[];
+  total: number;
+  returned: number;
+  totals: {
+    net_tenths: number;
+    net_display: string;
+    computable: number;
+    uncomputable: number;
+    wins: number;
+    losses: number;
+  };
+};
+
+export async function fetchBets(): Promise<BetsRecord> {
+  const response = await fetch(`${BASE}/api/bets`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`the bets record returned ${response.status}`);
+  }
+  return response.json() as Promise<BetsRecord>;
+}
