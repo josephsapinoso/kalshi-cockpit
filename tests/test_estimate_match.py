@@ -497,6 +497,30 @@ class TestPositionSideCoverage:
         assert counts["position_unlogged"] == 1
         assert self._status(conn, pos) == "position_unlogged"
 
+    def test_a_post_stop_position_is_out_of_scope_not_unlogged(self, conn):
+        """Amendment 2 ended accrual at the owner stop instant; a position
+        first seen at or after it is not an unlogged bet. The window is
+        half-open on the right -- 1ms before the stop is still in -- so
+        mutating `<` to `<=` (or dropping the bound) turns this red."""
+        from backend.estimate_match import classify_positions
+        from backend.estimates import STUDY_STOPPED_BY_OWNER_MS
+
+        _study_start(conn, NOW - HOUR)
+        at_stop = _settlement(
+            conn, first_seen=STUDY_STOPPED_BY_OWNER_MS, source="fill"
+        )
+        just_before = _settlement(
+            conn,
+            ticker="KXUFCFIGHT-26AUG30-OTHER",
+            first_seen=STUDY_STOPPED_BY_OWNER_MS - 1,
+            source="fill",
+        )
+        counts = classify_positions(conn)
+        assert self._status(conn, at_stop) == "out_of_scope"
+        assert self._status(conn, just_before) == "position_unlogged"
+        assert counts["out_of_scope"] == 1
+        assert counts["position_unlogged"] == 1
+
     def test_a_pre_study_position_is_out_of_scope_not_unlogged(self, conn):
         """The account's history goes back to 2025-11; §7.5's denominator
         must not be diluted by it."""

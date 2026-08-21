@@ -97,18 +97,29 @@ class TestEveryScreenCanBeArrivedAt:
             f"the one option that is not a decision."
         )
 
-    def test_the_nav_budget_is_still_six(self):
+    def test_the_nav_budget_is_still_five(self):
         """`Nav.tsx` argues the count is load-bearing: a seventh link pushes the
         Gate -- the screen that says whether money can move -- off the row at
         390px. If that stops being true it should stop being true on purpose.
 
-        Mutation observed red: add a seventh entry to `LINKS`.
+        It stopped being six on purpose, 2026-08-21: Log's slot was retired
+        when Joe stopped the calibration study (Amendment 2), and nothing
+        took it -- the budget is a ceiling, not a quota.
+
+        Mutation observed red: add a sixth entry to `LINKS`.
         """
-        assert len(linked_routes(NAV)) == 6
+        assert len(linked_routes(NAV)) == 5
 
     def test_the_footer_does_not_quietly_absorb_the_whole_app(self):
         """A footer is where a screen goes when it is worth keeping and not
         worth a nav slot. If it ever holds more than the nav does, the nav is no
         longer the answer to "what is this tool for" -- and a page nobody wants
-        belongs in a delete commit, not in a list at the bottom."""
-        assert len(linked_routes(FOOTER)) < len(linked_routes(NAV))
+        belongs in a delete commit, not in a list at the bottom.
+
+        The bound moved from < to <= on 2026-08-21, when Log's retirement
+        (study stopped) brought the footer to parity at 5-and-5. The rule
+        this docstring states -- never MORE than the nav -- is the rule the
+        assertion now enforces; parity is a deliberate, dated state, and the
+        next screen the nav sheds must answer the delete-commit question
+        rather than land here by default."""
+        assert len(linked_routes(FOOTER)) <= len(linked_routes(NAV))

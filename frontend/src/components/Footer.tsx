@@ -32,6 +32,15 @@ import { SHELL_WIDTH } from "@/lib/shell";
  */
 const SECONDARY = [
   {
+    // Lost its nav slot on 2026-08-21: Joe stopped the calibration study
+    // (Amendment 2, stopped without result), and a nav slot opening a form
+    // that feeds a stopped study is quiet misdirection. The page stays: it
+    // renders the terminal state and holds the log's record.
+    href: "/estimate",
+    label: "Log",
+    blurb: "The calibration bet log. The study is stopped; this is its record.",
+  },
+  {
     // The landing screen's old address. "/" renders the same component since
     // 2026-08-20 (fleet convening item 3), so this link exists for bookmarks
     // and muscle memory, not for a second screen.

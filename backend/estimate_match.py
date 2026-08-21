@@ -38,7 +38,7 @@ import logging
 import sqlite3
 from typing import Any
 
-from .estimates import classify_ticker
+from .estimates import STUDY_STOPPED_BY_OWNER_MS, classify_ticker
 from .kalshi.quotes import LiveQuoteSource, QuoteUnavailable
 from .portfolio_poll import STUDY_START_MS_KEY
 from .store import db
@@ -426,8 +426,10 @@ def classify_positions(conn: sqlite3.Connection) -> dict[str, int]:
         matched            an estimate's `matched_position_id` points here
         position_unlogged  in scope, in the study window, and no estimate
                            matched -- the denominator's unlogged half
-        out_of_scope       pre-study first evidence, or outside §2's
-                           population (non-sports, multi-leg)
+        out_of_scope       first evidence outside [study start, owner stop)
+                           -- Amendment 2 ended accrual at the stop instant,
+                           so a post-stop position is not an unlogged bet --
+                           or outside §2's population (non-sports, multi-leg)
         NULL               not yet examined; never a default
 
     Re-stamped on every pass rather than write-once: a late-arriving match
@@ -463,7 +465,7 @@ def classify_positions(conn: sqlite3.Connection) -> dict[str, int]:
             in_scope = bool(is_sports) and not is_multi_leg
             in_window = (
                 study_start is not None
-                and first_evidence >= int(study_start)
+                and int(study_start) <= first_evidence < STUDY_STOPPED_BY_OWNER_MS
             )
             status = (
                 "position_unlogged" if in_scope and in_window else "out_of_scope"

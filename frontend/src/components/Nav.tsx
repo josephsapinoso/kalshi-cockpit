@@ -45,10 +45,16 @@ import type { Chip } from "@/lib/windowChip";
 // action the calibration study budgets twelve seconds for -- and "Ledger"
 // stays because its page is titled that; renaming a tab away from its own
 // page title trades one confusion for another.
+// **Log's slot is retired, 2026-08-21, and nothing takes it.** Joe stopped
+// the calibration study (Amendment 2, 2026-08-20, stopped without result):
+// a nav slot opening a form that feeds a stopped study is quiet
+// misdirection, and the twelve-second budget that earned the slot died
+// with the study. `/estimate` is still served -- the page renders the
+// terminal state at the top -- exactly as `/builder`, `/rejections` and
+// `/dashboards` are.
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/board", label: "Picks" },
-  { href: "/estimate", label: "Log" },
   { href: "/ledger", label: "Ledger" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.
