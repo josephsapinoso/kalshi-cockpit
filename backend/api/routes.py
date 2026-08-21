@@ -1399,13 +1399,34 @@ def create_app(
             # ever happened is data, not code, and `book_count` cannot reveal
             # it: three sharp books and three soft ones both read `3`. Without
             # this column §7.2's central claim is unfalsifiable on the record.
+            # **`commence_ms` is the sportsbook's clock, never Kalshi's.** Until
+            # 2026-08-21 this route joined nothing that carries a start time,
+            # yet `_serialise` emitted the key anyway, so every row read
+            # `commence_ms: null` and a consumer could not distinguish "never
+            # joined" from "event unknown". The join deliberately does NOT go
+            # through `kalshi_events.commence_ms`: that column stores
+            # `occurrence_datetime` raw, which on game series is the expected
+            # *end* -- about three hours late (ADR 0006) -- and this route is
+            # the registered evidence route, where pre/post-commence bucketing
+            # is exactly the axis a three-hour error poisons. `MIN` over the
+            # fixture's snapshots is the scorer's own definition
+            # (`backend/scoring.py:markets_awaiting_scoring`), so the ledger's
+            # bucketing axis and the machinery that writes the clv fields agree
+            # on when a game started. LEFT JOINs, so a row with no link or no
+            # snapshot resolves to `None`, never a substitute.
             "SELECT r.*, "
             "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
             "       f.p_conservative, "
             "       f.market_width, f.book_count, f.books_used, "
-            "       f.anchored_on_sharp "
+            "       f.anchored_on_sharp, "
+            "       o.commence_ms "
             "FROM recommendations r "
             "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
+            "LEFT JOIN event_links l ON l.id = r.link_id "
+            "LEFT JOIN ( "
+            "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+            "    FROM odds_snapshots GROUP BY odds_event_id "
+            ") o ON o.odds_event_id = l.odds_event_id "
             "WHERE (? IS NULL OR r.id <= ?) "
             "ORDER BY r.created_ms DESC, r.id DESC LIMIT ? OFFSET ?",
             (max_id, max_id, limit, offset),
