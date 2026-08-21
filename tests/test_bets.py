@@ -16,6 +16,33 @@ from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db
 
+# Fixed instants on the 10:00Z day used everywhere else: NOW is mid-evening,
+# ROLL is that day's start.
+DAY_HOUR = 10
+ROLL_MS = 1_786_615_200_000  # 2026-08-09T10:00:00Z, arbitrary but on-hour
+NOW_MS = ROLL_MS + 10 * 3_600_000
+
+
+def _fill(conn, *, ticker="KXT-A", filled_ms=None, count=2.0,
+          price_tenths=400, source="venue_hand"):
+    conn.execute(
+        "INSERT INTO fills (ticker, filled_ms, count, price_tenths, is_taker, "
+        "fee_predicted, fee_model_used, source) VALUES (?, ?, ?, ?, 1, 0.0, "
+        "'model_a_deci', ?)",
+        (ticker, NOW_MS - 3_600_000 if filled_ms is None else filled_ms,
+         count, price_tenths, source),
+    )
+    conn.commit()
+
+
+def _fills_poll(conn, *, polled_ms, ok=True):
+    conn.execute(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+        "VALUES (?, 'fills', ?, 1)",
+        (polled_ms, 1 if ok else 0),
+    )
+    conn.commit()
+
 
 def _insert(conn, **overrides):
     row = {
@@ -157,3 +184,177 @@ class TestTheRoute:
                 "losses": 0,
             },
         }
+
+
+class TestTonightRefusesBeforeItFlatters:
+    """The `tonight` strip contract (the 2026-08-21 partner ruling):
+    unsigned, distinct-ticker count, whole-population stake, and NULL --
+    never 0 -- off a stale mirror.
+
+    Mutations run, each red and the file restored byte-identical:
+    (1) staleness check removed from `tonight_activity` -- the stale test
+    fails (it would report bets off a dead mirror); (2) `DISTINCT`
+    dropped from the count -- the partial-fill test fails; (3) the
+    `filled_ms >= ?` bound dropped -- the day-boundary test fails.
+    """
+
+    def _fresh(self, conn):
+        _fills_poll(conn, polled_ms=NOW_MS - 60_000)
+
+    def test_a_bet_is_a_distinct_ticker_not_a_fill_row(self, tmp_path):
+        conn = db.init_db(tmp_path / "t.db")
+        self._fresh(conn)
+        _fill(conn, ticker="KXT-A", count=1.0)
+        _fill(conn, ticker="KXT-A", count=1.0)  # partial fill, same decision
+        _fill(conn, ticker="KXT-B", count=2.0)
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] == 2
+        # 1x400 + 1x400 + 2x400 = 1600 tenths, unsigned
+        assert tonight["staked_tenths"] == 1600
+        assert tonight["staked_display"] == "$1.60"
+
+    def test_engine_and_hand_fills_both_count(self, tmp_path):
+        """No `source` filter, deliberately: ADR 0043's split keeps the
+        fee-calibration population clean, but committed money is committed
+        money whichever hand placed it."""
+        conn = db.init_db(tmp_path / "t.db")
+        self._fresh(conn)
+        _fill(conn, ticker="KXT-A", source="venue_hand")
+        _fill(conn, ticker="KXT-B", source="engine")
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] == 2
+
+    def test_yesterdays_fills_are_outside_the_day(self, tmp_path):
+        conn = db.init_db(tmp_path / "t.db")
+        self._fresh(conn)
+        _fill(conn, ticker="KXT-OLD", filled_ms=ROLL_MS - 1)
+        _fill(conn, ticker="KXT-NEW", filled_ms=ROLL_MS)
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] == 1
+        assert tonight["day_start_ms"] == ROLL_MS
+
+    def test_a_stale_mirror_refuses_rather_than_reporting_zero(self, tmp_path):
+        """Reporting "no bets tonight" off a 31-minute-old read is a false
+        negative in the flattering direction, on the screen built to
+        interrupt."""
+        conn = db.init_db(tmp_path / "t.db")
+        stale_ms = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 1
+        _fills_poll(conn, polled_ms=stale_ms)
+        _fill(conn, ticker="KXT-A")
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] is None
+        assert tonight["staked_tenths"] is None
+        assert tonight["staked_display"] is None
+        assert tonight["as_of_ms"] == stale_ms  # the reader renders "since"
+
+    def test_a_failed_poll_does_not_count_as_a_read(self, tmp_path):
+        conn = db.init_db(tmp_path / "t.db")
+        _fills_poll(conn, polled_ms=NOW_MS - 60_000, ok=False)
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] is None
+        assert tonight["as_of_ms"] is None
+
+    def test_a_fresh_empty_night_is_a_true_zero(self, tmp_path):
+        conn = db.init_db(tmp_path / "t.db")
+        self._fresh(conn)
+        tonight = bets.tonight_activity(
+            conn, now_ms=NOW_MS, day_start_hour=DAY_HOUR
+        )
+        assert tonight["bets"] == 0
+        assert tonight["staked_tenths"] == 0
+
+
+class TestTheSlateCarriesTonightBesideMoneyNotInsideIt:
+    async def test_the_payload_shape(self, tmp_path):
+        path = tmp_path / "t.db"
+        conn = db.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, 0, 0, '{}', 'test')"
+        )
+        conn.commit()
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            response = await client.get("/api/slate")
+        assert response.status_code == 200
+        payload = response.json()
+        tonight = payload["tonight"]
+        # A sibling of `money`, never inside it: `money` has a contract
+        # about never summing, and this is a different kind of number.
+        assert payload["money"] is None or "bets" not in payload["money"]
+        assert set(tonight) == {
+            "day_start_ms", "as_of_ms", "bets", "staked_tenths",
+            "staked_display", "lockout_until_ms",
+        }
+        # A fresh database has never polled fills: refusal, not zero.
+        assert tonight["bets"] is None
+        assert tonight["lockout_until_ms"] is None
+
+
+class TestTheDeskLockout:
+    async def test_the_desk_route_engages_and_the_old_route_agrees(
+        self, tmp_path
+    ):
+        """Both routes write the one `self_lockouts` table, so they cannot
+        come to disagree; the study-named route stays deprecated-but-working
+        because a deployed frontend may still call it."""
+        path = tmp_path / "t.db"
+        conn = db.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, 0, 0, '{}', 'test')"
+        )
+        conn.commit()
+        conn.close()
+        app = create_app(
+            AppConfig(
+                instance_mode="live", auth_token="secret-token", db_path=path
+            )
+        )
+        headers = {"Authorization": "Bearer secret-token"}
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            desk = await client.post("/api/desk/lockout", headers=headers)
+            assert desk.status_code == 200
+            until = desk.json()["until_ms"]
+            # Idempotent across BOTH names: the release instant is a
+            # property of the clock, not of which route was tapped.
+            old = await client.post("/api/estimates/lockout", headers=headers)
+            assert old.status_code == 200
+            assert old.json()["until_ms"] == until
+            # And the slate reads it back in the tonight block.
+            slate = await client.get("/api/slate")
+            assert slate.json()["tonight"]["lockout_until_ms"] == until
+
+    async def test_the_desk_route_requires_auth(self, tmp_path):
+        path = tmp_path / "t.db"
+        db.init_db(path).close()
+        app = create_app(
+            AppConfig(
+                instance_mode="live", auth_token="secret-token", db_path=path
+            )
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            response = await client.post("/api/desk/lockout")
+        assert response.status_code == 401

@@ -970,10 +970,27 @@ export type Slate = {
     with_book_distribution: number;
     surfaced: number;
   };
+  /**
+   * Tonight's commitment (2026-08-21 ruling): unsigned count and stake from
+   * the fills mirror since the day roll, a SIBLING of `money` because
+   * `money`'s contract is about never summing. `bets`/`staked_*` are null —
+   * never 0 — when the mirror is stale (`as_of_ms` old or absent). Optional
+   * because a deployed backend one version behind omits the key entirely.
+   */
+  tonight?: TonightActivity | null;
   staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
   slate: Board["slate"];
   drift_window_ms: number;
   note: string;
+};
+
+export type TonightActivity = {
+  day_start_ms: number;
+  as_of_ms: number | null;
+  bets: number | null;
+  staked_tenths: number | null;
+  staked_display: string | null;
+  lockout_until_ms: number | null;
 };
 
 export const fetchSlate = () => get<Slate>("/api/slate");

@@ -1171,9 +1171,26 @@ def create_app(
                 "daily_line_dollars": risk.max_daily_loss_dollars,
             }
 
+        # **Tonight's commitment, a SIBLING of `money`, never inside it**
+        # (2026-08-21 partner ruling, docs/reviews/2026-08-21-items-2-3-
+        # ruling.md): `money`'s contract is about never summing cash and
+        # positions; this is a different kind of number -- unsigned count
+        # and stake from the fills mirror since the day roll, null (never 0)
+        # when the mirror is stale. The lockout release rides here for the
+        # reason the study payload gave: the strip that renders tonight is
+        # the strip that renders the lockout -- one fetch, one state.
+        now = db.now_ms()
+        tonight = bets_module.tonight_activity(
+            conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
+        )
+        tonight["lockout_until_ms"] = bet_estimates.lockout_until(
+            conn, now_ms=now
+        )
+
         return {
             "rows": items,
             "money": money,
+            "tonight": tonight,
             "counts": {
                 "returned": len(items),
                 # Rows for which a book distribution could actually be
@@ -2488,9 +2505,40 @@ def create_app(
             ),
         }
 
+    @app.post("/api/desk/lockout", dependencies=[Depends(require_auth)])
+    def engage_desk_lockout(conn=Depends(get_conn)) -> dict:
+        """One tap of "not tonight", on the desk's own name (2026-08-21).
+
+        The lockout outlived the study that named its old route: it writes
+        the same append-only `self_lockouts` table, keyed to the same day
+        roll, and since the study stopped its value is the render -- the
+        landing screen shows the note from the version of Joe that decided,
+        with the release time -- plus the record of every reach for it. It
+        is honest about what it cannot do: nothing here stops a hand bet in
+        the Kalshi app. No parameters, no disengage, no duration picker,
+        for the reasons the original gives.
+        """
+        del conn  # the write path opens its own handle, below
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            until_ms = bet_estimates.engage_lockout(
+                write_conn,
+                now_ms=db.now_ms(),
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+        finally:
+            write_conn.close()
+        return {"locked": True, "until_ms": until_ms}
+
     @app.post("/api/estimates/lockout", dependencies=[Depends(require_auth)])
     def engage_self_lockout(conn=Depends(get_conn)) -> dict:
         """One tap of "not tonight" (fleet convening item 10).
+
+        **Deprecated name, working route** (2026-08-21): the lockout now
+        belongs to the desk, not the stopped study -- new callers use
+        `POST /api/desk/lockout`. This stays because a deployed frontend may
+        still call it and both write the same table, so they cannot come to
+        disagree. Delete only with a frontend audit in hand.
 
         Locks `POST /api/estimates` -- the action performed before every hand
         bet -- until the next day roll at the odds budget's own hour, via the

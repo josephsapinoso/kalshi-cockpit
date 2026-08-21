@@ -7,10 +7,14 @@
  * typing a 43-character token is a lockout that loses to the impulse it
  * exists to interrupt.
  *
- * What a stolen cookie buys here: the ability to lock Joe OUT of his own
- * estimate log until the next day roll. Annoying, self-limiting, and biased
- * in the safe direction -- the attack makes betting harder, not easier.
- * There is no disengage endpoint on the backend for it to call.
+ * Upstream is `/api/desk/lockout` since 2026-08-21: the lockout outlived
+ * the study that named its old route (`/api/estimates/lockout`, still
+ * served, deprecated). Same table, same clock, one line changed here.
+ *
+ * What a stolen cookie buys here: the ability to engage Joe's own "not
+ * tonight" note until the next day roll. Annoying, self-limiting, and
+ * biased in the safe direction -- the attack makes betting harder, not
+ * easier. There is no disengage endpoint on the backend for it to call.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -24,8 +28,8 @@ export async function POST(_request: NextRequest) {
     return NextResponse.json(
       {
         detail:
-          "This is the demo instance. The lockout guards the operator's " +
-          "estimate log, and the demo has no operator to lock out.",
+          "This is the demo instance. The lockout is the operator's own " +
+          "note to themselves, and the demo has no operator.",
       },
       { status: 403 },
     );
@@ -33,7 +37,7 @@ export async function POST(_request: NextRequest) {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${BACKEND}/api/estimates/lockout`, {
+    upstream = await fetch(`${BACKEND}/api/desk/lockout`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",

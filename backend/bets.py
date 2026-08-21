@@ -43,6 +43,16 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 from .core.prices import format_price
+from .odds.timing import day_start_ms
+
+
+# The staleness ceiling for the "tonight" strip: 6x the fills cadence
+# (portfolio_poll.BALANCE_INTERVAL_S = 300s, which fills joined on the
+# 2026-08-21 partner ruling) -- survives two failed polls, too tight for an
+# evening of betting to hide inside. Past it the strip REFUSES (null, never
+# 0): "no bets tonight" rendered off a stale mirror is a false negative in
+# the flattering direction, on the one screen whose purpose is to interrupt.
+TONIGHT_STALE_AFTER_MS = 30 * 60 * 1000
 
 
 def format_net_dollars(net_tenths: Optional[int]) -> Optional[str]:
@@ -163,3 +173,56 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             "losses": losses,
         },
     }
+
+
+def tonight_activity(
+    conn: sqlite3.Connection, *, now_ms: int, day_start_hour: int
+) -> dict:
+    """What Joe has already committed tonight, from the fills mirror.
+
+    The 2026-08-21 partner ruling (docs/reviews/2026-08-21-items-2-3-ruling
+    .md), compressed: **fills, not settlements** (a settlement lands when the
+    game ends -- the wrong clock -- and can only produce a net, which is the
+    chase trigger this repo has deleted twice); a "bet" is a **distinct
+    ticker** (a partial fill is not a second decision); stake is
+    **SUM(count x price_tenths)** -- money at risk on a binary; **no
+    `source` filter**, deliberately: ADR 0043's engine/venue_hand split
+    keeps the fee-calibration population clean, but "how much have I
+    committed tonight" is not that question and both are money committed.
+    The day rolls at the same hour the odds budget, the risk day and the
+    lockout use -- a third definition of tomorrow is how the looser one
+    wins in silence.
+
+    `bets`/`staked_*` are **null when the mirror is stale** (`as_of_ms`
+    absent or older than `TONIGHT_STALE_AFTER_MS`): the reader renders
+    "not read since HH:MM", never 0.
+    """
+    start_ms = day_start_ms(now_ms, hour=day_start_hour)
+    as_of_row = conn.execute(
+        "SELECT MAX(polled_ms) AS ms FROM poll_log "
+        "WHERE endpoint = 'fills' AND ok = 1"
+    ).fetchone()
+    as_of = as_of_row["ms"] if as_of_row is not None else None
+    payload: dict = {
+        "day_start_ms": start_ms,
+        "as_of_ms": as_of,
+        "bets": None,
+        "staked_tenths": None,
+        "staked_display": None,
+    }
+    if as_of is None or now_ms - as_of > TONIGHT_STALE_AFTER_MS:
+        return payload
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT ticker) AS markets, "
+        "COALESCE(SUM(count * price_tenths), 0) AS staked "
+        "FROM fills WHERE filled_ms >= ?",
+        (start_ms,),
+    ).fetchone()
+    staked_tenths = int(round(row["staked"]))
+    payload["bets"] = int(row["markets"])
+    payload["staked_tenths"] = staked_tenths
+    # Unsigned on purpose: this is commitment, not performance. The signed
+    # number lives on /bets, after settlement, where it is a record and not
+    # a scoreboard.
+    payload["staked_display"] = f"${staked_tenths / 1000:.2f}"
+    return payload

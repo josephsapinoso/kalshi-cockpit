@@ -331,39 +331,7 @@ async def poll_portfolio(
         summary["settlements"] = {"seen": len(rows), "new": written, "refused": refused}
 
     # -- fills: source='venue_hand', never 'engine' (ADR 0043) ---------------
-    try:
-        rows = await client.fills(limit=200)
-    except Exception as exc:  # noqa: BLE001
-        _log(conn, now_ms=now_ms, endpoint="fills", ok=False, error=repr(exc))
-        summary["fills"] = f"FAILED: {exc}"
-    else:
-        written = refused = 0
-        for row in rows:
-            parsed = parse_fill(row)
-            if parsed is None:
-                refused += 1
-                logger.warning("fill refused, id=%s", row.get("fill_id"))
-                continue
-            predicted = calculate_fee(
-                price_tenths=parsed.price_tenths,
-                contracts=parsed.count,
-                maker=not parsed.is_taker,
-            )
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO fills "
-                "(kalshi_fill_id, ticker, filled_ms, count, price_tenths, "
-                " is_taker, fee_actual, fee_predicted, fee_model_used, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    parsed.kalshi_fill_id, parsed.ticker, parsed.filled_ms,
-                    parsed.count, parsed.price_tenths,
-                    1 if parsed.is_taker else 0, parsed.fee_actual,
-                    predicted, "model_a_deci", VENUE_SOURCE,
-                ),
-            )
-            written += cursor.rowcount
-        _log(conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows))
-        summary["fills"] = {"seen": len(rows), "new": written, "refused": refused}
+    summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
 
     # -- positions: COUNTED, NOT PARSED. Shape never observed. ---------------
     try:
@@ -403,6 +371,62 @@ async def poll_portfolio(
         logger.exception("estimate match pass failed: %s", exc)
         summary["match"] = f"FAILED: {exc}"
     return summary
+
+
+async def poll_fills(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+) -> Any:
+    """The fills alone, so they can run on the 5-minute cadence too.
+
+    Extracted from `poll_portfolio` on the 2026-08-21 partner ruling: the
+    landing screen's "tonight" strip reads this table, and on the 12-hour
+    mirror alone it would say "no bets tonight" at 8pm off a 10am read --
+    a false negative in the flattering direction, on the one screen whose
+    purpose is to interrupt. **This is not an amendment to the registered
+    cadence**: §7.6 sets a floor on the mirror's completeness, and polling
+    an unmetered venue endpoint more often can only make the mirror more
+    complete. Settlements, positions and the matcher stay on their
+    registered 12-hour clock.
+
+    The caller commits; this function only writes, exactly as
+    `poll_balance` does, so `poll_portfolio` can reuse it in its own
+    transaction.
+    """
+    try:
+        rows = await client.fills(limit=200)
+    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
+        _log(conn, now_ms=now_ms, endpoint="fills", ok=False, error=repr(exc))
+        return f"FAILED: {exc}"
+    written = refused = 0
+    for row in rows:
+        parsed = parse_fill(row)
+        if parsed is None:
+            refused += 1
+            logger.warning("fill refused, id=%s", row.get("fill_id"))
+            continue
+        predicted = calculate_fee(
+            price_tenths=parsed.price_tenths,
+            contracts=parsed.count,
+            maker=not parsed.is_taker,
+        )
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO fills "
+            "(kalshi_fill_id, ticker, filled_ms, count, price_tenths, "
+            " is_taker, fee_actual, fee_predicted, fee_model_used, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                parsed.kalshi_fill_id, parsed.ticker, parsed.filled_ms,
+                parsed.count, parsed.price_tenths,
+                1 if parsed.is_taker else 0, parsed.fee_actual,
+                predicted, "model_a_deci", VENUE_SOURCE,
+            ),
+        )
+        written += cursor.rowcount
+    _log(conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows))
+    return {"seen": len(rows), "new": written, "refused": refused}
 
 
 async def poll_balance(
@@ -535,8 +559,15 @@ async def poll_portfolio_forever(
                     logger.info("portfolio mirror: %s", summary)
                 else:
                     result = await poll_balance(conn, client, now_ms=now_ms)
+                    # Fills ride the balance cadence (2026-08-21 ruling) so
+                    # the landing screen's "tonight" strip is at most minutes
+                    # behind the venue, not hours. See `poll_fills` for why
+                    # this is not a registration amendment.
+                    fills_result = await poll_fills(conn, client, now_ms=now_ms)
                     conn.commit()
-                    logger.debug("balance snapshot: %s", result)
+                    logger.debug(
+                        "balance snapshot: %s; fills: %s", result, fills_result
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 -- see the docstring

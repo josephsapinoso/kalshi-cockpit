@@ -19,6 +19,7 @@ import DispersionStrip from "@/components/DispersionStrip";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
+import TonightStrip from "@/components/TonightStrip";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,11 @@ export default async function SlatePage() {
           )}
         </p>
       )}
+
+      {/* Tonight's commitment + the "not tonight" note, beside the money line
+          on the deciding screen (2026-08-21 ruling). Unsigned by contract —
+          the signed record is /bets, after settlement. */}
+      {data.tonight && <TonightStrip tonight={data.tonight} />}
 
       {/* **Two book counts, and they mean different things.** The distribution
           spans every usable book; `fair_prices.book_count` is what survived the

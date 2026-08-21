@@ -480,8 +480,10 @@ class TestPollPortfolioForever:
             "SELECT COUNT(*) FROM poll_log WHERE ok = 0"
         ).fetchone()[0]
         conn.close()
-        # Cycle 1 is a mirror (4 endpoints fail), cycles 2-3 are balance-only.
-        assert failures == 6, "every failed attempt left a row, and the loop ran on"
+        # Cycle 1 is a mirror (4 endpoints fail); cycles 2-3 are the fast
+        # cadence, which since the 2026-08-21 ruling is balance AND fills --
+        # two failures each, so the tally is 4 + 2 + 2.
+        assert failures == 8, "every failed attempt left a row, and the loop ran on"
 
     async def test_a_failure_that_escapes_the_poll_does_not_kill_the_loop(
         self, tmp_path, monkeypatch

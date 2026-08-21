@@ -30,7 +30,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,816 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 3,825 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**,
 recorded per §7.1 in
 `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
@@ -38,6 +38,56 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
 deploy behind — check `/api/health` `git_sha` against `origin/main`.
+
+---
+
+## 2026-08-21 ~22:45Z — the refusal lands on real data, and the lockout gets the desk's name
+
+**"The refusal on real data + the desk lockout" is DONE, built exactly to
+the ruling** (`docs/reviews/2026-08-21-items-2-3-ruling.md`). State:
+**3,825 passed / 10 xfailed**, ruff clean, tsc clean, build green, overflow
+gate green at all five widths.
+
+- **Fills joined the 5-minute cadence.** `poll_fills` extracted from
+  `poll_portfolio` and called beside `poll_balance` in the forever loop.
+  NOT a registration amendment — §7.6 sets a completeness floor and the
+  comment says so; settlements, positions and the matcher stay on the
+  registered 12h clock. Without this the strip would read "no bets
+  tonight" at 8pm off a 10am mirror — the false negative in the
+  flattering direction the ruling called disqualifying.
+- **`/api/slate` gained `tonight`**, a SIBLING of `money` (whose contract
+  is never-sum): distinct-ticker count and unsigned stake since the day
+  roll, from `bets.tonight_activity` — no `source` filter (committed
+  money is committed money, ADR 0043's split is for fee calibration), day
+  rolls at the odds budget's hour, and **null — never 0 — when the fills
+  mirror is stale** (`TONIGHT_STALE_AFTER_MS` = 30 min = 6× cadence).
+  `lockout_until_ms` rides the same key: one fetch, one state. Three
+  guards mutation-verified red (staleness dropped, DISTINCT dropped, day
+  bound dropped), file restored byte-identical each time.
+- **`POST /api/desk/lockout`** — the lockout outlived the study that
+  named it. Same `self_lockouts` table, same clock-derived release, no
+  disengage, no picker; `/api/estimates/lockout` stays deprecated-but-
+  working (a deployed frontend may still call it; both write one table so
+  they cannot disagree — the test proves the release instant agrees
+  across both names). `frontend/src/app/lockout/route.ts` repointed.
+- **The landing screen** renders the strip beside the money line
+  (`TonightStrip.tsx`): "N markets · $X.XX staked tonight, your own
+  fills", stale → "not read since HH:MM — which is not the same as no
+  bets", plus the one-tap "Not tonight". Locked → a banner that keeps
+  the slate visible, has NO show-anyway, names the release time, and
+  admits it cannot stop a bet in the Kalshi app. No engagement counter.
+
+**The work list, by name, unchanged in order:** strip the landing screen
+(NEXT — edge point estimate off the slate rows; DispersionStrip becomes a
+range behind a tap, no direction, no `used` mark; note
+`tests/test_dispersion_strip.py` pins "off this scale" and ADR 0052's
+on-the-phone spirit — update those tests with dated docstrings citing the
+ruling, keep the `<DispersionStrip` callsite pin satisfied); then CLV on
+his own bets (re-scoped: per-bet rows, NO aggregate below n ≥ 30); then
+the ticket cleanup (nav-swap clause dropped).
+
+**Still open from before:** footer parity (6-and-6, at the bound);
+partner's "later, maybe" lists.
 
 ---
 
