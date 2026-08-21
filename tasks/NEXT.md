@@ -44,8 +44,10 @@ deploy behind — check `/api/health` `git_sha` against `origin/main`.
 ## 2026-08-21 ~04:30Z — the replay gate passes exactly, and the ledger's null kickoff is fixed
 
 State at close: tests **3,766 passed / 10 xfailed** (+4), ruff clean, tsc
-clean, pushed through `6a23920`. Live stays on `349dca0`; pending for the
-next deploy: `d487d2d` (estimate-form demotion) and `6a23920` (below).
+clean, pushed through `6a23920`. **Live is current: deployed `1673331` at
+04:17Z on Joe's word** (run 32446407696, dispatch went through in auto mode
+first try; `/api/health` verified `git_sha` + `instance_mode: live`). That
+deploy carried `d487d2d` (estimate-form demotion) and `6a23920` (below).
 Nothing tonight's look needs is on live — the sweep is a local script.
 
 **The free replay gate for tonight's look was run at 04:04Z and PASSES
