@@ -30,12 +30,48 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,737 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 3,745 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Two timed things may be live when you read this: the terminal spread/total
 look fires 2026-08-21 22:40Z (Joe can veto; registration + Amendment 1 govern)
-and H4 Look 2 is 2026-09-03 (needs `h4-balance-spans` shipped first or it
-self-caps). Live may be one deploy behind — check `/api/health` `git_sha`
-against `origin/main`.
+and H4 Look 2 is 2026-09-03 (`h4-balance-spans` SHIPPED `349dca0`, so the
+A12.4 cap is off — but the A9–A12 analyzer change must be committed before
+the pull, as Look 1's was). Live may be one deploy behind — check
+`/api/health` `git_sha` against `origin/main`.
+
+---
+
+## 2026-08-21 ~02:00Z — h4-balance-spans ships with its guards red, and both deploys landed
+
+State: tests **3,745 passed / 10 xfailed** (+6 new guards, +2 parametrized
+whitelist tests), ruff clean. Pushed `349dca0`; live deploy dispatched (run
+32438057600 — the dispatch went through in auto mode this time, first try).
+
+**Open item 1 (the waiting deploy) closed itself before this session acted:**
+live was already on `aee4b5a` at 01:47Z, so Joe ran the dispatch. The only
+commit live then lacked was `30f1c2e`, docs-only.
+
+**Open item 2 is DONE: `h4-balance-spans` shipped (`349dca0`).** Amendment 1
+A12.3's instrument: sections A–D as `h4-settlement-balance` but filtered only
+by each table's own clock ≥ study start — no ±900s `EXISTS` window, because
+the span design has no window — plus section E, the **whole**
+`venue_settlements` table (P_j sums every settlement inside a span,
+pre-study included; a study filter there would silently zero prediction
+terms). No join, no delta, same discipline. Six window-mutation guards in
+`TestH4SpansAreUnwindowedAndUnjoined`, **each verified red**: `>=`→`>`,
+study filter dropped, `EXISTS` window re-added to balance or fills, poll
+endpoint filter dropped, E gaining a study filter. File restored
+byte-identical after each mutation. **A12.4's fallback cap on Look 2 is
+discharged.**
+
+**What Look 2 still needs before the 2026-09-03 pull, and it is the next
+H4 work:** the analyzer change (A9 seven-branch aggregate tree, A10 E7 +
+positive-control gate, A11 early-credit scan, A12 span pairing/residuals)
+committed **before** the data exists, as Look 1's was (`4dbd3e2`). Nothing
+about it is blocked; the registration specifies it.
+
+**Still open, unchanged:** the `/api/ledger` `commence_ms` defect (item 3
+below, low urgency, 3-hour-offset trap documented), and the terminal
+spread/total look at 22:40Z tonight (armed; Joe holds the veto).
 
 ---
 
