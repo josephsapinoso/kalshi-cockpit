@@ -30,13 +30,99 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,745 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
-Two timed things may be live when you read this: the terminal spread/total
-look fires 2026-08-21 22:40Z (Joe can veto; registration + Amendment 1 govern)
-and H4 Look 2 is 2026-09-03 (`h4-balance-spans` SHIPPED `349dca0`, so the
-A12.4 cap is off — but the A9–A12 analyzer change must be committed before
-the pull, as Look 1's was). Live may be one deploy behind — check
-`/api/health` `git_sha` against `origin/main`.
+Expected: 3,762 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+One timed thing may be live when you read this: the terminal spread/total
+look fires **2026-08-21 22:40:00Z**, band 22:35–22:45Z (Joe can veto until
+the anchor; registration + its Amendment 1 govern; every branch including
+VETOED and UNTAKEN writes the result file). **The H4 look series is CLOSED
+— BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
+and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
+deploy behind — check `/api/health` `git_sha` against `origin/main`.
+
+---
+
+## 2026-08-21 ~03:15Z — the H4 series closes on a measured reason: the channel diagnostic is BLIND on a denominator of 1
+
+State at close: tests **3,762 passed / 10 xfailed**, ruff clean, tsc clean,
+`next build` green, everything pushed. Live is on `349dca0` (deployed this
+session, dispatch went through in auto mode first try) — commits after it
+are docs/tasks-only except the estimate-form demotion (`d487d2d`), which is
+UI + a scope guard and can ride the next deploy; nothing urgent needs it
+live tonight.
+
+**The partner convened, re-ruled, and the ruling is executed.** Its key
+move: do NOT build the A9–A12 analyzer on schedule — the record suggested
+the balance channel cannot see payouts — and instead register the cheapest
+test of that (ADR 0059 is the generalised rule). The chain, all committed
+in order: **Amendment 3** (`9693847`, pre-registrar: the A15 disclosure of
+a partial unblinding, A16 closing the span/cluster voting defect it found
+— ~4,000 empty snapshot pairs could have voted — and A17 registering the
+channel diagnostic with all three verdicts' consequences fixed);
+**analyzer** (`7c78a32`, before the data); **pull** 02:49:45Z (30m35s
+after the amendment, one attempt, sections untruncated, SHA in the result
+file, raw capture NOT committed per the operator-data ruling);
+**three audits** by the measurement-skeptic (FAIL 11 → FAIL 9 → PASS,
+chain kept in the record); **result** (`ca8c581`).
+
+**The verdict: BLIND, on a covered-winner denominator of 1** —
+`docs/measurements/2026-08-21-h4-channel-diagnostic-result.md`. Per the
+consequences fixed before the pull: **Look 2 is written up early as
+BLOCKED ON INSTRUMENT** (`2026-08-21-h4-settlement-fee-result.md`),
+**Look 3 is cancelled, the series is closed**, the analyzer is never
+built, ADR 0027 stands, H4 stays UNTESTED. Reopening has exactly one
+door: A17.11's different-channel amendment (candidates named there).
+**The audit's finding worth reading:** the pull's own fills section shows
+the balance channel reconciling 15 of 16 fills to half a tenth, and a
++4950-tenth movement in the winner's own payout window 1h31m *before*
+settlement — the registered tolerance cannot credit it, and the pull
+cannot separate "paid early at position close" from "position closed, no
+credit due". That is why BLIND extends to no claim about the venue.
+
+Also this session, all committed and pushed: **`h4-balance-spans`
+shipped** (`349dca0`, six window-mutation guards red — it fed the
+diagnostic its one registered pull and now stays unused); **README's
+combo row corrected** (`5aa39ef`, the public repo carried a refuted
+reason); **the stopped study's form demoted** (`d487d2d`: Log's nav slot
+retired, `/estimate` reachable from the footer with the terminal banner,
+and `classify_positions` now bounds the study window on the right at the
+owner stop — guard red both ways); **ADR 0059** (`45735e4`); the
+unit-mismatch lesson (`6a8092e`).
+
+**TONIGHT'S HANDOFF — the terminal spread/total look, 22:40:00Z:**
+
+1. Registration: `2026-08-21-preregistration-spread-total-edge-second-look.md`
+   (+ its Amendment 1). Band **22:35:00–22:45:00Z**, 4 credits, floors 8
+   sharp rows / 3 games per arm, NO pooling with look 1.
+2. **Joe holds a veto until the anchor.** A veto before the sweep spends
+   nothing and is recorded as VETOED; after a successful sweep there is
+   no veto — the look is the look.
+3. Before the anchor, run the free replay gate:
+   `.venv\Scripts\python.exe scripts\measure_spread_edge.py --replay
+   docs\measurements\2026-08-20-spread-sweep-raw-2026-08-20T212616Z.json`
+   — it must reproduce look 1's numbers exactly or the anchor is not
+   taken (INSTRUMENT FAULT).
+4. Inside the band, run the sweep. **Every branch — including VETOED and
+   UNTAKEN (band lapses, vendor closed, 401) — writes**
+   `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
+5. Session timers cap at 1h and die with the session; if no session is
+   alive in the band, the look goes UNTAKEN and that too is written up.
+
+**TWO QUESTIONS FOR JOE when he wakes (the partner asked; answers dated
+into the record, no urgency):**
+
+1. **How many open Kalshi positions do you have right now?**
+2. **Are you still placing bets?**
+
+If the answers are none and no, no new winners accrue at all, and every
+remaining measurement line dries up on that ground independently of any
+instrument — worth knowing before anything else is planned.
+
+**Still open, in order:** the `/api/ledger` `commence_ms` defect (partner
+ranked it last, "droppable without guilt"; the 3-hour-offset trap is
+documented in the 2026-08-20 entry below), and the footer's 5-and-5
+parity note (the next screen the nav sheds must answer the delete-commit
+question, not land in the footer by default —
+`tests/test_every_screen_is_reachable.py` docstring).
 
 ---
 
