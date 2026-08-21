@@ -445,3 +445,351 @@ must **not** report the S2 result as an H4 answer.
 
 **Nothing is spent.** No Odds API credits, no orders, no writes to any production
 table. The query is read-only against the live DB.
+
+---
+
+# Amendment 1 — 2026-08-20, after Look 1, governing Look 2 onward
+
+**Status and standing, stated first because everything below depends on it.**
+
+This amendment is **additive**. Nothing above it is edited, and §§0–11 stand
+byte-for-byte as committed in `4e0a025`.
+
+**It is written after Look 1's residuals were seen.** I have read
+`docs/measurements/2026-08-20-h4-settlement-fee-result.md` (committed `883c884`)
+in full, including the per-cluster residual table. Under §0.4 of the registration
+above — *"any amendment written after a residual has been computed voids the
+primary verdict and demotes the whole read to exploratory"* — that rule is
+honoured in the only way that keeps both records honest:
+
+> **This amendment governs Look 2 and Look 3 only. It does not reach Look 1.**
+> Look 1's classifications, its verdicts (single-kind UNDERPOWERED, combo-kind
+> S1 UNTESTABLE, aggregate H4 untested) and its record stand exactly as written
+> and are **not re-scored** under anything below. No verdict anywhere is
+> narrowed, widened, or moved by this amendment, and ADR 0027 is untouched.
+
+**The contamination guard, since a post-hoc amendment is the textbook place to
+manufacture a finding.** Three properties, each checkable against this text:
+
+1. **No threshold moves.** `$0.0063` (the deciding scale), `$0.05/contract`
+   (rule 1's plausibility ceiling), `tau_c = 1 + n_win_c`, the `K >= 2` on 2 days
+   floor, and the factor-of-2 agreement requirement are all unchanged.
+2. **Every addition below can only subtract a finding, never add one.** E7 and PC
+   are an exclusion and a control — they remove observations and refuse bounds.
+   A9's tree adds no branch that can declare CHARGE CONFIRMED or NO CHARGE ABOVE
+   `U` on a configuration that could not already have declared it. Adding a
+   refusal to a set of findings cannot create one, which is the same arithmetic
+   CLAUDE.md uses on the missing second signal.
+3. **The one place Look 1's numbers were consulted** is A9.6, where the tree is
+   walked against Look 1's classification multiset to check it is *total*. That
+   check tests exhaustiveness, not outcome, and the walk is shown so it can be
+   audited.
+
+---
+
+## A9. The aggregate rule is made total (closes result-file finding 1)
+
+**The gap.** On Look 1's multiset `{1 BANKING-CONTAMINATED, 3
+NO-CHARGE-AT-TOLERANCE}` **none** of §6's four aggregate branches fires: no
+cluster classifies CHARGE, so CHARGE CONFIRMED is out and UNDECIDABLE's split
+clause is out; not every cluster is NO-CHARGE, so NO CHARGE ABOVE `U` and
+UNDERPOWERED's second clause are out; the floor is met, so UNDERPOWERED's first
+clause is out; 1 of 4 is not a majority, so UNDECIDABLE's majority clause is out.
+§6 was written as four sufficient conditions and never checked for exhaustiveness.
+A second, quieter half of the same gap: §11 registers **S1 UNTESTABLE (W = 0)**
+as a real outcome and §6's four branches have no slot for it, and `U` is a
+division by `W` that is undefined at `W = 0`.
+
+**A9.1 — Voting and non-voting clusters.** Every eligible cluster is exactly one:
+
+- **Voting:** `CHARGE` (excluding the AMBIGUOUS-DEFERRED-ENTRY sub-verdict) and
+  `NO-CHARGE-AT-TOLERANCE`.
+- **Non-voting:** `BANKING-CONTAMINATED`, `UNDECIDABLE-CREDIT-CHANNEL`,
+  `ANOMALY`, `AMBIGUOUS-DEFERRED-ENTRY`, and `UNDECIDABLE-COVERAGE` (A10).
+
+The partition is exhaustive because §6.1–§6.5 plus A10 assign every eligible
+cluster exactly one label and each label appears in exactly one column above.
+
+**A9.2 — The aggregate decision tree, evaluated in order, first match wins.**
+Let `V` = the voting clusters, `d(V)` = the number of distinct UTC days they span,
+`W_V` / `N_V` = winning / total contracts summed over `V`.
+
+```
+A1  non-voting count >= half of all eligible clusters      -> UNDECIDABLE
+A2  (S1 cell) W_V = 0                                      -> S1 UNTESTABLE (W = 0)
+    (S2 cell) N_V = 0                                      -> S2 UNTESTABLE (N = 0)
+A3  |V| < 2  or  d(V) < 2                                  -> UNDERPOWERED
+A4  V contains at least one CHARGE and at least one
+    NO-CHARGE-AT-TOLERANCE                                 -> UNDECIDABLE
+A5  every cluster in V is CHARGE:
+      magnitudes agree within a factor of 2                -> CHARGE CONFIRMED
+      otherwise                                            -> UNDECIDABLE
+A6  every cluster in V is NO-CHARGE-AT-TOLERANCE:
+      U (resp. U2) <= $0.0063 per contract                 -> NO CHARGE ABOVE U
+      otherwise                                            -> UNDERPOWERED
+A7  anything not matched above                             -> UNDECIDABLE
+```
+
+**A9.3 — Why it is total.** After A1, `V` is non-empty. After A2, the relevant
+denominator is non-zero, so `U` / `U2` are defined wherever A6 reads them. After
+A3, `|V| >= 2` on `>= 2` days. A4, A5 and A6 partition the possible compositions
+of `V`, whose members are only CHARGE or NO-CHARGE by A9.1. A7 is therefore
+unreachable and exists so the rule is a total function rather than a set of
+sufficient conditions — the defect that produced this amendment.
+
+**A9.4 — The kind split, reconciled (closes the §4-versus-§6 contradiction).**
+§4 says a kind disagreement voids the pooled verdict; §6 says the split "decides
+nothing". Both stand under one reading, registered now as the only reading:
+
+> The tree in A9.2 is evaluated **three times**: pooled over all eligible
+> clusters, once over `KXMVE*` clusters, once over non-`KXMVE*` clusters. **The
+> pooled evaluation produces the registered verdict.** The two kind evaluations
+> are reported beside it and can do exactly one thing to it: **if both kind cells
+> are non-empty and their verdicts differ, the pooled verdict is stamped VOID
+> (kind disagreement) and the look registers no aggregate verdict.** A kind-level
+> verdict is **never** promoted to the registered verdict — in particular a
+> kind-level CHARGE CONFIRMED or NO CHARGE ABOVE `U` under a pooled UNDECIDABLE
+> stays reported-only. If either kind cell is empty, the pooled verdict stands
+> and the split is descriptive.
+
+That is precisely what "decides nothing" means: **the split can subtract a
+verdict and can never add one**, so it adds no tested cell for multiplicity. The
+multiplicity count is unchanged at 2 (S1, S2).
+
+**A9.5 — The look schedule, with the new verdicts slotted in.** §6's schedule
+advances on UNDERPOWERED or UNDECIDABLE. Registered completion: **the schedule
+advances to the next look on any verdict except CHARGE CONFIRMED or NO CHARGE
+ABOVE `U`**, which are terminal. `S1 UNTESTABLE`, `S2 UNTESTABLE` and `VOID (kind
+disagreement)` are non-terminal. The three-look cap and the dates (2026-09-03,
+2026-09-17) are unchanged, as is the requirement that every look writes to the
+result file whatever it says.
+
+**A9.6 — The totality walk, shown for audit.** Look 1's multiset, walked purely
+to demonstrate the tree is total. **This is not a re-score of Look 1 and Look 1's
+verdicts are unchanged.** Pooled, S1 cell: non-voting is 1 of 4, under half, so A1
+does not fire; `V` = the three NO-CHARGE clusters, whose winning contracts sum to
+zero, so **A2 fires: S1 UNTESTABLE (W = 0)** — a verdict, where §6 produced none,
+and substantively the same statement Look 1 reached by its per-kind route. The
+configuration that broke §6 now lands, and it lands on a branch that narrows
+nothing.
+
+---
+
+## A10. E7, the movement condition — E6 gets a companion (closes finding 2)
+
+**The defect, from the result file:** *"a balance that never moves trivially
+satisfies 'stopped moving by the window edge'. E6 cannot distinguish 'the credit
+landed and settled' from 'the credit never came.'"* Look 1's only proceeds-bearing
+cluster passed E6 on a real ten-minute comparison and still lost its observation.
+
+**A10.1 — E7 (movement condition), Look 2 onward, evaluated with E1–E6 and
+therefore *before* classification.**
+
+> For a cluster with `P_c > 0`: if `max(balance_tenths) - min(balance_tenths)`
+> over **every** snapshot in the cluster's covered span is `<= tau_c`, the cluster
+> is **UNDECIDABLE-COVERAGE**. It is **not classifiable by §6 rules 1–5** and is
+> non-voting under A9.1.
+
+**Rationale, and it is the whole point:** the channel was predicted to move by
+`P_c` and did not move at all. A residual computed across a channel that showed no
+sensitivity to a movement it was predicted to show measures the channel, not a
+fee. Placing E7 among the exclusions rather than among the classifications is
+deliberate — a coverage failure is a reason the observation does not exist, not a
+label for what it says.
+
+**A10.2 — What this does and does not do to Look 1.** Under E7, Look 1's cluster 1
+would have been excluded as UNDECIDABLE-COVERAGE rather than classified
+BANKING-CONTAMINATED, which is closer to the tension the result file reported
+honestly (rule 2's description fit the same numbers at least as well). **Look 1 is
+not re-scored.** In both labellings the cluster is non-voting and every Look 1
+verdict is identical, which is stated here so that E7 cannot be read as
+re-labelling a seen cluster to taste: it changes no verdict that has been taken.
+
+**A10.3 — PC, the channel positive control, Look 2 onward.**
+
+> A look may report `U` or `U2` **as a bound** only if at least one eligible
+> cluster in that look demonstrates channel sensitivity: `P_c > 0`,
+> `|D_c| > tau_c`, and `|D_c - P_c| <= tau_c` — a predicted movement of roughly
+> the predicted size actually observed. Absent that control, the look's `U` and
+> `U2` are reported as **CHANNEL-UNVERIFIED** and **may not be quoted as bounds**,
+> and A9.2's A6 may not return NO CHARGE ABOVE `U`; it returns UNDERPOWERED
+> instead.
+
+This registers in advance what Look 1 reached by hand: a null on zero-winner
+clusters is confounded with channel latency, because a per-contract debit is also
+a settlement-time cash movement. Note what PC cannot do — it can only **withhold**
+a bound. It cannot produce a CHARGE.
+
+---
+
+## A11. The early-credit direction (closes finding 3)
+
+**The gap, from the result file:** *"a venue that credits cash first and stamps
+`settled_time` after is observationally identical here. C6 as registered
+considered only late credits; the early direction was not registered."* If the
+credit lands before `min(settled_ms)`, `B_pre` already contains it and
+`r_c = -P_c` exactly — the same signature as a credit that never came.
+
+**A11.1 — How Look 2 treats it.** Over the cluster's covered span (widened per
+A12), the analyzer performs a **deterministic step scan**, no search over
+magnitudes and no operator judgement:
+
+- Let `step_j = balance(s_{j+1}) - balance(s_j)` over consecutive snapshots in the
+  span. A step is **payout-shaped** if `|step_j - P_c| <= tau_c`.
+- **Payout-shaped step strictly before `min(settled_ms)`** ⇒ the cluster is
+  labelled **EARLY-CREDIT**, non-voting, and the **lead time is recorded as its
+  own line** — a fact about the venue's clock, which is worth having whichever way
+  H4 goes.
+- **Payout-shaped step at or after `max(settled_ms)` and inside the horizon** ⇒
+  the credit landed; `B_post` is taken per A12.2 and the cluster is classifiable
+  by §6 rules 1–5 as registered. This is the case the instrument wants.
+- **No payout-shaped step anywhere in the span** ⇒ **UNDECIDABLE-COVERAGE** via
+  E7, and the write-up must state explicitly that *late-beyond-horizon*,
+  *early-beyond-horizon*, and *proceeds never credited to cash at all* are **not
+  separated by this look**.
+
+**A11.2 — The paired-cancellation rule.** If one span interval carries
+`r ≈ +P_c` and an adjacent interval carries `r ≈ -P_c` (each within `tau_c`), the
+credit landed inside the first interval and the **interval boundary, not the
+venue, is the cause**. The two intervals are merged and re-evaluated once. This
+fires at most once per cluster and the merge is recorded.
+
+**A11.3 — What A11 cannot do.** It cannot detect a credit that lands outside the
+horizon in either direction, and it cannot detect a credit that never reaches the
+cash balance at all. Those three remain fused, and A10.1 routes all three to the
+same honest label rather than to a fee.
+
+---
+
+## A12. Horizon, not density — the span design (closes finding 4)
+
+**The refutation, accepted:** 25 snapshots read one unchanging value across
+11h02m, so a faster poller observes the same flat line. Density is not the
+constraint; **horizon and channel are.** Registered accordingly.
+
+**A12.1 — The binding fact, and it is good news:** `venue_balance_snapshots` is
+**never pruned** — grep for a DELETE against that table returns nothing, and the
+only readers take the newest row. Every snapshot since study start is still in the
+table. **The 900s horizon is a property of the query, not of the data**
+(`scripts/inspect_live_db.py:2046`, `_H4_WINDOW_MS = 900_000`, applied via three
+`EXISTS` windows). Look 1's horizon limit therefore costs nothing retrospectively:
+the wider data already exists and is merely hidden.
+
+**A12.2 — Look 2's primary design: adjacent-snapshot spans, no window at all.**
+Rather than widening 900s to some number chosen after seeing a flat 11h02m — which
+would be a threshold picked to fit a glimpse — the window is **dropped**:
+
+> Take every balance snapshot since study start in time order. For each
+> **adjacent pair** `(s_j, s_{j+1})` with both `balance_tenths` non-NULL and every
+> balance poll between them `ok = 1`, the observation is
+> `D_j = balance(s_{j+1}) - balance(s_j)` and the prediction is
+> `P_j = sum of 1000 x contracts over all winning settlements with settled_ms in
+> (s_j, s_{j+1}]`, summed over **every** settlement in the table, pre-study rows
+> included. The residual is `r_j = D_j - P_j`, tolerance
+> `tau_j = 1 + n_win_j`.
+
+Three properties this buys, each structural rather than chosen:
+
+- **E5 stops being an exclusion and becomes a term.** A second settlement inside
+  the interval is no longer a contaminant to exclude; it is added to `P_j`,
+  because the prediction is additive. That is what makes dropping the window
+  affordable — under E5 as written a 24h window would have excluded nearly
+  everything.
+- **Every settlement is accounted and every cash movement is attributed.** There
+  is no unsampled span between clusters, which is where Look 1's balance
+  demonstrably changed with no observation covering it.
+- **The early/late credit question becomes answerable within the same arithmetic**
+  (A11.2) instead of needing a separate instrument.
+
+The exposure this buys, stated because it is real: an interval can be long, so an
+unrecorded transfer has more room to land in one — it surfaces as a residual and
+is caught by §6 rule 1 at `$0.05 x N_j`. And `N_j` grows as settlements merge into
+an interval, so rule 1's ceiling grows with it: **a transfer is easier to miss in
+a long, contract-heavy interval than in a short one.** The countermeasure is
+unchanged and already registered — `A9.2/A3`'s floor of 2 voting clusters on 2
+distinct days, plus A5's factor-of-2 agreement, so no single interval can carry a
+CHARGE verdict alone.
+
+Under the span design the **cluster** of §3 remains the reporting unit for
+continuity with Look 1, and the interval is the computing unit; where an interval
+contains exactly one cluster the two coincide.
+
+**A12.3 — The instrument change this requires, named now.** A new whitelisted
+query, **`h4-balance-spans`**: sections A–D as today but **unwindowed since study
+start** (settlements, balance snapshots, fills, balance polls), plus the *whole*
+`venue_settlements` table for the `P_j` sum, still with **no join and no computed
+delta** — the same discipline as `h4-settlement-balance`, since a tolerance is a
+matching decision. It must ship, with its window-mutation guards red, **before**
+the Look 2 pull, and the analyzer change must be committed before the pull as
+Look 1's was (`4dbd3e2`).
+
+**A12.4 — The fallback, registered so it cannot be decided later.**
+
+> If `h4-balance-spans` has not shipped by 2026-09-03, **Look 2 runs the existing
+> ±900s design unchanged**, and its verdict on any winning cluster is **capped at
+> UNDECIDABLE-COVERAGE**: on a flat balance the ±900s instrument can only repeat
+> Look 1's coverage verdict, and Look 2 must say so in those words rather than
+> report a residual as a fee or a bound. The zero-winner cells may still be
+> reported, subject to PC (A10.3), which will withhold their bounds.
+
+---
+
+## A13. Joe's transfer question — the consequence of each answer, fixed now
+
+§6.1 required the question and the result file records it as **PENDING**. The
+registration said his answer is recorded before the verdict but never said what
+the answer *does*, which leaves the consequence to be chosen after it arrives.
+Fixed here.
+
+**The question, unchanged:** *did any deposit, withdrawal or transfer touch the
+Kalshi account around 2026-08-18 14:51–14:56 UTC, or more broadly on 08-18/08-19?*
+
+**In all three branches, no verdict changes.** Look 1's single-kind cell stays
+UNDERPOWERED, the combo cell stays S1 UNTESTABLE, H4 stays untested and ADR 0027
+stays unchanged. The question is **diagnostic, not decision-bearing**, and saying
+so before the answer arrives is the point of registering it.
+
+- **YES (a transfer occurred).** The BANKING-CONTAMINATED label is **confirmed as
+  an explanation**. The cluster remains non-voting. Direction and approximate size
+  are recorded if he can give them; if the size is far from `$5.00` that is itself
+  worth a line, because rule 1 fired on magnitude alone.
+- **NO (no transfer).** The label is **not changed** — Look 1's classification
+  order was fixed before the data and Look 1's record stands. What a NO answer
+  does is **eliminate rule 1's explanation while leaving the label**, so the
+  surviving accounts of `r_c = -P_c` are exactly: (i) the proceeds never reached
+  cash, (ii) the credit landed outside ±900s in either direction, (iii) a charge
+  of 100% of proceeds — which is not seriously entertained and is inconsistent
+  with `revenue = 100 x winning_count`. A NO answer therefore **strengthens the
+  channel finding and raises the priority of A12.3's instrument change**; it is
+  not a reason to reclassify anything. It is written into the result file as a
+  dated addendum.
+- **UNANSWERED or cannot recall by 2026-09-03.** Recorded as **UNANSWERED**, the
+  cluster stays non-voting, the question is **not re-asked**, and Look 2 proceeds
+  on schedule. An open question may not become a reason to delay a look.
+
+**Forward effect on rule 1.** For Look 2 onward, E7 (A10.1) is evaluated before
+classification, so a winning cluster with a flat balance is excluded as
+UNDECIDABLE-COVERAGE and **never reaches rule 1**. The rule-1-versus-rule-2 order
+tension Look 1 reported honestly cannot recur on that configuration, and the
+ordering itself is left exactly as registered for every other configuration.
+
+---
+
+## A14. What Amendment 1 does not establish
+
+- It **measures nothing**. No residual is computed here and no verdict anywhere is
+  changed, narrowed or widened. ADR 0027's upper-bound language stands.
+- It **does not rescue Look 1**. Look 1 lost its only proceeds-bearing observation
+  and no amendment recovers it; that observation is gone.
+- It **does not make H4 answerable**. The instrument may still be blind: if
+  settled proceeds do not credit the cash balance at all — which Look 1 is
+  consistent with — then no horizon, no cadence and no span design reaches the
+  charge, and the honest terminal state after Look 3 is BLOCKED ON INSTRUMENT.
+- It **does not authorise a code change to the fee path**. `settlement_fee()` is
+  untouched, and A12.3 authorises exactly one read-only query and one analyzer.
+- **A12.2's span design is untested at the time of writing.** It is registered on
+  its arithmetic, not on a run, and a defect found in it before 2026-09-03 must be
+  fixed by a further dated amendment rather than by a decision at look time.
+- **Amendment 1 is itself post-hoc.** The three guards at the head of this section
+  are the whole defence, and a reader who thinks they are insufficient should
+  discount Look 2 accordingly rather than be talked out of it here.
