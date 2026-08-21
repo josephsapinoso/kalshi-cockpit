@@ -2650,3 +2650,133 @@ class TestH4SectionsAreWindowedAndUnjoined:
         for section in payload["sections"]:
             for col in section["columns"]:
                 assert "delta" not in col and "diff" not in col
+
+
+def _h4_span_db(tmp_path) -> Path:
+    """Rows placed so every forbidden window-mutation turns a guard red.
+
+    The in-study settlement sits at START+1_000_000, so its old +/-900s
+    window ends at START+1_900_000. One snapshot/fill/poll of each kind sits
+    at START+50_000_000 -- far outside every such window but inside the
+    study -- which is the row that leaves if anyone re-adds an `EXISTS`
+    window. One snapshot sits exactly AT study start (leaves if `>=`
+    becomes `>`) and one 1ms before it (enters if the study filter drops).
+    """
+    from scripts.inspect_live_db import _H4_STUDY_START_MS as S
+
+    path = tmp_path / "cockpit.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+    far = S + 50_000_000
+    conn.executemany(
+        "INSERT INTO venue_settlements"
+        " (ticker, settled_ms, side, contracts, market_result)"
+        " VALUES (?, ?, 'yes', 1.0, ?)",
+        [
+            ("KXMLBGAME-INSTUDY", S + 1_000_000, "yes"),
+            ("KXMLBGAME-PRESTUDY", S - 5_000_000, "no"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO venue_balance_snapshots"
+        " (observed_ms, balance_tenths, portfolio_value_tenths)"
+        " VALUES (?, ?, NULL)",
+        [
+            (S - 1, 100_000),      # 1ms pre-study: out
+            (S, 100_001),          # exactly at study start: in
+            (far, 100_002),        # in-study, far from every settlement: in
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO fills (ticker, filled_ms, count, price_tenths, is_taker,"
+        " fee_actual, fee_predicted, fee_model_used, source)"
+        " VALUES (?, ?, 1.0, 500, 1, 0.0088, 0.0176, 'model_a_deci',"
+        " 'venue_hand')",
+        [
+            ("KXMLBGAME-FARFILL", far),   # in-study, outside every window
+            ("KXMLBGAME-PRESTUDY", S - 1),  # pre-study: out
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count)"
+        " VALUES (?, ?, ?, ?)",
+        [
+            (far, "balance", 0, None),      # in-study FAILED poll, far: in
+            (far + 1, "fills", 1, 3),       # wrong endpoint: out
+            (S - 1, "balance", 1, 1),       # pre-study: out
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+class TestH4SpansAreUnwindowedAndUnjoined:
+    """`h4-balance-spans` (Amendment 1 A12.3): since-study on each table's
+    own clock, NO +/-900s window, and the whole settlements table for P_j.
+
+    Mutations these guards catch: re-adding an `EXISTS` window to B/C/D
+    (the far row leaves), `>=` becoming `>` on the study bound (the
+    at-start snapshot leaves), dropping the study filter (the 1ms-early
+    row enters), and adding a study filter to E (the pre-study settlement
+    leaves).
+    """
+
+    def _payload(self, tmp_path, capsys):
+        return _run_json(
+            capsys,
+            ["h4-balance-spans", "--db", str(_h4_span_db(tmp_path))],
+        )
+
+    def test_a_holds_only_in_study_settlements(self, tmp_path, capsys):
+        section = _named(self._payload(tmp_path, capsys), "A. venue_settlements")
+        cols = section["columns"]
+        assert [r[cols.index("ticker")] for r in section["rows"]] == [
+            "KXMLBGAME-INSTUDY"
+        ]
+
+    def test_b_keeps_the_far_snapshot_and_the_study_start_boundary(
+        self, tmp_path, capsys
+    ):
+        section = _named(self._payload(tmp_path, capsys), "B. venue_balance")
+        cols = section["columns"]
+        assert [r[cols.index("balance_tenths")] for r in section["rows"]] == [
+            100_001,   # exactly at study start
+            100_002,   # far from every settlement: only alive unwindowed
+        ]
+        assert "portfolio_value_tenths" in cols
+        assert section["rows"][0][cols.index("portfolio_value_tenths")] is None
+
+    def test_c_keeps_the_fill_no_window_would_admit(self, tmp_path, capsys):
+        section = _named(self._payload(tmp_path, capsys), "C. fills")
+        cols = section["columns"]
+        assert [r[cols.index("ticker")] for r in section["rows"]] == [
+            "KXMLBGAME-FARFILL"
+        ]
+
+    def test_d_keeps_the_far_failed_poll_and_only_balance(
+        self, tmp_path, capsys
+    ):
+        section = _named(self._payload(tmp_path, capsys), "D. poll_log")
+        cols = section["columns"]
+        assert len(section["rows"]) == 1
+        assert section["rows"][0][cols.index("ok")] == 0
+
+    def test_e_carries_the_pre_study_settlement(self, tmp_path, capsys):
+        """P_j sums EVERY settlement in a span (A12.2); a study filter here
+        would silently zero pre-study terms out of the prediction."""
+        section = _named(
+            self._payload(tmp_path, capsys), "E. venue_settlements"
+        )
+        cols = section["columns"]
+        assert [r[cols.index("ticker")] for r in section["rows"]] == [
+            "KXMLBGAME-PRESTUDY",
+            "KXMLBGAME-INSTUDY",
+        ]
+
+    def test_no_section_computes_a_delta(self, tmp_path, capsys):
+        payload = self._payload(tmp_path, capsys)
+        assert len(payload["sections"]) == 5
+        for section in payload["sections"]:
+            for col in section["columns"]:
+                assert "delta" not in col and "diff" not in col

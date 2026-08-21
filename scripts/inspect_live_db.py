@@ -2149,6 +2149,128 @@ def _q_h4_settlement_balance(conn: sqlite3.Connection, args) -> list[Section]:
 
 
 # ---------------------------------------------------------------------------
+# h4-balance-spans: Look 2's unwindowed raw material (Amendment 1, A12.3)
+# ---------------------------------------------------------------------------
+#
+# The span design (A12.2) drops the +/-900s window entirely: every adjacent
+# balance-snapshot pair is an observation, and the prediction P_j sums over
+# EVERY settlement in the table, pre-study rows included. So sections B-D
+# filter only on their own clock >= study start, and a fifth section carries
+# the whole `venue_settlements` table. Still no join and no computed delta --
+# a tolerance is a matching decision, and the analyzer owns those.
+
+_SQL_H4_SPAN_BALANCE = (
+    "SELECT observed_ms, balance_tenths, portfolio_value_tenths "
+    "FROM venue_balance_snapshots WHERE observed_ms >= :study_start "
+    "ORDER BY observed_ms"
+)
+
+_SQL_H4_SPAN_FILLS = (
+    "SELECT id, ticker, filled_ms, count, price_tenths,"
+    "       is_taker, fee_actual, source "
+    "FROM fills WHERE filled_ms >= :study_start ORDER BY filled_ms"
+)
+
+_SQL_H4_SPAN_POLLS = (
+    "SELECT polled_ms, ok, row_count, error "
+    "FROM poll_log WHERE endpoint = 'balance'"
+    " AND polled_ms >= :study_start ORDER BY polled_ms"
+)
+
+_SQL_H4_ALL_SETTLEMENTS = (
+    "SELECT id, ticker, side, contracts, entry_price_tenths,"
+    "       fee_cost_tenths, market_result, settled_ms "
+    "FROM venue_settlements ORDER BY settled_ms"
+)
+
+
+def _q_h4_balance_spans(conn: sqlite3.Connection, args) -> list[Section]:
+    """Look 2's raw material under the span design: unwindowed, unjoined.
+
+    Registered by Amendment 1 (A12.3) of
+    `docs/measurements/2026-08-20-preregistration-h4-settlement-fee.md`.
+    Sections A-D mirror `h4-settlement-balance` but carry everything since
+    study start on each table's own clock -- no `EXISTS` window, because the
+    span design has no window. Section E is the WHOLE `venue_settlements`
+    table: `P_j` sums winning settlements inside each snapshot pair whether
+    or not they post-date the study, so a study-start filter here would
+    silently zero pre-study terms out of the prediction.
+
+    What this does not establish
+    ----------------------------
+    - **No verdict, no delta, no pairing.** Rows only. Adjacent-pair
+      residuals, tolerances and cluster classification belong to the
+      registered analyzer, committed before the pull as Look 1's was.
+    - **Deposits are unrecorded by design** (`backend/config.py:499`); an
+      interval can be long under this design, so an unrecorded transfer has
+      more room to land in one. A9.2/A3's voting floor is the registered
+      countermeasure, not anything in this query.
+    - **The channel may still be blind**: if settled proceeds never credit
+      the cash balance, no horizon reaches the charge (A14), and this query
+      cannot detect that condition -- only the analyzer's positive-control
+      gate (A10) can.
+    """
+    since = {"study_start": _H4_STUDY_START_MS}
+    settlements = _fetch(
+        conn,
+        _SQL_H4_SETTLEMENTS,
+        since,
+        title=(
+            f"A. venue_settlements since study start {_iso(_H4_STUDY_START_MS)}"
+        ),
+        cap=args.limit,
+    )
+    settlements = _derive_iso(settlements, "settled_ms", "settled_iso")
+    balance = _fetch(
+        conn,
+        _SQL_H4_SPAN_BALANCE,
+        since,
+        title=(
+            "B. venue_balance_snapshots since study start, UNWINDOWED "
+            "(portfolio_value_tenths NULL = the parser's deliberate "
+            "refusal, shown on purpose)"
+        ),
+        cap=args.limit,
+    )
+    balance = _derive_iso(balance, "observed_ms", "observed_iso")
+    fills = _fetch(
+        conn,
+        _SQL_H4_SPAN_FILLS,
+        since,
+        title=(
+            "C. fills since study start, UNWINDOWED "
+            "(the fill confound, visible)"
+        ),
+        cap=args.limit,
+    )
+    fills = _derive_iso(fills, "filled_ms", "filled_iso")
+    polls = _fetch(
+        conn,
+        _SQL_H4_SPAN_POLLS,
+        since,
+        title=(
+            "D. poll_log endpoint='balance' since study start, UNWINDOWED, "
+            "including ok (a missing snapshot must read as an outage, not "
+            "a zero delta)"
+        ),
+        cap=args.limit,
+    )
+    polls = _derive_iso(polls, "polled_ms", "polled_iso")
+    all_settlements = _fetch(
+        conn,
+        _SQL_H4_ALL_SETTLEMENTS,
+        {},
+        title=(
+            "E. venue_settlements, WHOLE TABLE incl. pre-study "
+            "(P_j sums every settlement inside a span, A12.2)"
+        ),
+        cap=args.limit,
+    )
+    all_settlements = _derive_iso(all_settlements, "settled_ms", "settled_iso")
+    return [settlements, balance, fills, polls, all_settlements]
+
+
+# ---------------------------------------------------------------------------
 # estimate-match-status: the calibration study's coverage cells
 # ---------------------------------------------------------------------------
 
@@ -2362,6 +2484,15 @@ QUERIES: dict[str, QueryDef] = {
         "windows, D balance poll_log including ok. Emits rows, no delta; "
         "the subtraction is done by a human beside the stated confounds.",
         _q_h4_settlement_balance,
+    ),
+    "h4-balance-spans": QueryDef(
+        "Look 2's span-design raw material (Amendment 1 A12.3), five "
+        "sections and NO join: A settlements since study start, B balance "
+        "snapshots since study start UNWINDOWED, C fills likewise, D balance "
+        "poll_log likewise including ok, E the whole venue_settlements table "
+        "(pre-study included, for the P_j sum). Emits rows, no delta; "
+        "pairing and residuals belong to the registered analyzer.",
+        _q_h4_balance_spans,
     ),
     "estimate-match-status": QueryDef(
         "Calibration §7.5 coverage: venue_settlements by estimate_match_status "
