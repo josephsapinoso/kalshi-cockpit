@@ -154,9 +154,10 @@ exactly.** All five sharp edge values (−25.0, −3.5, −19.2, −15.3, −2.9
 tenths), sharp counts 3/3 games and 2/2, both UNDERPOWERED verdicts, total
 rows 3 and 4, and the full exclusion dict (incl. `outside_window: 16`)
 match Amendment 1's registered gate evidence line for line. The rows
-artifact sits uncommitted at
+artifact is at
 `docs/measurements/2026-08-21-spread-edge-rows-2026-08-21T040406Z.json`
-(replay by-product, reproducible free). The band session should still
+(replay by-product; committed in `e8d4614` by a broad `git add -A` — kept,
+since it is derived public-market data and doubles as the gate evidence). The band session should still
 re-run the gate before the anchor — it is free and the registration says
 before the anchor, not eighteen hours before.
 
