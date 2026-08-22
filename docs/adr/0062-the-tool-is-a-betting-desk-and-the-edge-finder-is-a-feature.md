@@ -78,10 +78,13 @@ described a 1GB machine and predates both incidents), plus Anthropic at a
 rate the code itself flags as assumed. The phrase is retired from the
 vocabulary; the recorder still runs, per §2.
 
-Two numbers only the owner can supply, both open: **the Fly invoice and the
-first Anthropic invoice.** Until they are read, every dollar figure in this
-repo about either bill is an estimate and must say so. Whether the $30 Odds
-tier stays paid is likewise the owner's call, not a session's.
+Two numbers only the owner can supply: **the Fly invoice and the first
+Anthropic invoice.** Every dollar figure in this repo about either bill is
+an estimate and must say so. **Joe declined to pull them, 2026-08-22** ("let's
+just drop that") — not answered, dropped. No future session should carry
+this as open work or ask again; if the numbers matter later, that is a new
+ask, not a resumption of this one. Whether the $30 Odds tier stays paid is
+likewise the owner's call, not a session's.
 
 ## 5. What this does not decide
 

@@ -80,14 +80,17 @@ ruff clean, tsc clean, `next build` green. Two commits (`3067bf2`, `84fbbea`),
   left this one alone for. Route and function names (`/ledger`,
   `fetchLedger`) untouched, matching `/board`'s "Picks" precedent.
 
+**Deployed 2026-08-22 ~13:40Z**: `ed05307` verified live (`/api/health`
+`git_sha` matches, `instance_mode: live`). **The two invoice numbers (ADR
+0062 §4) are DROPPED, not open** — Joe declined to pull them, 2026-08-22
+("let's just drop that"); do not carry them as work or ask again.
+
 **Next session starts here.** Nothing is queued by name — the explicit work
-list is empty for the first time since 2026-08-21. Before inventing new
-work: deploy the two commits above, then pull the Fly invoice and first
-Anthropic invoice (ADR 0062 §4, still the two unpulled numbers), then check
-the partner's "later, maybe" lists (2026-08-21 review + ADR 0061) for
-anything worth promoting. The footer parity note stands (6-and-6, at the
-bound — the next footer addition must answer the delete-commit question,
-not land there by default).
+list is empty for the first time since 2026-08-21. Check the partner's
+"later, maybe" lists (2026-08-21 review + ADR 0061) for anything worth
+promoting, or wait for Joe's direction. The footer parity note stands
+(6-and-6, at the bound — the next footer addition must answer the
+delete-commit question, not land there by default).
 
 ---
 
