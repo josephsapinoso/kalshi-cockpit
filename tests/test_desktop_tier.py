@@ -124,13 +124,18 @@ class TestTheRailIsALayoutAndNotAReordering:
     UX change smuggled in as a layout change."""
 
     def test_the_phone_reading_order_is_unchanged_in_the_dom(self):
+        """SignalStrip moved from above the cards to below them on 2026-08-22
+        (every-page review: measurement post-mortems do not outrank tonight's
+        games) — a deliberate reorder, so the pinned sequence moved with it.
+        The banner → schedule → panel → cards order is unchanged; the
+        schedule and panel merely collapsed into <details> in place."""
         page = (SRC / "app" / "board" / "page.tsx").read_text(encoding="utf-8")
         sequence = [
             "<WindowBanner",
             "<WindowSchedule",
             "<RefreshOddsPanel",
-            "<SignalStrip",
             "<LiveBoard",
+            "<SignalStrip",
             "The rest of the slate",
             "<HowToRead",
         ]
