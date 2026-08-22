@@ -46,22 +46,14 @@ import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
 import { SHELL_WIDTH } from "@/lib/shell";
+import { kalshiMarketUrl } from "@/lib/kalshiLink";
+import { leagueLabel } from "@/lib/leagueLabel";
 
 const RANGES = [
   { key: "1d", label: "Today" },
   { key: "all", label: "All" },
 ] as const;
 type Range = (typeof RANGES)[number]["key"];
-
-/** The handful of sport keys this repo actually sweeps; anything else renders
- * raw rather than guessed at. */
-const LEAGUE_LABELS: Record<string, string> = {
-  baseball_mlb: "MLB",
-  basketball_nba: "NBA",
-  basketball_wnba: "WNBA",
-  americanfootball_nfl: "NFL",
-  icehockey_nhl: "NHL",
-};
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleString("en-US", {
@@ -99,7 +91,15 @@ function statusLine(detail: MarketDetail, now: number): string {
   return "Start time unknown — no linked sportsbook fixture.";
 }
 
-function QuoteStrip({ detail, now }: { detail: MarketDetail; now: number }) {
+function QuoteStrip({
+  detail,
+  now,
+  kalshiUrl,
+}: {
+  detail: MarketDetail;
+  now: number;
+  kalshiUrl: string;
+}) {
   const status = (detail.market_status ?? "").toLowerCase();
   const dead =
     status === "finalized" ||
@@ -118,7 +118,16 @@ function QuoteStrip({ detail, now }: { detail: MarketDetail; now: number }) {
           {age !== null && age !== undefined
             ? `${agoWord(age)} old`
             : "of unknown age"}
-          {" "}— not a price you can transact on. The live book is on Kalshi.
+          {" "}— not a price you can transact on. The live book is{" "}
+          <a
+            href={kalshiUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold underline"
+          >
+            on Kalshi ↗
+          </a>
+          .
         </p>
       </div>
     );
@@ -148,6 +157,7 @@ export default function MarketPage() {
   const [detail, setDetail] = useState<MarketDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -183,19 +193,29 @@ export default function MarketPage() {
       // "the runner never priced this", not a page error.
       .catch(() => {
         if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [ticker]);
 
+  // Three header states, drawn apart (2026-08-22 review, A8): this page
+  // rendered the literal string "Market" for loading AND for
+  // nothing-found, which are opposite claims — one asks for patience, the
+  // other answers the question.
+  const stillLoading = loading || detailLoading;
+  const nothingFound = !stillLoading && detail === null && data === null;
   const matchup =
     detail?.home_team && detail?.away_team
       ? `${detail.away_team} @ ${detail.home_team}`
-      : (data?.title ?? detail?.event_title ?? "Market");
-  const league = detail?.league
-    ? (LEAGUE_LABELS[detail.league] ?? detail.league)
-    : null;
+      : (data?.title ??
+        detail?.event_title ??
+        (stillLoading ? "Loading…" : ticker));
+  const kalshiUrl = kalshiMarketUrl(ticker);
+  const league = detail?.league ? leagueLabel(detail.league) : null;
 
   const totalVolume = data
     ? data.candles.reduce((sum, c) => sum + (c.volume ?? 0), 0)
@@ -217,7 +237,26 @@ export default function MarketPage() {
           {league && <span>{league} · </span>}
           {detail ? statusLine(detail, now) : ""}
         </p>
-        {detail && <QuoteStrip detail={detail} now={now} />}
+        {nothingFound && (
+          <p className="mt-2 max-w-[65ch] text-sm text-muted">
+            Nothing is recorded here for this ticker — the recorder never
+            priced it, which is not the same as the market not existing.
+          </p>
+        )}
+        {/* The escape hatch this app never had (A7): scheme verified in a
+            browser 2026-08-22, built in lib/kalshiLink.ts. External link on
+            purpose — it leaves the cockpit and says so. */}
+        <p className="mt-2 max-w-[65ch] text-sm">
+          <a
+            href={kalshiUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-accent underline"
+          >
+            Open on Kalshi ↗
+          </a>
+        </p>
+        {detail && <QuoteStrip detail={detail} now={now} kalshiUrl={kalshiUrl} />}
       </header>
 
       {/* The desk first: the reason this page exists is what the scouts know
