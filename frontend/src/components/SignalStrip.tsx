@@ -1,5 +1,6 @@
 import type { Signal } from "@/lib/api";
 import { formatAge } from "@/lib/api";
+import Hint from "@/components/Hint";
 
 /**
  * What everything below this strip is worth, stated where the cards are read.
@@ -171,9 +172,15 @@ function Stat({
   value: string;
   title: string;
 }) {
+  /* The explanation opens on tap, not only on hover (2026-08-22 review,
+     A6): these six statistics carried their caveats in title= attributes,
+     which a phone cannot open at all. Hint keeps hover as the desktop
+     shortcut and gives every reader the tap. */
   return (
-    <div className="flex items-baseline gap-1.5" title={title}>
-      <dt>{label}</dt>
+    <div className="flex items-baseline gap-1.5">
+      <dt>
+        <Hint hint={title}>{label}</Hint>
+      </dt>
       <dd className="tabular font-semibold text-foreground">{value}</dd>
     </div>
   );

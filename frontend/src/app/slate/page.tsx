@@ -16,6 +16,7 @@ import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
+import Hint from "@/components/Hint";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
@@ -441,18 +442,21 @@ function Books({ row }: { row: SlateRowData }) {
   const books = row.books;
   if (!books || books.book_count === 0) {
     return (
-      <span className="tabular text-xs text-muted" title="No usable book prices stored for this fixture.">
+      <Hint
+        hint="No usable book prices stored for this fixture."
+        className="tabular text-xs text-muted"
+      >
         books —
-      </span>
+      </Hint>
     );
   }
   return (
-    <span
+    <Hint
+      hint={`${books.books_below} of ${books.book_count} usable books price this side below Kalshi's ask. Book figures are devigged — the bookmaker's margin removed — while Kalshi's is an ask, so "under" over-counts by about half a spread.`}
       className="tabular text-xs text-muted"
-      title={`${books.books_below} of ${books.book_count} usable books price this side below Kalshi's ask. Book figures are devigged; Kalshi's is an ask.`}
     >
       {books.books_below}/{books.book_count} books under
-    </span>
+    </Hint>
   );
 }
 
@@ -568,23 +572,23 @@ function Drift({
 }) {
   if (tenths === null) {
     return (
-      <span
+      <Hint
+        hint="Fewer than two Kalshi quotes stored in the window. Not the same as the price holding steady."
         className="tabular text-xs text-muted"
-        title="Fewer than two Kalshi quotes stored in the window. Not the same as the price holding steady."
       >
         drift —
-      </span>
+      </Hint>
     );
   }
   const minutes = Math.round(windowMs / 60_000);
   return (
-    <span
+    <Hint
+      hint={`Change in the price you would pay over the last ${minutes} minutes.`}
       className="tabular text-xs text-muted"
-      title={`Change in the price you would pay over the last ${minutes} minutes.`}
     >
       {tenths > 0 ? "+" : ""}
       {(tenths / 10).toFixed(1)}c/{minutes}m
-    </span>
+    </Hint>
   );
 }
 
@@ -602,13 +606,13 @@ function Capacity({ row }: { row: SlateRowData }) {
     return <span className="tabular text-xs text-muted">size —</span>;
   }
   return (
-    <span
+    <Hint
+      hint="Contracts resting at this ask, and the market's open interest (how many contracts are held open in this market). Availability is not fillability — both are stored quotes."
       className="tabular text-xs text-muted"
-      title="Contracts resting at this ask, and the market's open interest. Availability is not fillability — both are stored quotes."
     >
       {depth === null ? "—" : Math.round(depth)} @ask
       {oi === null ? "" : ` · ${Math.round(oi).toLocaleString()} OI`}
-    </span>
+    </Hint>
   );
 }
 
@@ -629,21 +633,24 @@ function Anchor({ anchored }: { anchored: boolean | null | undefined }) {
   }
   if (anchored) {
     return (
-      <span
+      <Hint
+        hint="A sharp book — one whose prices professionals treat as the reference — quoted this market, and the consensus is anchored on it."
         className="tabular text-xs text-muted"
-        title="A sharp book quoted this market; the consensus is anchored on it."
       >
         sharp-anchored
-      </span>
+      </Hint>
     );
   }
+  // The most consequential caveat in the product — all three actionable rows
+  // ever written were soft fallbacks — and until 2026-08-22 its meaning
+  // lived only in a title= attribute a phone cannot open (A6).
   return (
-    <span
+    <Hint
+      hint="No sharp book quoted this market, so the fair value silently fell back to the full soft-book set — a wide consensus wearing a sharp consensus's name. Every actionable row this record has ever produced was one of these."
       className="text-xs font-semibold text-accent-2"
-      title="No sharp book quoted this market, so the fair value fell back to the full soft-book set. The edge is measured against a wide consensus, not a sharp one."
     >
       soft fallback
-    </span>
+    </Hint>
   );
 }
 
@@ -663,12 +670,12 @@ function Width({ width }: { width: number | null | undefined }) {
   }
   const points = width * 100;
   return (
-    <span
+    <Hint
+      hint={`The devigged books disagree with each other by ${points.toFixed(1)} points on this outcome — the consensus's own error bar.`}
       className="tabular text-xs text-muted"
-      title={`The devigged books disagree with each other by ${points.toFixed(1)} points on this outcome.`}
     >
       width {points.toFixed(1)}c
-    </span>
+    </Hint>
   );
 }
 
