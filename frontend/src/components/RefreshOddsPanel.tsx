@@ -6,6 +6,7 @@ import {
 } from "@/lib/api";
 import type { ActionableWindow, Refreshable } from "@/lib/api";
 import RefreshOddsButton from "@/components/RefreshOddsButton";
+import { leagueLabel } from "@/lib/leagueLabel";
 
 /**
  * The way out of a slate that is grey because of a clock.
@@ -99,7 +100,11 @@ export default async function RefreshOddsPanel({
 
       {data.sports.map((sport) => (
         <div key={sport.sport_key} className="mt-4 border-t pt-4">
-          <h3 className="font-mono text-sm font-semibold">{sport.sport_key}</h3>
+          {/* The league in a bettor's words; the vendor key survives in
+              title= for anyone debugging the feed (2026-08-22 review). */}
+          <h3 className="text-sm font-semibold" title={sport.sport_key}>
+            {leagueLabel(sport.sport_key)}
+          </h3>
 
           <RefreshOddsButton
             className="mt-2"

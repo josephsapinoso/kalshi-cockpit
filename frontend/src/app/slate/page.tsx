@@ -75,7 +75,7 @@ export default async function SlatePage() {
   } catch {
     return (
       <Shell>
-        <h1 className="text-2xl font-extrabold tracking-tight">Slate</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
         <p className="mt-4 text-muted">Backend unreachable.</p>
       </Shell>
     );
@@ -86,7 +86,12 @@ export default async function SlatePage() {
   return (
     <Shell>
       <header>
-        <h1 className="text-2xl font-extrabold tracking-tight">Slate</h1>
+        {/* "Games", matching its own nav label since 2026-08-22 (A5): the
+            nav said Games, the heading said Slate, and the footer used to
+            say a third thing — one screen, one name. "Slate" survives as
+            the route alias and the API vocabulary, which readers of code
+            meet with the map in hand. */}
+        <h1 className="text-2xl font-extrabold tracking-tight">Games</h1>
         <p className="mt-2 max-w-prose text-sm text-muted">
           Everything on the record for tonight — the facts you would transact
           against, not a verdict.

@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 
 import { glossSentence } from "@/lib/suppressionGloss";
+import { tickerLabel } from "@/lib/tickerLabel";
 import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
@@ -103,8 +104,8 @@ export default async function LedgerPage() {
               <span className="font-mono text-xs text-muted">
                 {formatAge(Date.now() - rec.created_ms)}
               </span>
-              <span className="font-semibold tracking-tight">
-                {rec.team ?? rec.ticker}
+              <span className="font-semibold tracking-tight" title={rec.ticker}>
+                {rec.team ?? tickerLabel(rec.ticker)}
               </span>
               {/* Fair value as a percentage, ask as a price. Rendering both
                   with a `c` suffix put a probability and a price side by side in

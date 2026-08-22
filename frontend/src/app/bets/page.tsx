@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { SHELL_WIDTH } from "@/lib/shell";
+import { tickerLabel } from "@/lib/tickerLabel";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
@@ -153,8 +154,15 @@ function BetRow({ bet }: { bet: SettledBet }) {
         className="flex items-baseline gap-3 py-4 transition-colors hover:bg-accent-soft"
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-sm font-semibold">
-            {bet.ticker}
+          {/* tickerLabel keeps the TAIL — CSS truncate cuts the right end,
+              which on a combo shard is the only identifying part, so every
+              combo row rendered identically (2026-08-22 review). The full
+              ticker stays in title= for hover and copy. */}
+          <span
+            className="block truncate font-mono text-sm font-semibold"
+            title={bet.ticker}
+          >
+            {tickerLabel(bet.ticker)}
           </span>
           <span className="mt-0.5 block text-xs text-muted">
             {contracts} × {bet.side.toUpperCase()} at{" "}

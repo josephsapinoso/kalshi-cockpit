@@ -241,7 +241,10 @@ export default function OpportunityCard({
         </span>
         <span>books {formatAge(oddsAge)}</span>
         {rec.depth_at_ask !== null && <span>depth {rec.depth_at_ask.toFixed(0)}</span>}
-        <span className="ml-auto">cfg v{rec.strategy_config_version}</span>
+        {/* `cfg v9` came off the card in the 2026-08-22 review: which
+            strategy-config version priced a row is the Playbook's fact, and
+            on the card it read as one more code a novice must decode. The
+            payload still carries it. */}
       </div>
 
       {expired && (

@@ -1,5 +1,6 @@
 import type { ActionableWindow } from "@/lib/api";
 import { displayZoneLabel, formatClock, formatUntil } from "@/lib/api";
+import { leagueLabel } from "@/lib/leagueLabel";
 
 /**
  * When to actually look, for the rest of the budget day.
@@ -127,7 +128,9 @@ export default function WindowSchedule({
                 <span className="text-sm">
                   {s.games_covered} game{s.games_covered === 1 ? "" : "s"}
                 </span>
-                <span className="text-sm text-muted">{s.sport_key}</span>
+                <span className="text-sm text-muted" title={s.sport_key}>
+                  {leagueLabel(s.sport_key)}
+                </span>
                 {/* The deadline the window exists to beat. A window that
                     closed after the game started would have priced nothing
                     worth having. */}

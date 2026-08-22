@@ -3,6 +3,22 @@ import { fetchGate } from "@/lib/api";
 export const dynamic = "force-dynamic";
 
 /**
+ * Plain headlines for the gate's condition names — the suppressionGloss
+ * treatment this screen never adopted (2026-08-22 review, A5): the headline
+ * is for the reader, the engine's own name stays as the caption, so the
+ * vocabulary the backend logs in is still on the screen a bug report quotes.
+ * An unknown name renders as itself — a condition this build has not met
+ * gets no invented headline.
+ */
+const CONDITION_HEADLINES: Record<string, string> = {
+  scored_recommendations: "Enough scored games to mean something",
+  clv_survives_noise_guard: "The record beats random chance",
+  fee_model_verified: "The fee model matches real fills",
+  config_enabled: "The live-trading switch is on",
+  data_fresh: "The data is fresh at this moment",
+};
+
+/**
  * Why execution is locked.
  *
  * The gate defaults to closed and this page exists so that "closed" is never
@@ -85,10 +101,17 @@ export default async function GatePage() {
               {condition.met ? "✓" : "—"}
             </span>
             <div>
-              <div className="font-mono text-sm font-semibold">
-                {condition.name}
+              <div className="text-sm font-semibold">
+                {CONDITION_HEADLINES[condition.name] ?? condition.name}
               </div>
-              <div className="mt-1 text-sm text-muted">{condition.detail}</div>
+              {CONDITION_HEADLINES[condition.name] && (
+                <div className="font-mono text-xs text-muted">
+                  {condition.name}
+                </div>
+              )}
+              <div className="mt-1 max-w-[65ch] text-sm text-muted">
+                {condition.detail}
+              </div>
             </div>
           </li>
         ))}
