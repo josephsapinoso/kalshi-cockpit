@@ -11,6 +11,7 @@ import type {
   SlateRowData,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import { refreshIsUrgent } from "@/lib/refreshUrgency";
 import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
@@ -132,21 +133,30 @@ export default async function SlatePage() {
           the signed record is /bets, after settlement. */}
       {data.tonight && <TonightStrip tonight={data.tonight} />}
 
-      {/* **Two book counts, and they mean different things.** The distribution
-          spans every usable book; `fair_prices.book_count` is what survived the
-          sharp anchoring. Where those differ, the gap *is* ADR 0021 §7.2 — the
-          consensus the edge was computed against is narrower than the market. */}
-      <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+      {/* Two stats, down from four (2026-08-22 review): the first game row
+          sat ~1,700px from the top — below the fold on the phone AND the
+          desktop — and "With book spread" / "Actionable, ever" are apparatus
+          a bettor cannot act on tonight. On the slate + Bettable answer the
+          two questions a glance actually asks: how many games, and did
+          anything clear the bar. */}
+      <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4">
         <Stat label="On the slate" value={counts.returned} />
         <Stat label="Bettable" value={counts.surfaced} />
-        <Stat label="With book spread" value={counts.with_book_distribution} />
-        <Stat label="Actionable, ever" value={slate.actionable_total} />
       </dl>
 
-      {/* Placed above the rows, not below them. A slate greyed out by the
-          clock is unreadable until this is used, so it has to be visible
-          without scrolling past the thing it fixes. */}
-      <RefreshOddsPanel actionable={actionable} />
+      {/* The panel takes the top slot only when it can fix what the reader
+          is about to misread — stale consensus, or a slate that is not
+          current (lib/refreshUrgency.ts, node-tested). A fresh slate puts
+          the games first and the panel below them: the 2026-08-22 review's
+          ruling, superseding the unconditional "above the rows" placement.
+          The urgency read and the rows' own staleness ink share the same
+          odds-age limit, so the panel cannot jump above rows that all render
+          fresh. */}
+      {refreshIsUrgent(
+        rows,
+        data.staleness.max_odds_age_s * 1000,
+        slate.is_current,
+      ) && <RefreshOddsPanel actionable={actionable} />}
 
       {!slate.is_current && slate.anchor_ms !== null && (
         <p className="mt-6 max-w-[65ch] rounded-lg border border-accent-2/70 bg-card p-3 text-sm text-accent-2">
@@ -155,13 +165,6 @@ export default async function SlatePage() {
           {Math.round((slate.age_ms ?? 0) / 60_000)} minutes.
         </p>
       )}
-
-      {/* Above the rows: what the edge-finder was worth when it was
-          measured against Kalshi's own close. It stays even though the edge
-          column is gone — it is the reason the column is gone. */}
-      <div className="mt-6">
-        <SignalStrip signal={signal} now={Date.now()} />
-      </div>
 
       {rows.length === 0 ? (
         <p className="mt-8 max-w-[65ch] text-muted">
@@ -184,6 +187,23 @@ export default async function SlatePage() {
       )}
 
       <RefusalSummary rows={rows} />
+
+      {/* Below the rows when nothing is stale — the same panel, demoted, so
+          a fresh slate leads with games (2026-08-22 review). */}
+      {!refreshIsUrgent(
+        rows,
+        data.staleness.max_odds_age_s * 1000,
+        slate.is_current,
+      ) && <RefreshOddsPanel actionable={actionable} />}
+
+      {/* Below the rows since 2026-08-22 (it sat above them): what the
+          edge-finder was worth when it was measured against Kalshi's own
+          close. It stays on the page even though the edge column is gone —
+          it is the reason the column is gone — but a measurement's
+          post-mortem does not outrank tonight's games. */}
+      <div className="mt-8">
+        <SignalStrip signal={signal} now={Date.now()} />
+      </div>
 
       {slate.truncated && (
         <p className="mt-6 max-w-[65ch] text-xs text-muted">
