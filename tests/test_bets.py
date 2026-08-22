@@ -12,6 +12,7 @@ from __future__ import annotations
 import httpx
 
 from backend import bets
+from backend.analysis.clv import DEFAULT_HORIZON_HOURS
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db
@@ -54,14 +55,40 @@ def _insert(conn, **overrides):
         "contracts": 2.0,
         "entry_price_tenths": 400,
         "fee_cost_tenths": 20,
+        "position_first_seen_ms": None,
     }
     row.update(overrides)
     conn.execute(
         "INSERT INTO venue_settlements (ticker, event_ticker, market_result, "
-        "settled_ms, side, contracts, entry_price_tenths, fee_cost_tenths) "
+        "settled_ms, side, contracts, entry_price_tenths, fee_cost_tenths, "
+        "position_first_seen_ms) "
         "VALUES (:ticker, :event_ticker, :market_result, :settled_ms, :side, "
-        ":contracts, :entry_price_tenths, :fee_cost_tenths)",
+        ":contracts, :entry_price_tenths, :fee_cost_tenths, "
+        ":position_first_seen_ms)",
         row,
+    )
+    conn.commit()
+
+
+def _market(conn, *, ticker="KXTEST-GAME"):
+    """The discovery row `closing_lines` FKs against."""
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, first_seen_ms, last_seen_ms) "
+        "VALUES (?, 0, 0)",
+        (ticker,),
+    )
+    conn.commit()
+
+
+def _closing_line(
+    conn, *, ticker="KXTEST-GAME", horizon_hours=DEFAULT_HORIZON_HOURS,
+    observed_ms=500, yes_bid_tenths=520, yes_ask_tenths=540,
+):
+    """A stored closing line. Caller must have inserted the market row first."""
+    conn.execute(
+        "INSERT INTO closing_lines (ticker, horizon_hours, observed_ms, "
+        "yes_bid_tenths, yes_ask_tenths) VALUES (?, ?, ?, ?, ?)",
+        (ticker, horizon_hours, observed_ms, yes_bid_tenths, yes_ask_tenths),
     )
     conn.commit()
 
@@ -133,6 +160,100 @@ class TestTheTotalsAreHonest:
         totals = bets.bets_record(conn)["totals"]
         assert totals["wins"] == 1
         assert totals["losses"] == 1
+
+
+class TestPerBetCLV:
+    """`bets.bet_clv` -- per-row only, no average or hit rate anywhere here
+    (the partner's hard constraint, checked below by grepping the module).
+    """
+
+    def test_a_yes_bet_scores_against_the_close_mid(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500, yes_bid_tenths=520, yes_ask_tenths=540)
+        _insert(conn, side="yes", entry_price_tenths=480, position_first_seen_ms=100)
+        record = bets.bets_record(conn)
+        bet = record["bets"][0]
+        # mid 530, bought at 480: +50 tenths = +5.0c
+        assert bet["clv_tenths"] == 50.0
+        assert bet["clv_display"] == "+5.0c"
+        assert bet["clv_refusal_reason"] is None
+        assert bet["close_mid_tenths"] == 530
+        assert bet["close_display"] == "53c"
+
+    def test_the_no_side_uses_the_complement(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500, yes_bid_tenths=520, yes_ask_tenths=540)
+        _insert(conn, side="no", entry_price_tenths=480, position_first_seen_ms=100)
+        bet = bets.bets_record(conn)["bets"][0]
+        # NO worth (1000-530)=470, bought at 480: -10 tenths
+        assert bet["clv_tenths"] == -10.0
+        assert bet["clv_display"] == "-1.0c"
+
+    def test_no_closing_line_refuses(self, tmp_path):
+        """The structural refusal the partner expected for most hand bets:
+        no discovery row, no link, or the game just hasn't been scored yet."""
+        conn = db.init_db(tmp_path / "b.db")
+        _insert(conn, position_first_seen_ms=100)
+        bet = bets.bets_record(conn)["bets"][0]
+        assert bet["clv_tenths"] is None
+        assert bet["clv_display"] is None
+        assert bet["clv_refusal_reason"] == "no_closing_line"
+        assert bet["close_mid_tenths"] is None
+
+    def test_an_unreadable_close_refuses(self, tmp_path):
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, yes_bid_tenths=None, yes_ask_tenths=None)
+        _insert(conn, position_first_seen_ms=100)
+        bet = bets.bets_record(conn)["bets"][0]
+        assert bet["clv_tenths"] is None
+        assert bet["clv_refusal_reason"] == "unreadable_close"
+
+    def test_an_unknown_entry_time_refuses(self, tmp_path):
+        """`position_first_seen_ms` NULL means the poller never caught the
+        fill landing -- refuse, don't treat it as 'before everything'."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, position_first_seen_ms=None)
+        bet = bets.bets_record(conn)["bets"][0]
+        assert bet["clv_tenths"] is None
+        assert bet["clv_refusal_reason"] == "entry_time_unknown"
+
+    def test_an_entry_after_the_close_refuses(self, tmp_path):
+        """Scoring an entry against a price observed before it existed would
+        put market drift into a number meant to detect edge."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, position_first_seen_ms=501)
+        bet = bets.bets_record(conn)["bets"][0]
+        assert bet["clv_tenths"] is None
+        assert bet["clv_refusal_reason"] == "entry_after_close"
+
+    def test_only_the_primary_horizon_is_read(self, tmp_path):
+        """A line stored at the control horizon must not be picked up here --
+        `scoring.py` scores `recommendations` at the primary horizon only,
+        for the same reason: mixing horizons hides which anchor produced a
+        number."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, horizon_hours=1.0, observed_ms=500)
+        _insert(conn, position_first_seen_ms=100)
+        bet = bets.bets_record(conn)["bets"][0]
+        assert bet["clv_refusal_reason"] == "no_closing_line"
+
+    def test_module_computes_no_aggregate_clv(self):
+        """The partner's hard constraint, checked at the source: no average,
+        no hit rate, no beat-the-close rate anywhere in this module until
+        n >= 30 with the per-group view beside it."""
+        import inspect
+
+        source = inspect.getsource(bets)
+        for banned in ("mean_clv", "avg_clv", "beat_close_rate", "hit_rate"):
+            assert banned not in source, f"{banned} found in backend/bets.py"
 
 
 class TestTheRoute:

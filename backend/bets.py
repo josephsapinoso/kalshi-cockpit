@@ -42,6 +42,8 @@ import sqlite3
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
+from .analysis.clv import DEFAULT_HORIZON_HOURS
+from .analysis.clv import clv_tenths as _clv_tenths
 from .core.prices import format_price
 from .odds.timing import day_start_ms
 
@@ -98,6 +100,55 @@ def settlement_net_tenths(row: Any) -> Optional[int]:
     return int(net.quantize(Decimal(1)))
 
 
+def format_clv_cents(clv: Optional[float]) -> Optional[str]:
+    """A signed cents string for a per-bet CLV figure, or None for a refusal.
+
+    Deliberately not `format_net_dollars`: CLV is a per-contract price
+    difference in cents (what the position is worth at the close, minus what
+    it cost), not a dollar sum -- rendering it as "+$0.05" would read as
+    money moved rather than a price beaten. 23 -> "+2.3c", -5 -> "-0.5c".
+    """
+    if clv is None:
+        return None
+    sign = "-" if clv < 0 else "+"
+    return f"{sign}{abs(clv) / 10:.1f}c"
+
+
+def bet_clv(row: Any) -> tuple[Optional[float], Optional[str]]:
+    """One bet's closing-line value, and why it refuses when it does.
+
+    Mirrors `analysis.clv.score_recommendations`'s convention exactly:
+    `close_mid = (yes_bid + yes_ask) / 2`, `entry_price_tenths` is already
+    side-denominated (the price actually paid for the side held, same
+    convention as `recommendations.entry_ask_tenths`), and the entry must
+    precede the close it is scored against -- a bet placed after the close
+    was observed would be scored against a price that predates the decision,
+    which puts market drift into a number meant to detect edge rather than
+    it. `position_first_seen_ms` carries that instant here (`venue_settlements`
+    has no `created_ms`); NULL means the poller never caught the fill landing,
+    which must refuse, not be treated as "before everything".
+
+    Returns `(None, reason)` on every refusal, never a substituted number --
+    `reason` is `"no_closing_line"` (most hand-bet tickers, structurally: no
+    discovery row, no link, or the game hasn't been scored yet),
+    `"unreadable_close"` (a line was stored but a side was unreadable, or the
+    entry price itself is), `"entry_time_unknown"`, or `"entry_after_close"`.
+    `(value, None)` is the only scored case.
+    """
+    if row["closing_observed_ms"] is None:
+        return None, "no_closing_line"
+    if row["yes_bid_tenths"] is None or row["yes_ask_tenths"] is None:
+        return None, "unreadable_close"
+    if row["entry_price_tenths"] is None:
+        return None, "unreadable_close"
+    if row["position_first_seen_ms"] is None:
+        return None, "entry_time_unknown"
+    if row["position_first_seen_ms"] > row["closing_observed_ms"]:
+        return None, "entry_after_close"
+    mid = (row["yes_bid_tenths"] + row["yes_ask_tenths"]) / 2
+    return _clv_tenths(row["entry_price_tenths"], mid, row["side"]), None
+
+
 def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     """The record and its honest totals, newest settlement first.
 
@@ -109,12 +160,26 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     number beside the count of what it does not cover, per the measurement
     rules. `wins`/`losses` count computable rows by whether the venue's
     result matched the held side.
+
+    Each returned bet also carries its own closing-line value (`bet_clv`),
+    read against the primary horizon `scoring.py` fills for
+    `venue_settlements` tickers same as it does for recommendations. Per-bet
+    only, by the partner's hard constraint on the most ego-loaded quantity in
+    the product: **no average, no hit rate, no "you beat the close X% of the
+    time" anywhere in this module** until n >= 30 with the per-group view
+    printed beside it. Nothing here computes one.
     """
     rows = conn.execute(
-        "SELECT ticker, event_ticker, market_result, settled_ms, side, "
-        "contracts, entry_price_tenths, fee_cost_tenths, "
-        "position_first_seen_ms, is_taker, n_fills_in_position "
-        "FROM venue_settlements ORDER BY settled_ms DESC, id DESC"
+        "SELECT v.ticker, v.event_ticker, v.market_result, v.settled_ms, v.side, "
+        "v.contracts, v.entry_price_tenths, v.fee_cost_tenths, "
+        "v.position_first_seen_ms, v.is_taker, v.n_fills_in_position, "
+        "c.observed_ms AS closing_observed_ms, "
+        "c.yes_bid_tenths, c.yes_ask_tenths "
+        "FROM venue_settlements v "
+        "LEFT JOIN closing_lines c "
+        "  ON c.ticker = v.ticker AND c.horizon_hours = ? "
+        "ORDER BY v.settled_ms DESC, v.id DESC",
+        (DEFAULT_HORIZON_HOURS,),
     ).fetchall()
 
     bets: list[dict] = []
@@ -139,6 +204,10 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 losses += 1
         if len(bets) >= limit:
             continue
+        clv, clv_refusal_reason = bet_clv(row)
+        close_mid_tenths: Optional[float] = None
+        if row["yes_bid_tenths"] is not None and row["yes_ask_tenths"] is not None:
+            close_mid_tenths = (row["yes_bid_tenths"] + row["yes_ask_tenths"]) / 2
         bets.append(
             {
                 "ticker": row["ticker"],
@@ -156,6 +225,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 "position_first_seen_ms": row["position_first_seen_ms"],
                 "is_taker": row["is_taker"],
                 "n_fills_in_position": row["n_fills_in_position"],
+                "clv_tenths": clv,
+                "clv_display": format_clv_cents(clv),
+                "clv_refusal_reason": clv_refusal_reason,
+                "close_mid_tenths": close_mid_tenths,
+                "close_display": (
+                    format_price(int(round(close_mid_tenths)))
+                    if close_mid_tenths is not None
+                    else None
+                ),
             }
         )
     return {

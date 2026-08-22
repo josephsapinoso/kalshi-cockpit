@@ -117,6 +117,18 @@ export default async function BetsPage() {
  * market was. A refused net renders "—" with the reason class in the words
  * above — never a zero, and never a hidden row.
  */
+/**
+ * Words for a refused per-bet CLV, in place of the number. No reason ever
+ * substitutes a value -- `bet.clv_display` stays null and this is the only
+ * thing rendered instead.
+ */
+const CLV_REFUSAL_WORDS: Record<string, string> = {
+  no_closing_line: "close not read yet",
+  unreadable_close: "close unreadable",
+  entry_time_unknown: "entry time unknown",
+  entry_after_close: "entered after close",
+};
+
 function BetRow({ bet }: { bet: SettledBet }) {
   const settled = new Date(bet.settled_ms).toLocaleString("en-US", {
     timeZone: DISPLAY_TIME_ZONE,
@@ -130,6 +142,10 @@ function BetRow({ bet }: { bet: SettledBet }) {
     : bet.contracts.toFixed(2);
   const result =
     bet.won === null ? "unresolved" : bet.won ? "won" : "lost";
+  const clvWords =
+    bet.clv_display !== null
+      ? `close ${bet.close_display} · CLV ${bet.clv_display}`
+      : (CLV_REFUSAL_WORDS[bet.clv_refusal_reason ?? ""] ?? "close unknown");
   return (
     <li>
       <Link
@@ -143,6 +159,15 @@ function BetRow({ bet }: { bet: SettledBet }) {
           <span className="mt-0.5 block text-xs text-muted">
             {contracts} × {bet.side.toUpperCase()} at{" "}
             {bet.entry_price_display} · settled {settled}
+          </span>
+          <span
+            className={`mt-0.5 block text-xs ${
+              bet.clv_tenths !== null && bet.clv_tenths < 0
+                ? "text-negative"
+                : "text-muted"
+            }`}
+          >
+            {clvWords}
           </span>
         </span>
         <span className="shrink-0 text-right">

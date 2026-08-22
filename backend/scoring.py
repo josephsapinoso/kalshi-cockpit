@@ -95,11 +95,24 @@ class ScoringCounts:
 
 
 def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
-    """Markets with unscored recommendations whose game has already started.
+    """Markets whose game has started and that still need a closing line.
 
-    The commence time comes from the linked **odds** fixture. See the module
-    docstring -- taking it from `kalshi_events` would place every reading two
-    hours into the game.
+    Two sources, unioned. The first is unscored `recommendations` -- unchanged
+    from before. The second is Joe's own settled bets (`venue_settlements`),
+    added 2026-08-22 so his hand-placed positions get CLV too: a market only
+    reaches this branch once it has a `kalshi_markets` row (discovery found
+    it) and an `event_links` row (the matcher linked it) -- most hand-bet
+    tickers refuse right there, which is expected and honest, not a bug to
+    chase (the partner's ruling on the re-scoped CLV item).
+
+    The commence time comes from the linked **odds** fixture in both branches.
+    See the module docstring -- taking it from `kalshi_events` would place
+    every reading two hours into the game.
+
+    The venue-settlements branch stops once ANY `closing_lines` row exists for
+    the ticker, at any horizon -- unlike the recommendations branch, there is
+    no `clv_scored_ms` to flip, so without this stop-predicate a hand-bet
+    ticker would be re-fetched every pass forever.
 
     A market is only returned once its true start has passed, because a closing
     line does not exist until then. Rows for games still ahead are counted as
@@ -119,6 +132,23 @@ def markets_awaiting_scoring(conn, *, now: int) -> list[dict[str, Any]]:
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE r.clv_scored_ms IS NULL
           AND m.series_ticker IS NOT NULL
+
+        UNION
+
+        SELECT DISTINCT v.ticker,
+               m.series_ticker,
+               o.commence_ms AS true_commence_ms
+        FROM venue_settlements v
+        JOIN kalshi_markets m ON m.ticker = v.ticker
+        JOIN event_links l   ON l.kalshi_event_ticker = m.event_ticker
+        JOIN (
+            SELECT odds_event_id, MIN(commence_ms) AS commence_ms
+            FROM odds_snapshots GROUP BY odds_event_id
+        ) o ON o.odds_event_id = l.odds_event_id
+        WHERE m.series_ticker IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM closing_lines c WHERE c.ticker = v.ticker
+          )
         """
     ).fetchall()
 

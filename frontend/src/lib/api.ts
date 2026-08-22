@@ -163,9 +163,10 @@ export type Recommendation = Partial<DevigMethods> &
    * The ages as they are *now*, sent only by the Board.
    *
    * `kalshi_quote_age_ms` and `odds_age_ms` above are the ages at the moment
-   * the row was written and never move, which is right on the Ledger — there
-   * they are a historical fact about the observation — and dangerously wrong
-   * on the Board, where a row from three hours ago still reads "quote 3s ago".
+   * the row was written and never move, which is right on Evidence (`/ledger`)
+   * — there they are a historical fact about the observation — and dangerously
+   * wrong on the Board, where a row from three hours ago still reads "quote 3s
+   * ago".
    */
   quote_age_now_ms?: number | null;
   odds_age_now_ms?: number | null;
@@ -1055,7 +1056,7 @@ export function hasSuppression(
  *   negative  nothing refused it and there is no edge.
  *
  * Shared rather than written per screen because a suppressed row reaches the
- * eye down more than one path — the Board's slate rows and the Ledger — and a
+ * eye down more than one path — the Board's slate rows and Evidence — and a
  * second copy of this rule is a second chance to render green over a defect.
  */
 export type EdgeTone = "suspect" | "refused" | "positive" | "negative";
@@ -1801,6 +1802,17 @@ export type SettledBet = {
   position_first_seen_ms: number | null;
   is_taker: number | null;
   n_fills_in_position: number | null;
+  // Per-bet closing-line value, read on request against Kalshi's own close
+  // (2026-08-22). `clv_refusal_reason` is set only when `clv_tenths` is
+  // null: "no_closing_line" (most hand bets -- no discovery row, no matcher
+  // link, or the game hasn't been scored yet), "unreadable_close",
+  // "entry_time_unknown", or "entry_after_close". No average or hit rate is
+  // computed anywhere -- per-bet only, until n >= 30.
+  clv_tenths: number | null;
+  clv_display: string | null;
+  clv_refusal_reason: string | null;
+  close_mid_tenths: number | null;
+  close_display: string | null;
 };
 
 export type BetsRecord = {

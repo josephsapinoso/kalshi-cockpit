@@ -274,6 +274,106 @@ class TestScoring:
         ).fetchone()["n"] == 2, "closing lines are upserted, not duplicated"
 
 
+def _seed_hand_bet(conn, *, ticker="KXMLBGAME-T-C", side="yes",
+                    true_commence=TRUE_COMMENCE, settled_ms=None, linked=True):
+    """One of Joe's own settled bets, mirrored into `venue_settlements` with
+    no `recommendations` row -- the case the union branch exists for."""
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
+        "has_game_markets, first_seen_ms, last_seen_ms) "
+        "VALUES ('KXMLBGAME','Pro Baseball',1,?,?)", (NOW, NOW),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events (event_ticker, series_ticker, title, "
+        "category, commence_ms, status, first_seen_ms, last_seen_ms) "
+        "VALUES ('EVT','KXMLBGAME','A vs B','Sports',?,'open',?,?)",
+        (KALSHI_COMMENCE, NOW, NOW),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, series_ticker, "
+        "first_seen_ms, last_seen_ms) VALUES (?,'EVT','KXMLBGAME',?,?)",
+        (ticker, NOW, NOW),
+    )
+    if linked:
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, odds_event_id, "
+            "league, method, commence_skew_ms, linked_ms) "
+            "VALUES ('EVT','odds-1','Pro Baseball','exact_alias_pair',?,?)",
+            (-3 * HOUR_MS, NOW),
+        )
+        conn.execute(
+            "INSERT INTO odds_snapshots (fetched_ms, book_updated_ms, sport_key, "
+            "odds_event_id, commence_ms, home_team, away_team, bookmaker, market, "
+            "outcome_name, price_decimal) "
+            "VALUES (?,?,'baseball_mlb','odds-1',?,'B','A','pinnacle','h2h','A',2.0)",
+            (NOW, NOW, true_commence),
+        )
+    conn.execute(
+        "INSERT INTO venue_settlements (ticker, event_ticker, market_result, "
+        "settled_ms, side, contracts, entry_price_tenths, fee_cost_tenths) "
+        "VALUES (?, 'EVT', 'yes', ?, ?, 1.0, 480, 5)",
+        (ticker, settled_ms if settled_ms is not None else NOW, side),
+    )
+    conn.commit()
+
+
+class TestHandBetsJoinTheUnion:
+    """`venue_settlements`-only tickers (Joe's own bets, no `recommendations`
+    row) need a closing line too, added 2026-08-22. Most hand-bet tickers
+    refuse structurally -- no discovery row, or no matcher link -- and that
+    is expected and honest, per the partner's ruling on the re-scoped CLV
+    item, not a bug to chase.
+    """
+
+    async def test_a_linked_hand_bet_with_no_recommendation_is_picked_up(self, conn):
+        _seed_hand_bet(conn, ticker="KXMLBGAME-T-C")
+        pending = markets_awaiting_scoring(conn, now=NOW)
+        assert len(pending) == 1
+        assert pending[0]["ticker"] == "KXMLBGAME-T-C"
+        assert pending[0]["true_commence_ms"] == TRUE_COMMENCE
+
+    async def test_an_unlinked_hand_bet_refuses_structurally(self, conn):
+        """No `event_links` row -- the common case for a hand bet."""
+        _seed_hand_bet(conn, ticker="KXMLBGAME-T-D", linked=False)
+        assert markets_awaiting_scoring(conn, now=NOW) == []
+
+    async def test_a_hand_bet_gets_a_closing_line_stored(self, conn):
+        _seed_hand_bet(conn, ticker="KXMLBGAME-T-C")
+        counts = await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+
+        assert counts.lines_stored == 2      # both horizons
+        stored = {
+            r["horizon_hours"]
+            for r in conn.execute(
+                "SELECT horizon_hours FROM closing_lines WHERE ticker = ?",
+                ("KXMLBGAME-T-C",),
+            )
+        }
+        assert stored == {DEFAULT_HORIZON_HOURS, CONTROL_HORIZON_HOURS}
+
+    async def test_it_stops_once_any_closing_line_exists(self, conn):
+        """There is no `clv_scored_ms` on `venue_settlements` to flip, so the
+        stop-predicate is structural: any stored `closing_lines` row for the
+        ticker, at either horizon -- else it is refetched every pass forever.
+        """
+        _seed_hand_bet(conn, ticker="KXMLBGAME-T-C")
+        await run_scoring_pass(conn, FakeKalshi(), now=NOW)
+        assert markets_awaiting_scoring(conn, now=NOW) == []
+
+        again = await run_scoring_pass(conn, FakeKalshi(), now=NOW + 60_000)
+        assert again.markets_considered == 0
+
+    async def test_a_bet_on_a_ticker_with_a_scored_recommendation_is_not_double_counted(
+        self, conn
+    ):
+        """The UNION collapses the duplicate (ticker, series, commence) row a
+        market shared by both a recommendation and a hand bet would otherwise
+        produce."""
+        _seed(conn, ticker="KXMLBGAME-T-A")
+        _seed_hand_bet(conn, ticker="KXMLBGAME-T-A")
+        assert len(markets_awaiting_scoring(conn, now=NOW)) == 1
+
+
 class TestSelection:
     async def test_only_unscored_linked_markets_are_considered(self, conn):
         _seed(conn)
