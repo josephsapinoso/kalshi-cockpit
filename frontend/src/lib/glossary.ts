@@ -42,13 +42,6 @@ export const GLOSSARY = {
       "you staked $5, got $4 back, and paid 20¢ in fees, your realised " +
       "loss is $1.20.",
   },
-  basis_points: {
-    label: "basis points",
-    definition:
-      "Hundredths of a percent, so the record can hold 62.50% as the whole " +
-      "number 6250. You type the percent; the fine print just shows how it " +
-      "is stored.",
-  },
   ask: {
     label: "ask",
     definition:
@@ -82,9 +75,16 @@ export const GLOSSARY = {
   },
   stake: {
     label: "stake",
+    // No dollar figure may ever appear in this definition. The previous
+    // version instructed "$2, every time" — written when that was the plan,
+    // still rendering after ADR 0045 derived the real cap at 26c on a $2.56
+    // balance. A glossary that gives a number gives an order; the caps
+    // screen owns the numbers. Pinned by test_glossary_coverage.py.
     definition:
-      "The money put on one bet. Yours is $2, every time, win or lose. " +
-      "Changing the stake because of the last result is how bankrolls die.",
+      "The money put on one bet. Keep it a small fixed fraction of your " +
+      "bankroll — the caps on this site compute yours from your actual " +
+      "balance. Changing the stake because of the last result is how " +
+      "bankrolls die.",
   },
   clv: {
     label: "CLV",
@@ -108,19 +108,89 @@ export const GLOSSARY = {
       "deviation. A $2 bet with a $1 swing routinely finishes a dollar " +
       "richer or poorer than expected. Bigger swing, bumpier ride.",
   },
-  drift: {
-    label: "drift",
+  // `drift` and `candlestick` were removed 2026-08-22: the Drift chip
+  // teaches in place with the row's own numbers (components/Hint.tsx), and
+  // the candles view left the chart in the 2026-08-21 rebuild. A definition
+  // nobody can reach is a plan, not a feature (test_glossary_coverage.py's
+  // orphan rule).
+  contract: {
+    label: "contract",
     definition:
-      "How the Kalshi price has moved recently, and which way. If it " +
-      "already moved toward your side, part of your idea is spent — you " +
-      "would be paying for news the price has absorbed.",
+      "One unit of a Kalshi bet. A YES contract pays $1 if the market ends " +
+      "YES, $0 if not. Buy at the ask: pay 40¢ and you either collect $1 " +
+      "(minus fees) or lose the 40¢.",
   },
-  candlestick: {
-    label: "candlestick",
+  consensus: {
+    label: "consensus fair",
     definition:
-      "One bar per time slice showing four prices: where it opened, the " +
-      "highest and lowest it traded, and where it closed. A filled-in hour " +
-      "of trading at a glance; the line view shows only the closes.",
+      "What the sportsbooks together imply this outcome is really worth — " +
+      "their margins removed, then combined. The tool's best estimate of a " +
+      "true price. An estimate, not a fact: the books can all be wrong " +
+      "together.",
+  },
+  devig: {
+    label: "devig",
+    definition:
+      "Removing a bookmaker's built-in margin from its odds. A book prices " +
+      "both sides so the chances add past 100% — that overage is its cut " +
+      "(the vig). Devigging scales it out so the numbers read as honest " +
+      "probabilities.",
+  },
+  settled: {
+    label: "settled",
+    definition:
+      "Finished and paid out. A settled market's result is known: winning " +
+      "contracts paid $1, losing ones $0, and the money has already moved " +
+      "in your account.",
+  },
+  bankroll: {
+    label: "bankroll",
+    definition:
+      "The money set aside for betting — here, the cash actually in your " +
+      "Kalshi account. Every cap on this site is a fraction of it, so a " +
+      "small bankroll means small bets, on purpose.",
+  },
+  depth: {
+    label: "depth",
+    definition:
+      "How many contracts are actually available at this ask right now. " +
+      "Depth 3 means you can buy 3 at that price; wanting more moves the " +
+      "price against you.",
+  },
+  exposure: {
+    label: "exposure",
+    definition:
+      "The total you could lose if every bet you have open lost, fees " +
+      "included. The exposure cap bounds that total, so one bad night " +
+      "cannot take the whole bankroll.",
+  },
+  kelly: {
+    label: "quarter-Kelly",
+    definition:
+      "Kelly is a formula that sizes a bet by how big your edge is; " +
+      "betting a quarter of what it says is deliberate caution — because " +
+      "the edge estimate is usually the shaky part.",
+  },
+  fill: {
+    label: "fill",
+    definition:
+      "An order actually matching — the moment your buy found a seller. " +
+      "The fill price is what you truly paid, and it can differ from the " +
+      "ask you were looking at.",
+  },
+  wl: {
+    label: "W / L",
+    definition:
+      "Wins and losses, counted per settled bet. 7W / 32L means 7 settled " +
+      "winners against 32 losers. A record this size is mostly luck either " +
+      "way — which is what CLV exists to see past.",
+  },
+  net: {
+    label: "net",
+    definition:
+      "What you are up or down after everything: payouts minus what the " +
+      "bets cost minus fees. Here it covers only settled bets the recorder " +
+      "has mirrored — open positions are not counted.",
   },
   volume: {
     label: "volume",

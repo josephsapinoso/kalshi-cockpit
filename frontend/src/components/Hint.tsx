@@ -65,7 +65,12 @@ export default function Hint({
     <span
       ref={root}
       className="relative inline-block"
-      onClick={(event) => event.stopPropagation()}
+      // preventDefault as well as stopPropagation — same reason as Term:
+      // inside an anchor row, a tap on the hint must not also navigate.
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       <span
         role="button"

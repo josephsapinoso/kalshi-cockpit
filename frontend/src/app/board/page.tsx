@@ -3,6 +3,7 @@ import Link from "next/link";
 import HowToRead from "@/components/HowToRead";
 import LiveBoard from "@/components/LiveBoard";
 import SlateRow, { type SlateState } from "@/components/SlateRow";
+import Term from "@/components/Term";
 import { TicketProvider } from "@/components/TicketProvider";
 import WindowBanner from "@/components/WindowBanner";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
@@ -127,9 +128,10 @@ export default async function BoardPage({
         <header className="mb-8">
           <h1 className="display text-4xl sm:text-5xl">Board</h1>
           <p className="mt-3 max-w-xl text-lg text-muted">
-            Kalshi priced against devigged sportsbook consensus. A bet appears
-            only when the edge survives fees, freshness, depth and the suspicion
-            checks.
+            Kalshi priced against <Term k="devig">devigged</Term> sportsbook{" "}
+            <Term k="consensus">consensus</Term>. A bet appears only when the{" "}
+            <Term k="edge">edge</Term> survives <Term k="fee">fees</Term>,
+            freshness, <Term k="depth">depth</Term> and the suspicion checks.
           </p>
         </header>
 

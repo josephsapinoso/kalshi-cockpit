@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 
 import FiveStepTest from "@/components/FiveStepTest";
+import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
 
@@ -170,7 +171,7 @@ function VersionCard({
         <Stat label="Markets" value={version.markets} />
         <Stat label="Unsuppressed" value={version.unsuppressed} />
         <Stat label="Actionable" value={version.actionable} />
-        <Stat label="CLV scored" value={version.clv_scored} />
+        <Stat label={<Term k="clv">CLV scored</Term>} value={version.clv_scored} />
       </dl>
 
       {!version.has_enough_to_say_anything && (
@@ -246,7 +247,7 @@ function LessonCard({ lesson }: { lesson: Lesson }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: React.ReactNode; value: number }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs uppercase tracking-widest text-muted">{label}</dt>

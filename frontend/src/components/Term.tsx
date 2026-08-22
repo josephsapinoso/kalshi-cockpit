@@ -63,7 +63,14 @@ export default function Term({
     <span
       ref={root}
       className="relative inline-block"
-      onClick={(event) => event.stopPropagation()}
+      // preventDefault as well as stopPropagation: inside a <Link> row
+      // (/bets since 2026-08-22) the anchor's default navigation fires on
+      // any child click regardless of bubbling — "explain CLV" must not
+      // also open the market screen.
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       <span
         role="button"

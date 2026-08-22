@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { betDirection } from "@/lib/betDirection";
 import { focusWrap, type TrapPosition } from "@/lib/focusWrap";
+import Term from "@/components/Term";
 
 /**
  * The ticket: tap a card, see what the bet is, confirm it.
@@ -303,20 +304,27 @@ export default function TicketSheet({
                 <div className="grid grid-cols-2 gap-x-4 gap-y-4">
                   {/* A percentage. The `c` form of this number sat beside the
                       ask at the same size and read as a second price. */}
+                  {/* Terms on the money screen (2026-08-22 review, A4): the
+                      one place a novice is a tap from an order had zero
+                      self-teaching words. Labels stay identical; each now
+                      opens its definition. */}
                   <Figure
-                    label="Consensus fair"
+                    label={<Term k="consensus">Consensus fair</Term>}
                     value={rec.fair_percent_display}
                   />
-                  <Figure label="Kalshi asks" value={rec.ask_display} />
                   <Figure
-                    label="Edge, net of fees"
+                    label={<Term k="ask">Kalshi asks</Term>}
+                    value={rec.ask_display}
+                  />
+                  <Figure
+                    label={<Term k="edge">Edge, net of fees</Term>}
                     value={`${rec.edge_cents > 0 ? "+" : ""}${rec.edge_cents.toFixed(1)}c`}
                     tone={rec.edge_cents > 0 ? "positive" : "negative"}
                   />
                   <Figure
                     label="Engine authorised"
                     value={`${authorised}`}
-                    unit="contracts"
+                    unit={<Term k="contract">contracts</Term>}
                   />
                 </div>
 
@@ -328,7 +336,7 @@ export default function TicketSheet({
                     other size they are withdrawn rather than adjusted. */}
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t pt-4">
                   <Figure
-                    label="Predicted fee"
+                    label={<Term k="fee">Predicted fee</Term>}
                     value={resized ? "—" : dollars(rec.fee_predicted)}
                     muted={resized}
                   />
@@ -343,7 +351,7 @@ export default function TicketSheet({
                     muted={resized}
                   />
                   <Figure
-                    label="Expected, net"
+                    label={<Term k="ev">Expected, net</Term>}
                     value={resized ? "—" : signedDollars(rec.ev_net_dollars)}
                     tone={
                       resized
@@ -357,7 +365,7 @@ export default function TicketSheet({
                   {/* Not the fee, and not scaled by anything here. The one
                       number on this sheet that says what being wrong costs. */}
                   <Figure
-                    label="Swing, 1 SD"
+                    label={<Term k="sd">Swing, 1 SD</Term>}
                     value={resized ? "—" : dollars(rec.sd_dollars)}
                     muted={resized}
                   />
@@ -777,7 +785,10 @@ function Placed({ order }: { order: OrderPlaced }) {
           <Figure label="Limit" value={`${order.limit_price_cents}c`} />
         ) : null}
         {order.fill_price_display !== undefined && (
-          <Figure label="Fill" value={String(order.fill_price_display)} />
+          <Figure
+            label={<Term k="fill">Fill</Term>}
+            value={String(order.fill_price_display)}
+          />
         )}
         {order.worst_case_cost_dollars !== undefined && (
           <Figure
@@ -791,7 +802,7 @@ function Placed({ order }: { order: OrderPlaced }) {
             be a claim about the portfolio that nothing measured. */}
         {order.resulting_exposure_dollars !== undefined && (
           <Figure
-            label="Exposure after this"
+            label={<Term k="exposure">Exposure after this</Term>}
             value={dollars(order.resulting_exposure_dollars)}
           />
         )}
@@ -834,7 +845,7 @@ function Placed({ order }: { order: OrderPlaced }) {
               mono
             />
             <Row
-              label="Depth at ask"
+              label={<Term k="depth">Depth at ask</Term>}
               value={
                 quote.depth_at_ask === undefined || quote.depth_at_ask === null
                   ? undefined
@@ -970,9 +981,10 @@ function Figure({
   tone,
   muted,
 }: {
-  label: string;
+  /** ReactNode so a label can be a <Term> (2026-08-22, A4). */
+  label: React.ReactNode;
   value: string;
-  unit?: string;
+  unit?: React.ReactNode;
   tone?: "positive" | "negative";
   muted?: boolean;
 }) {
@@ -1001,7 +1013,8 @@ function Row({
   value,
   mono,
 }: {
-  label: string;
+  /** ReactNode so a label can be a <Term> (2026-08-22, A4). */
+  label: React.ReactNode;
   value?: string | number | null;
   mono?: boolean;
 }) {

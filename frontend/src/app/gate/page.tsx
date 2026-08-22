@@ -1,4 +1,5 @@
 import { fetchGate } from "@/lib/api";
+import Term from "@/components/Term";
 
 export const dynamic = "force-dynamic";
 
@@ -64,13 +65,14 @@ export default async function GatePage() {
           {gate.open ? "Open" : "Locked"}
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Bankroll{" "}
+          <Term k="bankroll">Bankroll</Term>{" "}
           {gate.bankroll_dollars === null
             ? "unobserved (no balance snapshot yet)"
             : `$${gate.bankroll_dollars.toFixed(2)}`}
-          , from the venue&rsquo;s own balance record. Quarter-Kelly sizing
-          with per-bet, per-position and total-exposure caps, plus a daily-loss
-          kill switch.
+          , from the venue&rsquo;s own balance record.{" "}
+          <Term k="kelly">Quarter-Kelly</Term> sizing with per-bet,
+          per-position and total-<Term k="exposure">exposure</Term> caps, plus
+          a daily-loss kill switch.
         </p>
         {/* Structural, not copy: `settlements.order_id` is NOT NULL and
             references `orders(id)`, so every cap above is evaluated against
@@ -122,7 +124,8 @@ export default async function GatePage() {
           Why 300, and not fifty
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Closing-line value is the fastest honest signal available &mdash; far
+          <Term k="clv">Closing-line value</Term> is the fastest honest signal
+          available &mdash; far
           faster than win rate, which needs on the order of a thousand bets to
           separate 52% from 50%. But &ldquo;faster&rdquo; still means hundreds:
           practitioner consensus puts the floor at 200&ndash;300 bets, with

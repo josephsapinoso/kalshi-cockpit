@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { SHELL_WIDTH } from "@/lib/shell";
 import { tickerLabel } from "@/lib/tickerLabel";
+import Term from "@/components/Term";
 import {
   DISPLAY_TIME_ZONE,
   fetchBets,
@@ -54,7 +55,7 @@ export default async function BetsPage() {
 
       <div className="rounded-2xl border bg-card p-5">
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
-          Net, over the whole mirrored record
+          <Term k="net">Net</Term>, over the whole mirrored record
         </div>
         <p className="mt-2 max-w-[65ch]">
           <span
@@ -65,7 +66,10 @@ export default async function BetsPage() {
             {totals.net_display}
           </span>
           <span className="ml-3 font-mono text-sm text-muted">
-            {totals.wins}W / {totals.losses}L over {totals.computable} settled
+            <Term k="wl">
+              {totals.wins}W / {totals.losses}L
+            </Term>{" "}
+            over {totals.computable} <Term k="settled">settled</Term>
           </span>
         </p>
         {totals.uncomputable > 0 && (
@@ -143,10 +147,16 @@ function BetRow({ bet }: { bet: SettledBet }) {
     : bet.contracts.toFixed(2);
   const result =
     bet.won === null ? "unresolved" : bet.won ? "won" : "lost";
+  // JSX rather than a template string so "CLV" can carry its definition —
+  // this row is the one place the record and CLV meet (2026-08-22, A4).
   const clvWords =
-    bet.clv_display !== null
-      ? `close ${bet.close_display} · CLV ${bet.clv_display}`
-      : (CLV_REFUSAL_WORDS[bet.clv_refusal_reason ?? ""] ?? "close unknown");
+    bet.clv_display !== null ? (
+      <>
+        close {bet.close_display} · <Term k="clv">CLV</Term> {bet.clv_display}
+      </>
+    ) : (
+      (CLV_REFUSAL_WORDS[bet.clv_refusal_reason ?? ""] ?? "close unknown")
+    );
   return (
     <li>
       <Link

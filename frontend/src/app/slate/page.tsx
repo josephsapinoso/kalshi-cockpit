@@ -227,8 +227,9 @@ export default async function SlatePage() {
             Where Kalshi sits is measured against you.
           </strong>{" "}
           Kalshi&rsquo;s number is the <em>ask</em> — the price that would leave
-          your account, carrying half the spread. Each book&rsquo;s number is a
-          devigged fair value with the margin removed. So a book looks cheaper
+          your account, carrying half the spread. Each book&rsquo;s number is a{" "}
+          <Term k="devig">devigged</Term> fair value with the margin removed. So
+          a book looks cheaper
           than Kalshi by about half a spread even where the two agree exactly,
           and &ldquo;books under&rdquo; over-counts. That bias is deliberate: it
           cannot manufacture the reading that Kalshi is the sharp side.

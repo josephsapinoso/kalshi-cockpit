@@ -115,7 +115,10 @@ export default function OpportunityCard({
             wrong number as what you pay. The unit is the whole fix: 53.8% and
             50.3c cannot be confused for each other the way 53.8c and 50.3c
             can. */}
-        <Figure label="Consensus fair" value={rec.fair_percent_display} />
+        <Figure
+          label={<Term k="consensus">Consensus fair</Term>}
+          value={rec.fair_percent_display}
+        />
         <Figure
           // The arrow carries the direction as well as the colour flash. Roughly
           // one man in twelve cannot separate the two hues, and a ticker whose
@@ -163,7 +166,10 @@ export default function OpportunityCard({
                 : ""
           }`}
         >
-          <Figure label="Buy" value={`${rec.suggested_contracts}`} />
+          <Figure
+            label={<Term k="contract">Buy</Term>}
+            value={`${rec.suggested_contracts}`}
+          />
           {/* The headline figure is the fee-inclusive one, and the stake and
               the fee move below it into the small print.
               `COST` used to be the stake alone with `FEE` beside it and no
@@ -240,7 +246,11 @@ export default function OpportunityCard({
           {formatAge(quoteAge)}
         </span>
         <span>books {formatAge(oddsAge)}</span>
-        {rec.depth_at_ask !== null && <span>depth {rec.depth_at_ask.toFixed(0)}</span>}
+        {rec.depth_at_ask !== null && (
+          <span>
+            <Term k="depth">depth</Term> {rec.depth_at_ask.toFixed(0)}
+          </span>
+        )}
         {/* `cfg v9` came off the card in the 2026-08-22 review: which
             strategy-config version priced a row is the Playbook's fact, and
             on the card it read as one more code a novice must decode. The

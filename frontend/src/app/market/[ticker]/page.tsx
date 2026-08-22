@@ -142,7 +142,8 @@ function QuoteStrip({
           Ask ${detail.ask_dollars.toFixed(2)}
         </span>
         <span className="text-muted">
-          {" "}per YES contract · quote checked {agoWord(age)} ago
+          {" "}per YES <Term k="contract">contract</Term> · quote checked{" "}
+          {agoWord(age)} ago
         </span>
       </p>
     </div>
