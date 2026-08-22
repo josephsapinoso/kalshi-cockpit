@@ -61,6 +61,13 @@ import type { Chip } from "@/lib/windowChip";
 // Placed before this slot so Gate keeps its visible slot at 390px: with six
 // links the row scrolls, and the one that scrolls off is Playbook -- still
 // the newest-least-urgent trade the comment below records.
+// **Your bets takes Scout's slot, 2026-08-22** (the every-page review; Joe
+// approved the swap). Two reasons, both the betting-desk ruling's: his own
+// settled record is the screen a betting desk exists to serve, and the
+// standalone Scout index was absorbed into the game screens the desk is
+// sent from anyway -- its meter now rides `ScoutDesk` as a disclosure, so
+// the page the slot pointed at no longer exists. Same position, so Gate
+// keeps its visible slot at 390px and Playbook stays the link that scrolls.
 // **This slot stops being called "Ledger", 2026-08-22.** `/bets` shipped
 // 2026-08-21 as Joe's own settled-bet record -- the thing "Ledger" names in
 // ordinary speech -- and the earlier convening's reason for keeping this
@@ -76,7 +83,7 @@ import type { Chip } from "@/lib/windowChip";
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/board", label: "Picks" },
-  { href: "/scout", label: "Scout" },
+  { href: "/bets", label: "Your bets" },
   { href: "/ledger", label: "Evidence" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.

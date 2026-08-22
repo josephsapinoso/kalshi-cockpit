@@ -235,10 +235,10 @@ class TestEveryRenderSiteIsGlossed:
     """
 
     #: Every file under `frontend/src` is scanned; these need no gloss and say
-    #: why. `/rejections` carries its own paragraph-length `EXPLAINED` map --
-    #: a second, shorter sentence there would be the two-names problem for real.
+    #: why. (`/rejections` and its own `EXPLAINED` map were deleted in the
+    #: 2026-08-22 review -- the per-code counts now render on the Slate as a
+    #: disclosure, captioned by the same glossSentence the rows use.)
     EXEMPT = {
-        "app/rejections/page.tsx": "has its own longer EXPLAINED map",
         "lib/api.ts": "types and helpers, renders nothing",
         "lib/suppressionGloss.ts": "is the gloss",
         "components/CrewBubble.tsx": "quotes the code inside a sentence it writes itself",

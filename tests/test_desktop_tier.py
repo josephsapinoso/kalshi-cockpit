@@ -32,9 +32,9 @@ PROSE_FILES = [
     # paragraph would hit ~190ch.
     SRC / "components" / "ScoutDesk.tsx",
     SRC / "app" / "market" / "[ticker]" / "page.tsx",
-    # The desk's own screen (2026-08-21, betting-desk item 6): a nav-level
-    # surface whose meter and explanatory prose face the same widths.
-    SRC / "app" / "scout" / "page.tsx",
+    # (`app/scout/page.tsx` left this list when the index was absorbed into
+    # the game screens, 2026-08-22 review; its meter prose now lives in
+    # ScoutDesk.tsx, already listed above.)
     # Joe's own record (2026-08-21, betting-desk item 1): the mirror caveat
     # is a paragraph, and a paragraph faces every width.
     SRC / "app" / "bets" / "page.tsx",
@@ -92,9 +92,9 @@ class TestTheChromeAndTheContentShareOneWidth:
             # narrower than its own nav -- the "photocopied phone screen"
             # Joe reported. The width literal ban below now covers it.
             SRC / "app" / "market" / "[ticker]" / "page.tsx",
-            # Born in the shell (2026-08-21): the Scout screen never carried
-            # its own width literal, and this keeps it that way.
-            SRC / "app" / "scout" / "page.tsx",
+            # (`app/scout/page.tsx` was deleted 2026-08-22 -- the index was
+            # absorbed into the game screens; ScoutDesk renders inside the
+            # market page, which is covered above.)
             SRC / "app" / "bets" / "page.tsx",
         ):
             text = path.read_text(encoding="utf-8")

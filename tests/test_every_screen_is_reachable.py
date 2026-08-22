@@ -46,7 +46,15 @@ FOOTER = REPO_ROOT / "frontend" / "src" / "components" / "Footer.tsx"
 #: - `/login` is arrived at by being redirected there, unauthenticated, by
 #:   `frontend/src/middleware.ts`. A link to it from a signed-in page is a
 #:   link to a form the reader has already filled in.
-EXEMPT = {"/", "/login"}
+#: - `/slate` is a byte-identical re-export of `/` kept for bookmarks
+#:   (2026-08-22 review, Joe approved dropping its footer slot). A link to
+#:   the page you are already on is furniture, not a route.
+#: - `/dashboards` is a developer screen: it reads dbt marts that exist only
+#:   after `backend.store.publish` + `dbt build`, and on the deployed box its
+#:   only state is its own 503 explainer. It lost its footer slot in the
+#:   2026-08-22 review (Joe approved); the developer who just built the
+#:   warehouse types the URL, which for that reader is a route.
+EXEMPT = {"/", "/login", "/slate", "/dashboards"}
 
 
 def served_routes() -> set[str]:
@@ -106,7 +114,10 @@ class TestEveryScreenCanBeArrivedAt:
         stopped calibration study, Amendment 2), and back to six the same day
         on purpose: Scout took the open slot (betting-desk item 6, metered
         then promoted in one change), placed so Gate keeps a visible slot at
-        390px and Playbook stays the link that scrolls.
+        390px and Playbook stays the link that scrolls. Your bets took
+        Scout's slot 2026-08-22 (every-page review, Joe approved): the desk's
+        index was absorbed into the game screens it is sent from, and a
+        betting desk's own record outranks a diagnostic.
 
         Mutation observed red (as five): add a sixth entry to `LINKS`.
         The seventh is the one the budget refuses.

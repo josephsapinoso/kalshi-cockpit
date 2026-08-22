@@ -183,6 +183,8 @@ export default async function SlatePage() {
         </ul>
       )}
 
+      <RefusalSummary rows={rows} />
+
       {slate.truncated && (
         <p className="mt-6 max-w-[65ch] text-xs text-muted">
           {slate.in_window} rows are in the window and {slate.returned} are shown
@@ -353,6 +355,52 @@ function Row({
         />
       </span>
     </div>
+  );
+}
+
+/**
+ * The old `/rejections` screen, folded to a disclosure (2026-08-22 review;
+ * Joe approved the fold). That page grouped `suppressed_reason` across the
+ * slate — a strict aggregate of what every row above already shows — so it
+ * cost a footer slot to render a projection of this screen. The counts are
+ * computed from the rows actually rendered here, which keeps the two views
+ * incapable of disagreeing; the caption under each code is the same
+ * `glossSentence` the rows use (plain English under the code, never instead
+ * of it — ADR 0050). A code this build has no sentence for still renders,
+ * with its count: the count is the diagnostic, the caption is a courtesy.
+ */
+function RefusalSummary({ rows }: { rows: SlateRowData[] }) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.suppressed_reason) {
+      counts.set(
+        row.suppressed_reason,
+        (counts.get(row.suppressed_reason) ?? 0) + 1,
+      );
+    }
+  }
+  if (counts.size === 0) return null;
+  const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return (
+    <details className="mt-8">
+      <summary className="cursor-pointer text-sm font-semibold text-muted">
+        Why rows were refused tonight — {ordered.length}{" "}
+        {ordered.length === 1 ? "rule" : "rules"}, counted
+      </summary>
+      <ul className="mt-3 space-y-2 border-l pl-4">
+        {ordered.map(([reason, count]) => (
+          <li key={reason}>
+            <span className="font-mono text-xs text-accent">{reason}</span>
+            <span className="tabular ml-2 text-xs text-muted">× {count}</span>
+            {glossSentence(reason) && (
+              <span className="block max-w-[65ch] text-xs leading-snug text-muted">
+                {glossSentence(reason)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

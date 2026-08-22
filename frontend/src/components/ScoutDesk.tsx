@@ -48,9 +48,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DISPLAY_TIME_ZONE,
   fetchScoutBriefing,
+  fetchScoutOverview,
   sendScoutDesk,
   type BoardTile,
   type ScoutBriefingState,
+  type ScoutSpend,
   type ScoutStaffNote,
 } from "@/lib/api";
 import CrewAvatar from "@/components/CrewAvatar";
@@ -275,6 +277,71 @@ function StaffNoteCard({ note }: { note: ScoutStaffNote }) {
   );
 }
 
+/**
+ * Today's meter, folded into the desk (2026-08-22 review; the standalone
+ * `/scout` index is gone and this is where the meter earns its keep — beside
+ * the button that spends against it). Collapsed by default and fetched only
+ * on first open: the meter is read before sending again, not ambient chrome.
+ * `spend: null` says there is no account to meter (the demo), which is a
+ * different fact from a meter reading zero — same rule the old screen held.
+ */
+function SpendDisclosure() {
+  const [spend, setSpend] = useState<ScoutSpend | null | "unread" | "error">(
+    "unread",
+  );
+
+  const loadOnce = () => {
+    if (spend !== "unread") return;
+    fetchScoutOverview()
+      .then((overview) => setSpend(overview.spend))
+      .catch(() => setSpend("error"));
+  };
+
+  return (
+    <details className="mt-3" onToggle={loadOnce}>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-widest text-muted">
+        Today&rsquo;s spend, all agents
+      </summary>
+      <div className="mt-2 rounded-xl border bg-background p-3">
+        {spend === "unread" ? (
+          <p className="max-w-[65ch] text-xs text-muted">Reading the meter&hellip;</p>
+        ) : spend === "error" ? (
+          <p className="max-w-[65ch] text-xs text-muted">
+            The meter can&rsquo;t be read right now — which is not the same as
+            an empty meter.
+          </p>
+        ) : spend === null ? (
+          <p className="max-w-[65ch] text-xs text-muted">
+            No Anthropic account is configured on this instance, so there is no
+            meter to read and the desk cannot be sent.
+          </p>
+        ) : (
+          <>
+            <p className="font-mono text-xs">
+              {spend.calls_today} of {spend.calls_daily_budget} calls
+              <span className="text-muted"> · </span>
+              {spend.searches_today} of {spend.searches_daily_budget} searches
+              <span className="text-muted"> · </span>
+              {spend.tokens_today.toLocaleString("en-US")} of{" "}
+              {spend.tokens_daily_budget.toLocaleString("en-US")} tokens
+            </p>
+            {spend.calls_unmetered_today > 0 && (
+              <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
+                {spend.calls_unmetered_today} of today&rsquo;s calls never
+                reported usage — read the search and token sums as at-least.
+              </p>
+            )}
+            <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
+              Counts, not dollars — no invoice has confirmed a rate. Each
+              ceiling refuses further convenings for the day once crossed.
+            </p>
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export default function ScoutDesk({ ticker }: { ticker: string }) {
   const [state, setState] = useState<ScoutBriefingState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -344,13 +411,14 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
       <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
         {again
           ? "Three more metered calls, up to a dozen web searches. The board above stays until they file."
-          : "Three metered calls and up to a dozen web searches, from the fleet’s shared daily budget — the Scout screen shows today’s running total. The desk reports facts with sources; it never prices anything."}
+          : "Three metered calls and up to a dozen web searches, from the fleet’s shared daily budget — today’s running total is under “Today’s spend” below. The desk reports facts with sources; it never prices anything."}
       </p>
       {sendError && (
         <p className="mt-2 max-w-[65ch] text-sm text-negative" role="alert">
           {sendError}
         </p>
       )}
+      <SpendDisclosure />
     </div>
   );
 

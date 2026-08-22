@@ -41,20 +41,19 @@ CHROME_CANDIDATES = [
 
 PAGES = [
     "/",
-    "/builder",
+    # `/builder`, `/rejections` and `/scout` left this list when their pages
+    # were deleted in the 2026-08-22 review (builder deleted outright;
+    # rejections folded into the Slate's disclosure; the scout index absorbed
+    # into the game screens the desk is sent from).
     "/dashboards",
     "/ledger",
     "/playbook",
     "/gate",
-    "/rejections",
-    # Off the nav is not off this list: `/builder` and `/rejections` are both
-    # still served and both still have to fit a phone. A page nobody links to
-    # is a page nobody notices has broken.
+    # Off the nav is not off this list: `/slate`, `/dashboards` and
+    # `/estimate` are still served and still have to fit a phone. A page
+    # nobody links to is a page nobody notices has broken.
     "/slate",
-    # The desk's own screen (2026-08-21). Against a bare local stack it
-    # renders the no-account meter and the never-sent empty state -- the
-    # shell and the prose, not the populated meter grid or briefing rows.
-    "/scout",
+    "/estimate",
     # Joe's record (2026-08-21). Bare stack renders the zero-state strip and
     # the mirror caveat; populated rows are truncate + shrink-0 by design.
     "/bets",

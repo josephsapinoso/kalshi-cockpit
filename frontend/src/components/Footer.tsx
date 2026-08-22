@@ -30,54 +30,34 @@ import { SHELL_WIDTH } from "@/lib/shell";
  * for. Neither of these two is that: one is the fastest diagnostic on the
  * system and the other is a deliberate "don't" calculator.
  */
+// **The 2026-08-22 every-page review emptied most of this list, on Joe's
+// approval, and each exit is a decision rather than a tidy-up:**
+//
+// - **`/bets` moved UP, into the nav** (Scout's slot; see `Nav.tsx`). A
+//   betting desk's own record outranks every diagnostic here.
+// - **`/builder` is DELETED** — the delete commit this file's docstring
+//   said such a page belongs in. Its red "Price it" was the brightest CTA
+//   in the cockpit and it priced sportsbook parlays — the highest-hold
+//   product any book sells — for a novice, off-platform and uncapped.
+// - **`/rejections` is DELETED and folded into the Slate** — the Slate was
+//   already a strict superset per-row; it now carries the per-code counts
+//   as a disclosure, so the aggregate lives beside the rows it aggregates.
+// - **`/dashboards` lost this slot** (Joe approved). It is a dev screen:
+//   on the deployed box its only state is a 503 whose remedy is two shell
+//   commands. Still served for the developer who just ran dbt; reachable
+//   by URL and recorded as exempt in `test_every_screen_is_reachable.py`.
+// - **`/slate` lost this slot** — a byte-identical re-export of `/`,
+//   kept served for bookmarks; a link to the page you are on is furniture.
 const SECONDARY = [
   {
-    // Born 2026-08-21 (betting-desk item 1): Joe's own settled bets, read
-    // off the venue-settlement mirror. In the footer rather than the nav
-    // because the nav's six slots are spent; the nav-swap that would have
-    // moved this page into the open slot under "Ledger" was dropped
-    // 2026-08-22 (Scout took the slot first), so it stays here. The other
-    // half of that item -- renaming `/ledger`'s own "Ledger" label, since
-    // this is the page that word actually describes -- shipped on its own;
-    // see `Nav.tsx`.
-    href: "/bets",
-    label: "Your bets",
-    blurb:
-      "Every settled position the recorder mirrored from your account, with the net.",
-  },
-  {
-    // Lost its nav slot on 2026-08-21: Joe stopped the calibration study
-    // (Amendment 2, stopped without result), and a nav slot opening a form
-    // that feeds a stopped study is quiet misdirection. The page stays: it
-    // renders the terminal state and holds the log's record.
+    // The stopped study's record (Amendment 2, stopped without result).
+    // The FORM retired 2026-08-22 (ADR 0065): a typed P(YES) becomes the
+    // manual ticket's first field, where it has a consumer (bet_clv).
+    // This page keeps the entries already logged and their revision flags.
     href: "/estimate",
-    label: "Log",
-    blurb: "The calibration bet log. The study is stopped; this is its record.",
-  },
-  {
-    // The landing screen's old address. "/" renders the same component since
-    // 2026-08-20 (fleet convening item 3), so this link exists for bookmarks
-    // and muscle memory, not for a second screen.
-    href: "/slate",
-    label: "Slate",
-    blurb: "The Games screen at its old address — same page the app now opens on.",
-  },
-  {
-    // Lost its nav slot to Log on 2026-08-18 (the calibration study makes
-    // logging the per-bet action; dbt marts are read weekly at most).
-    href: "/dashboards",
-    label: "Data",
-    blurb: "The dbt marts: settlement outcomes and headline verdicts, rebuilt nightly.",
-  },
-  {
-    href: "/rejections",
-    label: "Rejections",
-    blurb: "Which check is refusing everything, counted across the slate.",
-  },
-  {
-    href: "/builder",
-    label: "Parlay builder",
-    blurb: "The book's hold on a specific ticket. The answer is usually don't.",
+    label: "Estimates",
+    blurb:
+      "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
   },
 ];
 
