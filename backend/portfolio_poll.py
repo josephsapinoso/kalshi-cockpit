@@ -300,35 +300,7 @@ async def poll_portfolio(
     summary: dict[str, Any] = {}
 
     # -- settlements: the primary statistic's inputs live here ---------------
-    try:
-        rows = await client.settlements(limit=200)
-    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
-        _log(conn, now_ms=now_ms, endpoint="settlements", ok=False, error=repr(exc))
-        summary["settlements"] = f"FAILED: {exc}"
-    else:
-        written = refused = 0
-        for row in rows:
-            parsed = parse_settlement(row)
-            if parsed is None:
-                refused += 1
-                logger.warning("settlement refused, ticker=%s", row.get("ticker"))
-                continue
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO venue_settlements "
-                "(ticker, event_ticker, market_result, settled_ms, side, "
-                " contracts, entry_price_tenths, fee_cost_tenths, "
-                " position_first_seen_ms, position_time_source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    parsed.ticker, parsed.event_ticker, parsed.market_result,
-                    parsed.settled_ms, parsed.side, parsed.contracts,
-                    parsed.entry_price_tenths, parsed.fee_cost_tenths,
-                    now_ms, "poll_instant",
-                ),
-            )
-            written += cursor.rowcount
-        _log(conn, now_ms=now_ms, endpoint="settlements", ok=True, row_count=len(rows))
-        summary["settlements"] = {"seen": len(rows), "new": written, "refused": refused}
+    summary["settlements"] = await poll_settlements(conn, client, now_ms=now_ms)
 
     # -- fills: source='venue_hand', never 'engine' (ADR 0043) ---------------
     summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
@@ -373,6 +345,60 @@ async def poll_portfolio(
     return summary
 
 
+async def poll_settlements(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+) -> Any:
+    """The settlements mirror alone, so it can run on the 5-minute cadence.
+
+    Extracted from `poll_portfolio` for ADR 0064: the daily-loss kill
+    switch's producer (`bets.venue_daily_realised_pnl_dollars`) reads this
+    table and REFUSES when its freshest successful read is older than
+    `bets.TONIGHT_STALE_AFTER_MS` (30 min = 6x this cadence). On the
+    12-hour mirror clock alone that refusal would stand almost all day,
+    and worse, a mirror read at 10am carries none of the evening's losses
+    -- the false negative in the flattering direction, on the exact
+    quantity that exists to stop the next bet. The registration argument
+    is `poll_fills`'s, unchanged: §7.6 sets a floor on the mirror's
+    completeness, and polling an unmetered venue endpoint more often can
+    only make the mirror more complete.
+
+    The caller commits; this function only writes, exactly as
+    `poll_balance` does, so `poll_portfolio` can reuse it in its own
+    transaction.
+    """
+    try:
+        rows = await client.settlements(limit=200)
+    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
+        _log(conn, now_ms=now_ms, endpoint="settlements", ok=False, error=repr(exc))
+        return f"FAILED: {exc}"
+    written = refused = 0
+    for row in rows:
+        parsed = parse_settlement(row)
+        if parsed is None:
+            refused += 1
+            logger.warning("settlement refused, ticker=%s", row.get("ticker"))
+            continue
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO venue_settlements "
+            "(ticker, event_ticker, market_result, settled_ms, side, "
+            " contracts, entry_price_tenths, fee_cost_tenths, "
+            " position_first_seen_ms, position_time_source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                parsed.ticker, parsed.event_ticker, parsed.market_result,
+                parsed.settled_ms, parsed.side, parsed.contracts,
+                parsed.entry_price_tenths, parsed.fee_cost_tenths,
+                now_ms, "poll_instant",
+            ),
+        )
+        written += cursor.rowcount
+    _log(conn, now_ms=now_ms, endpoint="settlements", ok=True, row_count=len(rows))
+    return {"seen": len(rows), "new": written, "refused": refused}
+
+
 async def poll_fills(
     conn: sqlite3.Connection,
     client: KalshiRestClient,
@@ -388,8 +414,9 @@ async def poll_fills(
     purpose is to interrupt. **This is not an amendment to the registered
     cadence**: §7.6 sets a floor on the mirror's completeness, and polling
     an unmetered venue endpoint more often can only make the mirror more
-    complete. Settlements, positions and the matcher stay on their
-    registered 12-hour clock.
+    complete. Positions and the matcher stay on their registered 12-hour
+    clock (settlements joined this cadence with ADR 0064 -- see
+    `poll_settlements`).
 
     The caller commits; this function only writes, exactly as
     `poll_balance` does, so `poll_portfolio` can reuse it in its own
@@ -499,7 +526,10 @@ def _mark_study_start(
 
 
 # The registered cadence, §7.6 of the calibration registration as amended:
-# the mirror every 12 hours, the balance every 5 minutes. Constants rather
+# the full mirror every 12 hours, the balance every 5 minutes -- with fills
+# (2026-08-21 ruling) and settlements (ADR 0064) riding the 5-minute clock
+# because two consumers refuse on a stale read; §7.6 is a floor, and polling
+# an unmetered endpoint more often only raises completeness. Constants rather
 # than configuration, deliberately -- the cadence is REGISTERED, and a knob
 # invites the deployed value to drift from the protocol without anyone
 # deciding it. Changing these is amending the registration, and should read
@@ -562,11 +592,19 @@ async def poll_portfolio_forever(
                     # Fills ride the balance cadence (2026-08-21 ruling) so
                     # the landing screen's "tonight" strip is at most minutes
                     # behind the venue, not hours. See `poll_fills` for why
-                    # this is not a registration amendment.
+                    # this is not a registration amendment. Settlements ride
+                    # it too (ADR 0064): the daily-loss kill switch reads the
+                    # mirror and refuses when it is older than 30 minutes, so
+                    # on the 12-hour clock alone the order path would be
+                    # refused nearly all day -- see `poll_settlements`.
                     fills_result = await poll_fills(conn, client, now_ms=now_ms)
+                    settle_result = await poll_settlements(
+                        conn, client, now_ms=now_ms
+                    )
                     conn.commit()
                     logger.debug(
-                        "balance snapshot: %s; fills: %s", result, fills_result
+                        "balance snapshot: %s; fills: %s; settlements: %s",
+                        result, fills_result, settle_result,
                     )
             except asyncio.CancelledError:
                 raise

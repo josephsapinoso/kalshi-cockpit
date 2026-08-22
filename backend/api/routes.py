@@ -100,7 +100,7 @@ from ..odds.timing import (
 )
 from ..playbook import read_playbook
 from ..runner import book_quotes_for_event
-from ..settlement import daily_realised_pnl_dollars, open_position_dollars
+from ..settlement import open_position_dollars
 from ..slate import DRIFT_WINDOW_MS, book_distribution, kalshi_drift
 from ..store import db
 from ..store.orders import (
@@ -3050,15 +3050,18 @@ def create_app(
         #    database this endpoint cannot interrogate stops the order instead of
         #    silently widening every cap.
         #
-        #    `dry_run=ORDERS_ARE_DRY_RUNS` on both, matching `exposure`: an order
-        #    is admitted against history of its own kind, and pooling paper with
-        #    live would let fictional losses stop a real bet or -- worse -- a
-        #    fictional profit hold the kill switch open.
+        #    `dry_run=ORDERS_ARE_DRY_RUNS` on the position read, matching
+        #    `exposure`: an order is admitted against open-order history of its
+        #    own kind. The daily P&L read takes no such split -- ADR 0064: it
+        #    comes from `venue_settlements`, the venue's own record of every
+        #    bet however placed, because the engine-path `settlements` table
+        #    has never held the only bets that exist, and it refuses (`None`)
+        #    when the mirror's freshest read is stale rather than reporting
+        #    "no losses today" off a dead poller.
         fair = freshness["fair_probability"]
-        daily_pnl = daily_realised_pnl_dollars(
+        daily_pnl = bets_module.venue_daily_realised_pnl_dollars(
             conn,
             now_ms=db.now_ms(),
-            dry_run=ORDERS_ARE_DRY_RUNS,
             # The configured hour, not the constant, so the risk day and the
             # odds budget day cannot diverge through `.env`.
             day_start_hour=odds.budget_day_start_utc_hour,
