@@ -36,6 +36,7 @@ from ..analysis.marts import (
     read_dashboards,
 )
 from ..config import (
+    POSITION_FRACTION_OF_BANKROLL,
     AppConfig,
     BuildInfo,
     ConfigError,
@@ -135,6 +136,27 @@ def recorder_fields(last_ms, now_ms: int) -> dict:
     if last_ms is None:
         return {"last_write_ms": None, "age_ms": None}
     return {"last_write_ms": int(last_ms), "age_ms": max(0, now_ms - int(last_ms))}
+
+
+def cap_display(dollars: Optional[float]) -> Optional[str]:
+    """A derived cap as Joe reads it: cents below a dollar, dollars above.
+
+    `format_price(256)` gives "25.6c" -- the deci-cent house rendering -- which
+    is right for a per-bet cap on a $2.56 bankroll; the same function applied
+    to a $10.24 exposure cap would print "1024c", so above a dollar this
+    switches to the dollar string. Server-side because the frontend's contract
+    (`lib/api.ts`) is that money display strings are rendered here, never
+    re-derived from a float in a second place.
+
+    `None` in, `None` out: an underivable cap is a refusal to state a number,
+    and the caller renders the refusal words instead.
+    """
+    if dollars is None:
+        return None
+    tenths = int(round(dollars * 1000))
+    if tenths < 1000:
+        return format_price(tenths)
+    return f"${tenths / 1000:.2f}"
 
 
 class OrderPlacementRequest(BaseModel):
@@ -1153,23 +1175,93 @@ def create_app(
         # a live balance display reads the venue's own record, not the
         # estimate log, so the embargo does not touch it). The snapshot is
         # the operational clock's -- the analysis clock still reads one row
-        # per day, exactly as A7 separates them. `daily_line_dollars` is the
-        # deployed daily-loss cap, which is the line Joe set for himself;
-        # the $100 study ceiling is deliberately NOT here, because "cash
-        # against $100" reads as budget remaining to a reader holding $8.
-        # No field on this payload sums the two numbers or signs a P&L.
+        # per day, exactly as A7 separates them. The caps are the deployed
+        # ones Joe's own balance derives (ADR 0045); the $100 study ceiling
+        # is deliberately NOT here, because "cash against $100" reads as
+        # budget remaining to a reader holding $8. No field on this payload
+        # sums the two numbers or signs a P&L.
         snapshot = conn.execute(
             "SELECT observed_ms, balance_tenths, portfolio_value_tenths "
             "FROM venue_balance_snapshots ORDER BY observed_ms DESC LIMIT 1"
         ).fetchone()
-        money = None
-        if snapshot is not None:
-            money = {
-                "observed_ms": snapshot["observed_ms"],
-                "cash_tenths": snapshot["balance_tenths"],
-                "open_positions_tenths": snapshot["portfolio_value_tenths"],
-                "daily_line_dollars": risk.max_daily_loss_dollars,
+        # The caps, derived AT REQUEST TIME from the venue's observed balance
+        # -- the exact pattern the order endpoint uses at its step 8a and
+        # /api/gate uses for `bankroll_dollars`. The module-level `risk` off
+        # `create_app` is underived by construction (every dollar cap on it
+        # is None since ADR 0045), so it must never feed this payload
+        # directly: it did until 2026-08-22, and "your daily-loss line is
+        # $X" had silently rendered nothing on live the whole time.
+        balance_tenths = (
+            None if snapshot is None else snapshot["balance_tenths"]
+        )
+        derived_risk = (
+            risk.with_observed_balance(db.latest_balance_tenths(conn))
+            if risk.underived
+            else risk
+        )
+        if not risk.underived:
+            # A directly-injected config (tests, tools) carries explicit
+            # dollars with no balance behind them; say so rather than
+            # inventing an observation.
+            caps_basis = {
+                "balance_display": None,
+                "observed_ms": None,
+                "refusal": "caps injected by configuration; no observed balance",
             }
+        elif balance_tenths is not None:
+            caps_basis = {
+                "balance_display": f"${balance_tenths / 1000:.2f}",
+                "observed_ms": snapshot["observed_ms"],
+                "refusal": None,
+            }
+        else:
+            # Never omitted silently: the screen renders these words rather
+            # than rendering nothing, which is the defect this block fixes.
+            caps_basis = {
+                "balance_display": None,
+                "observed_ms": None,
+                "refusal": "balance unobserved",
+            }
+        money = {
+            "observed_ms": None if snapshot is None else snapshot["observed_ms"],
+            "cash_tenths": balance_tenths,
+            "cash_display": (
+                None
+                if balance_tenths is None
+                else f"${balance_tenths / 1000:.2f}"
+            ),
+            "open_positions_tenths": (
+                None if snapshot is None else snapshot["portfolio_value_tenths"]
+            ),
+            # Kept as a float for a deployed frontend one version behind;
+            # the display strings beside it are what the screen renders now.
+            "daily_line_dollars": (
+                None if derived_risk is None
+                else derived_risk.max_daily_loss_dollars
+            ),
+            "daily_line_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_daily_loss_dollars
+            ),
+            "per_bet_cap_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_position_dollars
+            ),
+            "exposure_cap_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_exposure_dollars
+            ),
+            # The deposit arithmetic, server-side: one contract at 50c costs
+            # $0.50 and the per-bet cap is POSITION_FRACTION_OF_BANKROLL of
+            # the balance, so the balance that admits one such contract is
+            # 0.50 / fraction. True whatever the balance is -- it is the
+            # sentence that tells Joe what a deposit would buy, so it is
+            # served even while the balance is unobserved.
+            "deposit_for_50c_display": (
+                f"${0.50 / POSITION_FRACTION_OF_BANKROLL:.2f}"
+            ),
+            "caps_basis": caps_basis,
+        }
 
         # **Tonight's commitment, a SIBLING of `money`, never inside it**
         # (2026-08-21 partner ruling, docs/reviews/2026-08-21-items-2-3-

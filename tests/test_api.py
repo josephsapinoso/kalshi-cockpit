@@ -1306,16 +1306,115 @@ class TestMoneyIsNeverSummed:
 
     async def test_no_summed_or_signed_field_exists(self, demo_app):
         money = (await get(demo_app, "/api/slate")).json()["money"]
-        if money is None:
-            return  # no snapshot seeded -- absence is the honest payload
+        assert money is not None, (
+            "the money block went back to omitting itself; an unobserved "
+            "balance must be words on the screen, not an absent key"
+        )
         forbidden = {"total", "net", "pnl", "profit", "loss", "change"}
         assert not (set(money) & forbidden)
         assert set(money) == {
             "observed_ms",
             "cash_tenths",
+            "cash_display",
             "open_positions_tenths",
             "daily_line_dollars",
+            "daily_line_display",
+            "per_bet_cap_display",
+            "exposure_cap_display",
+            "deposit_for_50c_display",
+            "caps_basis",
         }
+
+
+class TestTheCapsAreDerivedAtRequestTime:
+    """ADR 0045's caps, on the slate's money block (slice B2, 2026-08-22).
+
+    The defect: `daily_line_dollars` was read off the MODULE-LEVEL
+    `RiskConfig.load()` bound at import, which carries `None` for every
+    dollar cap on live -- so "your daily-loss line is $X" silently rendered
+    nothing since ADR 0045. The fix derives at request time via
+    `with_observed_balance`, the order endpoint's own step-8a pattern.
+
+    Mutation verified red (2026-08-22): the money block's `derived_risk`
+    swapped back to the module-level `risk` -- the seeded-balance test
+    below fails on `daily_line_dollars is None`; restored by copy -> green.
+    """
+
+    @staticmethod
+    def _app(tmp_path, *, balance_tenths=None):
+        from backend.store import db as store_db
+
+        path = tmp_path / "caps.db"
+        conn = store_db.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, 0, 0, '{}', 'test')"
+        )
+        if balance_tenths is not None:
+            conn.execute(
+                "INSERT INTO venue_balance_snapshots "
+                "(observed_ms, balance_tenths, portfolio_value_tenths) "
+                "VALUES (1000, ?, 0)",
+                (balance_tenths,),
+            )
+        conn.commit()
+        conn.close()
+        return create_app(AppConfig(instance_mode="demo", db_path=path))
+
+    async def test_the_caps_track_the_observed_balance(self, tmp_path):
+        """$2.56 observed -> 25.6c a bet, $1.02 at risk, 25.6c daily line
+        (the 10/40/10 fractions of ADR 0045), each a server display string."""
+        app = self._app(tmp_path, balance_tenths=2560)
+        money = (await get(app, "/api/slate")).json()["money"]
+        assert money["cash_display"] == "$2.56"
+        assert money["per_bet_cap_display"] == "25.6c"
+        assert money["exposure_cap_display"] == "$1.02"
+        assert money["daily_line_display"] == "25.6c"
+        assert money["daily_line_dollars"] == pytest.approx(0.256)
+        assert money["caps_basis"] == {
+            "balance_display": "$2.56",
+            "observed_ms": 1_000,
+            "refusal": None,
+        }
+
+    async def test_the_deposit_arithmetic_is_served_not_computed_client_side(
+        self, tmp_path
+    ):
+        """One contract at 50c costs $0.50; the per-bet cap is 10% of the
+        balance; so the balance that admits it is $5.00 -- rendered by the
+        server so the frontend never divides money."""
+        app = self._app(tmp_path, balance_tenths=2560)
+        money = (await get(app, "/api/slate")).json()["money"]
+        assert money["deposit_for_50c_display"] == "$5.00"
+
+    async def test_an_unobserved_balance_refuses_and_never_zeroes(
+        self, tmp_path
+    ):
+        """No snapshot -> refusal fields, not $0.00 caps. A zero cap and an
+        underivable cap are opposite instructions to a bettor."""
+        app = self._app(tmp_path, balance_tenths=None)
+        money = (await get(app, "/api/slate")).json()["money"]
+        assert money is not None
+        assert money["cash_display"] is None
+        assert money["per_bet_cap_display"] is None
+        assert money["exposure_cap_display"] is None
+        assert money["daily_line_display"] is None
+        assert money["daily_line_dollars"] is None
+        assert money["caps_basis"]["refusal"] == "balance unobserved"
+        # The deposit sentence stays true without a balance and is still sent.
+        assert money["deposit_for_50c_display"] == "$5.00"
+
+    async def test_an_observed_zero_balance_is_zero_caps_not_a_refusal(
+        self, tmp_path
+    ):
+        """Observed broke is not unobserved (`with_observed_balance`'s own
+        contract): a $0.00 balance derives caps of zero, stated as such."""
+        app = self._app(tmp_path, balance_tenths=0)
+        money = (await get(app, "/api/slate")).json()["money"]
+        assert money["per_bet_cap_display"] == "0c"
+        assert money["caps_basis"]["refusal"] is None
+        assert money["caps_basis"]["balance_display"] == "$0.00"
 
 
 class TestExecutionBoundary:

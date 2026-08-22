@@ -953,16 +953,33 @@ export type Slate = {
    * The venue's own reading of Joe's money: cash and the value sitting in
    * open positions, **separately and never summed** — a sum would sign a
    * P&L, and a signed P&L on the screen where bets are decided is the chase
-   * trigger the tilt review refused. `daily_line_dollars` is the deployed
-   * daily-loss cap (the line Joe set), the only denominator this may be
-   * read against; the $100 study ceiling is deliberately absent. `null`
-   * when no balance snapshot exists yet.
+   * trigger the tilt review refused.
+   *
+   * The caps are derived server-side, at request time, from the observed
+   * balance (ADR 0045) and arrive as display strings — this file's rule:
+   * no money arithmetic in the frontend. `caps_basis` is never omitted:
+   * it carries either the balance the caps were derived from or the
+   * refusal words ("balance unobserved") the screen must render instead
+   * of rendering nothing. `deposit_for_50c_display` is the server-computed
+   * deposit arithmetic ("one contract at 50c needs a $5.00 balance").
+   * `null` money only from a backend one version behind.
    */
   money: {
-    observed_ms: number;
+    observed_ms: number | null;
     cash_tenths: number | null;
+    cash_display: string | null;
     open_positions_tenths: number | null;
+    /** @deprecated render `daily_line_display`; kept for older readers. */
     daily_line_dollars: number | null;
+    daily_line_display: string | null;
+    per_bet_cap_display: string | null;
+    exposure_cap_display: string | null;
+    deposit_for_50c_display: string;
+    caps_basis: {
+      balance_display: string | null;
+      observed_ms: number | null;
+      refusal: string | null;
+    };
   } | null;
   counts: {
     returned: number;
