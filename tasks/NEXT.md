@@ -30,14 +30,64 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,825 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
-The terminal spread/total look was **VETOED by Joe 2026-08-21 16:11Z**,
-recorded per §7.1 in
+Expected: 3,837 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+**Live is at least two commits behind — not deployed this session** (`3067bf2`,
+`84fbbea`); check `/api/health` `git_sha` against `origin/main` before assuming
+either is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
+16:11Z**, recorded per §7.1 in
 `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
 nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look series is CLOSED
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
-and do not re-run the channel diagnostic (A17.6/A17.11). Live may be one
-deploy behind — check `/api/health` `git_sha` against `origin/main`.
+and do not re-run the channel diagnostic (A17.6/A17.11).
+
+---
+
+## 2026-08-22 ~13:15Z — the betting-desk list closes out: CLV on his own bets, then the ticket cleanup
+
+**Both remaining items on the 2026-08-21 partner ruling's work list are DONE.**
+That closes the list started 2026-08-21 (refusal-on-real-data, strip the
+landing screen, CLV on his own bets, ticket cleanup) — all four shipped.
+State: **3,837 passed / 10 xfailed** (net +12 over the 3,825 session-start
+baseline: +13 new CLV tests, −1 test deleted with the dead code it pinned),
+ruff clean, tsc clean, `next build` green. Two commits (`3067bf2`, `84fbbea`),
+**neither deployed** — live needs a deploy to carry this.
+
+- **CLV lands on his own bets (`3067bf2`).** `backend/scoring.py`'s
+  `markets_awaiting_scoring` unions in `venue_settlements`, gated on a
+  `kalshi_markets` discovery row and an `event_links` match, stopping once
+  any `closing_lines` row exists for the ticker (no `clv_scored_ms` to flip,
+  so this is the only stop-predicate available). Most hand-bet tickers
+  refuse structurally at the join — expected, per the ruling.
+  `backend/bets.py:bet_clv()` reads it back on request: LEFT JOIN
+  `closing_lines` at the primary horizon, the exact `clv.clv_tenths()`
+  convention, and the entry-before-close rule via `position_first_seen_ms`
+  (NULL refuses, never treated as "before everything"). Four refusal
+  reasons, each named: `no_closing_line`, `unreadable_close`,
+  `entry_time_unknown`, `entry_after_close`. `/bets` renders per-row only —
+  your price, the close, the difference — **no average, no hit rate**,
+  checked by a source-grep test (`test_module_computes_no_aggregate_clv`)
+  so the constraint can't quietly regress.
+- **The ticket cleanup (`84fbbea`), janitorial, one slice, nav-swap clause
+  dropped** (Scout already took the sixth slot). Removed the `!actionable`
+  branch on `TicketSheet`/`TicketProvider` that a 2026-08-18 finding proved
+  structurally unreachable — `TicketTrigger` is the sheet's sole opener,
+  passes no override, and every row it opens already arrived actionable
+  (`board.surfaced` is `routes.py`'s actionable-only partition). Renamed
+  `/ledger`'s nav label and page heading from "Ledger" to "Evidence" — now
+  that `/bets` is Joe's real settled-bet record, the old name on the
+  engine's evidence page was the exact "one word, two screens" confusion
+  the 2026-08-20 nav convening fixed for three other nouns and explicitly
+  left this one alone for. Route and function names (`/ledger`,
+  `fetchLedger`) untouched, matching `/board`'s "Picks" precedent.
+
+**Next session starts here.** Nothing is queued by name — the explicit work
+list is empty for the first time since 2026-08-21. Before inventing new
+work: deploy the two commits above, then pull the Fly invoice and first
+Anthropic invoice (ADR 0062 §4, still the two unpulled numbers), then check
+the partner's "later, maybe" lists (2026-08-21 review + ADR 0061) for
+anything worth promoting. The footer parity note stands (6-and-6, at the
+bound — the next footer addition must answer the delete-commit question,
+not land there by default).
 
 ---
 
