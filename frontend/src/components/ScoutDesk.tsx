@@ -317,7 +317,7 @@ function SpendDisclosure() {
           </p>
         ) : (
           <>
-            <p className="font-mono text-xs">
+            <p className="max-w-[65ch] font-mono text-xs">
               {spend.calls_today} of {spend.calls_daily_budget} calls
               <span className="text-muted"> · </span>
               {spend.searches_today} of {spend.searches_daily_budget} searches
