@@ -19,11 +19,19 @@ export const dynamic = "force-dynamic";
  * makes three hundred scored observations reachable without three hundred
  * wagers.
  *
+ * **Named "Evidence" in the nav, not "Ledger", since 2026-08-22.** `/bets`
+ * shipped 2026-08-21 as Joe's own settled-bet record, which is what "ledger"
+ * means to a reader outside this codebase; keeping this page's old name
+ * would have put two different things behind the one word a beginner reaches
+ * for first. Route and function names (`/ledger`, `fetchLedger`) are
+ * unchanged, matching the pattern `/board` already set under "Picks" --
+ * only the visible name moved.
+ *
  * **Colour is a claim, not the sign of a subtraction.** This screen lists every
  * recommendation the database holds — suppressed rows included, since a refused
  * row is the evidence — and it coloured the edge on `rec.edge_cents > 0` alone.
  * That is the Board's defect one screen over, and worse here: the Board shows a
- * windowed slate, the Ledger shows the whole record, so every `suspicious_edge`
+ * windowed slate, this page shows the whole record, so every `suspicious_edge`
  * row ever written rendered in the colour that means take this. The tone now
  * comes from `edgeTone`, the same call the Board's `SlateRow` makes, because a
  * second copy of the rule is a second chance to paint green over a defect.
@@ -45,7 +53,7 @@ export default async function LedgerPage() {
   return (
     <Shell>
       <header className="mb-8">
-        <h1 className="display text-4xl sm:text-5xl">Ledger</h1>
+        <h1 className="display text-4xl sm:text-5xl">Evidence</h1>
         <p className="mt-3 max-w-xl text-lg text-muted">
           Every candidate the engine judged, kept with its reasoning. Scored on
           closing-line value whether or not it was bet.

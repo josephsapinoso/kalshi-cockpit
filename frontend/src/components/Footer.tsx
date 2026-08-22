@@ -34,9 +34,12 @@ const SECONDARY = [
   {
     // Born 2026-08-21 (betting-desk item 1): Joe's own settled bets, read
     // off the venue-settlement mirror. In the footer rather than the nav
-    // because the nav's six slots are spent; the partner's later nav-swap
-    // item (the "Ledger" rename question) is where it may earn one -- that
-    // decision is deliberately not being made here by default.
+    // because the nav's six slots are spent; the nav-swap that would have
+    // moved this page into the open slot under "Ledger" was dropped
+    // 2026-08-22 (Scout took the slot first), so it stays here. The other
+    // half of that item -- renaming `/ledger`'s own "Ledger" label, since
+    // this is the page that word actually describes -- shipped on its own;
+    // see `Nav.tsx`.
     href: "/bets",
     label: "Your bets",
     blurb:

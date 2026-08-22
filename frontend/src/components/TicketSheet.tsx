@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   formatAge,
-  formatDuration,
   formatKickoff,
   isLockedDetail,
   newIntentKey,
@@ -42,21 +41,27 @@ import { focusWrap, type TrapPosition } from "@/lib/focusWrap";
  * screen on purpose: presenting the preview as the price you will pay is how a
  * page comes to look like it is disagreeing with the server.
  *
- * **3. A disabled button is a hint to a human, not a control.** Confirm is
- * disabled when the row is not actionable, and every server refusal is rendered
- * anyway, because the server is the control and it refuses for a dozen reasons
- * this page cannot see.
+ * **3. A disabled button is a hint to a human, not a control.** Every server
+ * refusal is rendered anyway, because the server is the control and it refuses
+ * for a dozen reasons this page cannot see.
  *
  * The realistic outcome of confirming today is **423, the locked gate**. That is
  * not an error path to be tucked into a toast -- it is the screen a person on a
  * phone will actually get, so it is the most carefully built state here.
+ *
+ * **There is no `!actionable` state on this sheet, and there never reachably
+ * was one (found 2026-08-18, removed 2026-08-22).** `routes.py` sorts a row
+ * into `board.surfaced` only when `item["actionable"]` is true; `LiveBoard`
+ * renders `board.surfaced` only; and `TicketTrigger` -- this sheet's sole
+ * opener -- passes no override. A row can only ever reach Confirm already
+ * actionable, so the amber "aged out" note, the extra disabled term on the
+ * stepper, and the "Off because..." caption branch were dead on arrival.
  */
 
 type Phase = "ticket" | "sending" | "answered";
 
 export default function TicketSheet({
   rec,
-  actionable,
   demo,
   quoteLimitMs,
   oddsLimitMs,
@@ -65,8 +70,6 @@ export default function TicketSheet({
   onClose,
 }: {
   rec: Recommendation;
-  /** The server would accept an order for this row at this instant. */
-  actionable: boolean;
   /** Demo instances hold no credentials; the order route answers 403. */
   demo: boolean;
   quoteLimitMs: number;
@@ -194,7 +197,6 @@ export default function TicketSheet({
   }, [rec.id, contracts, token]);
 
   const quoteAge = rec.quote_age_now_ms ?? rec.kalshi_quote_age_ms;
-  const oddsAge = rec.odds_age_now_ms ?? rec.odds_age_ms;
   // The heading below is `rec.team`, which is the YES-side team on every row
   // including the ones that buy NO. This is the sentence that says which way
   // round the bet actually goes; see `lib/betDirection.ts`.
@@ -405,7 +407,7 @@ export default function TicketSheet({
                 <Stepper
                   value={contracts}
                   max={authorised}
-                  disabled={!actionable || phase === "sending"}
+                  disabled={phase === "sending"}
                   onChange={setContracts}
                 />
                 <p className="mt-3 text-xs leading-relaxed text-muted">
@@ -415,18 +417,7 @@ export default function TicketSheet({
                 </p>
               </Section>
 
-              {!actionable && (
-                <Note tone="warn">
-                  The sportsbook consensus behind this fair value is{" "}
-                  <span className="font-mono">{formatDuration(oddsAge)}</span>{" "}
-                  old. Nothing but one of the day&apos;s odds credits refreshes
-                  it, so the server will refuse this bet until the next sweep
-                  runs. The Confirm button is off, and the refusal would come
-                  back from the server regardless.
-                </Note>
-              )}
-
-              {actionable && priceStale && (
+              {priceStale && (
                 <Note>
                   The price on this ticket was read{" "}
                   <span className="font-mono">{formatAge(quoteAge)}</span>.
@@ -531,12 +522,7 @@ export default function TicketSheet({
               <button
                 type="button"
                 onClick={confirm}
-                disabled={
-                  phase === "sending" ||
-                  !actionable ||
-                  contracts < 1 ||
-                  needsToken
-                }
+                disabled={phase === "sending" || contracts < 1 || needsToken}
                 aria-busy={phase === "sending"}
                 className="w-full rounded-lg bg-accent px-4 py-3.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -544,22 +530,10 @@ export default function TicketSheet({
                   ? "Asking the server…"
                   : `Confirm — buy ${contracts}`}
               </button>
-              {/* The bet's problem outranks the browser's.
-                  These two were the other way round, and on a live instance
-                  the token field is empty on every page load -- so every
-                  expired row, which is most rows for most of the day, read
-                  "The token above is required before this can be sent."
-                  Typing forty-three characters would then leave the button
-                  exactly as dead, because the sportsbook consensus behind the
-                  row aged out and nothing in this browser refreshes it.
-                  Naming the fixable cause when fixing it changes nothing is
-                  worse than saying nothing at all. */}
               <p className="mt-2 text-center text-xs text-muted">
-                {!actionable
-                  ? "Off because the consensus behind this bet has aged out."
-                  : needsToken
-                    ? "The token above is required before this can be sent."
-                    : "Priced and sized by the server at the moment you tap."}
+                {needsToken
+                  ? "The token above is required before this can be sent."
+                  : "Priced and sized by the server at the moment you tap."}
               </p>
             </>
           )}

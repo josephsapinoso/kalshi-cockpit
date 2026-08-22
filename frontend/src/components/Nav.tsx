@@ -43,8 +43,9 @@ import type { Chip } from "@/lib/windowChip";
 // for 1,005 straight passes. "Games" is every game today; "Picks" is the
 // filter's output, still one tap away at `/board`. "Log" stays -- it is the
 // action the calibration study budgets twelve seconds for -- and "Ledger"
-// stays because its page is titled that; renaming a tab away from its own
-// page title trades one confusion for another.
+// stayed because its page was titled that, on the reasoning that renaming a
+// tab away from its own page title trades one confusion for another. **That
+// reasoning is superseded 2026-08-22** -- see the slot's own comment below.
 // **Log's slot is retired, 2026-08-21, and nothing takes it.** Joe stopped
 // the calibration study (Amendment 2, 2026-08-20, stopped without result):
 // a nav slot opening a form that feeds a stopped study is quiet
@@ -57,14 +58,26 @@ import type { Chip } from "@/lib/windowChip";
 // already wearing its meter). It is the one feature Joe asked for by shape
 // (ADR 0060) on a tool he has ruled is a betting desk (ADR 0062), and its
 // page is where today's Anthropic spend is read before sending it again.
-// Placed before Ledger so Gate keeps its visible slot at 390px: with six
+// Placed before this slot so Gate keeps its visible slot at 390px: with six
 // links the row scrolls, and the one that scrolls off is Playbook -- still
 // the newest-least-urgent trade the comment below records.
+// **This slot stops being called "Ledger", 2026-08-22.** `/bets` shipped
+// 2026-08-21 as Joe's own settled-bet record -- the thing "Ledger" names in
+// ordinary speech -- and the earlier convening's reason for keeping this
+// label ("renaming a tab away from its own page title trades one confusion
+// for another") stopped applying the day a second, truer claimant to the
+// word existed. The partner's later nav-swap item would have moved `/bets`
+// into this slot under that name; it was dropped once Scout took the open
+// sixth slot, so `/bets` stays in the footer -- but the rename half of that
+// item still stands on its own: this page is the engine's evidence base,
+// not anyone's ledger, and it should stop reading as one. Route unchanged
+// (`/ledger`, matching `/api/ledger`) -- only the label and the page's own
+// heading move, the same pattern `/board` follows under "Picks".
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/board", label: "Picks" },
   { href: "/scout", label: "Scout" },
-  { href: "/ledger", label: "Ledger" },
+  { href: "/ledger", label: "Evidence" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.
   { href: "/gate", label: "Gate" },

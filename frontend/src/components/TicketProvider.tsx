@@ -31,7 +31,7 @@ import type { Recommendation } from "@/lib/api";
  */
 
 type TicketState = {
-  open: (rec: Recommendation, options?: { actionable?: boolean }) => void;
+  open: (rec: Recommendation) => void;
 };
 
 const TicketContext = createContext<TicketState | null>(null);
@@ -58,25 +58,18 @@ export function TicketProvider({
   oddsLimitMs: number;
   children: React.ReactNode;
 }) {
-  const [ticket, setTicket] = useState<{
-    rec: Recommendation;
-    actionable: boolean;
-  } | null>(null);
+  const [ticket, setTicket] = useState<Recommendation | null>(null);
   const [token, setToken] = useState("");
 
-  const open = useCallback(
-    (rec: Recommendation, options?: { actionable?: boolean }) => {
-      // `actionable` defaults to what the server said about this row, and the
-      // caller may only ever narrow it. The Board's expired section knows the
-      // row is dead; nothing is allowed to claim the reverse.
-      const serverSaid = rec.actionable !== false;
-      setTicket({
-        rec,
-        actionable: serverSaid && options?.actionable !== false,
-      });
-    },
-    [],
-  );
+  // Used to carry an `actionable` override the caller could narrow the row
+  // to (never widen it). Removed 2026-08-22: `TicketTrigger` is this
+  // provider's sole caller, passes no override, and every row it ever opens
+  // already arrived actionable (`board.surfaced` is `routes.py`'s
+  // actionable-only partition) -- the override existed for a state that
+  // could never occur. See `TicketSheet`'s module docstring for the finding.
+  const open = useCallback((rec: Recommendation) => {
+    setTicket(rec);
+  }, []);
 
   const value = useMemo(() => ({ open }), [open]);
 
@@ -88,9 +81,8 @@ export function TicketProvider({
           // Keyed on the row so opening a second ticket resets the sheet's own
           // state rather than showing the previous bet's answer under a new
           // heading.
-          key={ticket.rec.id}
-          rec={ticket.rec}
-          actionable={ticket.actionable}
+          key={ticket.id}
+          rec={ticket}
           demo={instanceMode === "demo"}
           quoteLimitMs={quoteLimitMs}
           oddsLimitMs={oddsLimitMs}
@@ -114,18 +106,16 @@ export function TicketProvider({
  */
 export function TicketTrigger({
   rec,
-  actionable,
   children,
 }: {
   rec: Recommendation;
-  actionable?: boolean;
   children: React.ReactNode;
 }) {
   const { open } = useTicket();
   return (
     <button
       type="button"
-      onClick={() => open(rec, { actionable })}
+      onClick={() => open(rec)}
       className="block w-full min-w-0 text-left"
     >
       {children}

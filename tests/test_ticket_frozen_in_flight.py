@@ -1,12 +1,20 @@
 """The ticket's two inputs are frozen while an order is in flight.
 
 **The defect.** Confirm's disabled set has carried `phase === "sending"` all
-along. The stepper's did not (`disabled={!actionable}`) and the token input had
-no `disabled` at all. `confirm` closes over `contracts`, so the size that was
-*sent* was always right -- but the screen was not. Tapping `-` mid-send
-re-rendered the sheet at the new number, withdrew four money figures to "—", and
-could show or hide the depth warning, while a request for the old size was still
-out. The answer then came back naming a size the ticket had stopped displaying.
+along. The stepper's did not (`disabled={!actionable}`, since removed -- see
+below) and the token input had no `disabled` at all. `confirm` closes over
+`contracts`, so the size that was *sent* was always right -- but the screen
+was not. Tapping `-` mid-send re-rendered the sheet at the new number,
+withdrew four money figures to "—", and could show or hide the depth warning,
+while a request for the old size was still out. The answer then came back
+naming a size the ticket had stopped displaying.
+
+**`!actionable` itself is gone (2026-08-22).** It was found structurally
+unreachable on this sheet the same day it was added (`TicketTrigger` is the
+sheet's sole opener and passes no override; every row it opens already
+arrived actionable) and removed as dead code once that finding became this
+session's work. The Stepper's guard is `phase === "sending"` alone now; the
+test that pinned the old term is gone with it.
 
 **What this file is and is not.** These are source-text assertions, and the
 repo's own rule is that a substring test is the right tool for *"does the
@@ -45,12 +53,6 @@ class TestTheStepperIsFrozen:
         block = re.search(r"<Stepper\b.*?/>", source(), re.S)
         assert block is not None, "the Stepper element moved; update this test"
         assert SENDING in block.group(0)
-
-    def test_the_stepper_still_respects_actionable(self):
-        """The new term is added to the old one, not swapped for it."""
-        block = re.search(r"<Stepper\b.*?/>", source(), re.S)
-        assert block is not None
-        assert "!actionable" in block.group(0)
 
 
 class TestTheTokenInputIsFrozen:
