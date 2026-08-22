@@ -29,6 +29,7 @@ import pytest
 from backend.analysis.clv import DEFAULT_HORIZON_HOURS
 
 from backend.api.routes import create_app
+from backend.bets import TONIGHT_STALE_AFTER_MS
 from backend.config import (
     AppConfig,
     GateConfig,
@@ -464,6 +465,16 @@ def build_armed_db(tmp_path):
         "INSERT INTO fills (kalshi_fill_id, ticker, filled_ms, count, "
         "price_tenths, is_taker, fee_actual, fee_predicted, fee_model_used) "
         "VALUES ('f1', 'G0', 1, 10, 500, 1, 0.35, 0.35, 'conservative')"
+    )
+    # A fresh, successful settlements poll: ADR 0064 has the order path read
+    # the day's P&L off the venue mirror and REFUSE when that mirror is stale,
+    # so an armed record now includes the poller having just run. Without this
+    # row every order below would 422 with `daily_pnl_unreadable` before any
+    # behaviour under test is reached.
+    conn.execute(
+        "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+        "VALUES (?, 'settlements', 1, 0)",
+        (now,),
     )
     conn.commit()
     return path, conn, now
@@ -1131,6 +1142,23 @@ LIVE_PROFILE = RiskConfig(
 )
 
 
+def _venue_losses(conn, *, settled_ms, positions, loss_tenths_each):
+    """Settled losing bets in the venue mirror, as the poller writes them.
+
+    Each is a lost yes bet at 50c with no fee, sized so the registered net
+    (`bets.settlement_net_tenths`) comes to exactly `-loss_tenths_each`.
+    Distinct tickers, because the mirror keys on (ticker, settled_ms).
+    """
+    for i in range(positions):
+        conn.execute(
+            "INSERT INTO venue_settlements (ticker, event_ticker, "
+            "market_result, settled_ms, side, contracts, entry_price_tenths, "
+            "fee_cost_tenths) VALUES (?, 'EVT-VENUE', 'no', ?, 'yes', ?, 500, 0)",
+            (f"KXVENUE-{settled_ms}-{i}", settled_ms, loss_tenths_each / 500),
+        )
+    conn.commit()
+
+
 def _settled_losses(conn, *, ticker, settled_ms, positions, cents_each):
     """Closed positions with realised P&L, exactly as `settle_position` writes them.
 
@@ -1139,6 +1167,10 @@ def _settled_losses(conn, *, ticker, settled_ms, positions, cents_each):
     both exclude rows with a settlement, so seeding these adds realised P&L
     without adding exposure. That separation is the point -- the refusal under
     test has to come from the loss limit and from nothing else.
+
+    Since ADR 0064 the order path's daily-loss figure no longer reads these
+    tables at all; this helper survives as the *contrast* seed for the test
+    proving exactly that.
     """
     for i in range(positions):
         conn.execute(
@@ -1175,6 +1207,12 @@ class TestTheDailyLossLimitReachesTheOrderPath:
     the response of the real endpoint, and the P&L is written to the database
     rather than passed in -- which is the only version of this claim that can go
     red for the reason it is about.
+
+    Since ADR 0064 the database in question is `venue_settlements` -- the
+    venue's own record of every bet however placed -- because the engine-path
+    `settlements` table is written only by a sweep over `orders`, which under
+    `ORDERS_ARE_DRY_RUNS = True` has never held a real bet: the old wiring
+    returned $0.00 forever as a genuine measurement over the wrong population.
     """
 
     async def test_twenty_thousand_dollars_of_realised_loss_refuses_the_order(
@@ -1182,8 +1220,8 @@ class TestTheDailyLossLimitReachesTheOrderPath:
     ):
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
-        _settled_losses(
-            conn, ticker=TICKER, settled_ms=now, positions=40, cents_each=-50_000,
+        _venue_losses(
+            conn, settled_ms=now, positions=40, loss_tenths_each=500_000,
         )
 
         response = await _order(
@@ -1229,8 +1267,8 @@ class TestTheDailyLossLimitReachesTheOrderPath:
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
         # -$9.99 against a $10.00 limit.
-        _settled_losses(
-            conn, ticker=TICKER, settled_ms=now, positions=1, cents_each=-999,
+        _venue_losses(
+            conn, settled_ms=now, positions=1, loss_tenths_each=9_990,
         )
 
         response = await _order(
@@ -1242,8 +1280,8 @@ class TestTheDailyLossLimitReachesTheOrderPath:
     async def test_a_loss_exactly_on_the_limit_refuses(self, armed_db):
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
-        _settled_losses(
-            conn, ticker=TICKER, settled_ms=now, positions=1, cents_each=-1_000,
+        _venue_losses(
+            conn, settled_ms=now, positions=1, loss_tenths_each=10_000,
         )
 
         response = await _order(
@@ -1262,12 +1300,12 @@ class TestTheDailyLossLimitReachesTheOrderPath:
         """
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
-        _settled_losses(
-            conn, ticker=TICKER,
+        _venue_losses(
+            conn,
             # Two days back, which is before this risk day's start at any roll
             # hour, so the test does not depend on what time it runs.
             settled_ms=now - 2 * 86_400_000,
-            positions=40, cents_each=-50_000,
+            positions=40, loss_tenths_each=500_000,
         )
 
         response = await _order(
@@ -1276,21 +1314,29 @@ class TestTheDailyLossLimitReachesTheOrderPath:
 
         assert response.status_code == 200, response.json()
 
-    async def test_a_live_loss_does_not_stop_a_paper_order(self, armed_db):
-        """Paper and live P&L are never pooled, for the reason exposure is not.
+    async def test_the_engine_settlements_table_no_longer_binds_the_order_path(
+        self, armed_db
+    ):
+        """ADR 0064's boundary, from the other side.
 
-        Every order this project places is paper. A live settlement stopping a
-        paper order would be a fictional constraint; a paper *profit* offsetting
-        a live loss would be far worse, and it is the same mistake with the sign
-        flipped.
+        -$20,000 of engine-path `settlements` rows -- on both `dry_run` flags,
+        so no pooling rule explains the pass -- and the order still goes
+        through, because the order path's denominator is the venue mirror and
+        nothing else. Before ADR 0064 this table WAS the source; a regression
+        re-reading it would refuse this order and go red here.
         """
         path, conn, now = armed_db
         rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
         _settled_losses(
             conn, ticker=TICKER, settled_ms=now, positions=40, cents_each=-50_000,
         )
-        conn.execute("UPDATE settlements SET dry_run = 0")
-        conn.execute("UPDATE orders SET dry_run = 0 WHERE client_order_id LIKE 'settled-%'")
+        conn.execute(
+            "UPDATE settlements SET dry_run = 0 WHERE order_id % 2 = 0"
+        )
+        conn.execute(
+            "UPDATE orders SET dry_run = 0 WHERE id % 2 = 0 "
+            "AND client_order_id LIKE 'settled-%'"
+        )
         conn.commit()
 
         response = await _order(
@@ -1298,6 +1344,38 @@ class TestTheDailyLossLimitReachesTheOrderPath:
         )
 
         assert response.status_code == 200, response.json()
+
+    async def test_a_stale_mirror_refuses_the_order_rather_than_assuming_no_losses(
+        self, armed_db
+    ):
+        """Staleness refuses, it never zeroes (ADR 0064).
+
+        The mirror holds a fresh -$20,000 -- but its last successful poll is
+        older than `bets.TONIGHT_STALE_AFTER_MS`, so the producer returns
+        `None` and the sizer's existing `None`-refusal stops the order with a
+        named reason. This is the route-level proof that `core/sizing.py:192`
+        does the refusing; the comparison itself is pinned in
+        `test_ev_sizing.py`.
+        """
+        path, conn, now = armed_db
+        rec = _live_pick(conn, now, ask_tenths=500, suggested_contracts=50)
+        _venue_losses(
+            conn, settled_ms=now, positions=40, loss_tenths_each=500_000,
+        )
+        conn.execute(
+            "UPDATE poll_log SET polled_ms = ? WHERE endpoint = 'settlements'",
+            (now - TONIGHT_STALE_AFTER_MS - 1,),
+        )
+        conn.commit()
+
+        response = await _order(
+            _app(path, FakeQuotes(), risk=LIVE_PROFILE), rec, contracts=10,
+        )
+
+        assert response.status_code == 422, response.json()
+        detail = response.json()["detail"]
+        assert "daily_pnl_unreadable" in detail, detail
+        assert "the price moved" not in detail, detail
 
 
 class TestTheCapsStillBindThroughTheSizer:

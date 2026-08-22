@@ -38,6 +38,7 @@ mirror as the account.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
@@ -46,6 +47,8 @@ from .analysis.clv import DEFAULT_HORIZON_HOURS
 from .analysis.clv import clv_tenths as _clv_tenths
 from .core.prices import format_price
 from .odds.timing import day_start_ms
+
+logger = logging.getLogger(__name__)
 
 
 # The staleness ceiling for the "tonight" strip: 6x the fills cadence
@@ -304,3 +307,99 @@ def tonight_activity(
     # a scoreboard.
     payload["staked_display"] = f"${staked_tenths / 1000:.2f}"
     return payload
+
+
+def venue_daily_realised_pnl_dollars(
+    conn: sqlite3.Connection, *, now_ms: int, day_start_hour: int
+) -> Optional[float]:
+    """The risk day's realised P&L off the venue's own record, or a refusal.
+
+    ADR 0064: wherever money is gated, daily realised P&L is computed from
+    `venue_settlements` -- the venue's record of every bet however placed --
+    not from the engine-path `settlements` table, which is written only by a
+    sweep over `orders` and has therefore been empty for the project's whole
+    life (`ORDERS_ARE_DRY_RUNS = True` since birth). A kill switch reading
+    that table returns $0.00 forever as a genuine measurement over the wrong
+    population.
+
+    Negative is a loss, in dollars, because that is the unit
+    `core/sizing.py`'s `daily_pnl_dollars` compares. The day is the risk
+    day: the same `day_start_ms` roll hour `tonight_activity`, the odds
+    budget and `settlement.risk_day_start_ms` all share -- callers pass the
+    *configured* hour so a third definition of "today" cannot appear here.
+
+    **Staleness refuses, it never zeroes.** If the settlements mirror's
+    freshest successful read (`poll_log`, endpoint 'settlements', ok = 1) is
+    absent or older than `TONIGHT_STALE_AFTER_MS`, this returns `None` and
+    the sizer's existing `None`-refusal stops the order. A stale mirror at
+    8pm otherwise reports "no losses today" while the evening's settlements
+    sit unread -- the false negative in the flattering direction, on the
+    exact quantity that exists to stop the next bet.
+
+    Rows that cannot carry the registered formula (`settlement_net_tenths`)
+    split two ways, and the split is stated because it differs from
+    `bets_record`'s display convention in one direction only:
+
+    - a **void** (`market_result` neither "yes" nor "no") is EXCLUDED and
+      counted in the log, exactly as `bets_record` excludes-and-counts it: a
+      void has no registered payout, and refusing the whole day's figure for
+      a scratched market would turn one venue quirk into a standing order
+      block.
+    - an **unreadable money field on a decided row** (a "yes"/"no" result
+      whose entry price, fee, or count cannot be read) refuses the WHOLE
+      figure (`None`). Excluding it, as the display does beside an explicit
+      count, has no beside-the-number here -- the sizer receives one float,
+      so a silently dropped loss would understate the day in the flattering
+      direction.
+
+    No `dry_run` split, deliberately: the engine function pools paper with
+    paper and live with live, but the venue's record has no paper rows --
+    everything in it is Joe's money -- and when the engine someday places
+    real orders the venue settles them into this same mirror, so reading
+    only the mirror is what makes a double count impossible (ADR 0064 §3).
+
+    What this does NOT establish: that the mirror is complete. A freshly
+    polled mirror still lacks positions settled while the poller was down or
+    before it existed (2026-08-18), and open losing positions are
+    structurally absent because their loss is not yet realised. Freshness
+    bounds the staleness of the record; it is not a completeness proof.
+    """
+    try:
+        as_of_row = conn.execute(
+            "SELECT MAX(polled_ms) AS ms FROM poll_log "
+            "WHERE endpoint = 'settlements' AND ok = 1"
+        ).fetchone()
+        as_of = as_of_row["ms"] if as_of_row is not None else None
+        if as_of is None or now_ms - as_of > TONIGHT_STALE_AFTER_MS:
+            return None
+        rows = conn.execute(
+            "SELECT ticker, market_result, side, contracts, "
+            "entry_price_tenths, fee_cost_tenths "
+            "FROM venue_settlements WHERE settled_ms >= ?",
+            (day_start_ms(now_ms, hour=day_start_hour),),
+        ).fetchall()
+    except Exception:                                       # noqa: BLE001
+        logger.exception("could not read the venue settlements mirror")
+        return None
+
+    net_sum = 0
+    voids = 0
+    for row in rows:
+        net = settlement_net_tenths(row)
+        if net is None:
+            if row["market_result"] in ("yes", "no"):
+                logger.error(
+                    "venue settlement on %s is decided but unreadable; the "
+                    "day's P&L cannot be summed. Refusing rather than "
+                    "dropping a possible loss.", row["ticker"],
+                )
+                return None
+            voids += 1
+            continue
+        net_sum += net
+    if voids:
+        logger.info(
+            "daily realised P&L excludes %d void settlement(s) with no "
+            "registered payout", voids,
+        )
+    return net_sum / 1000.0

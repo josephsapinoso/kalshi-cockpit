@@ -438,10 +438,15 @@ class TestPollPortfolioForever:
     async def test_the_balance_runs_every_cycle_and_the_mirror_waits_12h(
         self, tmp_path
     ):
+        """The full mirror (positions, the matcher) keeps the 12-hour clock;
+        balance, fills AND settlements run every cycle -- settlements joined
+        the fast cadence with ADR 0064, because the daily-loss kill switch
+        refuses on a mirror older than 30 minutes."""
         path = tmp_path / "cockpit.db"
         db.init_db(path).close()
-        # 5-minute steps; 145 cycles spans just over 12 hours, so the mirror
-        # should fire exactly twice: cycle 1 and the first cycle past 12h.
+        # 5-minute steps; 145 cycles spans just over 12 hours, so the full
+        # mirror should fire exactly twice: cycle 1 and the first cycle past
+        # 12h.
         clock, sleep = self._clockwork(step_s=300)
 
         await poll_portfolio_forever(
@@ -452,11 +457,18 @@ class TestPollPortfolioForever:
         balances = conn.execute(
             "SELECT COUNT(*) FROM venue_balance_snapshots"
         ).fetchone()[0]
-        mirrors = conn.execute(
+        settlements = conn.execute(
             "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'settlements'"
+        ).fetchone()[0]
+        mirrors = conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
         ).fetchone()[0]
         conn.close()
         assert balances == 146, "the balance is every cycle, mirror included"
+        assert settlements == 146, (
+            "settlements ride the fast cadence (ADR 0064): the kill switch's "
+            "producer refuses on a mirror older than 30 minutes"
+        )
         assert mirrors == 2, "cycle 1, then the first cycle past the 12h mark"
 
     async def test_endpoint_failures_are_absorbed_and_logged_per_cycle(
@@ -481,9 +493,9 @@ class TestPollPortfolioForever:
         ).fetchone()[0]
         conn.close()
         # Cycle 1 is a mirror (4 endpoints fail); cycles 2-3 are the fast
-        # cadence, which since the 2026-08-21 ruling is balance AND fills --
-        # two failures each, so the tally is 4 + 2 + 2.
-        assert failures == 8, "every failed attempt left a row, and the loop ran on"
+        # cadence, which is balance AND fills (2026-08-21 ruling) AND
+        # settlements (ADR 0064) -- three failures each, so 4 + 3 + 3.
+        assert failures == 10, "every failed attempt left a row, and the loop ran on"
 
     async def test_a_failure_that_escapes_the_poll_does_not_kill_the_loop(
         self, tmp_path, monkeypatch
