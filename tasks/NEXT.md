@@ -30,15 +30,89 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,837 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
-**Live is at least two commits behind — not deployed this session** (`3067bf2`,
-`84fbbea`); check `/api/health` `git_sha` against `origin/main` before assuming
-either is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
+Expected: 3,895 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Check `/api/health` `git_sha` against `origin/main` before assuming anything
+is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
 `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md` —
 nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look series is CLOSED
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
+
+---
+
+## 2026-08-22 (second session) — the every-page review ships whole: kill list, glossary, real limits, and a manual door built dry
+
+Joe asked for an every-page UI review "with Claude and Chrome" plus two
+requirements: tooltips that teach a novice every term, and **purchasing from
+the portal instead of the Kalshi app**. All 14 screens were screenshotted
+live in Chrome; the partner convened six agents over the evidence and ruled;
+Joe approved the plan by AskUserQuestion (buy path as ruled, all four kill
+items, C0 probe greenlit — he runs it himself). Full plan:
+`C:\Users\josep\.claude\plans\enumerated-noodling-simon.md`. Mid-session Joe
+also corrected the record: **he is NOT phone-first — equally desktop**;
+memory updated, every slice designed and verified for both.
+
+**State: 3,895 passed / 10 xfailed** (+58 over baseline), ruff clean, tsc
+clean, `next build` green. ADRs 0063 (manual path separate, never feeds the
+gate), 0064 (daily loss reads `venue_settlements`, refuses on stale), 0065
+(P(YES) is the ticket's precondition; `/estimate` form retired).
+
+**Shipped, by lane:**
+
+- **A-lane (screens).** Kill list: `/builder` deleted, `/rejections` folded
+  into the Slate's disclosure, `/scout` index absorbed (meter now a
+  disclosure in ScoutDesk), `/estimate` is record-only under "Estimates",
+  `/bets` took Scout's nav slot, `/slate`+`/dashboards` moved to the
+  reachability EXEMPT list with reasons. Landing leads with games (panel
+  demoted behind `lib/refreshUrgency.ts`, node-tested; SignalStrip below
+  rows; 4 stats → 2; heading now "Games"). Board's schedule/refresh fold
+  into `<details>`, SignalStrip below the cards. `lib/tickerLabel.ts` keeps
+  ticker tails; `lib/leagueLabel.ts` says MLB not baseball_mlb; gate
+  conditions got plain headlines. `components/Hint.tsx` makes every
+  hover-only caveat tap-visible (soft fallback above all). Glossary 14 → 22
+  terms (contract, consensus, devig, settled, bankroll, depth, exposure,
+  quarter-Kelly, fill, W/L, net; three orphans deleted; `stake` no longer
+  instructs "$2, every time"), TicketSheet fully termed, and
+  `tests/test_glossary_coverage.py` pins coverage four ways. Kalshi deep
+  links exist (`lib/kalshiLink.ts`, scheme verified in a browser).
+- **B-lane (limits).** Daily loss reads the venue mirror and refuses on
+  stale (ADR 0064; settlements joined the 5-min poll cadence). Caps render
+  always as server display strings with `caps_basis`; the slate says "your
+  cap is Xc a bet" + the deposit line. Open positions surface on slate and
+  /bets (count on the 12h clock, portfolio value on the 5-min clock, each
+  with its own staleness refusal, never summed). Scope sentences rewritten.
+  /bets gains Not-tonight, "CLV scored on N of M", and the decisions
+  headline over the new append-only `desk_passes`.
+- **D-lane (the manual door, DRY).** `manual_orders` table +
+  `MANUAL_ORDERS_ARE_DRY_RUNS = True` + `POST /api/manual-orders` with
+  twelve unwaivable server-side checks (demo refuses on mode regardless of
+  the `MANUAL_ORDERS_ENABLED` flag — false in both fly tomls; lockout and
+  10-min cooloff 423s; KXMVE refused; daily-loss over the mirror;
+  balance-derived caps; ceiling refused never repriced; depth; fee-inclusive
+  worst case; live positions read refusing anything unprovably non-netting;
+  IOC only). `GET /api/manual/market/{ticker}` serves any ticker's live
+  facts + "authorises N". The ManualTicket on the market screen asks P(YES)
+  with the ask masked before revealing anything (pinned by source test).
+  Migration **v18** adds `fills.venue_order_id` (the join back to manual
+  orders). `gate.py` never reads `manual_orders` — pinned.
+
+**FOR JOE — the two things only you can do:**
+
+1. **Run the C0 probe** (before the manual path can ever arm):
+   `.venv\Scripts\python.exe scripts\probe_create_order.py
+   --i-am-joe-and-this-spends-money --ticker <TICKER> --side yes` on a
+   market with an ask ≤10c. Worst case under $0.14. Runbook:
+   `docs/runbooks/c0-create-order-probe.md`. The capture stays local
+   (operator data); fixtures get hand-written from the shape.
+2. **Decide when to arm**: after the probe, arming = set
+   `MANUAL_ORDERS_ENABLED=true` on live AND flip
+   `MANUAL_ORDERS_ARE_DRY_RUNS` in a commit (ADR 0063; starts at a
+   1-contract ceiling).
+
+**Open:** the per-row "Pass" affordance on the slate (B6 left it for a
+design pass); `docs/measurements` has nothing new (no measurements were
+taken — this was build work under standing rulings).
 
 ---
 
