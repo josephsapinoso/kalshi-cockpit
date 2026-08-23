@@ -720,6 +720,11 @@ CREATE TABLE IF NOT EXISTS fills (
     fee_actual          REAL,
     fee_predicted       REAL NOT NULL,
     fee_model_used      TEXT NOT NULL,
+    -- The venue's own order id (v18). What joins a portal-placed manual
+    -- order's fill back to its `manual_orders` row via `kalshi_order_id`;
+    -- NULL on rows recorded before v18 and on any fill whose payload
+    -- omitted it.
+    venue_order_id      TEXT,
     -- engine | venue_hand. Which population this fill belongs to. Without it
     -- the fee-calibration set and the hand-bet set pool silently, and they are
     -- answers to different questions -- one is our order path, the other is a

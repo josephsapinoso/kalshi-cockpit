@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -812,6 +812,18 @@ _MIGRATIONS: dict[int, _Migration] = {
         undo_statements=(
             # Dropping the columns takes everything this step wrote.
         ),
+    ),
+    18: _Migration(
+        # The venue's own order id on each fill (D3 of the 2026-08-22 plan,
+        # ADR 0063): `/portfolio/fills` carries `order_id` on every captured
+        # row and `parse_fill` discarded it, so a portal-placed order's fill
+        # landed labelled `venue_hand` with nothing joining it back to the
+        # `manual_orders` row that caused it. Nullable, no backfill: pre-v18
+        # rows genuinely did not record it, and NULL is the honest value.
+        columns=(
+            ("fills", "venue_order_id", "TEXT"),
+        ),
+        undo_statements=(),
     ),
 }
 
