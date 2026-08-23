@@ -174,6 +174,13 @@ class ParsedFill:
     price_tenths: int
     is_taker: bool
     fee_actual: Optional[float]
+    # The venue's own order id for the order this fill answered (D3,
+    # 2026-08-22). Present on every fill in the 2026-08-18 capture and
+    # DISCARDED until now — without it a portal-placed order's fill lands
+    # labelled `venue_hand` with no join back to the manual_orders row that
+    # caused it. Optional: a fill without one still records (refusing a real
+    # fill over a missing join key is the wrong way round).
+    venue_order_id: Optional[str] = None
 
 
 def parse_fill(row: dict) -> Optional[ParsedFill]:
@@ -215,6 +222,7 @@ def parse_fill(row: dict) -> Optional[ParsedFill]:
         # A guessed default here would poison the comparison it exists for.
         return None
 
+    order_id = row.get("order_id")
     return ParsedFill(
         kalshi_fill_id=str(fill_id),
         ticker=str(ticker),
@@ -223,6 +231,7 @@ def parse_fill(row: dict) -> Optional[ParsedFill]:
         price_tenths=price_tenths,
         is_taker=is_taker,
         fee_actual=_fee_dollars(row.get("fee_cost")),
+        venue_order_id=str(order_id) if order_id else None,
     )
 
 
@@ -442,13 +451,15 @@ async def poll_fills(
         cursor = conn.execute(
             "INSERT OR IGNORE INTO fills "
             "(kalshi_fill_id, ticker, filled_ms, count, price_tenths, "
-            " is_taker, fee_actual, fee_predicted, fee_model_used, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " is_taker, fee_actual, fee_predicted, fee_model_used, source, "
+            " venue_order_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 parsed.kalshi_fill_id, parsed.ticker, parsed.filled_ms,
                 parsed.count, parsed.price_tenths,
                 1 if parsed.is_taker else 0, parsed.fee_actual,
                 predicted, "model_a_deci", VENUE_SOURCE,
+                parsed.venue_order_id,
             ),
         )
         written += cursor.rowcount

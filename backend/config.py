@@ -790,6 +790,26 @@ class GateConfig:
         )
 
 
+@dataclass(frozen=True)
+class ManualOrderConfig:
+    """The manual (hand-bet) order path's reachability switch (ADR 0063).
+
+    Off by default, and OFF is the safe state. This flag is HALF of the
+    server-side demo-unreachability requirement — the route also requires
+    `instance_mode == "live"`, so the public demo cannot reach the order
+    path even if this flag leaks into its environment (CLAUDE.md: a public
+    URL must not be one config bug away from the order path). The flag arms
+    nothing by itself: `store/manual_orders.MANUAL_ORDERS_ARE_DRY_RUNS` is a
+    code constant, exactly as the engine path's is (ADR 0018's pattern).
+    """
+
+    enabled: bool = False
+
+    @classmethod
+    def load(cls) -> "ManualOrderConfig":
+        return cls(enabled=_bool("MANUAL_ORDERS_ENABLED", False))
+
+
 # --- build identity ---------------------------------------------------------
 #
 # Which build of this repo is answering. Served on `/api/health` so that

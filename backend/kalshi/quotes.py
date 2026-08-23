@@ -47,7 +47,7 @@ from typing import Any, Optional
 
 import httpx
 
-from ..config import KalshiConfig
+from ..config import ConfigError, KalshiConfig
 from ..store.db import ask_for_side
 from .discovery import DiscoveredMarket, build_market
 from .rest import KalshiAPIError, KalshiRestClient
@@ -281,6 +281,26 @@ class LiveQuoteSource:
                 f"asked for {ticker} and got {quote.ticker!r}. Refusing."
             )
         return quote
+
+    async def portfolio_positions(self) -> list[dict]:
+        """The account's open market positions, live (ADR 0063's netting
+        guard). Same client and error discipline as `fetch`: transport and
+        API failures become `QuoteUnavailable`, `ConfigError` passes through
+        so "no credentials" stays distinguishable from "no answer".
+
+        The per-row shape has NEVER been observed (`portfolio_poll` counts
+        rows, it does not parse them) — callers must treat each row as
+        untrusted and refuse on anything unreadable rather than defaulting.
+        """
+        api = self._api()
+        try:
+            return await api.positions()
+        except Exception as exc:                        # noqa: BLE001
+            if isinstance(exc, ConfigError):
+                raise
+            raise QuoteUnavailable(
+                f"could not read open positions: {exc}"
+            ) from exc
 
     async def history(
         self,

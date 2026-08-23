@@ -1908,3 +1908,123 @@ export async function fetchBets(): Promise<BetsRecord> {
   }
   return response.json() as Promise<BetsRecord>;
 }
+
+// -- the manual order path (ADR 0063) ---------------------------------------
+
+export type ManualMarketSide = {
+  ask_tenths: number | null;
+  ask_display: string | null;
+  depth_at_ask: number | null;
+  authorised_contracts: number | null;
+};
+
+export type ManualMarket = {
+  ticker: string;
+  observed_ms: number;
+  reachable: boolean;
+  unreachable_reason: string | null;
+  p_yes_required: boolean;
+  sides: { yes: ManualMarketSide; no: ManualMarketSide };
+  price_grid: string | null;
+  caps: {
+    derived: boolean;
+    max_position_dollars: number | null;
+    max_exposure_dollars: number | null;
+  };
+  cooloff_until_ms: number | null;
+  lockout_until_ms: number | null;
+  dry_run: boolean;
+};
+
+export type ManualOrderPlaced = {
+  status: string;
+  dry_run: boolean;
+  manual_order_id: number;
+  client_order_id: string;
+  ticker: string;
+  side: string;
+  contracts: number;
+  p_yes_bp: number;
+  limit_price_display: string;
+  max_price_display: string;
+  worst_case_cost_display: string;
+  kalshi_order_id: string | null;
+  error_text: string | null;
+  cooloff_until_ms: number;
+  note: string;
+  replayed: boolean;
+};
+
+export type ManualOrderResult =
+  | { ok: true; status: number; value: ManualOrderPlaced }
+  | { ok: false; status: number; detail: unknown };
+
+/** The venue's live facts for any ticker — the manual ticket's read. */
+export async function fetchManualMarket(ticker: string): Promise<ManualMarket> {
+  const response = await fetch(
+    `${BASE}/api/manual/market/${encodeURIComponent(ticker)}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : `HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+  return response.json() as Promise<ManualMarket>;
+}
+
+/**
+ * Place a manual order. Same result discipline as `placeOrder`: a thrown
+ * fetch is a connection report, never a refusal, and the server's own
+ * refusal sentences pass through verbatim — every one explains itself
+ * better than a generic sentence could.
+ */
+export async function placeManualOrder(
+  body: {
+    ticker: string;
+    side: "yes" | "no";
+    contracts: number;
+    max_price_tenths: number;
+    p_yes_bp: number;
+    idempotency_key: string;
+  },
+  token: string,
+): Promise<ManualOrderResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/api/manual-orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      detail: `The request did not reach the cockpit (${
+        error instanceof Error ? error.message : "network error"
+      }). Nothing was sent to the exchange.`,
+    };
+  }
+  const parsed: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    return {
+      ok: true,
+      status: response.status,
+      value: (parsed ?? {}) as ManualOrderPlaced,
+    };
+  }
+  const detail =
+    parsed && typeof parsed === "object" && "detail" in parsed
+      ? (parsed as { detail: unknown }).detail
+      : (parsed ??
+        `HTTP ${response.status}, and the body was not readable as JSON.`);
+  return { ok: false, status: response.status, detail };
+}

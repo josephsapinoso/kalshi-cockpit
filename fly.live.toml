@@ -114,6 +114,10 @@ primary_region = "ord"
   # money, and once when a code change does. Arming is TWO deliberate acts: this
   # flag, and a code change to that constant. ADR 0018.
   LIVE_TRADING_ENABLED = "false"
+  # The manual (hand-bet) door, ADR 0063. Stated explicitly because a default
+  # is a decision nobody made. Turning it on exposes POST /api/manual-orders
+  # (still dry-run: MANUAL_ORDERS_ARE_DRY_RUNS is a code constant).
+  MANUAL_ORDERS_ENABLED = "false"
   LIVE_GATE_MIN_SCORED_RECOMMENDATIONS = "300"
 
   # 20K tier, 20,000 credits/month (2026-08-09). A sweep costs markets x

@@ -166,6 +166,10 @@ class TestParseFill:
             price_tenths=10,
             is_taker=True,
             fee_actual=0.007,
+            # v18 (D3): the venue's own order id, present on every captured
+            # fill and now kept -- the join key from a portal-placed manual
+            # order to the fill that answered it.
+            venue_order_id="a40b142b-b213-436e-913b-d2844765e70a",
         )
 
     def test_a_no_fill_reads_the_no_price(self):
