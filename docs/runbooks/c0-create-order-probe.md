@@ -154,3 +154,27 @@ keeps refusing loudly on any missing field. At most two fills at extreme
 prices pin nothing new about the fee model. One duplicate observation is not
 a licence to retry blindly. And nothing here touches settlement (H4 stays
 untested).
+
+## Result — the probe was RUN, 2026-08-23 ~04:10Z
+
+Joe authorized it by pasting the spend command in session; the ticker was
+`KXNCAAFGAME-26SEP03EIUMINN-EIU` (from `--suggest`), side YES, book 1c bid /
+2c derived ask. Statuses, in probe order: **201** (IOC 1c, fill_count 0.00,
+remaining 0.00), **409** (`order_already_exists` — the duplicate
+client_order_id was refused, exactly the idempotency hoped for; one
+observation, not a licence), **201** (IOC at the 2c ask — filled 1.00,
+average_fill_price 0.0200, average_fee_paid 0.0014, which
+`calculate_fee(20, 1)` predicts exactly at the full 0.070 coefficient:
+first non-MLB fill observed, consistent with the series-attribute reading
+of the baseball split, pinning nothing beyond this cell), **201** then
+DELETE **200** (GTC rested with remaining 1.00, cancel reduced_by 1.00).
+
+The create response is FLAT — no `order` wrapper — with fixed-point count
+strings and 4dp dollar strings. Capture held locally
+(`data/captures/create_order_probe_20260823T041018Z.json`, SHA-256
+`69d72b12d91fb7135a3350266b7c5a239269d588f9777419195d9a1dd91b5e35`), never
+committed. Fixtures per the section above:
+`tests/fixtures/create_order_responses.json` +
+`tests/test_create_order_response_shapes.py`; `_read_response`'s docstring
+no longer claims the shape is unobserved. Total spend: one 2c contract
+plus $0.0014 fee (~$0.02).

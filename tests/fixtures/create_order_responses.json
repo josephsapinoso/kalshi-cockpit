@@ -1,0 +1,49 @@
+{
+  "_provenance": [
+    "Hand-written SYNTHETIC payloads, per docs/runbooks/c0-create-order-probe.md:",
+    "field names, types and format conventions transcribed from the C0 probe",
+    "capture of 2026-08-23 (SHA-256 69d72b12d91fb7135a3350266b7c5a239269d588f9777419195d9a1dd91b5e35,",
+    "held locally, never committed - operator data). Every id and timestamp here",
+    "is invented; the SHAPES are what was observed. Observed conventions:",
+    "counts are fixed-point decimal STRINGS ('1.00'), prices and fees are",
+    "dollar STRINGS at 4dp ('0.0200'), ts_ms is an integer, and the create",
+    "response is FLAT - no 'order' wrapper object around the fields.",
+    "One ticker, one day, one series (KXNCAAFGAME): the shapes may not",
+    "generalise, which is why the parser keeps refusing loudly on any",
+    "missing field."
+  ],
+  "create_ioc_unfilled_201": {
+    "client_order_id": "00000000-0000-4000-8000-000000000001",
+    "fill_count": "0.00",
+    "order_id": "01a00000-0000-7000-8000-000000000001",
+    "remaining_count": "0.00",
+    "ts_ms": 1787458219190
+  },
+  "create_ioc_filled_201": {
+    "average_fee_paid": "0.0014",
+    "average_fill_price": "0.0200",
+    "client_order_id": "00000000-0000-4000-8000-000000000002",
+    "fill_count": "1.00",
+    "order_id": "01a00000-0000-7000-8000-000000000002",
+    "remaining_count": "0.00",
+    "ts_ms": 1787458219871
+  },
+  "create_gtc_resting_201": {
+    "client_order_id": "00000000-0000-4000-8000-000000000003",
+    "fill_count": "0.00",
+    "order_id": "01a00000-0000-7000-8000-000000000003",
+    "remaining_count": "1.00",
+    "ts_ms": 1787458220217
+  },
+  "duplicate_client_order_id_409": {
+    "error": {
+      "code": "order_already_exists",
+      "message": "order already exists"
+    }
+  },
+  "cancel_200": {
+    "order_id": "01a00000-0000-7000-8000-000000000003",
+    "reduced_by": "1.00",
+    "ts_ms": 1787458220549
+  }
+}

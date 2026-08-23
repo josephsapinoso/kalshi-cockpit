@@ -501,13 +501,20 @@ class OrderPlacer:
     ) -> OrderOutcome:
         """Parse a V2 create-order response, or say plainly that it could not.
 
-        **This shape has never been observed.** It is transcribed from Kalshi's
-        published OpenAPI spec, and no order has been placed by this project, so
-        the first live order is also the first test of this function. That is
-        why every unreadable field produces `unrecognised_response` and a loud
-        log rather than a plausible default -- the previous version defaulted a
-        missing status to `resting`, which under V2 would have been *every*
-        order.
+        **This shape was OBSERVED on 2026-08-23** by the C0 probe
+        (docs/runbooks/c0-create-order-probe.md): four real orders against
+        one KXNCAAFGAME ticker, and every field this function reads appeared
+        exactly as transcribed -- a flat payload (no `order` wrapper),
+        fixed-point count strings, dollar strings for the averaged fill
+        price and fee. `tests/test_create_order_response_shapes.py` pins the
+        shape via a synthetic fixture hand-written from that capture (the
+        raw capture is operator data and stays local).
+
+        The refusal posture stays anyway: one ticker, one day, one series,
+        so every unreadable field still produces `unrecognised_response` and
+        a loud log rather than a plausible default -- the previous version
+        defaulted a missing status to `resting`, which under V2 would have
+        been *every* order.
         """
         payload = response if isinstance(response, dict) else {}
         order_id = payload.get("order_id")

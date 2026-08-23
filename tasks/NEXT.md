@@ -129,7 +129,27 @@ clean, tsc clean, `next build` green. Plan:
 - Worktrees and their branches fully deleted; `995dbfd` deployed and
   verified on live.
 
-**Open:** none.
+**Continuation 2 (~04:10Z next UTC day) — the C0 probe is TAKEN.** Joe ran
+`--suggest`, then authorized the spend by pasting the command in session;
+the session executed it with the confirmation ticker on stdin
+(`INSTANCE_MODE=live` set explicitly for the one invocation — the
+prerequisite refusal fired first on the demo default, as designed).
+Statuses **201 / 409 / 201 / 201+200** — full detail in the runbook's new
+Result section (`docs/runbooks/c0-create-order-probe.md`). The 409
+(`order_already_exists`) is the observed idempotency refusal. The fill paid
+`average_fee_paid 0.0014` on 2c×1, which `calculate_fee(20,1)` predicts
+exactly at the full 0.070 coefficient — first non-MLB fill, consistent with
+the series-attribute reading of the baseball split, pinning nothing beyond
+this cell (the runbook pre-registered that caution). Capture LOCAL only
+(SHA in the runbook); synthetic fixtures + shape tests shipped
+(`tests/fixtures/create_order_responses.json`,
+`tests/test_create_order_response_shapes.py`, 10 tests, resting-default
+mutation verified red); `_read_response`'s "never been observed" docstring
+corrected. The create response is FLAT — no `order` wrapper.
+
+**Open: the arming decision is now genuinely Joe's** — the probe
+precondition (ADR 0063) is discharged. Before arming matters: fund the
+account (the $2.56 balance caps every bet at $0.26).
 
 ---
 
