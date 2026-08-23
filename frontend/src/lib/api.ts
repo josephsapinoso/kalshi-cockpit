@@ -1876,6 +1876,19 @@ export type BetsRecord = {
   /** What is at risk right now, beside the settled record. Optional because
    *  a deployed backend one version behind omits the key. */
   open_positions?: OpenPositionsBlock;
+  /**
+   * "CLV scored on N of {total}" — counts only, over the WHOLE table like
+   * `totals`. `refusals` counts the unscored rows by reason so unmeasured
+   * never renders identically to bad. No CLV *value* is ever combined
+   * (the no-aggregate constraint stands until n >= 30).
+   */
+  clv_coverage?: {
+    scored: number;
+    refusals: Record<string, number>;
+  };
+  /** When the "not tonight" lockout releases, or null. Same source as the
+   *  slate's tonight block — one table, one clock, two screens. */
+  lockout_until_ms?: number | null;
 };
 
 export async function fetchBets(): Promise<BetsRecord> {

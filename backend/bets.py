@@ -191,6 +191,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     uncomputable = 0
     wins = 0
     losses = 0
+    # CLV coverage over the WHOLE table, like `totals`: "scored on N of
+    # {total}" is a claim about the record, and computing it off the windowed
+    # list would let the newest `limit` rows wear that label. A **count of
+    # scored rows is not an aggregate of CLV values** -- the hard constraint
+    # above bans averaging the measurements, not counting how many exist --
+    # and the refusals are counted by reason so unmeasured never renders
+    # identically to bad (the recurring zero-that-means-no-measurement).
+    clv_scored = 0
+    clv_refusals: dict[str, int] = {}
     for row in rows:
         net = settlement_net_tenths(row)
         won: Optional[bool] = None
@@ -205,9 +214,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 wins += 1
             else:
                 losses += 1
+        clv, clv_refusal_reason = bet_clv(row)
+        if clv is not None:
+            clv_scored += 1
+        else:
+            clv_refusals[clv_refusal_reason] = (
+                clv_refusals.get(clv_refusal_reason, 0) + 1
+            )
         if len(bets) >= limit:
             continue
-        clv, clv_refusal_reason = bet_clv(row)
         close_mid_tenths: Optional[float] = None
         if row["yes_bid_tenths"] is not None and row["yes_ask_tenths"] is not None:
             close_mid_tenths = (row["yes_bid_tenths"] + row["yes_ask_tenths"]) / 2
@@ -245,6 +260,13 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         # wear the label of a claim about the record (the /api/ledger lesson).
         "total": len(rows),
         "returned": len(bets),
+        # "CLV scored on N of {total}": the denominator the per-bet numbers
+        # never had. Counts only -- no value of any scored CLV is combined
+        # here (the no-aggregate constraint stands until n >= 30).
+        "clv_coverage": {
+            "scored": clv_scored,
+            "refusals": clv_refusals,
+        },
         "totals": {
             "net_tenths": net_sum,
             "net_display": format_net_dollars(net_sum),

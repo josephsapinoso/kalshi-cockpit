@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { SHELL_WIDTH } from "@/lib/shell";
 import { tickerLabel } from "@/lib/tickerLabel";
+import NotTonight from "@/components/NotTonight";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import {
@@ -73,6 +74,22 @@ export default async function BetsPage() {
             over {totals.computable} <Term k="settled">settled</Term>
           </span>
         </p>
+        {/* The denominator the per-bet CLV numbers never had (B5): most
+            hand-bet tickers refuse structurally (no discovery row, no
+            close read), and without this line 35 rows saying "close not
+            read yet" and 35 rows saying the bets were bad would read the
+            same at a glance. Counts only — no average, no hit rate. */}
+        {record.clv_coverage && (
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            <Term k="clv">CLV</Term> scored on {record.clv_coverage.scored} of{" "}
+            {record.total} — the rest refused (no readable close yet, or no
+            entry time). Unmeasured is not the same as bad; each row below
+            says which it is.
+          </p>
+        )}
+        {/* The one-tap lockout, beside the biggest red number in the
+            product. Same POST, same no-confirm rule as TonightStrip. */}
+        <NotTonight lockoutUntilMs={record.lockout_until_ms ?? null} />
         {totals.uncomputable > 0 && (
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             {totals.uncomputable}{" "}

@@ -245,6 +245,61 @@ class TestPerBetCLV:
         bet = bets.bets_record(conn)["bets"][0]
         assert bet["clv_refusal_reason"] == "no_closing_line"
 
+    def test_clv_coverage_counts_the_whole_table_not_the_window(self, tmp_path):
+        """"Scored on N of {total}" is a claim about the record (slice B5).
+        The scored row here is the OLDEST, so a coverage computed off the
+        `limit=1` window -- which holds only the newest, refused row --
+        would report 0 and the mutation below turns exactly that red.
+
+        Mutation run, red and restored byte-identical (2026-08-22): the
+        `bet_clv` call moved back below the `len(bets) >= limit` continue --
+        this test fails with scored == 0."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, settled_ms=1_000, position_first_seen_ms=100)  # scored
+        _insert(conn, ticker="KXOTHER", settled_ms=2_000,
+                position_first_seen_ms=100)  # newest; no line -> refused
+        record = bets.bets_record(conn, limit=1)
+        assert record["returned"] == 1
+        assert record["bets"][0]["ticker"] == "KXOTHER"
+        assert record["clv_coverage"]["scored"] == 1
+        assert record["clv_coverage"]["refusals"] == {"no_closing_line": 1}
+
+    def test_scored_and_refused_partition_the_record(self, tmp_path):
+        """Every row is exactly one of scored or refused-with-reason, so
+        unmeasured can never render identically to bad."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, settled_ms=1_000, position_first_seen_ms=100)
+        _insert(conn, settled_ms=2_000, position_first_seen_ms=None)
+        _insert(conn, settled_ms=3_000, position_first_seen_ms=501)
+        record = bets.bets_record(conn)
+        coverage = record["clv_coverage"]
+        assert coverage["scored"] + sum(coverage["refusals"].values()) == (
+            record["total"]
+        )
+        assert coverage["refusals"] == {
+            "entry_time_unknown": 1,
+            "entry_after_close": 1,
+        }
+
+    def test_the_coverage_is_counts_only_no_clv_value_enters_it(self, tmp_path):
+        """The no-aggregate constraint's edge: a count of measurements is
+        allowed, any combination of their VALUES is not. The block must
+        carry integers and reason counts, nothing float-valued."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, position_first_seen_ms=100)
+        coverage = bets.bets_record(conn)["clv_coverage"]
+        assert set(coverage) == {"scored", "refusals"}
+        assert isinstance(coverage["scored"], int)
+        assert all(
+            isinstance(v, int) for v in coverage["refusals"].values()
+        )
+
     def test_module_computes_no_aggregate_clv(self):
         """The partner's hard constraint, checked at the source: no average,
         no hit rate, no beat-the-close rate anywhere in this module until
@@ -296,6 +351,7 @@ class TestTheRoute:
             "bets": [],
             "total": 0,
             "returned": 0,
+            "clv_coverage": {"scored": 0, "refusals": {}},
             "totals": {
                 "net_tenths": 0,
                 "net_display": "+$0.00",
@@ -313,6 +369,7 @@ class TestTheRoute:
                 "value_as_of_ms": None,
                 "value_refusal": "never observed",
             },
+            "lockout_until_ms": None,
         }
 
 

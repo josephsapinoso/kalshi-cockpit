@@ -1737,8 +1737,15 @@ def create_app(
         right now -- the largest hole of the 2026-08-22 review.
         """
         payload = bets_module.bets_record(conn, limit=limit)
-        payload["open_positions"] = bets_module.open_positions(
-            conn, now_ms=db.now_ms()
+        now = db.now_ms()
+        payload["open_positions"] = bets_module.open_positions(conn, now_ms=now)
+        # The "not tonight" release, so /bets can render the same one-tap
+        # control the slate carries (slice B5): the record screen with the
+        # biggest red number in the product is where the impulse to chase
+        # lives, and the control belongs beside it. Same table, same clock
+        # as the slate's tonight block -- one source, two screens.
+        payload["lockout_until_ms"] = bet_estimates.lockout_until(
+            conn, now_ms=now
         )
         return payload
 
