@@ -107,11 +107,29 @@ clean, tsc clean, `next build` green. Plan:
    false routes every response to "blocked"), and the flag reads at boot
    only (a Fly env change forces the restart anyway).
 
-**Open:** none by name. Lane C's two loose threads are cheap if ever
-wanted: the GET on a KXMVE ticker (one loopback call), and whether $2.56
-is current (venue balance endpoint). Worktree dirs
-`.claude/worktrees/agent-*` are merged but undeleted (Windows file locks)
-— safe to remove whenever.
+**Continuation, same session (~14:30Z) — every loose thread closed:**
+
+- **$2.56 is current, not stale**: latest `venue_balance_snapshots` row was
+  150s old on the 5-min cadence, still 2555 tenths. The funding fact above
+  stands as a fact about the account, not about the poller.
+- **The KXMVE GET answered** (one loopback call): `/api/manual/market/`
+  serves a combo ticker 200 with no combo-specific warning, but the book
+  itself is the guard in practice — YES ask 0c, depth 0.0 both sides (the
+  enter-only shape the record describes), so `authorised_contracts` is 0
+  and no ticket could confirm. The POST's 422 stays the structural guard.
+  Cosmetic gap (GET doesn't *name* the POST refusal) noted, not fixed.
+- **Lane D's overflow gate ran for real** — the first "pass" was against a
+  stale leftover server from Lane A's run (EADDRINUSE caught it). Against
+  the merged build with refused rows seeded: **1280 FAILED, pre-existing
+  on de931ec** — the name link ('Philadelphia', 90px) painted over the ask
+  column's 80px `minmax(0,1fr)` track. Fixed with `truncate` (`995dbfd`,
+  the `min-w-0` was already there for exactly this), gate re-run **green
+  at all five widths**, 390 screenshot eyeballed (Lane D's
+  nothing-to-schedule branch renders honestly on the stale demo).
+- Worktrees and their branches fully deleted; `995dbfd` deployed and
+  verified on live.
+
+**Open:** none.
 
 ---
 
