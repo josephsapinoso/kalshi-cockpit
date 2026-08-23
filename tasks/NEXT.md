@@ -41,6 +41,83 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-23 — the desk window opens: the slate stops being stale 14 hours a day
+
+Work list was empty; the partner audited live and reordered everything: **the
+screen was 89% `stale_odds` refusals (63/71 rows, median odds age 13.7h) with
+0 of 600 daily credits spent**, because the scheduler only sweeps 75–15 min
+before kickoff clusters. Four slices shipped (one main-tree + two worktree
+lanes + one census correction). State: **4,001 passed / 10 xfailed** locally
+(3,996 + the 5 prune-frontier fixes), ruff clean, tsc clean. Commits
+`b22f471`..`b9e4b3a` pushed; live deploy dispatched (run 32652551993) —
+**verify `/api/health` `git_sha == b9e4b3a` before trusting this entry**.
+
+- **Slice 1 — the desk window (`b22f471`).** New `DESK` trigger in
+  `decide_sweeps`: inside `ODDS_DESK_WINDOW_UTC` (live `16-04`, **Joe's
+  answer 2026-08-23** for when he actually looks: 9am–9pm PT), every sport
+  with stored upcoming fixtures re-buys on the existing 10-min refresh
+  cadence. A due slot owns its sport (SCHEDULED + prop ride preserved,
+  pinned incl. the refused-slot case); desk buys never carry props; same
+  `credits_left`, refused by name. `window_status` predicts desk buys in
+  `next_call_ms` and `first_window_open_ms`, so the stale-exit UI is honest
+  with zero frontend change. Cost: **288/day at 2 sports, ~8,600/mo** vs
+  caps 600/day, 13,000/mo. **At 4 sports it BREAKS the 13,000 monthly
+  self-cap (~17,300)** — recorded in `fly.live.toml` as a decision for when
+  NCAAF/NFL land. Three guards mutation-red. Watch after deploy:
+  `odds_snapshots` growth (retention deliberately excludes it, ADR 0054;
+  desk sweeps ~4× its write rate; the live volume was at auto-extend limit
+  per ADR 0002's correction) — check `db-sizes` in a few days.
+- **Slice 2 — the CLAUDE.md actionable paragraph corrected (`eb312a1`),
+  and the skeptic inverted the draft.** Live census: **11 rows / 6 games /
+  `suggested_contracts = 0` on all / 4 sharp-anchored**. First draft said
+  the soft-fallback reason was dead; measurement-skeptic FAILED it on 8
+  defects — 4/11 (36%) against a **73% base rate** is sharp
+  UNDER-representation, evidence *consistent with* ADR 0021. Spine
+  paragraph now carries the base rate, the thin-consensus twin
+  (`devig.py:289` selects ≤3 sharp books), and the still-unrun separating
+  measurement (unsuppressed split by `anchored_on_sharp`).
+  `docs/measurements/2026-08-23-actionable-population-reaudit.md`.
+- **Slice 3 — live routes are readable (`c374486`/merge `fb440cf`).**
+  `scripts/fetch_live_route.py`: GET-only structurally (AST-pinned),
+  8-path allowlist, loopback-hardcoded, in the ssh image via
+  `.dockerignore` negation + `SSH_INVOKED_SCRIPTS`. Usage: `flyctl ssh
+  console -a kalshi-cockpit -C "python /app/scripts/fetch_live_route.py
+  /api/slate"`. Until now NO session had ever read any live route but
+  `/api/health` — every "the screen shows X" was a DB reconstruction
+  (lesson written).
+- **Slice 4 — `unmatched_items` reader (`ab8509c`/merge `a66354a`).**
+  `scripts/list_unmatched.py`, read-only (mode=ro pinned red), before NCAAF
+  fills the queue. **Falsifiable prediction standing:** first
+  `americanfootball_ncaaf` row in `api_credits` ~**2026-08-25** (48h
+  bootstrap horizon before the 08-27 kickoffs); if 08-26 passes without
+  one, the horizon is NOT the explanation — investigate.
+- **Also:** 5 pre-existing test failures fixed (`b9e4b3a`) — the
+  prune-frontier fixture froze NOW_MS while the query stamps real
+  `datetime.now()`; went red by pure wall-clock 3 days after writing.
+  Lesson: a pinned fixture clock against a wall-clock instrument is a test
+  with an expiry date. **The prior session's "3,937 passed" was true when
+  written and silently false today** — same family as the stale stored
+  number.
+
+**Killed/deferred by the partner ruling (do not re-derive):** NCAAF alias
+file (premature — 48h horizon explains zero NCAAF calls); `no_edge`
+mislabel (real, bounded, behind these); manual-ticket fixture render
+(arming is behind funding; balance $2.533). Loose facts carried: unexplained
+live machine restart 2026-08-23T03:42Z; `portfolio_poll` warns the
+positions row shape was never captured.
+
+**VERIFIED ON LIVE, ~17:25Z, on the served payloads (a first):**
+`/api/health` `git_sha == b9e4b3a`, `instance_mode: live`. `/api/window`
+read through the new fetcher: `fixtures_fresh: 21 of 21`, last sweep 37s
+old, `spent_today: 6`, next refresh +10 min — and **WNBA was bought with no
+due slot** (its kickoff slot opens 19:25Z), which is the DESK trigger
+observed working, not inferred. `/api/slate` served **59 rows, zero
+`suppressed_reason` of any kind** — against 63-of-71 `stale_odds` the same
+morning. Still worth checking in a few days: `credits-day` matches the
+~288/day arithmetic, and `db-sizes` for `odds_snapshots` growth.
+
+---
+
 ## 2026-08-22 (third session) — the pass gets its caller, the probe gets cheap to start, and stale odds get an exit
 
 Session start found the work list empty; the partner convened and ruled
