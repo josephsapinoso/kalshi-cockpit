@@ -2,6 +2,25 @@
 
 **Total worst case: under $0.14.** One sitting, about five minutes.
 
+## Quickstart
+
+Four tiny real orders that capture Kalshi's actual create-order response
+shapes, so the parser stops running on a guess. You run it; agents never do.
+
+1. Find a market — sends nothing, needs no key:
+   `.venv\Scripts\python.exe scripts\probe_create_order.py --suggest`
+   prints up to three copy-paste commands (live, side ask ≤10c, depth resting,
+   never KXMVE).
+2. Paste one of them — this is the real, money-spending run:
+   `.venv\Scripts\python.exe scripts\probe_create_order.py --i-am-joe-and-this-spends-money --ticker <TICKER> --side yes`
+   It shows the book and the priced plan, and sends only after you type the
+   ticker back. **Worst case for the whole run: under $0.14.**
+3. Send back the printed SHA-256 and statuses. The capture file in
+   `data/captures/` is operator data: it stays on your machine, never
+   committed, never pasted.
+
+Details, prerequisites, and what each probe observes — below.
+
 ## What this is for
 
 The only code in this repo that reads a create-order response —
@@ -87,7 +106,8 @@ Note the capture file then lands on the machine, not your laptop
 
 Pick a market and a side where **your side's ask is at or under 10c** (a
 longshot — probe 3 refuses above that, and the run still completes without
-it). Then, from the repo root:
+it). `--suggest` finds three for you, read-only, and prints these commands
+filled in. Then, from the repo root:
 
 ```
 .venv\Scripts\python.exe scripts\probe_create_order.py --i-am-joe-and-this-spends-money --ticker <TICKER> --side yes
