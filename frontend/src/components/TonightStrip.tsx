@@ -78,9 +78,10 @@ export default function TonightStrip({
           </div>
           <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
             You said not tonight. The slate stays visible — this note opens
-            again at {clock(lockedUntil)}, and it cannot stop a bet in the
-            Kalshi app. It is here because the you that wrote it was thinking
-            clearly.
+            again at {clock(lockedUntil)}. It cannot stop a bet placed in the
+            Kalshi app: nothing fires before a hand bet, and the venue&rsquo;s
+            settled record shows it only afterwards. It is here because the
+            you that wrote it was thinking clearly.
           </p>
         </section>
       ) : (

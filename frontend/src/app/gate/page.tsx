@@ -72,18 +72,31 @@ export default async function GatePage() {
           , from the venue&rsquo;s own balance record.{" "}
           <Term k="kelly">Quarter-Kelly</Term> sizing with per-bet,
           per-position and total-<Term k="exposure">exposure</Term> caps, plus
-          a daily-loss kill switch.
+          a daily-loss kill switch fed by the venue&rsquo;s settled record,
+          refused when stale.
         </p>
-        {/* Structural, not copy: `settlements.order_id` is NOT NULL and
-            references `orders(id)`, so every cap above is evaluated against
-            orders this tool placed -- and it has never placed one. A hand bet
-            in the Kalshi app is invisible to all of it, and a screen that
-            advertises a kill switch without saying so is advertising
-            protection Joe does not have. Fleet convening item 2,
-            docs/reviews/2026-08-20-fleet-convening.md. */}
+        {/* The scope sentence, rewritten per ADR 0064 §3: each cap names its
+            channel, and the daily-loss switch names its new source. The old
+            blanket sentence ("they do not see, and cannot stop, bets you
+            place yourself") stopped being accurate the day the switch was
+            rewired to `venue_settlements` -- hand losses DO count against
+            the line now; what has not changed is that the only act any cap
+            can stop is this tool's own next order. Scope sentences that
+            outlive their wiring are how the last hole stayed open (the
+            switch read an empty table for two months while this screen
+            advertised it), so tests/test_scope_sentences.py pins these
+            words to the wiring. */}
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          These caps govern orders this tool would place. They do not see, and
-          cannot stop, bets you place yourself in the Kalshi app.
+          Each cap has a channel. The per-bet, position and{" "}
+          <Term k="exposure">exposure</Term> caps bind orders placed through
+          this tool — a channel that has never carried one. The daily-loss
+          switch draws its number from the venue&rsquo;s settled record —
+          every bet however placed, hand bets included, refused when the
+          mirror is stale — so your hand losses count against the line. But
+          the only act any of these caps can stop is this tool&rsquo;s next
+          order: a bet you place yourself in the Kalshi app fires no check
+          before it happens, and the record sees it only after the venue
+          settles it.
         </p>
       </div>
 
