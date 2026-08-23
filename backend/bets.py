@@ -191,6 +191,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     uncomputable = 0
     wins = 0
     losses = 0
+    # CLV coverage over the WHOLE table, like `totals`: "scored on N of
+    # {total}" is a claim about the record, and computing it off the windowed
+    # list would let the newest `limit` rows wear that label. A **count of
+    # scored rows is not an aggregate of CLV values** -- the hard constraint
+    # above bans averaging the measurements, not counting how many exist --
+    # and the refusals are counted by reason so unmeasured never renders
+    # identically to bad (the recurring zero-that-means-no-measurement).
+    clv_scored = 0
+    clv_refusals: dict[str, int] = {}
     for row in rows:
         net = settlement_net_tenths(row)
         won: Optional[bool] = None
@@ -205,9 +214,15 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 wins += 1
             else:
                 losses += 1
+        clv, clv_refusal_reason = bet_clv(row)
+        if clv is not None:
+            clv_scored += 1
+        else:
+            clv_refusals[clv_refusal_reason] = (
+                clv_refusals.get(clv_refusal_reason, 0) + 1
+            )
         if len(bets) >= limit:
             continue
-        clv, clv_refusal_reason = bet_clv(row)
         close_mid_tenths: Optional[float] = None
         if row["yes_bid_tenths"] is not None and row["yes_ask_tenths"] is not None:
             close_mid_tenths = (row["yes_bid_tenths"] + row["yes_ask_tenths"]) / 2
@@ -245,6 +260,13 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         # wear the label of a claim about the record (the /api/ledger lesson).
         "total": len(rows),
         "returned": len(bets),
+        # "CLV scored on N of {total}": the denominator the per-bet numbers
+        # never had. Counts only -- no value of any scored CLV is combined
+        # here (the no-aggregate constraint stands until n >= 30).
+        "clv_coverage": {
+            "scored": clv_scored,
+            "refusals": clv_refusals,
+        },
         "totals": {
             "net_tenths": net_sum,
             "net_display": format_net_dollars(net_sum),
@@ -306,6 +328,103 @@ def tonight_activity(
     # number lives on /bets, after settlement, where it is a record and not
     # a scoreboard.
     payload["staked_display"] = f"${staked_tenths / 1000:.2f}"
+    return payload
+
+
+# The staleness ceiling for the open-positions COUNT. Its producer is the
+# 12-hour mirror clock (`portfolio_poll.MIRROR_INTERVAL_S` -- positions are
+# polled only on the full mirror, NOT on the 5-minute balance cadence), so
+# `TONIGHT_STALE_AFTER_MS` must NOT be reused here: a 30-minute bound against
+# a 12-hour poller would refuse essentially always and the refusal would be
+# furniture. 26h = two mirror cycles plus two hours of grace -- one failed
+# mirror poll does not flap the screen; a second consecutive failure refuses.
+POSITIONS_STALE_AFTER_MS = 26 * 3600 * 1000
+
+
+def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
+    """What is open at the venue right now, from the only two things mirrored.
+
+    The largest hole the 2026-08-22 review found: Joe could not see what was
+    at risk on any screen. There is **no per-position mirror table** to read
+    -- `portfolio_poll` counts the `/portfolio/positions` rows and refuses to
+    parse them (the per-row shape has never been observed on this account;
+    five parsers in this repo's history were written against imagined wire
+    formats). So this serves exactly what the record carries, and says so:
+
+    - **`count`** -- `poll_log.row_count` of the newest successful
+      'positions' poll: the number of `market_positions` rows the venue
+      returned, counted and not parsed. Whether the venue includes settled
+      or zero-count rows in that list is unobserved; the count is "position
+      rows at the venue", not a parsed claim about each one.
+    - **`value_tenths`/`value_display`** -- the newest snapshot's
+      `portfolio_value_tenths`, the venue's own `portfolio_value` from the
+      balance payload (5-minute cadence). Its unit is pinned only at zero
+      (`parse_portfolio_value_tenths`), so any non-zero value is stored as
+      NULL and refuses here with its reason -- the honest state until a
+      non-empty payload pins the unit. Whether it includes fees is equally
+      unobserved; nothing here claims it.
+
+    Two staleness clocks because the two producers run on two cadences: the
+    count against `POSITIONS_STALE_AFTER_MS` (12h poller), the value against
+    `TONIGHT_STALE_AFTER_MS` (5-minute balance cadence). Stale refuses to
+    `None` with the `as_of` kept, so the reader renders "not read since
+    HH:MM" -- never 0, which would report "nothing at risk" off a dead
+    poller, the false negative in the flattering direction.
+
+    **NO live P&L, no mark-to-market, and never summed with cash** --
+    TonightStrip's unsigned rule. The refusal words are rendered server-side
+    (`value_refusal`), matching the display-string convention.
+    """
+    payload: dict = {
+        "count": None,
+        "count_as_of_ms": None,
+        "value_tenths": None,
+        "value_display": None,
+        "value_as_of_ms": None,
+        "value_refusal": None,
+    }
+    try:
+        count_row = conn.execute(
+            "SELECT polled_ms, row_count FROM poll_log "
+            "WHERE endpoint = 'positions' AND ok = 1 "
+            "ORDER BY polled_ms DESC LIMIT 1"
+        ).fetchone()
+        value_row = conn.execute(
+            "SELECT observed_ms, portfolio_value_tenths "
+            "FROM venue_balance_snapshots "
+            "ORDER BY observed_ms DESC, id DESC LIMIT 1"
+        ).fetchone()
+    except Exception:                                       # noqa: BLE001
+        logger.exception("could not read the open-positions record")
+        return payload
+
+    if count_row is not None:
+        payload["count_as_of_ms"] = count_row["polled_ms"]
+        if (
+            now_ms - count_row["polled_ms"] <= POSITIONS_STALE_AFTER_MS
+            and count_row["row_count"] is not None
+        ):
+            payload["count"] = int(count_row["row_count"])
+
+    if value_row is not None:
+        payload["value_as_of_ms"] = value_row["observed_ms"]
+        if now_ms - value_row["observed_ms"] > TONIGHT_STALE_AFTER_MS:
+            payload["value_refusal"] = "not read in the last 30 minutes"
+        elif value_row["portfolio_value_tenths"] is None:
+            # The newest snapshot is fresh and the stored value is NULL:
+            # `parse_portfolio_value_tenths` refused it, which for any open
+            # position is the expected state until the unit is pinned.
+            payload["value_refusal"] = (
+                "the venue reported a value whose unit has never been "
+                "pinned; refusing to guess"
+            )
+        else:
+            payload["value_tenths"] = value_row["portfolio_value_tenths"]
+            payload["value_display"] = (
+                f"${value_row['portfolio_value_tenths'] / 1000:.2f}"
+            )
+    else:
+        payload["value_refusal"] = "never observed"
     return payload
 
 

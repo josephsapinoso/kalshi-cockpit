@@ -17,6 +17,7 @@ import Link from "next/link";
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
 import Hint from "@/components/Hint";
+import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
@@ -107,31 +108,49 @@ export default async function SlatePage() {
           this outside the study embargo). **Cash and open positions render
           separately and are never summed** — a sum is a signed P&L, and a
           signed P&L on the deciding screen is the chase trigger the tilt
-          review refused. The only denominator on this line is the daily-loss
-          cap Joe set himself; the $100 study ceiling must not appear here,
-          because "cash against $100" reads as budget remaining. */}
+          review refused. Every figure below is a server-rendered display
+          string (lib/api.ts's no-arithmetic rule) — including the caps,
+          which the server derives from the observed balance at request
+          time (ADR 0045). An unobserved balance renders its refusal in
+          words; this block never silently renders nothing, which is
+          exactly how the old "your daily-loss line is $X" fragment
+          disappeared from live for a week. */}
       {data.money && (
-        <p className="mt-4 text-sm">
-          <span className="font-semibold tabular">
-            {data.money.cash_tenths === null
-              ? "Cash unread"
-              : `$${(data.money.cash_tenths / 1000).toFixed(2)} cash`}
-          </span>
-          {data.money.open_positions_tenths !== null && (
-            <span className="tabular text-muted">
-              {" "}
-              · ${(data.money.open_positions_tenths / 1000).toFixed(2)} sitting
-              in open positions
+        <div className="mt-4 space-y-1 text-sm">
+          <p>
+            <span className="font-semibold tabular">
+              {data.money.cash_display === null
+                ? "Cash unread"
+                : `${data.money.cash_display} in the account.`}
             </span>
+            {data.money.per_bet_cap_display !== null && (
+              <span className="text-muted">
+                {" "}
+                Your cap is {data.money.per_bet_cap_display} a bet — under one
+                contract on anything above {data.money.per_bet_cap_display}.
+              </span>
+            )}
+          </p>
+          {data.money.per_bet_cap_display !== null ? (
+            <p className="text-xs text-muted">
+              At most {data.money.exposure_cap_display} at risk at once; the
+              day stops at {data.money.daily_line_display} down. One contract
+              at 50c needs a {data.money.deposit_for_50c_display} balance to
+              stay inside the cap.
+            </p>
+          ) : (
+            <p className="text-xs text-accent-2">
+              No caps can be derived —{" "}
+              {data.money.caps_basis.refusal ?? "balance unobserved"}. One
+              contract at 50c would need a{" "}
+              {data.money.deposit_for_50c_display} balance to stay inside the
+              cap.
+            </p>
           )}
-          {data.money.daily_line_dollars !== null && (
-            <span className="text-muted">
-              {" "}
-              · your daily-loss line is $
-              {data.money.daily_line_dollars.toFixed(2)}
-            </span>
-          )}
-        </p>
+          {/* What is at risk right now (B3): a sibling of the money line,
+              never summed with it. The component owns the refusal words. */}
+          <OpenPositions block={data.open_positions} />
+        </div>
       )}
 
       {/* Tonight's commitment + the "not tonight" note, beside the money line

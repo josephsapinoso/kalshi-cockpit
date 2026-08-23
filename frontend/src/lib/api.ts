@@ -953,16 +953,33 @@ export type Slate = {
    * The venue's own reading of Joe's money: cash and the value sitting in
    * open positions, **separately and never summed** — a sum would sign a
    * P&L, and a signed P&L on the screen where bets are decided is the chase
-   * trigger the tilt review refused. `daily_line_dollars` is the deployed
-   * daily-loss cap (the line Joe set), the only denominator this may be
-   * read against; the $100 study ceiling is deliberately absent. `null`
-   * when no balance snapshot exists yet.
+   * trigger the tilt review refused.
+   *
+   * The caps are derived server-side, at request time, from the observed
+   * balance (ADR 0045) and arrive as display strings — this file's rule:
+   * no money arithmetic in the frontend. `caps_basis` is never omitted:
+   * it carries either the balance the caps were derived from or the
+   * refusal words ("balance unobserved") the screen must render instead
+   * of rendering nothing. `deposit_for_50c_display` is the server-computed
+   * deposit arithmetic ("one contract at 50c needs a $5.00 balance").
+   * `null` money only from a backend one version behind.
    */
   money: {
-    observed_ms: number;
+    observed_ms: number | null;
     cash_tenths: number | null;
+    cash_display: string | null;
     open_positions_tenths: number | null;
+    /** @deprecated render `daily_line_display`; kept for older readers. */
     daily_line_dollars: number | null;
+    daily_line_display: string | null;
+    per_bet_cap_display: string | null;
+    exposure_cap_display: string | null;
+    deposit_for_50c_display: string;
+    caps_basis: {
+      balance_display: string | null;
+      observed_ms: number | null;
+      refusal: string | null;
+    };
   } | null;
   counts: {
     returned: number;
@@ -979,6 +996,9 @@ export type Slate = {
    * because a deployed backend one version behind omits the key entirely.
    */
   tonight?: TonightActivity | null;
+  /** A sibling of `money` for `tonight`'s reason: `money`'s contract is
+   *  about never summing cash and positions. See `OpenPositionsBlock`. */
+  open_positions?: OpenPositionsBlock | null;
   staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
   slate: Board["slate"];
   drift_window_ms: number;
@@ -992,6 +1012,32 @@ export type TonightActivity = {
   staked_tenths: number | null;
   staked_display: string | null;
   lockout_until_ms: number | null;
+};
+
+/**
+ * What is open at the venue right now — the largest hole of the 2026-08-22
+ * review (nothing showed what was at risk on any screen). Served on the
+ * slate and on /bets from the only two things the mirror carries:
+ *
+ * - `count` is the positions poll's row count, **counted and never
+ *   parsed** (the per-row wire shape has never been observed), on the
+ *   12-hour mirror clock — stale refuses to null with `count_as_of_ms`
+ *   kept so the screen renders "not read since".
+ * - `value_*` is the venue's own `portfolio_value` (5-minute cadence),
+ *   whose unit is pinned only at zero — any non-zero value refuses with
+ *   its reason in `value_refusal`, server-rendered words.
+ *
+ * NO live P&L, no mark-to-market, never summed with cash (TonightStrip's
+ * unsigned rule). Optional because a deployed backend one version behind
+ * omits the key entirely.
+ */
+export type OpenPositionsBlock = {
+  count: number | null;
+  count_as_of_ms: number | null;
+  value_tenths: number | null;
+  value_display: string | null;
+  value_as_of_ms: number | null;
+  value_refusal: string | null;
 };
 
 export const fetchSlate = () => get<Slate>("/api/slate");
@@ -1826,6 +1872,32 @@ export type BetsRecord = {
     uncomputable: number;
     wins: number;
     losses: number;
+  };
+  /** What is at risk right now, beside the settled record. Optional because
+   *  a deployed backend one version behind omits the key. */
+  open_positions?: OpenPositionsBlock;
+  /**
+   * "CLV scored on N of {total}" — counts only, over the WHOLE table like
+   * `totals`. `refusals` counts the unscored rows by reason so unmeasured
+   * never renders identically to bad. No CLV *value* is ever combined
+   * (the no-aggregate constraint stands until n >= 30).
+   */
+  clv_coverage?: {
+    scored: number;
+    refusals: Record<string, number>;
+  };
+  /** When the "not tonight" lockout releases, or null. Same source as the
+   *  slate's tonight block — one table, one clock, two screens. */
+  lockout_until_ms?: number | null;
+  /**
+   * The pass record's headline numbers (slice B6): how many deliberate
+   * "no"s, and since when. A floor, not a census — only taps are recorded.
+   * Passes are never scored, never rated; this is a count and nothing may
+   * grade it. `first_ms` null means none recorded yet, rendered as words.
+   */
+  passes?: {
+    total: number;
+    first_ms: number | null;
   };
 };
 

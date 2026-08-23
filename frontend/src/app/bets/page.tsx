@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { SHELL_WIDTH } from "@/lib/shell";
 import { tickerLabel } from "@/lib/tickerLabel";
+import NotTonight from "@/components/NotTonight";
+import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import {
   DISPLAY_TIME_ZONE,
@@ -46,6 +48,24 @@ export default async function BetsPage() {
     <Shell>
       <header className="mb-8">
         <h1 className="display text-4xl sm:text-5xl">Your bets</h1>
+        {/* Decisions as the unit (B6): counting only bets placed made
+            betting the sole recordable act. The pass count is a floor —
+            only taps are recorded — and passes are never scored or rated;
+            this line may never grow a "right to pass" grade. */}
+        {record.passes && (
+          <p className="mt-3 max-w-[65ch] text-sm">
+            <span className="font-semibold tabular">
+              {record.total} {record.total === 1 ? "bet" : "bets"} ·{" "}
+              {record.passes.total}{" "}
+              {record.passes.total === 1 ? "pass" : "passes"}
+            </span>
+            <span className="text-muted">
+              {record.passes.first_ms !== null
+                ? ` since ${sinceDate(record.passes.first_ms)} — a pass is a decision too.`
+                : " — a pass is a decision too; none recorded yet."}
+            </span>
+          </p>
+        )}
         <p className="mt-3 max-w-[65ch] text-lg text-muted">
           Every settled position the recorder has mirrored from your Kalshi
           account, newest first — the venue&rsquo;s own numbers, read back to
@@ -72,6 +92,22 @@ export default async function BetsPage() {
             over {totals.computable} <Term k="settled">settled</Term>
           </span>
         </p>
+        {/* The denominator the per-bet CLV numbers never had (B5): most
+            hand-bet tickers refuse structurally (no discovery row, no
+            close read), and without this line 35 rows saying "close not
+            read yet" and 35 rows saying the bets were bad would read the
+            same at a glance. Counts only — no average, no hit rate. */}
+        {record.clv_coverage && (
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            <Term k="clv">CLV</Term> scored on {record.clv_coverage.scored} of{" "}
+            {record.total} — the rest refused (no readable close yet, or no
+            entry time). Unmeasured is not the same as bad; each row below
+            says which it is.
+          </p>
+        )}
+        {/* The one-tap lockout, beside the biggest red number in the
+            product. Same POST, same no-confirm rule as TonightStrip. */}
+        <NotTonight lockoutUntilMs={record.lockout_until_ms ?? null} />
         {totals.uncomputable > 0 && (
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             {totals.uncomputable}{" "}
@@ -87,6 +123,13 @@ export default async function BetsPage() {
           anything settled before the recorder started on Aug 18 is missing.
           Fees are the venue&rsquo;s own, already subtracted.
         </p>
+      </div>
+
+      {/* What is at risk right now (B3), above the settled list: the settled
+          record alone hides the money currently on the table. Unsigned,
+          never summed with the net strip above. */}
+      <div className="mt-4 max-w-[65ch]">
+        <OpenPositions block={record.open_positions} />
       </div>
 
       {record.bets.length === 0 ? (
@@ -205,6 +248,16 @@ function BetRow({ bet }: { bet: SettledBet }) {
       </Link>
     </li>
   );
+}
+
+/** "Aug 18" — the headline's since-date, in the display zone like every
+ *  other human-facing clock here. */
+function sinceDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

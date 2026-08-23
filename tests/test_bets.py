@@ -245,6 +245,61 @@ class TestPerBetCLV:
         bet = bets.bets_record(conn)["bets"][0]
         assert bet["clv_refusal_reason"] == "no_closing_line"
 
+    def test_clv_coverage_counts_the_whole_table_not_the_window(self, tmp_path):
+        """"Scored on N of {total}" is a claim about the record (slice B5).
+        The scored row here is the OLDEST, so a coverage computed off the
+        `limit=1` window -- which holds only the newest, refused row --
+        would report 0 and the mutation below turns exactly that red.
+
+        Mutation run, red and restored byte-identical (2026-08-22): the
+        `bet_clv` call moved back below the `len(bets) >= limit` continue --
+        this test fails with scored == 0."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, settled_ms=1_000, position_first_seen_ms=100)  # scored
+        _insert(conn, ticker="KXOTHER", settled_ms=2_000,
+                position_first_seen_ms=100)  # newest; no line -> refused
+        record = bets.bets_record(conn, limit=1)
+        assert record["returned"] == 1
+        assert record["bets"][0]["ticker"] == "KXOTHER"
+        assert record["clv_coverage"]["scored"] == 1
+        assert record["clv_coverage"]["refusals"] == {"no_closing_line": 1}
+
+    def test_scored_and_refused_partition_the_record(self, tmp_path):
+        """Every row is exactly one of scored or refused-with-reason, so
+        unmeasured can never render identically to bad."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, settled_ms=1_000, position_first_seen_ms=100)
+        _insert(conn, settled_ms=2_000, position_first_seen_ms=None)
+        _insert(conn, settled_ms=3_000, position_first_seen_ms=501)
+        record = bets.bets_record(conn)
+        coverage = record["clv_coverage"]
+        assert coverage["scored"] + sum(coverage["refusals"].values()) == (
+            record["total"]
+        )
+        assert coverage["refusals"] == {
+            "entry_time_unknown": 1,
+            "entry_after_close": 1,
+        }
+
+    def test_the_coverage_is_counts_only_no_clv_value_enters_it(self, tmp_path):
+        """The no-aggregate constraint's edge: a count of measurements is
+        allowed, any combination of their VALUES is not. The block must
+        carry integers and reason counts, nothing float-valued."""
+        conn = db.init_db(tmp_path / "b.db")
+        _market(conn)
+        _closing_line(conn, observed_ms=500)
+        _insert(conn, position_first_seen_ms=100)
+        coverage = bets.bets_record(conn)["clv_coverage"]
+        assert set(coverage) == {"scored", "refusals"}
+        assert isinstance(coverage["scored"], int)
+        assert all(
+            isinstance(v, int) for v in coverage["refusals"].values()
+        )
+
     def test_module_computes_no_aggregate_clv(self):
         """The partner's hard constraint, checked at the source: no average,
         no hit rate, no beat-the-close rate anywhere in this module until
@@ -296,6 +351,7 @@ class TestTheRoute:
             "bets": [],
             "total": 0,
             "returned": 0,
+            "clv_coverage": {"scored": 0, "refusals": {}},
             "totals": {
                 "net_tenths": 0,
                 "net_display": "+$0.00",
@@ -304,6 +360,18 @@ class TestTheRoute:
                 "wins": 0,
                 "losses": 0,
             },
+            # A database that has never polled refuses everything, in words.
+            "open_positions": {
+                "count": None,
+                "count_as_of_ms": None,
+                "value_tenths": None,
+                "value_display": None,
+                "value_as_of_ms": None,
+                "value_refusal": "never observed",
+            },
+            "lockout_until_ms": None,
+            # No passes recorded is words on the screen, not a 1970 date.
+            "passes": {"total": 0, "first_ms": None},
         }
 
 
@@ -393,6 +461,120 @@ class TestTonightRefusesBeforeItFlatters:
         )
         assert tonight["bets"] == 0
         assert tonight["staked_tenths"] == 0
+
+
+class TestOpenPositionsRefuseBeforeTheyFlatter:
+    """`bets.open_positions` (slice B3, 2026-08-22): the count is the 12-hour
+    positions poll's `row_count`, counted and never parsed; the value is the
+    venue's own `portfolio_value`, whose unit is pinned only at zero. Stale
+    or unpinned refuses to None with the words served -- "nothing at risk"
+    off a dead poller is the false negative in the flattering direction.
+
+    Mutation run, red and restored byte-identical (2026-08-22): the
+    `POSITIONS_STALE_AFTER_MS` bound removed from the count read -- the
+    stale-count test fails (a 27-hour-old count is served as current).
+    """
+
+    def _positions_poll(self, conn, *, polled_ms, row_count=3, ok=True):
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+            "VALUES (?, 'positions', ?, ?)",
+            (polled_ms, 1 if ok else 0, row_count),
+        )
+        conn.commit()
+
+    def _snapshot(self, conn, *, observed_ms, value_tenths):
+        conn.execute(
+            "INSERT INTO venue_balance_snapshots "
+            "(observed_ms, balance_tenths, portfolio_value_tenths) "
+            "VALUES (?, 2560, ?)",
+            (observed_ms, value_tenths),
+        )
+        conn.commit()
+
+    def test_a_fresh_count_and_a_pinned_zero_value_are_served(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 3_600_000, row_count=3)
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] == 3
+        assert block["count_as_of_ms"] == NOW_MS - 3_600_000
+        assert block["value_tenths"] == 0
+        assert block["value_display"] == "$0.00"
+        assert block["value_refusal"] is None
+
+    def test_a_stale_count_refuses_and_keeps_its_as_of(self, tmp_path):
+        """27 hours is past the 26h bound (two 12h mirror cycles + grace):
+        the count refuses, the clock stays so the screen can say 'since'."""
+        conn = db.init_db(tmp_path / "p.db")
+        stale = NOW_MS - bets.POSITIONS_STALE_AFTER_MS - 3_600_000
+        self._positions_poll(conn, polled_ms=stale, row_count=3)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["count_as_of_ms"] == stale
+
+    def test_a_failed_poll_is_not_a_read(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 60_000, ok=False)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["count_as_of_ms"] is None
+
+    def test_an_unpinned_value_refuses_with_its_reason_not_a_zero(
+        self, tmp_path
+    ):
+        """The stored NULL means `parse_portfolio_value_tenths` refused a
+        non-zero value (unit unpinned) -- the expected state whenever a
+        position is actually open. Words, never $0.00."""
+        conn = db.init_db(tmp_path / "p.db")
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=None)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["value_tenths"] is None
+        assert block["value_display"] is None
+        assert "unit" in block["value_refusal"]
+
+    def test_a_stale_value_refuses_on_its_own_five_minute_clock(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        stale = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 1
+        self._snapshot(conn, observed_ms=stale, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["value_tenths"] is None
+        assert "not read" in block["value_refusal"]
+        assert block["value_as_of_ms"] == stale
+
+    def test_the_block_never_sums_and_never_signs(self, tmp_path):
+        """TonightStrip's unsigned rule, pinned: no net, no P&L, no
+        mark-to-market, no field that could carry cash+positions."""
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 60_000)
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert set(block) == {
+            "count", "count_as_of_ms", "value_tenths", "value_display",
+            "value_as_of_ms", "value_refusal",
+        }
+        forbidden = {"total", "net", "pnl", "profit", "loss", "change",
+                     "mark", "unrealised", "unrealized"}
+        assert not (set(block) & forbidden)
+
+    async def test_the_slate_serves_it_beside_money_not_inside(self, tmp_path):
+        path = tmp_path / "p.db"
+        conn = db.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, 0, 0, '{}', 'test')"
+        )
+        conn.commit()
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            payload = (await client.get("/api/slate")).json()
+        assert "open_positions" in payload
+        assert "count" not in (payload["money"] or {})
 
 
 class TestTheSlateCarriesTonightBesideMoneyNotInsideIt:

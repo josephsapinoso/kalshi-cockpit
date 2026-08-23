@@ -36,6 +36,7 @@ from ..analysis.marts import (
     read_dashboards,
 )
 from ..config import (
+    POSITION_FRACTION_OF_BANKROLL,
     AppConfig,
     BuildInfo,
     ConfigError,
@@ -67,6 +68,7 @@ from ..core.prices import (
 from ..core.sizing import size_position, verify_positive_after_fees
 from .. import bets as bets_module
 from .. import estimates as bet_estimates
+from .. import passes as desk_passes
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
@@ -139,6 +141,27 @@ def recorder_fields(last_ms, now_ms: int) -> dict:
     return {"last_write_ms": int(last_ms), "age_ms": max(0, now_ms - int(last_ms))}
 
 
+def cap_display(dollars: Optional[float]) -> Optional[str]:
+    """A derived cap as Joe reads it: cents below a dollar, dollars above.
+
+    `format_price(256)` gives "25.6c" -- the deci-cent house rendering -- which
+    is right for a per-bet cap on a $2.56 bankroll; the same function applied
+    to a $10.24 exposure cap would print "1024c", so above a dollar this
+    switches to the dollar string. Server-side because the frontend's contract
+    (`lib/api.ts`) is that money display strings are rendered here, never
+    re-derived from a float in a second place.
+
+    `None` in, `None` out: an underivable cap is a refusal to state a number,
+    and the caller renders the refusal words instead.
+    """
+    if dollars is None:
+        return None
+    tenths = int(round(dollars * 1000))
+    if tenths < 1000:
+        return format_price(tenths)
+    return f"${tenths / 1000:.2f}"
+
+
 class OrderPlacementRequest(BaseModel):
     """What the ticket sends. Deliberately minimal.
 
@@ -162,6 +185,19 @@ class OrderPlacementRequest(BaseModel):
     idempotency_key: str = Field(
         min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
     )
+
+
+class DeskPassRequest(BaseModel):
+    """One per-market pass: "I looked at this and chose not to bet it."
+
+    `reason` is optional and stays optional (slice B6): a required reason is
+    a toll on the correct boring action. The length caps are hygiene on a
+    string that will be rendered back, not validation of the decision --
+    a pass needs no justifying.
+    """
+
+    ticker: str = Field(min_length=1, max_length=80)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class ManualOrderRequest(BaseModel):
@@ -1179,23 +1215,93 @@ def create_app(
         # a live balance display reads the venue's own record, not the
         # estimate log, so the embargo does not touch it). The snapshot is
         # the operational clock's -- the analysis clock still reads one row
-        # per day, exactly as A7 separates them. `daily_line_dollars` is the
-        # deployed daily-loss cap, which is the line Joe set for himself;
-        # the $100 study ceiling is deliberately NOT here, because "cash
-        # against $100" reads as budget remaining to a reader holding $8.
-        # No field on this payload sums the two numbers or signs a P&L.
+        # per day, exactly as A7 separates them. The caps are the deployed
+        # ones Joe's own balance derives (ADR 0045); the $100 study ceiling
+        # is deliberately NOT here, because "cash against $100" reads as
+        # budget remaining to a reader holding $8. No field on this payload
+        # sums the two numbers or signs a P&L.
         snapshot = conn.execute(
             "SELECT observed_ms, balance_tenths, portfolio_value_tenths "
             "FROM venue_balance_snapshots ORDER BY observed_ms DESC LIMIT 1"
         ).fetchone()
-        money = None
-        if snapshot is not None:
-            money = {
-                "observed_ms": snapshot["observed_ms"],
-                "cash_tenths": snapshot["balance_tenths"],
-                "open_positions_tenths": snapshot["portfolio_value_tenths"],
-                "daily_line_dollars": risk.max_daily_loss_dollars,
+        # The caps, derived AT REQUEST TIME from the venue's observed balance
+        # -- the exact pattern the order endpoint uses at its step 8a and
+        # /api/gate uses for `bankroll_dollars`. The module-level `risk` off
+        # `create_app` is underived by construction (every dollar cap on it
+        # is None since ADR 0045), so it must never feed this payload
+        # directly: it did until 2026-08-22, and "your daily-loss line is
+        # $X" had silently rendered nothing on live the whole time.
+        balance_tenths = (
+            None if snapshot is None else snapshot["balance_tenths"]
+        )
+        derived_risk = (
+            risk.with_observed_balance(db.latest_balance_tenths(conn))
+            if risk.underived
+            else risk
+        )
+        if not risk.underived:
+            # A directly-injected config (tests, tools) carries explicit
+            # dollars with no balance behind them; say so rather than
+            # inventing an observation.
+            caps_basis = {
+                "balance_display": None,
+                "observed_ms": None,
+                "refusal": "caps injected by configuration; no observed balance",
             }
+        elif balance_tenths is not None:
+            caps_basis = {
+                "balance_display": f"${balance_tenths / 1000:.2f}",
+                "observed_ms": snapshot["observed_ms"],
+                "refusal": None,
+            }
+        else:
+            # Never omitted silently: the screen renders these words rather
+            # than rendering nothing, which is the defect this block fixes.
+            caps_basis = {
+                "balance_display": None,
+                "observed_ms": None,
+                "refusal": "balance unobserved",
+            }
+        money = {
+            "observed_ms": None if snapshot is None else snapshot["observed_ms"],
+            "cash_tenths": balance_tenths,
+            "cash_display": (
+                None
+                if balance_tenths is None
+                else f"${balance_tenths / 1000:.2f}"
+            ),
+            "open_positions_tenths": (
+                None if snapshot is None else snapshot["portfolio_value_tenths"]
+            ),
+            # Kept as a float for a deployed frontend one version behind;
+            # the display strings beside it are what the screen renders now.
+            "daily_line_dollars": (
+                None if derived_risk is None
+                else derived_risk.max_daily_loss_dollars
+            ),
+            "daily_line_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_daily_loss_dollars
+            ),
+            "per_bet_cap_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_position_dollars
+            ),
+            "exposure_cap_display": cap_display(
+                None if derived_risk is None
+                else derived_risk.max_exposure_dollars
+            ),
+            # The deposit arithmetic, server-side: one contract at 50c costs
+            # $0.50 and the per-bet cap is POSITION_FRACTION_OF_BANKROLL of
+            # the balance, so the balance that admits one such contract is
+            # 0.50 / fraction. True whatever the balance is -- it is the
+            # sentence that tells Joe what a deposit would buy, so it is
+            # served even while the balance is unobserved.
+            "deposit_for_50c_display": (
+                f"${0.50 / POSITION_FRACTION_OF_BANKROLL:.2f}"
+            ),
+            "caps_basis": caps_basis,
+        }
 
         # **Tonight's commitment, a SIBLING of `money`, never inside it**
         # (2026-08-21 partner ruling, docs/reviews/2026-08-21-items-2-3-
@@ -1217,6 +1323,12 @@ def create_app(
             "rows": items,
             "money": money,
             "tonight": tonight,
+            # What is open at the venue right now -- a SIBLING of `money`
+            # for `tonight`'s reason: `money`'s contract is about never
+            # summing cash and positions, and this block's own contract
+            # (counted-not-parsed, unit-unpinned value, two staleness
+            # clocks) lives in `bets.open_positions`'s docstring.
+            "open_positions": bets_module.open_positions(conn, now_ms=now),
             "counts": {
                 "returned": len(items),
                 # Rows for which a book distribution could actually be
@@ -1659,8 +1771,27 @@ def create_app(
         None -- never 0 -- and the totals say how many rows they exclude.
         This endpoint never touches `bet_estimates`; the estimate log stays
         embargoed (Amendment 2 stopped the study without result).
+
+        `open_positions` rides here as well as on the slate because /bets is
+        the money-record screen and settled rows alone hide what is at risk
+        right now -- the largest hole of the 2026-08-22 review.
         """
-        return bets_module.bets_record(conn, limit=limit)
+        payload = bets_module.bets_record(conn, limit=limit)
+        now = db.now_ms()
+        payload["open_positions"] = bets_module.open_positions(conn, now_ms=now)
+        # The "not tonight" release, so /bets can render the same one-tap
+        # control the slate carries (slice B5): the record screen with the
+        # biggest red number in the product is where the impulse to chase
+        # lives, and the control belongs beside it. Same table, same clock
+        # as the slate's tonight block -- one source, two screens.
+        payload["lockout_until_ms"] = bet_estimates.lockout_until(
+            conn, now_ms=now
+        )
+        # The pass count (slice B6): the headline's unit becomes decisions,
+        # not bets placed. Counts only, from `desk_passes` -- never joined
+        # to outcomes, never rated.
+        payload["passes"] = desk_passes.pass_summary(conn)
+        return payload
 
     @app.get("/api/ledger")
     def ledger(
@@ -2543,18 +2674,61 @@ def create_app(
         is honest about what it cannot do: nothing here stops a hand bet in
         the Kalshi app. No parameters, no disengage, no duration picker,
         for the reasons the original gives.
+
+        **Engaging from unlocked also appends one `desk_passes` row** (scope
+        'tonight', slice B6): the tap IS the decision to pass the night, and
+        one gesture should not need a second one to be counted. Guarded on
+        not-already-locked because the lockout is idempotent by design -- a
+        second tap is the same decision, not a second one, and must not
+        inflate the pass count. Verified by disabling: pass write removed ->
+        the lockout-writes-a-pass test fails; restored -> green.
+        """
+        del conn  # the write path opens its own handle, below
+        now = db.now_ms()
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            already_locked = (
+                bet_estimates.lockout_until(write_conn, now_ms=now) is not None
+            )
+            until_ms = bet_estimates.engage_lockout(
+                write_conn,
+                now_ms=now,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+            if not already_locked:
+                desk_passes.record_pass(
+                    write_conn, now_ms=now, scope="tonight"
+                )
+        finally:
+            write_conn.close()
+        return {"locked": True, "until_ms": until_ms}
+
+    @app.post("/api/desk/pass", dependencies=[Depends(require_auth)])
+    def record_desk_pass(
+        request: DeskPassRequest, conn=Depends(get_conn)
+    ) -> dict:
+        """Append one per-market pass (slice B6). Auth like every mutation.
+
+        Writes `desk_passes` with the ticker as scope, uppercased to match
+        every other ticker write. **Deliberately no validation against
+        discovery**: a pass on a market this tool never discovered is still
+        a decision Joe made, and refusing to record a real "no" because our
+        own discovery missed the market is the wrong way round (the
+        `venue_settlements` argument exactly). Append-only -- there is no
+        edit or delete route, and the record is never scored or rated.
         """
         del conn  # the write path opens its own handle, below
         write_conn = db.open_db(app_config.db_path)
         try:
-            until_ms = bet_estimates.engage_lockout(
+            pass_id = desk_passes.record_pass(
                 write_conn,
                 now_ms=db.now_ms(),
-                day_start_hour=odds.budget_day_start_utc_hour,
+                scope=request.ticker.strip().upper(),
+                reason=request.reason,
             )
         finally:
             write_conn.close()
-        return {"locked": True, "until_ms": until_ms}
+        return {"recorded": True, "id": pass_id}
 
     @app.post("/api/estimates/lockout", dependencies=[Depends(require_auth)])
     def engage_self_lockout(conn=Depends(get_conn)) -> dict:
@@ -2576,14 +2750,26 @@ def create_app(
         The write needs a writable connection; `get_conn` serves the API's
         usual read-only handle, so this opens its own, exactly as
         `log_estimate` does for its write.
+
+        The pass write mirrors `/api/desk/lockout` exactly (slice B6): a tap
+        through the deprecated name is the same decision and must count the
+        same, or the pass total would depend on which frontend build tapped.
         """
+        now = db.now_ms()
         write_conn = db.open_db(app_config.db_path)
         try:
+            already_locked = (
+                bet_estimates.lockout_until(write_conn, now_ms=now) is not None
+            )
             until_ms = bet_estimates.engage_lockout(
                 write_conn,
-                now_ms=db.now_ms(),
+                now_ms=now,
                 day_start_hour=odds.budget_day_start_utc_hour,
             )
+            if not already_locked:
+                desk_passes.record_pass(
+                    write_conn, now_ms=now, scope="tonight"
+                )
         finally:
             write_conn.close()
         return {"locked": True, "until_ms": until_ms}
