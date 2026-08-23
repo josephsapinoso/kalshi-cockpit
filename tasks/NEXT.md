@@ -41,6 +41,76 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-23 (second session) — the desk presents fully: likely winners on the slate, five areas per game, Willy's seat
+
+Joe, frustrated ("nothing bettable almost at all... what the hell man?"),
+then the reframe that unlocked the build: **"I just want to see what are
+good-chance picks and everything is rejected."** Live reads confirmed the
+board's emptiness is the measured finding, not a defect (90 of 100
+candidates no-edge; Kalshi within ~0.1c of the sharps). His direction,
+approved by plan: the picks question is a *different* question from edge,
+and the desk becomes fully visible — **"I don't want to hover over every
+game anymore"** — five areas: skeptic, willy balters, scout, team
+specialist, consensus, plus the site explaining why sport factors aren't
+computed here. Plan:
+`C:\Users\josep\.claude\plans\nothing-is-bettable-in-lexical-gray.md`.
+ADRs **0067 / 0068 / 0069**. State at close: see the verification block
+below; schema **v19**.
+
+- **Slice A — "Likely winners tonight" (`f265ef1`, ADR 0067).**
+  `/api/slate` gains a `picks` block: one entry per game, the consensus
+  favorite, ranked by `fair_probability` alone (one stored unscored column
+  — a sort, never a composite; the rows below still order by kickoff).
+  YES-side rows only (a NO row's `team` names the opponent); freshest row
+  per ticker; stale consensus and unpriced favorites **counted out by
+  name**; stale Kalshi quote withholds the ask. The chance≠edge note
+  travels in the payload and renders verbatim; a key-walk test bans any
+  edge-shaped field in the block. `GoodChancePicks.tsx` on the landing
+  slate: game links only, no ticket, no `bg-accent`, no streak tally.
+  Three mutations verified red. Glossary +3 (`favorite`, `priced_in`,
+  `consensus_chance`).
+- **Slices B+C — the five-panel market screen (ADR 0068).** Anchored nav
+  (Consensus · Skeptic · Scout · Specialists · Willy), everything fully
+  present. `/api/market/{ticker}` joins `fair_prices`, serves `books` +
+  `kalshi_drift_tenths` (slate's own helpers) and a `gauntlet` block —
+  `suppression.gauntlet_view()` reconstructs all 12 checks' verdicts from
+  `suppressed_reason` (fail-only checks report `not_taken`; `sizing:`
+  passes through; unknown codes surface), served with `judged_ms`.
+  **Deliberately no `breakeven_win_rate` on this route** — fair% renders
+  here now, and the pair reconstructs the edge by subtraction.
+  `ConsensusPanel.tsx` (fair% side-named, book distribution, soft-fallback
+  warning, drift, and the standing explainer: sport factors are already in
+  the sharp line — ADR 0036/0037 as product copy, source-pinned).
+  `SkepticPanel.tsx` (free — the retired LLM Skeptic stays retired; codes
+  verbatim + gloss captions + as-of line). ScoutDesk: master's read and
+  staff filings OUT of `<details>` (exactly one `<details>` left — the
+  spend meter — pinned by count, mutation red); specialists get their own
+  section, every state in words, two-column at xl.
+- **Slice D — Willy Balters' seat (ADR 0069, schema v19).**
+  `backend/agents/pro_bettor.py`: a Walters-*style* fiction (name pinned
+  both ends, "Billy Walters" turns tests red), fourth metered call after
+  the master settles, **no tools** (source-pinned over the call block,
+  mutation red), `SharpTake` all-strings (walker test, mutation red).
+  `status` semantics unchanged — the seat is additive; unaffordable/failed
+  = `sharp_absent_reason`, honest words on screen. v19 adds
+  `scout_briefings.sharp_json` (NULL never `{}`); GET serves `sharp`.
+  Send captions now say **four** metered calls. Budget: 4 calls /
+  worst-case 12 searches per convening → **5 full convenings/day**
+  (searches bind), ~$0.50–0.70 each at list prices.
+
+**Verified before close:** full pytest green (see below), ruff clean, tsc
+clean, `next build` green, overflow gate green at 390/768/1280/1440/1920
+including `--market-ticker`, picks block confirmed on the seeded demo
+(6 ranked, exclusions counted) and rendered server-side on `/`.
+
+**Watch after deploy:** the picks block's staleness exclusion uses live
+odds age vs `max_odds_age_s` — outside the desk window whole slates will
+correctly rank nothing and say why; if Joe reports "picks always empty",
+check `/api/window` first, not the block. Willy's first real take is
+unreviewed — read it critically, same as the desk's first briefing.
+
+---
+
 ## 2026-08-23 — the desk window opens: the slate stops being stale 14 hours a day
 
 Work list was empty; the partner audited live and reordered everything: **the

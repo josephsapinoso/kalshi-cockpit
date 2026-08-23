@@ -274,6 +274,42 @@ class TestReadingTheDesk:
         assert body["briefing"]["headline"] == "Quiet."
         assert body["staff"][0]["team"] == "B"
         assert body["gone_quiet"] is False
+        # ADR 0069: the seat's key is served even when the seat filed
+        # nothing — `null`, never absent, so a pre-seat briefing and a
+        # one-version-behind frontend both read an honest absence.
+        assert body["sharp"] is None
+
+    async def test_a_stored_sharp_take_is_served_whole(
+        self, demo_app, scout_db
+    ):
+        """ADR 0069: Willy Balters' take rides the same GET, from
+        `sharp_json`, exactly as stored."""
+        conn = db.open_db(scout_db)
+        try:
+            conn.execute(
+                "INSERT INTO scout_briefings (ticker, event_title, league, "
+                "home_team, away_team, commence_ms, requested_ms, "
+                "completed_ms, status, staff_json, briefing_json, "
+                "sharp_json, model) "
+                "VALUES ('KXTEST-LINKED', 'A at B', 'baseball_mlb', 'B', 'A', "
+                "2000000, 1000, 2000, 'complete', ?, ?, ?, 'claude-opus-5')",
+                (
+                    json.dumps([{"role": "home", "team": "B", "report": None}]),
+                    json.dumps({"headline": "Quiet.", "assessment": "Thin."}),
+                    json.dumps({
+                        "headline": "Nothing a pro would act on.",
+                        "read": "Thin filings, old news.",
+                        "discipline": ["Passing is a position."],
+                        "would_change_my_mind": [],
+                    }),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        body = (await get(demo_app, "/api/scout/KXTEST-LINKED")).json()
+        assert body["sharp"]["headline"] == "Nothing a pro would act on."
+        assert body["sharp"]["discipline"] == ["Passing is a position."]
 
     async def test_a_running_row_past_patience_reads_as_gone_quiet(
         self, demo_app, scout_db

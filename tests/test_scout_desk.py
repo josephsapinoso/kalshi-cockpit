@@ -25,6 +25,7 @@ import typing
 
 from backend.agents.base import AgentConfig
 from backend.agents.budget import AgentBudget
+from backend.agents.pro_bettor import SharpTake
 from backend.agents.scout import ScoutReport
 from backend.agents.scout_desk import (
     BoardTile,
@@ -43,6 +44,10 @@ EMPTY_REPORT = ScoutReport(
 )
 BRIEFING = DeskBriefing(
     headline="Quiet game.", assessment="Both scouts filed thin notes.",
+)
+SHARP = SharpTake(
+    headline="Nothing here a pro would act on.",
+    read="The filings are thin and everything in them is old news.",
 )
 
 
@@ -81,6 +86,8 @@ class DeskStubMessages:
             if self._staff_raises and index in self._staff_raises:
                 raise RuntimeError("this scout is down")
             return StubResponse(self._staff)
+        if kwargs["output_format"] is SharpTake:
+            return StubResponse(SHARP)
         return StubResponse(self._briefing)
 
 
@@ -193,7 +200,9 @@ class TestTheDeskIsMetered:
         await _convene(client, budget)
         assert client.messages.rows_at_first_call == 2
 
-    async def test_a_full_briefing_is_exactly_three_metered_calls(self, tmp_path):
+    async def test_a_full_briefing_is_exactly_four_metered_calls(self, tmp_path):
+        """Was three until 2026-08-23: ADR 0069 seats the pro-bettor as a
+        fourth metered call after the master settles."""
         conn, budget = _budget(tmp_path)
         client = DeskStubClient()
         result = await _convene(client, budget)
@@ -202,13 +211,18 @@ class TestTheDeskIsMetered:
         # prose; the six-tile projection has its own test class.
         assert result.briefing.headline == BRIEFING.headline
         assert len(result.briefing.board) == 6
+        assert result.sharp is not None
+        assert result.sharp.headline == SHARP.headline
         agents = [
             r["agent"]
             for r in conn.execute(
                 "SELECT agent FROM agent_calls ORDER BY id"
             ).fetchall()
         ]
-        assert agents == ["scout_staff_home", "scout_staff_away", "scout_master"]
+        assert agents == [
+            "scout_staff_home", "scout_staff_away", "scout_master",
+            "pro_bettor",
+        ]
 
     async def test_the_master_is_not_paid_when_no_staff_filed(self, tmp_path):
         conn, budget = _budget(tmp_path)
@@ -218,6 +232,20 @@ class TestTheDeskIsMetered:
         assert result.briefing is None
         count = conn.execute("SELECT COUNT(*) AS c FROM agent_calls").fetchone()["c"]
         assert count == 2  # the staff pair was reserved; nothing more
+
+    async def test_an_unaffordable_pro_seat_downgrades_nothing(self, tmp_path):
+        """ADR 0069: `status` ignores the seat. Three calls affordable means
+        staff + master run, the convening is still `complete`, and the
+        seat's absence carries its reason instead of a downgraded word."""
+        conn, budget = _budget(tmp_path, daily=3)  # staff + master, no Willy
+        client = DeskStubClient()
+        result = await _convene(client, budget)
+        assert result.status == "complete"
+        assert result.briefing is not None
+        assert result.sharp is None
+        assert result.sharp_absent_reason is not None
+        count = conn.execute("SELECT COUNT(*) AS c FROM agent_calls").fetchone()["c"]
+        assert count == 3  # the refused seat reserved nothing
 
     async def test_an_unaffordable_master_returns_partial_with_the_notes(self, tmp_path):
         conn, budget = _budget(tmp_path, daily=2)  # staff fit, master does not
@@ -238,8 +266,12 @@ class TestFiledNothingIsNotFoundNothing:
         assert result.status == "partial"
         assert result.briefing is not None  # the master still ran
         assert result.briefing.headline == BRIEFING.headline
-        master_call = client.messages.calls[-1]
-        assert master_call["output_format"] is DeskBriefing
+        # By schema, not position: since ADR 0069 the pro's seat calls after
+        # the master, so `calls[-1]` is Willy's.
+        master_call = next(
+            c for c in client.messages.calls
+            if c["output_format"] is DeskBriefing
+        )
         prompt = master_call["messages"][0]["content"]
         assert "FILED NOTHING" in prompt
         # And the surviving scout's actual filing is present, not paraphrased.

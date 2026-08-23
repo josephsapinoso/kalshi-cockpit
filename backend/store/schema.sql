@@ -898,6 +898,7 @@ CREATE TABLE IF NOT EXISTS scout_briefings (
     refusal_reason  TEXT,               -- which ceiling refused, when status = refused
     staff_json      TEXT,               -- list of staff notes incl. filed-nothing markers
     briefing_json   TEXT,               -- the master's DeskBriefing
+    sharp_json      TEXT,               -- Willy Balters' SharpTake (ADR 0069); NULL = seat filed nothing / predates the seat
     model           TEXT NOT NULL,
     CHECK (status IN ('running', 'complete', 'partial', 'failed', 'refused')),
     CHECK ((status = 'running') = (completed_ms IS NULL))

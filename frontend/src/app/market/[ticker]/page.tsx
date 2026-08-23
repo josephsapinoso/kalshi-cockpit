@@ -6,9 +6,15 @@
  * Rebuilt 2026-08-21 to the partner's direction after Joe asked for the page
  * to be "more useful". The ruling that shaped it: **render the venue's facts,
  * never the tool's opinion.** Ask, quote age, market status, start time —
- * those are what you transact against. Fair, edge, EV, size — the refuted
- * consensus signal (ADR 0038) — do not appear on a single-game page, which is
- * the screen with the least context to hold such a number honestly.
+ * those are what you transact against.
+ *
+ * **Amended 2026-08-23 (ADR 0068), on the owner's word:** the consensus
+ * fair — the books' chance, a fact about the books — renders here in the
+ * Consensus panel, one of the five desk areas (Consensus · Skeptic · Scout
+ * · Specialists · Willy) that are all fully present, nothing behind
+ * hover/tap-reveal. What survives from the 2026-08-21 ruling: **edge, EV
+ * and size still never appear on this page**, and break-even never renders
+ * beside fair% (their difference is the measured-negative edge).
  *
  * Order matters: the scout desk renders first because the ui-designer
  * measured the old layout and found the briefing's headline started below the
@@ -42,10 +48,12 @@ import {
   type MarketCandles,
   type MarketDetail,
 } from "@/lib/api";
+import ConsensusPanel from "@/components/ConsensusPanel";
 import ManualTicket from "@/components/ManualTicket";
 import PassControl from "@/components/PassControl";
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
+import SkepticPanel from "@/components/SkepticPanel";
 import Term from "@/components/Term";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
@@ -262,8 +270,46 @@ export default function MarketPage() {
         {detail && <QuoteStrip detail={detail} now={now} kalshiUrl={kalshiUrl} />}
       </header>
 
-      {/* The desk first: the reason this page exists is what the scouts know
-          about THIS game, and it must start above the fold at every width. */}
+      {/* The desk's five areas, all fully present (ADR 0068) — Joe's
+          direction: no hover, no tap-to-reveal. The nav row scrolls;
+          navigation is allowed, concealment is not. */}
+      <nav className="flex flex-wrap gap-2 text-xs font-semibold">
+        {(
+          [
+            ["#consensus", "Consensus"],
+            ["#skeptic", "Skeptic"],
+            ["#scout", "Scout"],
+            ["#specialists", "Specialists"],
+            ["#willy", "Willy"],
+          ] as const
+        ).map(([href, label]) => (
+          <a
+            key={href}
+            href={href}
+            className="rounded-full border border-border px-3 py-1.5 text-muted hover:underline"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      {/* Consensus and Skeptic are free — always rendered, no model, no
+          spend. A ticker the runner never priced renders their honest empty
+          states rather than dropping the sections. */}
+      {detail && <ConsensusPanel detail={detail} />}
+      {detail && <SkepticPanel detail={detail} />}
+      {!detail && !detailLoading && (
+        <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+          <p className="max-w-[65ch] text-sm text-muted">
+            The consensus and skeptic panels have nothing to show — the
+            recorder never priced this ticker, so there is no judged row to
+            read back.
+          </p>
+        </section>
+      )}
+
+      {/* The scout desk renders three of the five areas (scout,
+          specialists, Willy) from one briefing fetch. */}
       <ScoutDesk ticker={ticker} />
 
       {/* The manual ticket (ADR 0063/0065): below the desk's facts, above
@@ -308,7 +354,9 @@ export default function MarketPage() {
               Loading&hellip;
             </p>
           ) : error ? (
-            <p className="mx-auto max-w-[65ch] py-16 text-center text-sm text-muted">{error}</p>
+            <p className="mx-auto max-w-[65ch] break-words py-16 text-center text-sm text-muted">
+              {error}
+            </p>
           ) : data ? (
             <>
               {/* YES only: NO is 1000 - YES by arithmetic, so a second line

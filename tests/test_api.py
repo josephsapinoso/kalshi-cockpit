@@ -921,6 +921,44 @@ class TestMarketDetail:
     async def test_an_unknown_market_is_404_not_an_empty_object(self, demo_app):
         assert (await get(demo_app, "/api/market/NOPE")).status_code == 404
 
+    async def test_it_serves_the_desk_panels_facts(self, demo_app):
+        """ADR 0068: the Consensus panel needs the fair_prices join and the
+        book distribution; the Skeptic panel needs the gauntlet. All three
+        ride this route now."""
+        board = (await get(demo_app, "/api/board")).json()
+        ticker = sized_rows(board)[0]["ticker"]
+        body = (await get(demo_app, f"/api/market/{ticker}")).json()
+        assert "fair_probability" in body
+        assert "anchored_on_sharp" in body
+        assert "books" in body
+        assert "kalshi_drift_tenths" in body
+        gauntlet = body["gauntlet"]
+        assert {c["code"] for c in gauntlet["checks"]}, (
+            "the gauntlet board came back empty"
+        )
+        assert "judged_ms" in gauntlet
+
+    async def test_the_gauntlet_is_served_even_for_a_clean_row(self, demo_app):
+        """`suppressed_reason IS NULL` must still produce a full board —
+        "every check that ran, passed" is the panel's whole reassurance."""
+        board = (await get(demo_app, "/api/board")).json()
+        ticker = sized_rows(board)[0]["ticker"]
+        body = (await get(demo_app, f"/api/market/{ticker}")).json()
+        if body["suppressed_reason"] is None:
+            verdicts = {
+                c["verdict"] for c in body["gauntlet"]["checks"]
+            }
+            assert "refused" not in verdicts
+            assert "passed" in verdicts
+
+    async def test_break_even_does_not_ride_beside_fair_here(self, demo_app):
+        """Fair% renders on this screen (ADR 0068); break-even therefore
+        must not — their difference is the measured-negative edge."""
+        board = (await get(demo_app, "/api/board")).json()
+        ticker = sized_rows(board)[0]["ticker"]
+        body = (await get(demo_app, f"/api/market/{ticker}")).json()
+        assert "breakeven_win_rate" not in body
+
 
 class TestActionableWindow:
     """Whether a pick can be acted on, which the Board could not previously say.

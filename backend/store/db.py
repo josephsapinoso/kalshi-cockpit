@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -822,6 +822,17 @@ _MIGRATIONS: dict[int, _Migration] = {
         # rows genuinely did not record it, and NULL is the honest value.
         columns=(
             ("fills", "venue_order_id", "TEXT"),
+        ),
+        undo_statements=(),
+    ),
+    19: _Migration(
+        # Willy Balters' seat at the scout desk (ADR 0069): the pro-bettor
+        # persona's `SharpTake`, filed per convening beside the staff's and
+        # master's work. Nullable, no backfill: a pre-v19 briefing genuinely
+        # predates the seat, and NULL — never `{}` — is the honest value for
+        # "the seat filed nothing here".
+        columns=(
+            ("scout_briefings", "sharp_json", "TEXT"),
         ),
         undo_statements=(),
     ),

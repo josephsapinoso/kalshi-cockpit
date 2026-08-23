@@ -1685,6 +1685,18 @@ export type DeskBriefing = {
   unanswered: string[];
 };
 
+/**
+ * Willy Balters' take (ADR 0069) — the pro-bettor seat's filing. Words
+ * only, like every desk schema: no field can carry a forecast. The
+ * character is a house fiction; the panel says so on screen.
+ */
+export type SharpTake = {
+  headline: string;
+  read: string;
+  discipline: string[];
+  would_change_my_mind: string[];
+};
+
 export type ScoutBriefingState =
   | { state: "never_sent" }
   | {
@@ -1703,6 +1715,9 @@ export type ScoutBriefingState =
       refusal_reason: string | null;
       staff: ScoutStaffNote[] | null;
       briefing: DeskBriefing | null;
+      /** `null` (or absent, one server version back): the seat filed
+       * nothing here, or the briefing predates the seat. */
+      sharp?: SharpTake | null;
       model: string;
     };
 
@@ -1824,6 +1839,21 @@ export async function recordPass(
  * here, because a single-game page is the screen with the least context to
  * hold a refuted signal's numbers honestly (ADR 0038).
  */
+/**
+ * The Skeptic panel's board (ADR 0068): every mechanical check's verdict,
+ * reconstructed server-side from the stored `suppressed_reason`. `judged_ms`
+ * is the basis the verdicts are facts about — the screen must caption it,
+ * because "passed at 19:02" and "passes now" are different claims. `sizing`
+ * carries `sizing:`-prefixed refusals verbatim; `unknown` carries codes this
+ * build's vocabulary does not name, so a newer server's rule still renders.
+ */
+export type Gauntlet = {
+  checks: { code: string; verdict: "passed" | "refused" | "not_taken" }[];
+  sizing: string[];
+  unknown: string[];
+  judged_ms?: number | null;
+};
+
 export type MarketDetail = {
   ticker: string;
   event_title: string | null;
@@ -1840,6 +1870,29 @@ export type MarketDetail = {
   price_is_current?: boolean;
   volume_24h: number | null;
   open_interest: number | null;
+  // The desk's consensus facts (ADR 0068). All optional: a deployed backend
+  // one version behind omits them and the panels render honest absences.
+  // **`breakeven_win_rate` is deliberately NOT here**: fair% and break-even
+  // never share a screen block — their difference IS the measured-negative
+  // edge (the fleet-convening identity).
+  side?: string;
+  fair_probability?: number | null;
+  fair_percent_display?: string | null;
+  suppressed_reason?: string | null;
+  reason_text?: string | null;
+  anchored_on_sharp?: boolean | null;
+  book_count?: number | null;
+  books_used?: string[] | null;
+  market_width?: number | null;
+  p_multiplicative?: number | null;
+  p_additive?: number | null;
+  p_power?: number | null;
+  p_shin?: number | null;
+  p_conservative?: number | null;
+  books?: BookDistribution | null;
+  kalshi_drift_tenths?: number | null;
+  drift_window_ms?: number;
+  gauntlet?: Gauntlet;
 };
 
 /** `null` when the record has no row for this ticker — a market the runner

@@ -69,7 +69,7 @@ from ..core.sizing import size_position, verify_positive_after_fees
 from .. import bets as bets_module
 from .. import estimates as bet_estimates
 from .. import passes as desk_passes
-from ..core.suppression import SuppressionConfig
+from ..core.suppression import SuppressionConfig, gauntlet_view
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
 from ..analysis.clv import DEFAULT_HORIZON_HOURS
@@ -1505,14 +1505,23 @@ def create_app(
         # (ADR 0006). `/api/ledger` was moved off it on 2026-08-21 and this
         # route follows: a "starts at" line computed from the Kalshi field
         # would be wrong by the length of the game's first half.
+        # `f.*` joined since ADR 0068: the Consensus panel renders the four
+        # devig readings, the anchored book set and the width on this screen,
+        # and `_serialise`'s key-presence rule fills `methods`/`consensus`
+        # once the columns are simply selected.
         row = conn.execute(
             "SELECT r.*, m.title AS market_title, m.yes_side_team, m.volume_24h, "
             "m.open_interest, m.close_ms, m.status AS market_status, "
             "e.title AS event_title, "
+            "f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
+            "f.p_conservative, f.market_width, f.book_count, f.books_used, "
+            "f.anchored_on_sharp, f.outcome_name, "
+            "l.odds_event_id, "
             "o.commence_ms, o.home_team, o.away_team, o.sport_key "
             "FROM recommendations r "
             "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
             "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+            "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
             "LEFT JOIN event_links l ON l.id = r.link_id "
             "LEFT JOIN ( "
             "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms, "
@@ -1528,7 +1537,8 @@ def create_app(
         # `now_ms`/`staleness` make the ages live rather than frozen at write
         # time: without them a 6pm quote still reads "30s ago" at 11pm, on the
         # one screen with no list of fresher rows beside it to give the lie.
-        detail = _serialise(row, now_ms=db.now_ms(), staleness=staleness)
+        now = db.now_ms()
+        detail = _serialise(row, now_ms=now, staleness=staleness)
         detail["volume_24h"] = row["volume_24h"]
         detail["open_interest"] = row["open_interest"]
         detail["close_ms"] = row["close_ms"]
@@ -1536,6 +1546,39 @@ def create_app(
         detail["home_team"] = row["home_team"]
         detail["away_team"] = row["away_team"]
         detail["league"] = row["sport_key"]
+
+        # The full book distribution, exactly as the slate computes it --
+        # same helpers, same refusals (`None` when nothing usable is stored,
+        # never an empty shape pretending a measurement happened).
+        detail["books"] = None
+        odds_event_id = row["odds_event_id"]
+        outcome_name = row["outcome_name"]
+        ask = row["entry_ask_tenths"]
+        if odds_event_id and outcome_name and ask is not None:
+            quotes = book_quotes_for_event(conn, odds_event_id, now=now)
+            if quotes is not None:
+                dist = book_distribution(
+                    outcomes=quotes.outcomes,
+                    quotes_by_book=quotes.quotes_by_book,
+                    outcome_name=outcome_name,
+                    kalshi_ask_tenths=ask,
+                    already_dropped=len(quotes.books_dropped),
+                )
+                if dist is not None:
+                    detail["books"] = dist.as_dict()
+        detail["kalshi_drift_tenths"] = kalshi_drift(
+            conn, row["ticker"], row["side"], now_ms=now
+        )
+        detail["drift_window_ms"] = DRIFT_WINDOW_MS
+
+        # The Skeptic panel's board (ADR 0068): every check's verdict,
+        # reconstructed from the stored reason. `judged_ms` is the basis the
+        # verdicts are facts about -- the screen must caption it, because
+        # "passed at 19:02" and "passes now" are different claims.
+        detail["gauntlet"] = gauntlet_view(row["suppressed_reason"])
+        detail["gauntlet"]["judged_ms"] = detail.get(
+            "freshness_measured_from_ms"
+        )
         return detail
 
     def _resolve_scout_fixture(conn, ticker: str) -> Optional[dict]:
@@ -1644,15 +1687,26 @@ def create_app(
                 if result.briefing is not None
                 else None
             )
+            # NULL when the seat filed nothing — never `{}`. The absence
+            # reason is logged at convening time and not stored: on read,
+            # "predates the seat" and "filed nothing" render the same
+            # honest words, and a stored reason would age into a claim
+            # about a budget day long over. See ADR 0069.
+            sharp_json = (
+                result.sharp.model_dump_json()
+                if result.sharp is not None
+                else None
+            )
             conn.execute(
                 "UPDATE scout_briefings SET status = ?, completed_ms = ?, "
-                "staff_json = ?, briefing_json = ?, refusal_reason = ? "
-                "WHERE id = ?",
+                "staff_json = ?, briefing_json = ?, sharp_json = ?, "
+                "refusal_reason = ? WHERE id = ?",
                 (
                     result.status,
                     db.now_ms(),
                     staff_json,
                     briefing_json,
+                    sharp_json,
                     result.refusal_reason,
                     row_id,
                 ),
@@ -1675,7 +1729,7 @@ def create_app(
         status_code=202,
     )
     async def send_scout_desk(ticker: str) -> dict:
-        """Send the scout desk on one game. Three metered Anthropic calls.
+        """Send the scout desk on one game. Four metered Anthropic calls.
 
         202 with a row id, never the briefing: the desk takes minutes and a
         phone must not hold a request open that long. The caller polls the GET.
@@ -1853,6 +1907,12 @@ def create_app(
             "staff": json.loads(row["staff_json"]) if row["staff_json"] else None,
             "briefing": (
                 json.loads(row["briefing_json"]) if row["briefing_json"] else None
+            ),
+            # Willy Balters' take (ADR 0069). `null` on a briefing that
+            # predates the seat or where the seat filed nothing — the
+            # screen renders the absence in words, never an empty card.
+            "sharp": (
+                json.loads(row["sharp_json"]) if row["sharp_json"] else None
             ),
             "model": row["model"],
         }

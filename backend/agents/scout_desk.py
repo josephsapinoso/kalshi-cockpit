@@ -29,8 +29,9 @@ in a money path is worse than none. The desk serves Joe's own judgement; it
 does not price anything.
 
 **Every call is metered.** The desk spends from the same `agent_calls` day the
-Skeptic does (`AgentBudget`, reserve-before-call), so a briefing is three of
-the day's `AGENT_MAX_CALLS_PER_DAY`. The staff pair is all-or-nothing: one
+Skeptic does (`AgentBudget`, reserve-before-call), so a briefing is four of
+the day's `AGENT_MAX_CALLS_PER_DAY` — the staff pair, the master, and the
+pro-bettor seat (ADR 0069). The staff pair is all-or-nothing: one
 scout's notes without the opposing scout's is a briefing with a blind side,
 so if the budget cannot afford both, the desk refuses rather than files half.
 The master is reserved only after the staff return, because a master with no
@@ -55,6 +56,8 @@ from pydantic import BaseModel, Field
 
 from .base import AgentConfig, CallUsage, structured_call
 from .budget import AgentBudget
+from .pro_bettor import SYSTEM as PRO_BETTOR_SYSTEM
+from .pro_bettor import SharpTake
 from .scout import WEB_SEARCH_TOOL, ScoutReport
 
 logger = logging.getLogger(__name__)
@@ -243,12 +246,21 @@ class DeskResult:
     - `failed`: nothing came back at all.
     - `refused`: the budget could not afford the staff pair; **no call was
       made** and nothing was spent.
+
+    **`status` deliberately ignores the pro's seat (ADR 0069).** Willy is
+    additive: `complete` still means exactly what it meant before the seat
+    existed, so no consumer's reading of the word changes under it. The
+    seat's own outcome is the `sharp` / `sharp_absent_reason` pair —
+    `sharp is None` with a reason is "the seat filed nothing, and here is
+    why", which must never collapse into a downgraded status.
     """
 
     status: Literal["complete", "partial", "failed", "refused"]
     staff: list[StaffNote]
     briefing: Optional[DeskBriefing]
     refusal_reason: Optional[str] = None
+    sharp: Optional[SharpTake] = None
+    sharp_absent_reason: Optional[str] = None
 
 
 def _staff_prompt(
@@ -280,6 +292,46 @@ def _master_prompt(staff: list[StaffNote], *, event_title: str) -> str:
     parts.append(
         "\nWrite the desk briefing from these notes only. Rank what matters, "
         "flag conflicts and stale notes, and list what stayed unanswered."
+    )
+    return "\n".join(parts)
+
+
+def _sharp_prompt(
+    staff: list[StaffNote],
+    *,
+    briefing: Optional[DeskBriefing],
+    event_title: str,
+) -> str:
+    """The desk's filings, whole, and nothing else — words in, words out.
+
+    The briefing rides along when the master produced one; a missing
+    synthesis is stated rather than papered over, because the pro's read of
+    "raw notes, no synthesis" is a different read.
+    """
+    parts = [f"The game: {event_title}\n\nThe desk's filed notes:\n"]
+    for note in staff:
+        title = f"The {note.team} scout ({note.role} side)"
+        if note.report is None:
+            parts.append(
+                f"## {title}\nFILED NOTHING. The call failed; this side of "
+                f"the desk is dark.\n"
+            )
+        else:
+            parts.append(f"## {title}\n{note.report.model_dump_json(indent=2)}\n")
+    if briefing is not None:
+        parts.append(
+            f"## The master scout's briefing\n"
+            f"{briefing.model_dump_json(indent=2)}\n"
+        )
+    else:
+        parts.append(
+            "## The master scout's briefing\nMISSING -- the synthesis was "
+            "unaffordable or failed. You are reading raw notes.\n"
+        )
+    parts.append(
+        "\nGive the professional's read of these filings only: what would "
+        "matter to a pro, the discipline that applies, and what would "
+        "change your mind."
     )
     return "\n".join(parts)
 
@@ -338,7 +390,8 @@ async def convene_desk(
     away_team: str,
     now_ms: int,
 ) -> DeskResult:
-    """Send the staff, then the master. Three metered calls, or a refusal.
+    """Send the staff, the master, then the pro's seat. Four metered calls,
+    or a refusal.
 
     The order of operations is the money contract:
 
@@ -443,9 +496,53 @@ async def convene_desk(
     if briefing is not None:
         briefing = complete_board(briefing, staff)
 
+    # The pro's seat (ADR 0069): a fourth metered call, reserved only after
+    # the master settles — same money contract as every seat here, reserve
+    # before the request, and a refusal spends nothing. Willy reads the
+    # desk's filings only and carries NO tools: the search budget belongs to
+    # the staff, and `STAFF_PAIR_SEARCHES_WORST_CASE` stays the whole
+    # convening's worst case because this call cannot search.
+    sharp, sharp_absent_reason = None, None
+    if not budget.can_afford(1, now_ms):
+        sharp_absent_reason = budget.refusal_reason(1, now_ms)
+        logger.warning("the pro's seat is unaffordable: %s", sharp_absent_reason)
+    else:
+        sharp_id = budget.reserve(
+            called_ms=now_ms, agent="pro_bettor", model=config.model,
+            ticker=ticker,
+        )
+        try:
+            outcome = await structured_call(
+                client,
+                model=config.model,
+                system=PRO_BETTOR_SYSTEM,
+                user_content=_sharp_prompt(
+                    staff, briefing=briefing, event_title=event_title
+                ),
+                output_model=SharpTake,
+                max_tokens=3000,
+                effort="high",
+            )
+            sharp, sharp_usage = outcome.parsed, outcome.usage
+        except Exception:
+            logger.exception("the pro's seat died")
+            sharp, sharp_usage = None, None
+            sharp_absent_reason = "the call failed"
+        budget.settle(
+            sharp_id,
+            verdict="sharp_take" if sharp is not None else "filed_nothing",
+            usage=sharp_usage,
+        )
+
     if briefing is not None and len(filed) == len(staff):
-        return DeskResult(status="complete", staff=staff, briefing=briefing)
-    return DeskResult(status="partial", staff=staff, briefing=briefing)
+        return DeskResult(
+            status="complete", staff=staff, briefing=briefing,
+            sharp=sharp, sharp_absent_reason=sharp_absent_reason,
+        )
+    return DeskResult(
+        status="partial", staff=staff, briefing=briefing,
+        sharp=sharp, sharp_absent_reason=sharp_absent_reason,
+    )
 
 
 BOARD_CATEGORIES: tuple[str, ...] = (

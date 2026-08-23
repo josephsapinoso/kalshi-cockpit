@@ -377,3 +377,61 @@ def evaluate_suppression(
     )
 
     return SuppressionResult(checks=tuple(checks))
+
+
+# The three checks that fire only when their input is ABSENT. Each is one arm
+# of an if/else above whose other arm evaluates the present value, so exactly
+# one of each pair runs per evaluation -- which is why a full verdict board
+# can be reconstructed from `suppressed_reason` alone (see `gauntlet_view`).
+_FAIL_ONLY_TWIN: dict[str, str] = {
+    "no_commence_time": "commence_skew",
+    "no_depth": "insufficient_depth",
+    "no_market_width": "wide_market",
+}
+
+
+def gauntlet_view(suppressed_reason: Optional[str]) -> dict:
+    """The full pass/refused board for one stored row, from its reason alone.
+
+    The Skeptic panel (ADR 0068) renders every check's verdict, not just the
+    failures -- "ran and passed" is the reassurance the panel exists to give,
+    and only the failures were ever stored. Reconstruction is exact because
+    `evaluate_suppression` appends every check it runs and `reason` names
+    every failure: a code absent from the reason either passed (it always
+    runs) or was never taken (it is the absent-input arm of an if/else whose
+    sibling ran instead -- `_FAIL_ONLY_TWIN`).
+
+    Verdicts: ``refused`` (named in the reason), ``passed`` (runs on every
+    evaluation, or the value-present arm whose fail-only twin did not fire),
+    ``not_taken`` (the arm the branch did not take). ``sizing`` carries any
+    ``sizing:``-prefixed refusal through verbatim (`engine.py` writes those
+    when no check fired); ``unknown`` carries codes this build's vocabulary
+    does not name, so a newer server's reason still renders rather than
+    silently vanishing.
+
+    What this does not establish: anything about *now*. The verdicts are
+    facts about the moment the row was written -- the caller must serve the
+    basis time beside them and the screen must caption it.
+    """
+    entries = [
+        e.strip() for e in (suppressed_reason or "").split(",") if e.strip()
+    ]
+    sizing = [e for e in entries if e.startswith("sizing:")]
+    codes = {e for e in entries if not e.startswith("sizing:")}
+    unknown = sorted(codes - set(ALL_CHECK_NAMES))
+
+    verdicts: list[dict] = []
+    for name in ALL_CHECK_NAMES:
+        if name in codes:
+            verdict = "refused"
+        elif name in _FAIL_ONLY_TWIN:
+            # Fail-only: it either fired (named above) or never ran.
+            verdict = "not_taken"
+        elif name in {v for k, v in _FAIL_ONLY_TWIN.items() if k in codes}:
+            # Its fail-only twin fired, so this arm of the branch never ran.
+            verdict = "not_taken"
+        else:
+            verdict = "passed"
+        verdicts.append({"code": name, "verdict": verdict})
+
+    return {"checks": verdicts, "sizing": sizing, "unknown": unknown}

@@ -410,8 +410,8 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
       </button>
       <p className="mt-1.5 max-w-[65ch] text-xs text-muted">
         {again
-          ? "Three more metered calls, up to a dozen web searches. The board above stays until they file."
-          : "Three metered calls and up to a dozen web searches, from the fleet’s shared daily budget — today’s running total is under “Today’s spend” below. The desk reports facts with sources; it never prices anything."}
+          ? "Four more metered calls, up to a dozen web searches. The board above stays until they file."
+          : "Four metered calls and up to a dozen web searches, from the fleet’s shared daily budget — today’s running total is under “Today’s spend” below. The desk reports facts with sources; it never prices anything."}
       </p>
       {sendError && (
         <p className="mt-2 max-w-[65ch] text-sm text-negative" role="alert">
@@ -423,7 +423,8 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
   );
 
   return (
-    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
+    <>
+    <section id="scout" className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
       <div className="mb-3 flex items-center gap-2">
         <CrewAvatar kind="scout" className="h-7 w-7 shrink-0" />
         <h2 className="text-lg font-semibold xl:text-xl">The scout desk</h2>
@@ -438,8 +439,9 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
           <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
             The desk has not been sent on this game. Send it and two staff
             scouts — one per team — will file notes on player status, team
-            status, and conditions at the venue, and the master scout will
-            read their notes back as one board.
+            status, and conditions at the venue; the master scout reads
+            their notes back as one board, and Willy Balters gives the
+            pro&rsquo;s read of the filings.
           </p>
           {sendButton("Send the scouts")}
         </div>
@@ -495,19 +497,24 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
               <p className="max-w-[65ch] text-sm font-semibold leading-snug xl:text-base">
                 {state.briefing.headline}
               </p>
-              <details className="rounded-xl border px-3 py-2">
-                <summary className="cursor-pointer text-sm font-semibold">
+              {/* Fully present since ADR 0068 — this sat in a <details> and
+                  Joe rejected the reveal pattern outright: "I don't want to
+                  hover over every game anymore." The master's read IS the
+                  desk's product; hiding it behind a tap made the tap the
+                  product. */}
+              <div className="rounded-xl border px-3 py-2">
+                <h3 className="text-sm font-semibold">
                   The master&rsquo;s read
-                </summary>
+                </h3>
                 <div className="mt-2 space-y-3">
                   <p className="max-w-[65ch] text-sm leading-relaxed xl:text-[15px]">
                     {state.briefing.assessment}
                   </p>
                   {state.briefing.what_matters.length > 0 && (
                     <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
                         What matters, in order
-                      </h3>
+                      </h4>
                       <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm leading-relaxed">
                         {state.briefing.what_matters.map((item, index) => (
                           <li key={index}>{item}</li>
@@ -517,9 +524,9 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
                   )}
                   {state.briefing.conflicts.length > 0 && (
                     <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
                         Where the notes conflict or look thin
-                      </h3>
+                      </h4>
                       <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
                         {state.briefing.conflicts.map((item, index) => (
                           <li key={index}>{item}</li>
@@ -529,9 +536,9 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
                   )}
                   {state.briefing.unanswered.length > 0 && (
                     <div>
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
                         What the desk could not confirm
-                      </h3>
+                      </h4>
                       <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
                         {state.briefing.unanswered.map((item, index) => (
                           <li key={index}>{item}</li>
@@ -540,7 +547,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
                     </div>
                   )}
                 </div>
-              </details>
+              </div>
             </>
           ) : (
             <p className="max-w-[65ch] text-sm leading-relaxed text-muted">
@@ -548,19 +555,6 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
               the day&rsquo;s budget could not afford it, or his call failed.
               The raw notes below are still the desk&rsquo;s work.
             </p>
-          )}
-
-          {state.staff && (
-            <details className="rounded-xl border px-3 py-2">
-              <summary className="cursor-pointer text-sm font-semibold">
-                The staff&rsquo;s notes, in full
-              </summary>
-              <div className="mt-2 space-y-3">
-                {state.staff.map((note) => (
-                  <StaffNoteCard key={note.role} note={note} />
-                ))}
-              </div>
-            </details>
           )}
 
           <div className="border-t pt-3 text-xs text-muted">
@@ -576,5 +570,126 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         })()
       )}
     </section>
+
+    {/* The specialists, a section of their own and fully present (ADR 0068):
+        the staff scouts ARE the per-team specialists Joe asked for, and
+        their filings sat behind a <details> — the exact reveal pattern he
+        rejected. Every state renders in words; a section that vanished when
+        empty would make "never sent" and "filed nothing" look alike. */}
+    <section
+      id="specialists"
+      className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8"
+    >
+      <h2 className="text-lg font-semibold xl:text-xl">
+        The team specialists
+      </h2>
+      <p className="mt-1 max-w-[65ch] text-sm text-muted">
+        One scout per club — each covers only their own team, and the home
+        scout owns the venue and the weather. These are their filings, in
+        full.
+      </p>
+      {state?.state === "sent" &&
+      (state.status === "complete" || state.status === "partial") &&
+      state.staff ? (
+        <div className="mt-3 grid gap-3 xl:grid-cols-2">
+          {state.staff.map((note) => (
+            <StaffNoteCard key={note.role} note={note} />
+          ))}
+        </div>
+      ) : state?.state === "sent" &&
+        (state.status === "complete" || state.status === "partial") ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          This briefing stored no staff filings — it predates the desk
+          keeping them, or nothing survived to store. An absence, not an
+          empty result.
+        </p>
+      ) : state?.state === "sent" &&
+        state.status === "running" &&
+        !state.gone_quiet ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          The specialists are out on this game now — their filings land here
+          when they return.
+        </p>
+      ) : (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          Nothing filed — the desk has not completed a convening on this
+          game. Send the scouts above and both specialists file here.
+        </p>
+      )}
+    </section>
+
+    {/* Willy Balters' seat (ADR 0069): the pro-bettor persona, a fourth
+        metered call per convening, reading only what the desk filed. One
+        fiction, two tiers — the free line on slate rows (CrewBubble) and
+        this metered seat — and never the living professional the name
+        winks at. Every absent state renders in words. */}
+    <section
+      id="willy"
+      className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8"
+    >
+      <div className="mb-1 flex items-center gap-2">
+        <CrewAvatar kind="willy" className="h-7 w-7 shrink-0" />
+        <h2 className="text-lg font-semibold xl:text-xl">Willy Balters</h2>
+      </div>
+      <p className="max-w-[65ch] text-xs text-muted">
+        The pro&rsquo;s seat — reads the desk&rsquo;s filings the way a
+        professional would. House crew: not a real person, and no forecast.
+      </p>
+      {state?.state === "sent" &&
+      (state.status === "complete" || state.status === "partial") &&
+      state.sharp ? (
+        <div className="mt-3 space-y-3">
+          <p className="max-w-[65ch] text-sm font-semibold leading-snug">
+            {state.sharp.headline}
+          </p>
+          <p className="max-w-[65ch] text-sm leading-relaxed">
+            {state.sharp.read}
+          </p>
+          {state.sharp.discipline.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                The discipline that applies
+              </h3>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                {state.sharp.discipline.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {state.sharp.would_change_my_mind.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                What would change his mind
+              </h3>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
+                {state.sharp.would_change_my_mind.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : state?.state === "sent" &&
+        (state.status === "complete" || state.status === "partial") ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          The seat filed nothing on this convening — it was unaffordable
+          that day, its call failed, or the briefing predates the seat. The
+          scouts&rsquo; work above stands on its own.
+        </p>
+      ) : state?.state === "sent" &&
+        state.status === "running" &&
+        !state.gone_quiet ? (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          Willy reads the filings after the scouts return — his take lands
+          here with theirs.
+        </p>
+      ) : (
+        <p className="mt-3 max-w-[65ch] text-sm text-muted">
+          No take — the desk has not completed a convening on this game.
+        </p>
+      )}
+    </section>
+    </>
   );
 }
