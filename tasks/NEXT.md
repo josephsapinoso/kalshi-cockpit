@@ -41,6 +41,80 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-22 (third session) — the pass gets its caller, the probe gets cheap to start, and stale odds get an exit
+
+Session start found the work list empty; the partner convened and ruled
+(three lanes), and Joe added a fourth live: his slate read `stale_odds × 33`
+as a letdown and he approved the exit slice by AskUserQuestion. He also
+asked whether staleness should *weigh less* — answered in session: it is a
+validity check, not a quality factor (a stale comparison's biggest "edges"
+are the line moves we missed — rule #1), and the fix is a fresh read, not a
+softer bar. Four lanes ran in parallel (three worktrees + one read-only
+agent); merged clean; **state: 3,937 passed / 10 xfailed** (+42), ruff
+clean, tsc clean, `next build` green. Plan:
+`C:\Users\josep\.claude\plans\read-tasks-next-md-and-start-reactive-pearl.md`.
+
+**Shipped, by lane:**
+
+- **A — the Pass control lands on the market screen (ADR 0066).**
+  `POST /api/desk/pass` had no caller anywhere in `frontend/` — the
+  four-time-repeated pattern at route level. Now: `app/pass/route.ts`
+  (token held server-side), `"/pass"` in `JSON_ROUTE_HANDLERS`,
+  `recordPass()` in `lib/api.ts`, and `PassControl.tsx` on
+  `/market/[ticker]` below the ManualTicket — bordered pill, no confirm
+  (a dialog gives the impulse a veto), reason optional-and-collapsed,
+  never `bg-accent`, Hint says it records a decision and blocks nothing.
+  **The per-row slate Pass is REJECTED and ADR 0066 records why** (390px
+  geometry forces a full-width bar under every row; tap-cheap passes turn
+  the decisions headline into noise; night+market is the complete ladder)
+  — do not re-propose it. Six source-grep tests; five mutations red plus
+  the existing `{total, first_ms}` tripwire re-verified red.
+- **B — the C0 probe suggests its own candidates, sending nothing.**
+  `probe_create_order.py --suggest` walks `/events` discovery (never
+  `/markets`), prints three copy-paste commands for markets with side ask
+  in (1c, 10c] and resting depth; AST-based test proves the suggest branch
+  cannot reach the send path (mutation red). Runbook got a ten-line phone
+  quickstart. A live run already produced three real candidates — all
+  NCAAF longshots at 2c, worst case ~$0.02+fee.
+- **D — stale odds get an exit on the slate.** Beside the stale count in
+  the refusal disclosure: when the next scheduled odds window opens
+  (`lib/nextOddsWindow.ts` reading `/api/window.next_sweep_ms` —
+  `timing.py`'s own `window_status()`, one predicate two callers; five
+  honest states incl. due-now/budget-spent/unknown-refuses-in-words), the
+  existing `RefreshOddsButton` with its credit cost named before the tap
+  (a caller, not a gate — server gates untouched), and a `<Term k="stale">`
+  glossary entry: stale is a clock verdict, not a quality one. Matching is
+  split-exact so `stale_kalshi_quote` (which no odds refresh fixes) never
+  gets a lying button. 17 tests, 8 mutations red.
+- **C — the manual door's read side verified on live, read-only**
+  (runtime-realist, loopback over `flyctl ssh`; zero POSTs). Both answers
+  YES: `GET /api/manual/market/{ticker}` serves real uncached venue facts
+  (`authorised_contracts` arithmetic checked: 23 at a 1c ask under the
+  $0.2555 cap), and the pass-aware `/bets` is the shipped bundle
+  (`43 bets · 0 passes` server-rendered on live). Three facts that bound
+  the arming decision, for Joe below.
+
+**FOR JOE:**
+
+1. **The C0 probe now starts itself**: run
+   `.venv\Scripts\python.exe scripts\probe_create_order.py --suggest`
+   (sends nothing, names three candidates + exact commands), then the real
+   command from the runbook's new quickstart.
+2. **Before arming, know this (Lane C):** the venue balance is **$2.56**,
+   so the derived per-bet cap is $0.26 — armed, the confirm button would
+   be dead on everything but sub-25c longshots until you fund the account.
+   Also: the reachable-path ticket UI has never rendered on live (flag
+   false routes every response to "blocked"), and the flag reads at boot
+   only (a Fly env change forces the restart anyway).
+
+**Open:** none by name. Lane C's two loose threads are cheap if ever
+wanted: the GET on a KXMVE ticker (one loopback call), and whether $2.56
+is current (venue balance endpoint). Worktree dirs
+`.claude/worktrees/agent-*` are merged but undeleted (Windows file locks)
+— safe to remove whenever.
+
+---
+
 ## 2026-08-22 (second session) — the every-page review ships whole: kill list, glossary, real limits, and a manual door built dry
 
 Joe asked for an every-page UI review "with Claude and Chrome" plus two
