@@ -1205,3 +1205,30 @@ CREATE TABLE IF NOT EXISTS self_lockouts (
     until_ms     INTEGER NOT NULL,
     CHECK (until_ms > requested_ms)
 );
+
+-- One deliberate "no" (slice B6, 2026-08-22). The record could hold 39 settled
+-- bets and zero evidence Joe ever chose NOT to bet, so the only unit the /bets
+-- headline could count was bets placed -- a scoreboard that makes betting the
+-- sole recordable act. A pass makes the decision the unit instead.
+--
+-- Append-only, like `self_lockouts` and for the same reason: a "no" that can
+-- be edited afterwards is a story, not a record. No UPDATE or DELETE path
+-- exists in the codebase and a test greps for one. Passes are **never scored,
+-- never rated** -- nothing may join this against outcomes or prices to say
+-- whether a pass was "right"; that would turn the one pressure-free act in
+-- the product back into a graded one.
+--
+-- `scope` is 'tonight' (written as a side effect of the lockout tap -- one
+-- gesture, two records) or a market ticker (a per-market pass via
+-- POST /api/desk/pass). `reason` is optional prose; NULL means none was
+-- given, and none is ever required.
+--
+-- Additive table, no schema-version bump: `init_db` applies this file to
+-- existing databases too, so `IF NOT EXISTS` creates it on the live volume
+-- at next boot -- the `scout_briefings` pattern exactly.
+CREATE TABLE IF NOT EXISTS desk_passes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_ms   INTEGER NOT NULL,
+    scope        TEXT NOT NULL,
+    reason       TEXT
+);

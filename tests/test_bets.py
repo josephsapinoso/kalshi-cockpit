@@ -370,6 +370,8 @@ class TestTheRoute:
                 "value_refusal": "never observed",
             },
             "lockout_until_ms": None,
+            # No passes recorded is words on the screen, not a 1970 date.
+            "passes": {"total": 0, "first_ms": None},
         }
 
 

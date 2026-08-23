@@ -48,6 +48,24 @@ export default async function BetsPage() {
     <Shell>
       <header className="mb-8">
         <h1 className="display text-4xl sm:text-5xl">Your bets</h1>
+        {/* Decisions as the unit (B6): counting only bets placed made
+            betting the sole recordable act. The pass count is a floor —
+            only taps are recorded — and passes are never scored or rated;
+            this line may never grow a "right to pass" grade. */}
+        {record.passes && (
+          <p className="mt-3 max-w-[65ch] text-sm">
+            <span className="font-semibold tabular">
+              {record.total} {record.total === 1 ? "bet" : "bets"} ·{" "}
+              {record.passes.total}{" "}
+              {record.passes.total === 1 ? "pass" : "passes"}
+            </span>
+            <span className="text-muted">
+              {record.passes.first_ms !== null
+                ? ` since ${sinceDate(record.passes.first_ms)} — a pass is a decision too.`
+                : " — a pass is a decision too; none recorded yet."}
+            </span>
+          </p>
+        )}
         <p className="mt-3 max-w-[65ch] text-lg text-muted">
           Every settled position the recorder has mirrored from your Kalshi
           account, newest first — the venue&rsquo;s own numbers, read back to
@@ -230,6 +248,16 @@ function BetRow({ bet }: { bet: SettledBet }) {
       </Link>
     </li>
   );
+}
+
+/** "Aug 18" — the headline's since-date, in the display zone like every
+ *  other human-facing clock here. */
+function sinceDate(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

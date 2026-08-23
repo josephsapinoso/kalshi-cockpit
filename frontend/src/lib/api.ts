@@ -1889,6 +1889,16 @@ export type BetsRecord = {
   /** When the "not tonight" lockout releases, or null. Same source as the
    *  slate's tonight block — one table, one clock, two screens. */
   lockout_until_ms?: number | null;
+  /**
+   * The pass record's headline numbers (slice B6): how many deliberate
+   * "no"s, and since when. A floor, not a census — only taps are recorded.
+   * Passes are never scored, never rated; this is a count and nothing may
+   * grade it. `first_ms` null means none recorded yet, rendered as words.
+   */
+  passes?: {
+    total: number;
+    first_ms: number | null;
+  };
 };
 
 export async function fetchBets(): Promise<BetsRecord> {

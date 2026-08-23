@@ -67,6 +67,7 @@ from ..core.prices import (
 from ..core.sizing import size_position, verify_positive_after_fees
 from .. import bets as bets_module
 from .. import estimates as bet_estimates
+from .. import passes as desk_passes
 from ..core.suppression import SuppressionConfig
 from ..core.teaser import find_wong_candidates
 from ..engine import suppression_summary
@@ -182,6 +183,19 @@ class OrderPlacementRequest(BaseModel):
     idempotency_key: str = Field(
         min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
     )
+
+
+class DeskPassRequest(BaseModel):
+    """One per-market pass: "I looked at this and chose not to bet it."
+
+    `reason` is optional and stays optional (slice B6): a required reason is
+    a toll on the correct boring action. The length caps are hygiene on a
+    string that will be rendered back, not validation of the decision --
+    a pass needs no justifying.
+    """
+
+    ticker: str = Field(min_length=1, max_length=80)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class OddsRefreshRequest(BaseModel):
@@ -1747,6 +1761,10 @@ def create_app(
         payload["lockout_until_ms"] = bet_estimates.lockout_until(
             conn, now_ms=now
         )
+        # The pass count (slice B6): the headline's unit becomes decisions,
+        # not bets placed. Counts only, from `desk_passes` -- never joined
+        # to outcomes, never rated.
+        payload["passes"] = desk_passes.pass_summary(conn)
         return payload
 
     @app.get("/api/ledger")
@@ -2630,18 +2648,61 @@ def create_app(
         is honest about what it cannot do: nothing here stops a hand bet in
         the Kalshi app. No parameters, no disengage, no duration picker,
         for the reasons the original gives.
+
+        **Engaging from unlocked also appends one `desk_passes` row** (scope
+        'tonight', slice B6): the tap IS the decision to pass the night, and
+        one gesture should not need a second one to be counted. Guarded on
+        not-already-locked because the lockout is idempotent by design -- a
+        second tap is the same decision, not a second one, and must not
+        inflate the pass count. Verified by disabling: pass write removed ->
+        the lockout-writes-a-pass test fails; restored -> green.
+        """
+        del conn  # the write path opens its own handle, below
+        now = db.now_ms()
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            already_locked = (
+                bet_estimates.lockout_until(write_conn, now_ms=now) is not None
+            )
+            until_ms = bet_estimates.engage_lockout(
+                write_conn,
+                now_ms=now,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+            if not already_locked:
+                desk_passes.record_pass(
+                    write_conn, now_ms=now, scope="tonight"
+                )
+        finally:
+            write_conn.close()
+        return {"locked": True, "until_ms": until_ms}
+
+    @app.post("/api/desk/pass", dependencies=[Depends(require_auth)])
+    def record_desk_pass(
+        request: DeskPassRequest, conn=Depends(get_conn)
+    ) -> dict:
+        """Append one per-market pass (slice B6). Auth like every mutation.
+
+        Writes `desk_passes` with the ticker as scope, uppercased to match
+        every other ticker write. **Deliberately no validation against
+        discovery**: a pass on a market this tool never discovered is still
+        a decision Joe made, and refusing to record a real "no" because our
+        own discovery missed the market is the wrong way round (the
+        `venue_settlements` argument exactly). Append-only -- there is no
+        edit or delete route, and the record is never scored or rated.
         """
         del conn  # the write path opens its own handle, below
         write_conn = db.open_db(app_config.db_path)
         try:
-            until_ms = bet_estimates.engage_lockout(
+            pass_id = desk_passes.record_pass(
                 write_conn,
                 now_ms=db.now_ms(),
-                day_start_hour=odds.budget_day_start_utc_hour,
+                scope=request.ticker.strip().upper(),
+                reason=request.reason,
             )
         finally:
             write_conn.close()
-        return {"locked": True, "until_ms": until_ms}
+        return {"recorded": True, "id": pass_id}
 
     @app.post("/api/estimates/lockout", dependencies=[Depends(require_auth)])
     def engage_self_lockout(conn=Depends(get_conn)) -> dict:
@@ -2663,14 +2724,26 @@ def create_app(
         The write needs a writable connection; `get_conn` serves the API's
         usual read-only handle, so this opens its own, exactly as
         `log_estimate` does for its write.
+
+        The pass write mirrors `/api/desk/lockout` exactly (slice B6): a tap
+        through the deprecated name is the same decision and must count the
+        same, or the pass total would depend on which frontend build tapped.
         """
+        now = db.now_ms()
         write_conn = db.open_db(app_config.db_path)
         try:
+            already_locked = (
+                bet_estimates.lockout_until(write_conn, now_ms=now) is not None
+            )
             until_ms = bet_estimates.engage_lockout(
                 write_conn,
-                now_ms=db.now_ms(),
+                now_ms=now,
                 day_start_hour=odds.budget_day_start_utc_hour,
             )
+            if not already_locked:
+                desk_passes.record_pass(
+                    write_conn, now_ms=now, scope="tonight"
+                )
         finally:
             write_conn.close()
         return {"locked": True, "until_ms": until_ms}
