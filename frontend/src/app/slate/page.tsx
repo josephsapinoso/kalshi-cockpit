@@ -1,16 +1,22 @@
 import {
   DISPLAY_TIME_ZONE,
+  fetchRefreshable,
   fetchSignal,
   fetchSlate,
   fetchWindow,
+  formatClock,
+  formatUntil,
 } from "@/lib/api";
 import type {
   ActionableWindow,
+  Refreshable,
   Signal,
   Slate,
   SlateRowData,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import { isStaleOddsReason, readNextWindow } from "@/lib/nextOddsWindow";
+import { leagueLabel } from "@/lib/leagueLabel";
 import { refreshIsUrgent } from "@/lib/refreshUrgency";
 import Link from "next/link";
 
@@ -19,6 +25,7 @@ import DispersionStrip from "@/components/DispersionStrip";
 import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
+import RefreshOddsButton from "@/components/RefreshOddsButton";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
 import TonightStrip from "@/components/TonightStrip";
@@ -70,10 +77,15 @@ export default async function SlatePage() {
   // Same treatment: the timetable is context for the refresh panel, never a
   // precondition of the slate.
   let actionable: ActionableWindow | null = null;
+  // What a tap could buy, for the stale-count exit in the refusal
+  // disclosure. `null` means the read failed and the disclosure says so in
+  // words — never a button with an unnamed cost.
+  let refreshable: Refreshable | null = null;
   try {
     data = await fetchSlate();
     signal = await fetchSignal().catch(() => null);
     actionable = await fetchWindow().catch(() => null);
+    refreshable = await fetchRefreshable().catch(() => null);
   } catch {
     return (
       <Shell>
@@ -211,7 +223,11 @@ export default async function SlatePage() {
         </ul>
       )}
 
-      <RefusalSummary rows={rows} />
+      <RefusalSummary
+        rows={rows}
+        actionable={actionable}
+        refreshable={refreshable}
+      />
 
       {/* Below the rows when nothing is stale — the same panel, demoted, so
           a fresh slate leads with games (2026-08-22 review). */}
@@ -414,8 +430,26 @@ function Row({
  * `glossSentence` the rows use (plain English under the code, never instead
  * of it — ADR 0050). A code this build has no sentence for still renders,
  * with its count: the count is the diagnostic, the caption is a courtesy.
+ *
+ * **The `stale_odds` count carries an exit, not just a caption** (2026-08-22,
+ * Joe's report: "stale_odds × 33" read as 33 bad bets with nothing to do
+ * about it). Those rows are *unpriced* — the sportsbook side of the
+ * comparison is past the odds limit, i.e. the screen is being read outside a
+ * scheduled odds window — so beside the count go the two things a reader can
+ * actually use: when the next window opens (from the scheduler's own
+ * planning, via `/api/window`), and the existing one-tap refresh with its
+ * credit cost named before the tap. Staleness stays a validity check, never
+ * a weighted factor: the exit is a fresh read, not a softer bar.
  */
-function RefusalSummary({ rows }: { rows: SlateRowData[] }) {
+function RefusalSummary({
+  rows,
+  actionable,
+  refreshable,
+}: {
+  rows: SlateRowData[];
+  actionable: ActionableWindow | null;
+  refreshable: Refreshable | null;
+}) {
   const counts = new Map<string, number>();
   for (const row of rows) {
     if (row.suppressed_reason) {
@@ -427,6 +461,12 @@ function RefusalSummary({ rows }: { rows: SlateRowData[] }) {
   }
   if (counts.size === 0) return null;
   const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  // Beside the *first* stale entry only. Two composite reasons can both
+  // include `stale_odds`, and one screen must not offer the same spend
+  // twice — the tap is one exit, however many entries name the rule.
+  const staleReason = ordered
+    .map(([reason]) => reason)
+    .find((reason) => isStaleOddsReason(reason));
   return (
     <details className="mt-8">
       <summary className="cursor-pointer text-sm font-semibold text-muted">
@@ -443,10 +483,102 @@ function RefusalSummary({ rows }: { rows: SlateRowData[] }) {
                 {glossSentence(reason)}
               </span>
             )}
+            {/* Split-and-compare, never a substring: `stale_kalshi_quote`
+                is the *Kalshi* clock, which no odds refresh can fix, and a
+                button offered for it would be a button that lies. */}
+            {reason === staleReason && (
+              <StaleOddsExit
+                actionable={actionable}
+                refreshable={refreshable}
+              />
+            )}
           </li>
         ))}
       </ul>
     </details>
+  );
+}
+
+/**
+ * The exit beside the stale count: a time, a tap, and one teaching sentence.
+ *
+ * Three parts, each honest on its own:
+ *
+ * - **What stale means.** The comparison aged out; the pick did not go bad.
+ *   Staleness is a validity check — the two prices must be from the same
+ *   moment to be comparable at all — and it is never a weighted factor, so
+ *   the answer to 33 stale rows is a fresh read, never a softer gate.
+ * - **When the next window opens.** From `readNextWindow` over `/api/window`,
+ *   which publishes `window_status().next_call_ms` — the scheduler's own
+ *   planning through `firing_for_slot`, the predicate the loop spends with
+ *   (backend/odds/timing.py: "one predicate, two callers"). No window left →
+ *   the sentence says which reason holds, never a fake time; timetable
+ *   unreadable → a refusal in words, never 0.
+ * - **The tap.** The existing `RefreshOddsButton` → `/refresh-odds` →
+ *   `POST /api/odds/refresh` path, unchanged — this is a new caller, not a
+ *   new gate. The credit cost is on the button before the tap (the
+ *   ScoutDesk precedent), and the server re-checks cooldown, the taps'
+ *   daily slice and the odds budget before any money leaves; the button
+ *   renders whatever refusal it answers with, verbatim.
+ *
+ * Neutral treatment throughout (ADR 0061 §3): a refresh affordance is not a
+ * warning and not money, so no `accent-2` and no `bg-accent` — the pill
+ * shape is TonightStrip's, at the 44px control height.
+ */
+function StaleOddsExit({
+  actionable,
+  refreshable,
+}: {
+  actionable: ActionableWindow | null;
+  refreshable: Refreshable | null;
+}) {
+  const reading = readNextWindow(actionable);
+  return (
+    <div className="mt-2 max-w-[65ch] space-y-2">
+      <p className="text-xs leading-snug text-muted">
+        <Term k="stale">Stale</Term> is a clock verdict, not a quality one:
+        the sportsbook side of this comparison has aged out, so these rows
+        are unpriced — not bad bets. Staleness is a validity check, never a
+        weighted factor; the exit is a fresh read, not a softer bar.
+      </p>
+      <p className="text-xs leading-snug text-muted">
+        {reading.kind === "scheduled" ? (
+          <>
+            The next scheduled odds window opens at{" "}
+            <span className="font-semibold text-foreground">
+              {formatClock(reading.open_ms)}
+            </span>{" "}
+            ({formatUntil(reading.open_ms - reading.now_ms)}), when the
+            planner re-buys these lines out of the day&rsquo;s budget.
+          </>
+        ) : (
+          reading.sentence
+        )}
+      </p>
+      {refreshable === null ? (
+        <p className="text-xs leading-snug text-muted">
+          Whether a tap can refresh these lines could not be read, so no
+          button is offered here — the refresh panel on this page is the
+          fallback.
+        </p>
+      ) : refreshable.sports.length === 0 ? (
+        <p className="text-xs leading-snug text-muted">
+          Nothing to refresh: no fixture is stored inside the next 24 hours.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {refreshable.sports.map((sport) => (
+            <RefreshOddsButton
+              key={sport.sport_key}
+              sportKey={sport.sport_key}
+              label={`Refresh ${leagueLabel(sport.sport_key)} lines now`}
+              credits={sport.team_credits}
+              buttonClassName="min-h-11 rounded-full border border-border px-4 py-2 text-xs font-semibold disabled:opacity-50"
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
