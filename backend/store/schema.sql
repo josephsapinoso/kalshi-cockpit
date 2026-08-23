@@ -1205,3 +1205,45 @@ CREATE TABLE IF NOT EXISTS self_lockouts (
     until_ms     INTEGER NOT NULL,
     CHECK (until_ms > requested_ms)
 );
+
+-- The manual order path (ADR 0063, 2026-08-22). A SEPARATE table, not a
+-- `source` column on `orders`, because every population predicate that
+-- guards money reads that table (`current_exposure_dollars`, the gate's
+-- evidence counts, the future fee-model MISMATCH branch) and each would
+-- become a filter that must never be forgotten. A table is a boundary; a
+-- column is a convention. Nothing in `backend/gate.py` may ever read this
+-- table -- hand bets do not move the interlock's counters.
+CREATE TABLE IF NOT EXISTS manual_orders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_order_id     TEXT NOT NULL UNIQUE,
+    kalshi_order_id     TEXT UNIQUE,
+    submitted_ms        INTEGER NOT NULL,
+    -- No FK to kalshi_markets: a manual order may target any ticker the
+    -- venue knows, discovery notwithstanding. The live-quote read at order
+    -- time is what proves the ticker exists.
+    ticker              TEXT NOT NULL,
+    side                TEXT NOT NULL,      -- yes | no
+    action              TEXT NOT NULL,      -- buy (the only manual action)
+    count               INTEGER NOT NULL,
+    -- The price for OUR side, snapped -- same convention and same reasoning
+    -- as `orders.limit_price_tenths` (exposure must be what we pay).
+    limit_price_tenths  INTEGER,
+    -- Joe's ceiling as he typed it, before snapping. The order is refused,
+    -- never re-priced, when the live ask exceeds it.
+    max_price_tenths    INTEGER NOT NULL,
+    -- The typed P(YES), basis points (ADR 0065). Required at the route.
+    -- Lives HERE, beside the order it preceded -- never in `bet_estimates`,
+    -- whose stopped-study log stays terminal.
+    p_yes_bp            INTEGER NOT NULL,
+    status              TEXT NOT NULL,
+    request_body_json   TEXT NOT NULL,
+    error_text          TEXT,
+    dry_run             INTEGER NOT NULL DEFAULT 1,
+    idempotency_key     TEXT UNIQUE,
+    response_body_json  TEXT,
+    CHECK (side IN ('yes', 'no')),
+    CHECK (action = 'buy'),
+    CHECK (count > 0),
+    CHECK (p_yes_bp BETWEEN 1 AND 9999),
+    CHECK (dry_run IN (0, 1))
+);

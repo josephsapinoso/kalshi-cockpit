@@ -41,6 +41,9 @@ primary_region = "ord"
   # Belt and braces: the gate is already locked by default, and the demo has no
   # credentials to trade with even if it were not.
   LIVE_TRADING_ENABLED = "false"
+  # ADR 0063: the demo refuses the manual path on its instance mode regardless
+  # of this flag; stated anyway so the decision is visible.
+  MANUAL_ORDERS_ENABLED = "false"
 
   # --- risk caps ------------------------------------------------------------
   #

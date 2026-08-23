@@ -382,6 +382,16 @@ class TestArmingRealTradingIsACodeChange:
                 given = keywords["dry_run"]
                 if isinstance(given, ast.Name) and given.id == "ORDERS_ARE_DRY_RUNS":
                     continue
+                # The manual path's own constant (ADR 0063, 2026-08-22): a
+                # second door with the same discipline — one named constant,
+                # imported from the store module that owns it, never a
+                # literal. `attr` form because routes.py imports the module
+                # as `manual_store`.
+                if (
+                    isinstance(given, ast.Attribute)
+                    and given.attr == "MANUAL_ORDERS_ARE_DRY_RUNS"
+                ):
+                    continue
                 offenders.append(
                     f"{rel}:{node.lineno} passes dry_run={ast.unparse(given)}"
                 )
