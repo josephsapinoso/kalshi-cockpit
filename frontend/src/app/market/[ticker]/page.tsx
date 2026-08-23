@@ -42,6 +42,7 @@ import {
   type MarketCandles,
   type MarketDetail,
 } from "@/lib/api";
+import ManualTicket from "@/components/ManualTicket";
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
@@ -263,6 +264,12 @@ export default function MarketPage() {
       {/* The desk first: the reason this page exists is what the scouts know
           about THIS game, and it must start above the fold at every width. */}
       <ScoutDesk ticker={ticker} />
+
+      {/* The manual ticket (ADR 0063/0065): below the desk's facts, above
+          the history. It self-reports its own unreachable states (demo, flag
+          off, lockout, cool-off) in words, so mounting it unconditionally is
+          honest on every instance. */}
+      <ManualTicket ticker={ticker} />
 
       <p className="mt-2 max-w-[65ch] font-mono text-xs text-muted">{ticker}</p>
 

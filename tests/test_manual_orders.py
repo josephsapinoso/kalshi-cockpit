@@ -401,3 +401,43 @@ class TestTheManualMarketRead:
         body = response.json()
         assert body["reachable"] is False
         assert body["unreachable_reason"]
+
+
+class TestTheTicketAsksBeforeItShows:
+    """ADR 0065's client half, pinned on the source: the estimate step must
+    not render an ask, and the confirm control must be gated on the typed
+    token. (The server half — required `p_yes_bp`, bearer auth — is driven
+    above; these pins stop the masking quietly eroding in a restyle.)"""
+
+    TICKET = REPO / "frontend" / "src" / "components" / "ManualTicket.tsx"
+
+    def _phase_block(self, source: str, marker: str) -> str:
+        start = source.index(marker)
+        return source[start:source.index("{phase.name ===", start + len(marker))]
+
+    def test_the_estimate_step_shows_no_ask(self):
+        """Mutation observed red: render `ask_display` inside the estimate
+        phase block."""
+        source = self.TICKET.read_text(encoding="utf-8")
+        block = self._phase_block(source, '{phase.name === "estimate"')
+        assert "ask_display" not in block and "ask_tenths" not in block, (
+            "the estimate step renders a price; the typed number is now the "
+            "ask's number (anchoring — ADR 0065)"
+        )
+
+    def test_the_market_is_fetched_only_after_the_estimate(self):
+        source = self.TICKET.read_text(encoding="utf-8")
+        reveal = source.index("const revealMarket")
+        fetch_call = source.index("fetchManualMarket(")
+        assert fetch_call > reveal, (
+            "the market read left revealMarket — if it runs before the "
+            "estimate is typed, the reveal ordering is decoration"
+        )
+
+    def test_the_confirm_is_gated_on_the_typed_token(self):
+        source = self.TICKET.read_text(encoding="utf-8")
+        gate = source.index("const canConfirm")
+        block = source[gate:source.index("return (", gate)]
+        assert "token.trim().length > 0" in block, (
+            "the confirm no longer requires the typed order token"
+        )
