@@ -314,7 +314,7 @@ function Row({
           itself that the tradeable number is the ask on this row. */}
       <Link
         href={`/market/${encodeURIComponent(row.ticker)}`}
-        className="min-w-0 font-semibold tracking-tight hover:underline"
+        className="min-w-0 truncate font-semibold tracking-tight hover:underline"
       >
         {row.team ?? row.ticker}
       </Link>
