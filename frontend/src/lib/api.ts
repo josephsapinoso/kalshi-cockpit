@@ -996,6 +996,9 @@ export type Slate = {
    * because a deployed backend one version behind omits the key entirely.
    */
   tonight?: TonightActivity | null;
+  /** A sibling of `money` for `tonight`'s reason: `money`'s contract is
+   *  about never summing cash and positions. See `OpenPositionsBlock`. */
+  open_positions?: OpenPositionsBlock | null;
   staleness: { max_kalshi_quote_age_s: number; max_odds_age_s: number };
   slate: Board["slate"];
   drift_window_ms: number;
@@ -1009,6 +1012,32 @@ export type TonightActivity = {
   staked_tenths: number | null;
   staked_display: string | null;
   lockout_until_ms: number | null;
+};
+
+/**
+ * What is open at the venue right now — the largest hole of the 2026-08-22
+ * review (nothing showed what was at risk on any screen). Served on the
+ * slate and on /bets from the only two things the mirror carries:
+ *
+ * - `count` is the positions poll's row count, **counted and never
+ *   parsed** (the per-row wire shape has never been observed), on the
+ *   12-hour mirror clock — stale refuses to null with `count_as_of_ms`
+ *   kept so the screen renders "not read since".
+ * - `value_*` is the venue's own `portfolio_value` (5-minute cadence),
+ *   whose unit is pinned only at zero — any non-zero value refuses with
+ *   its reason in `value_refusal`, server-rendered words.
+ *
+ * NO live P&L, no mark-to-market, never summed with cash (TonightStrip's
+ * unsigned rule). Optional because a deployed backend one version behind
+ * omits the key entirely.
+ */
+export type OpenPositionsBlock = {
+  count: number | null;
+  count_as_of_ms: number | null;
+  value_tenths: number | null;
+  value_display: string | null;
+  value_as_of_ms: number | null;
+  value_refusal: string | null;
 };
 
 export const fetchSlate = () => get<Slate>("/api/slate");
@@ -1844,6 +1873,9 @@ export type BetsRecord = {
     wins: number;
     losses: number;
   };
+  /** What is at risk right now, beside the settled record. Optional because
+   *  a deployed backend one version behind omits the key. */
+  open_positions?: OpenPositionsBlock;
 };
 
 export async function fetchBets(): Promise<BetsRecord> {

@@ -17,6 +17,7 @@ import Link from "next/link";
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
 import Hint from "@/components/Hint";
+import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
 import SignalStrip from "@/components/SignalStrip";
@@ -146,6 +147,9 @@ export default async function SlatePage() {
               cap.
             </p>
           )}
+          {/* What is at risk right now (B3): a sibling of the money line,
+              never summed with it. The component owns the refusal words. */}
+          <OpenPositions block={data.open_positions} />
         </div>
       )}
 

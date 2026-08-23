@@ -1283,6 +1283,12 @@ def create_app(
             "rows": items,
             "money": money,
             "tonight": tonight,
+            # What is open at the venue right now -- a SIBLING of `money`
+            # for `tonight`'s reason: `money`'s contract is about never
+            # summing cash and positions, and this block's own contract
+            # (counted-not-parsed, unit-unpinned value, two staleness
+            # clocks) lives in `bets.open_positions`'s docstring.
+            "open_positions": bets_module.open_positions(conn, now_ms=now),
             "counts": {
                 "returned": len(items),
                 # Rows for which a book distribution could actually be
@@ -1725,8 +1731,16 @@ def create_app(
         None -- never 0 -- and the totals say how many rows they exclude.
         This endpoint never touches `bet_estimates`; the estimate log stays
         embargoed (Amendment 2 stopped the study without result).
+
+        `open_positions` rides here as well as on the slate because /bets is
+        the money-record screen and settled rows alone hide what is at risk
+        right now -- the largest hole of the 2026-08-22 review.
         """
-        return bets_module.bets_record(conn, limit=limit)
+        payload = bets_module.bets_record(conn, limit=limit)
+        payload["open_positions"] = bets_module.open_positions(
+            conn, now_ms=db.now_ms()
+        )
+        return payload
 
     @app.get("/api/ledger")
     def ledger(

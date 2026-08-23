@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { SHELL_WIDTH } from "@/lib/shell";
 import { tickerLabel } from "@/lib/tickerLabel";
+import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import {
   DISPLAY_TIME_ZONE,
@@ -87,6 +88,13 @@ export default async function BetsPage() {
           anything settled before the recorder started on Aug 18 is missing.
           Fees are the venue&rsquo;s own, already subtracted.
         </p>
+      </div>
+
+      {/* What is at risk right now (B3), above the settled list: the settled
+          record alone hides the money currently on the table. Unsigned,
+          never summed with the net strip above. */}
+      <div className="mt-4 max-w-[65ch]">
+        <OpenPositions block={record.open_positions} />
       </div>
 
       {record.bets.length === 0 ? (

@@ -304,6 +304,15 @@ class TestTheRoute:
                 "wins": 0,
                 "losses": 0,
             },
+            # A database that has never polled refuses everything, in words.
+            "open_positions": {
+                "count": None,
+                "count_as_of_ms": None,
+                "value_tenths": None,
+                "value_display": None,
+                "value_as_of_ms": None,
+                "value_refusal": "never observed",
+            },
         }
 
 
@@ -393,6 +402,120 @@ class TestTonightRefusesBeforeItFlatters:
         )
         assert tonight["bets"] == 0
         assert tonight["staked_tenths"] == 0
+
+
+class TestOpenPositionsRefuseBeforeTheyFlatter:
+    """`bets.open_positions` (slice B3, 2026-08-22): the count is the 12-hour
+    positions poll's `row_count`, counted and never parsed; the value is the
+    venue's own `portfolio_value`, whose unit is pinned only at zero. Stale
+    or unpinned refuses to None with the words served -- "nothing at risk"
+    off a dead poller is the false negative in the flattering direction.
+
+    Mutation run, red and restored byte-identical (2026-08-22): the
+    `POSITIONS_STALE_AFTER_MS` bound removed from the count read -- the
+    stale-count test fails (a 27-hour-old count is served as current).
+    """
+
+    def _positions_poll(self, conn, *, polled_ms, row_count=3, ok=True):
+        conn.execute(
+            "INSERT INTO poll_log (polled_ms, endpoint, ok, row_count) "
+            "VALUES (?, 'positions', ?, ?)",
+            (polled_ms, 1 if ok else 0, row_count),
+        )
+        conn.commit()
+
+    def _snapshot(self, conn, *, observed_ms, value_tenths):
+        conn.execute(
+            "INSERT INTO venue_balance_snapshots "
+            "(observed_ms, balance_tenths, portfolio_value_tenths) "
+            "VALUES (?, 2560, ?)",
+            (observed_ms, value_tenths),
+        )
+        conn.commit()
+
+    def test_a_fresh_count_and_a_pinned_zero_value_are_served(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 3_600_000, row_count=3)
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] == 3
+        assert block["count_as_of_ms"] == NOW_MS - 3_600_000
+        assert block["value_tenths"] == 0
+        assert block["value_display"] == "$0.00"
+        assert block["value_refusal"] is None
+
+    def test_a_stale_count_refuses_and_keeps_its_as_of(self, tmp_path):
+        """27 hours is past the 26h bound (two 12h mirror cycles + grace):
+        the count refuses, the clock stays so the screen can say 'since'."""
+        conn = db.init_db(tmp_path / "p.db")
+        stale = NOW_MS - bets.POSITIONS_STALE_AFTER_MS - 3_600_000
+        self._positions_poll(conn, polled_ms=stale, row_count=3)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["count_as_of_ms"] == stale
+
+    def test_a_failed_poll_is_not_a_read(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 60_000, ok=False)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["count"] is None
+        assert block["count_as_of_ms"] is None
+
+    def test_an_unpinned_value_refuses_with_its_reason_not_a_zero(
+        self, tmp_path
+    ):
+        """The stored NULL means `parse_portfolio_value_tenths` refused a
+        non-zero value (unit unpinned) -- the expected state whenever a
+        position is actually open. Words, never $0.00."""
+        conn = db.init_db(tmp_path / "p.db")
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=None)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["value_tenths"] is None
+        assert block["value_display"] is None
+        assert "unit" in block["value_refusal"]
+
+    def test_a_stale_value_refuses_on_its_own_five_minute_clock(self, tmp_path):
+        conn = db.init_db(tmp_path / "p.db")
+        stale = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 1
+        self._snapshot(conn, observed_ms=stale, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert block["value_tenths"] is None
+        assert "not read" in block["value_refusal"]
+        assert block["value_as_of_ms"] == stale
+
+    def test_the_block_never_sums_and_never_signs(self, tmp_path):
+        """TonightStrip's unsigned rule, pinned: no net, no P&L, no
+        mark-to-market, no field that could carry cash+positions."""
+        conn = db.init_db(tmp_path / "p.db")
+        self._positions_poll(conn, polled_ms=NOW_MS - 60_000)
+        self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+        assert set(block) == {
+            "count", "count_as_of_ms", "value_tenths", "value_display",
+            "value_as_of_ms", "value_refusal",
+        }
+        forbidden = {"total", "net", "pnl", "profit", "loss", "change",
+                     "mark", "unrealised", "unrealized"}
+        assert not (set(block) & forbidden)
+
+    async def test_the_slate_serves_it_beside_money_not_inside(self, tmp_path):
+        path = tmp_path / "p.db"
+        conn = db.init_db(path)
+        conn.execute(
+            "INSERT INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale) "
+            "VALUES (1, 0, 0, '{}', 'test')"
+        )
+        conn.commit()
+        conn.close()
+        app = create_app(AppConfig(instance_mode="demo", db_path=path))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            payload = (await client.get("/api/slate")).json()
+        assert "open_positions" in payload
+        assert "count" not in (payload["money"] or {})
 
 
 class TestTheSlateCarriesTonightBesideMoneyNotInsideIt:
