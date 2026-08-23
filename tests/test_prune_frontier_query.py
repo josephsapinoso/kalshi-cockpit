@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -54,10 +55,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "backend" / "store" / "schema.sql"
 
 DAY_MS = 24 * 60 * 60 * 1000
-#: A fixed "now" so the fixtures do not drift with the wall clock. The query
-#: stamps its own `now`, so the rows are placed relative to a cutoff derived the
-#: same way the query derives it.
-NOW_MS = 1787232000000  # 2026-08-20T13:20:00Z
+#: The wall clock, NOT a pinned instant, and the correction is the lesson.
+#: This was `1787232000000  # 2026-08-20T13:20:00Z` with a comment claiming
+#: the fixed value stopped the fixtures drifting -- exactly backwards. The
+#: query under test stamps its own `datetime.now()` (deliberately: "a
+#: frontier is a claim about a moment"), so a frozen NOW_MS *is* the drift:
+#: every seeded row ages against the real cutoff, and on 2026-08-23 -- three
+#: days after the file was written -- five tests went red with no code
+#: change. Rows must be seeded relative to the same clock the query reads.
+#: The margins (60s vs a 3-day retention) dwarf test execution time.
+NOW_MS = int(time.time() * 1000)
 
 
 def _args(limit: int = 2000) -> argparse.Namespace:

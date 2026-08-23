@@ -25,6 +25,24 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-23 — A pinned fixture clock against a wall-clock instrument is a test with an expiry date
+
+`test_prune_frontier_query.py` froze `NOW_MS = 2026-08-20T13:20Z` — with a
+comment claiming the fixed value stopped the fixtures "drifting with the wall
+clock" — while the query under test deliberately stamps its own
+`datetime.now()`. Three days later five tests went red with no code change:
+every seeded row had aged past the real cutoff. The comment had it exactly
+backwards: when the code under test reads the wall clock, a *frozen* fixture
+clock is the drift, and the fixtures must be seeded relative to the same
+clock the code reads (or the code must accept its moment as a parameter).
+**The pattern:** before pinning a test's "now", find where the code under
+test gets its own — if they are different clocks, the test is green only
+inside an expiry window, and it fails later on someone else's unrelated
+diff. Sibling of "a stored number answers the question it was stored for";
+this is the test-fixture case.
+
+---
+
 ## 2026-08-23 — "The screen shows X" must come from the screen, not from the database that feeds it
 
 Audited today: no session had ever read any live HTTP route except
