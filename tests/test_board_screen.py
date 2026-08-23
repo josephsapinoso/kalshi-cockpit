@@ -751,9 +751,13 @@ class TestMoneyRendersWithoutAVerdict:
     """Fleet convening item 5, the screen half."""
 
     def test_cash_and_open_positions_render_separately(self):
+        """Since 2026-08-22 (B2/B3) the page renders server-made display
+        strings (`cash_display`) and the open-position block lives in its own
+        component, still a sibling of the money line and still never summed
+        with it — the property this class exists for is unchanged."""
         page = code(SLATE_PAGE)
-        assert "cash_tenths" in page
-        assert "open_positions_tenths" in page
+        assert "cash_display" in page
+        assert "<OpenPositions" in page
 
     def test_nothing_arithmetically_combines_them(self):
         """Mutation observed red: render
@@ -771,10 +775,12 @@ class TestMoneyRendersWithoutAVerdict:
 
     def test_the_study_ceiling_is_not_the_denominator(self):
         """The $100 ceiling reads as budget remaining to a reader holding $8.
-        The only line on this screen is the daily-loss cap Joe set."""
+        The only line on this screen is the daily-loss cap derived from his
+        balance — rendered since 2026-08-22 (B2) as the server's
+        `daily_line_display` string rather than a client-formatted float."""
         page = code(SLATE_PAGE)
         assert "ceiling_dollars" not in page
-        assert "daily_line_dollars" in page
+        assert "daily_line_display" in page
 
     def test_the_net_up_parenthetical_is_gone(self):
         """Deleted 2026-08-20: a signed running P&L where bets begin is the
