@@ -1142,11 +1142,19 @@ def create_app(
         # sides rather than between the reads.
         book_cache: dict[str, object] = {}
         items, off_basis, with_books = [], 0, 0
+        # Grouping key for the picks block below: the odds fixture, which the
+        # serialised item deliberately does not carry. Falls back to the event
+        # title so an unlinked row still groups with its own game rather than
+        # forming a phantom one per row.
+        picks_source: list[tuple[str, dict]] = []
         for row in rows:
             item = _serialise(row, now_ms=now, staleness=staleness)
             if since is not None and item["freshness_measured_from_ms"] < since:
                 off_basis += 1
                 continue
+            picks_source.append(
+                (row["odds_event_id"] or item["event_title"] or item["ticker"], item)
+            )
 
             item["volume_24h"] = row["volume_24h"]
             item["open_interest"] = row["open_interest"]
@@ -1209,6 +1217,97 @@ def create_app(
                 -(r["edge_tenths"] or 0),
             )
         )
+
+        # **Who's likely to win tonight** (ADR 0067). One entry per game: the
+        # side the devigged consensus makes the favorite, ranked by
+        # `fair_probability` alone -- one stored, unscored column, which is why
+        # this is a sort and not the composite `backend/slate.py` forbids.
+        # YES-side rows only: on a NO row `team` names the *yes* side (the
+        # opponent of the pick), and a picks list that renames sides inside a
+        # route is the kind of derivation that goes wrong silently. Freshest
+        # row per ticker, then the max-fair fresh side per game; a game whose
+        # consensus is stale, or whose favorite side carries no fresh YES row,
+        # is counted out by name rather than dropped -- "no pick" and "no
+        # measurement" are different facts.
+        #
+        # **No breakeven, edge, or size key may appear in this block.** Fair%
+        # beside break-even hands the reader the measured-negative edge by
+        # subtraction to the last decimal (the fleet-convening identity), so
+        # the two never share a block; `tests/test_slate_picks.py` walks the
+        # keys and pins it.
+        freshest_yes: dict[str, tuple[str, dict]] = {}
+        all_games: set[str] = set()
+        for game_key, item in picks_source:
+            all_games.add(game_key)
+            if item["side"] != "yes" or item["fair_probability"] is None:
+                continue
+            held = freshest_yes.get(item["ticker"])
+            if (
+                held is None
+                or item["freshness_measured_from_ms"]
+                > held[1]["freshness_measured_from_ms"]
+            ):
+                freshest_yes[item["ticker"]] = (game_key, item)
+        by_game: dict[str, list[dict]] = {}
+        for game_key, item in freshest_yes.values():
+            by_game.setdefault(game_key, []).append(item)
+        max_odds_age_ms = staleness.max_odds_age_s * 1000
+        ranked, stale_games = [], 0
+        # A game whose rows are all NO-side (or carry no fair value) has no
+        # candidate for "which team wins" in the team's own denomination --
+        # counted, never silently dropped.
+        favorite_unpriced = len(all_games - set(by_game.keys()))
+        for candidates in by_game.values():
+            fresh = [
+                c for c in candidates
+                if c["odds_age_now_ms"] is not None
+                and c["odds_age_now_ms"] <= max_odds_age_ms
+            ]
+            if not fresh:
+                stale_games += 1
+                continue
+            best = max(fresh, key=lambda c: c["fair_probability"])
+            if best["fair_probability"] < 0.5:
+                # The favorite is the *other* team, and no fresh YES row
+                # prices it -- ranking the underdog as "likely to win" would
+                # be a lie of arithmetic.
+                favorite_unpriced += 1
+                continue
+            ranked.append(
+                (
+                    best["fair_probability"],
+                    {
+                        "ticker": best["ticker"],
+                        "event_title": best["event_title"],
+                        "team": best["team"],
+                        "side": best["side"],
+                        "commence_ms": best["commence_ms"],
+                        "fair_percent_display": best["fair_percent_display"],
+                        # The ask is only served while it is a current price;
+                        # an hours-old ask beside a live chance reads as a
+                        # quote.
+                        "ask_display": (
+                            best["ask_display"]
+                            if best["price_is_current"]
+                            else None
+                        ),
+                        "anchored_on_sharp": best["anchored_on_sharp"],
+                    },
+                )
+            )
+        ranked.sort(key=lambda pair: -pair[0])
+        picks = {
+            "ranked": [pick for _, pick in ranked],
+            "not_ranked": {
+                "stale_consensus": stale_games,
+                "favorite_unpriced": favorite_unpriced,
+            },
+            "note": (
+                "Chance to win, by the books' consensus — not an edge. The "
+                "price already charges for the chance: a 70% favorite costs "
+                "about 70 cents, so a likely winner is not a profitable bet."
+            ),
+        }
 
         # **Cash and open positions, separately, never summed** (fleet
         # convening item 5, permitted by the calibration registration's A7:
@@ -1321,6 +1420,7 @@ def create_app(
 
         return {
             "rows": items,
+            "picks": picks,
             "money": money,
             "tonight": tonight,
             # What is open at the venue right now -- a SIBLING of `money`

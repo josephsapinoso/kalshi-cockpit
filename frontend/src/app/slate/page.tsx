@@ -22,6 +22,7 @@ import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
+import GoodChancePicks from "@/components/GoodChancePicks";
 import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
@@ -56,11 +57,17 @@ export const dynamic = "force-dynamic";
  * fee is being used as a filter where it should be a sort"* — and records Joe
  * making the same point independently that day. This is that screen.
  *
- * **Nothing here is a pick.** Every column is a fact already bought and stored,
- * none has been scored against an outcome, and the server combines them into
- * nothing. There is no composite, no rating, and no ordering by anything but
- * kickoff — because a ranking *is* a weighting, and a weighting of unscored
- * factors is a model that would need its own ADR and a pre-registration.
+ * **The rows are not picks.** Every column is a fact already bought and
+ * stored, none has been scored against an outcome, and the server combines
+ * them into nothing. The rows order by kickoff and nothing else.
+ *
+ * **The picks block above them IS a ranking, and ADR 0067 is why that is
+ * allowed** (2026-08-23, Joe's direction: "I just want to see what are
+ * good-chance picks"). It sorts on ONE stored, unscored column —
+ * `fair_probability` — which is a sort, not a weighting; the line this
+ * amends stays drawn where it was: any composite of two or more factors
+ * remains forbidden (ADR 0021 §9), and fair% never shares a block with
+ * break-even (the subtraction identity).
  *
  * **Nothing here is tappable into an order.** Same reasoning as `SlateRow`: a
  * screen that opened a ticket would suggest these factors bear on what is
@@ -194,6 +201,10 @@ export default async function SlatePage() {
         data.staleness.max_odds_age_s * 1000,
         slate.is_current,
       ) && <RefreshOddsPanel actionable={actionable} />}
+
+      {/* Who's likely to win tonight (ADR 0067) — above the rows, below the
+          urgent-refresh slot, so a stale slate still leads with its fix. */}
+      <GoodChancePicks picks={data.picks} />
 
       {!slate.is_current && slate.anchor_ms !== null && (
         <p className="mt-6 max-w-[65ch] rounded-lg border border-accent-2/70 bg-card p-3 text-sm text-accent-2">

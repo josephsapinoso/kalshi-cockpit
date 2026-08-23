@@ -945,10 +945,43 @@ export type SlateRowData = Recommendation & {
   breakeven_win_rate: number | null;
 };
 
+/**
+ * One entry in the "who's likely to win tonight" block (ADR 0067): the side
+ * the devigged consensus makes the favorite, ranked server-side by
+ * `fair_probability` alone — one stored, unscored column, a sort and never a
+ * composite. **No breakeven, edge, or size field exists here**, structurally:
+ * fair% beside break-even hands the reader the measured-negative edge by
+ * subtraction (the fleet-convening identity), so the two never share a block.
+ * `ask_display` is null when the stored quote is no longer current — a price,
+ * never a souvenir.
+ */
+export type SlatePick = {
+  ticker: string;
+  event_title: string | null;
+  team: string | null;
+  side: string;
+  commence_ms: number | null;
+  fair_percent_display: string | null;
+  ask_display: string | null;
+  anchored_on_sharp: boolean | null;
+};
+
+export type SlatePicks = {
+  ranked: SlatePick[];
+  /** Games counted out by name — "no pick" and "no measurement" are
+   *  different facts. */
+  not_ranked: { stale_consensus: number; favorite_unpriced: number };
+  /** The chance≠edge sentence, rendered verbatim so the server and the
+   *  screen cannot disagree about what this block claims. */
+  note: string;
+};
+
 export type Slate = {
   /** One flat list in kickoff order. No bucketing by verdict — that is the
    *  point: edge is a column here, not a gate. */
   rows: SlateRowData[];
+  /** Optional because a deployed backend one version behind omits it. */
+  picks?: SlatePicks | null;
   /**
    * The venue's own reading of Joe's money: cash and the value sitting in
    * open positions, **separately and never summed** — a sum would sign a

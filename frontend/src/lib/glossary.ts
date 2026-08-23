@@ -207,6 +207,28 @@ export const GLOSSARY = {
       "people are trading it: prices move on tiny orders and getting out " +
       "of a position can be hard.",
   },
+  favorite: {
+    label: "favorite",
+    definition:
+      "The side the books' combined odds say is more likely to win — " +
+      "chance above 50%. Being the favorite says nothing about the bet " +
+      "being profitable: the price already charges for the chance.",
+  },
+  priced_in: {
+    label: "priced in",
+    definition:
+      "Already reflected in the price. When news is priced in — a scratched " +
+      "starter, tonight's wind — the line moved before you saw it, so " +
+      "knowing it gains you nothing. Only news newer than the line can " +
+      "matter.",
+  },
+  consensus_chance: {
+    label: "chance to win",
+    definition:
+      "The books' combined, margin-removed estimate of how often this side " +
+      "wins. 71% means: of 100 games like this, about 71. It is the best " +
+      "estimate available — and the price usually charges exactly for it.",
+  },
 } as const;
 
 export type GlossaryKey = keyof typeof GLOSSARY;
