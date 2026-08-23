@@ -80,6 +80,7 @@ scripts/*
 !scripts/inspect_live_db.py
 !scripts/inspect_live_disk.py
 !scripts/inspect_live_proc.py
+!scripts/fetch_live_route.py
 
 *.md
 !README.md
