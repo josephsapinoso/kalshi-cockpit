@@ -30,6 +30,19 @@ gitignored (verified: `git check-ignore data/captures` matches `.gitignore`'s
 operator data never enters the repo. Synthetic fixtures are hand-written from
 the observed shape afterwards, per the MLB/ADR 0035 precedent.
 
+`--suggest` sends nothing
+-------------------------
+`--suggest` is the zero-cost front door: it walks Kalshi's `/events` catalogue
+read-only -- the same discovery the runner uses, never a `/markets` paginate --
+and prints up to three copy-paste probe commands for live, non-KXMVE markets
+whose side ask is over 1c (so probe 1's 1c IOC cannot fill) and at or under
+the 10c cap, with contracts actually resting at that ask. It is dispatched in
+`main` *before* the refusal check, the capture machinery and `run_probes`, so
+the suggest path is structurally unable to build or send an order;
+`tests/test_probe_suggest.py` pins that ordering by AST. It does NOT establish
+that a suggested book will still look like that when Joe runs the real
+command minutes later -- the probe re-reads the book and re-confirms anyway.
+
 Who runs it
 -----------
 **Joe, and only Joe.** It spends real money on the live venue, so it refuses
@@ -88,15 +101,21 @@ import hashlib
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.config import ConfigError, KalshiConfig                # noqa: E402
 from backend.core.prices import complement, dollars_to_tenths       # noqa: E402
 from backend.kalshi.auth import signed_path                         # noqa: E402
+from backend.kalshi.discovery import (                              # noqa: E402
+    JUNK_PREFIX,
+    DiscoveredEvent,
+    discover_from_events,
+)
 from backend.kalshi.grid import GridUnavailable, parse_price_grid   # noqa: E402
 from backend.kalshi.orders import (                                 # noqa: E402
     ORDERS_PATH,
@@ -121,6 +140,19 @@ MAX_FILL_ASK_TENTHS = 100
 # The legacy cancel path, tried only if the V2-shaped one 404s/405s. No cancel
 # has ever been observed by this project; both attempts are captures.
 LEGACY_ORDERS_PATH = "/portfolio/orders"
+
+# --suggest prints at most this many candidates: the runbook is one sitting on
+# one market, and a page of forty tickers is a decision, not a suggestion.
+SUGGEST_LIMIT = 3
+
+# A candidate must have at least this many contracts resting at its side's
+# derived ask, or probe 3 is a shot at an empty book.
+MIN_SUGGEST_DEPTH_CONTRACTS = 1.0
+
+# The default from `KalshiConfig.load`, repeated here because the suggest path
+# must work with NO credential configured, where `load()` raises before it can
+# hand over the URL. `KALSHI_REST_URL` still overrides, same as there.
+DEFAULT_REST_URL = "https://api.elections.kalshi.com/trade-api/v2"
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
@@ -302,6 +334,201 @@ def describe_book(book: dict[str, Any]) -> dict[str, Optional[int]]:
     print(f"  best YES bid {_fmt(best_yes_bid)}   derived YES ask {_fmt(yes_ask)}")
     print(f"  best NO  bid {_fmt(best_no_bid)}   derived NO  ask {_fmt(no_ask)}")
     return {"yes": yes_ask, "no": no_ask}
+
+
+# --------------------------------------------------------------------------
+# Suggest mode. SENDS NOTHING -- read-only GETs, dispatched from `main`
+# before any code path that can build or send an order.
+# --------------------------------------------------------------------------
+
+class _AnonymousMarketDataAuth:
+    """Auth stand-in for credential-less runs of `--suggest`.
+
+    Kalshi's market-data GETs are free and unauthenticated (measured
+    2026-08-09; see `backend/kalshi/rest.py`), so suggesting candidates must
+    not require the live key at all -- that is what makes the probe cost
+    nothing to *start*. This object satisfies `KalshiRestClient`'s auth
+    interface without ever touching a key file, and it hard-refuses any
+    non-GET so even a future editing mistake cannot send a write through the
+    anonymous path.
+    """
+
+    def get_rest_headers(self, method: str, path: str) -> dict[str, str]:
+        if method != "GET":
+            raise RuntimeError(
+                f"the suggest path is read-only; refusing to build headers "
+                f"for {method} {path}"
+            )
+        return {"Content-Type": "application/json"}
+
+
+@dataclass(frozen=True)
+class SuggestedProbe:
+    """One market/side the probe could be pointed at, with why it qualifies."""
+
+    ticker: str
+    side: str                 # "yes" | "no" -- the side whose ask is cheap
+    ask_tenths: int           # that side's DERIVED ask
+    depth_contracts: float    # contracts resting at that ask
+    league: str
+    market_type: str
+    title: str
+    commence_ms: int
+
+    @property
+    def command(self) -> str:
+        """The exact command to copy-paste, spelled for the laptop path."""
+        return (
+            f".venv\\Scripts\\python.exe scripts\\probe_create_order.py "
+            f"{SPEND_FLAG} --ticker {self.ticker} --side {self.side}"
+        )
+
+
+def suggest_candidates(
+    events: Iterable[DiscoveredEvent],
+    *,
+    now_ms: int,
+    limit: int = SUGGEST_LIMIT,
+) -> list[SuggestedProbe]:
+    """Pick the markets where the probe observes the most for the least.
+
+    Pure, so tests drive every cut with synthetic events and no network. A
+    candidate must:
+
+    - not be `KXMVE` (the manual path refuses combos; suggesting one wastes
+      the sitting) -- the walk already filters these, this is the backstop;
+    - be `active` with the game still ahead (`commence_ms > now_ms`), so the
+      book is not settling or moving in-play under the probe;
+    - carry a readable price grid (the order path refuses `None`, so a
+      grid-less suggestion could only ever produce four refusals);
+    - have the side's DERIVED ask strictly above 1c -- probe 1 rests a 1c IOC
+      and must *not* fill -- and at or under the 10c cap probe 3 enforces;
+    - have contracts actually resting at that ask, or probe 3 is a shot at an
+      empty book. An unreadable ask or depth is skipped, never defaulted.
+
+    One candidate per event, the deepest, so the list is independent books
+    rather than three rungs of one ladder. Deepest overall first.
+    """
+    best_per_event: dict[str, SuggestedProbe] = {}
+    for event in events:
+        if event.commence_ms <= now_ms:
+            continue
+        for market in event.markets:
+            if (market.ticker or "").startswith(JUNK_PREFIX):
+                continue
+            if market.status != "active":
+                continue
+            if market.price_grid is None:
+                continue
+            yes_ask = (
+                complement(market.no_bid_tenths)
+                if market.no_bid_tenths is not None
+                else None
+            )
+            no_ask = (
+                complement(market.yes_bid_tenths)
+                if market.yes_bid_tenths is not None
+                else None
+            )
+            for side, ask, depth in (
+                ("yes", yes_ask, market.yes_ask_size),
+                ("no", no_ask, market.no_ask_size),
+            ):
+                if ask is None or depth is None:
+                    continue
+                if not (ONE_CENT_TENTHS < ask <= MAX_FILL_ASK_TENTHS):
+                    continue
+                if depth < MIN_SUGGEST_DEPTH_CONTRACTS:
+                    continue
+                incumbent = best_per_event.get(event.event_ticker)
+                if incumbent is not None and incumbent.depth_contracts >= depth:
+                    continue
+                best_per_event[event.event_ticker] = SuggestedProbe(
+                    ticker=market.ticker,
+                    side=side,
+                    ask_tenths=ask,
+                    depth_contracts=depth,
+                    league=event.league,
+                    market_type=event.market_type,
+                    title=market.title or event.title,
+                    commence_ms=event.commence_ms,
+                )
+    ranked = sorted(
+        best_per_event.values(),
+        key=lambda p: (-p.depth_contracts, p.commence_ms, p.ticker),
+    )
+    return ranked[:limit]
+
+
+async def run_suggest() -> int:
+    """Find candidate tickers and print the copy-paste commands. Sends nothing.
+
+    The walk is `/events` with nested markets -- the runner's own discovery
+    path -- never a paginate of `/markets`, which is ~99.8% pre-generated
+    `KXMVE` noise (CLAUDE.md, "Do not repeat this inference").
+    `discover_from_events` then keeps only priceable game-level markets in
+    leagues this project has classified, which is what makes every suggestion
+    a KNOWN series rather than a stranger from the catalogue.
+    """
+    try:
+        config = KalshiConfig.load()
+        auth = None  # KalshiRestClient signs with the configured key
+        print("Kalshi credential configured -- using signed (still read-only) "
+              "GETs.")
+    except ConfigError:
+        config = KalshiConfig(
+            api_key="",
+            private_key_path=Path(os.devnull),
+            rest_url=os.getenv("KALSHI_REST_URL", DEFAULT_REST_URL).rstrip("/"),
+            ws_url="",
+        )
+        auth = _AnonymousMarketDataAuth()
+        print("No Kalshi credential configured -- using unauthenticated "
+              "market-data GETs (they are free; the probe itself will still "
+              "need the key).")
+
+    print("Walking /events for live candidates (roughly a minute) ...")
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    async with KalshiRestClient(config, auth) as api:
+        raw_events = [e async for e in api.events(with_nested_markets=True)]
+    events = discover_from_events(raw_events)
+    candidates = suggest_candidates(events, now_ms=now_ms)
+
+    if not candidates:
+        print(
+            "\nNo candidate found: no live pre-game market in a classified "
+            "league currently shows a derived ask over 1c and at or under "
+            f"{MAX_FILL_ASK_TENTHS / 10:.0f}c with contracts resting at it. "
+            "Try again nearer game time, when longshot books are quoted. "
+            "Nothing was sent."
+        )
+        return EXIT_OK
+
+    print(
+        f"\n{len(candidates)} candidate(s) -- side ask over 1c and at or "
+        f"under {MAX_FILL_ASK_TENTHS / 10:.0f}c, depth resting, active, "
+        f"pre-game, never KXMVE. Deepest book first:"
+    )
+    for rank, probe in enumerate(candidates, start=1):
+        commence = datetime.fromtimestamp(
+            probe.commence_ms / 1000, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%MZ")
+        print()
+        print(
+            f"{rank}. {probe.ticker}  buy {probe.side.upper()} @ "
+            f"{probe.ask_tenths / 10:.1f}c ask, ~{probe.depth_contracts:.0f} "
+            f"contracts resting"
+        )
+        print(
+            f"   {probe.league} {probe.market_type} -- {probe.title} "
+            f"(starts {commence})"
+        )
+        print(f"   {probe.command}")
+    print(
+        "\nNothing was sent. The real command above re-reads the book, prints "
+        "the priced plan, and only sends after you type the ticker back."
+    )
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -555,9 +782,14 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         SPEND_FLAG, dest="spend_acknowledged", action="store_true",
         help="required. This script places real orders with real money.",
     )
-    parser.add_argument("--ticker", required=True, help="market ticker to probe")
     parser.add_argument(
-        "--side", required=True, choices=("yes", "no"),
+        "--suggest", action="store_true",
+        help="find candidate tickers (read-only) and print the copy-paste "
+             "commands. Sends nothing, needs no credential.",
+    )
+    parser.add_argument("--ticker", help="market ticker to probe")
+    parser.add_argument(
+        "--side", choices=("yes", "no"),
         help="which side the probe buys",
     )
     parser.add_argument("--skip-shape", action="store_true",
@@ -568,12 +800,34 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
                         help="skip probe 3 (fill at the ask)")
     parser.add_argument("--skip-cancel", action="store_true",
                         help="skip probe 4 (rest + cancel)")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # --ticker/--side are only optional because --suggest exists to find them.
+    # A probe run still requires both, and the error says where they come from.
+    if not args.suggest:
+        missing = [
+            name
+            for name, value in (("--ticker", args.ticker), ("--side", args.side))
+            if not value
+        ]
+        if missing:
+            parser.error(
+                f"{' and '.join(missing)} required "
+                f"(run with --suggest to find candidates first)"
+            )
+    return args
 
 
 async def main() -> int:
     configure_logging()
     args = parse_args()
+
+    if args.suggest:
+        # SENDS NOTHING. The return here is load-bearing: the suggest path
+        # exits `main` before the refusal check, the capture machinery and
+        # `run_probes` -- every code path that can build or send an order.
+        # `tests/test_probe_suggest.py` pins this ordering by AST; do not move
+        # this dispatch below anything.
+        return await run_suggest()
 
     # Instance mode, derived the way AppConfig.load derives it (demo default).
     # See the module docstring for why the full AppConfig is not loaded.
