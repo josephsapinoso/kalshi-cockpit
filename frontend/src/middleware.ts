@@ -46,6 +46,7 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/log-estimate",
   "/revise-estimate",
   "/lockout",
+  "/pass",
 ]);
 
 export async function middleware(request: NextRequest) {
