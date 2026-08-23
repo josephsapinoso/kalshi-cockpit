@@ -1733,6 +1733,57 @@ export async function sendScoutDesk(ticker: string): Promise<SendDeskResult> {
   return { accepted: false, status: response.status, detail };
 }
 
+export type RecordPassResult =
+  | { recorded: true; id: number }
+  | { recorded: false; status: number; detail: string };
+
+/**
+ * Record one deliberate pass on a market, via the `/pass` Next route handler
+ * -- the browser deliberately holds no bearer token (`lib/session.ts`), so
+ * the handler adds it server-side, exactly as `/scout-desk` does.
+ *
+ * No-throw by design (the `sendScoutDesk` shape): the caller renders the
+ * refusal as words, and a pass that fails must say so rather than silently
+ * looking recorded.
+ */
+export async function recordPass(
+  ticker: string,
+  reason?: string,
+): Promise<RecordPassResult> {
+  let response: Response;
+  try {
+    response = await fetch(`/pass`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(
+        reason && reason.trim().length > 0 ? { ticker, reason } : { ticker },
+      ),
+    });
+  } catch (error) {
+    return {
+      recorded: false,
+      status: 0,
+      detail: `The request did not reach the cockpit (${
+        error instanceof Error ? error.message : "network error"
+      }). Nothing was recorded.`,
+    };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    const id =
+      body && typeof body === "object" && "id" in body
+        ? Number((body as { id: unknown }).id)
+        : 0;
+    return { recorded: true, id };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { recorded: false, status: response.status, detail };
+}
+
 /**
  * What the market screen renders of `/api/market/{ticker}` — the venue's own
  * facts (what you transact against), never the tool's opinion of them. The

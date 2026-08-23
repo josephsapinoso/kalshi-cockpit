@@ -43,6 +43,7 @@ import {
   type MarketDetail,
 } from "@/lib/api";
 import ManualTicket from "@/components/ManualTicket";
+import PassControl from "@/components/PassControl";
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
 import Term from "@/components/Term";
@@ -270,6 +271,12 @@ export default function MarketPage() {
           off, lockout, cool-off) in words, so mounting it unconditionally is
           honest on every instance. */}
       <ManualTicket ticker={ticker} />
+
+      {/* The calm alternative (ADR 0066): a quiet row below the ticket's
+          card, deliberately NOT styled as its sibling — passing must read as
+          stepping back from the decision, not as the decision's other
+          button. It records and does not hide; the facts above stay put. */}
+      <PassControl ticker={ticker} />
 
       <p className="mt-2 max-w-[65ch] font-mono text-xs text-muted">{ticker}</p>
 
