@@ -48,16 +48,31 @@ the missing half **cannot** explain `actionable = 0` away. A different design
 shift rows either way, but that is a new decision, not the completion of an
 existing one, and it would need its own ADR.
 
-**`actionable` is no longer 0.** It genuinely was on 2026-08-10, which is the
-last whole-table measurement; it stopped being 0 five days later. Audited
-2026-08-16: exactly **three** rows in the whole live table satisfy the gate's
-predicate, the first written **2026-08-15T19:52:14Z**. They are two distinct
-claims across two games — one baseball moneyline observed twice, plus one prop
-— and **all three are `anchored_on_sharp = 0`**, meaning no sharp book quoted
-and the devig silently fell back to the full soft-book set. ADR 0021 measured
-423 such fallback rows producing 0 actionable, and the actionable predicate
-carries no multiplicity correction, so the competing explanation predicts these
-three exactly. Treat "3" as *unseparated from zero*, not as a result.
+**`actionable` is no longer 0.** It genuinely was on 2026-08-10; it stopped
+being 0 five days later. Re-audited **2026-08-23** on the gate's own predicate
+(`r.suppressed_reason IS NULL AND r.reference_contracts > 0`, `gate.py:330`,
+byte-identical in the instrument): **11 rows across 6 distinct games**, the
+first written 2026-08-15T19:52:14Z, and **`suggested_contracts = 0` on every
+one** — evidence at the fixed reference profile only (ADR 0015 §3), unbuyable
+at the deployed bankroll and never rendered as a card. **The previous version
+of this paragraph said 3 rows, all `anchored_on_sharp = 0`; that is no longer
+the whole population — 4 of 11 are sharp-anchored**, three WNBA claims from
+2026-08-20 devigged off Pinnacle, Betfair Exchange and Matchbook. So ADR
+0021's soft-fallback reason no longer covers every row. **It has not been
+refuted, and the re-audit did not take the measurement that would**: sharp
+anchoring was **73.0%** of the pinned record (ADR 0021 §8, 1,141 of 1,564),
+so 4 of 11 is *under*-representation rather than a new phenomenon, and a
+sharp anchor selects **at most three books** (`devig.py:289`,
+`selected = sharp or usable`) — a thinner fair value, not a better one. The
+separating measurement is the one the 2026-08-16 audit named and nobody has
+run: split the **unsuppressed** population by `anchored_on_sharp` and report
+the `edge_tenths > 0` rate in each, clustered per game. **The verdict is
+unchanged and rests on the two reasons that survive intact: 6 games against
+the registered floor of 300, and the actionable predicate still carries no
+multiplicity correction** while the runner re-evaluates ~100 candidates every
+900s against a growing record. Treat 11 as *unseparated from zero*, not as a
+result. No edit to the actionable predicate or to `devig.py` in the interval.
+See `docs/measurements/2026-08-23-actionable-population-reaudit.md`.
 
 Anything above or below claiming the count is 0 is **repetition of a
 2026-08-10 measurement, not a measurement**. The intervening reads used

@@ -25,6 +25,25 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-23 — "The screen shows X" must come from the screen, not from the database that feeds it
+
+Audited today: no session had ever read any live HTTP route except
+`/api/health` — `curl` is not in the runtime image and the middleware 401s
+everything else publicly. Every handoff sentence of the form "the slate
+renders N rows" was therefore a *reconstruction* from the database plus a
+mental model of the rendering code, stated in the grammar of an observation.
+The reconstruction can be wrong everywhere the model is (serialisation,
+staleness computed at read time, a route-level filter), and nothing in the
+sentence marks which kind of claim it is. **The pattern:** when a claim is
+about a served payload, verify it on the served payload; if the instrument to
+do that does not exist, building it *is* the verification work, and until
+then the sentence must say "the table holds X" rather than "the screen shows
+X". Same family as "verification methods that lie" — this is the
+whole-surface case. Fixed with `scripts/fetch_live_route.py` (GET-only,
+allowlisted, loopback-hardcoded).
+
+---
+
 ## 2026-08-21 — A field written after the spend is not a spend gate
 
 `fly.live.toml` cited `surfaced == 0` as the reason the Anthropic bill was
