@@ -39,6 +39,7 @@ export default function RefreshOddsButton({
   label,
   credits,
   className = "",
+  buttonClassName = "min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50",
 }: {
   sportKey: string;
   /** `null` buys team lines. A fixture id also buys that game's player props. */
@@ -53,6 +54,14 @@ export default function RefreshOddsButton({
    */
   credits: number;
   className?: string;
+  /**
+   * The button's own box styling. The default is the refresh panel's block
+   * button; the slate's stale-count exit passes the TonightStrip pill shape
+   * instead. Both keep `min-h-11` — a real control gets a 44px target — and
+   * both stay neutral ink: a refresh affordance is neither a warning
+   * (`accent-2`) nor money (`bg-accent`), ADR 0061 §3.
+   */
+  buttonClassName?: string;
 }) {
   const [phase, setPhase] = useState<"idle" | "sending" | "answered">("idle");
   const [result, setResult] = useState<OddsRefreshResult | null>(null);
@@ -71,7 +80,7 @@ export default function RefreshOddsButton({
         type="button"
         onClick={tap}
         disabled={phase === "sending"}
-        className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50"
+        className={buttonClassName}
       >
         {phase === "sending" ? "Buying…" : label}
         <span className="ml-2 font-normal text-muted">

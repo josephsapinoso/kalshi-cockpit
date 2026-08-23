@@ -34,6 +34,14 @@ export const GLOSSARY = {
       "40 seconds ago is usually still the real price; one from two hours " +
       "ago is history — the ask shown may not be what you’d actually pay.",
   },
+  stale: {
+    label: "stale",
+    definition:
+      "Too old to compare, not bad. Kalshi’s price moves second to second " +
+      "while sportsbook lines are bought in scheduled windows; once the book " +
+      "side ages past the freshness limit, the comparison is refused until " +
+      "the odds are re-bought. The game and the price are both still real.",
+  },
   realised_loss: {
     label: "realised loss",
     definition:
