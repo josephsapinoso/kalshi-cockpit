@@ -1724,6 +1724,7 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         "scripts/inspect_live_db.py",
         "scripts/inspect_live_disk.py",
         "scripts/inspect_live_proc.py",
+        "scripts/fetch_live_route.py",
     )
 
     def test_every_script_the_ssh_ruling_invokes_survives_dockerignore(self):
