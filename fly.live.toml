@@ -222,6 +222,19 @@ primary_region = "ord"
   # deliberate headroom for that work.
   ODDS_MONTHLY_CREDIT_BUDGET = "13000"
 
+  # The desk window (2026-08-23): re-buy every fixtured sport on the 10-min
+  # refresh cadence 16:00Z-04:00Z (9am-9pm PT -- the hours Joe actually looks,
+  # his answer 2026-08-23), so the slate is priced while the desk is open
+  # rather than only in the hour before a kickoff cluster. Measured before
+  # this: 63 of 71 slate rows `stale_odds` (median odds age 13.7h) with 0 of
+  # 600 daily credits spent. Cost is arithmetic: 2 sports x 2 credits x 12h x
+  # 6/hour = 288/day, ~8,600/month against this file's caps of 600/day and
+  # 13,000/month. **At four sports (NCAAF+NFL) the same window is 576/day,
+  # ~17,300/month, which BREAKS the monthly self-cap around day 22** -- when
+  # those sports enter scope, narrow this window or raise the monthly cap,
+  # deliberately, in this file. See `.env.example` and `odds/timing.py:DESK`.
+  ODDS_DESK_WINDOW_UTC = "16-04"
+
   # Ceilings on Anthropic spend, enforced by `backend/agents/budget.py`.
   #
   # **This instance is the one that had no ceiling.** `ANTHROPIC_API_KEY` is set

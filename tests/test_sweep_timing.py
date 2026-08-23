@@ -24,6 +24,7 @@ from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.timing import (
     CLUSTER_MS,
     COVERAGE_MS,
+    DESK,
     DUE_WINDOW_MS,
     MIN_SLOT_SEPARATION_MS,
     REFRESH,
@@ -32,9 +33,11 @@ from backend.odds.timing import (
     cluster_kickoffs,
     day_start_ms,
     decide_sweeps,
+    desk_window_contains,
     firing_for_slot,
     first_window_open_of_day,
     fixture_freshness,
+    next_desk_open_ms,
     plan_sweep_slots,
     refresh_interval_ms,
     slots_for_sport,
@@ -551,6 +554,204 @@ class TestDecidingOnOnePass:
             budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
         assert decision.fire == ()
+
+
+class TestTheDeskWindowKeepsTheSlatePriced:
+    """Inside the configured desk window, a fixtured sport re-buys on the
+    refresh cadence whether or not a kickoff cluster is imminent.
+
+    The behaviour under test exists because the slot design alone targets the
+    closing line: measured 2026-08-23, the slate spent ~14 hours at 89%
+    `stale_odds` refusals while the day's budget sat at 0 of 600 spent. What
+    these tests do NOT establish: that a priced slate contains anything worth
+    betting -- the desk window re-prices the comparison, it cannot change what
+    the comparison says.
+    """
+
+    # NOW is 18:00Z, inside 16-04 and outside 20-04.
+    OPEN = (16, 4)
+    CLOSED = (20, 4)
+
+    def test_a_fixtured_sport_rebuys_inside_the_window(self, conn, budget):
+        """Kickoff six hours out -- no slot is due -- and the desk fires
+        anyway, as a desk buy, costing the team sweep alone."""
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert [f.trigger for f in decision.fire] == [DESK]
+        assert decision.fire[0].sport_key == "baseball_mlb"
+        assert decision.fire[0].projected_total_cost == 6
+        assert decision.fire[0].prop_event_ids == ()
+
+    def test_outside_the_window_the_credit_is_held_and_the_reopen_named(
+        self, conn, budget
+    ):
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.CLOSED,
+        )
+        assert decision.fire == ()
+        assert "reopens at 20:00Z" in decision.detail
+
+    def test_no_window_configured_is_the_pre_desk_behaviour(self, conn, budget):
+        """`None` is the default, so every existing caller is unchanged."""
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert decision.fire == ()
+
+    def test_the_desk_paces_itself_on_the_refresh_interval(self, conn, budget):
+        """A sweep younger than the interval holds; one at the interval
+        re-buys. The cadence is the slot refresh's own, not a second one."""
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        budget.record(
+            called_ms=NOW - REFRESH_MS + MIN, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb",
+        )
+        held = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert held.fire == ()
+
+        due = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW + MIN,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert [f.trigger for f in due.fire] == [DESK]
+
+    def test_a_due_slot_owns_its_sport(self, conn, budget):
+        """Inside a slot's window the slot fires -- the desk stands aside, so
+        one sport never buys twice on a pass and the opening call keeps its
+        SCHEDULED trigger (props ride the opening call only)."""
+        add_fixture(conn, commence_ms=NOW + 40 * MIN)
+        decision = decide_sweeps(
+            conn,
+            in_scope={"baseball_mlb": NOW + 3 * HOUR},
+            budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert [f.trigger for f in decision.fire] == [SCHEDULED]
+
+    def test_the_desk_stands_aside_even_when_the_slot_was_refused(
+        self, conn, budget
+    ):
+        """The one case the stand-aside is not redundant with the
+        already-firing check: a due slot refused for its prop cost. A desk
+        buy here would land inside the due window, move `last_sweep` past
+        `fire_from_ms`, and silently demote the opening SCHEDULED call --
+        the refusal must stay a refusal, named, not be worked around."""
+        add_fixture(conn, commence_ms=NOW + 40 * MIN)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+            prop_cost_per_event=20, prop_sports={"baseball_mlb"},
+        )
+        assert decision.fire == ()
+        assert "cannot afford even to open" in decision.detail
+
+    def test_a_desk_buy_does_not_demote_the_opening_call(self, conn, budget):
+        """A desk buy can land no later than `fire_from_ms`, so when the slot
+        opens, `firing_for_slot` still reads it as unopened: SCHEDULED, not
+        REFRESH. This is the guarantee that lets the desk coexist with props
+        riding the opening call."""
+        kickoff = NOW + 40 * MIN
+        add_fixture(conn, commence_ms=kickoff)
+        fire_from = kickoff - MAX_ODDS_AGE_MS - DUE_WINDOW_MS
+        budget.record(
+            called_ms=fire_from - 5 * MIN, endpoint="/odds", cost=6,
+            sport_key="baseball_mlb",
+        )
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert [f.trigger for f in decision.fire] == [SCHEDULED]
+
+    def test_a_short_day_refuses_the_desk_buy_by_name(self, conn, budget):
+        """A slot's reserved refresh tail can drain the pool below one call;
+        the desk buy that loses to it is refused by name, not dropped. (With
+        uniform costs the `remaining` cap binds first, so the reservation is
+        the only honest way to reach this branch.)"""
+        add_fixture(conn, commence_ms=NOW + 40 * MIN)
+        add_fixture(
+            conn, sport_key="basketball_wnba", odds_event_id="w1",
+            commence_ms=NOW + 6 * HOUR,
+        )
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.OPEN,
+        )
+        assert [f.trigger for f in decision.fire] == [SCHEDULED]
+        assert "basketball_wnba desk refresh cannot be served" in decision.detail
+
+    def test_the_window_arithmetic_crosses_midnight(self):
+        """16-04 is 16:00Z through 03:59Z; equal hours are no window, never
+        all day -- the ambiguous spelling must not be the expensive one."""
+        def at(hour):
+            return ms(f"2026-08-07T{hour:02d}:30:00")
+
+        assert desk_window_contains(at(18), start_hour=16, end_hour=4)
+        assert desk_window_contains(at(2), start_hour=16, end_hour=4)
+        assert not desk_window_contains(at(10), start_hour=16, end_hour=4)
+        assert not desk_window_contains(at(18), start_hour=16, end_hour=16)
+        # And the plain daytime window, both bounds.
+        assert desk_window_contains(at(16), start_hour=16, end_hour=20)
+        assert not desk_window_contains(at(20), start_hour=16, end_hour=20)
+
+    def test_next_open_is_now_when_open_and_the_boundary_when_shut(self):
+        assert next_desk_open_ms(NOW, start_hour=16, end_hour=4) == NOW
+        assert next_desk_open_ms(
+            NOW, start_hour=20, end_hour=4
+        ) == ms("2026-08-07T20:00:00")
+        # Already past today's start hour: the next opening is tomorrow's.
+        assert next_desk_open_ms(
+            NOW, start_hour=12, end_hour=14
+        ) == ms("2026-08-08T12:00:00")
+
+    def test_the_window_panel_predicts_the_desk_buy(self, conn, budget):
+        """`next_call_ms` is the screen's "when does the next window open";
+        a desk buy the loop will make must be a call the display predicts."""
+        add_fixture(
+            conn, commence_ms=NOW + 6 * HOUR,
+            fetched_ms=NOW - HOUR, book_updated_ms=NOW - HOUR,
+        )
+        open_now = window_status(
+            conn, budget=budget, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, sweep_cost=6,
+            desk_window=self.OPEN,
+        )
+        assert open_now.next_call_ms == NOW
+
+        shut = window_status(
+            conn, budget=budget, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, sweep_cost=6,
+            desk_window=self.CLOSED,
+        )
+        # The slot for the +6h kickoff opens at +4h45m; the desk reopens
+        # sooner and is therefore the next call.
+        assert shut.next_call_ms == ms("2026-08-07T20:00:00")
+
+    def test_the_desk_counts_as_a_window_of_the_day(self, conn, budget):
+        """`first_window_open_ms` is the sweep banner's "nothing has swept yet
+        is arithmetic, not an alarm" -- a desk day opens at the desk hour, not
+        at the first kickoff-derived slot."""
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        start = day_start_ms(NOW)
+        with_desk = first_window_open_of_day(
+            conn, day_start_ms=start, max_odds_age_ms=MAX_ODDS_AGE_MS,
+            desk_window=self.OPEN,
+        )
+        assert with_desk == ms("2026-08-07T16:00:00")
+        without = first_window_open_of_day(
+            conn, day_start_ms=start, max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert without is not None and without > with_desk
 
 
 class TestTheWindowIsMeasuredFromTheBooksOwnClock:

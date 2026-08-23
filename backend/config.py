@@ -132,6 +132,38 @@ def _int_announced(key: str, default: int, *, minimum: int = 1) -> int:
     return value
 
 
+def _desk_window_announced(key: str) -> Optional[tuple[int, int]]:
+    """`"16-04"` -> `(16, 4)`; unset, empty, or unusable -> `None` (disabled).
+
+    Announces and falls back like `_int_announced`, and for the same reason:
+    this is a scheduling convenience loaded by the supervised loop, a raise
+    here is a container crash loop recoverable only with `flyctl`, and the
+    disabled state is safe -- it is exactly the pre-desk-window behaviour.
+
+    `start == end` is refused rather than read as all-day: an all-day desk at
+    four sports is ~1150 credits against a 600/day cap, so the ambiguous
+    spelling must not be the expensive one.
+    """
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return None
+    m = re.fullmatch(r"(\d{1,2})-(\d{1,2})", raw)
+    if not m:
+        logger.error(
+            "%s=%r is not HH-HH and is not read; the desk window is disabled.",
+            key, raw,
+        )
+        return None
+    start, end = int(m.group(1)), int(m.group(2))
+    if not (0 <= start <= 23 and 0 <= end <= 23) or start == end:
+        logger.error(
+            "%s=%r must be two distinct UTC hours 0-23 and is not read; the "
+            "desk window is disabled.", key, raw,
+        )
+        return None
+    return (start, end)
+
+
 def _bool(key: str, default: bool = False) -> bool:
     raw = os.getenv(key, "").strip().lower()
     if not raw:
@@ -243,6 +275,16 @@ class OddsConfig:
     # as the feature being off when it meant the default applied. A money switch
     # should be readable in the deploy file rather than inferred from here.
     buy_props_on_schedule: bool = False
+    # The desk window: UTC hours (start, end) during which every sport with
+    # stored upcoming fixtures is kept priced on the refresh cadence, whether
+    # or not a kickoff cluster is imminent. `None` disables and is the
+    # default: the slot schedule alone targets the closing line, which is the
+    # right record for the *evidence* and left the slate 89% `stale_odds` for
+    # ~14 hours a day (measured 2026-08-23) -- the wrong sole schedule for a
+    # betting desk (ADR 0062). End < start crosses midnight. The cost is
+    # bounded arithmetic, stated where the value is set: sports x sweep_cost
+    # x hours x 6/hour -- see `.env.example` and `odds/timing.py:DESK`.
+    desk_window_utc: Optional[tuple[int, int]] = None
 
     @classmethod
     def load(cls) -> "OddsConfig":
@@ -264,6 +306,7 @@ class OddsConfig:
             ],
             budget_day_start_utc_hour=hour,
             buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
+            desk_window_utc=_desk_window_announced("ODDS_DESK_WINDOW_UTC"),
         )
 
     @classmethod
@@ -299,6 +342,7 @@ class OddsConfig:
             # from here.
             budget_day_start_utc_hour=configured_day_start_utc_hour(),
             buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
+            desk_window_utc=_desk_window_announced("ODDS_DESK_WINDOW_UTC"),
         )
 
     @property

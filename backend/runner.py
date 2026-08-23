@@ -1792,6 +1792,7 @@ async def fetch_and_store_odds(
         prop_sports=prop_sports,
         allow_bootstrap=allow_bootstrap,
         manual=manual,
+        desk_window=config.desk_window_utc,
     )
     logger.info("sweep decision: %s", decision.detail)
 

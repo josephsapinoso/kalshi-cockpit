@@ -1395,6 +1395,7 @@ def create_app(
             now_ms=db.now_ms(),
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
             sweep_cost=odds.credits_per_sweep_per_sport,
+            desk_window=odds.desk_window_utc,
         ).to_dict()
 
     @app.get("/api/market/{ticker}")

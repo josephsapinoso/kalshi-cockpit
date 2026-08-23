@@ -341,6 +341,45 @@ BOOTSTRAP = "bootstrap"
 # `api_credits.trigger`, and `_SERVED_SWEEP` excludes exactly this value, so the
 # two must stay the same literal.
 MANUAL = "manual"
+# The desk is open and the slate should be priced, whether or not a kickoff
+# cluster is imminent. Fired only inside the configured desk window
+# (`OddsConfig.desk_window_utc`), paced by the same `refresh_interval_ms` as a
+# slot's rolling refresh, and never buys props. Exists because the slot design
+# alone targets the closing line: measured 2026-08-23, the slate spent 14 hours
+# at 89% `stale_odds` refusals while the day's budget sat at 0 of 600 spent --
+# the right record for the *evidence*, the wrong sole schedule for a betting
+# desk (ADR 0062). Stamped NULL in `api_credits` like every planner firing, so
+# `_SERVED_SWEEP` counts it and the cadence paces itself off recorded spend.
+DESK = "desk"
+
+
+def desk_window_contains(
+    now_ms: int, *, start_hour: int, end_hour: int
+) -> bool:
+    """Whether `now_ms` falls inside the desk window's UTC hours.
+
+    `start_hour > end_hour` is a window that crosses midnight (16-04 is
+    16:00Z through 03:59Z). Equal hours are **no window, never all day**:
+    an all-day desk at four sports is ~1150 credits/day against a 600 cap,
+    so the misread that would quietly buy it is the one this refuses.
+    """
+    if start_hour == end_hour:
+        return False
+    hour = datetime.fromtimestamp(now_ms / 1000, timezone.utc).hour
+    if start_hour < end_hour:
+        return start_hour <= hour < end_hour
+    return hour >= start_hour or hour < end_hour
+
+
+def next_desk_open_ms(now_ms: int, *, start_hour: int, end_hour: int) -> int:
+    """The next instant the desk window is open; `now_ms` itself if open now."""
+    if desk_window_contains(now_ms, start_hour=start_hour, end_hour=end_hour):
+        return now_ms
+    dt = datetime.fromtimestamp(now_ms / 1000, timezone.utc)
+    cand = dt.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    if cand <= dt:
+        cand += timedelta(days=1)
+    return int(cand.timestamp() * 1000)
 
 
 def firing_for_slot(
@@ -563,6 +602,7 @@ def first_window_open_of_day(
     due_window_ms: int = DUE_WINDOW_MS,
     horizon_ms: int = DEFAULT_HORIZON_MS,
     day_ms: int = _DAY_MS,
+    desk_window: Optional[tuple[int, int]] = None,
 ) -> Optional[int]:
     """When the first sweep window of this budget day opens. `None` if none does.
 
@@ -612,6 +652,17 @@ def first_window_open_of_day(
             opens_at = max(slot.fire_from_ms, day_start_ms)
             if opens_at < day_end_ms:
                 opens.append(opens_at)
+    if desk_window is not None and fixtures:
+        start_hour, end_hour = desk_window
+        if start_hour != end_hour:
+            # The desk window is a window of this day like any slot's: it
+            # counts only if it opens inside the day, and a day whose start
+            # falls mid-window opens, for this purpose, at the boundary.
+            desk_open = next_desk_open_ms(
+                day_start_ms, start_hour=start_hour, end_hour=end_hour
+            )
+            if desk_open < day_end_ms:
+                opens.append(desk_open)
     return min(opens) if opens else None
 
 
@@ -821,12 +872,19 @@ def window_status(
     max_odds_age_ms: int,
     sweep_cost: int,
     horizon_ms: int = DEFAULT_HORIZON_MS,
+    desk_window: Optional[tuple[int, int]] = None,
 ) -> ActionableWindow:
     """The window, and the next planned sweep, from stored state alone.
 
     Shares `plan_sweep_slots` with the runner rather than reimplementing the
     schedule for display. A screen and a control that compute the same thing by
     two paths eventually disagree, and the one people act on is the screen.
+
+    `desk_window` must be the same value the runner hands `decide_sweeps`
+    (`OddsConfig.desk_window_utc`), for the same one-predicate-two-callers
+    reason as `firing_for_slot`: `next_call_ms` is the screen's "when does the
+    next window open", and a desk buy the loop will make is a call this
+    display must predict.
     """
     state = budget.state(now_ms)
     remaining_sweeps = max(0, state.remaining_today // max(1, sweep_cost))
@@ -836,8 +894,11 @@ def window_status(
     fresh = [a for a in ages if a <= max_odds_age_ms]
     open_until = now_ms + (max_odds_age_ms - min(fresh)) if fresh else None
 
+    fixtures_by_sport = upcoming_fixtures_by_sport(
+        conn, now_ms=now_ms, horizon_ms=horizon_ms
+    )
     slots = plan_sweep_slots(
-        upcoming_fixtures_by_sport(conn, now_ms=now_ms, horizon_ms=horizon_ms),
+        fixtures_by_sport,
         now_ms=now_ms,
         slots_available=remaining_sweeps,
         max_odds_age_ms=max_odds_age_ms,
@@ -866,6 +927,32 @@ def window_status(
             next_call_ms = last + refresh_ms
         else:
             next_call_ms = next_slot.fire_from_ms
+
+    if desk_window is not None and fixtures_by_sport:
+        start_hour, end_hour = desk_window
+        if start_hour != end_hour:
+            if desk_window_contains(
+                now_ms, start_hour=start_hour, end_hour=end_hour
+            ):
+                # The loop's desk pass will re-buy each sport once its last
+                # served sweep ages past the refresh interval; the soonest of
+                # those is the next call the desk wants.
+                desk_next = min(
+                    now_ms
+                    if (last := served.get(sport)) is None
+                    or now_ms - last >= refresh_ms
+                    else last + refresh_ms
+                    for sport in fixtures_by_sport
+                )
+            else:
+                desk_next = next_desk_open_ms(
+                    now_ms, start_hour=start_hour, end_hour=end_hour
+                )
+            next_call_ms = (
+                desk_next
+                if next_call_ms is None
+                else min(next_call_ms, desk_next)
+            )
 
     latest = _latest_sweep_row(conn)
     # Not the same question as `latest`, and the difference is the whole point:
@@ -899,6 +986,7 @@ def window_status(
             day_start_ms=start_ms,
             max_odds_age_ms=max_odds_age_ms,
             horizon_ms=horizon_ms,
+            desk_window=desk_window,
         ),
     )
 
@@ -918,7 +1006,7 @@ class FiringSweep:
     # `budget.refusal_reason(firing.cost, ...)` immediately before making that
     # one call, so this number has to keep corresponding to that one call.
     cost: int
-    trigger: str        # "scheduled" | "bootstrap"
+    trigger: str        # "scheduled" | "refresh" | "bootstrap" | "manual" | "desk"
     detail: str
     # The slot this firing was planned for, or None on a bootstrap -- which has
     # no cluster to aim at, by definition. Carried so the prop fetch can buy
@@ -997,6 +1085,7 @@ def decide_sweeps(
     prop_sports: Collection[str] = (),
     allow_bootstrap: bool = True,
     manual: Sequence[ManualRefresh] = (),
+    desk_window: Optional[tuple[int, int]] = None,
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -1081,6 +1170,31 @@ def decide_sweeps(
     couple of minutes of a restart. The full pass every 900s is where bootstrap
     belongs, and it is not time-critical by construction: a sport with no stored
     fixtures has nothing to be timely about.
+
+    **Desk** -- the configured desk window is open, so every sport with stored
+    upcoming fixtures is kept priced on the same `refresh_interval_ms` cadence
+    a slot's rolling refresh uses, whether or not a kickoff cluster is near.
+    `desk_window` is `(start_hour, end_hour)` UTC, `None` disables (the
+    default, so the demo and every existing caller are unchanged). The slot
+    design alone targets the closing line, which left the slate 89%
+    `stale_odds` for ~14 hours a day with the budget untouched (measured
+    2026-08-23); the desk trigger is what makes the screen a betting desk
+    rather than only an evidence recorder (ADR 0062). Three deliberate bounds:
+
+    - **A due slot owns its sport.** While a slot for the sport is due, the
+      desk stands aside; the slot's own SCHEDULED/REFRESH logic fires on the
+      identical cadence, and standing aside keeps the desk from ever taking a
+      window's opening call (props ride the opening call only). A desk buy can
+      land no later than `fire_from_ms`, so `firing_for_slot` still reads the
+      slot as unopened and SCHEDULED survives.
+    - **Never props.** A desk buy is the team sweep alone -- `cost`, not a
+      projected tail -- so the worst case is arithmetic that can be stated in
+      the deploy file: sports x `sweep_cost` x window hours x 6/hour. At the
+      deployed 2 credits and a 12-hour window that is 288/day for two sports,
+      576 for four, against a 600/day cap and a 20,000 monthly plan.
+    - **Charged from the same `credits_left` as everything else**, refused by
+      name when short. A second spend path beside the planner is the shape of
+      every credit accident in this file's history.
     """
     state = budget.state(now_ms)
     remaining = max(0, state.remaining_today // max(1, cost))
@@ -1292,6 +1406,52 @@ def decide_sweeps(
             )
         )
 
+    if desk_window is not None and desk_window_contains(
+        now_ms, start_hour=desk_window[0], end_hour=desk_window[1]
+    ):
+        for sport_key in sorted(fixtures):
+            if len(firing) >= remaining:
+                break
+            if any(
+                f.sport_key == sport_key for f in (*manual_firing, *firing)
+            ):
+                continue
+            if any(
+                s.sport_key == sport_key and s.is_due(now_ms) for s in slots
+            ):
+                # The slot owns this sport while it is due -- see the
+                # docstring. Firing here as well would double-buy the same
+                # cadence and could take the opening call props ride on.
+                continue
+            last = last_sweeps.get(sport_key)
+            if last is not None and now_ms - last < refresh_ms:
+                continue
+            if cost > credits_left:
+                refused_for_cost.append(
+                    f"{sport_key} desk refresh cannot be served: {cost} "
+                    f"credits and {credits_left} remain"
+                )
+                continue
+            credits_left -= cost
+            firing.append(
+                FiringSweep(
+                    sport_key=sport_key,
+                    cost=cost,
+                    trigger=DESK,
+                    detail=(
+                        f"desk window "
+                        f"{desk_window[0]:02d}:00Z-{desk_window[1]:02d}:00Z "
+                        f"is open; re-buying so the slate stays priced "
+                        f"between kickoff windows"
+                    ),
+                    # No slot and no props, by design: the desk buy is the
+                    # team sweep alone, and `fetch_and_store_props` refuses a
+                    # firing with neither a slot nor a named fixture set.
+                    slot=None,
+                    projected_total_cost=cost,
+                )
+            )
+
     # Taps are prepended after the cap, not before it: `remaining` bounds how
     # many planned sweeps a pass opens, and a tap is not one of those.
     #
@@ -1346,6 +1506,19 @@ def decide_sweeps(
             "no sweep: every kickoff inside the horizon is either already "
             "served or too close to open a pre-game window"
         )
+
+    if not firing and desk_window is not None and fixtures:
+        start_hour, end_hour = desk_window
+        if start_hour != end_hour and not desk_window_contains(
+            now_ms, start_hour=start_hour, end_hour=end_hour
+        ):
+            # A closed desk is part of why nothing fired, and saying when it
+            # reopens is the same honesty `window_status` gives the screen.
+            detail += (
+                f"; the desk window ({start_hour:02d}:00Z-{end_hour:02d}:00Z) "
+                f"reopens at "
+                f"{_hhmm(next_desk_open_ms(now_ms, start_hour=start_hour, end_hour=end_hour))}Z"
+            )
 
     return SweepDecision(
         fire=tuple(firing),
