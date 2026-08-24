@@ -29,15 +29,24 @@
  * someone reorders the config. `middleware.ts` names this path so an
  * unauthenticated call gets a 401 with JSON rather than a redirect to an HTML
  * login page, which a `fetch` would follow and read as success.
+ *
+ * **The one handler that does NOT use `lib/proxy.ts`'s relay, deliberately.**
+ * The other six answer a transport failure with a 502 carrying a `detail`.
+ * This one answers **200 with a typed `OddsRefreshResult`** -- `accepted:
+ * false`, `estimated_credits: 0` -- because `lib/api.ts:refreshOdds` reads
+ * that shape and a bare `detail` would reach the screen as "no odds
+ * available", which is a different and much worse claim than "the request
+ * did not arrive". Routing it through the shared relay would silently change
+ * that contract, so it keeps its own fetch. It shares `backendToken` and
+ * `BACKEND`, which is all it can share without losing the distinction.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import { BACKEND, backendToken } from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     // The demo. It holds no credentials, reaches no network and runs no chain
     // runner, so there is nothing to refresh and nothing that could pay for it.

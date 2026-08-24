@@ -9,10 +9,10 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import { backendToken, readJsonBody, relayToBackend } from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     return NextResponse.json(
       { detail: "This is the demo instance. There is no log to revise." },
@@ -20,17 +20,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { id?: unknown; reason?: unknown };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { detail: "The request body was not JSON." },
-      { status: 400 },
-    );
-  }
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as { id?: unknown; reason?: unknown };
 
-  const id = body.id;
+  const id = body?.id;
   if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
     return NextResponse.json(
       { detail: "id must be a positive integer." },
@@ -38,27 +32,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${BACKEND}/api/estimates/${id}/revise`, {
+  return relayToBackend(
+    `/api/estimates/${id}/revise`,
+    {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-      body: JSON.stringify({ reason: body.reason }),
-    });
-  } catch {
-    return NextResponse.json(
-      { detail: "The backend could not be reached. Nothing was revised." },
-      { status: 502 },
-    );
-  }
-
-  const payload = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: "The backend answered with something that was not JSON." },
-    { status: upstream.status },
+      token,
+      body: { reason: body?.reason },
+      unreadable: "The backend answered with something that was not JSON.",
+    },
+    "The backend could not be reached. Nothing was revised.",
   );
 }

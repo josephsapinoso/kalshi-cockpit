@@ -21,33 +21,25 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import {
+  backendToken,
+  demoRefusal,
+  readJsonBody,
+  relayToBackend,
+} from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     // The demo. It holds no credentials; there is no record here to write
     // to, and saying so is the honest answer rather than a 500.
-    return NextResponse.json(
-      {
-        detail:
-          "This is the demo instance. It holds no credentials, so a pass " +
-          "cannot be recorded from here.",
-      },
-      { status: 403 },
-    );
+    return demoRefusal("a pass cannot be recorded");
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { detail: "The request body was not JSON." },
-      { status: 400 },
-    );
-  }
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+
   const ticker =
     body && typeof body === "object" && "ticker" in body
       ? String((body as { ticker: unknown }).ticker)
@@ -69,34 +61,16 @@ export async function POST(request: NextRequest) {
   // Forwarded rather than reconstructed: the backend owns the uppercase
   // normalisation, the length caps, and the append-only write, and it is the
   // side that has to be right.
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${BACKEND}/api/desk/pass`, {
+  return relayToBackend(
+    "/api/desk/pass",
+    {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-      body: JSON.stringify(
+      token,
+      body:
         typeof reason === "string" && reason.trim().length > 0
           ? { ticker, reason }
           : { ticker },
-      ),
-    });
-  } catch {
-    return NextResponse.json(
-      {
-        detail:
-          "The cockpit backend did not answer. Nothing was recorded.",
-      },
-      { status: 502 },
-    );
-  }
-
-  const payload: unknown = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: `backend returned ${upstream.status}` },
-    { status: upstream.status },
+    },
+    "The cockpit backend did not answer. Nothing was recorded.",
   );
 }

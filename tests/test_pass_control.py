@@ -102,9 +102,23 @@ class TestThePassControlIsWiredAndCalm:
 
     def test_the_handler_holds_the_token_and_the_browser_does_not(self):
         """The `/scout-desk` pattern: session cookie in, bearer token out.
-        The component must reach the backend only through `/pass`."""
+        The component must reach the backend only through `/pass`.
+
+        **Assertion updated 2026-08-24** (code review, the token-proxy
+        duplication finding). This read `"APP_AUTH_TOKEN" in route` and
+        `"Bearer" in route`; both moved into `lib/proxy.ts` when the seven
+        hand-copied handlers were put on shared mechanics. The claim is
+        unchanged and still enforced — the handler obtains the token
+        server-side and the browser never sees it — so the assertion follows
+        the indirection rather than being dropped. `test_token_proxy_routes.py`
+        pins that `backendToken()`/`relayToBackend` are the only way to get
+        one, for every handler in the family.
+        """
         route = code(PASS_ROUTE)
-        assert "APP_AUTH_TOKEN" in route
-        assert "Bearer" in route
+        assert "backendToken()" in route
+        assert "relayToBackend(" in route
+        # The token is obtained server-side and never inlined into the client.
+        assert "APP_AUTH_TOKEN" not in code(PASS_CONTROL)
         # The client never names the backend route; the handler owns it.
+        assert "/api/desk/pass" in route
         assert "/api/desk/pass" not in code(PASS_CONTROL)

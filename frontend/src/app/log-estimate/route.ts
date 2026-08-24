@@ -17,13 +17,13 @@
  * rather than a redirect an HTML login page a `fetch` would read as success.
  */
 
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import { backendToken, readJsonBody, relayToBackend } from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     // The demo. It is a public portfolio page; a public visitor's numbers
     // must not be able to land in a measurement record.
@@ -37,40 +37,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { detail: "The request body was not JSON." },
-      { status: 400 },
-    );
-  }
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
 
   // Forwarded rather than reconstructed: the backend owns the bounds check
   // and the schema owns write-once. Re-validating here would be a second
   // implementation of one rule, and the two would drift.
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${BACKEND}/api/estimates`, {
+  return relayToBackend(
+    "/api/estimates",
+    {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-      body: JSON.stringify(body),
-    });
-  } catch {
-    return NextResponse.json(
-      { detail: "The backend could not be reached. The estimate was NOT logged." },
-      { status: 502 },
-    );
-  }
-
-  const payload = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: "The backend answered with something that was not JSON." },
-    { status: upstream.status },
+      token,
+      body: parsed.body,
+      unreadable: "The backend answered with something that was not JSON.",
+    },
+    "The backend could not be reached. The estimate was NOT logged.",
   );
 }

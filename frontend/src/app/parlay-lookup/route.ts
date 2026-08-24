@@ -11,57 +11,35 @@
  * The body is forwarded as-is: the backend re-derives the card and refuses
  * a drifted one, owns leg validation, and records every outcome — it is the
  * side that has to be right.
+ *
+ * The mechanics (origin, demo refusal, transport guard, relay) come from
+ * `lib/proxy.ts`; this file keeps only what is specific to this route, which
+ * is its words. `middleware.ts` names `/parlay-lookup` in
+ * `JSON_ROUTE_HANDLERS` so an unauthenticated call gets a JSON 401 rather
+ * than an HTML login redirect a `fetch` would read as success.
  */
 
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import {
+  backendToken,
+  demoRefusal,
+  readJsonBody,
+  relayToBackend,
+} from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
-    return NextResponse.json(
-      {
-        detail:
-          "This is the demo instance. It holds no exchange credentials, so " +
-          "a combination cannot be priced from here.",
-      },
-      { status: 403 },
-    );
+    return demoRefusal("a combination cannot be priced");
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { detail: "The request body was not JSON." },
-      { status: 400 },
-    );
-  }
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${BACKEND}/api/parlays/lookup`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-      body: JSON.stringify(body),
-    });
-  } catch {
-    return NextResponse.json(
-      { detail: "The cockpit backend did not answer. Nothing was created." },
-      { status: 502 },
-    );
-  }
-
-  const payload: unknown = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: `backend returned ${upstream.status}` },
-    { status: upstream.status },
+  return relayToBackend(
+    "/api/parlays/lookup",
+    { method: "POST", token, body: parsed.body },
+    "The cockpit backend did not answer. Nothing was created.",
   );
 }

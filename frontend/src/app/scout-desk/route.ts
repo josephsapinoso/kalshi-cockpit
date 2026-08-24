@@ -25,33 +25,25 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import {
+  backendToken,
+  demoRefusal,
+  readJsonBody,
+  relayToBackend,
+} from "@/lib/proxy";
 
 export async function POST(request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     // The demo. It holds no credentials and no Anthropic key; the desk does
     // not exist here, and saying so is the honest answer rather than a 500.
-    return NextResponse.json(
-      {
-        detail:
-          "This is the demo instance. It holds no credentials, so the scout " +
-          "desk cannot be sent from here.",
-      },
-      { status: 403 },
-    );
+    return demoRefusal("the scout desk cannot be sent");
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { detail: "The request body was not JSON." },
-      { status: 400 },
-    );
-  }
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+
   const ticker =
     body && typeof body === "object" && "ticker" in body
       ? String((body as { ticker: unknown }).ticker)
@@ -66,30 +58,9 @@ export async function POST(request: NextRequest) {
   // Forwarded rather than reconstructed: the backend owns fixture resolution,
   // the running-convening check and the budget refusal, and it is the side
   // that has to be right.
-  let upstream: Response;
-  try {
-    upstream = await fetch(
-      `${BACKEND}/api/scout/${encodeURIComponent(ticker)}`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      },
-    );
-  } catch {
-    return NextResponse.json(
-      {
-        detail:
-          "The cockpit backend did not answer. Nothing was sent and nothing " +
-          "was spent.",
-      },
-      { status: 502 },
-    );
-  }
-
-  const payload: unknown = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: `backend returned ${upstream.status}` },
-    { status: upstream.status },
+  return relayToBackend(
+    `/api/scout/${encodeURIComponent(ticker)}`,
+    { method: "POST", token },
+    "The cockpit backend did not answer. Nothing was sent and nothing was spent.",
   );
 }

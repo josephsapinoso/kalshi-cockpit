@@ -17,13 +17,13 @@
  * easier. There is no disengage endpoint on the backend for it to call.
  */
 
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-/** The Python backend, over loopback inside the container. */
-const BACKEND = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
+import { backendToken, relayToBackend } from "@/lib/proxy";
 
 export async function POST(_request: NextRequest) {
-  const token = process.env.APP_AUTH_TOKEN;
+  const token = backendToken();
   if (!token) {
     return NextResponse.json(
       {
@@ -35,23 +35,13 @@ export async function POST(_request: NextRequest) {
     );
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${BACKEND}/api/desk/lockout`, {
+  return relayToBackend(
+    "/api/desk/lockout",
+    {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-  } catch {
-    return NextResponse.json(
-      { detail: "The backend could not be reached. You are NOT locked out." },
-      { status: 502 },
-    );
-  }
-
-  const payload = await upstream.json().catch(() => null);
-  return NextResponse.json(
-    payload ?? { detail: "The backend answered with something that was not JSON." },
-    { status: upstream.status },
+      token,
+      unreadable: "The backend answered with something that was not JSON.",
+    },
+    "The backend could not be reached. You are NOT locked out.",
   );
 }
