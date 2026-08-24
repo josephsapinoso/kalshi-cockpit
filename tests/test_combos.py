@@ -200,6 +200,58 @@ class TestMarketCreationGuard:
         assert "allow_market_creation=True" in str(exc.value)
 
 
+class TestTheRepeatLookupIsIdempotent:
+    """The second tap, captured live 2026-08-24 (code review, finding 7).
+
+    The create POST had been captured exactly once, on a brand-new
+    combination. The desk's *designed* behaviour walks straight past that: a
+    freshly minted combo's book is empty on both sides, the screen's words
+    say "try again shortly", and the retry control makes the second tap one
+    press away. Nothing in this repo had ever seen what Kalshi answers to it.
+
+    Measured: **200, with the same `market_ticker`.** The create endpoint
+    finds the existing combination rather than refusing or minting a second
+    one. So the retry is safe, `price_card_on_kalshi` needs no already-exists
+    branch, and repeat taps do not burn the 5,000-creations/week budget.
+
+    **What this does not establish.** One collection
+    (`KXMVESPORTSMULTIGAMEEXTENDED-R`), one NFL leg pair, two calls seconds
+    apart, one moment. It cannot rule out that the answer differs by scope,
+    after the legs' games start, or once a market has aged — and it says
+    nothing about a *third* call or about concurrent taps. Recorded in
+    `tests/fixtures/combo_lookup_repeat.json` with its conditions so a later
+    run is a comparison rather than an assumption.
+    """
+
+    REPEAT = json.loads(
+        (FIXTURES / "combo_lookup_repeat.json").read_text(encoding="utf-8")
+    )
+
+    def test_both_calls_succeeded(self):
+        assert self.REPEAT["first_call"]["outcome"] == "ok"
+        assert self.REPEAT["second_call"]["outcome"] == "ok", (
+            "a refusal here would mean a minted combination is permanently "
+            "unpriceable through this path"
+        )
+
+    def test_the_repeat_returns_the_same_market(self):
+        first = self.REPEAT["first_call"]["response"]["market_ticker"]
+        second = self.REPEAT["second_call"]["response"]["market_ticker"]
+        assert first == second
+        assert self.REPEAT["same_ticker_returned"] is True
+
+    def test_the_repeat_carries_the_same_envelope(self):
+        """Same keys both times -- the second answer is not a thinner shape
+        the parser would read as a missing market."""
+        first = self.REPEAT["first_call"]["response"]
+        second = self.REPEAT["second_call"]["response"]
+        assert sorted(first) == sorted(second)
+        assert "market_ticker" in first
+
+    def test_the_recorded_verdict_says_idempotent(self):
+        assert self.REPEAT["verdict"].startswith("IDEMPOTENT")
+
+
 class TestImpliedCorrelation:
     """Kalshi's combo price as a correlation measurement.
 

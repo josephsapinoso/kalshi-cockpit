@@ -395,6 +395,20 @@ async def lookup_combo(
     every time someone taps a leg. It commits no money, but it is an
     outward-facing write against a live account, so it is off by default. Pass
     `allow_market_creation=True` deliberately.
+
+    **The repeat call is idempotent, measured 2026-08-24.** Posting the same
+    `selected_markets` twice returns **200 with the same `market_ticker`** and
+    the same envelope — the endpoint finds the existing combination rather
+    than refusing it or minting a second one. This matters because the parlay
+    desk's expected first answer is an empty book ("try again shortly"), so
+    the second tap is the common case, not an edge one: it needs no
+    already-exists handling and does not burn the 5,000-creations/week
+    budget. Captured in `tests/fixtures/combo_lookup_repeat.json` by
+    `scripts/capture_combo_repeat_lookup.py`.
+
+    Bounded, as captured: one collection, one NFL leg pair, two calls seconds
+    apart. It does not establish the answer for a third call, for concurrent
+    taps, after the legs' games start, or for a different collection scope.
     """
     if not allow_market_creation:
         raise MarketCreationRefused(
