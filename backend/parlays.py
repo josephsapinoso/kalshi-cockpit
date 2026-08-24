@@ -36,9 +36,14 @@ from backend.core.ladder import (
     build_ladder,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
+from backend.core.prices import format_price, format_probability
 from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
 from backend.kalshi.orderbook import OrderBook
-from backend.kalshi.spreads import parse_spread_subtitle
+from backend.kalshi.spreads import (
+    parse_spread_subtitle,
+    spread_book_point,
+    spread_margin_agrees,
+)
 from backend.match.linker import load_aliases, resolve_outcome
 
 logger = logging.getLogger(__name__)
@@ -88,8 +93,28 @@ def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
     return (now_ms - row["computed_ms"]) + oldest
 
 
+#: How far back `ladder_candidates` reads `fair_prices` at all.
+#:
+#: `fair_prices` is never pruned and passed ~6.9M rows by 2026-08-24, and this
+#: query is paid twice per lookup tap (once for the ladder, once to re-derive
+#: the card server-side). Every row older than this is discarded downstream
+#: anyway: `build_ladder` refuses a leg whose consensus is staler than
+#: `max_odds_age_ms` (deployed in minutes), and the pre-game bound already
+#: excludes anything whose game has started. So this floor changes no output,
+#: it only stops the scan reading the whole history to throw it away.
+#:
+#: **Deliberately far looser than the freshness rule** -- a day, against a
+#: staleness limit measured in minutes. A floor tight enough to be load-
+#: bearing would be a second staleness rule in a second place, and this repo
+#: has already been bitten by one quantity with two limits. If the deployed
+#: `max_odds_age_ms` ever exceeds this, the floor becomes the binding rule and
+#: legs vanish silently -- so the two are compared at call time and the wider
+#: of them wins.
+_CANDIDATE_SCAN_FLOOR_MS = 24 * 3_600_000
+
+
 def ladder_candidates(
-    conn, *, now_ms: int
+    conn, *, now_ms: int, max_odds_age_ms: Optional[int] = None
 ) -> tuple[list[CandidateLeg], dict[str, int]]:
     """Every buyable YES side with a fresh-enough-to-consider consensus.
 
@@ -98,7 +123,12 @@ def ladder_candidates(
     three hours late and is never read here). Freshest `fair_prices` row per
     (link, market, outcome, point). Freshness itself is judged in
     `build_ladder`; this function only refuses what can never be a leg.
+
+    `max_odds_age_ms` is not a filter here — it only widens the scan floor so
+    the query can never be tighter than the freshness rule the caller will
+    apply. Pass the same value you pass `build_ladder`.
     """
+    horizon_ms = max(_CANDIDATE_SCAN_FLOOR_MS, max_odds_age_ms or 0)
     rows = conn.execute(
         """
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
@@ -116,10 +146,11 @@ def ladder_candidates(
             FROM odds_snapshots GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE f.market IN ('h2h', 'spreads')
+          AND f.computed_ms >= ?
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
         ORDER BY f.computed_ms DESC
         """,
-        (now_ms,),
+        (now_ms - horizon_ms, now_ms),
     ).fetchall()
 
     excluded: dict[str, int] = {}
@@ -181,10 +212,20 @@ def ladder_candidates(
             for m in markets_by_event.get(row["kalshi_event_ticker"], []):
                 if m["market_type"] != "spread" or m["strike"] is None:
                     continue
-                if float(m["strike"]) != -point_val:
-                    continue
                 parsed = parse_spread_subtitle(m["yes_side_team"])
                 if parsed is None:
+                    continue
+                # The subtitle's own margin, cross-checked against
+                # `floor_strike`, then converted to the book's point through
+                # the ONE identity (`spreads.spread_book_point`). Reading the
+                # strike alone -- what this did until 2026-08-24 -- skips the
+                # cross-check the runner performs, so a market whose subtitle
+                # had drifted away from its strike could still match a fair
+                # row that was priced from the subtitle.
+                if not spread_margin_agrees(parsed[1], m["strike"]):
+                    count("spread_margin_disagrees")
+                    continue
+                if spread_book_point(parsed[1]) != point_val:
                     continue
                 resolved = resolve_outcome(
                     parsed[0], outcomes_by_link.get(link_id, []), aliases
@@ -250,7 +291,25 @@ def ladder_candidates(
 
 
 def _percent(p: float) -> str:
-    return f"{p * 100:.1f}%"
+    """A probability as a percentage, through the ONE renderer.
+
+    Was `f"{p * 100:.1f}%"` until 2026-08-24. `core.prices.format_probability`
+    exists precisely because that expression rounds off the float while every
+    other surface in the product rounds off the stored integer tenths, so the
+    same fair value could print `53.9%` here and `53.8c` two screens away with
+    nothing to say which had moved. Its own docstring names this failure.
+    """
+    return format_probability(p)
+
+
+def _cost_per_contract(tenths: float) -> str:
+    """`15` -> `"1.5c per $1 contract"`, through the ONE price renderer.
+
+    The suffix is the parlay desk's own: a combination contract settles at $1
+    like any other, and saying so is what stops `1.5c` reading as the price of
+    the whole ticket.
+    """
+    return f"{format_price(tenths)} per $1 contract"
 
 
 def _dollars(cents: float) -> str:
@@ -270,12 +329,73 @@ def _stake_row(stake_cents: int, joint: float) -> dict:
     return {
         "stake_cents": stake_cents,
         "stake_display": _dollars(stake_cents),
-        "contracts_display": (
-            f"~{contracts:,.0f}" if contracts >= 10 else f"~{contracts:.1f}"
-        ),
+        "contracts_display": _contracts_display(contracts),
         "payout_display": _dollars(contracts * 100.0),
         "is_default": stake_cents == DEFAULT_STAKE_CENTS,
     }
+
+
+def _contracts_display(contracts: float) -> str:
+    return f"~{contracts:,.0f}" if contracts >= 10 else f"~{contracts:.1f}"
+
+
+def _at_stake(
+    stake_cents: int, *, ask_tenths: int, depth: Optional[float]
+) -> dict:
+    """What a stake buys at Kalshi's QUOTED ask -- bounded by what is resting.
+
+    **This is CLAUDE.md rule 1 applied to a payout.** `stake / ask` alone
+    rendered "$5.00 -> ~333 contracts -> $333.33" on a book with about
+    eighteen contracts resting: 315 of those 333 do not exist. On an
+    enter-only market a lone stale NO bid at 1.5c produces exactly the giant
+    apparent number the rule says to suppress, and putting it in the payout
+    slot is the most flattering place it could possibly go.
+
+    So the payout is computed off `min(wanted, depth)`, and when the stake is
+    capped the words say by how much. Nothing here is an edge or an EV: cost
+    and payout are what the venue would charge and pay, which is the same
+    pair the fair-value side of the card already states.
+
+    **`depth is None` is not reachable from `price_card_on_kalshi` today**,
+    and the branch is kept anyway. `OrderBook.depth_at_ask` reads the same
+    dict `best_no_bid` maxes over and `_parse_levels` drops any level with
+    `quantity <= 0`, so a derived ask always has a positive size behind it —
+    the two cannot disagree. That is an invariant of a *sibling module*,
+    though, not of this function's signature: `depth` is typed `Optional`
+    because `depth_at_ask` returns `Optional`, and a caller honouring that
+    type must not get a payout invented for it. Unreadable resolves to a
+    refusal, never to a number (`tasks/lessons.md`). Covered by a direct unit
+    call rather than a route test, because the route genuinely cannot produce
+    it — see `tests/test_parlay_lookup.py`.
+    """
+    row: dict = {"stake_display": _dollars(stake_cents)}
+    wanted = stake_cents / (ask_tenths / 10.0)
+    if depth is None:
+        row["contracts_display"] = None
+        row["cost_display"] = None
+        row["payout_display"] = None
+        row["depth_note"] = (
+            "Kalshi's book does not say how many contracts are resting at "
+            "that price, so there is no way to say what this stake would "
+            "actually fill. No payout is shown rather than one you may not "
+            "be able to buy."
+        )
+        return row
+
+    fillable = min(wanted, float(depth))
+    row["contracts_display"] = _contracts_display(fillable)
+    row["cost_display"] = _dollars(fillable * ask_tenths / 10.0)
+    row["payout_display"] = _dollars(fillable * 100.0)
+    row["depth_note"] = (
+        None if fillable >= wanted
+        else (
+            f"Only {_contracts_display(float(depth))} contracts are resting "
+            f"at that price, so {row['stake_display']} cannot all be spent "
+            f"here -- {row['cost_display']} of it buys the book out. The rest "
+            "has nothing to buy unless someone else offers."
+        )
+    )
+    return row
 
 
 def _serialise_leg(leg: CandidateLeg) -> dict:
@@ -324,9 +444,7 @@ def _serialise_card(card: Card) -> dict:
                 if low is not None and high is not None
                 else None
             ),
-            "fair_cost_display": (
-                f"{joint.conservative * 100:.1f}c per $1 contract"
-            ),
+            "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
             "correlation_note": (
                 "Same-night games move together a little; the headline "
                 "already charges for that "
@@ -380,16 +498,50 @@ _COLLECTIONS_TTL_MS = 3_600_000
 _collections_cache: dict = {"at_ms": 0, "items": None}
 
 
+def invalidate_collections_cache() -> None:
+    """Drop the cached collection list.
+
+    Called when a lookup fails against a collection this cache named. The
+    `-R` suffix on collection tickers ROTATES (NEXT.md, 2026-08-23) and the
+    fallback is prefix-matched rather than pinned, so a rotation turns every
+    tap into a 502 against a ticker that no longer exists -- for up to an
+    hour, with no recovery short of restarting the process. A failure is the
+    only evidence available that the list has moved, so it is what clears it.
+    """
+    _collections_cache["items"] = None
+    _collections_cache["at_ms"] = 0
+
+
 async def _collections(api, *, now_ms: int):
+    """The collection list, cached. Raises `LookupRefused` when it cannot.
+
+    **An empty result is never cached.** `fetch_collections` returning `[]` is
+    indistinguishable at this layer from a transient walk failure, and caching
+    it hands the screen "Kalshi lists no combination collection" -- a confident
+    statement about the venue -- for the full hour. Unreadable resolves to a
+    refusal, never to a fact (`tasks/lessons.md`).
+    """
     cache = _collections_cache
     if (
         cache["items"] is not None
         and now_ms - cache["at_ms"] <= _COLLECTIONS_TTL_MS
     ):
         return cache["items"]
-    items = await fetch_collections(api)
-    cache["items"] = items
-    cache["at_ms"] = now_ms
+    try:
+        items = await fetch_collections(api)
+    except Exception as exc:  # noqa: BLE001 -- every transport failure is one refusal
+        # A cold-cache failure used to escape this function and leave FastAPI
+        # to render a bare 500, with no `parlay_lookups` row -- the caller
+        # cannot record what it never learned about. Now it is the same shape
+        # as every other refusal on this path.
+        raise LookupRefused(
+            502,
+            "Kalshi's list of combination collections could not be read "
+            f"({exc}). Nothing was created.",
+        ) from exc
+    if items:
+        cache["items"] = items
+        cache["at_ms"] = now_ms
     return items
 
 
@@ -464,7 +616,9 @@ async def price_card_on_kalshi(
     No fee-net EV anywhere (ADR 0046): the hold is fee-free arithmetic
     (`1 - fair x offered decimal`) and the fee sentence travels beside it.
     """
-    candidates, _ = ladder_candidates(conn, now_ms=now_ms)
+    candidates, _ = ladder_candidates(
+        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+    )
     ladder = build_ladder(candidates, max_odds_age_ms=max_odds_age_ms)
     card = next((c for c in ladder.cards if c.key == card_key), None)
     if card is None:
@@ -485,8 +639,22 @@ async def price_card_on_kalshi(
             "before pricing.",
         )
 
-    legs = list(served)
-    collections = await _collections(api, now_ms=now_ms)
+    # `sorted`, not `list`: `served` is a set, so its iteration order varies
+    # by hash seed across processes. That order is what goes on the wire to
+    # Kalshi and into `selected_legs`, which makes the audit table's rows
+    # incomparable between restarts for no reason at all.
+    legs = sorted(served)
+    try:
+        collections = await _collections(api, now_ms=now_ms)
+    except LookupRefused as exc:
+        # Recorded, then re-raised unchanged. The audit table's docstring
+        # promises a row for every outcome, and a failure to read the
+        # collection list is an outcome.
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="error", error=exc.detail,
+        )
+        raise
     collection = _choose_collection(
         collections, {event for event, _ in served}
     )
@@ -514,6 +682,10 @@ async def price_card_on_kalshi(
             legs=legs, status="error",
             collection_ticker=collection.collection_ticker, error=str(exc),
         )
+        # The collection ticker we just posted to is the most likely thing
+        # that was wrong -- the `-R` suffix rotates and the fallback is
+        # prefix-matched. Without this, one rotation means an hour of 502s.
+        invalidate_collections_cache()
         raise LookupRefused(
             502, f"Kalshi refused the combination: {exc}"
         ) from exc
@@ -532,15 +704,38 @@ async def price_card_on_kalshi(
             502, "Kalshi answered without naming the minted market."
         )
 
-    book_payload = await api.orderbook(minted, depth=10)
-    book = OrderBook(ticker=minted)
-    book.apply_snapshot(book_payload, None, now_ms)
+    # Inside its own try: the market is ALREADY MINTED by the time this runs,
+    # so an httpx timeout / 429 / 5xx here loses a real ticker off the audit
+    # table -- the one outcome where a missing row costs something, because
+    # nothing else in this repo records that the combination now exists.
+    try:
+        book_payload = await api.orderbook(minted, depth=10)
+        book = OrderBook(ticker=minted)
+        book.apply_snapshot(book_payload, None, now_ms)
+    except Exception as exc:  # noqa: BLE001 -- recorded WITH the ticker, then worded
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="error",
+            collection_ticker=collection.collection_ticker, minted=minted,
+            error=f"orderbook after mint: {exc}",
+        )
+        raise LookupRefused(
+            502,
+            f"Kalshi created the market ({minted}) but its order book could "
+            f"not be read ({exc}). Nothing is priced; the combination exists "
+            "and can be looked at in the Kalshi app.",
+        ) from exc
 
     joint = card.joint
     assert joint is not None
+    # The derived-ask identity, through the ONE implementation. `1000 -
+    # best_no_bid` was written out by hand here; `OrderBook.best_yes_ask` is
+    # the same arithmetic via `complement`, and the venue's most-repeated
+    # correction does not need a second copy.
     best_no_bid = book.best_no_bid
+    ask_tenths = book.best_yes_ask
 
-    if best_no_bid is None:
+    if ask_tenths is None:
         _record_lookup(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
             legs=legs, status="book_empty",
@@ -562,7 +757,6 @@ async def price_card_on_kalshi(
             ),
         }
 
-    ask_tenths = 1000 - best_no_bid
     depth = book.depth_at_ask("yes")
     valuation = value_parlay(
         ParlayQuote(
@@ -587,30 +781,22 @@ async def price_card_on_kalshi(
         fair_joint=joint.conservative, hold=valuation.hold,
     )
 
-    contracts = stake_cents / (ask_tenths / 10.0)
     return {
         "status": "priced",
         "minted_market_ticker": minted,
         "quoted": {
             # Derived from the book, stated so the screen can say so: the
             # ask is the complement of the best resting NO bid.
-            "ask_display": f"{ask_tenths / 10:.1f}c per $1 contract",
+            "ask_display": _cost_per_contract(ask_tenths),
             "depth_display": (
                 None if depth is None
                 else f"about {depth:g} contracts resting at that price"
             ),
-            "at_stake": {
-                "stake_display": _dollars(stake_cents),
-                "contracts_display": (
-                    f"~{contracts:,.0f}" if contracts >= 10
-                    else f"~{contracts:.1f}"
-                ),
-                "payout_display": _dollars(contracts * 100.0),
-            },
+            "at_stake": _at_stake(stake_cents, ask_tenths=ask_tenths, depth=depth),
         },
         "fair": {
             "conservative_percent_display": _percent(joint.conservative),
-            "fair_cost_display": f"{joint.conservative * 100:.1f}c per $1 contract",
+            "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
         },
         "hold_display": f"{valuation.hold * 100:.1f}%",
         "verdict": valuation.verdict,
@@ -622,7 +808,9 @@ async def price_card_on_kalshi(
 
 
 def build_ladder_payload(conn, *, now_ms: int, max_odds_age_ms: int) -> dict:
-    candidates, excluded = ladder_candidates(conn, now_ms=now_ms)
+    candidates, excluded = ladder_candidates(
+        conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
+    )
     ladder = build_ladder(candidates, max_odds_age_ms=max_odds_age_ms)
     merged = dict(ladder.excluded)
     for reason, n in excluded.items():

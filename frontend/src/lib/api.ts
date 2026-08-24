@@ -726,10 +726,19 @@ export type ParlayLookupResult =
       quoted: {
         ask_display: string;
         depth_display: string | null;
+        /**
+         * What the stake buys, BOUNDED BY WHAT IS RESTING. `contracts` and
+         * `payout` are null when the book's depth is unreadable — a payout
+         * you may not be able to buy is not a payout, and on an enter-only
+         * market a lone stale bid manufactures a large one (CLAUDE.md rule
+         * 1). `depth_note` says why, whenever there is something to say.
+         */
         at_stake: {
           stake_display: string;
-          contracts_display: string;
-          payout_display: string;
+          contracts_display: string | null;
+          cost_display: string | null;
+          payout_display: string | null;
+          depth_note: string | null;
         };
       };
       fair: {
@@ -748,6 +757,15 @@ export type ParlayLookupResult =
  * `/parlay-lookup` route handler so the bearer token stays server-side.
  * The tap mints a real market on the exchange (no money moves); refusals
  * come back as words, rendered verbatim.
+ *
+ * **Never throws** — `refreshOdds`'s pattern, for the same reason. This
+ * function's caller renders a single button that unmounts while the request
+ * is in flight, so a rejected promise leaves the card saying "Asking
+ * Kalshi…" with nothing to tap. Both failure shapes are covered: the fetch
+ * itself (no connection) and an unreadable body on the ok path (a proxy
+ * page with a 200). A dropped connection is NOT the same as nothing
+ * happening — the POST may have reached Kalshi and minted the market — so
+ * the words say so rather than inviting a blind retry.
  */
 export async function lookupParlay(
   cardKey: string,
@@ -756,16 +774,37 @@ export async function lookupParlay(
 ): Promise<
   { ok: true; value: ParlayLookupResult } | { ok: false; refusal: string }
 > {
-  const response = await fetch("/parlay-lookup", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify({ card_key: cardKey, stake_cents: stakeCents, legs }),
-  });
-  if (response.ok) {
-    return { ok: true, value: (await response.json()) as ParlayLookupResult };
+  let response: Response;
+  try {
+    response = await fetch("/parlay-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ card_key: cardKey, stake_cents: stakeCents, legs }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The request did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). No money moves either way, but the combination may already have ` +
+        "been created on Kalshi — check the app before tapping again.",
+    };
   }
+
   const body: unknown = await response.json().catch(() => null);
+  if (response.ok) {
+    if (body && typeof body === "object" && "status" in body) {
+      return { ok: true, value: body as ParlayLookupResult };
+    }
+    return {
+      ok: false,
+      refusal:
+        "Kalshi's answer came back in a shape this screen cannot read. " +
+        "Nothing is shown rather than a number that might be wrong.",
+    };
+  }
   const detail =
     body && typeof body === "object" && "detail" in body
       ? String((body as { detail: unknown }).detail)

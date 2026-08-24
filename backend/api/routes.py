@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from statistics import NormalDist
 from typing import Annotated, Optional
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -123,6 +124,14 @@ from ..store.orders import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Socket timeout for the combo lookup client. Longer than `LiveQuoteSource`'s
+#: 5s because this path is two REST calls, the first of which asks Kalshi to
+#: MINT a market -- a slow answer there is still an answer, and giving up on it
+#: leaves a real market created with no `parlay_lookups` row naming it. Shorter
+#: than `rest.DEFAULT_TIMEOUT_S` (30s) because a person is waiting with a thumb
+#: on a button.
+COMBO_LOOKUP_TIMEOUT_S = 15.0
 
 
 def recorder_fields(last_ms, now_ms: int) -> dict:
@@ -462,6 +471,27 @@ def create_app(
             quotes["source"] = LiveQuoteSource()
         return quotes["source"]
 
+    # One Kalshi REST client for the combo lookup path, built on the first tap
+    # and shared after -- `LiveQuoteSource`'s pattern, for its reason. Building
+    # one per request cost a `KalshiConfig.load()`, a PEM re-parse and a fresh
+    # `httpx.AsyncClient` (~500ms, almost all SSL context setup) on every tap,
+    # against the "one shared AsyncClient, not one per call" convention; the
+    # discarded sockets are also a port-exhaustion risk under any repeat use.
+    #
+    # Lazy for the same reason the quote source is: `create_app` runs on the
+    # demo deploy too, which holds no Kalshi credentials, and an eager build
+    # would take the public demo down to support a route it does not expose.
+    combo_clients: dict[str, tuple] = {}
+
+    def combo_api():
+        """The shared REST client for `/api/parlays/lookup`. Raises
+        `ConfigError` on a keyless instance, which the route words as a 503."""
+        if "api" not in combo_clients:
+            config = KalshiConfig.load()
+            http = httpx.AsyncClient(timeout=COMBO_LOOKUP_TIMEOUT_S)
+            combo_clients["api"] = (KalshiRestClient(config, client=http), http)
+        return combo_clients["api"][0]
+
     # The ticker. Live instance only: it holds a Kalshi socket open, and the
     # demo deploy carries no credentials by design.
     hub: Optional[QuoteHub] = quote_hub
@@ -488,6 +518,12 @@ def create_app(
         source = quotes.pop("source", None)
         if source is not None:
             await source.aclose()
+        # Same reasoning for the combo lookup client. This one owns its httpx
+        # client outright (it was handed in, so `KalshiRestClient.aclose` will
+        # not close it), which is why the socket is closed here by name.
+        held = combo_clients.pop("api", None)
+        if held is not None:
+            await held[1].aclose()
 
     app = FastAPI(
         title="Kalshi Betting Cockpit",
@@ -2536,7 +2572,7 @@ def create_app(
         `parlay_lookups` row.
         """
         try:
-            kalshi_config = KalshiConfig.load()
+            api = combo_api()
         except ConfigError as exc:
             raise HTTPException(
                 status_code=503,
@@ -2549,18 +2585,17 @@ def create_app(
         # row for every outcome. Async route, one coroutine, one thread.
         write_conn = db.open_db(app_config.db_path)
         try:
-            async with KalshiRestClient(kalshi_config) as api:
-                return await price_card_on_kalshi(
-                    write_conn,
-                    card_key=request.card_key,
-                    stake_cents=request.stake_cents,
-                    requested_legs=[
-                        (l.event_ticker, l.market_ticker) for l in request.legs
-                    ],
-                    now_ms=now,
-                    max_odds_age_ms=staleness.max_odds_age_s * 1000,
-                    api=api,
-                )
+            return await price_card_on_kalshi(
+                write_conn,
+                card_key=request.card_key,
+                stake_cents=request.stake_cents,
+                requested_legs=[
+                    (l.event_ticker, l.market_ticker) for l in request.legs
+                ],
+                now_ms=now,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                api=api,
+            )
         except LookupRefused as exc:
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail

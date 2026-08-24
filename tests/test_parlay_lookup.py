@@ -102,12 +102,17 @@ class FakeCollections:
 
 
 class FakeApi:
-    def __init__(self, book_payload):
+    def __init__(self, book_payload, book_error=None):
         self.book_payload = book_payload
+        self.book_error = book_error
         self.orderbook_calls = []
+        #: One entry per `KalshiRestClient(...)` the route builds.
+        self.constructions: list = []
 
     async def orderbook(self, ticker, depth=10):
         self.orderbook_calls.append((ticker, depth))
+        if self.book_error is not None:
+            raise self.book_error
         return self.book_payload
 
 
@@ -116,7 +121,8 @@ def build(tmp_path, monkeypatch):
     """App factory + monkeypatched exchange surface. Clears the module-level
     collections cache so tests cannot leak into each other."""
     def _build(*, book_payload=CAPTURED_EMPTY_BOOK, response=None,
-               collections=None, lookup_error=None):
+               collections=None, lookup_error=None, book_error=None,
+               collections_error=None, collections_calls=None):
         path = tmp_path / "lookup.db"
         conn = store.init_db(path)
         base = now_ms() - 30_000
@@ -131,6 +137,10 @@ def build(tmp_path, monkeypatch):
         )
 
         async def fake_fetch(api, max_pages=25):
+            if collections_calls is not None:
+                collections_calls.append(1)
+            if collections_error is not None:
+                raise collections_error
             if collections is not None:
                 return collections
             return [FakeCollections([])]
@@ -146,11 +156,16 @@ def build(tmp_path, monkeypatch):
         monkeypatch.setattr(parlays, "fetch_collections", fake_fetch)
         monkeypatch.setattr(parlays, "lookup_combo", fake_lookup)
 
-        fake_api = FakeApi(book_payload)
-        monkeypatch.setattr(
-            "backend.api.routes.KalshiRestClient",
-            lambda config: _ContextApi(fake_api),
-        )
+        fake_api = FakeApi(book_payload, book_error=book_error)
+        # The route now builds ONE client lazily and shares it (2026-08-24
+        # code review, finding 10), so the fake is constructed with the same
+        # `(config, client=...)` signature and its construction count is what
+        # `TestTheClientIsSharedAcrossTaps` reads.
+        def _fake_client(config, client=None):
+            fake_api.constructions.append(1)
+            return fake_api
+
+        monkeypatch.setattr("backend.api.routes.KalshiRestClient", _fake_client)
         monkeypatch.setenv("KALSHI_API_KEY", "key")
         monkeypatch.setenv(
             "KALSHI_PRIVATE_KEY_PATH", str(_pem(tmp_path))
@@ -162,17 +177,6 @@ def build(tmp_path, monkeypatch):
         )
         return app, fake_api, path
     return _build
-
-
-class _ContextApi:
-    def __init__(self, api):
-        self.api = api
-
-    async def __aenter__(self):
-        return self.api
-
-    async def __aexit__(self, *exc_info):
-        return False
 
 
 def _pem(tmp_path) -> Path:
@@ -222,13 +226,45 @@ def _lookup_rows(path):
     return rows
 
 
-#: A populated combo book in the captured envelope: one resting NO bid at
-#: $0.985 (98.5c = 985 tenths), 18 units — the deepest resting order the
-#: combo record has ever seen, E2's shape.
-POPULATED_BOOK = {
-    "yes_dollars": [],
-    "no_dollars": [["0.9850", "18.00"]],
-}
+def _with_no_bid(price_dollars: str, size: str) -> dict:
+    """The CAPTURED empty combo book with one resting NO level added.
+
+    **Why this is built rather than loaded** (2026-08-24 code review, the
+    cut-by-cap finding on hand-constructed payloads). The wire-format rule
+    says fixtures load captured payloads, and its one recorded exception is
+    MLBAM (ADR 0035). This is not a second exception: **no populated
+    combination book has ever existed to capture.** `yes_dollars` is empty on
+    40 of 40 combo books this repo has ever read, and the resting NO side was
+    empty on both of the freshly minted markets captured 2026-08-23. The
+    market shape the desk must price is one nobody here has yet observed.
+
+    So the ENVELOPE is captured — this starts from
+    `combo_lookup_orderbook.json` and asserts its key set is unchanged — and
+    only the level inside it is synthetic. That is the same construction ADR
+    0035 blessed for MLB: a synthetic payload with a shape assertion, rather
+    than a hand-typed dict that could drift from the wire silently. If a
+    populated combo book is ever captured, this function is what it replaces.
+    """
+    assert set(CAPTURED_EMPTY_BOOK) == {"yes_dollars", "no_dollars"}, (
+        "the captured combo orderbook envelope changed shape -- this "
+        "synthetic level is built on it and must be rechecked"
+    )
+    assert not CAPTURED_EMPTY_BOOK["no_dollars"], (
+        "the captured book is supposed to be the EMPTY one"
+    )
+    book = {k: list(v) for k, v in CAPTURED_EMPTY_BOOK.items()}
+    book["no_dollars"] = [[price_dollars, size]]
+    return book
+
+
+#: A populated combo book: one resting NO bid at $0.985 (98.5c = 985 tenths),
+#: 18 units — the deepest resting order the combo record has ever seen, E2's
+#: shape, in the captured envelope.
+POPULATED_BOOK = _with_no_bid("0.9850", "18.00")
+
+#: The same book with depth far exceeding any preset stake, so the depth cap
+#: is not what bounds the fill.
+DEEP_BOOK = _with_no_bid("0.9850", "5000.00")
 
 
 class TestRefusals:
@@ -317,6 +353,14 @@ class TestTheCapturedShapes:
 
 class TestPricing:
     async def test_the_ask_is_the_complement_of_the_best_no_bid(self, build):
+        """**Inverted 2026-08-24** (code review, finding 4). This test used to
+        assert `~333` contracts and a `$333.33` payout on a book with about
+        eighteen contracts resting, and called that "the cousin's arithmetic".
+        It is not: 315 of those 333 contracts do not exist. On an enter-only
+        market a single stale NO bid at 1.5c manufactures exactly the giant
+        apparent number CLAUDE.md rule 1 exists to suppress, and the payout
+        slot is the most flattering place it could be shown. The payout is now
+        bounded by the resting depth."""
         app, fake_api, path = build(book_payload=POPULATED_BOOK)
         legs = await _served_legs(app)
         response = await post(
@@ -330,9 +374,13 @@ class TestPricing:
         # 1000 - 985 = 15 tenths = 1.5c
         assert body["quoted"]["ask_display"] == "1.5c per $1 contract"
         assert "18" in body["quoted"]["depth_display"]
-        # $5 at 1.5c -> ~333 contracts -> ~$333 — the cousin's arithmetic.
-        assert body["quoted"]["at_stake"]["contracts_display"] == "~333"
-        assert body["quoted"]["at_stake"]["payout_display"] == "$333.33"
+        # $5 at 1.5c WANTS 333 contracts; 18 rest, so 18 is what it buys --
+        # 27c spent, $18 back if every leg hits.
+        at_stake = body["quoted"]["at_stake"]
+        assert at_stake["contracts_display"] == "~18"
+        assert at_stake["cost_display"] == "$0.27"
+        assert at_stake["payout_display"] == "$18.00"
+        assert "cannot all be spent" in at_stake["depth_note"]
         assert body["hold_display"].endswith("%")
         assert "hold" in body["verdict"].lower() or "EV" in body["verdict"]
         rows = _lookup_rows(path)
@@ -360,3 +408,205 @@ class TestPricing:
                 for value in node:
                     walk(value)
         walk(body)
+
+
+class TestThePayoutCannotExceedTheBook:
+    """2026-08-24 code review, finding 4 — CLAUDE.md rule 1 on a payout.
+
+    A depth-blind `stake / ask` turns one stale resting bid on an enter-only
+    market into a four-figure payout on the card. These pin that the number
+    shown is one the book could actually fill.
+    """
+
+    async def test_a_deep_book_is_not_capped(self, build):
+        """The cap must bind only when depth actually binds -- otherwise it
+        is a silent haircut on every quote."""
+        app, _, _ = build(book_payload=DEEP_BOOK)
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "stake_cents": 500, "legs": legs},
+            headers=HEADERS,
+        )).json()
+        at_stake = body["quoted"]["at_stake"]
+        # 5,000 resting against 333 wanted: the stake is what binds.
+        assert at_stake["contracts_display"] == "~333"
+        assert at_stake["payout_display"] == "$333.33"
+        assert at_stake["cost_display"] == "$5.00"
+        assert at_stake["depth_note"] is None
+
+    async def test_a_zero_size_level_is_an_empty_book_not_a_free_payout(
+        self, build
+    ):
+        """The route's own answer to "what if depth is nothing".
+
+        `_parse_levels` drops any level with `quantity <= 0`, so a resting NO
+        bid of size zero leaves no book at all — which is the `book_empty`
+        refusal, not a price with an unbounded payout behind it. This is why
+        the `depth is None` branch below is tested directly instead.
+        """
+        app, _, _ = build(book_payload=_with_no_bid("0.9850", "0"))
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "stake_cents": 500, "legs": legs},
+            headers=HEADERS,
+        )).json()
+        assert body["status"] == "book_empty"
+
+    def test_an_unreadable_depth_shows_no_payout_at_all(self):
+        """Unreadable resolves to a refusal, never to a number.
+
+        Called directly, because the route cannot reach it (the test above
+        says why): `depth_at_ask` is typed `Optional` and this function must
+        honour that type rather than invent a payout for a caller who does.
+        """
+        at_stake = parlays._at_stake(500, ask_tenths=15, depth=None)
+        assert at_stake["payout_display"] is None
+        assert at_stake["contracts_display"] is None
+        assert at_stake["cost_display"] is None
+        assert at_stake["depth_note"] is not None
+        # The stake the person asked about is still named -- a refusal that
+        # drops the question is not an answer.
+        assert at_stake["stake_display"] == "$5.00"
+
+
+class TestEveryOutcomeAfterTheMintIsRecorded:
+    """2026-08-24 code review, findings 3 and 5.
+
+    `parlay_lookups`' docstring promises a row for every outcome. Two paths
+    escaped it: the order-book fetch that runs AFTER the market is minted,
+    and a cold-cache failure reading the collection list.
+    """
+
+    async def test_a_failed_book_read_keeps_the_minted_ticker(self, build):
+        """The one outcome where a missing row costs something: the market
+        exists on the exchange and nothing else in this repo records that."""
+        app, _, path = build(book_error=RuntimeError("read timeout"))
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 502
+        rows = _lookup_rows(path)
+        assert [r["status"] for r in rows] == ["error"]
+        assert rows[0]["minted_market_ticker"] == CAPTURED_RESPONSE["market_ticker"]
+        assert "orderbook after mint" in rows[0]["error"]
+        # And the words name the ticker, so it is recoverable by hand.
+        assert CAPTURED_RESPONSE["market_ticker"] in response.json()["detail"]
+
+    async def test_a_cold_collections_failure_is_a_row_not_a_500(self, build):
+        app, _, path = build(collections_error=RuntimeError("HTTP 503"))
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 502
+        rows = _lookup_rows(path)
+        assert [r["status"] for r in rows] == ["error"]
+        assert rows[0]["minted_market_ticker"] is None
+        assert "HTTP 503" in rows[0]["error"]
+
+
+class TestTheCollectionsCacheCannotStrand:
+    """2026-08-24 code review, finding 5's other two halves."""
+
+    async def test_an_empty_result_is_not_cached(self, build):
+        """`[]` is indistinguishable from a failed page walk at this layer.
+        Cached, it hands the screen a confident statement about the venue for
+        a full hour."""
+        calls: list = []
+        app, _, _ = build(collections=[], collections_calls=calls)
+        legs = await _served_legs(app)
+        for _ in range(2):
+            body = (await post(
+                app, "/api/parlays/lookup",
+                {"card_key": "safe", "legs": legs}, headers=HEADERS,
+            )).json()
+            assert body["status"] == "no_collection"
+        assert len(calls) == 2, (
+            "an empty collection list must be re-read, not served from cache"
+        )
+
+    async def test_a_failed_lookup_drops_the_cache(self, build):
+        """The `-R` suffix on collection tickers rotates and the fallback is
+        prefix-matched, so the ticker this cache named is the most likely
+        thing that was wrong. Without this, one rotation is an hour of 502s
+        with no recovery short of a restart."""
+        calls: list = []
+        app, _, _ = build(
+            lookup_error=RuntimeError("HTTP 404 no such collection"),
+            collections_calls=calls,
+        )
+        legs = await _served_legs(app)
+        for _ in range(2):
+            response = await post(
+                app, "/api/parlays/lookup",
+                {"card_key": "safe", "legs": legs}, headers=HEADERS,
+            )
+            assert response.status_code == 502
+        assert len(calls) == 2, (
+            "a failed lookup must invalidate the collections cache"
+        )
+
+    async def test_a_good_list_is_still_cached(self, build):
+        """The cache has to keep working -- `fetch_collections` walks up to
+        25 pages and a per-tap fetch would spend seconds of rate budget."""
+        calls: list = []
+        app, _, _ = build(book_payload=POPULATED_BOOK, collections_calls=calls)
+        legs = await _served_legs(app)
+        for _ in range(2):
+            body = (await post(
+                app, "/api/parlays/lookup",
+                {"card_key": "safe", "legs": legs}, headers=HEADERS,
+            )).json()
+            assert body["status"] == "priced"
+        assert len(calls) == 1
+
+
+class TestTheLegOrderIsDeterministic:
+    async def test_the_recorded_legs_are_sorted(self, build):
+        """2026-08-24 code review, finding 6. `list(set)` varies by hash seed
+        across processes, and that order is both what goes on the wire to
+        Kalshi and what lands in `selected_legs` -- which makes the audit
+        table's rows incomparable between restarts for no reason."""
+        app, _, path = build(book_payload=POPULATED_BOOK)
+        legs = await _served_legs(app)
+        await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        recorded = json.loads(_lookup_rows(path)[0]["selected_legs"])
+        pairs = [(r["event_ticker"], r["market_ticker"]) for r in recorded]
+        assert pairs == sorted(pairs)
+
+
+class TestTheClientIsSharedAcrossTaps:
+    async def test_one_client_serves_every_tap(self, build):
+        """2026-08-24 code review, finding 10.
+
+        The route built a `KalshiConfig.load()` + PEM re-parse + fresh
+        `httpx.AsyncClient` per request -- ~500ms of SSL context setup a tap,
+        against this repo's "one shared AsyncClient, not one per call"
+        convention, with the discarded sockets a port-exhaustion risk under
+        repeat use. `LiveQuoteSource` had the pattern already.
+        """
+        app, fake_api, _ = build(book_payload=POPULATED_BOOK)
+        legs = await _served_legs(app)
+        for _ in range(3):
+            response = await post(
+                app, "/api/parlays/lookup",
+                {"card_key": "safe", "legs": legs}, headers=HEADERS,
+            )
+            assert response.status_code == 200
+        assert len(fake_api.constructions) == 1
+        assert len(fake_api.orderbook_calls) == 3
+
+    async def test_it_is_built_lazily_not_at_boot(self, build):
+        """The demo deploy runs `create_app` from the same image and holds no
+        Kalshi credentials. A client built eagerly takes the public demo down
+        to support a route the demo does not expose."""
+        app, fake_api, _ = build()
+        assert fake_api.constructions == []

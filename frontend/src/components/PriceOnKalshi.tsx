@@ -19,6 +19,21 @@ import Term from "@/components/Term";
  * hold, the server's verdict verbatim), an empty book (the captured reality
  * of a fresh combo — an honest refusal, not a price), no collection, and a
  * refusal (409 when the slate drifted). Nothing is retried silently.
+ *
+ * **Every non-final state offers a way back.** An empty book is the
+ * *expected* first answer on a fresh combo and its own words say "try again
+ * shortly" — so a second tap has to be reachable without reloading the page.
+ * Same for a refusal: a 409 means the slate drifted, and the honest next
+ * move is a refresh, which the words name. A priced answer is final and
+ * carries no retry: re-asking a question already answered is how a screen
+ * invites tapping for a better number.
+ *
+ * **The second tap is safe, and that was measured before this button
+ * shipped** (2026-08-24): posting the same legs again returns 200 with the
+ * same `market_ticker`, so a retry re-reads the existing market's book
+ * rather than minting another or being refused. See
+ * `tests/fixtures/combo_lookup_repeat.json`. Had it come back 409, this
+ * control would have been wrong to add.
  */
 export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
   const [state, setState] = useState<
@@ -35,20 +50,37 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
 
   const tap = async () => {
     setState({ kind: "working" });
-    const result = await lookupParlay(
-      card.key,
-      stake?.stake_cents ?? 500,
-      card.legs.map((l) => ({
-        event_ticker: l.event_ticker,
-        market_ticker: l.ticker,
-      })),
-    );
-    if (result.ok) {
-      setState({ kind: "done", value: result.value });
-    } else {
-      setState({ kind: "refused", words: result.refusal });
+    // `lookupParlay` never throws -- but a throw here would strand the card
+    // in "working" with its only button unmounted, so the guard is kept
+    // rather than resting on the other module's promise.
+    try {
+      const result = await lookupParlay(
+        card.key,
+        stake?.stake_cents ?? 500,
+        card.legs.map((l) => ({
+          event_ticker: l.event_ticker,
+          market_ticker: l.ticker,
+        })),
+      );
+      if (result.ok) {
+        setState({ kind: "done", value: result.value });
+      } else {
+        setState({ kind: "refused", words: result.refusal });
+      }
+    } catch (error) {
+      setState({
+        kind: "refused",
+        words: `The lookup could not be completed (${
+          error instanceof Error ? error.message : "unknown error"
+        }). Nothing was priced.`,
+      });
     }
   };
+
+  const again = () => setState({ kind: "idle" });
+  const retryable =
+    state.kind === "refused" ||
+    (state.kind === "done" && state.value.status !== "priced");
 
   return (
     <div className="mt-3 border-t border-border pt-3">
@@ -73,6 +105,17 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
         <p className="text-sm text-accent-2">{state.words}</p>
       )}
       {state.kind === "done" && <Result value={state.value} />}
+      {retryable && (
+        // Not `bg-accent`: the red slot is the money-adjacent *first* tap.
+        // A retry of a refusal is the same action, but the screen has
+        // already said what it does, so it does not shout twice.
+        <button
+          onClick={again}
+          className="mt-2 rounded border border-border px-3 py-1.5 text-sm font-semibold"
+        >
+          Ask Kalshi again
+        </button>
+      )}
     </div>
   );
 }
@@ -89,11 +132,25 @@ function Result({ value }: { value: ParlayLookupResult }) {
       {value.quoted.depth_display && (
         <p className="text-xs text-muted">{value.quoted.depth_display}</p>
       )}
-      <p className="tabular">
-        {value.quoted.at_stake.stake_display} →{" "}
-        {value.quoted.at_stake.contracts_display} contracts →{" "}
-        {value.quoted.at_stake.payout_display} if all hit
-      </p>
+      {/*
+        The stake line is bounded by the book (server-side). When depth is
+        unreadable there is no contracts/payout to render at all -- only the
+        note saying so, which is the honest answer rather than a number
+        nobody can fill.
+      */}
+      {value.quoted.at_stake.payout_display !== null && (
+        <p className="tabular">
+          {value.quoted.at_stake.stake_display} →{" "}
+          {value.quoted.at_stake.contracts_display} contracts (
+          {value.quoted.at_stake.cost_display}) →{" "}
+          {value.quoted.at_stake.payout_display} if all hit
+        </p>
+      )}
+      {value.quoted.at_stake.depth_note && (
+        <p className="text-xs text-accent-2">
+          {value.quoted.at_stake.depth_note}
+        </p>
+      )}
       <p className="text-xs text-muted">
         Fair value {value.fair.fair_cost_display} ·{" "}
         <Term k="hold">hold</Term> {value.hold_display}
