@@ -118,20 +118,36 @@ function Card({ card }: { card: ParlayCardData }) {
   );
 }
 
+/**
+ * What a stake would buy IF the combination priced at fair value.
+ *
+ * **Drawn as an estimate, deliberately, and never as the card's loudest
+ * number** (ADR 0071 section 2.8). These figures are honest -- nothing has
+ * been quoted when this renders -- but they are also the *larger* pair and
+ * they arrive *first*, and a reader trusts the first number they saw. The
+ * quoted line in `PriceOnKalshi` is bounded by resting depth
+ * (`backend/parlays.py:385`, `min(wanted, depth)`); this one cannot be,
+ * because no book has been consulted, so it is systematically the more
+ * flattering of the two.
+ *
+ * So: muted throughout, no bold on the default row, and an inset rule that
+ * marks the whole block as provisional. The one thing NOT done is hiding or
+ * removing the number -- a card that cannot say what a stake buys is not a
+ * card, and CLAUDE.md rule 1 is about suppressing an apparent *edge*, not an
+ * arithmetic consequence of a fair value the card already states.
+ */
 function Stakes({ card }: { card: ParlayCardData }) {
   if (card.at_stakes.length === 0) return null;
   return (
     <div className="mt-3 border-t border-border pt-2">
       <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-        At fair value, a stake would buy
+        If it priced at fair value — an estimate, not a quote
       </h3>
-      <ul className="mt-1 space-y-0.5">
+      <ul className="mt-1 space-y-0.5 border-l-2 border-border pl-2">
         {card.at_stakes.map((stake) => (
           <li
             key={stake.stake_cents}
-            className={`tabular flex justify-between text-xs ${
-              stake.is_default ? "font-semibold" : "text-muted"
-            }`}
+            className="tabular flex justify-between text-xs italic text-muted"
           >
             <span>{stake.stake_display}</span>
             <span>
@@ -141,6 +157,11 @@ function Stakes({ card }: { card: ParlayCardData }) {
           </li>
         ))}
       </ul>
+      <p className="mt-1 text-[11px] leading-snug text-muted">
+        Nobody has offered this price. Ask Kalshi below for the real one — it
+        is usually worse, and it is capped by how many contracts are actually
+        resting, which this estimate is not.
+      </p>
     </div>
   );
 }

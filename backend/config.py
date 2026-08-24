@@ -178,12 +178,57 @@ def _bool(key: str, default: bool = False) -> bool:
 @dataclass(frozen=True)
 class KalshiConfig:
     api_key: str
-    private_key_path: Path
+    # `None` means **no credentials, public reads only** -- see `load`. It is
+    # None rather than a placeholder path because `KalshiRestClient` branches on
+    # exactly this, and a stand-in like `Path(os.devnull)` would read as
+    # "configured" to every check that only asks whether the field is set.
+    private_key_path: Optional[Path]
     rest_url: str
     ws_url: str
 
+    @property
+    def is_public_read_only(self) -> bool:
+        """Whether this config carries no credentials at all."""
+        return self.private_key_path is None
+
     @classmethod
     def load(cls) -> "KalshiConfig":
+        """Credentials from the environment, or an explicit public-read config.
+
+        **`KALSHI_PUBLIC_READ_ONLY=true` is an opt-in, never a fallback.** With
+        it unset (the default) a missing key raises exactly as it always has,
+        because on the live instance a missing credential must be loud: silently
+        degrading to public reads would leave the runner apparently healthy
+        while writing no portfolio, no fills and no settlements, which is the
+        failure mode `docker/entrypoint.sh:110-116` refuses to start into.
+
+        The flag exists for the case ADR 0071 section 2.4 names: somebody who
+        cloned this repo and wants to see it work before deciding whether to
+        register for a Kalshi key. Market discovery, market data and orderbooks
+        are served **unauthenticated** by Kalshi -- measured by hand 2026-08-09
+        and re-verified 2026-08-24 (`/markets`, `/events` and
+        `/markets/{ticker}/orderbook` all 200 with no headers, while
+        `/portfolio/balance` is 401). `KalshiRestClient` enforces that boundary
+        rather than trusting it; see `PUBLIC_READ_PREFIXES` there.
+
+        What a public-read instance cannot do, by construction: read a balance,
+        read positions, mirror fills or settlements, or place an order. Those
+        paths refuse with `KalshiCredentialsRequired` rather than reaching the
+        exchange and receiving a 401 nobody attributed.
+        """
+        if _bool("KALSHI_PUBLIC_READ_ONLY", False):
+            return cls(
+                api_key="",
+                private_key_path=None,
+                rest_url=_optional(
+                    "KALSHI_REST_URL",
+                    "https://api.elections.kalshi.com/trade-api/v2",
+                ),
+                ws_url=_optional(
+                    "KALSHI_WS_URL",
+                    "wss://api.elections.kalshi.com/trade-api/ws/v2",
+                ),
+            )
         path = Path(_require("KALSHI_PRIVATE_KEY_PATH")).expanduser()
         if not path.exists():
             raise ConfigError(

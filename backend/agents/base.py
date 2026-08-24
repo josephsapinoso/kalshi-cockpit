@@ -383,6 +383,31 @@ async def structured_call(
     In dollars this is small -- 985 cached tokens at the 0.25x premium is a
     fraction of a cent a call against a ~$0.084 ceiling. It is corrected because
     a false stated rationale is how the next reader justifies the next thing.
+
+    **On the deployed model since 2026-08-24, this breakpoint caches nothing,
+    and that is expected rather than broken.** ADR 0071 section 2.7 moved live
+    to `claude-sonnet-5`, whose minimum cacheable prefix is **1024 tokens**
+    against Claude Opus 5's 512 (`scripts/measure_agent_cache_prefix.py:47-50`).
+    Every prefix measured on 2026-08-08 -- 985 skeptic, 876 historian, 738
+    scout -- clears 512 and none clears 1024. So `cache_creation_input_tokens`
+    and `cache_read_input_tokens` are now **0 on every live call**, silently,
+    exactly as the comment above HOUSE_CONTEXT warns a too-short prefix always
+    fails.
+
+    Do not "fix" this by padding the prompt. The trade was made knowingly: a
+    Sonnet call is cheaper uncached than an Opus call cached, and the caching
+    was already documented above as worth a fraction of a cent against a
+    ~$0.084 ceiling, recovered across passes rather than within one. Growing a
+    system prompt past 1024 tokens to win back a fraction of a cent would cost
+    more in input tokens than it saves.
+
+    **Not measured: the scout-desk and pro-bettor seats.** The 2026-08-08 table
+    covers skeptic, scout and historian. The four seats that actually spend
+    money on live today (`agents/scout_desk.py`, `agents/pro_bettor.py`) have
+    never had their prefixes counted, so whether any of them clears 1024 is
+    unknown. `scripts/measure_agent_cache_prefix.py` answers it for free --
+    `count_tokens` is not billed -- and nobody has run it since the seats were
+    built.
     """
     kwargs: dict[str, Any] = {
         "model": model,

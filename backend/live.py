@@ -26,17 +26,28 @@ replaced with sourced ones rather than corrected in place, because one of them
 should never have been a number at all.
 
 - *"six a sweep"*. A sweep costs `len(markets) x len(regions)`
-  (`odds/budget.py:68`), and `fly.live.toml` sets `ODDS_MARKETS = "h2h"` and
-  `ODDS_REGIONS = "us,eu"`. **A deployed sweep costs 2**, and has for as long as
-  that file has said so — the 6 described a three-market configuration that ran
-  on a laptop, never on the box.
+  (`odds/budget.py:68`), and `fly.live.toml` sets `ODDS_MARKETS =
+  "h2h,spreads"` (`:357`) and `ODDS_REGIONS = "us,eu"` (`:308`). **A deployed
+  sweep costs 4.** The 6 described a three-market configuration that ran on a
+  laptop, never on the box.
 - *"~16 credits a day"*. That is `ODDS_DAILY_CREDIT_BUDGET`'s **code default**
-  (`config.py:253`), not a rate anybody measured, and the deployed value is
-  `600` (`fly.live.toml:214`) under a 13,000 monthly ceiling. The measurement
-  that would have supported a daily figure declines to publish one —
-  `docs/measurements/2026-08-17-odds-credit-run-rate.md` section 6: *"No daily
-  rate is published from this. One window is not a day."* So no daily figure is
-  quoted here either.
+  (`config.py:295`), not a rate anybody measured, and the deployed value is
+  `700` (`fly.live.toml:222`) under an 18,000 monthly ceiling (`:233`). The
+  measurement that would have supported a daily figure declines to publish one
+  — `docs/measurements/2026-08-17-odds-credit-run-rate.md` section 6: *"No
+  daily rate is published from this. One window is not a day."* So no daily
+  figure is quoted here either.
+
+**And this correction block went stale itself, which is the actual lesson.**
+Every number in the two bullets above was re-corrected on 2026-08-24 (ADR
+0071 §4): the sweep moved 2 -> 4 when `ODDS_MARKETS` gained `spreads` on
+2026-08-23, and the caps moved 600/13,000 -> 700/18,000 in the same change.
+Three other sites drifted with it — `.env.example`, `odds/ondemand.py` and
+`fly.live.toml`'s own prop-tap comment — because they each restate a figure
+that lives in exactly one place. A docstring that *cites* `fly.live.toml:357`
+is sourced; one that *repeats* the value is a copy with a decay rate, and
+writing "here is the corrected number" does not change that. Prefer the
+citation to the number wherever the reader can follow it.
 
 Both came from `docs/adr/0003-parallel-sessions-and-subagents.md:61`, which is
 from before either value was deployed. A number copied out of an early ADR into

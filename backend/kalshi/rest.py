@@ -60,6 +60,54 @@ DEFAULT_MAX_RETRIES = 4
 DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_PAGE_LIMIT = 200
 
+# Path prefixes Kalshi serves without a signature, and the ONLY paths a
+# credential-free client may reach (`KALSHI_PUBLIC_READ_ONLY`, ADR 0071
+# section 2.4).
+#
+# **An allowlist, not a denylist, and that direction is the whole point.** A
+# denylist of private prefixes would let a new Kalshi endpoint default to
+# reachable; this defaults to refused. A path that is genuinely public and not
+# listed here costs somebody one line and a measurement. A private path that
+# slipped through a denylist would be a credential-free client reaching for an
+# account.
+#
+# Measured by hand 2026-08-09 and re-verified 2026-08-24 against
+# `api.elections.kalshi.com`: `/markets?limit=1` -> 200, `/events?limit=1&
+# status=open` -> 200, `/markets/{ticker}/orderbook` -> 200, all with no
+# headers at all, while `/portfolio/balance` -> 401. The re-verification
+# mattered: ADR 0012's pinned combo endpoint had gone dead by 2026-08-23, so a
+# Kalshi path measured once is not a Kalshi path measured.
+#
+# `/markets` covers `/markets/{ticker}` and `/markets/{ticker}/orderbook` by
+# prefix. `/portfolio`, `/exchange` and every write path are absent
+# deliberately.
+PUBLIC_READ_PREFIXES = ("/markets", "/events")
+
+
+class KalshiCredentialsRequired(RuntimeError):
+    """A credential-free client was asked for something only a key can reach.
+
+    Raised *before* the request leaves the process. Letting it go and reading
+    the 401 back would work, but it would put the reason in Kalshi's response
+    body rather than in the traceback, and a 401 in a log is attributed to a
+    broken key far more often than to a client that never had one.
+    """
+
+
+def is_public_read(method: str, path: str) -> bool:
+    """Whether Kalshi serves `method path` with no signature.
+
+    GET only: the prefixes below are read endpoints, and a POST to a read path
+    is not a read. Split on `?` because callers pass query strings through.
+    """
+    if method.upper() != "GET":
+        return False
+    bare = path.split("?", 1)[0]
+    return any(
+        bare == prefix or bare.startswith(prefix + "/")
+        for prefix in PUBLIC_READ_PREFIXES
+    )
+
 # Retried: transient. Not retried: anything that means the request itself is
 # wrong, because retrying a 400 just produces four 400s.
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -161,7 +209,13 @@ class KalshiRestClient:
         client: Optional[httpx.AsyncClient] = None,
     ):
         self.config = config
-        self.auth = auth or KalshiAuth(config.api_key, config.private_key_path)
+        # `None` means credential-free: `request` will refuse anything outside
+        # PUBLIC_READ_PREFIXES rather than send an unsigned private request.
+        # Constructing KalshiAuth here would need a PEM that does not exist.
+        if auth is None and config.private_key_path is None:
+            self.auth: Optional[KalshiAuth] = None
+        else:
+            self.auth = auth or KalshiAuth(config.api_key, config.private_key_path)
         self.base_url = config.rest_url.rstrip("/")
         self.max_retries = max_retries
         self._limiter = _RateLimiter(rate_limit_per_second)
@@ -207,6 +261,17 @@ class KalshiRestClient:
         `path` is the endpoint below the API prefix, e.g. `/portfolio/balance`.
         The prefix is added by `signed_path`, derived from `base_url`.
         """
+        # Refused here, outside the retry loop, before the rate limiter and
+        # before any socket: a missing credential is not a transient failure
+        # and retrying it four times with backoff would turn one clear error
+        # into thirty seconds of silence.
+        if self.auth is None and not is_public_read(method, path):
+            raise KalshiCredentialsRequired(
+                f"{method} {path} needs a Kalshi API key, and this client has "
+                "none (KALSHI_PUBLIC_READ_ONLY). Public reads are limited to "
+                f"GET {', '.join(PUBLIC_READ_PREFIXES)}."
+            )
+
         query = urlencode({k: v for k, v in (params or {}).items() if v is not None})
         url = f"{self.base_url}{path}" + (f"?{query}" if query else "")
 
@@ -218,8 +283,17 @@ class KalshiRestClient:
             # Signed fresh each attempt: the timestamp is part of the signed
             # message, and a retry after a long backoff would otherwise present
             # a stale timestamp and fail as a clock-skew 401.
-            headers = self.auth.get_rest_headers(
-                method, signed_path(self.base_url, path, query)
+            #
+            # No headers at all when credential-free -- not empty signatures.
+            # The path was already checked against PUBLIC_READ_PREFIXES above,
+            # so reaching here with `auth is None` means Kalshi serves this
+            # unauthenticated.
+            headers = (
+                {}
+                if self.auth is None
+                else self.auth.get_rest_headers(
+                    method, signed_path(self.base_url, path, query)
+                )
             )
 
             try:

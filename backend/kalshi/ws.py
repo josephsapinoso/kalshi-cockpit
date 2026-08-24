@@ -41,6 +41,7 @@ from websockets.exceptions import ConnectionClosed
 from ..config import KalshiConfig
 from .auth import KalshiAuth
 from .orderbook import MalformedBookMessage, OrderBook, SequenceGap
+from .rest import KalshiCredentialsRequired
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,19 @@ class KalshiWebSocket:
         on_feed_down: Optional[Callable[[str], None]] = None,
     ):
         self.config = config
+        # The socket has no public half: Kalshi's `/trade-api/ws/v2` authenticates
+        # at the handshake, so unlike the REST client there is no subset of it a
+        # credential-free instance can reach. Refused at construction with the
+        # setting named, rather than letting `KalshiAuth(None)` raise about a
+        # path -- a stranger running KALSHI_PUBLIC_READ_ONLY should be told the
+        # ticker is off, not handed a traceback about a PEM.
+        if auth is None and config.private_key_path is None:
+            raise KalshiCredentialsRequired(
+                "The live ticker needs a Kalshi API key and this instance has "
+                "none (KALSHI_PUBLIC_READ_ONLY). Public reads cover market "
+                "data over REST; the WebSocket feed authenticates at the "
+                "handshake and has no unauthenticated mode."
+            )
         self.auth = auth or KalshiAuth(config.api_key, config.private_key_path)
         self.tickers = list(dict.fromkeys(tickers))  # de-dupe, keep order
         self.receive_timeout_s = receive_timeout_s

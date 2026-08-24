@@ -111,8 +111,18 @@ registration forbids declaring below G = 300 and that look has not been taken.
 
 **For planning, treat it as settled.** `beta` would have to rise **8.3 standard
 errors** for the G = 300 outcome to be anything but NO SIGNAL. **Waiting for the
-remaining ~101 clusters is not work.** The recorder keeps running because it
-costs nothing and the look happens on its own; no roadmap may depend on it.
+remaining ~101 clusters is not work.** The recorder keeps running and the look
+happens on its own; no roadmap may depend on it.
+
+**It does not run for free, and this paragraph used to say it did.** Corrected
+2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM
+fleet — the runner imports `review_retired`, which refuses every row and calls
+nothing (`backend/agents/review.py:406`) — and **false of the odds feed the
+recorder was raised to buy**: ~576 credits/day, ~17,300/month, against an
+18,000 self-cap on a 20,000 paid tier (`fly.live.toml:242-250`). The claim was
+written when a sweep cost 2 credits under `h2h`; `ODDS_MARKETS = "h2h,spreads"`
+doubled it on 2026-08-23 and nobody revisited the sentence. The recorder is
+cheap to *decide about*, not free to run.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
@@ -167,7 +177,8 @@ multiplies an edge, it cannot create one**, and no quadrant supplied one to
 multiply. `backend/analysis/signal_test.py` remains signal-agnostic and would
 validate a new signal on the same clock — but **no new hunting line is opened
 here.** A proposal to reopen must name which row above it overturns, and with
-what measurement. The recorder keeps running because it costs nothing.
+what measurement. The recorder keeps running — at the odds-feed cost corrected
+above, not for free.
 
 **The premise, stated honestly:** Kalshi's advantage is cost, not information.
 Prices are accurate to ~2c and sports is the most bot-contested corner of the
@@ -210,6 +221,31 @@ Joe does by hand: the gate guards `OrderPlacer`, and `ORDERS_ARE_DRY_RUNS = True
 (`backend/store/orders.py:129`) means the tool has never placed an order at all.
 **Do not cite ADR 0018 for this** — it decides that arming is a code change, not
 anything about Joe's discretion; see ADR 0038's sourcing correction.
+
+## What it is for now that the hunt is closed — ADR 0071
+
+ADR 0038 closed the hunt and said nothing about what the tool is *for*
+afterwards, so every session re-derived it. Settled with Joe 2026-08-24, in
+his own answers, and recorded in **ADR 0071 — read it before planning**:
+
+- **A personal betting desk first**, a portfolio repo second, a hunting
+  instrument not at all. Joe bets by hand whether or not this exists; the
+  desk informs and records bets that are happening anyway. It does not
+  manufacture action and does not abstain on his behalf.
+- **Its job at the moment of a bet is price transparency** — what Kalshi
+  charges against what the sharp consensus says it is worth. Chosen by him
+  over "brake the bad bets" and over "just keep a clean record".
+- **A per-row fact is transparency; an ordering is a claim.** The
+  consensus-vs-Kalshi gap may be *shown* on a row and must never be *ranked
+  by*: `beta = -0.141` means ranking by it puts the least trustworthy rows
+  at the top of the screen. This is the live application of ADR 0038, not an
+  exception to it.
+- **Sharing means someone runs their own copy.** Kalshi's Developer
+  Agreement §3.1 forbids sharing API-derived data with third parties without
+  prior written authorization, so a hosted instance friends can visit is
+  non-compliant; their own instance on their own key is the permitted case.
+  Do not design for hypothetical operators beyond that — ADR 0071 §2.4 takes
+  exactly one step in that direction and no more.
 
 ## The three rules everything else follows from
 

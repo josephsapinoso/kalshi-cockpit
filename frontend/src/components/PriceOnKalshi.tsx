@@ -138,8 +138,14 @@ function Result({ value }: { value: ParlayLookupResult }) {
         note saying so, which is the honest answer rather than a number
         nobody can fill.
       */}
+      {/*
+        Bold, because this is the price and the fair-value estimate on the
+        card above is not (ADR 0071 section 2.8). The estimate is the larger
+        pair and it renders first; if the two carried equal weight the reader
+        would keep the one they saw first, which is the one nobody offered.
+      */}
       {value.quoted.at_stake.payout_display !== null && (
-        <p className="tabular">
+        <p className="tabular font-semibold">
           {value.quoted.at_stake.stake_display} →{" "}
           {value.quoted.at_stake.contracts_display} contracts (
           {value.quoted.at_stake.cost_display}) →{" "}

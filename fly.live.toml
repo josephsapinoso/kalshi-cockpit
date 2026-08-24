@@ -257,9 +257,12 @@ primary_region = "ord"
   # Ceilings on Anthropic spend, enforced by `backend/agents/budget.py`.
   #
   # **This instance is the one that had no ceiling.** `ANTHROPIC_API_KEY` is set
-  # here (`/api/health` reports `agent_fleet_configured: true`) and `AGENT_MODEL`
-  # is not, so the live model is `agents/base.py`'s default -- claude-opus-5, the
-  # expensive one. Before 2026-08-11 the Skeptic fanned out over every surfaced
+  # here (`/api/health` reports `agent_fleet_configured: true`) and until
+  # 2026-08-24 `AGENT_MODEL` was not, so the live model was `agents/base.py`'s
+  # default -- claude-opus-5, the expensive one, billing unnoticed for exactly
+  # the reason the paragraph below gives about inferring a deployed value from a
+  # default two files away. It is set explicitly now (ADR 0071 section 2.7).
+  # Before 2026-08-11 the Skeptic fanned out over every surfaced
   # row with no cap, on a full pass every RUNNER_INTERVAL_S and a quote pass
   # every RUNNER_FAST_INTERVAL_S. The bill was held at zero by `surfaced == 0`,
   # which is a measurement outcome and not a configuration value.
@@ -286,17 +289,43 @@ primary_region = "ord"
   # used to sit here -- "~4.5c a call, ~$1.10 a day" -- was a point estimate on
   # an uncited rate, and it was low by ~1.9x even before the missing retries.
   #
-  # AGENT_MAX_CALLS_PER_DAY is the money control. AGENT_MAX_CALLS_PER_PASS is
-  # not a second one: both live in the same `min()` in `agents/budget.py`, so
+  # AGENT_MAX_CALLS_PER_PASS is not a second money control: it and
+  # AGENT_MAX_CALLS_PER_DAY live in the same `min()` in `agents/budget.py`, so
   # the day is 24 for any per-pass value in [1, 24]. What the per-pass cap
   # controls is fan-out width -- how the day's 24 are spread over the day's
   # passes rather than spent in the first one.
+  #
+  # **AGENT_MAX_CALLS_PER_DAY is NOT the binding control either, and this
+  # comment claimed it was until 2026-08-24** (ADR 0071 section 2.7). A
+  # scout-desk convening reserves against `STAFF_PAIR_SEARCHES_WORST_CASE = 12`
+  # (`agents/scout_desk.py:70`) before it reserves calls, so
+  # AGENT_MAX_SEARCHES_PER_DAY = 60 allows **5 convenings a day** while
+  # AGENT_MAX_CALLS_PER_DAY = 24 allows 6. The search cap binds first, one
+  # convening earlier, and raising the call cap alone would buy nothing.
   #
   # Raise deliberately, after the first real bill -- `skeptic_unreviewed` in the
   # pass log counts the rows a ceiling refused, and `AgentBudget.today_summary`
   # reports how much of today's 24 is gone.
   AGENT_MAX_CALLS_PER_PASS = "8"
   AGENT_MAX_CALLS_PER_DAY = "24"
+
+  # **The desk runs on Sonnet, not Opus** (ADR 0071 section 2.7, Joe's call
+  # 2026-08-24). Set explicitly rather than left to `agents/base.py`'s
+  # DEFAULT_MODEL, because an unset money-bearing value is how this instance
+  # spent at the Opus rate without anyone choosing to.
+  #
+  # The reasoning, so a future session can overturn it on the argument rather
+  # than the preference: every seat at the desk -- scout, staff pair, master,
+  # and Willy's -- reads web-search results that arrived seconds earlier and
+  # writes a structured summary of them. That is synthesis of supplied text,
+  # which is the shape where a cheaper model gives up least; it is not
+  # reasoning from scratch, where it would give up most.
+  #
+  # **Promote a seat, not the desk**, if one proves to need the horsepower.
+  # `structured_call` takes `model` per call (`agents/base.py:347`), so a single
+  # seat can be raised without moving the other three, and the meter records
+  # usage per call either way.
+  AGENT_MODEL = "claude-sonnet-5"
 
   # The token meter's daily brakes (v17): the call caps cannot see the up-to-12
   # web searches a scout-desk convening can spend, nor the search results it
@@ -379,7 +408,9 @@ primary_region = "ord"
   # constraint on the gate; props were consuming the budget that buys them.
   #
   # **Props are not gone.** `POST /api/odds/refresh` buys one fixture's ladder
-  # for 26 credits (ADR 0031), which is where the expensive purchase now lives:
+  # for 24 credits (ADR 0031; the figure read 26 until 2026-08-24, from before
+  # `ODDS_MARKETS` gained `spreads` -- ADR 0071 section 4), which is where the
+  # expensive purchase now lives:
   # bought for a game somebody is looking at, rather than for all thirteen in
   # advance. Turning this back on is a deliberate act, not a default.
   #

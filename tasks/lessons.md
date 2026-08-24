@@ -25,6 +25,52 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-24 — An access-control finding names the layer it was read at
+
+A subagent auditing the API reported `/api/ledger`, `/api/bets` and
+`/api/results` as unauthenticated: it grepped for the `require_auth`
+dependency, found none on those three, and concluded a stranger could read
+the operator's whole betting record and bankroll. That was relayed to Joe as
+a live privacy leak, with urgency, **before anyone checked**. It was false.
+The gate is one layer up — `uvicorn` binds loopback and is never published,
+`/api/*` is reachable only through Next's rewrite, and
+`frontend/src/middleware.ts` runs *before* rewrites. Five unauthenticated
+requests to the deployed URL settled it in one command: health 200, the
+other four 401.
+
+**The pattern:** authentication is a property of the whole request path, not
+of the handler. Grepping a handler for its framework's auth dependency
+answers "does *this framework's* dependency system gate this function" —
+a far narrower question than "can a stranger read this", and the two come
+apart the moment a gate lives in a proxy, a middleware, a network boundary
+or a reverse proxy's config. So an access-control claim must state the layer
+it was measured at, and a claim about the *deployed* system has exactly one
+honest instrument: an unauthenticated request to the public hostname. That
+costs seconds and source-reading cannot substitute for it at any length.
+
+Two tells, both present here and both missed. First, **the code documented
+its own posture and the finding did not mention it** — three route
+docstrings (`routes.py:2285-2291`, `:2377-2382`, `:2414-2418`) explain the
+middleware gate at length and give the reasons; a finding that contradicts a
+docstring without engaging it has usually not read it. Second, **the archive
+already carried the answer**: two 2026-08-09/10 entries record these exact
+routes answering 401 unauthenticated, and a cookie opening them at 200. A
+security regression is possible, but "it was always like this and you never
+knew" is the rarer story than "you are looking at the wrong layer."
+
+Sibling of *verification methods that lie*: there the instrument reported
+health over broken code; here it reported breakage over healthy code. Same
+remedy — measure the deployed thing, not a proxy for it.
+
+**And the relaying is its own error.** An unverified alarm passed on as
+urgent spends the operator's trust at the moment it most needs to be
+spendable. A finding that says "your money is exposed right now" earns a
+thirty-second check *before* it is spoken, not after — the asymmetry is
+severe, because a false alarm costs credibility on every true one that
+follows.
+
+---
+
 ## 2026-08-24 — A baseline taken while you edit is not a baseline
 
 The session-start suite was launched in the background and edits began before

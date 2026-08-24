@@ -41,6 +41,149 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-24 (fifth session) — the purpose gets settled, and the feed is told to follow attention
+
+Seventeen questions to Joe over five rounds (the `grilling` skill), every
+answer his, recorded as **ADR 0071**. Read that ADR before planning
+anything — it settles what this tool is *for* after ADR 0038 closed the
+hunt, which is the question every session has been re-deriving badly.
+
+**State: 4,192 passed / 10 xfailed** (+23 over the 4,169 baseline, which was
+re-measured at session start rather than inherited), ruff clean. **Lane 3 is
+shipped; lanes 1 and 2 are not started.** Nothing is committed — check
+`git status` before assuming otherwise.
+
+**The settled direction, in one paragraph.** The tool is a **personal
+betting desk first**, a portfolio repo second, and a hunting instrument not
+at all. Joe bets by hand whether or not it exists, so its job is to inform
+and record bets that are happening anyway — specifically **price
+transparency**: what Kalshi charges against what the sharp consensus says
+it is worth. Not nagging, not abstaining on his behalf. Sharing means
+**someone runs their own copy**, because Kalshi's Developer Agreement §3.1
+forbids sharing API-derived data with third parties without written
+authorization — a hosted instance friends can visit is non-compliant, a
+friend's own instance on their own key is the permitted case.
+
+**Three lanes, approved, none started:**
+
+1. **The bill.** Replace the fixed 12-hour `ODDS_DESK_WINDOW_UTC` with a
+   frontend heartbeat over a slow hourly floor (~576 credits/day today).
+   Folded in: the 2026-08-17 defect where a failed odds call resets the
+   freshness clock, so an outage presents on screen as *fresh* data — same
+   code, and the new design would inherit a lying clock.
+2. **Transparency. Half shipped, half BLOCKED ON JOE.**
+   - **DONE:** the fair-value parlay payout is restyled so an estimate
+     cannot read as a quote (ADR 0071 §2.8, 5 guards mutation-red,
+     `tests/test_parlay_estimate_is_not_a_price.py`).
+   - **BLOCKED:** both prices on every slate row. **Do not build this until
+     Joe answers**, and the reason is not the payload — `fair_percent_display`
+     and `ask_display` are *already on every row* (`routes.py:5062,5070`),
+     server-formatted, needing no backend work at all.
+
+   **The blocker is an identity.** `edge_tenths ≡ 1000 × (fair_probability −
+   breakeven_win_rate)`, proven on live payloads by `tests/test_api.py:1264-1310`.
+   The landing row renders **break-even** (`slate/page.tsx:369-374`). Fair
+   beside it reconstitutes the edge the 2026-08-21 ruling deleted, by
+   subtraction. Four guards: `test_board_screen.py:739` bans
+   `fair_probability` from the slate page, and `:736` **requires**
+   `breakeven_win_rate` on it — the class is `TestBreakevenShipsAloneOnTheScreen`,
+   from a fleet convening. So fair goes on only if break-even comes off, and
+   that reverses a convening.
+
+   **Recommendation, for Joe to accept or veto:** swap break-even out for
+   fair. Under ADR 0071 §2.2 the transparency pair is *what you pay* against
+   *what it is worth* — ask and fair. Break-even is a fee-adjusted restatement
+   of the ask, not a third fact. The ruling's own logic permits this: ask is a
+   price and fair is a probability, so their difference is not the edge (the
+   fee is missing) — it is fair **+ break-even** that is banned. Precedent is
+   already shipped: `ConsensusPanel.tsx` renders fair% and is *forbidden*
+   break-even by `test_desk_panels.py:94`. Needs an ADR and two test
+   inversions with dated docstrings; `breakeven_win_rate` must stay on the
+   **payload** (`test_api.py:1256` requires it) and leave only the component.
+
+   **Also settled by the investigation:** there is **no room for a twelfth
+   column at 1280px.** The xl grid names eleven tracks summing to 968px plus
+   160px of gaps; the name track gets ~80px and already needed `truncate`
+   (commit `995dbfd`) to stop 'Philadelphia' painting over the ask. A 5rem
+   column costs 96px of an 80px budget. So the swap is also the only layout
+   that fits. At 390px there is no grid — the row is a wrapping flex line and
+   a short span just adds a line.
+
+   **Units, non-negotiable:** ask through `format_price` (`34.2c`), fair
+   through `format_probability` (`60.2%`). Never both as cents —
+   `core/prices.py:130-143` records that a fair value rendered as `53.8c`
+   beside a real ask is "the one place a left-to-right scan reads the wrong
+   number as the thing you pay". `fair_display` (the `c` form) is
+   `@deprecated`: do not render it.
+
+   **Latent bug found in passing, fix it while in there:** track 4 is
+   conditional (`slate/page.tsx:369`, `breakeven_win_rate !== null`), so when
+   the ask is not tradeable **every column from `Books` rightward shifts one
+   track left at xl**. Whatever replaces it must not be a second conditional
+   child.
+
+   **Do not rank by the gap** — `beta = -0.141` means ranking by it puts
+   the least trustworthy rows on top; ADR 0071 §2.5.
+3. **Cheap corrections — DONE this session.** `AGENT_MODEL =
+   "claude-sonnet-5"` set explicitly in `fly.live.toml`;
+   `KALSHI_PUBLIC_READ_ONLY` shipped with 23 tests and five guards
+   mutation-verified red; all four stale-number sites corrected.
+
+**Lane 1's plan is written and is the next session's brief** (a Plan agent
+worked it read-only). Seven slices, and **take them in order — slice 1 must
+ship first**, because slices 3–5 read the same predicate the defect
+corrupts. Two things in it need Joe:
+
+- **The new design's worst case is worse than what it replaces.** One tab
+  left visible for 24h buys **1,152 credits/day — double today's 576** and
+  past the 20,000 plan. The `document.visibilityState` check in `Nav.tsx` is
+  therefore the single most load-bearing guard in the change, and slice 6
+  (an attention sub-ceiling, modelled on `ondemand`'s manual slice) is the
+  belt to its braces. Recommended, not yet approved.
+- **The saving is an assumption until measured.** Every "attended hours" row
+  in the plan's table is a guess about how long Joe actually has the page
+  open. Ship with the instrument named — `api_credits` summed per budget-day
+  on the live volume — not with the saving claimed.
+
+Three corrections the plan found that this session did not: `run_loop.py:460`
+calls `window_status` **without** `desk_window`, so the loop's own cadence
+already ignores the desk; the desk trigger is the one place the module's own
+"one predicate, two callers" rule was never applied (it is two hand-synced
+inline `if`s at `timing.py:1409` and `:931`); and a failed odds call writes
+**no `odds_sweep_log` row at all**, so the failure is visible only as a
+credit row with NULL headers.
+
+**The defect, located** (it was recorded on 2026-08-17 and never fixed):
+`backend/odds/client.py:324-334` records the credit before the status check
+at `:336-339` — correct, and it must stay. The lie is that the resulting row
+satisfies `_SERVED_SWEEP` (`timing.py:707-709`), so a 401 moves that sport's
+last-sweep stamp to now and **defers the retry ten minutes**. Fix: a nullable
+`api_credits.http_status` (schema v21) and `AND COALESCE(http_status, 200) <
+400`, which leaves every pre-v21 row counting exactly as it does today.
+Evidence: `docs/JOE-odds-key-rotation.md:151-166`.
+
+**Two corrections to the record, both in ADR 0071:**
+
+- **CLAUDE.md's "the recorder keeps running because it costs nothing" is
+  false** on the odds axis — ~576 credits/day, ~17,300/month against an
+  18,000 self-cap. True of the LLM fleet only. The spine paragraph needs
+  editing.
+- **A privacy leak was reported to Joe and then withdrawn.** A subagent
+  called `/api/ledger`, `/api/bets`, `/api/results` unauthenticated; they
+  are not. Verified against live: health 200, all four others **401**. The
+  gate is `frontend/src/middleware.ts`, which runs before Next's rewrites,
+  and uvicorn binds loopback. Lesson written.
+
+**Facts worth carrying:** the **search cap binds before the call cap** (60
+searches ÷ 12 worst-case = 5 convenings/day, vs 24 calls ÷ 4 = 6), so
+`fly.live.toml:289`'s "the money control" comment names the wrong cap. The
+Odds API's **free 500-credit tier includes Pinnacle, Betfair Exchange and
+Matchbook** — the exact three books `runner.py:150` devigs from — and
+excludes DraftKings/FanDuel; the paid 20K tier is $30/month. Pinnacle closed
+direct public API access 2025-07-23, so every route to them is a reseller.
+
+---
+
 ## 2026-08-24 (fourth session) — the parlay desk earns a nav slot and every game names its sport
 
 Two UI changes on Joe's direct asks, both committed, pushed, and live

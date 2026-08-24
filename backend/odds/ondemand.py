@@ -76,9 +76,17 @@ DEFAULT_COOLDOWN_MS = 120_000
 
 # Credits a budget day may spend on taps, out of `ODDS_DAILY_CREDIT_BUDGET`.
 #
-# 150 of 600. In tap terms that is 25 team refreshes, or 5 fixtures' props with
-# a few team refreshes left over -- and the second of those is the one that
-# sizes it, because a prop refresh is 26 credits against a team refresh's 6.
+# 150 of 700 (`fly.live.toml:222`). In tap terms that is 37 team refreshes, or
+# 6 fixtures' props with a few team refreshes left over -- and the second of
+# those is the one that sizes it, because a prop refresh is 24 credits against
+# a team refresh's 4.
+#
+# Those two per-tap figures read 26 and 6 until 2026-08-24 (ADR 0071 section 4).
+# Both are derived, not configured: a team sweep is `len(markets) x
+# len(regions)` and a prop tap adds 10 prop keys x 2 regions on top, so
+# `ODDS_MARKETS` gaining `spreads` on 2026-08-23 moved 2 -> 4 and 22 -> 24. The
+# 6 was older still, from a three-market configuration that never ran on the
+# box. Restating a derived number in a comment is how all three drifted.
 #
 # **Not a forecast and not a target.** A planned MLB + WNBA evening spends
 # ~300-500 on the schedule (`fly.live.toml` carries the reconciled figure), so
