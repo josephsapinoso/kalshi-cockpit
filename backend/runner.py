@@ -94,7 +94,13 @@ from .kalshi.props import (
     base_market,
     norm,
 )
-from .kalshi.spreads import MARKET_TYPE_SPREAD, parse_spread_subtitle
+from .kalshi.spreads import (
+    MARKET_TYPE_SPREAD,
+    parse_spread_subtitle,
+    spread_book_point,
+    spread_margin_agrees,
+    unrecognised_spread_unit,
+)
 from .match.linker import (
     EXACT_ALIAS_PAIR,
     PROP_LINK_METHOD,
@@ -178,6 +184,15 @@ class PassCounts:
     dropped_no_kalshi_quote: int = 0
     dropped_unresolved_outcome: int = 0
     dropped_game_started: int = 0
+    # Spread markets whose subtitle fits the grammar in a margin unit
+    # `kalshi/spreads.py` does not whitelist -- "goals" when NHL enters
+    # seasonal scope, whatever soccer uses. Counted APART from
+    # `dropped_unresolved_outcome` because the two need opposite responses:
+    # that one means the books quote no price at this rung (a quiet night),
+    # this one means a whole league is producing zero spread supply while
+    # `ODDS_MARKETS = "h2h,spreads"` keeps paying the doubled credit for it.
+    # Pooled, the new league is invisible. 2026-08-24 code review, finding 8.
+    dropped_unknown_spread_unit: int = 0
     # How many rows the Skeptic was asked about, and how many it refused. Both
     # are structurally zero while `surfaced` is zero, which is the whole history
     # of this project so far -- reported anyway, because the day they are not is
@@ -316,6 +331,10 @@ class PassCounts:
         "skeptic_reviewed",
         "skeptic_blocked",
         "skeptic_unreviewed",
+        # Reported even at zero: absent cannot be told from "no league is
+        # unreadable", and the day it is non-zero is the day a sport joined
+        # scope with nothing to show for its credits.
+        "dropped_unknown_spread_unit",
         "sweep_decision",
         "leg_walk_ms",
         "leg_parse_ms",
@@ -1011,11 +1030,22 @@ def _price_spread_event(
         if market.market_type != MARKET_TYPE_SPREAD:
             continue
         parsed = parse_spread_subtitle(market.yes_side)
-        if parsed is None or market.strike is None:
+        if parsed is None:
+            unit = unrecognised_spread_unit(market.yes_side)
+            if unit is not None:
+                # The venue speaking our grammar in a unit we do not read --
+                # a fact about our seasonal scope, not a quiet night. Counted
+                # by its own name so a whole new league cannot hide inside
+                # `dropped_unresolved_outcome`.
+                counts.dropped_unknown_spread_unit += 1
+            else:
+                counts.dropped_unresolved_outcome += 1
+            continue
+        if market.strike is None:
             counts.dropped_unresolved_outcome += 1
             continue
         team_raw, margin = parsed
-        if float(margin) != float(market.strike):
+        if not spread_margin_agrees(margin, market.strike):
             # One number published twice, disagreeing. Refuse the market:
             # trusting either copy silently is how a 2.5-run line prices a
             # 1.5-run market.
@@ -1027,9 +1057,10 @@ def _price_spread_event(
 
         line = None
         resolved = None
+        want_point = spread_book_point(margin)
         for candidate in lines:
             name = resolve_outcome(team_raw, candidate.outcomes, aliases)
-            if name is not None and candidate.points.get(name) == -float(margin):
+            if name is not None and candidate.points.get(name) == want_point:
                 line, resolved = candidate, name
                 break
         if line is None:

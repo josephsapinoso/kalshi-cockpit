@@ -276,6 +276,96 @@ class TestThePricingPath:
         counts = self._run(conn)  # Kalshi rung is 1.5; books quote 2.5
         assert counts.fair_prices_written == 0
         assert counts.dropped_unresolved_outcome == 1
+        # And NOT as an unknown unit -- "runs" parsed fine.
+        assert counts.dropped_unknown_spread_unit == 0
+
+
+class TestAnUnreadUnitIsCountedApart:
+    """2026-08-24 code review, finding 8.
+
+    The subtitle regex whitelists `runs?|points?`. NHL ("goals") and soccer
+    enter seasonal scope with `ODDS_MARKETS = "h2h,spreads"` already paying
+    the doubled credit for them, and every one of their markets would have
+    landed in `dropped_unresolved_outcome` -- the same bucket as "the books
+    quote no price at this rung", which is what a quiet night looks like. A
+    whole league producing zero spread supply would have been invisible.
+    """
+
+    def _run(self, conn, event):
+        link_id = _link(conn)
+        counts = PassCounts()
+        _price_spread_event(
+            conn, event, link_id=link_id, stamp=NOW, counts=counts,
+            aliases=TeamAliases(sport_key="baseball_mlb"),
+            odds_event_id="game-1",
+        )
+        return counts
+
+    def test_goals_are_counted_as_an_unknown_unit(self, conn):
+        _seed_spread_rows(conn, rows=[
+            ("Home", -1.5, 2.58, "pinnacle"),
+            ("Away", 1.5, 1.52, "pinnacle"),
+        ])
+        counts = self._run(
+            conn, _spread_event(subtitle="Home wins by over 1.5 goals")
+        )
+        assert counts.fair_prices_written == 0
+        assert counts.dropped_unknown_spread_unit == 1
+        assert counts.dropped_unresolved_outcome == 0
+
+    def test_an_unparseable_subtitle_is_still_the_other_bucket(self, conn):
+        """The split must not swallow genuine parse failures -- a subtitle
+        that does not fit the grammar at all is not a units problem."""
+        _seed_spread_rows(conn, rows=[
+            ("Home", -1.5, 2.58, "pinnacle"),
+            ("Away", 1.5, 1.52, "pinnacle"),
+        ])
+        counts = self._run(
+            conn, _spread_event(subtitle="Home covers the run line")
+        )
+        assert counts.dropped_unknown_spread_unit == 0
+        assert counts.dropped_unresolved_outcome == 1
+
+    def test_the_counter_reaches_the_pass_line_even_at_zero(self):
+        """Absent cannot be told from "no league is unreadable", and those
+        need opposite responses."""
+        from backend.runner import PassCounts as _PC
+
+        assert "dropped_unknown_spread_unit" in _PC.ALWAYS_REPORT
+
+
+class TestTheJoinIdentityIsWrittenOnce:
+    """2026-08-24 code review, finding 9. Kalshi's `"T wins by over S"` YES is
+    the book's `(T, -S)`; that sign convention was written out in the runner
+    and again in the parlay desk's reader, and a duplicated sign convention is
+    one that can drift."""
+
+    def test_the_helper_is_the_identity(self):
+        from backend.kalshi.spreads import spread_book_point
+
+        assert spread_book_point(1.5) == -1.5
+        assert spread_book_point(18.0) == -18.0
+
+    def test_both_callers_import_it_rather_than_negating_by_hand(self):
+        """A source check, because the defect is duplication -- two correct
+        copies pass every behavioural test right up until one is edited."""
+        import backend.parlays as parlays_module
+        import backend.runner as runner_module
+
+        for module in (parlays_module, runner_module):
+            assert hasattr(module, "spread_book_point"), module.__name__
+
+    def test_the_cross_check_is_shared_too(self, conn):
+        """The margin-vs-strike cross-check lived only in the runner, so the
+        parlay ladder could match a subtitle-drifted market to a stale fair
+        row until freshness aged it out."""
+        from backend.kalshi.spreads import spread_margin_agrees
+
+        assert spread_margin_agrees(1.5, 1.5)
+        assert not spread_margin_agrees(1.5, 2.5)
+        # A market with no published strike agrees with nothing -- unreadable
+        # resolves to a refusal, never to a match.
+        assert not spread_margin_agrees(1.5, None)
 
 
 class TestLinkInheritance:
