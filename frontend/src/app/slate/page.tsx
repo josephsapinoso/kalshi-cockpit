@@ -206,6 +206,22 @@ export default async function SlatePage() {
           urgent-refresh slot, so a stale slate still leads with its fix. */}
       <GoodChancePicks picks={data.picks} />
 
+      {/* The parlay desk (ADR 0070) sits one tap from the picks it is built
+          from. A plain link, deliberately: no card preview, no percentage,
+          no accent — the desk's own screen carries the caveats that make its
+          numbers honest, and a teaser here would carry the numbers without
+          them. */}
+      {data.picks && data.picks.ranked.length > 0 && (
+        <p className="mt-3 text-sm">
+          <Link href="/parlays" className="font-semibold hover:underline">
+            Parlay desk →
+          </Link>{" "}
+          <span className="text-muted">
+            tonight&rsquo;s picks as combo cards, at fair value.
+          </span>
+        </p>
+      )}
+
       {!slate.is_current && slate.anchor_ms !== null && (
         <p className="mt-6 max-w-[65ch] rounded-lg border border-accent-2/70 bg-card p-3 text-sm text-accent-2">
           This is the last slate recorded, not a current one. The recorder has

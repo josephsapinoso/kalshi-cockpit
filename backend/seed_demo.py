@@ -269,6 +269,12 @@ def _seed_link_and_fair_price(
         devig_result=result,
         metadata=metadata,
         computed_ms=computed_ms,
+        # The seeded books were fetched `odds_age_ms` before this consensus
+        # (see the `fetched_ms` argument to `_seed_books`), so that IS the
+        # oldest contributing quote's age — the same identity production's
+        # `BookConsensusInput.oldest_book_age_ms` carries. Leaving it NULL
+        # would make the parlay desk exclude every demo leg as unmeasurable.
+        oldest_book_age_ms=scenario.odds_age_ms,
     )
     return link_id, ids.get(scenario.team), result
 

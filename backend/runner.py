@@ -644,6 +644,7 @@ def write_fair_price(
     market: str = MONEYLINE,
     outcome_description: Optional[str] = None,
     outcome_point: Optional[float] = None,
+    oldest_book_age_ms: Optional[int] = None,
 ) -> dict[str, int]:
     """Persist one `fair_prices` row per outcome. Returns outcome -> row id.
 
@@ -658,6 +659,11 @@ def write_fair_price(
     without the player and the line every rung of every ladder in a game would
     write two indistinguishable rows -- and the `{outcome: id}` mapping this
     returns would collapse the whole event to the last one written.
+
+    `oldest_book_age_ms` is the consensus's own input freshness at
+    `computed_ms` -- the stalest contributing book (v20, ADR 0070). `None`
+    means the caller did not measure it, and readers must refuse such a row
+    where freshness decides anything, never treat the absence as age zero.
     """
     ids: dict[str, int] = {}
     methods = devig_result.all_methods()
@@ -682,8 +688,8 @@ def write_fair_price(
             "INSERT INTO fair_prices (computed_ms, link_id, market, outcome_name, "
             "outcome_description, outcome_point, p_multiplicative, p_additive, "
             "p_power, p_shin, p_conservative, overround, market_width, "
-            "book_count, books_used, anchored_on_sharp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "book_count, books_used, anchored_on_sharp, oldest_book_age_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 computed_ms, link_id, market, outcome,
                 outcome_description, outcome_point,
@@ -694,6 +700,7 @@ def write_fair_price(
                 book_count,
                 json.dumps(metadata.get("books_used", [])),
                 1 if metadata.get("anchored_on_sharp") else 0,
+                oldest_book_age_ms,
             ),
         )
         ids[outcome] = int(cursor.lastrowid)
@@ -1091,6 +1098,7 @@ def _price_prop_event(
                     market=line.base_market,
                     outcome_description=line.player,
                     outcome_point=line.point,
+                    oldest_book_age_ms=books.oldest_book_age_ms,
                 )
                 counts.fair_prices_written += len(fair_ids)
                 devigged[key] = (result, metadata, fair_ids)
@@ -1496,6 +1504,7 @@ def run_pricing_pass(
             devig_result=devig_result,
             metadata=metadata,
             computed_ms=stamp,
+            oldest_book_age_ms=books.oldest_book_age_ms,
         )
         counts.fair_prices_written += len(fair_ids)
 

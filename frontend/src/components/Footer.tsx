@@ -59,6 +59,18 @@ const SECONDARY = [
     blurb:
       "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
   },
+  {
+    // ADR 0070, and the delete-commit question answered: Joe asked for this
+    // screen by name (2026-08-23). Deliberately NOT the deleted `/builder` —
+    // that was an unframed calculator for sportsbook parlays; this frames
+    // Kalshi's own combo product with the fair joint, the per-method band,
+    // and the enter-only + fee caveats in view, at preset stakes. The slate
+    // also links it contextually; this row is the reachability anchor.
+    href: "/parlays",
+    label: "Parlay desk",
+    blurb:
+      "Three daily cards — Safe, Middle, Lottery — at fair value by the books' consensus. Kalshi's own price will differ; the caveats say how.",
+  },
 ];
 
 export default function Footer() {

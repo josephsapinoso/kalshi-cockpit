@@ -19,6 +19,37 @@ export type GlossaryEntry = {
 };
 
 export const GLOSSARY = {
+  parlay: {
+    label: "parlay",
+    definition:
+      "One ticket that only pays if every pick on it wins. Kalshi calls " +
+      "these combos. Chances multiply down fast: six picks that each win " +
+      "65% of the time land together about 8% of the time — which is why " +
+      "the payout is large.",
+  },
+  leg: {
+    label: "leg",
+    definition:
+      "One pick inside a parlay. A 6-leg ticket has six picks, and every " +
+      "single one must win for the ticket to pay. Lose one leg, lose the " +
+      "whole stake.",
+  },
+  joint_chance: {
+    label: "joint chance",
+    definition:
+      "The chance that ALL the legs win together. Roughly the legs " +
+      "multiplied: 70% × 60% ≈ 42%. Games on the same night nudge each " +
+      "other slightly, so the number here is computed with that link " +
+      "included, not by bare multiplication.",
+  },
+  fair_value: {
+    label: "fair value",
+    definition:
+      "What a bet is worth if the price exactly matched its chance: a 40% " +
+      "chance is worth 40¢ on a $1 payout. Any price above fair value is " +
+      "the seller’s margin. The cards here show fair value; Kalshi’s own " +
+      "price will differ.",
+  },
   p_yes: {
     label: "P(YES)",
     definition:

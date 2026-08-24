@@ -57,6 +57,9 @@ PAGES = [
     # Joe's record (2026-08-21). Bare stack renders the zero-state strip and
     # the mirror caveat; populated rows are truncate + shrink-0 by design.
     "/bets",
+    # The parlay desk (ADR 0070). Three cards stack to one column below lg;
+    # leg rows are truncate + shrink-0 like the picks list they mirror.
+    "/parlays",
 ]
 
 # `/market/{ticker}` needs a ticker, so it cannot sit in PAGES as a literal --

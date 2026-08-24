@@ -455,6 +455,16 @@ CREATE TABLE IF NOT EXISTS fair_prices (
     market_width        REAL,
     book_count          INTEGER NOT NULL,
     books_used          TEXT NOT NULL,      -- JSON array, for reproducibility
+    -- Age of the OLDEST contributing book quote at `computed_ms` (v20). A
+    -- consensus is only as fresh as its stalest input, and a reader computing
+    -- this row's live age needs `(now - computed_ms) + oldest_book_age_ms` --
+    -- without this column the first term alone understates staleness by up to
+    -- a whole sweep interval. Nullable: rows written before v20 genuinely did
+    -- not record it, and a NULL must make the reader refuse the row as
+    -- unmeasurable, never treat it as age zero. Deliberately not the last
+    -- column: the wind-back test DROPs migrated columns, and SQLite cannot
+    -- drop a comment-preceded final column without leaving a dangling comma.
+    oldest_book_age_ms  INTEGER,
     anchored_on_sharp   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_fair_link ON fair_prices(link_id, computed_ms DESC);
@@ -905,6 +915,40 @@ CREATE TABLE IF NOT EXISTS scout_briefings (
 );
 CREATE INDEX IF NOT EXISTS idx_scout_briefings_ticker
     ON scout_briefings(ticker, requested_ms DESC);
+
+-- One "Price on Kalshi" tap from the parlay desk (ADR 0070). A lookup MINTS a
+-- real combination market on the exchange (`lookup_combo` with
+-- `allow_market_creation=True`), so every attempt is recorded -- success,
+-- refusal, or error -- the way `manual_orders` records every send. The priced
+-- ask comes from the minted market's ORDER BOOK (derived YES ask =
+-- 1 - best resting NO bid), never from the `/markets` list row: E2/E3 measured
+-- the list row echoing its own legs' prices and skewing from the book by up to
+-- 30.5c.
+--
+-- Money columns are integer tenths of a cent, per this file's convention.
+-- NULL means "not observed", never zero: an empty book has no derived ask, and
+-- the row says so by absence plus `status`.
+CREATE TABLE IF NOT EXISTS parlay_lookups (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_ms             INTEGER NOT NULL,
+    card_key                 TEXT NOT NULL,      -- safe | middle | lottery
+    stake_cents              INTEGER NOT NULL,
+    -- JSON array of {event_ticker, market_ticker} pairs, exactly as sent to
+    -- the lookup call, for reproducibility.
+    selected_legs            TEXT NOT NULL,
+    collection_ticker        TEXT,               -- NULL when no collection fit
+    status                   TEXT NOT NULL,
+    minted_market_ticker     TEXT,
+    book_no_bid_tenths       INTEGER,            -- best resting NO bid
+    derived_yes_ask_tenths   INTEGER,            -- 1000 - book_no_bid_tenths
+    book_depth               REAL,               -- resting units behind that bid
+    fair_joint_conservative  REAL,               -- the card's headline joint at lookup time
+    hold                     REAL,               -- 1 - fair x offered decimal, fee-free
+    error                    TEXT,
+    CHECK (status IN ('priced', 'book_empty', 'no_collection', 'error'))
+);
+CREATE INDEX IF NOT EXISTS idx_parlay_lookups_time
+    ON parlay_lookups(requested_ms DESC);
 
 -- ============================================================================
 -- Joe's own hand-placed bets, and his stated probability before each one

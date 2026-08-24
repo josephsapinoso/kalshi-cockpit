@@ -101,6 +101,7 @@ from ..odds.timing import (
     SLATE_WINDOW_MS,
     window_status,
 )
+from ..parlays import build_ladder_payload
 from ..playbook import read_playbook
 from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
@@ -2478,6 +2479,30 @@ def create_app(
                 "guessing."
             ),
         }
+
+    # -- parlay desk (ADR 0070) --------------------------------------------
+
+    @app.get("/api/parlays")
+    def parlays(conn=Depends(get_conn)) -> dict:
+        """The ladder: three parlay cards at FAIR value, worded server-side.
+
+        A read of the same devigged consensus the slate serves, reshaped into
+        the venue's own combination product -- a betting-desk feature (ADR
+        0062), not an edge claim. Nothing here computes a breakeven, an EV, or
+        a size (`tests/test_parlays_api.py` walks the keys); Kalshi's actual
+        quote for a card is read only by the lookup path, off the minted
+        market's order book, and is never blended into these numbers.
+
+        Refuses in words, never by omission: a card the slate cannot fill
+        carries `not_built_reason`, and every excluded leg is counted by
+        reason in `excluded`.
+        """
+        now = db.now_ms()
+        return build_ladder_payload(
+            conn,
+            now_ms=now,
+            max_odds_age_ms=staleness.max_odds_age_s * 1000,
+        )
 
     @app.get("/api/odds/refreshable")
     def refreshable(conn=Depends(get_conn)) -> dict:

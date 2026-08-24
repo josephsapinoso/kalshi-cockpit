@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -833,6 +833,20 @@ _MIGRATIONS: dict[int, _Migration] = {
         # "the seat filed nothing here".
         columns=(
             ("scout_briefings", "sharp_json", "TEXT"),
+        ),
+        undo_statements=(),
+    ),
+    20: _Migration(
+        # The parlay desk (ADR 0070): a consensus row's own input freshness.
+        # `computed_ms` says when the devig ran; the oldest contributing book
+        # quote was already older than that by up to a sweep interval, and a
+        # reader computing the row's live age needs both terms. Nullable, no
+        # backfill: pre-v20 rows genuinely did not record it, and NULL makes
+        # the reader refuse the row as unmeasurable — never age zero.
+        # (`parlay_lookups` is a new table and rides `schema.sql`'s
+        # IF NOT EXISTS, like `scout_briefings` before it.)
+        columns=(
+            ("fair_prices", "oldest_book_age_ms", "INTEGER"),
         ),
         undo_statements=(),
     ),

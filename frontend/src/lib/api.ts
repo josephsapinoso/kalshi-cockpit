@@ -658,6 +658,65 @@ export async function priceParlay(
   return { ok: false, refusal: String(body.detail ?? `HTTP ${response.status}`) };
 }
 
+/** One leg of a parlay card: a game's YES side at its consensus chance. */
+export type ParlayCardLeg = {
+  ticker: string;
+  event_title: string;
+  team: string;
+  label: string;
+  league: string;
+  commence_ms: number;
+  market: string;
+  point: number | null;
+  fair_percent_display: string;
+};
+
+/** One preset stake, fully priced server-side (the no-arithmetic rule). */
+export type ParlayStake = {
+  stake_cents: number;
+  stake_display: string;
+  contracts_display: string;
+  payout_display: string;
+  is_default: boolean;
+};
+
+export type ParlayCardJoint = {
+  conservative_percent_display: string;
+  method_range_display: string | null;
+  fair_cost_display: string;
+  correlation_note: string;
+};
+
+/** One rung of the ladder. Either `legs` is populated or `not_built_reason` says why not. */
+export type ParlayCardData = {
+  key: string;
+  title: string;
+  legs: ParlayCardLeg[];
+  not_built_reason: string | null;
+  joint: ParlayCardJoint | null;
+  at_stakes: ParlayStake[];
+};
+
+/**
+ * The parlay desk's ladder (ADR 0070). Everything is FAIR value — what the
+ * combination is worth by the books' consensus — never Kalshi's own quote,
+ * which exists only once the combo is built. The four `notes` sentences are
+ * the payload's own honesty copy and render verbatim.
+ */
+export type ParlayLadder = {
+  generated_ms: number;
+  cards: ParlayCardData[];
+  excluded: Record<string, number>;
+  notes: {
+    chance: string;
+    fair_value: string;
+    enter_only: string;
+    fee: string;
+  };
+};
+
+export const fetchParlays = () => get<ParlayLadder>("/api/parlays");
+
 /**
  * Whether a pick could be acted on right now, and when the next chance is.
  *
