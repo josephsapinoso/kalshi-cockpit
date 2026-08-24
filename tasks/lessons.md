@@ -25,6 +25,50 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-24 — A baseline taken while you edit is not a baseline
+
+The session-start suite was launched in the background and edits began before
+it finished. It came back **10 failed, 4091 passed** against a NEXT.md that
+promised 4,099 — which reads exactly like inheriting a broken tree, and the
+first response was to go looking for what the last session left behind. Every
+one of the ten was a *source-inspection* test (`test_pass_leg_timings`,
+`test_retention`, `test_unmatched_...`) reading `backend/runner.py` — the file
+being edited while they ran. Re-run afterwards, all ten passed. The eight
+minutes saved by backgrounding cost more than that in a false diagnosis, and
+`git stash` to check nearly lost the session's work.
+
+**The pattern:** a test run measures the tree *as of each moment it reads a
+file*, not as of when it started, so a long run overlapping edits produces
+failures belonging to no commit that ever existed. Either let a baseline
+finish before touching anything, or take it against a clean checkout. The tell
+is a failure set clustered in tests that read source text rather than exercise
+behaviour — those are the ones an editor can break mid-flight. Sibling of
+"verification methods that lie": here the *instrument* was fine and the thing
+it measured moved underneath it.
+
+---
+
+## 2026-08-24 — A pin verifies the shape you saw, not the branch you rely on
+
+`price_card_on_kalshi`'s create POST had one captured payload — a brand-new
+combination — and the desk's designed flow depends on the *other* branch: a
+fresh combo's book is empty, the screen says "try again shortly", so the
+second tap asks Kalshi about a combination that already exists. Nothing here
+had ever observed that answer, and the two possibilities needed opposite code
+(idempotent → retry freely; 409 → the market is permanently unpriceable and
+each retry burns the weekly creation budget). A review caught it as PLAUSIBLE
+*because a retry control was about to ship on top of it*. Measured: 200 with
+the same `market_ticker`.
+
+**The pattern:** when a feature's expected-first-answer routes users into a
+branch, that branch is not an edge case and a fixture of the happy path does
+not cover it. Ask which call the *design* makes second, and check whether
+anything has ever seen its response. Descendant of 2026-08-23's
+never-exercised-path lesson, one level in: there the endpoint had never been
+called at all; here it had, but only down the arm nobody actually walks.
+
+---
+
 ## 2026-08-23 — A wire format that was pinned but never exercised is a belief wearing a pin
 
 `combos.lookup_combo` carried `POST .../{ticker}/lookup` since 2026-08-07,

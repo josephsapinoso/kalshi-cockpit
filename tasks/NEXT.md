@@ -41,6 +41,183 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-24 (second session) — all 14 review findings fixed, and the repeat tap turns out to be idempotent
+
+**The list below is DONE — all 10 main findings and all 4 cut-by-cap
+items.** State: **4,169 passed / 10 xfailed** (+70 over the 4,099 baseline),
+ruff clean, tsc clean, `next build` green, overflow gate green at
+390/768/1280/1440/1920. **Not yet committed or deployed when this entry was
+written — check `git log` and `/api/health` `git_sha` before trusting any of
+it as live.**
+
+**The one measurement this session took.** Finding 7 asked what Kalshi
+answers when the SAME combination is looked up twice — never observed, and
+it had become load-bearing, because finding 2's fix adds a retry button that
+makes the second tap one press away. `scripts/capture_combo_repeat_lookup.py`
+(new) ran it live: **200 with the same `market_ticker` and the same
+envelope — IDEMPOTENT.** So the retry is safe, `price_card_on_kalshi` needs
+no already-exists branch, and repeat taps do not burn the 5,000/week
+creation budget. Captured to `tests/fixtures/combo_lookup_repeat.json`, and
+**bounded as captured**: one collection (`KXMVESPORTSMULTIGAMEEXTENDED-R`),
+one NFL leg pair, two calls seconds apart. It says nothing about a third
+call, concurrent taps, a started game, or another collection scope. Had it
+come back 409, the retry button would have been wrong to ship.
+
+**Fixed, by finding:**
+
+1–2. **The frozen card and the dead ends.** `lookupParlay` now wraps its
+fetch and guards the ok-path `response.json()` (`refreshOdds`'s pattern); a
+transport failure says the market *may already have been created* rather
+than inviting a blind retry. `PriceOnKalshi` catches too, and every
+non-final state offers "Ask Kalshi again" — a priced answer deliberately
+does not, and the retry never wears `bg-accent`. New
+`tests/test_parlay_screen.py` (8 source-text tests).
+3. **Post-mint failures recorded.** The order-book fetch moved inside its
+own try/except; a failure writes an `error` row **carrying the minted
+ticker** and the 502 names it, so a real market can never be lost off the
+audit table.
+4. **The depth-blind payout is gone** — CLAUDE.md rule 1 on a payout. Was
+"$5.00 → ~333 contracts → $333.33" against 18 resting; now `min(wanted,
+depth)`, with cost shown and words when the stake is capped. **The test that
+pinned `~333` as "the cousin's arithmetic" was INVERTED with a dated
+docstring.** `depth is None` is unreachable from the route (`_parse_levels`
+drops zero-size levels, so a derived ask always has size) — kept as a typed
+guard, documented as such, and tested by direct call rather than pretending
+the route reaches it.
+5. **Collections cache failure modes.** Cold-cache failure is a recorded row
+and a 502, not a bare 500; an empty result is **never cached** (unreadable ≠
+"the venue has none"); a failed lookup invalidates, so the rotating `-R`
+suffix can no longer mean an hour of 502s.
+6. **`sorted(served)`**, not `list`.
+8. **Unknown spread units counted apart.** New `dropped_unknown_spread_unit`
+on `PassCounts`, in `ALWAYS_REPORT` even at zero, fed by
+`spreads.unrecognised_spread_unit`. NHL "goals" entering scope no longer
+looks identical to a quiet night while `h2h,spreads` keeps paying doubled
+credits.
+9. **The spread join identity lives once** — `spreads.spread_book_point` and
+`spreads.spread_margin_agrees`, imported by both the runner and the parlay
+reader. The ladder now performs the margin-vs-strike cross-check it was
+missing, so a subtitle-drifted market can no longer match a stale fair row.
+10. **One shared Kalshi client**, lazy, `LiveQuoteSource`'s pattern, closed
+in the lifespan. `COMBO_LOOKUP_TIMEOUT_S = 15.0` (longer than the quote
+source's 5s — the first call mints; shorter than REST's 30s — a person is
+waiting).
+
+**Cut-by-cap items, all four done:** `_CANDIDATE_SCAN_FLOOR_MS` (24h, wider
+of it and `max_odds_age_ms`, so it can never bind before the freshness rule)
+on the twice-per-tap `fair_prices` scan; `lib/proxy.ts` shares the seven handlers'
+mechanics while **each keeps its own refusal words** (they say different
+things about what did not happen) — `/refresh-odds` deliberately keeps its
+own relay because its caller reads a typed `OddsRefreshResult`, pinned with
+its reason in `tests/test_token_proxy_routes.py` (39 tests); `best_yes_ask`
+and `format_price`/`format_probability` replace the hand-rolled copies
+(`format_probability`'s docstring names the exact rounding drift `_percent`
+was causing); `POPULATED_BOOK` now derives from the **captured** envelope
+with a shape assertion — no populated combo book has ever existed to
+capture, which is why it is built rather than loaded.
+
+**Mutation-verified red, file restored byte-identical each time:** the depth
+cap, the empty-collections cache write, the cache invalidation call, the
+sorted legs, the post-mint error row, the unknown-unit counter, the shared
+client, and the way back to `idle`.
+
+**One existing test's assertion was updated, not dropped:**
+`test_pass_control.py`'s "the handler holds the token" read `APP_AUTH_TOKEN`
+in the route source; that moved into `lib/proxy.ts`, so it now follows the
+indirection with a dated docstring. The claim is unchanged.
+
+**Two lessons written:** a baseline taken while you edit is not a baseline
+(10 phantom failures cost a false diagnosis this session); a pin verifies
+the shape you saw, not the branch you rely on (finding 7).
+
+**Watch after deploy:** first real "Price on Kalshi" tap — `book_empty` is
+still the expected first answer, and the retry is now one tap. Confirm a
+`parlay_lookups` row per tap and that a repeat tap returns the same
+`minted_market_ticker`. Watch `dropped_unknown_spread_unit` in the pass line
+when NCAAF/NFL land.
+
+---
+
+## 2026-08-24 — code review of the parlay-desk session: 14 findings (ALL FIXED — see the entry above)
+
+`/code-review` over `e4e7166..9f09952` (the parlay-desk commits): 45 raw
+candidates → 16 verified after dedup → **14 survived** (12 CONFIRMED, 2
+PLAUSIBLE), 2 refuted (event-loop blocking matches the accepted sync-SQLite
+baseline at `routes.py:3185-3189`; the spread dog-side skip is deliberate and
+redundant). **Nothing is fixed yet — this list IS the next session's work.**
+Line numbers are as of `9f09952`.
+
+**Fix first — user-facing dead ends and broken contracts:**
+
+1. **Frozen card on network failure** — `frontend/src/lib/api.ts:759`:
+   `lookupParlay` has no try/catch around fetch and an unguarded
+   `response.json()`; `PriceOnKalshi.tsx` `tap()` doesn't catch either. A
+   dropped connection leaves "Asking Kalshi…" forever (button unmounts, no
+   retry) while the backend may already have minted the market. Sibling
+   `refreshOdds` catches both cases — copy its pattern.
+2. **No way back to `idle`** — `PriceOnKalshi.tsx:55`: no state transitions
+   back, so the *designed* second tap after `book_empty` ("Try again
+   shortly" — the expected first answer on a fresh combo) is impossible
+   without a page reload. Same dead-end after a 409 drift refusal.
+3. **Post-mint failures unrecorded** — `backend/parlays.py:535`: the
+   orderbook fetch after `lookup_combo` mints sits outside the try/except —
+   an httpx timeout/429/5xx there returns a raw 500 and **no
+   `parlay_lookups` row**, losing the minted ticker from the audit table
+   whose docstring promises every outcome is a row.
+4. **Depth-blind payout / rule-1 violation** — `backend/parlays.py:590`:
+   `contracts = stake/ask` renders "$5.00 → ~333 contracts → $333.33"
+   beside "about 18 contracts resting". Only the resting size is buyable on
+   an enter-only book, and a stale lone NO bid produces exactly the giant
+   apparent edge CLAUDE.md rule 1 says to suppress, shown as a payout.
+5. **Collections cache failure modes** — `backend/parlays.py:489`:
+   cold-cache `fetch_collections` error escapes as an unrecorded 500; a
+   transiently-empty result is cached the full hour; a failed lookup never
+   invalidates despite the `-R` ticker rotation NEXT.md already records —
+   up to an hour of 502s with no recovery short of restart.
+
+**Fix while in there — cheap and confirmed:**
+
+6. **Nondeterministic leg order** — `backend/parlays.py:488`:
+   `legs = list(served)` from a set; order POSTed to Kalshi and recorded in
+   `selected_legs` varies across processes. One-word fix: `sorted(served)`.
+7. **Repeat-tap wire shape unverified (PLAUSIBLE)** —
+   `backend/kalshi/combos.py:414`: the create POST was captured once, on a
+   brand-new combo; no already-exists handling, yet the designed second tap
+   hits exactly that case. If Kalshi answers 409/400 the combo becomes
+   permanently unpriceable and each retry burns the 5,000/week budget.
+   Capture the repeat-call payload (combo lookups are pre-authorised).
+8. **Spread unit whitelist (PLAUSIBLE)** — `backend/kalshi/spreads.py:38`:
+   regex pins `runs?|points?`; NHL "goals"/soccer entering seasonal scope
+   → silently zero spread supply while `h2h,spreads` keeps paying doubled
+   credits. At minimum add a unit-unrecognized counter distinct from
+   `dropped_unresolved_outcome`.
+9. **Spread join identity duplicated** — `backend/parlays.py:184` vs
+   `runner.py:1032`: strike↔point identity implemented twice; the
+   margin-vs-strike cross-check exists only in the runner, so the ladder
+   can match a subtitle-drifted market to a stale fair row until freshness
+   ages it out. Centralize the identity next to the regex in `spreads.py`.
+10. **Per-tap Kalshi client** — `backend/api/routes.py:2552`:
+    `KalshiConfig.load()` + PEM re-parse + fresh `httpx.AsyncClient` per
+    request, against "one shared AsyncClient" — ~500ms per tap, port-
+    exhaustion risk. Follow `LiveQuoteSource`'s lazy shared client
+    (`quotes.py:206-242`).
+
+**Cut by the 10-finding cap, all CONFIRMED — a follow-up cleanup pass:**
+the unbounded `fair_prices` scan in `ladder_candidates`
+(`backend/parlays.py:102-123`, no `computed_ms` floor on a never-pruned
+~6.9M-row table, paid twice per tap); the 7th hand-copied token-proxy route
+(`frontend/src/app/parlay-lookup/route.ts` + `middleware.ts:50` allowlist);
+hand-rolled `1000 - best_no_bid` and three display-format duplications
+(`parlays.py:565/597/613/615` vs `OrderBook.best_yes_ask`,
+`core.prices.format_price`, `_percent`); hand-constructed `POPULATED_BOOK`
+wire payload (`tests/test_parlay_lookup.py:228` — the captured-fixtures
+rule names MLBAM as its only exception).
+
+Full verifier transcripts died overnight once and were re-verified by
+direct inspection 2026-08-24; verdicts above are from that pass.
+
+---
+
 ## 2026-08-23 (third session) — the parlay desk: three cards at fair value, spreads priced, and the combo's real cost one tap away
 
 Joe's direction, with a screenshot: his cousin-in-law hit a Kalshi 6-leg
