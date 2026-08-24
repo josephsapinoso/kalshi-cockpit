@@ -215,6 +215,13 @@ MUST_HAVE_CALLERS = [
     # `tests/test_runner.py` and by the mutation battery, which is the right
     # instrument for a same-module edge.
     (
+        "lookup_combo",
+        "the parlay desk's 'Price on Kalshi' tap (ADR 0070) has no way to "
+        "read a combination's real cost -- the fair-value cards keep "
+        "rendering, but the quoted-vs-fair comparison the feature exists "
+        "for silently disappears",
+    ),
+    (
         "score_recommendations",
         "nothing can be scored, and the gate's 300-game counter stays at zero "
         "however long the system runs",
@@ -929,12 +936,12 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
                 "against the record after the fact; nothing in the money path "
                 "consults it.",
     ),
-    "backend/kalshi/combos.py": Tool(
-        run_by=("scripts/demo_combos.py",),
-        purpose="KXMVE combo lookup. Real product, measured (1,389 collections, "
-                "13,806 legs), and not on the chain -- the cockpit prices "
-                "single markets. Reachable only from a demo script.",
-    ),
+    # `backend/kalshi/combos.py` left this table on 2026-08-23 (ADR 0070):
+    # the parlay desk's lookup endpoint (`POST /api/parlays/lookup` ->
+    # `parlays.price_card_on_kalshi`) now calls `fetch_collections` and
+    # `lookup_combo` on the deployed chain. The decision was taken in the
+    # open, which is exactly what this table's tripwire exists to force --
+    # see `lookup_combo` in MUST_HAVE_CALLERS.
     "backend/model/strikeouts.py": Tool(
         run_by=(
             "scripts/price_pitcher_k_ladder.py",

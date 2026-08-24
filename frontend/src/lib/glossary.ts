@@ -42,6 +42,13 @@ export const GLOSSARY = {
       "other slightly, so the number here is computed with that link " +
       "included, not by bare multiplication.",
   },
+  hold: {
+    label: "hold",
+    definition:
+      "The seller’s margin baked into a price: how far the cost sits above " +
+      "fair value. A 40% chance sold at 50¢ is a 20% hold — pay $1.00 for " +
+      "80¢ of chance. Parlays usually carry the biggest hold of any bet.",
+  },
   fair_value: {
     label: "fair value",
     definition:

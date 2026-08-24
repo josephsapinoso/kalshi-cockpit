@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { DISPLAY_TIME_ZONE } from "@/lib/api";
 import type { ParlayCardData, ParlayLadder } from "@/lib/api";
+import PriceOnKalshi from "@/components/PriceOnKalshi";
 import Term from "@/components/Term";
 
 /**
@@ -17,9 +18,9 @@ import Term from "@/components/Term";
  * - **The four caveat sentences render verbatim from the payload** — the
  *   fair-vs-quoted distinction, the enter-only warning, and the unverified
  *   fee are the server's claims, so the server's words carry them.
- * - **No `bg-accent`.** Red means money moves; nothing on this screen
- *   transacts (the lookup button arrives with the lookup slice and will be
- *   the one red thing here).
+ * - **`bg-accent` appears exactly once per card** — the "Price on Kalshi"
+ *   button in `PriceOnKalshi.tsx`, the screen's one money-adjacent action.
+ *   Nothing informational wears red.
  * - **A card that could not be built says why, in words**, in the same slot
  *   it would have rendered — an absent card and an unbuildable card are
  *   different facts.
@@ -108,6 +109,7 @@ function Card({ card }: { card: ParlayCardData }) {
             </p>
           )}
           <Stakes card={card} />
+          <PriceOnKalshi card={card} />
         </>
       )}
     </section>

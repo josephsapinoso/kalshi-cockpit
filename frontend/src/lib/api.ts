@@ -661,6 +661,7 @@ export async function priceParlay(
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
 export type ParlayCardLeg = {
   ticker: string;
+  event_ticker: string;
   event_title: string;
   team: string;
   label: string;
@@ -716,6 +717,61 @@ export type ParlayLadder = {
 };
 
 export const fetchParlays = () => get<ParlayLadder>("/api/parlays");
+
+/** What "Price on Kalshi" came back with. Strings are server-worded. */
+export type ParlayLookupResult =
+  | {
+      status: "priced";
+      minted_market_ticker: string;
+      quoted: {
+        ask_display: string;
+        depth_display: string | null;
+        at_stake: {
+          stake_display: string;
+          contracts_display: string;
+          payout_display: string;
+        };
+      };
+      fair: {
+        conservative_percent_display: string;
+        fair_cost_display: string;
+      };
+      hold_display: string;
+      verdict: string;
+      notes: { enter_only: string; fee: string };
+    }
+  | { status: "book_empty"; minted_market_ticker: string; words: string }
+  | { status: "no_collection"; words: string };
+
+/**
+ * Price one card's combination on Kalshi (ADR 0070). Goes through the
+ * `/parlay-lookup` route handler so the bearer token stays server-side.
+ * The tap mints a real market on the exchange (no money moves); refusals
+ * come back as words, rendered verbatim.
+ */
+export async function lookupParlay(
+  cardKey: string,
+  stakeCents: number,
+  legs: { event_ticker: string; market_ticker: string }[],
+): Promise<
+  { ok: true; value: ParlayLookupResult } | { ok: false; refusal: string }
+> {
+  const response = await fetch("/parlay-lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ card_key: cardKey, stake_cents: stakeCents, legs }),
+  });
+  if (response.ok) {
+    return { ok: true, value: (await response.json()) as ParlayLookupResult };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `HTTP ${response.status}`;
+  return { ok: false, refusal: detail };
+}
 
 /**
  * Whether a pick could be acted on right now, and when the next chance is.

@@ -24,15 +24,20 @@ calculator.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Optional, Sequence
 
+from backend.core.correlation import Leg
 from backend.core.ladder import (
     Card,
     CandidateLeg,
     Ladder,
     build_ladder,
 )
+from backend.core.parlay import ParlayQuote, value_parlay
+from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
+from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.spreads import parse_spread_subtitle
 from backend.match.linker import load_aliases, resolve_outcome
 
@@ -250,7 +255,10 @@ def _percent(p: float) -> str:
 
 def _dollars(cents: float) -> str:
     dollars = cents / 100.0
-    if dollars >= 100:
+    # Cents kept up to $1,000 — the cousin's slip reads "$333.33", and a
+    # payout rounded to "$333" beside a "$4.99" cost mixes two precisions
+    # in one sentence. Above that the cents are noise.
+    if dollars >= 1_000:
         return f"${dollars:,.0f}"
     return f"${dollars:,.2f}"
 
@@ -273,6 +281,9 @@ def _stake_row(stake_cents: int, joint: float) -> dict:
 def _serialise_leg(leg: CandidateLeg) -> dict:
     return {
         "ticker": leg.kalshi_market_ticker,
+        # The lookup tap echoes both tickers back, so the server can refuse
+        # a card the slate has drifted away from.
+        "event_ticker": leg.kalshi_event_ticker,
         "event_title": leg.event_title,
         "team": leg.team,
         "label": leg.label,
@@ -335,6 +346,278 @@ def serialise_ladder(ladder: Ladder, *, generated_ms: int) -> dict:
         "cards": [_serialise_card(card) for card in ladder.cards],
         "excluded": ladder.excluded,
         "notes": dict(NOTES),
+    }
+
+
+# ---------------------------------------------------------------------------
+# "Price on Kalshi" -- the lookup path (ADR 0070, Slice C).
+# ---------------------------------------------------------------------------
+
+
+class LookupRefused(Exception):
+    """A lookup that must not proceed, with the HTTP status and the words."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+#: Collections that accept arbitrary sports legs, tried in order when no
+#: enumerated collection covers the card's exact events. The 2026-08-23
+#: capture posted NFL legs to `KXMVESPORTSMULTIGAMEEXTENDED-R` and Kalshi
+#: minted the market under a `KXMVECROSSCATEGORY` shard, so prefix matching
+#: is the honest granularity here.
+_FALLBACK_COLLECTION_PREFIXES = (
+    "KXMVESPORTSMULTIGAMEEXTENDED",
+    "KXMVECROSSCATEGORY",
+)
+
+#: `fetch_collections` walks up to 25 pages; a per-tap fetch would spend
+#: seconds and rate budget on a list that changes rarely. Cached in-process
+#: for an hour -- module state, same lifetime as the API process.
+_COLLECTIONS_TTL_MS = 3_600_000
+_collections_cache: dict = {"at_ms": 0, "items": None}
+
+
+async def _collections(api, *, now_ms: int):
+    cache = _collections_cache
+    if (
+        cache["items"] is not None
+        and now_ms - cache["at_ms"] <= _COLLECTIONS_TTL_MS
+    ):
+        return cache["items"]
+    items = await fetch_collections(api)
+    cache["items"] = items
+    cache["at_ms"] = now_ms
+    return items
+
+
+def _choose_collection(collections, leg_event_tickers: set[str]):
+    """The collection to mint under: exact coverage first, then the
+    catch-all sports collections by prefix, else nothing (refused in words)."""
+    eligible = [
+        c for c in collections
+        if c.scope in (ComboScope.MULTI_GAME, ComboScope.CROSS_SPORT,
+                       ComboScope.CROSS_CATEGORY)
+    ]
+    covering = [
+        c for c in eligible
+        if leg_event_tickers <= {leg.event_ticker for leg in c.legs}
+    ]
+    if covering:
+        return min(covering, key=lambda c: (len(c.legs), c.collection_ticker))
+    for prefix in _FALLBACK_COLLECTION_PREFIXES:
+        matches = sorted(
+            (c for c in eligible if c.collection_ticker.startswith(prefix)),
+            key=lambda c: c.collection_ticker,
+        )
+        if matches:
+            return matches[0]
+    return None
+
+
+def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
+                   collection_ticker=None, minted=None, no_bid_tenths=None,
+                   ask_tenths=None, depth=None, fair_joint=None, hold=None,
+                   error=None) -> None:
+    """Every lookup is recorded, every outcome -- it minted a real market."""
+    conn.execute(
+        "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
+        "selected_legs, collection_ticker, status, minted_market_ticker, "
+        "book_no_bid_tenths, derived_yes_ask_tenths, book_depth, "
+        "fair_joint_conservative, hold, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            now_ms, card_key, stake_cents,
+            json.dumps([
+                {"event_ticker": e, "market_ticker": m} for e, m in legs
+            ]),
+            collection_ticker, status, minted, no_bid_tenths, ask_tenths,
+            depth, fair_joint, hold, error,
+        ),
+    )
+    conn.commit()
+
+
+async def price_card_on_kalshi(
+    conn,
+    *,
+    card_key: str,
+    stake_cents: int,
+    requested_legs: Sequence[tuple[str, str]],
+    now_ms: int,
+    max_odds_age_ms: int,
+    api,
+) -> dict:
+    """Mint (or find) the card's combo on Kalshi and price it off its book.
+
+    The card is re-derived server-side and must match what the client saw --
+    a lookup mints a real market, so it must price the card the user tapped,
+    not whatever the slate has drifted to. The quoted cost comes from the
+    minted market's ORDER BOOK (derived YES ask = 1000 - best resting NO
+    bid), never the `/markets` list row (ADR 0012, E2/E3: leg echo, list-vs-
+    book skew to 30.5c). An empty book is an honest refusal, not a price --
+    and the 2026-08-23 capture shows a freshly minted combo's book IS empty
+    on both sides, so that refusal is the expected first answer.
+
+    No fee-net EV anywhere (ADR 0046): the hold is fee-free arithmetic
+    (`1 - fair x offered decimal`) and the fee sentence travels beside it.
+    """
+    candidates, _ = ladder_candidates(conn, now_ms=now_ms)
+    ladder = build_ladder(candidates, max_odds_age_ms=max_odds_age_ms)
+    card = next((c for c in ladder.cards if c.key == card_key), None)
+    if card is None:
+        raise LookupRefused(404, f"no card named {card_key!r}")
+    if card.not_built_reason is not None:
+        raise LookupRefused(
+            409, f"the {card.title} card is not built right now: "
+                 f"{card.not_built_reason}"
+        )
+
+    served = {(l.kalshi_event_ticker, l.kalshi_market_ticker) for l in card.legs}
+    requested = set(requested_legs)
+    if served != requested:
+        raise LookupRefused(
+            409,
+            "the slate has moved since this card was served -- its legs are "
+            "no longer the ones you saw. Refresh the page and look again "
+            "before pricing.",
+        )
+
+    legs = list(served)
+    collections = await _collections(api, now_ms=now_ms)
+    collection = _choose_collection(
+        collections, {event for event, _ in served}
+    )
+    if collection is None:
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="no_collection",
+        )
+        return {
+            "status": "no_collection",
+            "words": (
+                "Kalshi lists no combination collection that accepts these "
+                "legs right now. Nothing was created."
+            ),
+        }
+
+    try:
+        response = await lookup_combo(
+            api, collection.collection_ticker, legs,
+            side="yes", allow_market_creation=True,
+        )
+    except Exception as exc:  # noqa: BLE001 -- recorded, then re-raised as words
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="error",
+            collection_ticker=collection.collection_ticker, error=str(exc),
+        )
+        raise LookupRefused(
+            502, f"Kalshi refused the combination: {exc}"
+        ) from exc
+
+    minted = response.get("market_ticker") or (
+        (response.get("market") or {}).get("ticker")
+    )
+    if not minted:
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="error",
+            collection_ticker=collection.collection_ticker,
+            error=f"no market_ticker in response keys {sorted(response)}",
+        )
+        raise LookupRefused(
+            502, "Kalshi answered without naming the minted market."
+        )
+
+    book_payload = await api.orderbook(minted, depth=10)
+    book = OrderBook(ticker=minted)
+    book.apply_snapshot(book_payload, None, now_ms)
+
+    joint = card.joint
+    assert joint is not None
+    best_no_bid = book.best_no_bid
+
+    if best_no_bid is None:
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="book_empty",
+            collection_ticker=collection.collection_ticker, minted=minted,
+            fair_joint=joint.conservative,
+        )
+        return {
+            "status": "book_empty",
+            "minted_market_ticker": minted,
+            "words": (
+                "Kalshi created the market, but nothing is resting in its "
+                "book -- no one is offering to sell this combination, so "
+                "there is no price you could actually pay right now. Every "
+                "freshly minted combo book this tool has read looked exactly "
+                "like this; the app may show a number, but a number nobody "
+                "will trade at is not a cost. Try again shortly, or build it "
+                "in the Kalshi app and compare its quote to the fair value "
+                "on the card."
+            ),
+        }
+
+    ask_tenths = 1000 - best_no_bid
+    depth = book.depth_at_ask("yes")
+    valuation = value_parlay(
+        ParlayQuote(
+            legs=tuple(
+                Leg(
+                    label=l.kalshi_market_ticker,
+                    probability=l.p_conservative,
+                    event_key=l.odds_event_id,
+                    league=l.league,
+                    commence_ms=l.commence_ms,
+                )
+                for l in card.legs
+            ),
+            offered_decimal=1000.0 / ask_tenths,
+        )
+    )
+    _record_lookup(
+        conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+        legs=legs, status="priced",
+        collection_ticker=collection.collection_ticker, minted=minted,
+        no_bid_tenths=best_no_bid, ask_tenths=ask_tenths, depth=depth,
+        fair_joint=joint.conservative, hold=valuation.hold,
+    )
+
+    contracts = stake_cents / (ask_tenths / 10.0)
+    return {
+        "status": "priced",
+        "minted_market_ticker": minted,
+        "quoted": {
+            # Derived from the book, stated so the screen can say so: the
+            # ask is the complement of the best resting NO bid.
+            "ask_display": f"{ask_tenths / 10:.1f}c per $1 contract",
+            "depth_display": (
+                None if depth is None
+                else f"about {depth:g} contracts resting at that price"
+            ),
+            "at_stake": {
+                "stake_display": _dollars(stake_cents),
+                "contracts_display": (
+                    f"~{contracts:,.0f}" if contracts >= 10
+                    else f"~{contracts:.1f}"
+                ),
+                "payout_display": _dollars(contracts * 100.0),
+            },
+        },
+        "fair": {
+            "conservative_percent_display": _percent(joint.conservative),
+            "fair_cost_display": f"{joint.conservative * 100:.1f}c per $1 contract",
+        },
+        "hold_display": f"{valuation.hold * 100:.1f}%",
+        "verdict": valuation.verdict,
+        "notes": {
+            "enter_only": NOTES["enter_only"],
+            "fee": NOTES["fee"],
+        },
     }
 
 

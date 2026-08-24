@@ -47,6 +47,7 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/revise-estimate",
   "/lockout",
   "/pass",
+  "/parlay-lookup",
 ]);
 
 export async function middleware(request: NextRequest) {

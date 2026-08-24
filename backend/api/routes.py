@@ -43,6 +43,7 @@ from ..config import (
     GateConfig,
     ManualOrderConfig,
     OddsConfig,
+    KalshiConfig,
     RiskConfig,
     StalenessConfig,
     assert_kalshi_quote_age_limits_agree,
@@ -84,6 +85,7 @@ from ..gate import (
 )
 from ..kalshi.candles import parse_chart_candle
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
+from ..kalshi.rest import KalshiRestClient
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
@@ -101,7 +103,7 @@ from ..odds.timing import (
     SLATE_WINDOW_MS,
     window_status,
 )
-from ..parlays import build_ladder_payload
+from ..parlays import LookupRefused, build_ladder_payload, price_card_on_kalshi
 from ..playbook import read_playbook
 from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
@@ -313,6 +315,21 @@ class ParlayRequest(BaseModel):
         if not self.correlation_overrides:
             return None
         return {(o.a, o.b): o.rho for o in self.correlation_overrides}
+
+
+class ParlayLookupLeg(BaseModel):
+    event_ticker: str
+    market_ticker: str
+
+
+class ParlayLookupRequest(BaseModel):
+    """One "Price on Kalshi" tap (ADR 0070). The legs are echoed back so the
+    server can refuse a card the slate has drifted away from -- a lookup
+    mints a real market and must price the card the user actually saw."""
+
+    card_key: str
+    stake_cents: int = Field(default=500, gt=0, le=100_000)
+    legs: list[ParlayLookupLeg] = Field(min_length=2)
 
 
 def create_app(
@@ -2503,6 +2520,53 @@ def create_app(
             now_ms=now,
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
         )
+
+    @app.post("/api/parlays/lookup", dependencies=[Depends(require_auth)])
+    async def parlay_lookup(request: ParlayLookupRequest) -> dict:
+        """Mint the card's combo on Kalshi and price it off its own book.
+
+        Auth-gated: the POST creates a real market on the exchange (no money
+        moves -- exactly what the app does when a user taps legs -- but it is
+        an outward-facing write, and combo lookups are the one such write on
+        the authorized-actions list). Synchronous: two REST calls, seconds.
+
+        Refusals are words, never guesses: a drifted card is 409, a missing
+        collection or an empty book comes back as a status the screen renders
+        honestly, and every attempt -- priced, empty, refused, error -- is a
+        `parlay_lookups` row.
+        """
+        try:
+            kalshi_config = KalshiConfig.load()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        now = db.now_ms()
+        # Its own writable connection, like every mutating route: `get_conn`
+        # is deliberately read-only, and this route records a `parlay_lookups`
+        # row for every outcome. Async route, one coroutine, one thread.
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            async with KalshiRestClient(kalshi_config) as api:
+                return await price_card_on_kalshi(
+                    write_conn,
+                    card_key=request.card_key,
+                    stake_cents=request.stake_cents,
+                    requested_legs=[
+                        (l.event_ticker, l.market_ticker) for l in request.legs
+                    ],
+                    now_ms=now,
+                    max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                    api=api,
+                )
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
 
     @app.get("/api/odds/refreshable")
     def refreshable(conn=Depends(get_conn)) -> dict:

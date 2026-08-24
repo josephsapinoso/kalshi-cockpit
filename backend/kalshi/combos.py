@@ -370,11 +370,25 @@ async def lookup_combo(
     collection_ticker: str,
     selected_markets: Sequence[tuple[str, str]],
     *,
+    side: str = "yes",
     allow_market_creation: bool = False,
 ) -> dict[str, Any]:
     """Resolve a specific combination to its market ticker, and thus its price.
 
-    `selected_markets` is `(event_ticker, market_ticker)` per leg.
+    `selected_markets` is `(event_ticker, market_ticker)` per leg; `side`
+    applies to every leg (the parlay desk's cards are all-YES by
+    construction, matching `is_all_yes` collections).
+
+    **The wire format was re-measured 2026-08-23.** The path this function
+    used since 2026-08-07 -- `POST .../{ticker}/lookup` -- was never actually
+    exercised (ADR 0012's one authorization was never spent), and when it
+    finally was, it returned a bare routing 404: Kalshi deprecated and
+    removed it. The current call is `POST
+    /multivariate_event_collections/{collection_ticker}` ("Create Market In
+    Multivariate Event Collection"), whose body requires a `side` per leg
+    and which returns `{event_ticker, market_ticker, market?}` --
+    `with_market_payload=true` asks for the full market object so the quote
+    arrives in the same response. Rate limit per docs: 5,000 creations/week.
 
     **This creates a market on the exchange** when the combination does not
     already exist — that is how the product works, and it is what the app does
@@ -384,18 +398,19 @@ async def lookup_combo(
     """
     if not allow_market_creation:
         raise MarketCreationRefused(
-            f"pricing a combination on {collection_ticker} requires "
-            f"POST .../lookup, which creates a market on the exchange if this "
-            f"combination is new. No money is committed, but it is an "
-            f"outward-facing write. Pass allow_market_creation=True to proceed."
+            f"pricing a combination on {collection_ticker} requires a POST "
+            f"that creates a market on the exchange if this combination is "
+            f"new. No money is committed, but it is an outward-facing write. "
+            f"Pass allow_market_creation=True to proceed."
         )
 
     body = {
         "selected_markets": [
-            {"event_ticker": event, "market_ticker": market}
+            {"event_ticker": event, "market_ticker": market, "side": side}
             for event, market in selected_markets
-        ]
+        ],
+        "with_market_payload": True,
     }
     return await api.request(
-        "POST", f"{COLLECTIONS_PATH}/{collection_ticker}/lookup", json_body=body
+        "POST", f"{COLLECTIONS_PATH}/{collection_ticker}", json_body=body
     )
