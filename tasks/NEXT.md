@@ -41,6 +41,39 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-24 (third session) — the desk is used for real, and a combo book is populated for the first time ever
+
+Joe used `/parlays` and "Price on Kalshi" for real and placed bets in the
+Kalshi app. Live at `3d0240e` (the review fixes were deployed first). All
+four watch-after-deploy items are answered, read off the live DB
+(read-only, over ssh):
+
+- **Every tap wrote a `parlay_lookups` row** — 4 rows: `safe` twice
+  (~03:54Z and ~18:19Z), `middle` and `lottery` once each.
+- **The `safe` card returned `priced` — the FIRST populated combination
+  book this repo has ever read** (every prior read: 40/40 empty, both
+  sides). At 03:54Z: NO bid 599 tenths, depth **501**, derived YES ask
+  40.1c vs `fair_joint_conservative` 38.7%, hold 3.4%. By 18:19Z the
+  maker had repriced: depth 59, ask 42.4c, hold 7.2%. So a maker DOES
+  arrive on minted cross-category combos — `book_empty` is a first
+  answer, not a permanent one. **Enter-only is NOT refuted**: the price
+  is still the complement of a resting NO bid; no YES bid was observed.
+- **Idempotency held in production**: the 18:19Z repeat tap returned the
+  same `minted_market_ticker` as 03:54Z — 14.5h and one deploy apart,
+  beyond the seconds-apart bound the capture pinned.
+- `middle` and `lottery`: `book_empty`, the expected first answer.
+- Fills mirrored via the poller with `source='venue_hand'`; on every
+  combo fill `fee_actual` matched the `model_a_deci` prediction — live
+  observations consistent with the standard formula at 0.070 on KXMVE,
+  where ADR 0012 §5 records the combo fee model as unverified. Two of
+  the combos bet have no lookup row (built in the Kalshi app directly).
+  Amounts/prices stay out of the repo per the operator-data ruling.
+
+**Open:** settlements for these positions land on `/bets` after the 12h
+mirror pass — first real end-to-end check of the combo settlement path.
+
+---
+
 ## 2026-08-24 (second session) — all 14 review findings fixed, and the repeat tap turns out to be idempotent
 
 **The list below is DONE — all 10 main findings and all 4 cut-by-cap
