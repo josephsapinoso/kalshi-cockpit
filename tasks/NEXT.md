@@ -41,6 +41,31 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-24 (fourth session) — the parlay desk earns a nav slot and every game names its sport
+
+Two UI changes on Joe's direct asks, both committed, pushed, and live
+(machine version 126, deployed ~20:56Z; verify `/api/health` `git_sha`
+against `origin/main` at `aef8b5b`):
+
+- **Nav swap (`1d88aba`)**: `/parlays` took Evidence's nav slot — nav is
+  now Games · Picks · Parlays · Your bets · Gate · Playbook, budget still
+  six. `/ledger` ("Evidence") moved to the footer beside Estimates. The
+  reasoning is in `Nav.tsx`'s slot comment and `Footer.tsx`'s row comment;
+  `test_every_screen_is_reachable.py` still pins budget and reachability.
+- **League tags (`aef8b5b`)**: Joe reported he can't tell which sport a
+  game is. `event_links.league` (the odds feed's sport key) now travels on
+  `/api/slate`, `/api/board`, and the picks block; new
+  `frontend/src/components/LeagueTag.tsx` renders it through `leagueLabel`
+  beside every game name on Games, Picks, Likely winners, and each parlay
+  leg (legs already carried the key). `None` on an unlinked row renders
+  nothing — never a guess from the ticker prefix. Full suite passed
+  (4,169 + 10 xfailed), tsc clean.
+
+Nothing new is open from this session. The prior entry below is still the
+live brief for the parlay-desk watch items.
+
+---
+
 ## 2026-08-24 (third session) — the desk is used for real, and a combo book is populated for the first time ever
 
 Joe used `/parlays` and "Price on Kalshi" for real and placed bets in the
