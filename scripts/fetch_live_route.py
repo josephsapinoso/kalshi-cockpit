@@ -82,6 +82,10 @@ ALLOWED_PATHS = frozenset(
         "/api/board",
         "/api/health",
         "/api/scout",
+        # The parlay desk's ladder (ADR 0070). GET, no auth, no query keys;
+        # the lookup POST is deliberately NOT here -- this instrument is
+        # GET-only by AST pin, and a lookup mints a market.
+        "/api/parlays",
     }
 )
 
