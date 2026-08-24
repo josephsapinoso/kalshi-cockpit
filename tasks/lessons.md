@@ -25,6 +25,22 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-23 — A wire format that was pinned but never exercised is a belief wearing a pin
+
+`combos.lookup_combo` carried `POST .../{ticker}/lookup` since 2026-08-07,
+with the path pinned in code and recorded in ADR 0012 — and the one
+authorization to actually call it was never spent. The first real call, a
+year of API churn later, returned a bare routing 404: Kalshi had deprecated
+and removed the endpoint, and nothing in this repo could have noticed,
+because a pin verifies that *we* still spell it the way we spelled it, not
+that the counterparty still serves it. **The pattern:** a fixture or pin
+earns trust only downstream of a captured exchange; for a call that has
+never been made, the pin documents a plan, and the first live call is part
+of the build, not an optional smoke. Sibling of "verification methods that
+lie" — this is the never-exercised-path case.
+
+---
+
 ## 2026-08-23 — A pinned fixture clock against a wall-clock instrument is a test with an expiry date
 
 `test_prune_frontier_query.py` froze `NOW_MS = 2026-08-20T13:20Z` — with a

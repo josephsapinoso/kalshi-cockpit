@@ -41,6 +41,75 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-23 (third session) — the parlay desk: three cards at fair value, spreads priced, and the combo's real cost one tap away
+
+Joe's direction, with a screenshot: his cousin-in-law hit a Kalshi 6-leg
+combo ($4.99 → $333.33, six cross-game spread legs) and he wants the
+cockpit to produce good parlays like it. He chose the heavy options by
+AskUserQuestion: **spreads now, auto-fetch the real combo price via
+`lookup_combo`, ladder of three cards**. ADR **0070**; commits `9caf361`
+(Slice A), `e4e7166` (B), `d123623` (C). Schema **v20**. State at close:
+**4,099 passed / 10 xfailed**, ruff clean, tsc clean, `next build` green,
+overflow gate green at all five widths. **NOT yet deployed when this
+entry was first written — check `/api/health` `git_sha` before trusting
+anything below as live.**
+
+- **Slice A — `/parlays` (ADR 0070).** `backend/core/ladder.py` (pure:
+  one leg per fixture so `CorrelationRefused` is structurally
+  unreachable; conservative headline joint + per-method band; staleness
+  = stalest leg; unbuildable cards say why), `GET /api/parlays`
+  (server-worded money strings at preset stakes $1/$5/$10/$20 — the
+  no-client-arithmetic rule; key-walk bans every edge-shaped stem,
+  mutation red), v20 `fair_prices.oldest_book_age_ms` (NULL refuses,
+  never age zero — mutation red), `parlay_lookups` table, `/parlays`
+  page + footer link (the delete-commit question answered: Joe asked
+  for the screen by name) + slate contextual link + 5 glossary terms.
+- **Slice B — spreads.** Kalshi spread markets were ALREADY discovered
+  and quoted every 15s; what was missing was the link (every spread
+  event failed `link_event` "expected 2 sides, got N" every pass — they
+  now inherit their game's link by fixture segment,
+  `spread_fixture_segment`), the odds (`fly.live.toml` `ODDS_MARKETS =
+  "h2h,spreads"`; sweep 2→4 credits; desk window 576/day ~17,300/mo, so
+  **daily cap 600→700 and monthly self-cap 13,000→18,000** — inside the
+  paid 20,000 tier; at 4 sports even that breaks, warning updated), and
+  the devig path (`_price_spread_event`: one devig per rung, two-sided
+  complementary books only, **`fair_prices` only — no recommendations**,
+  keeping spreads off the gate/board/evidence record). One subtitle
+  parser (`backend/kalshi/spreads.py`), pinned on the captured fixture,
+  margin cross-checked against `floor_strike`.
+- **Slice C — "Price on Kalshi".** The first combo lookup this repo ever
+  spent found ADR 0012's pinned endpoint DEAD (routing 404; lesson
+  written). Current wire: `POST /multivariate_event_collections/{t}`
+  with a `side` per leg; response + minted market's book captured as
+  fixtures (2026-08-23, first ever). **A fresh combo's book is EMPTY on
+  both sides** — the endpoint's honest-refusal branch is the expected
+  first answer. `POST /api/parlays/lookup` (auth; drifted card → 409
+  before touching the exchange, mutation red; prices off the ORDER BOOK
+  as 1000 − best NO bid, never the list row; every outcome writes a
+  `parlay_lookups` row), `PriceOnKalshi.tsx` (the screen's one
+  `bg-accent` control), `/parlay-lookup` token-holding route handler.
+  `combos.py` moved out of ADR 0022's quarantine — the tripwire fired
+  exactly as designed — into MUST_HAVE_CALLERS.
+
+**Honesty rails, all pinned by tests:** no edge/EV/kelly/breakeven key in
+any parlay payload (ADR 0038/0046 untouched — no combo EV through
+`calculate_fee`, fee sentence travels verbatim); enter-only warning on
+every card (40/40 books); fair-value-is-not-a-quote sentence; the
+2026-08-21 spread/total *edge look* veto is untouched (this is ingestion
+for card pricing, no registered look, no edge computed).
+
+**Watch after deploy:** first real pass with `h2h,spreads` — confirm
+`fair_prices` rows with `market='spreads'` and non-null
+`oldest_book_age_ms`, spread events linking as `spread_fixture_segment`
+and leaving `unmatched_items`, and `credits-day` near the 576/day
+arithmetic. First real "Price on Kalshi" tap on a live card: expect
+`book_empty` first (the captured reality); a second tap moments later may
+find the quoter arrived. The lookup collections cache is per-process
+(1h). The `-R` suffix on collection tickers rotates — the fallback is
+prefix-matched, not pinned.
+
+---
+
 ## 2026-08-23 (second session) — the desk presents fully: likely winners on the slate, five areas per game, Willy's seat
 
 Joe, frustrated ("nothing bettable almost at all... what the hell man?"),
