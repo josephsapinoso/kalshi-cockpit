@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { DISPLAY_TIME_ZONE } from "@/lib/api";
 import type { SlatePicks } from "@/lib/api";
+import LeagueTag from "@/components/LeagueTag";
 import Term from "@/components/Term";
 
 /**
@@ -58,6 +59,7 @@ export default function GoodChancePicks({
               <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
                 {kickoff(pick.commence_ms)}
               </span>
+              <LeagueTag league={pick.league} />
               <Link
                 href={`/market/${encodeURIComponent(pick.ticker)}`}
                 className="min-w-0 truncate font-semibold tracking-tight hover:underline"

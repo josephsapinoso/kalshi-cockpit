@@ -975,10 +975,11 @@ def create_app(
             )
             rows = conn.execute(
                 "SELECT r.*, m.title AS market_title, m.yes_side_team, "
-                "e.title AS event_title, e.commence_ms "
+                "e.title AS event_title, e.commence_ms, l.league "
                 "FROM recommendations r "
                 "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
+                "LEFT JOIN event_links l ON l.id = r.link_id "
                 f"WHERE {_BASIS_SQL} >= ? "
                 f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
                 "LIMIT ?",
@@ -999,6 +1000,11 @@ def create_app(
             if since is not None and item["freshness_measured_from_ms"] < since:
                 off_basis += 1
                 continue
+            # Which sport this game is, from the link's own record (the odds
+            # feed's sport key, e.g. `baseball_mlb`). `None` on an unlinked
+            # row, never a guess -- the screen shows nothing rather than a
+            # league nothing recorded.
+            item["league"] = row["league"]
             if row["suggested_contracts"] > 0:
                 (surfaced if item["actionable"] else expired).append(item)
             elif row["suppressed_reason"]:
@@ -1175,7 +1181,7 @@ def create_app(
                 "       f.p_conservative, "
                 "       f.market_width, f.book_count, f.books_used, "
                 "       f.anchored_on_sharp, f.outcome_name, "
-                "       l.odds_event_id "
+                "       l.odds_event_id, l.league "
                 "FROM recommendations r "
                 "LEFT JOIN kalshi_markets m ON m.ticker = r.ticker "
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
@@ -1210,6 +1216,9 @@ def create_app(
                 (row["odds_event_id"] or item["event_title"] or item["ticker"], item)
             )
 
+            # Same fact and same refusal as the Board's: the link's sport key,
+            # `None` on an unlinked row.
+            item["league"] = row["league"]
             item["volume_24h"] = row["volume_24h"]
             item["open_interest"] = row["open_interest"]
             item["kalshi_drift_tenths"] = kalshi_drift(
@@ -1334,6 +1343,10 @@ def create_app(
                         "ticker": best["ticker"],
                         "event_title": best["event_title"],
                         "team": best["team"],
+                        # Which sport, so two "Sparks vs Aces"-shaped names
+                        # never leave the reader guessing the league. Not an
+                        # edge-shaped key; `test_slate_picks` walks the rest.
+                        "league": best["league"],
                         "side": best["side"],
                         "commence_ms": best["commence_ms"],
                         "fair_percent_display": best["fair_percent_display"],

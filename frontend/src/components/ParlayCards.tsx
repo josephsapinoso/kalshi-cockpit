@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { DISPLAY_TIME_ZONE } from "@/lib/api";
 import type { ParlayCardData, ParlayLadder } from "@/lib/api";
+import LeagueTag from "@/components/LeagueTag";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
 import Term from "@/components/Term";
 
@@ -89,6 +90,7 @@ function Card({ card }: { card: ParlayCardData }) {
                 <span className="tabular w-11 shrink-0 font-mono text-[11px] text-muted">
                   {kickoff(leg.commence_ms)}
                 </span>
+                <LeagueTag league={leg.league} />
                 <Link
                   href={`/market/${encodeURIComponent(leg.ticker)}`}
                   className="min-w-0 truncate text-sm font-semibold tracking-tight hover:underline"

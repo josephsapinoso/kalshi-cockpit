@@ -22,6 +22,7 @@ import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
+import LeagueTag from "@/components/LeagueTag";
 import GoodChancePicks from "@/components/GoodChancePicks";
 import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
@@ -338,13 +339,20 @@ function Row({
       </span>
       {/* The name opens the market's price-history chart. A plain link,
           not a button: history is safe to browse, and the chart page says
-          itself that the tradeable number is the ask on this row. */}
-      <Link
-        href={`/market/${encodeURIComponent(row.ticker)}`}
-        className="min-w-0 truncate font-semibold tracking-tight hover:underline"
-      >
-        {row.team ?? row.ticker}
-      </Link>
+          itself that the tradeable number is the ask on this row.
+
+          The league tag shares the name's grid cell rather than taking one
+          of its own: the xl template names eleven columns, and a twelfth
+          child would shift every column after it by one. */}
+      <span className="flex min-w-0 items-baseline gap-2">
+        <LeagueTag league={row.league} />
+        <Link
+          href={`/market/${encodeURIComponent(row.ticker)}`}
+          className="min-w-0 truncate font-semibold tracking-tight hover:underline"
+        >
+          {row.team ?? row.ticker}
+        </Link>
+      </span>
       <span className="tabular text-sm text-muted">
         {row.ask_display} <Term k="ask">ask</Term>
       </span>

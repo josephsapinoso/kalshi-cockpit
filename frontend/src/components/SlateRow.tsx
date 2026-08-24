@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
+import LeagueTag from "@/components/LeagueTag";
 
 /**
  * One candidate, as a line rather than a card.
@@ -100,6 +101,9 @@ export default function SlateRow({
           would pay is the ask. Until 2026-08-18 this link existed only on
           `/slate`, so the Board -- the landing page -- was the one screen where
           a name looked like a name and led nowhere. */}
+      {/* Which sport, beside the name it disambiguates. Nothing on an
+          unlinked row — see LeagueTag. */}
+      <LeagueTag league={rec.league} />
       <Link
         href={`/market/${encodeURIComponent(rec.ticker)}`}
         className="min-w-0 font-semibold tracking-tight hover:underline"

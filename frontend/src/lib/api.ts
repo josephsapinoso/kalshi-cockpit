@@ -88,6 +88,13 @@ export type Recommendation = Partial<DevigMethods> &
   side: string;
   team: string | null;
   event_title: string | null;
+  /**
+   * The odds feed's sport key for the linked fixture (`baseball_mlb`),
+   * rendered through `leagueLabel`. Optional: sent by `/api/slate` and
+   * `/api/board` since 2026-08-24; `null` on an unlinked row — render
+   * nothing, never a guess.
+   */
+  league?: string | null;
   commence_ms: number | null;
   ask_tenths: number;
   ask_display: string;
@@ -1113,6 +1120,8 @@ export type SlatePick = {
   ticker: string;
   event_title: string | null;
   team: string | null;
+  /** Sport key of the linked fixture; optional for a backend one version behind. */
+  league?: string | null;
   side: string;
   commence_ms: number | null;
   fair_percent_display: string | null;
