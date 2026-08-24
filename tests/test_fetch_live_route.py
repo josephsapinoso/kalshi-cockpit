@@ -55,7 +55,10 @@ def _module_ast() -> ast.Module:
 
 
 class TestTheAllowlistIsPinned:
-    def test_the_allowlist_is_exactly_the_eight_agreed_paths(self):
+    def test_the_allowlist_is_exactly_the_nine_agreed_paths(self):
+        # /api/parlays joined 2026-08-23 (ADR 0070) so the parlay desk's
+        # served payload is verifiable on live; the lookup POST stays out --
+        # this instrument is GET-only and a lookup mints a market.
         assert ALLOWED_PATHS == frozenset(
             {
                 "/api/slate",
@@ -66,6 +69,7 @@ class TestTheAllowlistIsPinned:
                 "/api/board",
                 "/api/health",
                 "/api/scout",
+                "/api/parlays",
             }
         )
 
