@@ -60,16 +60,14 @@ const SECONDARY = [
       "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
   },
   {
-    // ADR 0070, and the delete-commit question answered: Joe asked for this
-    // screen by name (2026-08-23). Deliberately NOT the deleted `/builder` —
-    // that was an unframed calculator for sportsbook parlays; this frames
-    // Kalshi's own combo product with the fair joint, the per-method band,
-    // and the enter-only + fee caveats in view, at preset stakes. The slate
-    // also links it contextually; this row is the reachability anchor.
-    href: "/parlays",
-    label: "Parlay desk",
+    // Demoted from the nav 2026-08-24 when the Parlay desk took its slot
+    // (Joe's call: promote parlays, demote what is not day-to-day). This is
+    // the engine's evidence base — every candidate row with its factors —
+    // read when auditing the record, not when placing a bet.
+    href: "/ledger",
+    label: "Evidence",
     blurb:
-      "Three daily cards — Safe, Middle, Lottery — at fair value by the books' consensus. Kalshi's own price will differ; the caveats say how.",
+      "Every candidate the engine has recorded, with its factors and suppression reason. The audit trail, not a betting screen.",
   },
 ];
 

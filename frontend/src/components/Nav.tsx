@@ -80,11 +80,19 @@ import type { Chip } from "@/lib/windowChip";
 // not anyone's ledger, and it should stop reading as one. Route unchanged
 // (`/ledger`, matching `/api/ledger`) -- only the label and the page's own
 // heading move, the same pattern `/board` follows under "Picks".
+// **Parlays takes Evidence's slot, 2026-08-24** (Joe asked to promote the
+// parlay link and demote whatever is not day-to-day). Same trade shape as
+// every swap above: the Parlay desk is a screen bets are placed from --
+// three daily cards, opened daily -- while Evidence is the engine's record,
+// read for analysis at most weekly. Gate keeps its slot (it is the money
+// interlock, the reason the budget is six), and Playbook stays the link
+// that scrolls at 390px. `/ledger` moves to the footer, exactly as
+// `/estimate` did -- served, linked, and one tap further away.
 const LINKS = [
   { href: "/", label: "Games" },
   { href: "/board", label: "Picks" },
+  { href: "/parlays", label: "Parlays" },
   { href: "/bets", label: "Your bets" },
-  { href: "/ledger", label: "Evidence" },
   // Gate before Playbook, and the order is load-bearing at 390px: the newest
   // and least urgent page is the one that scrolls off.
   { href: "/gate", label: "Gate" },
