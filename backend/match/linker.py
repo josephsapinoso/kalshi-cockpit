@@ -100,6 +100,11 @@ _FIXTURE_SEGMENT = re.compile(r"^[A-Z0-9]+-(?P<fixture>[0-9]{2}[A-Z]{3}[0-9]+[A-
 # mistaken in the record for one that passed the team-pair bijection.
 PROP_LINK_METHOD = "prop_fixture_segment"
 
+# The same inheritance for a spread event (ADR 0070). Its own name so the
+# record never says `prop_fixture_segment` about a run-line — a reader
+# auditing prop links must not have spread rows hiding inside the count.
+SPREAD_LINK_METHOD = "spread_fixture_segment"
+
 # `event_links.method` for a link that did pass it. Named rather than repeated
 # as a literal, because a prop is only allowed to inherit from this kind and a
 # reader comparing two spellings of one string cannot tell that rule is holding.
@@ -349,8 +354,9 @@ def link_prop_event(
     kalshi_event_ticker: str,
     kalshi_commence_ms: int,
     linked_fixtures: Iterable[LinkedFixture],
+    method: str = PROP_LINK_METHOD,
 ) -> MatchResult:
-    """Resolve a prop event by inheriting its own game's link.
+    """Resolve a prop (or spread) event by inheriting its own game's link.
 
     **Why props cannot go through `link_event`.** That function matches on a
     two-team bijection built from `yes_sub_title`. A prop event's subtitles are
@@ -358,6 +364,12 @@ def link_prop_event(
     strings, not two team names. Every prop event would fail with
     `"expected 2 sides, got 12"` and land in `unmatched_items`, roughly twelve
     hundred rows a pricing pass, describing a failure that was never a failure.
+
+    **A spread event has exactly the same shape** (ADR 0070): 6-10 rung
+    subtitles like `"Seattle wins by over 1.5 runs"`, one fixture segment
+    shared byte-for-byte with its game's ticker. It inherits through here with
+    `method=SPREAD_LINK_METHOD`, so `event_links.method` never says "prop"
+    about a run-line.
 
     So a prop is linked by **identity, not by inference**: its ticker names the
     same fixture segment as the moneyline event for the same game, and that
@@ -412,7 +424,7 @@ def link_prop_event(
         # carries its own `occurrence_datetime`, and a prop stamped differently
         # from its game is a fact worth recording rather than hiding.
         commence_skew_ms=winner.odds_commence_ms - kalshi_commence_ms,
-        method=PROP_LINK_METHOD,
+        method=method,
     )
 
 

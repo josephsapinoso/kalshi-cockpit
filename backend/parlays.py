@@ -33,6 +33,7 @@ from backend.core.ladder import (
     Ladder,
     build_ladder,
 )
+from backend.kalshi.spreads import parse_spread_subtitle
 from backend.match.linker import load_aliases, resolve_outcome
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ def ladder_candidates(
                    home_team, away_team
             FROM odds_snapshots GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
-        WHERE f.market = 'h2h'
+        WHERE f.market IN ('h2h', 'spreads')
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
         ORDER BY f.computed_ms DESC
         """,
@@ -128,22 +129,25 @@ def ladder_candidates(
         freshest.setdefault(key, row)
 
     # The book's outcome names per link — what `resolve_outcome` matches
-    # a Kalshi side against.
+    # a Kalshi side against. Spread rows' outcomes are the same two teams,
+    # so one list per link serves both market kinds.
     outcomes_by_link: dict[int, list[str]] = {}
-    for (link_id, market, outcome, _), _row in freshest.items():
-        if market == "h2h" and outcome not in outcomes_by_link.setdefault(link_id, []):
+    for (link_id, _market, outcome, _), _row in freshest.items():
+        if outcome not in outcomes_by_link.setdefault(link_id, []):
             outcomes_by_link[link_id].append(outcome)
 
-    # Kalshi's buyable moneyline markets per linked event.
+    # Kalshi's buyable markets per linked event: moneylines on the game
+    # event, spread rungs on the spread event (each links separately).
     markets_by_event: dict[str, list] = {}
     for row in freshest.values():
         event_ticker = row["kalshi_event_ticker"]
         if event_ticker in markets_by_event:
             continue
         markets_by_event[event_ticker] = conn.execute(
-            "SELECT ticker, yes_side_team, market_type, status "
+            "SELECT ticker, yes_side_team, market_type, strike, status "
             "FROM kalshi_markets WHERE event_ticker = ? "
-            "AND market_type = 'moneyline' AND yes_side_team IS NOT NULL",
+            "AND market_type IN ('moneyline', 'spread') "
+            "AND yes_side_team IS NOT NULL",
             (event_ticker,),
         ).fetchall()
 
@@ -156,14 +160,47 @@ def ladder_candidates(
         aliases = alias_cache[league]
 
         # Which Kalshi market's YES is this outcome?
+        #
+        # A spread combo leg must be a BUYABLE YES side, and Kalshi only
+        # sells the favorite's cover ("T wins by over S" = the book's
+        # (T, -S)); the +S side is that market's NO, not a leg. So spread
+        # rows with a positive point are structurally not candidates —
+        # skipped without a count, the way a NO-side h2h row never enters
+        # `outcomes_by_link` as a pick.
         matched = None
-        for m in markets_by_event.get(row["kalshi_event_ticker"], []):
-            resolved = resolve_outcome(
-                m["yes_side_team"], outcomes_by_link.get(link_id, []), aliases
-            )
-            if resolved == outcome:
-                matched = m
-                break
+        label = f"{outcome} to win"
+        if market == "spreads":
+            point_val = float(point) if point is not None else None
+            if point_val is None or point_val >= 0:
+                continue
+            for m in markets_by_event.get(row["kalshi_event_ticker"], []):
+                if m["market_type"] != "spread" or m["strike"] is None:
+                    continue
+                if float(m["strike"]) != -point_val:
+                    continue
+                parsed = parse_spread_subtitle(m["yes_side_team"])
+                if parsed is None:
+                    continue
+                resolved = resolve_outcome(
+                    parsed[0], outcomes_by_link.get(link_id, []), aliases
+                )
+                if resolved == outcome:
+                    matched = m
+                    # The subtitle verbatim — Kalshi's own phrasing is the
+                    # clearest label a rung has ("St. Louis wins by over
+                    # 1.5 runs").
+                    label = m["yes_side_team"]
+                    break
+        else:
+            for m in markets_by_event.get(row["kalshi_event_ticker"], []):
+                if m["market_type"] != "moneyline":
+                    continue
+                resolved = resolve_outcome(
+                    m["yes_side_team"], outcomes_by_link.get(link_id, []), aliases
+                )
+                if resolved == outcome:
+                    matched = m
+                    break
         if matched is None:
             count("no_kalshi_market")
             continue
@@ -178,7 +215,7 @@ def ladder_candidates(
         )
         candidates.append(
             CandidateLeg(
-                label=f"{outcome} to win",
+                label=label,
                 event_title=title,
                 kalshi_event_ticker=row["kalshi_event_ticker"],
                 kalshi_market_ticker=matched["ticker"],

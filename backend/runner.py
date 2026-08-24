@@ -94,8 +94,11 @@ from .kalshi.props import (
     base_market,
     norm,
 )
+from .kalshi.spreads import MARKET_TYPE_SPREAD, parse_spread_subtitle
 from .match.linker import (
     EXACT_ALIAS_PAIR,
+    PROP_LINK_METHOD,
+    SPREAD_LINK_METHOD,
     LinkedFixture,
     MatchCandidate,
     TeamAliases,
@@ -634,6 +637,140 @@ def prop_quotes_for_event(
     return lines
 
 
+@dataclass(frozen=True)
+class SpreadLine:
+    """One spread rung of one game, ready to devig (ADR 0070).
+
+    `points` maps each team to its OWN line: the favorite's is negative
+    (laying runs), the dog's positive, and within one rung they are exact
+    complements -- that complementarity is the admission test, not an
+    assumption. `outcomes` is pinned by first appearance for the positional
+    safety `book_quotes_for_event` documents: team names cannot be enumerated
+    in advance the way `PROP_SIDES` can.
+    """
+
+    outcomes: tuple[str, str]
+    points: dict[str, float]
+    books: BookConsensusInput
+
+
+def spread_quotes_for_event(
+    conn, odds_event_id: str, *, now: int
+) -> list[SpreadLine]:
+    """Stored spread odds for one fixture, one entry per rung.
+
+    **Why this cannot be `book_quotes_for_event` with `market='spreads'`.**
+    The prop path's argument, one market along: that function pools every row
+    of one market key into a single outcome list, and books quoting different
+    main lines (-1.5 here, -2.5 there) would be devigged together as one
+    four-outcome "consensus". The grouping key is the unordered
+    `{(team, point)}` pair, so each line is its own rung.
+
+    **A book is admitted to a rung only two-sided and complementary** --
+    both teams named, `pointA == -pointB`. A one-sided spread quote has no
+    overround to remove, and an off-complement pair is two different rungs
+    sharing a fetch. Both are dropped by the grouping itself.
+
+    Reads one sweep via `MAX(fetched_ms)`, for the team path's reason: mixing
+    sweeps would pair a fresh price with an hour-old one and call the
+    disagreement `market_width`, which is a suppression input.
+    """
+    latest = conn.execute(
+        "SELECT MAX(fetched_ms) AS m FROM odds_snapshots "
+        "WHERE odds_event_id = ? AND market = 'spreads'",
+        (odds_event_id,),
+    ).fetchone()
+    if latest is None or latest["m"] is None:
+        return []
+
+    rows = conn.execute(
+        "SELECT bookmaker, outcome_name, outcome_point, price_decimal, "
+        "book_updated_ms, fetched_ms, commence_ms "
+        "FROM odds_snapshots WHERE odds_event_id = ? AND fetched_ms = ? "
+        "AND market = 'spreads'",
+        (odds_event_id, latest["m"]),
+    ).fetchall()
+    if not rows:
+        return []
+
+    # bookmaker -> [(team, point, price, updated_ms, fetched_ms, commence)]
+    by_book: dict[str, list] = {}
+    for row in rows:
+        if row["outcome_point"] is None or not row["outcome_name"]:
+            # Unreadable resolves to nothing: a spread row without its line
+            # names no rung, and substituting one would attach the price to a
+            # market it does not describe.
+            continue
+        by_book.setdefault(row["bookmaker"], []).append(row)
+
+    # rung key (unordered {(team, point)}) -> the pieces of one consensus.
+    grouped: dict[frozenset, dict] = {}
+    for book, book_rows in by_book.items():
+        if len(book_rows) != 2:
+            # One-sided, or a book carrying several lines in one sweep with
+            # no way to pair them. Dropped whole rather than paired by guess.
+            continue
+        a, b = book_rows
+        if float(a["outcome_point"]) != -float(b["outcome_point"]):
+            continue
+        if a["outcome_name"] == b["outcome_name"]:
+            continue
+
+        key = frozenset(
+            (r["outcome_name"], float(r["outcome_point"])) for r in book_rows
+        )
+        entry = grouped.setdefault(
+            key,
+            {
+                # First appearance pins the outcome order for every book that
+                # follows, so prices pair to outcomes positionally and safely.
+                "outcomes": (a["outcome_name"], b["outcome_name"]),
+                "points": {
+                    a["outcome_name"]: float(a["outcome_point"]),
+                    b["outcome_name"]: float(b["outcome_point"]),
+                },
+                "by_book": {},
+                "ages": {},
+                "estimated": set(),
+                "commence_ms": int(a["commence_ms"]),
+            },
+        )
+        prices = {r["outcome_name"]: float(r["price_decimal"]) for r in book_rows}
+        entry["by_book"][book] = [prices[o] for o in entry["outcomes"]]
+
+        # Staleness from the BOOK's own update, never our fetch -- and the
+        # fallback is recorded as estimated, exactly as the prop path does.
+        ages = []
+        for r in book_rows:
+            if r["book_updated_ms"] is None:
+                entry["estimated"].add(book)
+            basis = (
+                r["book_updated_ms"]
+                if r["book_updated_ms"] is not None
+                else r["fetched_ms"]
+            )
+            ages.append(now - int(basis))
+        entry["ages"][book] = max(ages)
+
+    lines: list[SpreadLine] = []
+    for entry in grouped.values():
+        lines.append(
+            SpreadLine(
+                outcomes=entry["outcomes"],
+                points=entry["points"],
+                books=BookConsensusInput(
+                    outcomes=entry["outcomes"],
+                    quotes_by_book=entry["by_book"],
+                    oldest_book_age_ms=max(entry["ages"].values()),
+                    books_dropped=(),
+                    books_with_estimated_age=tuple(sorted(entry["estimated"])),
+                    commence_ms=entry["commence_ms"],
+                ),
+            )
+        )
+    return lines
+
+
 def write_fair_price(
     conn,
     *,
@@ -644,6 +781,7 @@ def write_fair_price(
     market: str = MONEYLINE,
     outcome_description: Optional[str] = None,
     outcome_point: Optional[float] = None,
+    outcome_points: Optional[dict[str, float]] = None,
     oldest_book_age_ms: Optional[int] = None,
 ) -> dict[str, int]:
     """Persist one `fair_prices` row per outcome. Returns outcome -> row id.
@@ -664,7 +802,27 @@ def write_fair_price(
     `computed_ms` -- the stalest contributing book (v20, ADR 0070). `None`
     means the caller did not measure it, and readers must refuse such a row
     where freshness decides anything, never treat the absence as age zero.
+
+    `outcome_points` is the spread path's per-outcome line (ADR 0070): a
+    rung's two sides carry OPPOSITE points (the favorite's -1.5 is the dog's
+    +1.5), so a single `outcome_point` cannot describe both rows. When given
+    it must cover every outcome -- a side whose point is unknown is a side
+    that must not be written, not one written at NULL beside a sibling that
+    has one. Mutually exclusive with `outcome_point` by construction: props
+    share one line, spreads never do.
     """
+    if outcome_points is not None:
+        if outcome_point is not None:
+            raise ValueError(
+                "outcome_point and outcome_points are two spellings of one "
+                "fact; passing both invites them to disagree"
+            )
+        missing = [o for o in devig_result.outcomes if o not in outcome_points]
+        if missing:
+            raise KeyError(
+                f"outcome_points is missing {missing}; a side without its "
+                f"point must be refused by the caller, not written at NULL"
+            )
     ids: dict[str, int] = {}
     methods = devig_result.all_methods()
 
@@ -692,7 +850,9 @@ def write_fair_price(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 computed_ms, link_id, market, outcome,
-                outcome_description, outcome_point,
+                outcome_description,
+                outcome_points[outcome] if outcome_points is not None
+                else outcome_point,
                 methods["multiplicative"][index], methods["additive"][index],
                 methods["power"][index], methods["shin"][index],
                 devig_result.conservative_probability(outcome),
@@ -810,6 +970,103 @@ def _linked_fixtures(conn, *, since_ms: int) -> list[LinkedFixture]:
     return fixtures
 
 
+def _price_spread_event(
+    conn,
+    event: DiscoveredEvent,
+    *,
+    link_id: int,
+    stamp: int,
+    counts: PassCounts,
+    aliases: TeamAliases,
+    odds_event_id: str,
+) -> None:
+    """Price one spread event: one devig per rung, `fair_prices` only.
+
+    **Deliberately writes no `recommendations` row** (ADR 0070). The parlay
+    desk reads fair rows; keeping spread rungs off the recommendation, gate
+    and board path keeps ADR 0038's evidence record single-regime and the
+    gate untouched. Spread rows also skip the suppression gauntlet for the
+    same reason -- there is no candidate to suppress.
+
+    **The join carries no arithmetic.** A Kalshi rung says "T wins by over
+    S" (`floor_strike` = S); the books quote the same rung as outcome
+    `(T, point = -S)`. Both publish their own number, the subtitle's S is
+    cross-checked against `strike`, and a disagreement refuses the market
+    rather than trusting either copy.
+
+    Kalshi YES is the favorite covering; NO is the book's complementary
+    `(other team, +S)` side. Both sides' fair rows are written, each with its
+    OWN point (see `write_fair_price`'s `outcome_points`).
+    """
+    lines = spread_quotes_for_event(conn, odds_event_id, now=stamp)
+    if not lines:
+        counts.dropped_no_books += 1
+        return
+
+    # Devigged at most once per rung even when both teams' Kalshi markets
+    # land on it, so two rows never carry two different consensuses.
+    devigged: dict[frozenset, Optional[tuple]] = {}
+
+    for market in event.markets:
+        if market.market_type != MARKET_TYPE_SPREAD:
+            continue
+        parsed = parse_spread_subtitle(market.yes_side)
+        if parsed is None or market.strike is None:
+            counts.dropped_unresolved_outcome += 1
+            continue
+        team_raw, margin = parsed
+        if float(margin) != float(market.strike):
+            # One number published twice, disagreeing. Refuse the market:
+            # trusting either copy silently is how a 2.5-run line prices a
+            # 1.5-run market.
+            counts.errors.append(
+                f"{market.ticker}: subtitle margin {margin} != "
+                f"floor_strike {market.strike}"
+            )
+            continue
+
+        line = None
+        resolved = None
+        for candidate in lines:
+            name = resolve_outcome(team_raw, candidate.outcomes, aliases)
+            if name is not None and candidate.points.get(name) == -float(margin):
+                line, resolved = candidate, name
+                break
+        if line is None:
+            # The books quote no two-sided price at this rung.
+            counts.dropped_unresolved_outcome += 1
+            continue
+
+        books = line.books
+        # The sportsbook's kickoff, never Kalshi's -- the team path's rule.
+        if books.commence_ms is not None and books.commence_ms <= stamp:
+            counts.dropped_game_started += 1
+            continue
+
+        key = frozenset(line.points.items())
+        if key not in devigged:
+            try:
+                result, metadata = consensus_devig(
+                    books.outcomes, books.quotes_by_book, sharp_books=SHARP_BOOKS
+                )
+            except DevigError as exc:
+                counts.errors.append(f"{market.ticker}: {exc}")
+                devigged[key] = None
+            else:
+                fair_ids = write_fair_price(
+                    conn,
+                    link_id=link_id,
+                    devig_result=result,
+                    metadata=metadata,
+                    computed_ms=stamp,
+                    market="spreads",
+                    outcome_points=line.points,
+                    oldest_book_age_ms=books.oldest_book_age_ms,
+                )
+                counts.fair_prices_written += len(fair_ids)
+                devigged[key] = (result, metadata, fair_ids)
+
+
 # The threshold a `link slow` line is emitted above. 8s because the fast state
 # measured 2.0-2.4s across 29 consecutive live passes and the slow state 12.7s
 # and up, so this sits in the empty gap between two well-separated clusters
@@ -881,8 +1138,19 @@ def link_discovered_events(
     # a prop against whatever happened to be linked before it in the list and
     # silently refuse the rest. Sorting by market type makes the dependency a
     # property of the code rather than of the order Kalshi returned events in.
-    games = [e for e in events if e.market_type != MARKET_TYPE_PROP]
-    props = [e for e in events if e.market_type == MARKET_TYPE_PROP]
+    # Spread events inherit exactly like props (ADR 0070): their subtitles are
+    # 6-10 rung strings ("Seattle wins by over 1.5 runs"), so `link_event`
+    # refused every one, every pass, with "expected 2 sides, got N" -- a
+    # standing `unmatched_items` population describing a failure that was
+    # never a failure. Their ticker shares the game's fixture segment.
+    games = [
+        e for e in events
+        if e.market_type not in (MARKET_TYPE_PROP, MARKET_TYPE_SPREAD)
+    ]
+    derived = [
+        e for e in events
+        if e.market_type in (MARKET_TYPE_PROP, MARKET_TYPE_SPREAD)
+    ]
 
     for event in games:
         if event.sport_key not in cache:
@@ -925,13 +1193,18 @@ def link_discovered_events(
             )
             unmatched_ms += (time.perf_counter() - _t) * 1000
 
-    if props:
+    if derived:
         fixtures = _linked_fixtures(conn, since_ms=now - 86_400_000)
-        for event in props:
+        for event in derived:
             result = link_prop_event(
                 kalshi_event_ticker=event.event_ticker,
                 kalshi_commence_ms=event.commence_ms,
                 linked_fixtures=fixtures,
+                method=(
+                    SPREAD_LINK_METHOD
+                    if event.market_type == MARKET_TYPE_SPREAD
+                    else PROP_LINK_METHOD
+                ),
             )
             if result.matched:
                 link_id = record_link(conn, result, event.league, now)
@@ -1459,6 +1732,22 @@ def run_pricing_pass(
                 version=version,
                 exposure=exposure,
                 daily_pnl=daily_pnl,
+            )
+            continue
+
+        if event.market_type == MARKET_TYPE_SPREAD:
+            # Fair rows only, no recommendations (ADR 0070) -- the parlay
+            # desk's supply line, kept off the gate/board/evidence path.
+            if event.sport_key not in alias_cache:
+                alias_cache[event.sport_key] = load_aliases(event.sport_key)
+            _price_spread_event(
+                conn,
+                event,
+                link_id=link_id,
+                stamp=stamp,
+                counts=counts,
+                aliases=alias_cache[event.sport_key],
+                odds_event_id=odds_event_id,
             )
             continue
 

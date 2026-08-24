@@ -296,12 +296,12 @@ class OddsConfig:
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
-                # `h2h` alone. `spreads`/`totals` were fetched until 2026-08-16
-                # and consumed by nothing -- the pricing path reads
-                # `market=MONEYLINE` from its only call site (`runner.py:1218`),
-                # and `linker.py:281` refuses every non-two-sided Kalshi event,
-                # so neither has ever priced for any sport. Each extra key
-                # multiplies `sweep_cost` for every sport on every refresh.
+                # The code default stays `h2h`; live sets "h2h,spreads" in
+                # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
+                # pricing path consumes `spreads`; spread events inherit
+                # their game's link by fixture segment). `totals` still has
+                # no consumer anywhere. Each extra key multiplies
+                # `sweep_cost` for every sport on every refresh.
                 m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],
             budget_day_start_utc_hour=hour,
@@ -327,12 +327,12 @@ class OddsConfig:
             monthly_credit_budget=_int_or_none("ODDS_MONTHLY_CREDIT_BUDGET"),
             regions=[r for r in _optional("ODDS_REGIONS", "us,eu").split(",") if r],
             markets=[
-                # `h2h` alone. `spreads`/`totals` were fetched until 2026-08-16
-                # and consumed by nothing -- the pricing path reads
-                # `market=MONEYLINE` from its only call site (`runner.py:1218`),
-                # and `linker.py:281` refuses every non-two-sided Kalshi event,
-                # so neither has ever priced for any sport. Each extra key
-                # multiplies `sweep_cost` for every sport on every refresh.
+                # The code default stays `h2h`; live sets "h2h,spreads" in
+                # `fly.live.toml` (ADR 0070 -- the parlay desk's spread
+                # pricing path consumes `spreads`; spread events inherit
+                # their game's link by fixture segment). `totals` still has
+                # no consumer anywhere. Each extra key multiplies
+                # `sweep_cost` for every sport on every refresh.
                 m for m in _optional("ODDS_MARKETS", "h2h").split(",") if m
             ],
             # Validated here too. Until 2026-08-11 this constructor read the

@@ -214,24 +214,43 @@ primary_region = "ord"
   # **Unmeasured:** August is two leagues. Re-run the coverage script on a
   # winter slate once the NBA schedule is published -- and re-run it at all,
   # because it was measured against one-buy-per-cluster.
-  ODDS_DAILY_CREDIT_BUDGET = "600"
+  #
+  # Raised 600 -> 700 on 2026-08-23 with ODDS_MARKETS = "h2h,spreads" (ADR
+  # 0070): the desk window alone is now 576/day, and a 600 cap would have let
+  # one kickoff-slot sweep or odds refresh stop every sport for the day. The
+  # arithmetic and the four-sport warning live beside ODDS_DESK_WINDOW_UTC.
+  ODDS_DAILY_CREDIT_BUDGET = "700"
 
   # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
   # month only if you multiply it out, and it cannot bound a caller that spends
   # 10x per call -- which the historical endpoints do. The gap to 20,000 is
   # deliberate headroom for that work.
-  ODDS_MONTHLY_CREDIT_BUDGET = "13000"
+  #
+  # Raised 13,000 -> 18,000 on 2026-08-23 (ADR 0070): spreads doubled the
+  # sweep and the desk window's expected month (~17,300) no longer fit. Still
+  # inside the paid 20,000; the headroom for historical pulls narrowed to
+  # ~2,000 -- a deliberate trade, recorded beside ODDS_DESK_WINDOW_UTC.
+  ODDS_MONTHLY_CREDIT_BUDGET = "18000"
 
   # The desk window (2026-08-23): re-buy every fixtured sport on the 10-min
   # refresh cadence 16:00Z-04:00Z (9am-9pm PT -- the hours Joe actually looks,
   # his answer 2026-08-23), so the slate is priced while the desk is open
   # rather than only in the hour before a kickoff cluster. Measured before
   # this: 63 of 71 slate rows `stale_odds` (median odds age 13.7h) with 0 of
-  # 600 daily credits spent. Cost is arithmetic: 2 sports x 2 credits x 12h x
-  # 6/hour = 288/day, ~8,600/month against this file's caps of 600/day and
-  # 13,000/month. **At four sports (NCAAF+NFL) the same window is 576/day,
-  # ~17,300/month, which BREAKS the monthly self-cap around day 22** -- when
-  # those sports enter scope, narrow this window or raise the monthly cap,
+  # 600 daily credits spent.
+  #
+  # **Re-done 2026-08-23 for `ODDS_MARKETS = "h2h,spreads"` (ADR 0070), which
+  # doubled a sweep from 2 credits to 4.** The window is now 2 sports x
+  # 4 credits x 12h x 6/hour = **576/day, ~17,300/month**. That broke the old
+  # 13,000 monthly self-cap on paper around day 22, so the caps below were
+  # raised the same day: monthly 13,000 -> 18,000 (the paid tier is 20,000 --
+  # line ~123 -- so this stays inside what the $30/mo already buys, with
+  # ~2,000 left for prop refreshes at 26 each), daily 600 -> 700 (a burst
+  # brake; 700 x 31 > 18,000, so the monthly cap still binds first in a
+  # saturated month -- the same deliberate shape the old 600/13,000 pair had).
+  # **At four sports (NCAAF+NFL) this window is 1,152/day, ~34,600/month,
+  # which BREAKS even the 20,000 plan** -- when those sports enter scope,
+  # narrow this window, drop spreads off-season, or change the tier,
   # deliberately, in this file. See `.env.example` and `odds/timing.py:DESK`.
   ODDS_DESK_WINDOW_UTC = "16-04"
 
@@ -288,6 +307,18 @@ primary_region = "ord"
 
   ODDS_REGIONS = "us,eu"
 
+  # **CORRECTED 2026-08-23 (ADR 0070): spreads are back, deliberately.**
+  # The block below was written 2026-08-16 and its "nor could they be used"
+  # paragraph is now false in exactly the way it anticipated: the parlay
+  # desk's spread pricing path exists (`runner._price_spread_event`, writing
+  # `fair_prices` only, never `recommendations`), and `linker.py`'s 2-side
+  # refusal no longer applies to spread events -- they inherit their game's
+  # link by fixture segment (`SPREAD_LINK_METHOD`), the prop mechanism one
+  # market along. `totals` stay off: no consumer, same as before. The rest
+  # of the 2026-08-16 block is kept because its history is load-bearing --
+  # the collision arithmetic below just changes coefficient (see the desk
+  # window note above for the new numbers).
+  #
   # **`h2h` only, and this is a 3x cost cut that loses nothing.** Changed
   # 2026-08-16 from `h2h,spreads,totals`.
   #
@@ -323,7 +354,7 @@ primary_region = "ord"
   # rewritten first, and that is a separate decision with its own ADR.
   #
   # `docs/measurements/2026-08-16-nfl-ncaaf-scope-and-cost.md`.
-  ODDS_MARKETS = "h2h"
+  ODDS_MARKETS = "h2h,spreads"
 
   # **Scheduled prop buying, and it is OFF.** ADR 0032.
   #
