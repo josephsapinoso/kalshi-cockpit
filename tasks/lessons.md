@@ -25,6 +25,38 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — A refusal that names its own predicate describes a symptom, not a cause
+
+The parlay desk said `needs 2 fresh games and the slate has 0`. Every word was
+true. It is also what the screen says when twenty games are on, sixty-five sides
+are matched, and the recording loop has been wedged for fifteen minutes — which
+is what was actually happening. The owner read it as "there is nothing on
+tonight" and asked why the desk was empty.
+
+The pattern: **a component that refuses correctly reports the predicate it
+evaluated, and the predicate is always the last link in the chain.**
+`build_ladder` counts *fresh* legs, so its refusal can only ever talk about
+freshness; it cannot see that the fixtures exist, that the odds are 26 minutes
+old, or that nothing is running to re-buy them. Each layer names its own input
+and none of them names the fault. The result reads as a statement about the
+world when it is a statement about one filter.
+
+So: **a refusal is complete only when the screen also carries the state one
+level up from the predicate.** Not inside the refusing function — it genuinely
+does not know — but beside it, from whatever already publishes that state. Here
+`/api/window` had every missing number the whole time (`fixtures_upcoming`,
+`fixtures_fresh`, `last_sweep_ms`, `last_look_ms`) and the page simply never
+asked for it.
+
+The corollary, and it is the sharper half: **a promise about the future is only
+as good as the thing that has to keep it.** `readNextWindow`'s `due_now` said a
+buy was due and "the runner's next pass serves it, usually within a minute" —
+computed from `next_sweep_ms <= now_ms`, which was true throughout the stall.
+The screen was reasoning about *what was wanted* and speaking about *what would
+happen*. Any sentence that predicts an action must be conditioned on the actor
+still being alive, and there is usually a heartbeat field already on the wire to
+condition it with.
+
 ## 2026-08-25 — The only thing left in a quiet log is not the thing that quietened it
 
 The live loop stopped logging at 16:22:41Z. The log from that point on was

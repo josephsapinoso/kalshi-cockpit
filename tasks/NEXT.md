@@ -68,6 +68,86 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
+## 2026-08-25 (latest) — the desk was empty, the loop was wedged, and the screen blamed the slate
+
+**Joe opened `/parlays` at 09:58 PT and all three cards read `Not built
+tonight: needs N fresh games and the slate has 0`.** He read that as "there is
+nothing on tonight". There were **20 upcoming fixtures**, 65 matched candidate
+sides, and 24 of 700 credits spent.
+
+**What had actually happened, and it is still unfixed.** The recording loop
+wedged. Passes ran every ~18s to `pass 130` at 16:49:33Z, then **nothing until
+17:05:07Z** — 15.5 minutes. Confirmed off the database, not the log:
+`/api/health`'s `recorder.last_write_ms` (which `store_quotes_from_discovery`
+moves every pass) froze at 16:49:29Z and `odds_sweep_log`'s last row is the same
+timestamp. During the stall the last odds sweep aged 13 → 26 minutes, past
+`MAX_ODDS_AGE_S=900`, so `build_ladder` refused all 65 sides as
+`stale_consensus` and no card reached its minimum leg count.
+
+**Attention is fine and was proved by the incident.** The moment the loop
+unstuck it logged `baseball_mlb (attention): someone has the desk open;
+re-buying so the slate is priced while it is being read` and bought both sports;
+the desk went to 20/20 fresh with all three cards built. ADR 0071 §2.6 works.
+
+**OPEN — the stall itself. Nobody has diagnosed it.**
+
+- `scripts/run_loop.py` awaits each pass **bare** — no `asyncio.wait_for`, no
+  watchdog — so one hung pass stops everything, indefinitely. Every httpx client
+  in `backend/` already carries a timeout (`kalshi/rest.py:228`,
+  `odds/client.py:242`, `kalshi/quotes.py:240`), so a bare socket is not the
+  obvious culprit; a SQLite lock or a long query over `fair_prices` (~6.9M rows)
+  is a better guess than anything proved. **The log window does not reach back
+  far enough to say, and `flyctl logs` is lossy — instrument before theorising.**
+- The off-box heartbeat (`.github/workflows/heartbeat.yml`) alarms at **30
+  minutes** of recorder silence. This was 15.5 and self-recovered, so nothing
+  reached the phone. Correct by its own rule; the rule may be the wrong one,
+  because 15 minutes of silence blanks the desk for 15 minutes.
+- A per-pass timeout that *cancels* is not obviously safe (a cancel mid-write),
+  so the first move is probably a watchdog that dumps the hung task's stack and
+  lets the pass continue.
+
+**SHIPPED — the screen now explains itself (`e4500f5`, live).** Joe chose the
+wording fix and explicitly deferred the two items above.
+
+- `lib/nextOddsWindow.ts` learns `last_look_ms` and a `loop_stalled` reading,
+  checked **before** `due_now`. `due_now` said the next pass serves the buy
+  "usually within a minute"; `next_sweep_ms <= now_ms` held for the whole 15
+  minutes and no pass came, so that sentence was on the wire and false every
+  time the page was read. Threshold `LOOP_STALL_MS = 180_000` — ten missed
+  passes at the observed ~18s cadence. `last_look_ms === null` stays *unknown*,
+  never *stopped*.
+- `StaleOddsExit` moved out of `app/slate/page.tsx` into
+  `components/StaleOddsExit.tsx`, verbatim, so the parlay desk reuses the
+  vocabulary rather than wording one fact two ways.
+- `ParlayCards` renders a `Freshness` block when a card actually failed **and**
+  sides were dropped for age — the conjunction, because a full desk routinely
+  carries a few stale sides (six, that afternoon, with all three cards built)
+  and a banner that fires on a working screen is one the reader learns to skip.
+  It invents no number: upcoming vs fresh, the sweep age and the limit are all
+  `ActionableWindow` fields put in a sentence. It renders when `/api/window` is
+  unreadable too — that is the outage it explains.
+- `Not built tonight` → `Not built right now`.
+
+Backend untouched. Every new guard mutated and observed red (precedence, both
+null branches, the conjunction, the tolerant fetch). Rendered against a demo DB
+shifted into the exact 09:58 shape — 11 upcoming, 0 fresh, all three unbuilt —
+and with a synthetic 15-minute-old `odds_sweep_log` row the stall sentence
+replaces the promise of a minute.
+
+**Two operational notes worth keeping.**
+
+1. **`flyctl deploy` by hand reports `git_sha: null`.** The workflow passes
+   `-e GIT_SHA="${{ github.sha }}"` as a *runtime* machine variable
+   (`deploy.yml:119`), not a build arg, and it is not inherited by the next
+   deploy. A hand deploy that omits it leaves `/api/health` unable to say which
+   commit is live. Redeployed with the flag; live is `e4500f5`.
+2. **The browser caches `/parlays` hard.** A bare reload served the pre-deploy
+   text; `?cb=1` served the new page. Verify a deploy with a cache-buster or
+   `/api/health`, never with a plain refresh.
+
+**Not pushed.** `e4500f5` is on local `main` only — the repo is public and
+publishing is Joe's call.
+
 ## 2026-08-25 (later) — the odds feed stops watching the clock and starts watching whether anyone is there
 
 **Shipped and verified on live at `49f1f43`.** Three commits this session, all
