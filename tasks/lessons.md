@@ -69,10 +69,14 @@ change-detection and I reasoned from it that the push was self-limiting: no
 change, no message.
 
 It is not, and the reason was upstream of everything I was looking at.
-`ladder_candidates` takes **pre-game fixtures only**, so every kickoff removes a
-game from the pool. If that game was in a card, the leg set genuinely changes,
-the key genuinely changes, and the push is correct by the dedupe rule. On a
-fourteen-fixture night that is up to fourteen correct notifications per rung.
+Legs are filtered on `odds_age_now_ms <= max_odds_age_ms`, and **odds are swept
+per sport on independent clocks**. So a sport's legs enter the pool when it is
+swept and leave it when they cross 900s — and because ranking is by probability,
+whichever sport is currently fresh takes the top slots. Measured on live: the
+`safe` card was three MLB legs at 22:41:43Z and three WNBA legs at 22:45:10Z.
+The **entire composition swapped sport in under four minutes**, and every push
+was correct by the dedupe rule. (Kickoffs churn it too — `ladder_candidates`
+takes pre-game fixtures only — but that is the slow half.)
 
 **The pattern: deduplication bounds repetition, never volume.** It answers "have
 I said this before?" and is silent on "how often does the world hand me
@@ -85,6 +89,38 @@ The generalisation past notifications: **a cache key, an idempotency key and a
 dedupe key all collapse identical work and none of them bounds distinct work.**
 If the cost of the distinct case matters — a phone buzzing, a credit spent, a
 copula run — the ceiling is a separate mechanism and has to be built as one.
+
+## 2026-08-25 — A total is not a breakdown, and two spot checks cannot see a flip-flop
+
+I claimed three different things about one number moving 118 → 121, and the
+first two were wrong.
+
+**First**: "the cards are re-pushing" — from `total_ever`, which counts *every*
+notification kind. A total can tell you something moved and never which thing.
+
+**Second**, after checking: "so it must be another kind" — reasoned from a
+comparison of two `/api/parlays` pulls 26 minutes apart whose dedupe keys were
+byte-identical. Therefore stable, therefore not the cards.
+
+**Measured**: it *was* the cards, and their keys had changed completely — MLB at
+22:41, WNBA at 22:45. My two pulls sat either side of a flip and back, and both
+happened to land on WNBA.
+
+Two patterns, and the second is the sharper one.
+
+**A total cannot answer a question about composition.** The fix was one query
+grouping by kind, which existed nowhere because `/api/health` had always been
+enough for "is anything happening". The moment the question became "which
+thing", the instrument was the wrong shape — and the wrong shape still returns
+a number, which is what makes it dangerous.
+
+**Sampling a value at two arbitrary times measures the endpoints, not the
+path.** A quantity that oscillates reads as constant whenever your samples land
+in the same phase, and nothing about the reading says so. For anything that can
+change and change back, the evidence has to be the *event log* — every
+transition, timestamped — not a before and an after. I had that log
+(`notifications` carries a row per send) and used a spot check instead because
+it was quicker to reach for.
 
 ## 2026-08-25 — Measure the cost of a thing you put on the fast path, before it is on the fast path
 

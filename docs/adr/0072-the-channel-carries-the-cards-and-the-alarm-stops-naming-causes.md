@@ -131,11 +131,18 @@ identical parlay.
 
 ## Decision 4 — dedupe is not a rate limit, so the day gets a ceiling
 
-**Found during the build, not in the plan.** `ladder_candidates` takes pre-game
-fixtures only, so **every kickoff drops a game out of the pool**. If that game
-was in a card, the leg set genuinely changes, the key genuinely changes, and the
-push is *correct* by the dedupe rule. On a 14-fixture MLB night that is up to
-fourteen correct notifications per rung.
+**Found during the build, and its mechanism corrected after deploy by
+measurement.** Legs are filtered on `odds_age_now_ms <= max_odds_age_ms`, and
+**odds are swept per sport on independent clocks**. A sport's legs enter the
+pool when it is swept and leave when they cross 900s; ranking is by probability,
+so whichever sport is currently fresh takes the top slots. Every such change is
+a genuinely different leg set, a genuinely different key, and a *correct* push.
+
+Measured on live: the `safe` card was three MLB legs at 22:41:43Z and three WNBA
+legs at 22:45:10Z. **The whole composition swapped sport in under four minutes.**
+Kickoffs churn it too — `ladder_candidates` takes pre-game fixtures only — but
+that is the slow half, and the version of this paragraph written before deploy
+named only that one.
 
 **A dedupe key bounds repetition and never volume.** It answers "have I said this
 before?" and is silent on how fast the world hands you something new to say —
@@ -164,6 +171,20 @@ Gated on `counts.odds_sweeps > 0 or kind == "full"`. A sweep is the only thing
 that changes a fair value; the full pass bounds the wait when the pool changes
 for the other reason. Between sweeps the ladder rebuilds byte-identically, so
 the 400ms was buying a notification the dedupe then discarded.
+
+### And the ceiling turned out to bind in four minutes, which is a real gap
+
+The same measurement shows 6/day is spent almost immediately: both pushes above
+landed inside the ceiling, and the day's remaining pushes are refused. The
+feature is **not harmful** — that is what the ceiling is for — but a daily card
+spent on a transient composition is not the daily card Joe asked for.
+
+**Left open deliberately rather than patched.** The fix is a trigger-shape
+decision and belongs to him: a genuinely scheduled card at a fixed time (his
+stated trigger #1), a debounce requiring a composition to survive two
+consecutive builds, or a "materially better" rule — which may not rank on the
+consensus-vs-Kalshi gap (ADR 0071 §2.5). Recorded in `tasks/NEXT.md` with the
+evidence.
 
 ## Not decided here
 
@@ -210,3 +231,6 @@ beside it.
 - **Which state the 20:41Z gap was.** It is unrecoverable; the instrument exists
   so the *next* one is not.
 - **That a wedged pass is survivable.** Only that it is now legible.
+- **That 6/day is the right ceiling.** It bound within four minutes of the first
+  push. It bounds the harm, which is what it was for; it does not make the
+  trigger shape correct.

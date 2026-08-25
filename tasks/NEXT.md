@@ -154,12 +154,10 @@ and MLB legs) — then after deploy, **three pushes landed at 22:41:43Z and
 
 **Two things the build found that the plan did not have.**
 
-1. **Dedupe is not a rate limit.** `ladder_candidates` takes pre-game fixtures
-   only, so **every kickoff drops a game out of the pool** — the leg set
-   changes, the key changes, and the push is *correct* by the dedupe rule. On a
-   14-fixture MLB night that is up to fourteen correct pushes per rung.
-   `MAX_PARLAY_PUSHES_PER_DAY = 6` bounds it. Undelivered pushes do not burn it,
-   so one Discord outage cannot silence the rest of the day.
+1. **Dedupe is not a rate limit.** `MAX_PARLAY_PUSHES_PER_DAY = 6` bounds it;
+   undelivered pushes do not burn it, so one Discord outage cannot silence the
+   rest of the day. **The mechanism was measured after deploy and it is not the
+   one I first wrote here** — see the open item below.
 2. **The ladder is expensive and I called it free.** `build_ladder` runs a
    **200,000-sample Monte-Carlo copula per card, five times over** (headline
    plus one per devig method) — ~400ms for three cards on a laptop, against a
@@ -223,6 +221,43 @@ Ranked by value per unit of work:
 **Recommended: take 1, 2 and 4 as one slice** — three parameters on an
 already-pure function, turning one generator into four genuinely different
 products. Then 5. Then 7 with an ADR.
+
+### OPEN AND NEEDS JOE — the cards churn far faster than the ceiling allows
+
+**Measured on live, not predicted.** The 6/day ceiling was spent in **four
+minutes**:
+
+    22:41:43Z  safe: LADATL-LAD | BOSMIA-BOS | MILNYM-MIL     (all MLB)
+    22:45:10Z  safe: CHICONN-CHI | PDXDAL-DAL | GSCONN-GS     (all WNBA)
+
+The entire card composition swapped sport, and all three rungs re-pushed. Both
+pushes were *correct* by the dedupe rule.
+
+**The cause is per-sport sweep freshness, not kickoffs.** `build_ladder` drops
+legs whose `odds_age_now_ms` exceeds 900s, and odds are swept **per sport on
+independent clocks**. A sport's legs enter the pool when it is swept and leave
+when they age out; ranking is by probability, so whichever sport is currently
+fresh takes the top slots. The 22:21Z payload carried
+`excluded: {"stale_consensus": 7}` — seven legs already dropped for age.
+
+So the feature works and then goes quiet for the day. **Not harmful** — the
+ceiling holds, Joe is not spammed — but the daily card he asked for is being
+spent on transient compositions in the first minutes after a deploy or a
+day-roll.
+
+**Three ways out; this is Joe's call:**
+
+1. **A real scheduled card** at a fixed time (his trigger #1, taken literally),
+   immune to churn by construction. Push one ladder a day and let the
+   material-change alert be a separate, tighter rule.
+2. **Debounce**: only push a composition that survives two consecutive builds,
+   so a sport flipping in and out never announces itself.
+3. **Require every leg fresh AND the card to beat the last pushed one on a
+   stated criterion** — closest to "material change", most work, and the
+   criterion must not be the consensus-vs-Kalshi gap (ADR 0071 §2.5).
+
+**Recommendation: 1 plus 2.** The scheduled card is what he actually asked for
+and the debounce makes the change alert trustworthy.
 
 ### Still open from before, untouched
 
