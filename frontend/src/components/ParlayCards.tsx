@@ -9,6 +9,7 @@ import type {
 } from "@/lib/api";
 import LeagueTag from "@/components/LeagueTag";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
+import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 
@@ -291,6 +292,20 @@ function Freshness({
         )}
       </p>
       <StaleOddsExit actionable={actionable} refreshable={refreshable} />
+      {/*
+        Below the exit, not above it. The exit is what the reader can DO; this
+        is what the page is doing on its own, and a line that says "sit still,
+        it is handled" placed above the controls would read as a reason not to
+        use them. The tap is still the faster path and stays the prominent one.
+
+        Only with a timetable to compare against: the watcher's whole trigger is
+        `fixtures_fresh` rising above what this render saw, and without a
+        baseline its first successful poll would look like a change and refresh
+        the page for nothing.
+      */}
+      {actionable && (
+        <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
+      )}
     </section>
   );
 }

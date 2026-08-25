@@ -142,9 +142,31 @@ quiet desk still sleeps the full 900s.
   nothing has ever been observed to hang: `run_forever` awaits `do_pass()` bare,
   with no `asyncio.wait_for`. Leave it until something actually hangs; a timeout
   that cancels mid-write is a real risk to buy against a hypothetical fault.
-- **A cold page still needs one manual refresh.** The wake happens in <5s and
-  the sweep a few seconds later, but the already-rendered server component does
-  not know. The `Freshness` block explains the wait; it does not remove it.
+- ~~A cold page still needs one manual refresh.~~ **Closed the same session.**
+  `components/RefreshWhenPriced.tsx` polls `/api/window` every 10s from inside
+  the `Freshness` block and calls `router.refresh()` when `fixtures_fresh`
+  rises above the count the server rendered with.
+
+  The trigger is deliberately **not** "a sweep happened": a sweep that
+  re-priced already-fresh fixtures changes no answer on this page, and
+  re-rendering for it is a flicker with nothing behind it. It is not a timer
+  either — a page that reloads on a schedule reloads while you are reading it.
+  It stops after 5 minutes, and `test_parlay_auto_refresh.py` pins that number
+  equal to `attention.DEFAULT_ATTENTION_TTL_MS` across the two languages: past
+  the window in which the heartbeat is still buying sweeps, waiting is not
+  waiting for anything. Hidden tabs do not poll, which is a correctness
+  argument rather than a courtesy — `Nav.tsx` gates the heartbeat the same way,
+  so a backgrounded tab is sending none and no sweep is coming for it.
+
+  Proved against a local stack, not just pinned: demo DB in the exact 09:58
+  shape (11 upcoming, 0 fresh, three unbuilt cards), prices made fresh in
+  SQLite while the page sat open, and the page came back with three cards and
+  `performance.getEntriesByType('navigation').length === 1` — re-rendered in
+  place, never reloaded. Seven mutations observed red.
+
+  **`/slate` has the same cold-page problem and did NOT get this.** The
+  component takes one prop and the slate already fetches `/api/window`, so it
+  is a small change; it was left because it was not asked for.
 
 **SHIPPED EARLIER THE SAME DAY — the screen explains itself (`e4500f5`).**
 `readNextWindow` learns `last_look_ms` and a `loop_stalled` reading checked
