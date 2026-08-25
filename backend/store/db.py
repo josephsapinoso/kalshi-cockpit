@@ -22,7 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 21
+#: v22 adds `loop_failures` and needs no migration step. A pure new table is
+#: created by `executescript`'s `CREATE TABLE IF NOT EXISTS` on the next open,
+#: on an existing volume as well as a fresh one -- `_MIGRATIONS` exists for
+#: changes to tables that already hold rows, which this is not.
+SCHEMA_VERSION = 22
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -1213,6 +1217,58 @@ def recorder_last_write_ms(conn: sqlite3.Connection) -> Optional[int]:
     """
     raw = get_meta(conn, RECORDER_HEARTBEAT_KEY)
     return int(raw) if raw is not None else None
+
+
+def record_loop_failure(
+    conn: sqlite3.Connection,
+    *,
+    failed_ms: int,
+    pass_number: int,
+    consecutive_failures: int,
+    error: str,
+    pass_kind: Optional[str] = None,
+) -> None:
+    """Record that a recording-loop pass raised.
+
+    **Written on the failure path only, never on success.** The success side
+    already has `set_recorder_heartbeat` above, and writing both here would
+    destroy this table's most useful reading: across a silent stretch, rows
+    mean the loop was failing and *no* rows mean it was wedged or gone. A pass
+    that hangs never returns to raise, so it cannot write here -- the silence
+    is the evidence.
+
+    Commits immediately rather than riding the caller's transaction. A failure
+    record that is rolled back with the failing pass is not a record, and the
+    case this exists for is precisely the one where the process does not get
+    to commit anything else.
+    """
+    conn.execute(
+        "INSERT INTO loop_failures (failed_ms, pass_number, "
+        "consecutive_failures, pass_kind, error) VALUES (?, ?, ?, ?, ?)",
+        (
+            int(failed_ms), int(pass_number), int(consecutive_failures),
+            pass_kind, error,
+        ),
+    )
+    conn.commit()
+
+
+def loop_failures_since(
+    conn: sqlite3.Connection, *, since_ms: int
+) -> list[sqlite3.Row]:
+    """Every recorded pass failure at or after `since_ms`, oldest first.
+
+    Oldest first because the question this answers is "what happened across
+    that gap", and a run of failures reads forwards.
+    """
+    return list(
+        conn.execute(
+            "SELECT failed_ms, pass_number, consecutive_failures, pass_kind, "
+            "error FROM loop_failures WHERE failed_ms >= ? "
+            "ORDER BY failed_ms ASC",
+            (int(since_ms),),
+        )
+    )
 
 
 def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:

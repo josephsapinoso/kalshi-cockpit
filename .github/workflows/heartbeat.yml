@@ -106,8 +106,8 @@ jobs:
 
           # Check 3, and the one the two above cannot see. `recorder.age_ms`
           # is how long since `store_quotes_from_discovery` last wrote, which
-          # is every pass. A loop that is alive and stuck keeps status=ok
-          # forever while this climbs.
+          # is every pass. A loop that has stopped writing -- for whatever
+          # reason -- keeps status=ok forever while this climbs.
           #
           # `null` is unreadable, not stale: an empty table on a fresh volume
           # and a database that would not open both land here, and neither is
@@ -121,13 +121,36 @@ jobs:
             exit 0
           fi
 
-          # 30 minutes. A full pass runs on RUNNER_INTERVAL_S (900s) and quote
-          # passes far more often, so two missed full passes is the threshold
-          # -- one is a slow pass, two is a pattern. Deliberately looser than
-          # the 15-minute cron so a single delayed pass cannot alarm.
+          # 30 minutes, and the arithmetic below is the whole justification.
+          #
+          # **Corrected 2026-08-25.** This comment used to read "a full pass
+          # runs on RUNNER_INTERVAL_S (900s) and quote passes far more often,
+          # so two missed full passes is the threshold". The second half of
+          # that stopped being true when ADR 0071 SS2.6 made the odds feed
+          # follow attention: quote passes run on the 15s cadence only while
+          # the odds window is OPEN, and a quiet night keeps it shut. So on a
+          # quiet night the bound is ONE slow pass, not "far more often".
+          #
+          # The number survives the correction because the number was never
+          # derived from the quote cadence. `store_quotes_from_discovery`
+          # stamps the heartbeat on EVERY pass, full or quote
+          # (backend/runner.py:2493), and the slow cadence is 900s jittered
+          # +/-15% (backend/scheduler.py:59). So the largest age a HEALTHY
+          # shut-window loop can reach is 900 * 1.15 = 1035s, about 17.3
+          # minutes. 30 minutes is 1.74x that -- still comfortably clear of a
+          # single slow pass, which is the property that matters.
           if [ "${age}" -gt 1800000 ]; then
             echo "verdict=stalled" >> "$GITHUB_OUTPUT"
-            echo "detail=The container is up and /api/health says ok, but the recording loop has not written a quote for $((age / 60000)) minutes. It is alive and stuck, which is the state that keeps every check green while the record stops accumulating." >> "$GITHUB_OUTPUT"
+            # **Says what it measured, not what it thinks caused it.** This
+            # line used to assert "It is alive and stuck". That is one of at
+            # least three states with this exact signature -- a wedged pass, a
+            # run of passes failing before the heartbeat write (the loop
+            # tolerates 5 consecutive), or a container that restarted without
+            # the record catching up. The check can distinguish none of them,
+            # and on 2026-08-25 a 44.6-minute hole was read as a wedge on the
+            # strength of this sentence alone. A monitor that names a cause it
+            # cannot observe sends the reader looking in one place.
+            echo "detail=The container is up and /api/health says ok, but the recording loop has not written a quote for $((age / 60000)) minutes. A healthy loop writes on every pass, so at this age it is not merely between passes. What it is instead -- a wedged pass, a run of failing passes, or a restart -- this check cannot tell: read /api/window is_open first, then loop_failures in the database." >> "$GITHUB_OUTPUT"
             exit 0
           fi
 

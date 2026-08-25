@@ -1391,3 +1391,52 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     CHECK (p_yes_bp BETWEEN 1 AND 9999),
     CHECK (dry_run IN (0, 1))
 );
+
+-- ============================================================================
+-- Recording-loop pass failures
+-- ============================================================================
+-- One row per pass that raised, written by `scripts/run_loop.py` through the
+-- `on_failure` hook on `scheduler.run_forever`.
+--
+-- **This table exists because a real incident was undiagnosable.** On
+-- 2026-08-25 the heartbeat alarmed: 35 minutes with no quote write. The
+-- recorder heartbeat is stamped on every pass, and the slow cadence tops out
+-- at 900s x 1.15 = 1035s, so the gap was two or three passes that never
+-- finished -- confirmed afterwards from `odds_sweep_log`, which had a
+-- 2,678-second hole ending 20:51:02Z where every other gap that day was a
+-- single jittered interval. Which of the two it was could not be established:
+-- `LoopState.consecutive_failures` and `last_error` live in memory, the
+-- container had restarted, and its logs were gone with it. A failing pass and
+-- a wedged pass need different fixes and produced identical evidence.
+--
+-- **A row here is the thing that separates them.** Failures write rows;
+-- a wedge writes nothing, because the pass never returns to raise. So the
+-- absence of rows across a gap is itself the reading, which is why this table
+-- is written on the failure path only and never on the success path -- a
+-- heartbeat for every pass already exists in `meta.recorder_last_write_ms`,
+-- and duplicating it here would make "no rows" ambiguous again.
+--
+-- Deliberately NOT capped or pruned in code. A loop that fails often enough
+-- for this table to matter in size is a loop with a bigger problem, and the
+-- rows are a few hundred bytes; `MAX_CONSECUTIVE_FAILURES = 5` ends the
+-- process long before a runaway.
+CREATE TABLE IF NOT EXISTS loop_failures (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    failed_ms            INTEGER NOT NULL,
+    -- The loop's own attempt counter, so a gap in this column across one
+    -- process tells you passes were attempted and lost rather than never run.
+    -- Resets on restart, which is why `failed_ms` is the ordering key.
+    pass_number          INTEGER NOT NULL,
+    -- How many in a row, at the moment of this failure. Reaching
+    -- MAX_CONSECUTIVE_FAILURES is what ends the process, so the last row
+    -- before a restart says whether the loop gave up or was killed.
+    consecutive_failures INTEGER NOT NULL,
+    -- "full" or "quote" -- the two do different work and fail differently.
+    -- NULL when the failure happened before the kind was decided.
+    pass_kind            TEXT,
+    -- `type(exc).__name__: exc`, matching `LoopState.last_error` exactly so
+    -- the durable record and the in-memory one cannot drift.
+    error                TEXT NOT NULL,
+    CHECK (pass_kind IS NULL OR pass_kind IN ('full', 'quote'))
+);
+CREATE INDEX IF NOT EXISTS idx_loop_failures_time ON loop_failures(failed_ms DESC);

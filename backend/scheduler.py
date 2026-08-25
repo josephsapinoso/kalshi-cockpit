@@ -433,6 +433,7 @@ async def run_forever(
     now_ms: Optional[Callable[[], int]] = None,
     wake_when: Optional[Callable[[], bool]] = None,
     wake_poll_s: float = DEFAULT_WAKE_POLL_S,
+    on_failure: Optional[Callable[[LoopState, BaseException], None]] = None,
 ) -> LoopState:
     """Run `do_pass` on an interval until it fails too many times in a row.
 
@@ -451,6 +452,19 @@ async def run_forever(
 
     `wake_when` cuts a sleep short — see `sleep_until`. Omitted, the loop sleeps
     exactly as it always has.
+
+    `on_failure(state, exc)` is called after a pass raises and after `state` has
+    been updated, so it sees the counter it should record. It exists because
+    `LoopState` dies with the process: on 2026-08-25 a 44.6-minute recording gap
+    could not be diagnosed, because the only record of *why* passes stop is this
+    counter and the container had restarted. Injected rather than imported for
+    the same reason `do_pass` is — this module stays testable without a
+    database.
+
+    **A raising `on_failure` is swallowed and logged**, like `wake_when`'s
+    predicate. It runs on the path where something has already gone wrong, and a
+    bookkeeping error that turned one failed pass into a dead loop would trade
+    the record for the thing the record exists to protect.
     """
     from .store.db import now_ms as default_now
 
@@ -470,6 +484,18 @@ async def run_forever(
                 "pass %d failed (%d consecutive)",
                 state.passes_attempted, state.consecutive_failures,
             )
+            if on_failure is not None:
+                try:
+                    on_failure(state, exc)
+                except Exception:                         # noqa: BLE001
+                    # Deliberately not re-raised: see the docstring. The
+                    # traceback still reaches the log, so a hook that has
+                    # started failing is visible without being fatal.
+                    logger.exception(
+                        "on_failure hook raised while recording pass %d; "
+                        "the pass failure itself still stands",
+                        state.passes_attempted,
+                    )
             if state.consecutive_failures >= max_consecutive_failures:
                 raise LoopFailed(
                     f"{state.consecutive_failures} consecutive failed passes; "

@@ -107,6 +107,7 @@ from backend.odds.timing import (  # noqa: E402
     sweep_window_survives_interval,
     window_status,
 )
+from backend.parlays import build_ladder_payload  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -343,6 +344,12 @@ async def main() -> int:
     refresh_inbox = ondemand.inbox_path(args.db)
     served_after = [db.now_ms()]
 
+    # The kind of the pass currently running, so a failure can be recorded with
+    # it. `None` until the first pass picks one -- a failure before that is a
+    # real state (the loop raised setting the pass up) and the column is
+    # nullable to say so rather than guessing "full".
+    in_flight_kind: list[Optional[str]] = [None]
+
     # What may cut a sleep short. See `scheduler.sleep_until` for why a sleep
     # needs cutting short at all.
     #
@@ -383,6 +390,29 @@ async def main() -> int:
             ondemand.take(
                 refresh_inbox, now_ms=db.now_ms(), after_ms=served_after[0]
             )
+        )
+
+    def record_failure(loop_state: LoopState, _exc: BaseException) -> None:
+        """Persist a failed pass, so a silent stretch can be read afterwards.
+
+        **The error text comes off `LoopState`, not off the exception**, so the
+        durable row and the in-memory `last_error` cannot say different things
+        about the same failure. `run_forever` sets it immediately before
+        calling this.
+
+        This is the instrument the 2026-08-25 diagnosis did not have. The
+        recording gap that day was three missed passes and there was no way to
+        tell failing from wedged, because the container had restarted and taken
+        both the counter and the logs with it. Rows here mean failing; no rows
+        across a gap mean the pass never came back to raise.
+        """
+        db.record_loop_failure(
+            conn,
+            failed_ms=db.now_ms(),
+            pass_number=loop_state.passes_attempted,
+            consecutive_failures=loop_state.consecutive_failures,
+            error=loop_state.last_error or f"{type(_exc).__name__}: {_exc}",
+            pass_kind=in_flight_kind[0],
         )
 
     def take_refresh_requests(stamp: int) -> list[ManualRefresh]:
@@ -593,6 +623,31 @@ async def main() -> int:
                 now_ms=stamp,
                 remaining_today=budget.state(stamp).remaining_today,
             )
+            # **Every pass, not just full ones, and the dedupe is what makes
+            # that safe.** `notifications.UNIQUE (kind, key)` drops a card whose
+            # legs have not moved, so asking on the fast cadence costs one
+            # ladder rebuild and sends nothing; asking only on the 900s cadence
+            # would sit on a newly-buildable card for up to fifteen minutes.
+            #
+            # `build_ladder_payload` is pure and reads only what is already
+            # stored -- no Kalshi call, no odds credit. It is the same function
+            # `/api/parlays` runs per request.
+            #
+            # This covers BOTH triggers Joe asked for. The daily card is the
+            # first time a card builds after the slate turns over, and the
+            # material-change alert is any later pass whose legs differ; they
+            # are the same event seen twice, so they are one call rather than a
+            # scheduled push plus a watcher that could disagree with it.
+            if alerter.enabled:
+                await alerter.parlay_cards(
+                    build_ladder_payload(
+                        conn,
+                        now_ms=stamp,
+                        max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                    ),
+                    now_ms=stamp,
+                    day_start_ms=budget.day_start_ms(stamp),
+                )
             if kind == "full":
                 await alerter.daily_digest(
                     now_ms=stamp,
@@ -642,6 +697,11 @@ async def main() -> int:
             stamp = db.now_ms()
             started = time.monotonic()
             kind = tempo.pass_kind(stamp)
+            # Published for `record_failure` below, which runs outside this
+            # frame and would otherwise have to re-derive the kind from a
+            # `tempo` the failed pass may have already moved. Same one-element
+            # -list idiom as `served_after`.
+            in_flight_kind[0] = kind
 
             if kind == "full":
                 counts = await run_once(
@@ -713,6 +773,7 @@ async def main() -> int:
                 state=state,
                 max_passes=args.max_passes,
                 wake_when=wake_early,
+                on_failure=record_failure,
             )
         except LoopFailed as exc:
             # The last thing this process does. The loop dying is precisely the

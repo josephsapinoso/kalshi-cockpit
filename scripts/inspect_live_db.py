@@ -306,6 +306,36 @@ _SQL_SWEEP_LOG_TAIL = (
     "FROM odds_sweep_log ORDER BY pass_ms DESC, id DESC"
 )
 
+# **The gaps in the pass ledger, which is how an outage is actually found.**
+#
+# `odds_sweep_log` gets a row from every completed pass, so the interesting
+# thing in it is not the rows -- it is the holes between them. On 2026-08-25
+# this had to be computed by hand, by pulling 400 rows and diffing them
+# locally, which is exactly the "smuggle the code in with the question" drift
+# this file exists to replace.
+#
+# The window function does the diff in SQLite. `-n` bounds the scan; the
+# threshold is a bound parameter so a caller can ask about a quiet night at a
+# different cadence without editing SQL.
+_SQL_PASS_GAPS = (
+    "WITH recent AS ("
+    "  SELECT pass_ms FROM odds_sweep_log ORDER BY pass_ms DESC LIMIT ?"
+    "), diffed AS ("
+    "  SELECT pass_ms, pass_ms - LAG(pass_ms) OVER (ORDER BY pass_ms) AS gap_ms"
+    "  FROM recent"
+    ") SELECT gap_ms, pass_ms AS resumed_ms FROM diffed "
+    "WHERE gap_ms > ? ORDER BY gap_ms DESC"
+)
+
+# Every failure recorded across the same scan, so a gap can be read against
+# them. Rows inside a hole mean the loop was FAILING; a hole with no rows means
+# nothing came back to raise -- a wedged pass, or a container that went away.
+# That contrast is the whole reason `loop_failures` exists (schema v22).
+_SQL_LOOP_FAILURES_TAIL = (
+    "SELECT id, failed_ms, pass_number, consecutive_failures, pass_kind, error "
+    "FROM loop_failures ORDER BY failed_ms DESC, id DESC"
+)
+
 # The prune's own retention window, duplicated here rather than imported: this
 # script is deliberately stdlib-only so the code that runs against the money box
 # carries no import graph. `tests/test_inspect_live_db.py` asserts it still
@@ -1360,6 +1390,53 @@ def _q_sweep_log(conn: sqlite3.Connection, args) -> list[Section]:
     return [groups, _derive_iso(tail, "pass_ms", "pass_iso")]
 
 
+def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
+    """Holes in the pass ledger, and every failure recorded near them.
+
+    **Read the two sections together -- separately they each mislead.** A gap
+    alone does not say what happened; a failure alone does not say whether the
+    record actually stopped. The reading is the join:
+
+        gap with failures inside it   the loop was failing and retrying
+        gap with no failures at all   nothing came back to raise: a wedged
+                                      pass, or the container went away
+        failures with no gap          transient, absorbed, record intact
+
+    The threshold defaults to 1,200,000 ms -- above the 1,035s ceiling on a
+    healthy shut-window sleep (900s x 1.15), so an ordinary quiet night does
+    not fill the output with its own cadence.
+
+    What this does not establish
+    ----------------------------
+    - **That a gap with no failures was a wedge.** A restart looks identical
+      from inside the database. `flyctl machine status` settles it, and the
+      machine event log is the only place that can.
+    - **Anything before schema v22**, for the failures half. The table did not
+      exist, so an old gap reads as "no failures" whatever its cause. Check
+      `failed_ms` coverage before drawing the contrast on a historical window.
+    """
+    gaps = _fetch(
+        conn,
+        _SQL_PASS_GAPS,
+        (args.tail, args.gap_ms),
+        title=(
+            f"gaps over {args.gap_ms / 1000:.0f}s in the last {args.tail} "
+            f"odds_sweep_log rows, widest first"
+        ),
+        cap=args.limit,
+    )
+    gaps = _derive_iso(gaps, "resumed_ms", "resumed_iso")
+    failures = _fetch(
+        conn,
+        _SQL_LOOP_FAILURES_TAIL,
+        (),
+        title=f"loop_failures: last {args.tail} rows, newest first",
+        cap=args.limit,
+        requested=args.tail,
+    )
+    return [gaps, _derive_iso(failures, "failed_ms", "failed_iso")]
+
+
 def _q_prune_frontier(conn: sqlite3.Connection, args) -> list[Section]:
     """How far `prune_quotes` has got, and whether it still has anything to do.
 
@@ -2380,6 +2457,13 @@ QUERIES: dict[str, QueryDef] = {
         "last N rows in full (-n, default 5).",
         _q_sweep_log,
     ),
+    "pass-gaps": QueryDef(
+        "Holes over --gap-ms (default 1200000) in the last N odds_sweep_log "
+        "rows (-n, default 5 -- pass a few hundred), beside every loop_failures "
+        "row. A gap WITH failures inside it was a failing loop; a gap with NONE "
+        "never came back to raise. The pair is the reading; neither half is.",
+        _q_pass_gaps,
+    ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "
         "observed_ms)) over prunable rows, the 3-day cutoff, and the backlog "
@@ -2633,6 +2717,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="rows for the tail queries (default 5)",
     )
     parser.add_argument("--date", help="budget day for credits-day, as YYYYMMDD")
+    parser.add_argument(
+        "--gap-ms",
+        type=int,
+        default=1_200_000,
+        help=(
+            "pass-gaps: report holes wider than this (default 1200000, i.e. "
+            "20 min -- above the 1035s ceiling on a healthy shut-window sleep)"
+        ),
+    )
     parser.add_argument(
         "--day-start-hour",
         type=int,

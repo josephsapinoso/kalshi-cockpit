@@ -55,7 +55,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from .. import gate
 from ..gate import POPULATIONS
@@ -95,8 +95,53 @@ FAILURE_KINDS = (
 )
 
 
+#: How many parlay-card pushes one budget day may carry, across all rungs.
+#:
+#: **The dedupe key alone is not a ceiling, and the reason is the candidate
+#: filter.** `parlays.ladder_candidates` takes pre-game fixtures only
+#: (`commence_ms > now`), so every kickoff drops a game out of the pool. If that
+#: game was in a card, the leg set changes, the key changes, and the card is
+#: legitimately "new". On a 14-fixture MLB night that is up to fourteen pushes
+#: per rung -- each one correct by the dedupe rule and collectively a phone
+#: nobody leaves un-muted.
+#:
+#: Six is two full ladders. Past it the day's pushes stop and the screen still
+#: has everything; a desk that keeps buzzing is one that manufactures action,
+#: which ADR 0071 says this tool does not do.
+MAX_PARLAY_PUSHES_PER_DAY = 6
+
+
 def _day(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
+
+
+def parlay_key(card: Mapping[str, Any]) -> Optional[str]:
+    """The identity of a parlay card, for `notifications.UNIQUE (kind, key)`.
+
+    `<card_key>:<ticker>|<ticker>|...`, tickers **sorted**.
+
+    **Sorted, because leg order is not part of the card.** `build_ladder`
+    orders legs by `(-p_conservative, commence_ms, ticker)`, so two probabilities
+    that cross between passes reorder the same set of legs -- and an
+    order-sensitive key would read that as a new card and push it again. The
+    same three games are the same parlay whichever way they are listed.
+
+    **`card_key` is in the key, because the shape is part of the product.** The
+    same legs as a "Safe" and as a "Middle" are different suggestions -- the
+    ladder's rungs are 2-3, 4 and 6 legs -- and collapsing them would silence
+    the second.
+
+    `None` when the card has no legs. A card with nothing in it has no identity
+    to dedupe on, and returning a key like `"safe:"` would make every empty
+    card the same card forever.
+    """
+    legs = card.get("legs") or []
+    tickers = sorted(
+        str(leg["ticker"]) for leg in legs if leg.get("ticker")
+    )
+    if not tickers:
+        return None
+    return f"{card.get('key')}:{'|'.join(tickers)}"
 
 
 @dataclass(frozen=True)
@@ -286,6 +331,95 @@ class Alerter:
                     detail=rec["ticker"],
                 ),
             )
+
+        return AlertResult(tuple(sent), tuple(failed), tuple(skipped))
+
+    def _parlay_pushes_today(self, *, day_start_ms: int) -> int:
+        """Delivered parlay pushes since the budget day began.
+
+        Counts `delivered = 1` only. A push Discord rejected did not reach the
+        phone, so charging it against a ceiling that exists to protect the
+        phone would let an outage silence the rest of the day.
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM notifications "
+            "WHERE kind = 'parlay_card' AND delivered = 1 AND sent_ms >= ?",
+            (int(day_start_ms),),
+        ).fetchone()
+        return int(row["n"] or 0)
+
+    async def parlay_cards(
+        self, ladder: dict, *, now_ms: int, day_start_ms: int
+    ) -> "AlertResult":
+        """Push each built parlay card that is genuinely new.
+
+        **The dedupe key IS the change-detection**, and that is the design
+        rather than a shortcut. `notifications` has `UNIQUE (kind, key)`, so a
+        key derived from the card's identity means a card whose legs have not
+        moved is dropped by the database and one whose legs have moved is a
+        different row. No timestamp comparison, no "last sent" column, no
+        threshold to tune -- and it survives the restart that a policy held in
+        memory would not, which is the whole argument for this table
+        (`schema.sql`, the `notifications` comment).
+
+        `parlay_key` is the canonical card identity: it is what
+        `parlays.price_card_on_kalshi` already compares to decide the slate has
+        drifted under a tap, and what `parlay_lookups.selected_legs` stores. Any
+        other key would be a second definition of "the same card".
+
+        **Price drift alone does not re-send, deliberately.** The legs are the
+        card; a re-quote of the same six legs is the same suggestion, and a
+        phone that buzzes when a fair value moves a tenth of a cent is a phone
+        that gets silenced. What the ladder rebuilds is what this reacts to.
+
+        Unbuilt cards send nothing -- `DiscordNotifier.parlay_card` refuses them
+        too, and both refusals are deliberate: a push saying "nothing tonight"
+        is a notification with nothing behind it.
+        """
+        sent: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+
+        if not self.enabled:
+            return AlertResult((), (), ())
+
+        notes = ladder.get("notes") or {}
+        pushed_today = self._parlay_pushes_today(day_start_ms=day_start_ms)
+        for card in ladder.get("cards") or []:
+            if pushed_today >= MAX_PARLAY_PUSHES_PER_DAY:
+                # Deliberately no "you have hit the cap" notification. The one
+                # thing a phone being told too much does not need is one more
+                # message. `alerts_deduped` in the pass log is where this is
+                # visible, which is where someone looking for it will be.
+                skipped.append(str(card.get("key")))
+                continue
+            # **No `not_built_reason` check here, and its absence is the
+            # decision.** One was written, mutated, and observed GREEN: an
+            # unbuilt card always serialises with `legs: []`
+            # (`Card.__post_init__` guarantees legs-or-reason, and
+            # `_serialise_card` returns the empty list), so `parlay_key` already
+            # returns None for exactly that case and this `continue` already
+            # catches it. A second check that changes no answer reads like a
+            # guard and is not one. `DiscordNotifier.parlay_card` keeps its own
+            # refusal because it is reachable from elsewhere; this is not.
+            key = parlay_key(card)
+            if key is None:
+                continue
+            outcome = await self._send(
+                "parlay_card", key,
+                lambda c=card: self.notifier.parlay_card(c, notes=notes),
+                now_ms=now_ms,
+                detail=f"{card.get('key')}: {len(card.get('legs') or [])} legs",
+            )
+            bucket = (
+                skipped if outcome is None else sent if outcome else failed
+            )
+            bucket.append(str(card.get("key")))
+            if outcome:
+                # Counted here rather than re-queried per card: three rungs in
+                # one ladder must not all pass a ceiling that only one of them
+                # has room for.
+                pushed_today += 1
 
         return AlertResult(tuple(sent), tuple(failed), tuple(skipped))
 

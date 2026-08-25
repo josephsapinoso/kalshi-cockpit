@@ -41,6 +41,12 @@ DISCORD_API = "https://discord.com/api/v10"
 COLOUR_OPPORTUNITY = 0x1A7F52   # --positive
 COLOUR_DIGEST = 0xB3995D        # --accent-2
 COLOUR_FAILURE = 0xAA0000       # --accent
+#: Parlay cards get `--accent-2`, the same neutral as the digest, and
+#: **deliberately not** `COLOUR_OPPORTUNITY`. Green is this palette's "we found
+#: something" and a parlay card is not that: it is fair value on a combination
+#: Joe asked to see, with no edge claimed and none measured. ADR 0071 SS2.5 --
+#: showing a number is transparency, ranking or colouring by it is a claim.
+COLOUR_PARLAY = 0xB3995D
 
 
 @dataclass(frozen=True)
@@ -287,6 +293,110 @@ class DiscordNotifier:
                 "footer": {
                     "text": "A row also needs a Kalshi quote under 30s, so "
                             "individual bets expire sooner than this window."
+                },
+            }
+        )
+
+    async def parlay_card(self, card: dict, *, notes: dict) -> bool:
+        """One parlay card from the desk, rendered for a phone.
+
+        **Every number here is a string the server already rendered.** `card`
+        is a `parlays._serialise_card` payload verbatim, and this method does
+        no arithmetic on it -- not a rounding, not a percentage, not a
+        multiplication. The screen and the embed therefore cannot disagree,
+        which they would within a week if this formatted its own floats. The
+        same rule `frontend/src/lib/api.ts` keeps, for the same reason.
+
+        **It states fair value and no edge, and that is the product.** ADR 0071
+        settles the desk's job as price transparency: what a combination is
+        worth by the books' consensus, beside what Kalshi charges. There is no
+        edge on this embed because none is claimed and none was measured --
+        `beta = -0.141` (ADR 0038). Nothing here ranks cards against each other
+        either; they go out in ladder order, which is a shape (2 legs, 4, 6),
+        not a judgement.
+
+        **The four caveats travel verbatim.** `parlays.NOTES` says the cost is
+        fair value rather than a quote, that Kalshi's combo price exists only
+        once built and will differ, that combos are enter-only, and that the
+        fee model is unverified. Two of those are the difference between a
+        number and money. They are passed in rather than imported so this
+        module keeps its one-way dependency on nothing.
+
+        **No button, and the link goes to the cockpit.** Same ruling as
+        `opportunity` above and the module docstring: a tap-to-buy control in a
+        chat client is a footgun, and the combination has to be built in the
+        Kalshi app anyway.
+        """
+        if not self.config:
+            return False
+        if card.get("not_built_reason") is not None:
+            # A card that did not build is not news on a phone. The screen says
+            # why, in the slot the card would have occupied; a push saying
+            # "nothing tonight" is a notification with no action behind it.
+            return False
+
+        joint = card.get("joint") or {}
+        legs = card.get("legs") or []
+
+        fields = [
+            _field(
+                # `event_title` is the fixture, `label` is the side taken. Both,
+                # because "Yankees" alone does not say against whom, and a leg
+                # you cannot identify is one you cannot check.
+                f"{leg.get('label') or leg.get('team') or leg['ticker']}",
+                f"{leg.get('event_title') or ''}\n"
+                f"{leg.get('fair_percent_display')} by consensus",
+                inline=False,
+            )
+            for leg in legs
+        ]
+
+        default_stake = next(
+            (row for row in card.get("at_stakes") or [] if row.get("is_default")),
+            None,
+        )
+        if joint.get("conservative_percent_display"):
+            fields.append(
+                _field("All legs hit", joint["conservative_percent_display"])
+            )
+        if joint.get("method_range_display"):
+            # The band, never without the headline. Four devig methods disagree
+            # by 1-2 points and that spread is wider than the fee advantage this
+            # project went looking for -- a single number hides exactly that.
+            fields.append(
+                _field("Across four methods", joint["method_range_display"])
+            )
+        if joint.get("fair_cost_display"):
+            fields.append(_field("Fair cost", joint["fair_cost_display"]))
+        if default_stake:
+            fields.append(
+                _field(
+                    f"At {default_stake['stake_display']}",
+                    f"{default_stake['contracts_display']} contracts, "
+                    f"{default_stake['payout_display']} if it lands",
+                    inline=False,
+                )
+            )
+
+        description = notes.get("chance", "")
+        if joint.get("correlation_note"):
+            description = f"{description}\n\n{joint['correlation_note']}"
+
+        return await self._post(
+            {
+                "title": f"{card.get('title')} — {len(legs)} legs",
+                "description": description,
+                "url": f"{self.config.cockpit_base_url}/parlays",
+                "color": COLOUR_PARLAY,
+                "fields": fields,
+                "footer": {
+                    "text": "\n".join(
+                        note for note in (
+                            notes.get("fair_value"),
+                            notes.get("enter_only"),
+                            notes.get("fee"),
+                        ) if note
+                    )
                 },
             }
         )
