@@ -24,6 +24,18 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
+**Two things changed on 2026-08-24 that CLAUDE.md's older paragraphs
+contradict. Believe this file over those until they are reconciled:**
+
+1. **The signal test has DECLARED — `NO SIGNAL` at 311 of 300 games.** See
+   the entry immediately below. CLAUDE.md still says UNRESOLVED at G = 199.
+   Do not write the new verdict into the record without a
+   `measurement-skeptic` pass; the reasons are in that entry.
+2. **What the tool is FOR is settled — ADR 0071.** A personal betting desk
+   first; price transparency as the job; a gap you may show on a row and
+   never rank by; sharing means someone runs their own copy. Read it before
+   planning anything, and do not re-derive the purpose.
+
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
 
@@ -38,6 +50,57 @@ is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look series is CLOSED
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
+
+---
+
+## 2026-08-24 (fifth session, close) — READ THIS FIRST: the signal test crossed its floor and declared
+
+**Observed on the live screen at ~2026-08-24 21:4xZ, immediately after
+deploying `1bdc33b`. It is recorded here and NOWHERE ELSE. Nothing has been
+written to CLAUDE.md, no ADR, no measurement doc — deliberately.**
+
+    SIGNAL TEST   NO SIGNAL    311 of 300 games    measured 1s ago
+    beta  -0.0766   se 0.0215   interval [-0.1545, +0.0013]
+    rows  14,616
+    by market type, diagnostic only:
+      moneyline  -0.0677 · 230g · 91%
+      prop       -0.5192 ·  81g ·  9%
+
+The instrument's own words on the page: *"The record has reached the
+registered floor of 300 games, so this verdict is a declaring one. It was
+fixed in advance in
+`docs/measurements/2026-08-09-preregistration-clv-signal-test.md`."*
+
+**Why this matters more than anything else in this file.** CLAUDE.md still
+says the verdict is **UNRESOLVED at G = 199** and that it *"may not be
+reported as no signal"* below the registered floor of 300. G is now **311**.
+The project's central pre-registered question has answered, on a rule fixed
+before the data was seen. That is the question this whole tool was built to
+settle.
+
+**DO NOT write it into the record without a `measurement-skeptic` pass
+first.** This repo's own rule is that a result entering the record gets
+audited, and "good news arrives as a formal declaration" is the case most
+worth checking. Three things to put to it, none of which this session did:
+
+1. **`beta` moved from −0.1412 to −0.0766 while G went 199 → 311.** The
+   direction is toward zero. Explain the move before quoting the number.
+2. **The arms disagree by a factor of 7.7** — moneyline −0.0677 (230 games)
+   against prop −0.5192 (81 games). The pooled-number rule says print the
+   parts and the largest contributor's share beside any aggregate; the
+   screen does, and the parts do not obviously agree.
+3. **The interval [−0.1545, +0.0013] includes zero.** The registered
+   NO-SIGNAL threshold is 0.40 and −0.0766 is far below it, so the verdict
+   follows the registration — but "the interval excludes the threshold" and
+   "the effect is distinguishable from zero" are different claims and only
+   the first is being made.
+
+**Also unwritten:** whether crossing the floor changes anything operationally.
+It should not — ADR 0038 already closed the hunt on other grounds, and
+CLAUDE.md already said to treat the outcome as settled for planning. The
+gate's 300-*actionable*-game interlock is a different counter and is
+untouched. But that reasoning has not been written down, and a future session
+finding "NO SIGNAL, declared" will want it.
 
 ---
 
