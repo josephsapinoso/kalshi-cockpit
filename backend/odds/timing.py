@@ -704,8 +704,30 @@ def first_window_open_of_day(
 # `COALESCE` because the column is v9 and every row before it is a planner call.
 # NULL means "nobody recorded", which for those rows is true and reads as a
 # sweep, which is what they are. See migration v9.
+#
+# `COALESCE(http_status, 200) < 400` -- v21, and the reason is the same shape as
+# the `%` above: a row that means "we did not get the odds" was reading as a row
+# that means "we did".
+#
+# `client.py` records the credit *before* checking the status, deliberately,
+# because some error classes still consume credits and undercounting spend is
+# worse than overcounting it. That ordering is correct and stays. What it
+# produced downstream was not: a 401 wrote a row that satisfied this predicate,
+# so `last_sweep_by_sport` moved that sport's stamp to now, `firing_for_slot`
+# saw a sweep inside the refresh interval, and **the retry was deferred a full
+# ten minutes** -- while the screen showed the odds as freshly bought. An outage
+# presenting as fresh data is the exact failure the freshness clock exists to
+# prevent, and it was the clock doing it. Recorded 2026-08-17
+# (`docs/JOE-odds-key-rotation.md:151-166`), fixed 2026-08-25.
+#
+# `COALESCE(..., 200)` and not `IS NULL OR ...` for the same reason as the
+# `trigger` clause beside it: every pre-v21 row has NULL here because the column
+# did not exist, those rows were real served sweeps, and they must keep counting
+# exactly as they count today. The default is the success value, so the change
+# is a no-op on all of them.
 _SERVED_SWEEP = (
-    "endpoint LIKE '%/odds' AND cost > 0 AND COALESCE(trigger, '') != 'manual'"
+    "endpoint LIKE '%/odds' AND cost > 0 AND COALESCE(trigger, '') != 'manual' "
+    "AND COALESCE(http_status, 200) < 400"
 )
 
 

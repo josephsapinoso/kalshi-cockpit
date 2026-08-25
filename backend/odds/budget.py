@@ -247,12 +247,23 @@ class CreditBudget:
         remaining_reported: Optional[int] = None,
         used_reported: Optional[int] = None,
         trigger: Optional[str] = None,
+        http_status: Optional[int] = None,
     ) -> None:
         """Record a call. Called for every request, successful or not.
 
         A failed call still costs credits on some error classes, so recording
         only successes would understate spend in exactly the situation where
         the count matters most.
+
+        **`http_status` is what stops that from becoming a lie.** Recording the
+        failed call is right for the *budget* and was wrong for the *clock*:
+        `_SERVED_SWEEP` counted any row here as a served sweep, so a 401 moved
+        the sport's last-sweep stamp forward and deferred the retry a full
+        refresh interval while the screen showed fresh odds. The status
+        separates "we spent a credit" from "we got the odds", which are
+        different facts that had been sharing a row. v21; NULL on every earlier
+        row, and `_SERVED_SWEEP` coalesces it to 200 so those keep counting as
+        they always did.
 
         **`trigger` is written to be excluded.** `'manual'` marks an on-demand
         refresh, which makes the identical request at the identical cost as a
@@ -263,8 +274,9 @@ class CreditBudget:
         """
         self.conn.execute(
             "INSERT INTO api_credits (called_ms, endpoint, sport_key, markets, "
-            "regions, cost, remaining_reported, used_reported, trigger) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "regions, cost, remaining_reported, used_reported, trigger, "
+            "http_status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 called_ms,
                 endpoint,
@@ -275,6 +287,7 @@ class CreditBudget:
                 remaining_reported,
                 used_reported,
                 trigger,
+                http_status,
             ),
         )
         self.conn.commit()

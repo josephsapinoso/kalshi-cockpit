@@ -80,7 +80,22 @@ export function sweepTone(w: SweepFacts): Tone {
   // until a mutation test refused to go red and proved it was not.
   // `tests/test_sweep_tone_predicate.py` mutates to the early-return shape
   // instead, which is the form that really does break.
-  if (w.last_look_outcome === "refused") return "warn";
+  //
+  // `failed` joins it in v21 (2026-08-25) and the omission would have been the
+  // same class of bug this branch exists for. Before v21 an upstream 401 wrote
+  // an `api_credits` row that counted as a served sweep, so the `last_sweep_ms`
+  // test three lines up returned **calm** through an outage. Fixing that in the
+  // backend moves the failure here rather than removing it: a `failed` look now
+  // leaves `last_sweep_ms` unmoved, falls past `refused`, and — if no window has
+  // opened yet — reaches the final `return "calm"`. The recorder would be dead
+  // and the strip would be quiet, which is the 17-hour shape with a new cause.
+  //
+  // `warn` and not `alarm`: `alarm` means the loop itself is gone, and here the
+  // loop is alive and being refused by someone else. Same tier as `refused`,
+  // for the same reason — we asked and got no odds.
+  if (w.last_look_outcome === "refused" || w.last_look_outcome === "failed") {
+    return "warn";
+  }
 
   // Nothing swept, and there was a window in which it could have been. This is
   // the 17-hour shape.

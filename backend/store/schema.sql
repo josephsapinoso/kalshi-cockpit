@@ -258,6 +258,28 @@ CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 -- reparse. `tests/test_store.py` drops columns to build old databases, so the
 -- failure surfaces there rather than in production -- which is luck, not
 -- design.
+-- **`http_status` exists because a failed call used to read as a fresh one.**
+-- `odds/client.py` records the credit BEFORE checking the status -- correct,
+-- and it must stay, because some error classes still consume credits and
+-- undercounting spend is worse than overcounting it. But the row it wrote
+-- satisfied `_SERVED_SWEEP` in `odds/timing.py`, so a 401 moved that sport's
+-- last-sweep stamp to now and **deferred the retry by a full refresh
+-- interval** -- while the screen showed the odds as freshly bought. An outage
+-- presenting as fresh data is the one thing a freshness clock exists to make
+-- impossible, and it was the clock doing it. Recorded 2026-08-17
+-- (`docs/JOE-odds-key-rotation.md:151-166`), fixed 2026-08-25.
+--
+-- NULL on every pre-v21 row, and NULL is honest there: nobody recorded it.
+-- `_SERVED_SWEEP` carries `AND COALESCE(http_status, 200) < 400`, so all of
+-- them count exactly as they did before. No backfill, because the rows this
+-- matters for are precisely the ones whose status is unknowable after the fact.
+--
+-- **Keep the explanation up here, not beside the column.** A comment block
+-- between the second-to-last column and the last one makes SQLite's
+-- `ALTER TABLE ... DROP COLUMN` fail with "incomplete input" when the last
+-- column goes -- it re-parses the stored CREATE text and the comment is left
+-- dangling before the paren. `tests/test_store.py` builds its "old" databases
+-- by dropping exactly these columns, so it caught it immediately.
 CREATE TABLE IF NOT EXISTS api_credits (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     called_ms           INTEGER NOT NULL,
@@ -268,7 +290,8 @@ CREATE TABLE IF NOT EXISTS api_credits (
     cost                INTEGER NOT NULL,   -- what we predicted: markets x regions
     remaining_reported  INTEGER,            -- x-requests-remaining header
     used_reported       INTEGER,            -- x-requests-used header
-    trigger             TEXT                -- 'manual' or NULL; see above
+    trigger             TEXT,               -- 'manual' or NULL; see above
+    http_status         INTEGER             -- v21; see the note above the table
 );
 CREATE INDEX IF NOT EXISTS idx_credits_time ON api_credits(called_ms DESC);
 
@@ -301,6 +324,17 @@ CREATE TABLE IF NOT EXISTS odds_sweep_log (
     -- refused  -- the budget declined it; `detail` names the ceiling that bound
     -- no_data  -- the call went out and the slate came back empty
     -- skipped  -- the pass chose not to sweep; `detail` is the reason
+    -- failed   -- the call went out and the upstream refused it; `detail` names
+    --             the status. v21. **None of the other four could say this**:
+    --             `refused` means *we* declined, `skipped` means we chose not to
+    --             look, and `no_data` means the slate came back empty -- which
+    --             is a successful call about a quiet night, the opposite of an
+    --             outage. Before this, a 401 wrote no row here at all and was
+    --             visible only as an `api_credits` row with NULL headers. This
+    --             table exists because silence was indistinguishable from a
+    --             system that never looked; an upstream failure is that case
+    --             exactly, and it was the one outcome the vocabulary could not
+    --             name.
     outcome         TEXT NOT NULL,
     -- The reason, in the words the decision itself used. Not re-derived here:
     -- a paraphrase of a reason is a second implementation of it.
@@ -308,8 +342,13 @@ CREATE TABLE IF NOT EXISTS odds_sweep_log (
     -- NULL -- never 0 -- unless the sweep was served. Nothing stored and
     -- nothing attempted are different states and must not share a value.
     quotes_stored   INTEGER,
-    CHECK (outcome IN ('served', 'refused', 'no_data', 'skipped')),
-    CHECK ((outcome = 'served') = (quotes_stored IS NOT NULL))
+    -- The upstream status on a `failed` row, NULL on every other outcome. v21.
+    -- Kept apart from `detail` so a reader can count 401s without parsing
+    -- prose, and constrained below so no other outcome can borrow it.
+    failed_status   INTEGER,
+    CHECK (outcome IN ('served', 'refused', 'no_data', 'skipped', 'failed')),
+    CHECK ((outcome = 'served') = (quotes_stored IS NOT NULL)),
+    CHECK ((outcome = 'failed') OR (failed_status IS NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_sweep_log_time ON odds_sweep_log(pass_ms DESC);
 

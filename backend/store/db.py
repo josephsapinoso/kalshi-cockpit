@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -849,6 +849,97 @@ _MIGRATIONS: dict[int, _Migration] = {
             ("fair_prices", "oldest_book_age_ms", "INTEGER"),
         ),
         undo_statements=(),
+    ),
+    21: _Migration(
+        # A failed odds call stops reading as a fresh one.
+        #
+        # `odds/client.py` records the credit before checking the status, which
+        # is right -- some error classes still consume credits and undercounting
+        # spend is worse than overcounting it. What was wrong is downstream: the
+        # row it wrote satisfied `_SERVED_SWEEP`, so a 401 moved that sport's
+        # last-sweep stamp to now and deferred the retry by a whole refresh
+        # interval. An outage presented on the screen as *fresh*.
+        #
+        # Nullable, no backfill. NULL is the honest value for a pre-v21 row --
+        # nobody recorded a status -- and `_SERVED_SWEEP`'s
+        # `COALESCE(http_status, 200) < 400` makes every one of them count
+        # exactly as it counts today. A backfill would have to invent the
+        # statuses, and the rows this matters for are precisely the ones whose
+        # status is unknowable after the fact.
+        columns=(
+            ("api_credits", "http_status", "INTEGER"),
+        ),
+        # And the sweep log gains a fifth outcome to say so with.
+        #
+        # A rebuild rather than an ALTER, because the vocabulary is a table-level
+        # CHECK and SQLite cannot alter one in place. `_SETTLEMENTS_REBUILD` is
+        # the precedent; this one carries its rows, which that one did not, so
+        # the INSERT is part of the step.
+        #
+        # Idempotent at every crash point, given `skip_statements_if_column`:
+        #   - after CREATE:  `odds_sweep_log` still lacks `failed_status`, so
+        #                    the step re-runs from the top and CREATE is a no-op.
+        #   - after INSERT:  same -- the temp table is dropped and rebuilt, and
+        #                    it is the temp table that carries the new column.
+        #   - after RENAME:  `odds_sweep_log.failed_status` exists and the whole
+        #                    step is skipped, which is the case that would
+        #                    otherwise recreate the temp table and drop the real
+        #                    one.
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS odds_sweep_log_v21 (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                pass_ms         INTEGER NOT NULL,
+                sport_key       TEXT,
+                outcome         TEXT NOT NULL,
+                detail          TEXT NOT NULL,
+                quotes_stored   INTEGER,
+                -- The upstream status, present only on a `failed` row. Its
+                -- presence is also the migration's completion guard.
+                failed_status   INTEGER,
+                CHECK (outcome IN
+                       ('served', 'refused', 'no_data', 'skipped', 'failed')),
+                CHECK ((outcome = 'served') = (quotes_stored IS NOT NULL)),
+                CHECK ((outcome = 'failed') OR (failed_status IS NULL))
+            )
+            """,
+            "INSERT INTO odds_sweep_log_v21 "
+            "(id, pass_ms, sport_key, outcome, detail, quotes_stored) "
+            "SELECT id, pass_ms, sport_key, outcome, detail, quotes_stored "
+            "FROM odds_sweep_log",
+            "DROP TABLE odds_sweep_log",
+            "ALTER TABLE odds_sweep_log_v21 RENAME TO odds_sweep_log",
+            "CREATE INDEX IF NOT EXISTS idx_sweep_log_time "
+            "ON odds_sweep_log(pass_ms DESC)",
+        ),
+        indexes=("idx_sweep_log_time",),
+        skip_statements_if_column=(("odds_sweep_log", "failed_status"),),
+        # Putting the four-outcome vocabulary back, for the migration tests that
+        # build a v20 database by undoing this step. A rebuild is not inferable,
+        # so it is spelled out -- and `failed` rows cannot survive the trip,
+        # which is correct: they could not have existed at v20.
+        undo_statements=(
+            """
+            CREATE TABLE odds_sweep_log_v20 (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                pass_ms         INTEGER NOT NULL,
+                sport_key       TEXT,
+                outcome         TEXT NOT NULL,
+                detail          TEXT NOT NULL,
+                quotes_stored   INTEGER,
+                CHECK (outcome IN ('served', 'refused', 'no_data', 'skipped')),
+                CHECK ((outcome = 'served') = (quotes_stored IS NOT NULL))
+            )
+            """,
+            "INSERT INTO odds_sweep_log_v20 "
+            "(id, pass_ms, sport_key, outcome, detail, quotes_stored) "
+            "SELECT id, pass_ms, sport_key, outcome, detail, quotes_stored "
+            "FROM odds_sweep_log WHERE outcome != 'failed'",
+            "DROP TABLE odds_sweep_log",
+            "ALTER TABLE odds_sweep_log_v20 RENAME TO odds_sweep_log",
+            "CREATE INDEX IF NOT EXISTS idx_sweep_log_time "
+            "ON odds_sweep_log(pass_ms DESC)",
+        ),
     ),
 }
 

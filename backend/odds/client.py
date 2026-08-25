@@ -32,7 +32,7 @@ import httpx
 from ..config import OddsConfig
 from ..kalshi.props import ALTERNATE_SUFFIX
 from .budget import CreditBudget, sweep_cost
-from .sweeplog import REFUSED, record_sweep_outcome
+from .sweeplog import FAILED, REFUSED, record_sweep_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +321,14 @@ class OddsClient:
 
         # Record before raising: some error classes still consume credits, and
         # under-counting spend is worse than over-counting it.
+        #
+        # **`http_status` travels with it, and that is what makes this ordering
+        # safe.** Recording the failed call was always right for the budget and
+        # was quietly wrong for the clock: `_SERVED_SWEEP` counted the row as a
+        # served sweep, so a 401 moved this sport's last-sweep stamp to now and
+        # deferred the retry a whole refresh interval -- with the screen showing
+        # the odds as freshly bought. v21 separates "a credit was spent" from
+        # "the odds arrived", which had been sharing one row.
         self.budget.record(
             called_ms=now_ms,
             endpoint=path,
@@ -331,11 +339,34 @@ class OddsClient:
             remaining_reported=_int_header(response, "x-requests-remaining"),
             used_reported=_int_header(response, "x-requests-used"),
             trigger=trigger,
+            http_status=response.status_code,
         )
 
-        if response.status_code == 429:
-            raise QuotaExhausted(429, url, response.text)
         if response.status_code >= 400:
+            # The sweep log gets the failure too, and the credit row is not a
+            # substitute for it. Before v21 an upstream refusal wrote nothing
+            # here at all, so the only trace was an `api_credits` row with NULL
+            # rate-limit headers -- which is also what a *successful* call looks
+            # like when the aggregator omits them. This table exists precisely
+            # because silence was indistinguishable from a system that never
+            # looked.
+            #
+            # Written before the 429 branch, not after: `QuotaExhausted` is
+            # still a failed sweep, and a quota outage is the one most worth
+            # having a row for.
+            record_sweep_outcome(
+                self.budget.conn,
+                pass_ms=now_ms,
+                sport_key=sport_key,
+                outcome=FAILED,
+                detail=(
+                    f"{sport_key} sweep failed: the odds API answered "
+                    f"{response.status_code}; {cost} credits were still charged"
+                ),
+                failed_status=response.status_code,
+            )
+            if response.status_code == 429:
+                raise QuotaExhausted(429, url, response.text)
             raise OddsAPIError(response.status_code, url, response.text)
 
         return self._parse(response.json(), sport_key=sport_key, fetched_ms=now_ms)
@@ -411,11 +442,28 @@ class OddsClient:
                 remaining_reported=_int_header(response, "x-requests-remaining"),
                 used_reported=_int_header(response, "x-requests-used"),
                 trigger=trigger,
+                http_status=response.status_code,
             )
 
-            if response.status_code == 429:
-                raise QuotaExhausted(429, url, response.text)
             if response.status_code >= 400:
+                # Same treatment as the team sweep above, and it is needed here
+                # for the same reason: this endpoint writes to the same
+                # `api_credits` table `_SERVED_SWEEP` reads, so a failed prop
+                # call would otherwise move the sport's last-sweep stamp too.
+                record_sweep_outcome(
+                    self.budget.conn,
+                    pass_ms=now_ms,
+                    sport_key=sport_key,
+                    outcome=FAILED,
+                    detail=(
+                        f"{sport_key} prop fetch for event {event_id} failed: "
+                        f"the odds API answered {response.status_code}; "
+                        f"{per_event_cost} credits were still charged"
+                    ),
+                    failed_status=response.status_code,
+                )
+                if response.status_code == 429:
+                    raise QuotaExhausted(429, url, response.text)
                 raise OddsAPIError(response.status_code, url, response.text)
 
             # The per-event endpoint returns ONE event object where the sweep

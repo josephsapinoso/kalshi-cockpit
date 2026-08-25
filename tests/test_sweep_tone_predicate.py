@@ -36,6 +36,20 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 TONE_TS = REPO / "frontend" / "src" / "lib" / "sweepTone.ts"
 
+#: The clause the two mutations below excise, written once.
+#:
+#: It was two inline string literals until v21 gave `sweepTone` a second outcome
+#: to check and the clause went multi-line — at which point both mutations
+#: stopped matching and silently... did not, because each asserts
+#: `mutated != source` first. That assertion is why this is a rename and not an
+#: outage: a mutation test whose mutation no longer applies is a test that
+#: passes for free, and these two say so out loud rather than trusting the
+#: `.replace` to have done something.
+REFUSED_CLAUSE = (
+    '  if (w.last_look_outcome === "refused" || '
+    'w.last_look_outcome === "failed") {\n    return "warn";\n  }\n'
+)
+
 NODE = shutil.which("node")
 
 pytestmark = pytest.mark.skipif(
@@ -106,6 +120,24 @@ REFUSED_BEFORE_THE_WINDOW = {
     "now_ms": ms("2026-08-17T17:35:04Z"),
     "last_look_ms": ms("2026-08-17T17:34:04Z"),
     "last_look_outcome": "refused",
+    "last_sweep_ms": YESTERDAY_SWEEP,
+    "budget_day_start_ms": DAY_START,
+    "first_window_open_ms": FIRST_WINDOW,
+}
+
+#: **The outage day.** v21, 2026-08-25. Identical to the refused day except
+#: that the odds API is the one saying no: the call went out, came back 401, and
+#: `_SERVED_SWEEP` no longer counts it, so `last_sweep_ms` stays on yesterday.
+#:
+#: This state was **unreachable before v21 and rendered calm the moment it
+#: became reachable.** A failed call used to write an `api_credits` row that
+#: satisfied `_SERVED_SWEEP`, so `last_sweep_ms` moved to now and the third
+#: clause returned calm through the outage. Fixing that in the backend moved the
+#: failure into this predicate rather than removing it.
+FAILED_BEFORE_THE_WINDOW = {
+    "now_ms": ms("2026-08-17T17:35:04Z"),
+    "last_look_ms": ms("2026-08-17T17:34:04Z"),
+    "last_look_outcome": "failed",
     "last_sweep_ms": YESTERDAY_SWEEP,
     "budget_day_start_ms": DAY_START,
     "first_window_open_ms": FIRST_WINDOW,
@@ -256,6 +288,39 @@ class TestABudgetRefusalIsNeverCalm:
         assert differing == {"last_look_outcome"}, differing
 
 
+class TestAnUpstreamOutageIsNeverCalm:
+    """v21's new outcome, and the reason it needed a branch of its own.
+
+    The backend fix — a failed call no longer satisfies `_SERVED_SWEEP` — is
+    what makes this state reachable. Before it, an outage was calm because the
+    failed call had moved `last_sweep_ms`. After it, the outage falls through to
+    the window clause instead, and on a morning with no window yet open that
+    clause returns calm. Same silence, new route to it.
+    """
+
+    def test_a_failed_sweep_before_the_first_window_warns(self):
+        """Mutation observed red: remove `|| w.last_look_outcome === "failed"`
+        from `sweepTone` — this returns "calm" while the odds API is down."""
+        assert tone_of(FAILED_BEFORE_THE_WINDOW) == "warn"
+
+    def test_failed_and_quiet_morning_differ_only_in_the_outcome(self):
+        """The same isolation the refused day gets: if these two states differ
+        in any other field, the verdict could be coming from somewhere else."""
+        differing = {
+            k
+            for k in QUIET_MORNING
+            if QUIET_MORNING[k] != FAILED_BEFORE_THE_WINDOW[k]
+        }
+        assert differing == {"last_look_outcome"}, differing
+
+    def test_failed_is_not_louder_than_a_dead_loop(self):
+        """`alarm` means the loop itself stopped. Here the loop is alive and
+        being refused by someone else, which is a different repair — waiting or
+        rotating a key, not restarting a machine. Keeping the tiers distinct is
+        what stops `alarm` from becoming the tone everything wears."""
+        assert tone_of(FAILED_BEFORE_THE_WINDOW) != "alarm"
+
+
 class TestTheRemainingStatesAreUnchanged:
     """The fix must not move any verdict it was not aimed at."""
 
@@ -369,9 +434,7 @@ class TestTheGuardsAreReal:
         worse than the bug. This test is why the clause is not optional.
         """
         source = TONE_TS.read_text(encoding="utf-8")
-        mutated = source.replace(
-            '  if (w.last_look_outcome === "refused") return "warn";\n', ""
-        )
+        mutated = source.replace(REFUSED_CLAUSE, "")
         assert mutated != source, "the mutation did not apply; update this test"
         assert (
             tone_of(REFUSED_BEFORE_THE_WINDOW, source=mutated, tmp_path=tmp_path)
@@ -398,17 +461,16 @@ class TestTheGuardsAreReal:
         reproduces it.
         """
         source = TONE_TS.read_text(encoding="utf-8")
-        refused_line = '  if (w.last_look_outcome === "refused") return "warn";\n'
         window_clause = (
             "  if (w.first_window_open_ms !== null && "
             'w.now_ms >= w.first_window_open_ms) {\n    return "warn";\n  }'
         )
-        assert refused_line in source and window_clause in source
-        mutated = source.replace(refused_line, "").replace(
+        assert REFUSED_CLAUSE in source and window_clause in source
+        mutated = source.replace(REFUSED_CLAUSE, "").replace(
             window_clause,
             "  if (w.first_window_open_ms === null || "
             'w.now_ms < w.first_window_open_ms) {\n    return "calm";\n  }\n'
-            + refused_line,
+            + REFUSED_CLAUSE,
         )
         assert mutated != source, "the mutation did not apply; update this test"
         assert (
