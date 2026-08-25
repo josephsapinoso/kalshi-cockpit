@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-25 (late): 4,333 passed / 10 xfailed.**
+**Test baseline, re-measured 2026-08-26: 4,388 passed / 10 xfailed.**
 Do not inherit it — this line has been wrong in the same direction three times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
 landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
@@ -59,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,333 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,388 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -70,7 +70,183 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-25 (latest) — the desk was empty because the loop was ASLEEP, and nothing could wake it
+## 2026-08-26 (latest) — the alarm stops guessing, and the desk's cards reach the phone
+
+**Shipped and verified on live at `b7e6f9f`.** Two commits, both deployed.
+State: **4,388 passed / 10 xfailed** (baseline 4,333 re-measured at session
+start, not inherited), ruff clean. **Schema v22** — `loop_failures`, applied to
+the live volume on boot without incident.
+
+### The 20:41Z heartbeat alarm was real, and its text was a guess
+
+Joe forwarded `⚠ The recorder has stopped`. Established read-only, before
+touching anything:
+
+- It fired **once** (heartbeat run 20:41:37Z) and cleared by 20:55Z. Live was
+  healthy on inspection: `recorder.age_ms` 5,897.
+- **Not a restart.** Fly releases bracket the window at 132 (19:01:40Z) and 133
+  (21:00:36Z), and the machine event log shows no start between.
+- **Not a designed sleep.** The recorder heartbeat is stamped on *every* pass
+  (`runner.py:2493`, inside `store_quotes_from_discovery`, which
+  `run_quote_pass` reaches via `run_kalshi_pass`), and the slow cadence is 900s
+  ±15%. **The widest gap a healthy shut-window loop can produce is
+  1,035s ≈ 17.3 min.**
+- `odds_sweep_log` carries a **2,678-second hole ending 20:51:02Z**. Every other
+  gap that day was a single jittered interval — 842, 950, 965, 999, 1,001s.
+
+So two or three passes never finished. **Which could not be established, and
+that is the finding.** `LoopState.consecutive_failures` and `last_error` live in
+memory; the container had restarted and its logs went with it. A run of failing
+passes and one wedged pass need different fixes and left identical evidence.
+
+**Built the instrument that separates them.**
+
+- **`loop_failures` (schema v22)**, written through a new `on_failure` hook on
+  `run_forever`. **Written on the failure path only**, and that asymmetry is the
+  whole design: rows inside a silence mean the loop was failing; no rows mean
+  nothing came back to raise. Logging successes too would make "no rows"
+  ambiguous again. A raising hook is swallowed and logged — it runs where
+  something has already gone wrong.
+- **`inspect_live_db.py pass-gaps`** computes the holes in SQLite (window
+  function, `--gap-ms` bound parameter) and prints `loop_failures` beside them.
+  Doing this today meant pulling 400 rows and diffing them locally, which is the
+  smuggle-the-code-in-with-the-question drift that file exists to replace.
+- **The alarm says what it measured.** It no longer asserts *"It is alive and
+  stuck"*; it names the three states it cannot distinguish and points at
+  `/api/window` `is_open` and `loop_failures`.
+- **Its threshold comment was wrong and is corrected.** It justified 30 minutes
+  as "two missed full passes" because "quote passes run far more often" —
+  untrue since ADR 0071 §2.6 made the odds feed follow attention, since the 15s
+  cadence only runs while the window is open. The number survives (30 min is
+  1.74× the 17.3-min ceiling); the reasoning did not.
+  `tests/test_heartbeat_threshold_arithmetic.py` now pins the *property* against
+  the real `JITTER`, so the next constant change fails a test rather than a
+  comment.
+
+**Still open, unchanged:** nothing times out a pass. `run_forever` still awaits
+`do_pass()` bare. This makes a wedge *legible after the fact*, not survivable.
+Leave it until `loop_failures` shows a gap with no rows in it — that is now a
+readable signal rather than a guess.
+
+### Parlay cards push to Discord — outbound only, Joe's call this session
+
+He asked for the webhook to carry parlay items and, if possible, to place Kalshi
+buys. **Asked, and he chose push-only with no order path.** Triggers he picked:
+a daily card, a slash command, and a material-change alert.
+
+**Shipped: the daily card and the material-change alert, which turn out to be
+one mechanism.** `DiscordNotifier.parlay_card` renders a card from the exact
+`_serialise_card` payload the screen uses — **no arithmetic anywhere in the
+path**, so the embed cannot drift from `/parlays` by a rounding step. The four
+`parlays.NOTES` caveats travel verbatim; two of them are the difference between
+a number and money. No edge, no ranking, no button (ADR 0038, ADR 0071 §2.5, and
+`discord.py`'s own docstring already ruled out tap-to-buy in a chat client).
+
+`notifications.UNIQUE (kind, key)` **is** the change detection — no timestamp
+comparison, no threshold, and it survives the restart an in-memory policy would
+not. Key is `card_key` + **sorted** leg tickers, already the canonical card
+identity (`price_card_on_kalshi`'s drift check, `parlay_lookups.selected_legs`).
+
+**Verified end-to-end on live, not just in tests.** The embed was first rendered
+from the real `/api/parlays` payload pulled off the box (three built cards, WNBA
+and MLB legs) — then after deploy, **three pushes landed at 22:41:43Z and
+`undelivered_last_24h` stayed 0**. Discord accepts the embed.
+
+**Two things the build found that the plan did not have.**
+
+1. **Dedupe is not a rate limit.** `ladder_candidates` takes pre-game fixtures
+   only, so **every kickoff drops a game out of the pool** — the leg set
+   changes, the key changes, and the push is *correct* by the dedupe rule. On a
+   14-fixture MLB night that is up to fourteen correct pushes per rung.
+   `MAX_PARLAY_PUSHES_PER_DAY = 6` bounds it. Undelivered pushes do not burn it,
+   so one Discord outage cannot silence the rest of the day.
+2. **The ladder is expensive and I called it free.** `build_ladder` runs a
+   **200,000-sample Monte-Carlo copula per card, five times over** (headline
+   plus one per devig method) — ~400ms for three cards on a laptop, against a
+   quote pass budgeted 8s that runs ~4.2s on live. The first commit put that on
+   every pass. **It would have degraded silently** —
+   `Tempo.observe_pass_duration` warns rather than fails. Now gated on
+   `counts.odds_sweeps > 0 or kind == "full"`: a sweep is the only thing that
+   changes a fair value, and between sweeps the ladder rebuilds byte-identically
+   so the cost bought a notification the dedupe then discarded.
+
+**One guard written, mutated, observed GREEN and deleted** — a
+`not_built_reason` check in `Alerter.parlay_cards` changed no answer, because an
+unbuilt card serialises with no legs and `parlay_key` already returns `None`.
+**And one test was vacuous when first written** (compared a slice spanning a
+newline against a single line, so it could never fail); it now reads the gate
+line, with a vacuity guard beside it. **Eleven mutations observed red** across
+the new guards.
+
+### NOT built, and both are deliberate
+
+- **The slash command.** Joe picked it, and it is **not an extension of the
+  above — it is a new subsystem.** There is no inbound Discord path today: no
+  route, no signature verification, no `nacl`, and `requirements.txt:30` pins
+  `discord.py~=2.4` which **nothing imports**. It needs a public HTTPS endpoint
+  (uvicorn binds loopback and is never published), Ed25519 verification of
+  `X-Signature-Ed25519` plus a crypto dependency, a Discord *application* rather
+  than a webhook — which undoes the four-taps-on-a-phone setup property
+  `discord.py:50-55` was built around — and a new auth lane at `middleware.ts`,
+  which today accepts only the `cockpit_session` cookie. **Wants its own ADR.**
+- **Kalshi buys from Discord.** Joe ruled it out this session when asked.
+  Recorded so it is not re-proposed as an obvious next step.
+
+### Discovery: more parlay approaches — there is ONE generator, not three
+
+Asked for, and this is the headline. `build_ladder` is:
+
+    CARD_SHAPES = (("safe",2,3), ("middle",4,4), ("lottery",6,6))
+    _sort_key   = (-p_conservative, commence_ms, kalshi_market_ticker)
+    _best_per_game(usable, prefer_spreads=(key == "lottery"))
+
+**Safe and Middle are prefixes of the same ranked pool** — Middle's four legs
+are Safe's three plus the next-most-likely game. `prefer_spreads` for Lottery
+(`ladder.py:238`) is the **only** structural difference in the entire ladder.
+Every card is "the most likely favourites available", cut at a different length.
+Candidates are `market IN ('h2h','spreads')` only — **no totals**
+(`parlays.py:148`) — and spread legs must be the favourite's cover.
+
+Ranked by value per unit of work:
+
+| # | Approach | Why |
+|---|---|---|
+| 1 | **Longshot card** | Invert `_sort_key`. A real second product from one parameter; not gap-ranking, so ADR 0071 §2.5 untouched. Makes "Lottery" mean its name. |
+| 2 | **Time-boxed** ("next 3 hours") | Filter on `commence_ms`. The most phone-useful cut: what can I still bet on. |
+| 3 | **Sport-pure** (all-MLB, all-WNBA) | Filter on `league`. Useful when watching one game. |
+| 4 | **Method-agreement** | Require all four devig methods within N points per leg. `by_method` is **already computed** (`ladder.py:163`) and thrown away. CLAUDE.md rule 2 as a product. **My pick.** |
+| 5 | **Totals legs** | Widen `parlays.py:148`. The only one that makes *existing* cards better rather than adding one. |
+| 6 | **Correlation-diverse** | Maximise cross-league to minimise rho (`classify` already returns the regime; 0.02 vs 0.05). |
+| 7 | **Same-game via measured rho** | `implied_correlation` (`correlation.py:253`) inverts an observed combo quote into a measured rho, Fréchet- and PSD-guarded — **fully written and called by nothing on the desk path.** The documented route past `ladder.py:20-22`'s refusal. Wants its own ADR. |
+| — | ~~Gap-ranked card~~ | **Forbidden, ADR 0071 §2.5.** Listed so it is not re-proposed. |
+
+**Recommended: take 1, 2 and 4 as one slice** — three parameters on an
+already-pure function, turning one generator into four genuinely different
+products. Then 5. Then 7 with an ADR.
+
+### Still open from before, untouched
+
+The **cold-open wait** is real and now precisely located, and it was NOT worked
+this session (Joe redirected). The loop wakes within 5s of a heartbeat but the
+wake reaches the *loop* and not the *policy*: (1) `run_loop.py:644` →
+`scheduler.py:316-326`, an early wake lands inside `last_full_ms + 900s` so
+`pass_kind` returns `"quote"`; (2) `timing.py:570-571`, that quote pass runs
+`allow_bootstrap=False`, dropping any sport with no *served* sweep this budget
+day; (3) `scheduler.py:309-310`, `next_wake_ms` is already due so the loop takes
+the 900s branch. Meanwhile `window_status:1180-1189` calls `desk_wants`
+**without** `allow_bootstrap`, so the screen promises a sweep the quote pass
+cannot make — breaking the module's own "one predicate, two callers" rule at
+`desk_wants:513-517`. Wide test blast radius (nine named assertions in
+`test_scheduler.py` and `test_desk_follows_attention.py` pin the current
+behaviour on purpose). Deserves its own slice.
+
+Also still open and unchanged: `ODDS_API_KEY` rotation (security, tabled by
+Joe); `docs/` still carries the stale 576/day figure outside CLAUDE.md; no ADR
+records the attention TTL, floor horizon or credit slice.
+
+---
+
+## 2026-08-25 — the desk was empty because the loop was ASLEEP, and nothing could wake it
 
 **Read the correction first.** The earlier version of this entry, and the
 commit message on `aa4a215`, said the recording loop had **wedged**. It had

@@ -327,6 +327,24 @@ _SQL_PASS_GAPS = (
     "WHERE gap_ms > ? ORDER BY gap_ms DESC"
 )
 
+# **What actually went to the phone, split by kind.**
+#
+# `/api/health` publishes `notifications.total_ever` and nothing else, so the
+# only question it can answer is "more than before?" -- which on 2026-08-26 was
+# read as three parlay pushes repeating when the parlay keys had not moved at
+# all. A total is not a breakdown, and deducing a breakdown from one is how a
+# wrong story survives.
+_SQL_NOTIFICATIONS_BY_KIND = (
+    "SELECT kind, COUNT(*) AS n, SUM(delivered) AS delivered, "
+    "MIN(sent_ms) AS first_ms, MAX(sent_ms) AS last_ms "
+    "FROM notifications GROUP BY kind ORDER BY n DESC"
+)
+
+_SQL_NOTIFICATIONS_TAIL = (
+    "SELECT id, sent_ms, kind, key, delivered, detail "
+    "FROM notifications ORDER BY sent_ms DESC, id DESC"
+)
+
 # Every failure recorded across the same scan, so a gap can be read against
 # them. Rows inside a hole mean the loop was FAILING; a hole with no rows means
 # nothing came back to raise -- a wedged pass, or a container that went away.
@@ -1388,6 +1406,42 @@ def _q_sweep_log(conn: sqlite3.Connection, args) -> list[Section]:
         requested=args.tail,
     )
     return [groups, _derive_iso(tail, "pass_ms", "pass_iso")]
+
+
+def _q_notifications(conn: sqlite3.Connection, args) -> list[Section]:
+    """What reached the phone, by kind, then the tail in full.
+
+    `key` is printed because for `parlay_card` it IS the dedupe rule -- rung
+    plus sorted leg tickers -- so two rows with the same key would be a bug in
+    `UNIQUE (kind, key)` and two with different keys explain a repeat push
+    without anyone having to guess at it.
+
+    What this does not establish
+    ----------------------------
+    - **That a delivered alert was read**, or was worth sending. `delivered`
+      is Discord returning 2xx, nothing more.
+    - **Why a kind is absent.** `opportunity` has never fired in this
+      project's life, which is a fact about the Board being empty rather than
+      about the notifier.
+    """
+    kinds = _fetch(
+        conn,
+        _SQL_NOTIFICATIONS_BY_KIND,
+        (),
+        title="notifications: count and delivered by kind",
+        cap=args.limit,
+    )
+    kinds = _derive_iso(kinds, "first_ms", "first_iso")
+    kinds = _derive_iso(kinds, "last_ms", "last_iso")
+    tail = _fetch(
+        conn,
+        _SQL_NOTIFICATIONS_TAIL,
+        (),
+        title=f"notifications: last {args.tail} rows, newest first",
+        cap=args.limit,
+        requested=args.tail,
+    )
+    return [kinds, _derive_iso(tail, "sent_ms", "sent_iso")]
 
 
 def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
@@ -2456,6 +2510,12 @@ QUERIES: dict[str, QueryDef] = {
         "odds_sweep_log: COUNT and pass_ms range grouped by outcome, then the "
         "last N rows in full (-n, default 5).",
         _q_sweep_log,
+    ),
+    "notifications": QueryDef(
+        "What reached the phone: count and delivered by kind, then the last N "
+        "rows (-n, default 5) with their dedupe keys. /api/health publishes a "
+        "TOTAL only, which cannot say which kind moved.",
+        _q_notifications,
     ),
     "pass-gaps": QueryDef(
         "Holes over --gap-ms (default 1200000) in the last N odds_sweep_log "

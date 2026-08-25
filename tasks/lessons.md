@@ -25,6 +25,89 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — A monitor that names a cause it cannot observe sends you to one place
+
+The off-box heartbeat alarmed: *"the recording loop has not written a quote for
+35 minutes. **It is alive and stuck**, which is the state that keeps every check
+green while the record stops accumulating."* Every number in that sentence was
+measured. The clause in bold was not measured by anything — the check reads one
+field, `recorder.age_ms`, and at least three states produce a large one: a
+wedged pass, a run of passes failing before the heartbeat write, and a container
+that restarted without the record catching up.
+
+The alarm had been written while thinking about one of those, and it named it.
+So the first thing anyone reading it does is go looking for a wedge.
+
+**The pattern: a monitor may report the thing it measured and the states
+consistent with it, and must not pick one.** The test is mechanical — for every
+noun in the alert text, ask which field it was read from. If there is no field,
+it is a hypothesis wearing a measurement's clothes. This is the same failure as
+*a refusal that names its own predicate describes a symptom, not a cause*, one
+layer out: there the component knew too little and said it precisely; here the
+monitor knew too little and said more than it knew.
+
+**The half worth carrying is what made it undiagnosable.** The gap was real —
+2,678 seconds where the widest healthy gap that day was 1,001s against a
+1,035s ceiling — and *which* of the three it was could not be established
+afterwards, because the only record of why a pass stops was
+`LoopState.consecutive_failures` in memory, and the container had restarted and
+taken its logs with it. **Ask of any in-memory diagnostic: does this survive the
+event it exists to explain?** A counter that dies with the process cannot
+explain a process dying, and that is precisely when it is wanted.
+
+What separates the states is an asymmetric record: `loop_failures` is written on
+the failure path **only**. Rows inside a silence mean the loop was failing; no
+rows mean nothing came back to raise. Had it also logged successes, "no rows"
+would have meant nothing again — **the silence is the signal, so do not fill
+it in.**
+
+## 2026-08-25 — Dedupe is not a rate limit, and the difference is who supplies the churn
+
+Parlay cards push to Discord keyed on `card_key` + sorted leg tickers, so a card
+whose legs have not moved is dropped by `UNIQUE (kind, key)`. That is correct
+change-detection and I reasoned from it that the push was self-limiting: no
+change, no message.
+
+It is not, and the reason was upstream of everything I was looking at.
+`ladder_candidates` takes **pre-game fixtures only**, so every kickoff removes a
+game from the pool. If that game was in a card, the leg set genuinely changes,
+the key genuinely changes, and the push is correct by the dedupe rule. On a
+fourteen-fixture night that is up to fourteen correct notifications per rung.
+
+**The pattern: deduplication bounds repetition, never volume.** It answers "have
+I said this before?" and is silent on "how often does the world hand me
+something new to say?" Whenever a dedupe key is doing the work of a ceiling, go
+and find what makes the key turn over, and count it — the answer is a property
+of the upstream data, not of the notifier. Here the turnover rate was the
+fixture list, one file away and never asked.
+
+The generalisation past notifications: **a cache key, an idempotency key and a
+dedupe key all collapse identical work and none of them bounds distinct work.**
+If the cost of the distinct case matters — a phone buzzing, a credit spent, a
+copula run — the ceiling is a separate mechanism and has to be built as one.
+
+## 2026-08-25 — Measure the cost of a thing you put on the fast path, before it is on the fast path
+
+I moved the parlay-ladder build into the recording loop and argued it was free:
+pure function, no network, no credit, and the dedupe drops the result anyway.
+Three true statements, and the conclusion did not follow. `build_ladder` runs a
+**200,000-sample Monte-Carlo copula per card, five times over** — the headline
+plus one per devig method. Fifteen runs for three cards, ~400ms measured, on a
+loop whose quote pass is budgeted 8s so a Kalshi quote can stay under 30s.
+
+Two things worth keeping. **"Pure" is a statement about effects, not about
+cost** — and the words that make something safe to call anywhere (no I/O, no
+mutation, deterministic) are exactly the words that stop anyone asking what it
+costs to call it. **And it would have degraded silently**:
+`Tempo.observe_pass_duration` *warns* on an overrun rather than failing, so no
+test would have gone red and the symptom would have been rows quietly expiring.
+
+The fix was not optimisation. The ladder is a pure function of stored odds, so
+between sweeps it rebuilds byte-identically — the 400ms was buying a
+notification the dedupe then discarded. **When work on a fast path is expensive,
+ask first what input it actually depends on and gate on that changing**; the
+answer is usually a much slower clock than the loop's.
+
 ## 2026-08-25 — A gap the length of your own timer is a timer, not a fault
 
 The live loop went silent for 15m34s and I wrote it up as a wedge: "the
