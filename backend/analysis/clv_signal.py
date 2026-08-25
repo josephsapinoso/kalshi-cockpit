@@ -294,7 +294,19 @@ class SignalReport:
     p1_floor: float
     non_null_coverage: float
     strategy_config_versions: dict[Any, int]
-    modal_config_only: bool
+    # §P4/§7 were applied: the record carried more than one
+    # `strategy_config_version`, so the primary ran on the modal one alone and
+    # `G` counts only those games. See `build_report`.
+    modal_config_applied: bool
+    modal_config_version: Optional[Any]
+    n_non_modal_dropped: int
+    # The fit across every config version, present only when §P4 fired. §P4's
+    # "the others are reported separately". **It never carries a verdict** --
+    # `verdict()` is not called on it at any `G`, because a second declaring
+    # number is exactly how the wrong one gets quoted, which is what happened on
+    # 2026-08-24. Kept rather than discarded so the published interim figure
+    # stays reproducible from this code.
+    pooled_fit: Optional[Fit]
 
     # preconditions
     p1_passed: bool
@@ -333,7 +345,6 @@ def build_report(
     rows: Sequence[Mapping[str, Any]],
     *,
     n_raw: Optional[int] = None,
-    modal_config_only: bool = False,
 ) -> SignalReport:
     """Run the registered test over a §2 population and package the result.
 
@@ -345,13 +356,65 @@ def build_report(
     A precondition failure returns a `SignalReport` with `fit=None` and a reason
     -- it does not raise. The caller decides whether that is an exit code or a
     rendered panel, and both have to say *why*, which a bare exception loses.
+
+    §P4 IS APPLIED HERE, NOT BY THE CALLER
+    --------------------------------------
+    **This used to be a `modal_config_only` flag, defaulting to `False`, and
+    production never set it. That is why the 2026-08-24 screen declared
+    NO SIGNAL on a population the registration forbids as primary.**
+
+    §P4 and §7 say the same thing in two places, and neither offers a choice:
+
+    > §P4: "if it exceeds one, the primary analysis runs on the **modal version
+    > only** and the others are reported separately."
+    > §7: "A change of more than one version means the primary runs on the modal
+    > version and **`G` counts only those games**."
+
+    A registered rule implemented as an opt-in parameter is the repo's
+    "built but never called" pattern in miniature: the branch existed, it was
+    tested, and the one caller that mattered took the default. So the filter is
+    unconditional and the caller has no say.
+
+    It was survivable while every look was interim -- the 2026-08-16 write-up
+    stated plainly that the rule "was **not** applied to the numbers above" and
+    ran it as a sensitivity, which is permissible when nothing is being
+    declared. It stops being survivable the moment `G` crosses 300, because
+    then the pooled number is a *verdict* on a population that is not the
+    primary. On the 2026-08-25 record the difference is
+    `G = 311, NO SIGNAL` against `G = 216, UNRESOLVED`.
+
+    **The non-modal rows are reported as their distribution, not as a second
+    `beta`.** `strategy_config_versions` carries the whole mix, which is what
+    "reported separately" needs; a second slope on the page is precisely how the
+    wrong one gets quoted. `docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md`
     """
     n_raw = len(rows) if n_raw is None else n_raw
 
     versions = Counter(r["strategy_config_version"] for r in rows)
-    if modal_config_only and versions:
-        modal = versions.most_common(1)[0][0]
-        rows = [r for r in rows if r["strategy_config_version"] == modal]
+    modal_version: Optional[Any] = None
+    n_before = len(rows)
+    pooled: Optional[Fit] = None
+    if len(versions) > 1:
+        # "The others are reported separately" -- so the pooled fit is computed
+        # BEFORE the filter and carried, never discarded. Two reasons, and the
+        # second is the one that decided it:
+        #
+        # 1. §P4 asks for it in those words.
+        # 2. `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`
+        #    publishes `beta_hat = -0.1412, G = 199` off the committed dump, and
+        #    a repo that can no longer reproduce a number in its own record has
+        #    made that record unverifiable. `tests/test_clv_signal.py` pins it.
+        #
+        # It carries NO verdict, at any `G`. `verdict()` is never called on it
+        # and `_signal_payload` files it away from `estimate`.
+        try:
+            pooled = fit(observations(rows))
+        except SignalTestRefused:
+            pooled = None
+        modal_version = versions.most_common(1)[0][0]
+        rows = [r for r in rows if r["strategy_config_version"] == modal_version]
+    modal_config_applied = modal_version is not None
+    n_non_modal_dropped = n_before - len(rows)
 
     obs = observations(rows)
     clusters = {o.cluster_key for o in obs}
@@ -379,7 +442,10 @@ def build_report(
         p1_floor=MIN_HALF_SPREAD_COVERAGE,
         non_null_coverage=cov,
         strategy_config_versions=dict(sorted(versions.items())),
-        modal_config_only=modal_config_only,
+        modal_config_applied=modal_config_applied,
+        modal_config_version=modal_version,
+        n_non_modal_dropped=n_non_modal_dropped,
+        pooled_fit=pooled,
         disclosure_required=mismatch_fraction > A82_MISMATCH_DISCLOSURE_THRESHOLD,
         clusters_to_declare=MIN_CLUSTERS_TO_DECLARE,
     )
@@ -450,15 +516,16 @@ def build_report(
     )
 
 
-def report_from_connection(
-    conn: sqlite3.Connection, *, modal_config_only: bool = False
-) -> SignalReport:
+def report_from_connection(conn: sqlite3.Connection) -> SignalReport:
     """`pull_rows` then `build_report`. The whole test, from a connection.
 
     This is the function `GET /api/signal` calls. It is a two-liner on purpose:
     a route that assembled the population itself would be a third
     implementation of §S1, and the reason this module exists is that there were
     already two.
+
+    **It takes no options, deliberately.** It used to take `modal_config_only`
+    and the route took the default, which is how §P4 came to be violated on a
+    declaring look. `build_report` owns that rule now; see its docstring.
     """
-    rows = pull_rows(conn)
-    return build_report(rows, modal_config_only=modal_config_only)
+    return build_report(pull_rows(conn))

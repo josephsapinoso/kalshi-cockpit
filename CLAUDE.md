@@ -106,13 +106,56 @@ Both arms agree (moneyline −0.082, prop −0.519) and every interval computed 
 entirely below the registered NO-SIGNAL threshold of 0.40.
 `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`.
 
-**UNRESOLVED is the formal verdict and may not be reported as "no signal."** The
-registration forbids declaring below G = 300 and that look has not been taken.
+**Re-taken 2026-08-25. The verdict is still UNRESOLVED, and the reason it is
+still UNRESOLVED is not the reason above.** The live screen displayed
+`NO SIGNAL, 311 of 300 games` on 2026-08-24 and called itself a declaring look.
+It was audited before it entered this file and **refused**. The registered
+primary is:
 
-**For planning, treat it as settled.** `beta` would have to rise **8.3 standard
-errors** for the G = 300 outcome to be anything but NO SIGNAL. **Waiting for the
-remaining ~101 clusters is not work.** The recorder keeps running and the look
-happens on its own; no roadmap may depend on it.
+```
+beta_hat  -0.0756   se_cluster 0.0246   G = 216   (modal config version only)
+always-valid interval  [-0.1728, +0.0216]
+VERDICT   UNRESOLVED   (84 clusters below the registered floor of 300)
+```
+
+`G = 311` was the fit **pooled across four `strategy_config_version`s**, which
+§P4 and §7 of the registration forbid as the primary in those words: *"the
+primary analysis runs on the modal version only"*, *"`G` counts only those
+games"*. That rule existed in code as an opt-in parameter defaulting to off,
+and no production caller set it. Fixed 2026-08-25 — `build_report` applies §P4
+itself and the pooled fit is carried without a verdict.
+
+**Three more things the audit established, and the third is the one to carry:**
+
+1. §A4's leave-one-group-out downgrade is **not implemented**
+   (`signal_test.py:237-245` verdicts on the pooled fit alone). Run by hand it
+   does not fire — max upper limit +0.0286.
+2. `sd(clv_tenths) = 30.15` crosses the power check's own amendment trigger
+   (*"if it comes in above 30 tenths this document must be amended to raise the
+   floor"*), and the amendment is unwritten.
+3. **`G = 311` is 4.26 effective clusters.** Two games carry half the leverage
+   on `beta`; one WNBA game carries 43.8%; WNBA is 95.6% of it.
+   `too_few_books`/`no_market_width` rows are 13.5% of the record and **93.9%
+   of the leverage**, and inside that group `edge_tenths` runs −718 to +373 —
+   a fair value of ~8c against an 82c ask, off fewer than two books. **Rule 1
+   says those are bugs, not edges.** `sd(edge)` is 40.98 with them and 10.90
+   without, so the apparent resolving power (MDE 0.078 against the
+   registration's feared 0.42) is bought entirely from rows rule 1 refuses.
+
+`docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md` carries all
+eight defects and what would have to happen for a declaration to count.
+
+**UNRESOLVED is the formal verdict and may not be reported as "no signal."** The
+registration forbids declaring below G = 300 and **that look has still not been
+taken** — the 2026-08-24 screen did not take it, it declared on the wrong
+population.
+
+**For planning, treat it as settled, and this is unchanged by the audit.**
+Every interval computed at either look lies entirely below the 0.40 threshold
+and both arms are negative. **Waiting for the remaining ~84 clusters is not
+work.** The recorder keeps running and the look happens on its own; no roadmap
+may depend on it. What may *not* be written is that the declaring look has
+happened.
 
 **It does not run for free, and this paragraph used to say it did.** Corrected
 2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM

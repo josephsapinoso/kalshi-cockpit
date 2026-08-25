@@ -67,7 +67,15 @@ export default function SignalStrip({
   }
 
   const e = signal.estimate!;
-  const { clusters, clusters_to_declare, clusters_remaining, rows } = signal.population;
+  const {
+    clusters,
+    clusters_to_declare,
+    clusters_remaining,
+    rows,
+    modal_config_applied,
+    modal_config_version,
+    non_modal_rows_excluded,
+  } = signal.population;
 
   return (
     <section className="rounded-2xl border bg-card">
@@ -109,6 +117,28 @@ export default function SignalStrip({
           </>
         )}
       </p>
+
+      {/*
+        WHICH population the count is on, whenever it is not the whole record.
+
+        Added 2026-08-25. This screen displayed "NO SIGNAL — 311 of 300 games"
+        on 2026-08-24, and the 311 was a fit pooled across four strategy config
+        versions; the registered primary was 216, below the floor. The count and
+        the floor were both honest and the sentence between them was not,
+        because nothing on the page said which games were being counted. A
+        number compared against a threshold has to name its population.
+      */}
+      {modal_config_applied && (
+        <p className="mt-1 max-w-[65ch] px-5 text-xs leading-relaxed text-muted">
+          Counting <strong className="font-semibold text-foreground">
+            strategy version {String(modal_config_version)}
+          </strong>{" "}
+          only. The registration runs the primary on the most common version
+          alone when the record holds more than one, so {non_modal_rows_excluded}{" "}
+          rows written under earlier versions are excluded from this figure —
+          a mixture of strategies is not one strategy measured for longer.
+        </p>
+      )}
 
       <dl className="mt-0 flex flex-wrap gap-x-6 gap-y-2 border-t px-5 py-3 font-mono text-xs text-muted">
         {/*

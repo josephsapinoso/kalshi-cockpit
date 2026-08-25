@@ -1000,6 +1000,20 @@ export type Signal = {
     quote_mismatch: number;
     no_quote: number;
     disclosure_required: boolean;
+    /**
+     * Whether §P4/§7 narrowed the primary to one `strategy_config_version`.
+     *
+     * When true, `clusters` counts only that version's games — which is the
+     * number the 300-game floor governs. It matters on the screen because the
+     * two counts land on opposite sides of that floor: on 2026-08-25 the record
+     * was 216 primary against 311 pooled, and the pooled one is what this
+     * endpoint used to serve. A reader shown `clusters` without this flag
+     * cannot tell which population the verdict is on.
+     */
+    modal_config_applied: boolean;
+    modal_config_version: number | string | null;
+    non_modal_rows_excluded: number;
+    strategy_config_versions: Record<string, number>;
   };
   estimate: {
     /** Comes first because reading the effect first is how a small cell gets believed. */

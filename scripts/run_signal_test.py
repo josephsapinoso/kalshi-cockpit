@@ -25,6 +25,11 @@ What this does not establish
 ----------------------------
 - **Nothing at `G < 300`.** Every such run prints UNRESOLVED. That is a real
   answer, it is not "no signal", and it may not be reported as one.
+- **`G` is the modal config version's cluster count, not the record's.** §P4 and
+  §7 make the modal version the primary population whenever more than one is
+  present, and `build_report` applies that itself as of 2026-08-25. A `G` quoted
+  from a pooled run is not the registered `G`: on the 2026-08-25 record the two
+  are 216 and 311, either side of the floor.
 - **Nothing about a dump it was not given.** Whether the rows are the registered
   §2 population is decided by the extraction query.
 - **Nothing about causation.** A positive `beta` says the engine's edge number
@@ -107,9 +112,18 @@ def render(report: SignalReport) -> int:
     print("# Registered: docs/measurements/2026-08-09-preregistration-clv-signal-test.md")
     print()
 
-    if report.modal_config_only and report.strategy_config_versions:
-        modal = max(report.strategy_config_versions.items(), key=lambda kv: kv[1])[0]
-        print(f"§7 modal-config filter ON: keeping version {modal} only")
+    if report.modal_config_applied:
+        print(
+            f"§P4/§7 APPLIED: the record carries "
+            f"{len(report.strategy_config_versions)} strategy_config_versions, "
+            f"so the primary runs on the modal one "
+            f"(version {report.modal_config_version}) alone and G counts only "
+            f"those games."
+        )
+        print(
+            f"  {report.n_non_modal_dropped} non-modal rows are excluded from "
+            f"the primary and reported as the distribution below."
+        )
         print()
 
     # 1. n before effect size. Always.
@@ -226,18 +240,16 @@ def render(report: SignalReport) -> int:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("dump", type=Path)
-    parser.add_argument(
-        "--modal-config-only",
-        action="store_true",
-        help="§7: restrict to the modal strategy_config_version",
-    )
+    # `--modal-config-only` is RETIRED, 2026-08-25. It made §P4 -- a registered
+    # rule that offers no choice -- an opt-in, and the default is what
+    # `GET /api/signal` took when it declared NO SIGNAL on 2026-08-24 over four
+    # pooled config versions. `build_report` now applies the rule itself, so
+    # there is nothing left for a flag to turn on. See
+    # `docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md`.
     args = parser.parse_args(argv)
 
     rows, n_raw = load(args.dump)
-    report = build_report(
-        rows, n_raw=n_raw, modal_config_only=args.modal_config_only
-    )
-    return render(report)
+    return render(build_report(rows, n_raw=n_raw))
 
 
 if __name__ == "__main__":

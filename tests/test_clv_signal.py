@@ -9,10 +9,20 @@ write-up, neither of which is executed. `ev.py` had been wrong for three days fo
 exactly that reason.
 
 So the load-bearing assertion in this file is a **reproduction**: the committed
-2026-08-16 dump, through the moved code, must give `beta_hat = -0.1412`,
-`se_cluster = 0.0478`, `G = 199`. Those are the figures in
-`docs/measurements/2026-08-16-clv-signal-test-interim-look.md` and in CLAUDE.md.
-If this file goes red, the statistic moved -- not the plumbing.
+2026-08-16 dump, through this code, must give back both rows of the published
+sensitivity table in
+`docs/measurements/2026-08-16-clv-signal-test-interim-look.md` --
+the registered primary (§P4's modal version 3 alone) at `beta_hat = -0.0528`,
+`se_cluster = 0.0287`, `G = 86`, and the pooled fit at `-0.1412` / `0.0478` /
+`G = 199`. If this file goes red, the statistic moved -- not the plumbing.
+
+**Which of those two is `report.fit` changed on 2026-08-25, and the reason is
+the point of the change.** It was the pooled one, because `build_report` pooled
+every `strategy_config_version` unless a caller opted out and no caller did --
+so on 2026-08-24 `GET /api/signal` declared `NO SIGNAL` at `G = 311` when §P4
+and §7 make the registered primary `UNRESOLVED` at `G = 216`. `fit` is now the
+primary; the pooled fit is carried as `pooled_fit` and never gets a verdict.
+`docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md`.
 
 Every claim below was observed red under a named mutation, written beside the
 test. A guard that has never been seen to fail is decoration.
@@ -87,38 +97,110 @@ def dump_rows() -> list[dict]:
 
 
 class TestTheRegisteredNumberIsReproduced:
-    """The published `beta` comes back out of the moved code, to four places.
+    """Both published `beta`s come back out of the code, to four places.
 
-    Mutation observed red: change `MIN_HALF_SPREAD_COVERAGE` in the assertion,
-    or drop the `half_spread_tenths` term from `signal_test.fit`'s design matrix
-    -- `beta_hat` moves to -0.0561 and every assertion below fails.
+    **This class was re-anchored 2026-08-25 and the claim is unchanged.** It used
+    to read the `-0.1412 / G = 199` figures off `report.fit`, because
+    `build_report` then pooled every `strategy_config_version` unless a caller
+    passed `modal_config_only=True` -- which no caller did. §P4 and §7 make the
+    modal version the *primary* whenever more than one is present, so `fit` is
+    now the modal-only fit and the pooled one is carried as `pooled_fit`. See
+    `docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md` D1.
+
+    **Nothing published became unreproducible**, which is why the re-anchor was
+    allowed. `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`
+    prints a two-row sensitivity table and this class now pins *both* rows:
+
+        | population        | rows  | G   | beta_hat | interval          |
+        | all versions      | 3,692 | 199 | -0.141   | [-0.334, +0.052]  |
+        | modal version (3) | 1,672 |  86 | -0.053   | [-0.205, +0.099]  |
+
+    Mutation observed red: drop the `half_spread_tenths` term from
+    `signal_test.fit`'s design matrix -- both fits move and every assertion
+    below fails.
     """
 
-    def test_beta_hat_is_minus_zero_point_one_four_one_two(self, dump_rows):
-        report = build_report(dump_rows)
-        assert report.fit is not None, report.refusal
-        assert round(report.fit.beta_hat, 4) == -0.1412
+    # -- the registered primary: §P4's modal version only ------------------
 
-    def test_cluster_robust_se_is_zero_point_zero_four_seven_eight(self, dump_rows):
+    def test_the_primary_is_the_modal_config_version_alone(self, dump_rows):
+        """§P4/§7. Mutation observed red: change `len(versions) > 1` to
+        `False` in `build_report` -- the primary becomes the pooled 199."""
         report = build_report(dump_rows)
-        assert round(report.fit.se_cluster, 4) == 0.0478
+        assert report.modal_config_applied
+        assert report.modal_config_version == 3
+        assert report.n_non_modal_dropped == 2020
+        assert report.strategy_config_versions == {1: 359, 2: 56, 3: 1672, 4: 1605}
 
-    def test_g_is_one_hundred_and_ninety_nine(self, dump_rows):
-        report = build_report(dump_rows)
-        assert report.n_clusters == 199
-        assert report.fit.n_clusters == 199
-
-    def test_the_always_valid_interval_is_the_published_one(self, dump_rows):
-        report = build_report(dump_rows)
-        assert round(report.fit.lower, 4) == -0.3342
-        assert round(report.fit.upper, 4) == 0.0517
-
-    def test_the_population_is_three_thousand_six_hundred_and_ninety_two_rows(
+    def test_the_primary_beta_hat_is_minus_zero_point_zero_five_two_eight(
         self, dump_rows
     ):
         report = build_report(dump_rows)
-        assert report.n_analysed == 3692
+        assert report.fit is not None, report.refusal
+        assert round(report.fit.beta_hat, 4) == -0.0528
+        assert round(report.fit.se_cluster, 4) == 0.0287
+
+    def test_the_primary_g_is_eighty_six(self, dump_rows):
+        """`G` counts only the modal version's games -- §7 in those words."""
+        report = build_report(dump_rows)
+        assert report.n_clusters == 86
+        assert report.fit.n_clusters == 86
+        assert report.n_analysed == 1672
         assert report.unclustered == 0
+
+    def test_the_primary_interval_is_the_published_sensitivity_row(self, dump_rows):
+        report = build_report(dump_rows)
+        assert round(report.fit.lower, 4) == -0.2047
+        assert round(report.fit.upper, 4) == 0.0992
+
+    # -- the pooled fit: §P4's "reported separately" ------------------------
+
+    def test_the_pooled_fit_still_reproduces_the_published_headline(self, dump_rows):
+        """The interim look's headline row, preserved.
+
+        A repo that can no longer reproduce a number in its own measurement
+        record has made that record unverifiable, so §P4's "the others are
+        reported separately" is implemented as a carried fit rather than a
+        discarded one.
+
+        Mutation observed red: set `pooled = None` unconditionally in
+        `build_report`.
+        """
+        report = build_report(dump_rows)
+        assert report.pooled_fit is not None
+        assert round(report.pooled_fit.beta_hat, 4) == -0.1412
+        assert round(report.pooled_fit.se_cluster, 4) == 0.0478
+        assert report.pooled_fit.n_clusters == 199
+        assert report.pooled_fit.n_rows == 3692
+        assert round(report.pooled_fit.lower, 4) == -0.3342
+        assert round(report.pooled_fit.upper, 4) == 0.0517
+
+    def test_the_pooled_fit_never_carries_a_verdict(self, dump_rows):
+        """The 2026-08-24 defect, stated as an invariant.
+
+        `G = 199` pooled against `G = 86` primary is the same shape as the live
+        record's `311` against `216`: the pooled number is the one that reaches
+        the floor first, and it is not the one the registration declares on.
+        There is no code path from `pooled_fit` to a verdict, and this asserts
+        the verdict follows the primary even though pooled `G` is larger.
+        """
+        report = build_report(dump_rows)
+        assert report.pooled_fit.n_clusters > report.fit.n_clusters
+        assert report.verdict == "UNRESOLVED"
+        assert not hasattr(report.pooled_fit, "verdict")
+
+    def test_a_single_version_record_has_no_separate_pooled_fit(self, dump_rows):
+        """Nothing to report separately, so nothing is reported.
+
+        `pooled_fit` is not "the fit again"; it exists only to name the
+        population §P4 excluded. With one version there is no such population.
+        """
+        one = [dict(r, strategy_config_version=3) for r in dump_rows]
+        report = build_report(one)
+        assert not report.modal_config_applied
+        assert report.modal_config_version is None
+        assert report.n_non_modal_dropped == 0
+        assert report.pooled_fit is None
+        assert report.n_clusters == 199
 
     def test_p1_is_satisfied_on_the_registered_statistic(self, dump_rows):
         """§A8.2's `matched / total`, not the superseded non-NULL coverage."""
@@ -130,19 +212,23 @@ class TestTheRegisteredNumberIsReproduced:
             "written YES-side-only; see 2026-08-16-quote-join-bias-result.md"
         )
 
-    def test_both_arms_agree_and_are_reported_beside_the_pooled_figure(
-        self, dump_rows
-    ):
+    def test_the_arms_are_reported_beside_the_primary_figure(self, dump_rows):
         """The repo rule: a pooled number is not a finding until the parts agree.
+
+        **Config version 3 is entirely moneyline**, so the registered primary on
+        this dump has one arm and the prop arm's `-0.5192` belongs to the
+        excluded versions. That is worth pinning rather than smoothing over: it
+        says the two published rows of the sensitivity table are not the same
+        measurement on more or less data, they are different populations.
 
         Mutation observed red: return `()` from `build_report`'s group loop.
         """
         report = build_report(dump_rows)
         arms = {g.name: g for g in report.by_market_type}
-        assert set(arms) == {"moneyline", "prop"}
-        assert round(arms["moneyline"].beta_hat, 4) == -0.0819
-        assert round(arms["prop"].beta_hat, 4) == -0.5192
-        assert round(arms["moneyline"].share, 3) == 0.661
+        assert set(arms) == {"moneyline"}
+        assert round(arms["moneyline"].beta_hat, 4) == -0.0528
+        assert arms["moneyline"].n_rows == 1672
+        assert round(arms["moneyline"].share, 3) == 1.0
 
 
 class TestTheVerdictCannotDeclareBelowTheFloor:
@@ -152,21 +238,28 @@ class TestTheVerdictCannotDeclareBelowTheFloor:
         assert build_report(dump_rows).verdict == "UNRESOLVED"
 
     def test_the_report_says_how_many_clusters_remain(self, dump_rows):
-        """A screen has to be able to show `199 / 300` without doing arithmetic.
+        """A screen has to be able to show `86 / 300` without doing arithmetic.
+
+        **The counter is the primary's, not the record's, since 2026-08-25.**
+        It read `199 / 300` while `fit` was the pooled fit; §P4 makes the modal
+        version the primary, so `G` is 86 and 214 clusters remain. A screen
+        counting down to a floor must count the population the floor governs --
+        counting the pooled record reaches 300 first and would invite exactly
+        the declaration this change refuses.
 
         Mutation observed red: return `self.clusters_to_declare` from
         `clusters_remaining`.
         """
         report = build_report(dump_rows)
         assert report.clusters_to_declare == 300
-        assert report.clusters_remaining == 101
+        assert report.clusters_remaining == 214
 
     def test_the_smallest_resolvable_beta_exceeds_the_estimate(self, dump_rows):
         """Printed before `beta_hat` because reading the effect first is how a
         small cell gets believed. At this `G` the test cannot resolve what it
         measured, which is the whole content of UNRESOLVED."""
         report = build_report(dump_rows)
-        assert round(report.smallest_resolvable_beta, 4) == 0.1929
+        assert round(report.smallest_resolvable_beta, 4) == 0.1519
         assert report.smallest_resolvable_beta > abs(report.fit.beta_hat)
 
 
@@ -203,10 +296,17 @@ class TestARefusalIsNotASmallNumber:
         assert report.n_analysed == 0
 
     def test_a_refused_report_still_carries_its_population_counts(self, dump_rows):
-        """The panel has to be able to say *why*, and a bare exception loses it."""
+        """The panel has to be able to say *why*, and a bare exception loses it.
+
+        `n_raw` is the dump, `n_analysed` is the §P4 primary. The two differ by
+        the non-modal rows and both are carried, so a panel can say "1,672 of
+        3,692 rows, version 3 only" rather than either number alone.
+        """
         report = build_report([dict(r, half_spread_tenths=None) for r in dump_rows])
-        assert report.n_analysed == 3692
-        assert report.no_quote == 3692
+        assert report.n_raw == 3692
+        assert report.n_analysed == 1672
+        assert report.n_non_modal_dropped == 2020
+        assert report.no_quote == 1672
         assert report.matched == 0
 
 
@@ -325,13 +425,48 @@ class TestTheRouteCannotPublishTheEffectAlone:
             "smallest_resolvable_beta",
         ):
             assert estimate[key] is not None, key
-        assert round(estimate["beta_hat"], 4) == -0.1412
+        assert round(estimate["beta_hat"], 4) == -0.0528
 
     def test_the_payload_says_a_declaring_look_is_not_permitted(self, dump_rows):
         payload = _signal_payload(build_report(dump_rows), computed_ms=0)
         assert payload["verdict"] == "UNRESOLVED"
         assert payload["may_declare"] is False
-        assert payload["population"]["clusters_remaining"] == 101
+        assert payload["population"]["clusters_remaining"] == 214
+
+    def test_the_payload_names_the_population_the_verdict_is_on(self, dump_rows):
+        """A reader who sees `clusters` without §P4's flag cannot tell which
+        population produced the verdict -- which is how 2026-08-24's screen
+        declared NO SIGNAL at `G = 311` while the registered primary was
+        UNRESOLVED at `G = 216`.
+
+        Mutation observed red: drop `modal_config_applied` from
+        `_signal_payload`'s population block.
+        """
+        payload = _signal_payload(build_report(dump_rows), computed_ms=0)
+        pop = payload["population"]
+        assert pop["modal_config_applied"] is True
+        assert pop["modal_config_version"] == 3
+        assert pop["non_modal_rows_excluded"] == 2020
+        assert pop["clusters"] == 86
+        assert pop["strategy_config_versions"] == {
+            "1": 359, "2": 56, "3": 1672, "4": 1605
+        }
+
+    def test_the_payload_carries_no_second_beta_a_screen_could_declare_on(
+        self, dump_rows
+    ):
+        """`pooled_fit` is a record-keeping field, not a wire field.
+
+        The pooled slope reaches `G = 300` before the primary does, so putting
+        it on the payload beside the primary hands a renderer two `beta`s and
+        one verdict -- and the 2026-08-24 incident is what picking the wrong one
+        looks like. The harness prints it; the API does not ship it.
+        """
+        payload = _signal_payload(build_report(dump_rows), computed_ms=0)
+        flat = json.dumps(payload)
+        assert "pooled" not in flat
+        assert "-0.1412" not in flat
+        assert round(payload["estimate"]["beta_hat"], 4) == -0.0528
 
     def test_the_payload_dates_itself(self, dump_rows):
         """A cached statistic that presents itself as current is a method that
@@ -340,12 +475,17 @@ class TestTheRouteCannotPublishTheEffectAlone:
         assert payload["computed_ms"] == 1234
         assert payload["cache_ttl_ms"] > 0
 
-    def test_both_arms_ship_beside_the_pooled_figure(self, dump_rows):
-        """The repo rule, enforced in the wire format rather than in a habit."""
+    def test_the_arms_ship_beside_the_primary_figure(self, dump_rows):
+        """The repo rule, enforced in the wire format rather than in a habit.
+
+        One arm on this dump, because §P4's modal version (3) is entirely
+        moneyline. The prop arm's `-0.5192` lives in the excluded versions --
+        see `TestTheRegisteredNumberIsReproduced`.
+        """
         payload = _signal_payload(build_report(dump_rows), computed_ms=0)
         arms = {a["name"]: a for a in payload["by_market_type"]}
-        assert round(arms["moneyline"]["beta_hat"], 4) == -0.0819
-        assert round(arms["prop"]["beta_hat"], 4) == -0.5192
+        assert set(arms) == {"moneyline"}
+        assert round(arms["moneyline"]["beta_hat"], 4) == -0.0528
 
     def test_the_demo_instance_refuses_rather_than_publishing_g_of_420(
         self, tmp_path

@@ -25,6 +25,72 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — A registered rule implemented as an optional parameter is not implemented
+
+The CLV registration says in two places that when the record carries more than
+one `strategy_config_version`, the primary analysis runs on the modal version
+alone and `G` counts only those games. The code had it:
+`build_report(rows, modal_config_only=False)`, a working branch with a test.
+**No production caller passed it.** `GET /api/signal` took the default, and on
+2026-08-24 the screen declared `NO SIGNAL` at `G = 311` when the registered
+primary was `UNRESOLVED` at `G = 216` — 84 clusters below the floor, not 11
+over it.
+
+**The pattern:** a rule that offers no choice must not be expressed as a
+parameter that offers one. A flag is a claim that the caller has information the
+callee lacks; a registered rule is exactly the case where the caller has none,
+because the rule was fixed before the caller existed. Wherever a `.md` under
+`docs/measurements` says *must* and a function signature says `bool = False`,
+the default is the deployed behaviour and the rule is decoration. Push it into
+the callee and delete the parameter.
+
+**Why the flag survived nine days of looking right.** It was *correct* at every
+interim look, and the 2026-08-16 write-up says so out loud — the rule "was
+**not** applied to the numbers above", run instead as a sensitivity, which is
+permissible when nothing is being declared. A rule that only binds on the
+declaring branch is invisible until the declaring branch fires, and the
+declaring branch fires **once**. So the tell is not "is this wrong today" but
+*"which branch has never executed, and what does it read?"* — the sibling of
+2026-08-24's *a pin verifies the shape you saw, not the branch you rely on*, one
+level up: there the unexercised branch was a wire format, here it was a
+governance rule.
+
+**And the same look carried the answer to whether it mattered.** `G` on the two
+populations was `311` and `216`, on either side of the floor, printed in the
+same run by the same harness — one flag apart. When a parameter changes which
+side of a threshold you land on, it is not a parameter.
+
+---
+
+## 2026-08-25 — `G` is not evidence; leverage is
+
+The declaring look reported `G = 311` clusters against a registered floor of
+300, which reads as a comfortable sample. Effective clusters by inverse
+Herfindahl on regression leverage: **4.26**. Two games carried half the slope,
+one WNBA game carried 43.8% on its own, and 13.5% of rows carried 93.9% of the
+estimate. Those rows had `edge_tenths` from **−718 to +373** — a consensus
+calling fair ≈ 8c against an 82c ask, off fewer than two books.
+
+**The pattern:** a cluster count is a count of *rows grouped*, not of
+independent evidence, and for any least-squares estimate the honest denominator
+is the leverage distribution — `sum(x_tilde^2)` per group, `x_tilde` being the
+regressor residualised on the controls. Compute it and report the largest
+share **on the same line as the estimate**. `G` and effective-`G` differ by two
+orders of magnitude here, and nothing in the pipeline would have said so.
+
+**The second half, which is the expensive one:** those extreme rows also
+inflated `sd(edge_tenths)` from **10.90 to 40.98**, and since the minimum
+detectable effect scales as `sigma_eps / (sigma_x * sqrt(G))`, they made the
+test look four times more powerful than it is — MDE 0.078 against the
+registration's predicted 0.42. **A power check that comes in far better than
+pre-registered is a symptom, not a windfall.** The direction is the tell: an
+assumption beaten by 4× on the regressor's own spread means the regressor
+acquired mass the design never contemplated, and here that mass is what rule 1
+calls a bug until proven otherwise. Read `sd(x)` against what was assumed
+before believing the MDE, and if the regressor got wider, ask what got in.
+
+---
+
 ## 2026-08-24 — An access-control finding names the layer it was read at
 
 A subagent auditing the API reported `/api/ledger`, `/api/bets` and

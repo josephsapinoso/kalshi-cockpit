@@ -24,13 +24,16 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Two things changed on 2026-08-24 that CLAUDE.md's older paragraphs
-contradict. Believe this file over those until they are reconciled:**
+**Two things to know before planning. CLAUDE.md is current on both:**
 
-1. **The signal test has DECLARED — `NO SIGNAL` at 311 of 300 games.** See
-   the entry immediately below. CLAUDE.md still says UNRESOLVED at G = 199.
-   Do not write the new verdict into the record without a
-   `measurement-skeptic` pass; the reasons are in that entry.
+1. **The signal test has NOT declared. The 2026-08-24 `NO SIGNAL` was
+   refused on audit, 2026-08-25.** The verdict is **UNRESOLVED at G = 216**
+   — the registered primary is the modal `strategy_config_version` alone
+   (§P4/§7), and `G = 311` was a fit pooled across four versions. Fixed in
+   code the same day. Full audit:
+   `docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md`.
+   **The direction is unchanged and still settled for planning** — every
+   interval at either look sits entirely below the 0.40 threshold.
 2. **What the tool is FOR is settled — ADR 0071.** A personal betting desk
    first; price transparency as the job; a gap you may show on a row and
    never rank by; sharing means someone runs their own copy. Read it before
@@ -53,7 +56,95 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-24 (fifth session, close) — READ THIS FIRST: the signal test crossed its floor and declared
+## 2026-08-25 — the declaring look is REFUSED, and §P4 turns out to have been an opt-in nobody opted into
+
+**This supersedes the entry below it.** That entry recorded a `NO SIGNAL`
+declaration off the live screen and told the next session to put it through a
+`measurement-skeptic` pass before writing it anywhere. The pass was run. **It
+failed the declaration**, on a defect neither the entry nor this session
+predicted, and found something larger underneath it.
+
+**Baseline re-measured at session start rather than inherited: 4,200 passed /
+10 xfailed** (the entry below says 4,192).
+
+**The reading reproduces exactly, off a fresh 2026-08-25 pull** (14,616 rows,
+6.1 MB, live `git_sha 1bdc33b`), and the auditor re-implemented the fit
+independently and got the same numbers. **The arithmetic was never the
+problem.**
+
+**D1, the decisive defect.** The record holds **four**
+`strategy_config_version`s — `{1: 359, 2: 56, 3: 1682, 4: 12519}`. §P4 and §7
+of the registration both say, in those words, that the primary then runs on the
+**modal version only** and *"`G` counts only those games"*. Run that way:
+
+    beta_hat -0.0756   se 0.0246   G = 216   [-0.1728, +0.0216]
+    UNRESOLVED — 84 clusters below the floor, not 11 over it
+
+The rule existed in code as `build_report(..., modal_config_only=False)` and
+**no production caller ever set it** — the "built but never called" pattern, one
+parameter wide. It was survivable while every look was interim (the 2026-08-16
+write-up states plainly that the rule "was **not** applied to the numbers
+above" and ran it as a sensitivity, which is permissible when nothing is being
+declared). It stopped being survivable the moment `G` crossed 300.
+
+**Fixed this session.** `build_report` applies §P4 itself, the parameter is
+gone, `report_from_connection` takes no options, `--modal-config-only` is
+retired, and the pooled fit is carried as `pooled_fit` — **never given a
+verdict**, but kept, because the interim look's published `-0.1412 / G = 199`
+must stay reproducible or the measurement record becomes unverifiable.
+`tests/test_clv_signal.py` now pins **both rows of that document's sensitivity
+table**; three guards mutation-verified red. `/api/signal`'s population block
+gained `modal_config_applied`, the modal version, the excluded row count and
+the version distribution, so a reader can no longer see `clusters` without
+knowing which population produced the verdict.
+
+**Seven more defects, all in the measurement doc.** §A4's leave-one-group-out
+downgrade is unimplemented (run by hand it does not fire — max upper +0.0286);
+§A4's mandatory leverage disclosure fires at **0.9392** and nothing computes it;
+the headline "largest contributor" line prints a row-count share of an
+unregistered cut; `sd(clv_tenths) = 30.15` crosses the power check's own
+amendment trigger and the amendment is unwritten; five registered §A9 outputs
+are absent; and `sigma_eps` raw-vs-residual (30.15 vs 29.76) **straddles that
+trigger**, so which one it means has to be settled by amendment, not by which
+line the harness prints.
+
+**The finding worth carrying past all of that: `G = 311` is 4.26 effective
+clusters.** Two games carry 50% of the leverage on `beta`, nine carry 90%, and
+one WNBA game carries **43.80%** alone. All twelve top-leverage clusters are
+WNBA moneyline; WNBA is 19.1% of rows and **95.6% of the leverage**. The rows
+doing the work are `too_few_books`/`no_market_width` — 13.5% of the record,
+**93.9% of the leverage** — and inside that group `edge_tenths` runs **−717.97
+to +372.60**, i.e. a consensus calling fair ≈ 8c against Kalshi's 82c off fewer
+than two books. `suspicious_edge` never fires on them because
+`edge_ceiling_tenths = 40.0` bounds the **positive** side only. **Rule 1 says
+those are bugs, not edges**, and `sd(edge)` is 40.98 with them and **10.90**
+without — so the apparent resolving power (MDE 0.078 against the registration's
+feared 0.42) is bought entirely from rows rule 1 refuses. The registration's
+power arithmetic was right all along.
+
+**Also refuted this session: my own pre-audit argument that §A4's downgrade was
+near-vacuous at G = 311.** It assumed removing a group costs `G` one cluster per
+group member. Removal only reduces `G` when it **empties** a cluster, and groups
+are non-exclusive — `too_few_books` spans 190 clusters and leaves `G = 271`.
+Seven of thirteen groups were testable. The test had to be run, not argued away.
+
+**What is NOT open.** Nothing operational changed: ADR 0038 closed the hunt on
+independent grounds, the gate's 300 counts *actionable games* (a different
+counter, untouched), and CLAUDE.md's "treat it as settled for planning" stands
+unedited. **The registered-look machinery (§A4 leverage/LOGO, the five §A9
+outputs, the `|edge| > 100` amendment) is the precondition for the NEXT
+declaring look and is deliberately not built** — it does not earn the critical
+path over the odds bill. It is listed in the measurement doc's closing section.
+
+---
+
+## 2026-08-24 (fifth session, close) — SUPERSEDED by the entry above: the screen's declaration did not survive audit
+
+**Nothing below is retracted — it is an accurate record of what the screen
+said, and its instruction to run a `measurement-skeptic` pass before writing
+anything is what caught the defect. Read it for the three questions it names;
+they were all answered on 2026-08-25 and two of them were answered wrongly by
+this entry's own reasoning. The verdict `NO SIGNAL at 311 of 300` is REFUSED.**
 
 **Observed on the live screen at ~2026-08-24 21:4xZ, immediately after
 deploying `1bdc33b`. It is recorded here and NOWHERE ELSE. Nothing has been

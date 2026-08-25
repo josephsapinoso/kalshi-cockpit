@@ -4586,6 +4586,18 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
             "quote_mismatch": report.quote_mismatch,
             "no_quote": report.no_quote,
             "disclosure_required": report.disclosure_required,
+            # §P4/§7: with more than one strategy_config_version in the record
+            # the primary runs on the modal one and `G` counts only those games.
+            # Carried on the wire because a reader who sees `clusters` without
+            # it cannot tell which population produced the verdict -- which is
+            # exactly how 2026-08-24's screen declared NO SIGNAL at G = 311 when
+            # the registered primary was UNRESOLVED at G = 216.
+            "modal_config_applied": report.modal_config_applied,
+            "modal_config_version": report.modal_config_version,
+            "non_modal_rows_excluded": report.n_non_modal_dropped,
+            "strategy_config_versions": {
+                str(k): v for k, v in report.strategy_config_versions.items()
+            },
         },
         "estimate": None if f is None else {
             # The smallest resolvable effect comes before the effect, because
