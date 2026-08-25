@@ -1,5 +1,5 @@
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchParlays } from "@/lib/api";
+import { fetchParlays, fetchRefreshable, fetchWindow } from "@/lib/api";
 import ParlayCards from "@/components/ParlayCards";
 import Term from "@/components/Term";
 
@@ -30,6 +30,14 @@ export default async function ParlaysPage() {
     );
   }
 
+  // The timetable, caught to `null` rather than thrown — the slate's pattern
+  // at `app/slate/page.tsx`. The ladder is this page's subject and these two
+  // only annotate it, so a timetable that will not answer must degrade to the
+  // page as it rendered before this block existed, never take it down.
+  // `readNextWindow(null)` is written for exactly this and refuses in words.
+  const actionable = await fetchWindow().catch(() => null);
+  const refreshable = await fetchRefreshable().catch(() => null);
+
   return (
     <Shell>
       <header className="mb-8">
@@ -40,7 +48,11 @@ export default async function ParlaysPage() {
           <Term k="fair_value">fair value</Term>. {ladder.notes.chance}
         </p>
       </header>
-      <ParlayCards ladder={ladder} />
+      <ParlayCards
+        ladder={ladder}
+        actionable={actionable}
+        refreshable={refreshable}
+      />
     </Shell>
   );
 }

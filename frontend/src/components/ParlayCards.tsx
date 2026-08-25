@@ -1,9 +1,15 @@
 import Link from "next/link";
 
-import { DISPLAY_TIME_ZONE } from "@/lib/api";
-import type { ParlayCardData, ParlayLadder } from "@/lib/api";
+import { DISPLAY_TIME_ZONE, formatAge, formatDuration } from "@/lib/api";
+import type {
+  ActionableWindow,
+  ParlayCardData,
+  ParlayLadder,
+  Refreshable,
+} from "@/lib/api";
 import LeagueTag from "@/components/LeagueTag";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
+import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 
 /**
@@ -25,10 +31,25 @@ import Term from "@/components/Term";
  * - **A card that could not be built says why, in words**, in the same slot
  *   it would have rendered — an absent card and an unbuildable card are
  *   different facts.
+ * - **And when the reason is the clock, the page says so beside the cards.**
+ *   `not_built_reason` counts *fresh* games, so a stale slate renders "needs 2
+ *   fresh games and the slate has 0" — which Joe read on 2026-08-25 as "there
+ *   is nothing on tonight" while twenty fixtures sat upcoming and the recording
+ *   loop was wedged. The card sentence is right and incomplete; `Freshness`
+ *   supplies the half it cannot see, off `/api/window`.
  * - **Nothing behind a reveal** (ADR 0068): every leg, band, and caveat is
  *   fully present.
  */
-export default function ParlayCards({ ladder }: { ladder: ParlayLadder }) {
+export default function ParlayCards({
+  ladder,
+  actionable = null,
+  refreshable = null,
+}: {
+  ladder: ParlayLadder;
+  /** `/api/window`, or `null` when the timetable did not answer. */
+  actionable?: ActionableWindow | null;
+  refreshable?: Refreshable | null;
+}) {
   return (
     <div className="space-y-8">
       <div className="grid gap-6 lg:grid-cols-3">
@@ -36,6 +57,11 @@ export default function ParlayCards({ ladder }: { ladder: ParlayLadder }) {
           <Card key={card.key} card={card} />
         ))}
       </div>
+      <Freshness
+        ladder={ladder}
+        actionable={actionable}
+        refreshable={refreshable}
+      />
       <Excluded excluded={ladder.excluded} />
       <section className="max-w-[65ch] space-y-2 text-xs leading-snug text-muted">
         <p>{ladder.notes.fair_value}</p>
@@ -65,7 +91,7 @@ function Card({ card }: { card: ParlayCardData }) {
 
       {card.not_built_reason !== null ? (
         <p className="mt-3 text-sm text-muted">
-          Not built tonight: {card.not_built_reason}.
+          Not built right now: {card.not_built_reason}.
         </p>
       ) : (
         <>
@@ -163,6 +189,109 @@ function Stakes({ card }: { card: ParlayCardData }) {
         resting, which this estimate is not.
       </p>
     </div>
+  );
+}
+
+/**
+ * Why the desk is empty, when the reason is the clock rather than the slate.
+ *
+ * **This block exists because the screen misled its owner.** At 09:58 PT on
+ * 2026-08-25 all three cards read "needs N fresh games and the slate has 0".
+ * There were twenty upcoming fixtures and sixty-five matched sides; the
+ * recording loop had wedged for fifteen minutes, the last odds sweep had aged
+ * past `MAX_ODDS_AGE_S`, and every side was refused as `stale_consensus`. Both
+ * halves of that are facts the page already had access to and never said.
+ *
+ * **Gated on a card actually failing, not on any stale side.** A full desk
+ * routinely carries a handful of stale sides — six, with all three cards built,
+ * on the afternoon this was written — and a warning that fires on a working
+ * screen is a warning the reader learns to skip. The trigger is the conjunction:
+ * the clock cost the reader a card.
+ *
+ * **It adds no number of its own.** Everything here is a field of
+ * `ActionableWindow` put into a sentence; the exit line, the next-window time
+ * and the tap are `StaleOddsExit`, the same component the slate renders beside
+ * its own stale count. Two screens wording one fact two ways is the failure this
+ * reuses its way out of.
+ *
+ * `actionable === null` still renders: the ladder's own counts are enough to say
+ * the reason is the clock, and `StaleOddsExit` refuses the timetable half in
+ * words. A block that vanished when `/api/window` was down would go missing in
+ * exactly the outage it explains.
+ */
+function Freshness({
+  ladder,
+  actionable,
+  refreshable,
+}: {
+  ladder: ParlayLadder;
+  actionable: ActionableWindow | null;
+  refreshable: Refreshable | null;
+}) {
+  const stale = ladder.excluded.stale_consensus ?? 0;
+  const unbuilt = ladder.cards.filter(
+    (card) => card.not_built_reason !== null,
+  ).length;
+  if (stale === 0 || unbuilt === 0) return null;
+
+  // Both halves or neither: the sentence below reads "bought Xm ago, limit is
+  // Y" and half of it is not a sentence. `!` is avoided deliberately — a
+  // non-null assertion here would be the compiler being told what this block
+  // cannot actually prove.
+  const clock =
+    actionable !== null && actionable.last_sweep_ms !== null
+      ? {
+          age_ms: actionable.now_ms - actionable.last_sweep_ms,
+          limit_ms: actionable.max_odds_age_s * 1000,
+        }
+      : null;
+
+  return (
+    <section
+      aria-label="Why the desk is empty"
+      className="max-w-[65ch] space-y-2 rounded-lg border border-border p-4"
+    >
+      <p className="text-sm leading-snug">
+        {unbuilt === ladder.cards.length ? "No card" : "A card"} could be built,
+        and the reason is the clock rather than the schedule.{" "}
+        {actionable ? (
+          <>
+            There {actionable.fixtures_upcoming === 1 ? "is" : "are"}{" "}
+            <span className="font-semibold">{actionable.fixtures_upcoming}</span>{" "}
+            game{actionable.fixtures_upcoming === 1 ? "" : "s"} still to come,
+            and{" "}
+            <span className="font-semibold">{actionable.fixtures_fresh}</span> of
+            them {actionable.fixtures_fresh === 1 ? "has" : "have"} a
+            sportsbook price fresh enough to compare against.
+          </>
+        ) : (
+          <>
+            The slate is not empty — {stale} side{stale === 1 ? "" : "s"} were
+            dropped for age alone.
+          </>
+        )}
+      </p>
+      <p className="text-xs leading-snug text-muted">
+        {clock === null ? (
+          <>
+            How long ago the lines were last bought could not be read, so this
+            page cannot say how far past the limit they are.
+          </>
+        ) : (
+          <>
+            The lines were last bought{" "}
+            <span className="font-semibold text-foreground">
+              {formatAge(clock.age_ms)}
+            </span>
+            , and a card may only use a price under{" "}
+            {formatDuration(clock.limit_ms)} old — so all {stale} candidate side
+            {stale === 1 ? " was" : "s were"} refused on age. Nothing is wrong
+            with the games; the comparison is what expired.
+          </>
+        )}
+      </p>
+      <StaleOddsExit actionable={actionable} refreshable={refreshable} />
+    </section>
   );
 }
 
