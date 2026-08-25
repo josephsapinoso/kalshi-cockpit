@@ -25,6 +25,40 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — The only thing left in a quiet log is not the thing that quietened it
+
+The live loop stopped logging at 16:22:41Z. The log from that point on was
+nothing but `New SSH session` lines, one every ten to twenty seconds, from a
+polling watcher I had started. I read that and announced **"I caused this"** —
+confidently, in those words, before checking a timestamp.
+
+The watcher's first session was **16:28:32Z, six minutes after the loop went
+quiet.** It could not have been the cause. The SSH lines dominated the log
+because the loop had already gone silent and the loop is what writes everything
+else; I had mistaken *what remained* for *what was responsible*. The actual
+answer was that the odds had aged past `MAX_ODDS_AGE_S`, the window had closed,
+the 15-second quote cadence had stopped by design, and the loop was idling on
+its 900-second cadence. It woke on schedule.
+
+**The pattern:** when a log goes quiet, whatever still appears in it becomes
+100% of the visible traffic, and that share is an artefact of the silence rather
+than evidence about it. Before blaming the survivor, get the two timestamps —
+when the silence started, and when the suspect started — and check the order. It
+costs one `grep`. Corollary for this repo specifically: a quiet log plus a
+climbing `recorder.age_ms` is the documented outage signature, and it is also
+what healthy idle looks like on the slow cadence. `/api/window`'s `is_open`
+separates them in one read, and `run_loop.py`'s own docstring explains why.
+
+**The louder half is the announcement.** This is the third time in one session
+I have stated a cause before verifying it — sibling of *an access-control
+finding names the layer it was read at*, which has the same remedy and which I
+had written up that morning. Knowing the rule is not the same as pausing to
+apply it. The tell is the feeling of having *found it*: a diagnosis that arrives
+complete, with a culprit already attached, has usually skipped the step where it
+could have been wrong.
+
+---
+
 ## 2026-08-25 — Fixing a lie can move it rather than remove it
 
 `_SERVED_SWEEP` counted a failed odds call as a served sweep, so a 401 moved the

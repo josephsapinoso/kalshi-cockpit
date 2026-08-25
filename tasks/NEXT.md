@@ -125,13 +125,42 @@ the next. Accounting separates cleanly: 8 credits floor (NULL) + 8 attention.
   the credit row, and `/api/window`'s `next_sweep_ms` moving from
   `last + 3,600,000` to exactly `now_ms` within a minute.
 
-**What is untested is the join: a VISIBLE tab stamping by itself.** The 16:08Z
-buy traces to a manual `fetch('/desk-attention')` from the page context, which
-deliberately bypasses the visibility check. Chrome never lets an automated tab
-go visible, so no session can close this from here. **Joe opening the site in a
-foreground window is the only instrument.** If `next_sweep_ms` jumps to `now`
-within a minute of that, the loop is closed; if it does not, look at `Nav.tsx`'s
-heartbeat effect first.
+**The join is closed too — Joe opened the site at ~16:28Z and the full cycle
+was observed.**
+
+    15:11Z  floor buy, trigger NULL     "nobody is looking"
+    16:08Z  attention buy               (a MANUAL fetch, bypassing the guard)
+    16:36Z  attention buy               JOE'S BROWSER, unaided
+    16:40Z  next_sweep_ms - last_sweep_ms == 3,600,000 exactly
+
+The 16:36Z row is the one that settles it: it carries `trigger = 'attention'`
+and the manual stamp had expired at 16:08:43Z, 28 minutes earlier, so only a
+real heartbeat from a visible tab can have produced it. The desk also read
+attended at 16:28, 16:29 and 16:32 — more than one 5-minute TTL apart, so at
+least two independent self-fired stamps rather than one lucky reading. Four
+minutes after he closed the tab, one TTL, it was back on the floor to the
+millisecond. Spend for the day: 24 credits, 8 floor and 16 attention.
+
+**A design gap this surfaced, and it is NOT a regression.** An attended desk
+gets *"the ten-minute cadence, actioned by whichever pass comes next"*. Quote
+passes run every 15s **only while the window is open**; once the odds age past
+`MAX_ODDS_AGE_S` the window shuts, the fast cadence stops, and only the 900s
+full pass can buy. So a cold open can wait a **full fifteen minutes** for the
+sweep its own heartbeat just asked for — which is the moment the feature exists
+to serve. The old fixed window had exactly the same property, so nothing got
+worse; but following attention was supposed to make the cold open fast, and
+this is the thing that stops it. Not fixed, deliberately: it is a scheduler
+change, it wants its own slice, and nothing about it is urgent while the floor
+keeps the record accruing.
+
+**Watch out for the diagnosis this cost, because it will look the same next
+time.** Between 16:22:41Z and 16:39:32Z the loop logged nothing and
+`recorder.age_ms` climbed to 12.6 minutes behind a green health check — the
+signature this repo has been burned by. It was **healthy idle**: the window had
+closed, so the loop was on the 900s cadence, and it woke on schedule. Before
+calling that an outage again, check `/api/window`'s `is_open` first. A closed
+window explains a quiet log completely, and `run_loop.py`'s own docstring says
+so.
 
 **Do not quote a saving.** Every "attended hours" figure is a guess. The
 instrument is `credits-day --date YYYYMMDD` read **by trigger** — attention is
