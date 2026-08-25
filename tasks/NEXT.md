@@ -99,11 +99,39 @@ pass fourteen minutes earlier — the old build — reads *"the desk window
 one pass apart in the same table. `/api/window`'s `next_sweep_ms` was exactly
 `last_sweep + 3,600,000`, so the panel and the loop agree.
 
-**NOT yet demonstrated, and only Joe can do it: open the site.** No `attention`
-row exists yet because nobody has had a page open since the deploy. The next
-pass after that should buy at the ten-minute cadence with
-`trigger = 'attention'` in `api_credits`. If it does not, look at `Nav.tsx`'s
-heartbeat and the `/desk-attention` route before anything else.
+**The attention path was exercised on live at 16:08Z and it works** — but read
+the caveat, because half of it is still untested.
+
+    15:11:06Z  floor buy, trigger NULL   "nobody is looking"
+    15:26/15:41/15:56  three passes HELD  (floor not due until 16:11)
+    16:03:43Z  one stamp lands
+    16:08:10Z  attention buy, trigger='attention', 430+ quotes
+               "someone has the desk open; re-buying so the slate is
+                priced while it is being read"
+
+The floor suppressed three consecutive passes and one heartbeat un-suppressed
+the next. Accounting separates cleanly: 8 credits floor (NULL) + 8 attention.
+
+**Two halves, proven separately, and the join between them is NOT proven.**
+
+- **The visibility guard works against a real browser.** A tab driven by Chrome
+  automation reports `visibilityState: "hidden"`, `Nav.tsx` sent nothing, and
+  no `/desk-attention` request was made. That is the load-bearing line verified
+  in the one way `tests/test_desk_heartbeat_is_visibility_gated.py`
+  structurally cannot — those assertions prove it is *written*, this proves
+  Chrome *honours* it.
+- **Everything downstream of a stamp works**: route → `desk_attention` →
+  `is_attended` → `desk_wants` → `decide_sweeps` → the `attention` trigger on
+  the credit row, and `/api/window`'s `next_sweep_ms` moving from
+  `last + 3,600,000` to exactly `now_ms` within a minute.
+
+**What is untested is the join: a VISIBLE tab stamping by itself.** The 16:08Z
+buy traces to a manual `fetch('/desk-attention')` from the page context, which
+deliberately bypasses the visibility check. Chrome never lets an automated tab
+go visible, so no session can close this from here. **Joe opening the site in a
+foreground window is the only instrument.** If `next_sweep_ms` jumps to `now`
+within a minute of that, the loop is closed; if it does not, look at `Nav.tsx`'s
+heartbeat effect first.
 
 **Do not quote a saving.** Every "attended hours" figure is a guess. The
 instrument is `credits-day --date YYYYMMDD` read **by trigger** — attention is
