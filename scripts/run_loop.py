@@ -623,22 +623,34 @@ async def main() -> int:
                 now_ms=stamp,
                 remaining_today=budget.state(stamp).remaining_today,
             )
-            # **Every pass, not just full ones, and the dedupe is what makes
-            # that safe.** `notifications.UNIQUE (kind, key)` drops a card whose
-            # legs have not moved, so asking on the fast cadence costs one
-            # ladder rebuild and sends nothing; asking only on the 900s cadence
-            # would sit on a newly-buildable card for up to fifteen minutes.
+            # **Not gated on a full pass, and NOT on every pass either.**
             #
-            # `build_ladder_payload` is pure and reads only what is already
-            # stored -- no Kalshi call, no odds credit. It is the same function
-            # `/api/parlays` runs per request.
+            # Every pass was the first design and it was wrong on cost, not on
+            # behaviour. `build_ladder` runs a 200,000-sample Monte-Carlo
+            # copula per card, five times over (the headline plus one per devig
+            # method) -- measured at ~400ms for three cards on a developer
+            # laptop, and this VM is a shared-cpu-1x. A quote pass is budgeted
+            # 8s (`QUOTE_PASS_DURATION_BUDGET_S`) because a Kalshi quote has to
+            # stay under 30s, and live quote passes already run ~4.2s. Spending
+            # a second or more of that every fifteen seconds would eat the
+            # margin that keeps a row bettable.
             #
-            # This covers BOTH triggers Joe asked for. The daily card is the
-            # first time a card builds after the slate turns over, and the
-            # material-change alert is any later pass whose legs differ; they
-            # are the same event seen twice, so they are one call rather than a
-            # scheduled push plus a watcher that could disagree with it.
-            if alerter.enabled:
+            # And it would buy nothing. The ladder is a pure function of stored
+            # odds, so between sweeps it rebuilds byte-identically: the key is
+            # the same, `UNIQUE (kind, key)` drops it, and the whole 400ms
+            # produced a notification that was then discarded.
+            #
+            # So: a pass that actually swept, or a full pass. A sweep is the
+            # only thing that changes a fair value, and the full pass bounds
+            # the wait when the pool changes for the other reason -- a game
+            # commencing and dropping out of `ladder_candidates`.
+            #
+            # This still covers BOTH triggers Joe asked for. The daily card is
+            # the first build after the slate turns over; the material-change
+            # alert is any later pass whose legs differ. Same event seen twice,
+            # so one call rather than a scheduled push plus a watcher that
+            # could disagree with it.
+            if alerter.enabled and (counts.odds_sweeps > 0 or kind == "full"):
                 await alerter.parlay_cards(
                     build_ladder_payload(
                         conn,

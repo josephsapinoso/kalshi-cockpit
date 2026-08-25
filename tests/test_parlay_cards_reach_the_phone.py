@@ -450,18 +450,41 @@ class TestTheLoopAsksOnEveryPass:
     def test_the_loop_pushes_parlay_cards(self):
         assert "alerter.parlay_cards(" in self._source()
 
-    def test_it_is_not_gated_behind_a_full_pass(self):
-        """Mutation observed red: move the call inside `if kind == "full":`.
-
-        The dedupe makes asking on the fast cadence free, and asking only every
-        900s would sit on a newly-buildable card for a quarter of an hour.
-        """
-        source = self._source()
+    @classmethod
+    def _gate_line(cls) -> str:
+        """The `if` that decides whether the ladder is built this pass."""
+        source = cls._source()
         call = source.index("alerter.parlay_cards(")
-        full_gate = source.index('if kind == "full":', call - 3000)
-        assert full_gate > call, (
-            "the parlay push now sits inside the full-pass branch, so a new "
-            "card can wait up to 900s for a notification"
+        gate = source.rindex("if alerter.enabled", 0, call)
+        return source[gate:source.index("\n", gate)].strip()
+
+    def test_the_gate_is_where_this_test_expects_it(self):
+        """Vacuity guard. Both assertions below read one line; if the wiring
+        moves, they must fail loudly rather than pass over the wrong text."""
+        assert self._gate_line().endswith(":")
+
+    def test_it_is_not_gated_behind_a_full_pass_alone(self):
+        """Mutation observed red: change the gate to `kind == "full"` only.
+
+        A full pass is every 900s. A sweep is what changes a fair value, and it
+        can land on a quote pass -- waiting for the next full pass would sit on
+        a newly-buildable card for up to a quarter of an hour.
+        """
+        assert "counts.odds_sweeps > 0" in self._gate_line()
+
+    def test_it_does_not_rebuild_the_ladder_on_every_pass(self):
+        """Mutation observed red: gate on `alerter.enabled` alone.
+
+        `build_ladder` runs a 200,000-sample copula five times per card
+        (~400ms for three cards on a laptop; this VM is shared-cpu-1x), against
+        a quote pass budgeted 8s that already runs ~4.2s on live. Between
+        sweeps the ladder rebuilds byte-identically, so the cost would buy a
+        notification the dedupe then discards.
+        """
+        assert self._gate_line() != "if alerter.enabled:", (
+            "the ladder is rebuilt on every pass, including the 15s quote "
+            "cadence, for a result that cannot have changed since the last "
+            "sweep"
         )
 
     def test_it_reads_the_same_staleness_limit_the_screen_does(self):
