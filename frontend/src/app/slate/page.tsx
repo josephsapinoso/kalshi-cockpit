@@ -14,7 +14,10 @@ import type {
   SlateRowData,
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
-import { isStaleOddsReason } from "@/lib/nextOddsWindow";
+import {
+  isStaleOddsReason,
+  slateIsUnpricedByTheClock,
+} from "@/lib/nextOddsWindow";
 import { refreshIsUrgent } from "@/lib/refreshUrgency";
 import Link from "next/link";
 
@@ -26,6 +29,7 @@ import Hint from "@/components/Hint";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import RefreshOddsPanel from "@/components/RefreshOddsPanel";
+import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import SignalStrip from "@/components/SignalStrip";
 import TonightStrip from "@/components/TonightStrip";
@@ -248,6 +252,25 @@ export default async function SlatePage() {
           ))}
         </ul>
       )}
+
+      {/*
+        Above the refusal disclosure, not inside it. `StaleOddsExit` lives in a
+        collapsed `<details>`, and a page that re-renders itself while the only
+        explanation is folded away is a page that moves for no stated reason.
+
+        Gated on the whole screen being unpriced, never on `refreshIsUrgent` --
+        that predicate is `some` and fires on one stale row, which is a working
+        slate the reader is in the middle of. See `slateIsUnpricedByTheClock`.
+      */}
+      {actionable &&
+        slateIsUnpricedByTheClock(
+          rows,
+          data.staleness.max_odds_age_s * 1000,
+        ) && (
+          <div className="mt-8 max-w-[65ch]">
+            <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
+          </div>
+        )}
 
       <RefusalSummary
         rows={rows}

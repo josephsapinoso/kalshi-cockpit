@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-25 (late): 4,321 passed / 10 xfailed.**
+**Test baseline, re-measured 2026-08-25 (late): 4,333 passed / 10 xfailed.**
 Do not inherit it — this line has been wrong in the same direction three times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
 landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
@@ -59,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,321 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,333 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -166,9 +166,34 @@ quiet desk still sleeps the full 900s.
   `performance.getEntriesByType('navigation').length === 1` — re-rendered in
   place, never reloaded. Seven mutations observed red.
 
-  **`/slate` has the same cold-page problem and did NOT get this.** The
-  component takes one prop and the slate already fetches `/api/window`, so it
-  is a small change; it was left because it was not asked for.
+  **`/slate` has it too, on a deliberately different gate.** The desk's
+  `Freshness` block already fires only when a card failed for age, so the
+  watcher needed no extra condition there. The slate always renders its rows —
+  refused ones included, because it is a record — so it is never visually
+  empty, and `refreshIsUrgent` is `some`: one stale row on a working slate
+  satisfies it. Re-rendering under a reader mid-game on that basis would be the
+  screen moving for no reason they can see. So `slateIsUnpricedByTheClock` is
+  the gate: **every** row refused, and at least one refusal is the clock —
+  nothing usable, and a sweep is what would give it back. Rendered above the
+  refusal `<details>`, never inside it: a page that re-renders itself while the
+  only explanation is folded away moves for no stated reason.
+
+  It lives in `nextOddsWindow.ts` rather than beside `refreshIsUrgent`, and
+  that is not tidiness. It needs `isStaleOddsReason`, and **both** pure modules
+  state in their own docstrings that they are dependency-free so node can
+  execute them bare; importing across would quietly retract that from both, and
+  copying the split-and-compare would be the second implementation the
+  whole-code rule exists to prevent.
+
+  Also verified against a local stack: every slate row forced clock-refused,
+  the watcher rendered, then odds made fresh and the refusal lifted — page came
+  back usable with `navigation` entry count still 1.
+
+  **One guard was written, mutated, observed GREEN, and deleted.** An explicit
+  `rows.length === 0` check read like a guard and changed no answer — `every`
+  over an empty array is vacuously true and the `some` returns false on its
+  own. The behaviour is still asserted; the line was decoration and this repo's
+  rule is to remove it rather than keep it for looks.
 
 **SHIPPED EARLIER THE SAME DAY — the screen explains itself (`e4500f5`).**
 `readNextWindow` learns `last_look_ms` and a `loop_stalled` reading checked

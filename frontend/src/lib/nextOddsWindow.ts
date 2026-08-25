@@ -182,3 +182,62 @@ export function isStaleOddsReason(
   if (!reason) return false;
   return reason.split(",").some((code) => code.trim() === "stale_odds");
 }
+
+/** The two fields the cold-screen read needs off a slate row. */
+export type ColdScreenRow = {
+  odds_age_now_ms?: number | null;
+  suppressed_reason: string | null;
+};
+
+/**
+ * Is this screen unusable *because of the clock*, rather than merely carrying
+ * some stale rows?
+ *
+ * **A different question from `refreshIsUrgent`, and the difference is `some`
+ * versus `every`.** That one decides whether the refresh panel deserves the
+ * top of the page, and one stale row is enough to justify offering the fix.
+ * This one gates `RefreshWhenPriced`, which re-renders the page under whoever
+ * is reading it — and a working slate with one stale row must never do that.
+ * The reader is mid-sentence on a game; the correct behaviour is to leave them
+ * alone.
+ *
+ * So: **nothing here is usable, and fresh prices could change that.** Every row
+ * carries a refusal, and at least one of those refusals is the clock. That is
+ * the slate's version of the parlay desk's conjunction (a card failed AND sides
+ * were dropped for age) — the screen cost the reader its whole answer, and a
+ * sweep is what would give it back.
+ *
+ * **An empty slate is not this state, and it falls out rather than being
+ * guarded.** `every` over an empty array is vacuously true, so an explicit
+ * `rows.length === 0` check reads like a guard and changes no answer -- the
+ * `some` below returns false on its own. It was written, mutated, observed
+ * green, and removed: this repo's rule is that a guard which survives its own
+ * deletion is decoration. The behaviour is still the intended one and is
+ * asserted, and the page already says why in its own words -- nothing recorded
+ * is a real result and is not the same as every candidate being refused.
+ *
+ * Staleness is read from the refusal through `isStaleOddsReason` — whole code,
+ * never a substring, because `stale_kalshi_quote` is the *Kalshi* clock and no
+ * odds sweep can fix it. The age is accepted as evidence too, for a row past
+ * the limit that the engine has not refused for it.
+ *
+ * **Here rather than beside `refreshIsUrgent`, which is the sibling it
+ * contrasts with.** It needs `isStaleOddsReason`, and both modules state in
+ * their own docstrings that they are dependency-free so node can execute
+ * them bare. Importing across would quietly retract that from both; copying
+ * the split-and-compare would be the second implementation the whole-code
+ * rule exists to prevent. Living next to the function it needs costs
+ * neither.
+ */
+export function slateIsUnpricedByTheClock(
+  rows: ColdScreenRow[],
+  maxOddsAgeMs: number,
+): boolean {
+  if (!rows.every((row) => row.suppressed_reason)) return false;
+  return rows.some(
+    (row) =>
+      isStaleOddsReason(row.suppressed_reason) ||
+      (typeof row.odds_age_now_ms === "number" &&
+        row.odds_age_now_ms > maxOddsAgeMs),
+  );
+}

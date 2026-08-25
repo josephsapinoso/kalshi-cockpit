@@ -34,6 +34,7 @@ from backend.odds import attention
 REPO = Path(__file__).resolve().parents[1]
 WATCHER = REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
 CARDS = REPO / "frontend" / "src" / "components" / "ParlayCards.tsx"
+SLATE = REPO / "frontend" / "src" / "app" / "slate" / "page.tsx"
 
 
 def _flat(path: Path) -> str:
@@ -151,3 +152,54 @@ class TestTheDeskWiresIt:
         )
         assert "actionable && (" in block
         assert "renderedFresh={actionable.fixtures_fresh}" in block
+
+
+class TestTheSlateWiresItToo:
+    """The same cold-page problem, and deliberately a different gate.
+
+    The parlay desk's `Freshness` block already fires only when a card failed
+    for age, so the watcher needed no extra condition there. The slate always
+    renders its rows -- refused ones included, because it is a record -- so it
+    is never visually empty, and `refreshIsUrgent` (the predicate that decides
+    where the refresh panel sits) is `some`: one stale row on a working slate
+    satisfies it. Re-rendering under a reader mid-game on that basis would be
+    the screen moving for no reason they can see.
+    """
+
+    def _source(self) -> str:
+        return SLATE.read_text(encoding="utf-8")
+
+    def test_the_slate_renders_the_watcher(self):
+        source = self._source()
+        assert 'from "@/components/RefreshWhenPriced"' in source
+        assert "<RefreshWhenPriced" in source
+
+    def test_it_is_gated_on_the_whole_screen_being_unpriced(self):
+        """Mutation observed red: gate on `refreshIsUrgent` instead -- every
+        cold-screen test still passes and the slate refreshes under a reader
+        whenever any single row is stale."""
+        source = self._source()
+        assert "slateIsUnpricedByTheClock(" in source
+        gate = source.split("{actionable &&", 1)[1].split("<RefreshWhenPriced", 1)[0]
+        assert "slateIsUnpricedByTheClock" in gate
+        assert "refreshIsUrgent" not in gate
+
+    def test_the_watcher_is_not_buried_in_the_refusal_disclosure(self):
+        """`StaleOddsExit` lives inside a collapsed `<details>`. A page that
+        re-renders itself while the only explanation is folded away is a page
+        that moves for no stated reason, so the watcher sits above it in the
+        main flow. Mutation observed red: move the render inside
+        `RefusalSummary`."""
+        source = self._source()
+        assert source.index("<RefreshWhenPriced") < source.index(
+            "function RefusalSummary"
+        ), "the watcher moved into the collapsed disclosure"
+
+    def test_the_two_screens_share_one_watcher(self):
+        """One component, two callers -- the same reason `StaleOddsExit` was
+        extracted. Two screens wording one behaviour two ways is what this
+        repo keeps paying for."""
+        for page in (CARDS, SLATE):
+            assert 'from "@/components/RefreshWhenPriced"' in page.read_text(
+                encoding="utf-8"
+            ), page.name

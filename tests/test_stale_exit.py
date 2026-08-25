@@ -48,12 +48,18 @@ BUTTON = REPO / "frontend" / "src" / "components" / "RefreshOddsButton.tsx"
 NODE = shutil.which("node")
 
 _DRIVER = """
-import { readNextWindow, isStaleOddsReason } from "./nextOddsWindow.ts";
+import {
+  readNextWindow,
+  isStaleOddsReason,
+  slateIsUnpricedByTheClock,
+} from "./nextOddsWindow.ts";
 const args = JSON.parse(process.argv[2]);
 const result =
   args.fn === "read"
     ? readNextWindow(args.facts)
-    : isStaleOddsReason(args.reason);
+    : args.fn === "cold"
+      ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
+      : isStaleOddsReason(args.reason);
 console.log(JSON.stringify(result === undefined ? null : result));
 """
 
@@ -82,6 +88,15 @@ def read(facts):
 
 def is_stale(reason):
     return _run({"fn": "stale", "reason": reason})
+
+
+def cold(rows, max_odds_age_ms=900_000):
+    return _run({"fn": "cold", "rows": rows, "maxOddsAgeMs": max_odds_age_ms})
+
+
+FRESH_ROW = {"odds_age_now_ms": 60_000, "suppressed_reason": None}
+REFUSED_STALE = {"odds_age_now_ms": 1_200_000, "suppressed_reason": "stale_odds"}
+REFUSED_OTHER = {"odds_age_now_ms": 60_000, "suppressed_reason": "wide_market"}
 
 
 def facts(
@@ -423,3 +438,73 @@ class TestTheParlayDeskSaysWhyItIsEmpty:
         assert "formatAge(" in block
         assert "formatDuration(" in block
         assert "toLocale" not in block
+
+
+@requires_node
+class TestTheColdScreenIsNarrowerThanUrgency:
+    """`slateIsUnpricedByTheClock` gates the auto-refresh, and it must be much
+    harder to satisfy than `refreshIsUrgent`.
+
+    Urgency decides where a panel sits. This decides whether the page
+    re-renders **under whoever is reading it**, so the bar is "the clock cost
+    this screen its whole answer", not "something on it is stale".
+    """
+
+    def test_one_stale_row_on_a_working_slate_is_not_cold(self):
+        """The failure this predicate exists to prevent. `refreshIsUrgent`
+        says True here and is right to; re-rendering would throw a reader off
+        a game they were reading. Mutation observed red: swap `every` for
+        `some` in the refusal check."""
+        rows = [FRESH_ROW, REFUSED_STALE]
+        # `refreshIsUrgent` says True on this same slate and is right to --
+        # `test_refresh_urgency.py` asserts that half. The two predicates
+        # disagreeing here is the design, not an inconsistency.
+        assert cold(rows) is False
+
+    def test_a_wholly_refused_stale_screen_is_cold(self):
+        """Joe's 09:58 state: rows on the record, every one refused, the clock
+        named in the refusal."""
+        assert cold([REFUSED_STALE, REFUSED_STALE]) is True
+
+    def test_a_screen_refused_for_other_reasons_is_not_cold(self):
+        """Nothing usable, but no sweep would change it -- so watching for one
+        would be a promise nothing can keep. Mutation observed red: drop the
+        `some(...)` clause and return True on any fully-refused screen."""
+        assert cold([REFUSED_OTHER, REFUSED_OTHER]) is False
+
+    def test_a_mixed_refusal_screen_is_cold_if_the_clock_is_in_it(self):
+        """Nothing usable and fresh prices could change part of it. The reader
+        has no answer either way, so a re-render costs them nothing."""
+        assert cold([REFUSED_OTHER, REFUSED_STALE]) is True
+
+    def test_the_kalshi_clock_alone_is_not_cold(self):
+        """`stale_kalshi_quote` is the *Kalshi* clock, which no odds sweep can
+        fix. Read as a whole code through `isStaleOddsReason`, never a
+        substring. Mutation observed red: use `.includes("stale")`."""
+        rows = [{"odds_age_now_ms": 60_000, "suppressed_reason": "stale_kalshi_quote"}]
+        assert cold(rows) is False
+
+    def test_a_composite_refusal_naming_the_clock_counts(self):
+        """`suppressed_reason` is comma-joined, so the code can sit anywhere."""
+        rows = [{"odds_age_now_ms": 60_000,
+                 "suppressed_reason": "wide_market,stale_odds"}]
+        assert cold(rows) is True
+
+    def test_an_over_age_row_counts_even_unrefused_by_the_clock(self):
+        """A row past the limit the engine refused for something else is still
+        evidence the consensus aged out."""
+        rows = [{"odds_age_now_ms": 1_200_000, "suppressed_reason": "wide_market"}]
+        assert cold(rows) is True
+
+    def test_an_empty_slate_is_not_cold(self):
+        """The page's own words: nothing recorded is a real result and is not
+        the same as every candidate being refused, so watching an empty screen
+        waits for rows that may not exist tonight.
+
+        **No mutation is claimed here, and that is the finding.** An explicit
+        `rows.length === 0` guard was written for this and survived its own
+        deletion -- `every` over an empty array is vacuously true and the
+        `some` returns false regardless. It was removed as decoration. This
+        case still asserts the behaviour, which is what it was for.
+        """
+        assert cold([]) is False
