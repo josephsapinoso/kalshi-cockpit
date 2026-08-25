@@ -96,7 +96,7 @@ from ..agents.budget import AgentBudget
 from ..agents import scout_desk
 from ..notify.alerts import Alerter
 from ..notify.discord import DiscordConfig
-from ..odds import ondemand
+from ..odds import attention, ondemand
 from ..odds.budget import CreditBudget, sweep_cost
 from ..odds.client import prop_market_keys
 from ..odds.timing import (
@@ -3027,6 +3027,35 @@ def create_app(
         finally:
             write_conn.close()
         return {"recorded": True, "id": pass_id}
+
+    @app.post("/api/desk/attention", dependencies=[Depends(require_auth)])
+    def record_desk_attention(conn=Depends(get_conn)) -> dict:
+        """Someone has the desk open. Auth like every mutation.
+
+        **This is the input the odds feed follows** (ADR 0071 §2.6). The fixed
+        `ODDS_DESK_WINDOW_UTC` bought a sweep every ten minutes for twelve hours
+        a day whether or not anyone was looking; a stamp here is what now tells
+        `decide_sweeps` that the ten-minute cadence is worth paying for.
+
+        **The time is the server's, never the caller's**, and the route takes no
+        body at all rather than an optional one. A client-supplied timestamp is
+        a number the caller chooses, and the only value worth choosing is a
+        future one -- which would hold the desk open past its own TTL. There is
+        nothing a body could carry that this route should trust.
+
+        No rate limit, deliberately. The ceiling that matters is the attention
+        daily credit slice in `odds/timing.py`, which sits where the money is
+        actually spent; a limit here would be a second and weaker copy of it.
+        See the route handler in `frontend/src/app/desk-attention/route.ts`,
+        which carries the same argument at more length.
+        """
+        del conn  # the write path opens its own handle, below
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            attention.stamp(write_conn, now_ms=db.now_ms())
+        finally:
+            write_conn.close()
+        return {"recorded": True}
 
     @app.post("/api/estimates/lockout", dependencies=[Depends(require_auth)])
     def engage_self_lockout(conn=Depends(get_conn)) -> dict:

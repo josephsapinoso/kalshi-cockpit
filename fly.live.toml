@@ -252,7 +252,54 @@ primary_region = "ord"
   # which BREAKS even the 20,000 plan** -- when those sports enter scope,
   # narrow this window, drop spreads off-season, or change the tier,
   # deliberately, in this file. See `.env.example` and `odds/timing.py:DESK`.
-  ODDS_DESK_WINDOW_UTC = "16-04"
+  #
+  # **UNSET 2026-08-25. That decision came due and this is it** (ADR 0071
+  # section 2.6). NCAAF was predicted to enter scope ~2026-08-25, and the
+  # options above were narrow-the-window, drop-spreads, or pay more. Joe chose a
+  # fourth: the feed follows attention instead of a clock, over a slow floor.
+  #
+  #   attended, someone with the page open   the 10-minute refresh cadence
+  #   nobody looking                         hourly, per sport with a fixture
+  #                                          inside 12 hours
+  #
+  # Empty rather than deleted. The setting still works and `desk_wants` still
+  # reads it -- an operator can pin a window back on without a code change --
+  # but leaving a value here would keep buying every ten minutes all evening
+  # regardless of attention, which is the bill this change exists to cut.
+  #
+  # **What replaces the arithmetic above is a ceiling, not an estimate.** Every
+  # "attended hours" figure anyone can offer is a guess about how long the page
+  # is actually open, and this file is not the place to record a guess as a
+  # number. What is knowable:
+  #
+  #   idle floor only, 4 sports          ~384/day    24h x 4 sports x 4 credits
+  #   attention, capped                  <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+  #   worst case                         ~684/day    inside the 700 daily cap
+  #
+  # The old window's 576/day was a floor on spend; this is a ceiling on it. The
+  # actual figure is measured, not predicted: `api_credits` summed per
+  # budget-day by `trigger` separates attention from the floor from the
+  # schedule. Read it a few days after this deploys before believing any saving.
+  ODDS_DESK_WINDOW_UTC = ""
+
+  # The hard ceiling on attention-triggered spend, and the reason the change
+  # above is safe (ADR 0071 section 2.6, Joe's answer 2026-08-25).
+  #
+  # The new design's WORST case is worse than the one it replaces: one tab left
+  # open and visible for 24h is 1,152 credits/day at two sports and 2,304 at
+  # four -- double the fixed window, past the whole 20,000/month tier. The
+  # `document.visibilityState` check in `Nav.tsx` is what should prevent that;
+  # this is what does. A guard a browser bug can defeat must not be the only
+  # thing between a design and its worst case.
+  #
+  # 300 of the 700 daily budget. Past it the desk stops re-buying at the
+  # attended cadence and **keeps its hourly floor**, so the slate never goes
+  # dark -- which is what makes a cap this low safe. Read
+  # `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`'s comment before changing it: a
+  # slice is sized against what the schedule can lose without a kickoff cluster
+  # going dark, and if it binds routinely the answer is a change of design, not
+  # a bigger slice.
+  ODDS_ATTENTION_DAILY_CREDITS = "300"
 
   # Ceilings on Anthropic spend, enforced by `backend/agents/budget.py`.
   #

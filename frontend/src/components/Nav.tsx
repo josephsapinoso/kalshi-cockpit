@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import { SHELL_WIDTH } from "@/lib/shell";
-import { fetchWindow } from "@/lib/api";
+import { fetchWindow, recordAttention } from "@/lib/api";
 import { windowChip } from "@/lib/windowChip";
 import type { Chip } from "@/lib/windowChip";
 
@@ -124,6 +124,47 @@ export default function Nav() {
     return () => {
       cancelled = true;
       clearInterval(timer);
+    };
+  }, []);
+
+  // The heartbeat. This is what the odds feed follows instead of a clock
+  // (ADR 0071 §2.6): while a page is open, the desk re-buys on the ten-minute
+  // refresh cadence; when nothing is open, it falls back to an hourly floor.
+  //
+  // **`document.visibilityState === "visible"` is the single most load-bearing
+  // line in this change**, and it is worth saying why rather than trusting the
+  // reader to infer it. The design it replaces cost ~576 credits/day. This one
+  // costs ~1,152/day at two sports — and ~2,304 at four, past the whole
+  // 20,000/month plan — *if a tab is left open and stamping around the clock*.
+  // A backgrounded tab is exactly that tab. So the guard is not a politeness
+  // about wasted requests; it is the difference between the new design being
+  // cheaper than the old one and being twice its price.
+  //
+  // It is deliberately not the only control. The backend's attention slice
+  // (300 of 700 credits a day) is the hard ceiling and does not depend on any
+  // browser behaving — see `odds/timing.py`. This is the brace; that is the
+  // belt. A guard that can be defeated by a browser bug should never be the
+  // only thing between a design and its worst case.
+  //
+  // A `visibilitychange` listener rides alongside the interval so returning to
+  // a tab stamps immediately rather than up to a minute later. Coming back to
+  // the desk is the moment freshness matters most, and it is also the moment a
+  // person is most likely to read a stale price as a live one.
+  //
+  // Failures are swallowed. A missed heartbeat costs one delayed sweep and the
+  // next tick retries; surfacing it would put an error in the chrome of every
+  // page for something the reader cannot act on and did not ask for.
+  useEffect(() => {
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      void recordAttention().catch(() => {});
+    };
+    beat();
+    const timer = setInterval(beat, 60_000);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", beat);
     };
   }, []);
 

@@ -1322,6 +1322,34 @@ CREATE TABLE IF NOT EXISTS desk_passes (
     reason       TEXT
 );
 
+-- Someone has the site open. v21, 2026-08-25.
+--
+-- **This is what the odds feed follows instead of the clock** (ADR 0071 §2.6).
+-- `ODDS_DESK_WINDOW_UTC` bought a sweep every ten minutes for twelve hours a
+-- day whether or not anyone was looking -- ~576 credits/day at two sports,
+-- ~17,300/month against an 18,000 self-cap, and ~1,152/day at four, which
+-- breaks even the 20,000 paid tier. Joe looks at the desk for a fraction of
+-- that window, so the feed now buys while a page is open and falls back to a
+-- slow floor when it is not.
+--
+-- **Append-only, not a single mutable last-seen row**, and the reason is that
+-- the saving is unmeasured. Every "attended hours" figure in the design is a
+-- guess about how long the page is actually open; a table of stamps is the
+-- instrument that answers it, and an UPDATE would destroy the only evidence
+-- that could. Pruned by the retention pass like any other log.
+--
+-- One row per heartbeat, so the row count is the measurement. No `session_id`
+-- and no user column: this instance serves one operator (ADR 0071 §1), and a
+-- column that is always the same value is a claim about a future that does not
+-- exist yet.
+CREATE TABLE IF NOT EXISTS desk_attention (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    seen_ms     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_desk_attention_seen
+    ON desk_attention(seen_ms DESC);
+
 -- The manual order path (ADR 0063, 2026-08-22). A SEPARATE table, not a
 -- `source` column on `orders`, because every population predicate that
 -- guards money reads that table (`current_exposure_dollars`, the gate's

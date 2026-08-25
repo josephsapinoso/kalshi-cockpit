@@ -877,11 +877,38 @@ class TestTheSweepIsScheduledRatherThanOpportunistic:
         assert calls == ["baseball_mlb"]
         assert counts.sweep_decision
 
-    async def test_it_holds_the_credit_when_the_game_is_hours_away(
+    async def test_it_holds_the_slot_credit_when_the_game_is_hours_away(
         self, conn, kalshi_events
     ):
+        """**Re-scoped 2026-08-25.** Was `assert calls == []`.
+
+        The claim is about the *slot* planner not opening a pre-game window
+        eight hours early, and that is still true. What changed is that the desk
+        gained an hourly floor (ADR 0071 §2.6), so a fixture eight hours out --
+        inside the floor's twelve-hour horizon -- is bought by a different
+        trigger, on a different cadence, for a different reason.
+
+        Asserting "nothing was fetched" would now make this test go red for the
+        feature rather than for the regression it guards, which is how a real
+        slot-planner bug would end up hidden behind a desk buy. The trigger is
+        asserted instead.
+        """
         calls, counts = await self._ingest(
             conn, kalshi_events, now=NOW, commence_ms=NOW + 8 * 3_600_000
+        )
+        assert calls == ["baseball_mlb"]
+        assert "(desk)" in counts.sweep_decision
+        assert "hourly floor" in counts.sweep_decision
+
+    async def test_a_game_beyond_the_floor_horizon_fetches_nothing(
+        self, conn, kalshi_events
+    ):
+        """The original claim, on a fixture far enough out that no trigger
+        wants it. This is the assertion the test above used to make, kept where
+        it is still reachable -- otherwise "nothing fires when nothing is due"
+        would stop being tested from the runner at all."""
+        calls, counts = await self._ingest(
+            conn, kalshi_events, now=NOW, commence_ms=NOW + 20 * 3_600_000
         )
         assert calls == []
         assert "next slot" in counts.sweep_decision
@@ -901,7 +928,20 @@ class TestTheSweepIsScheduledRatherThanOpportunistic:
         self, conn, kalshi_events
     ):
         """The sweep exists to open the window `stale_odds` then judges. A
-        second, separately-written limit would drift out of agreement with it."""
+        second, separately-written limit would drift out of agreement with it.
+
+        **The assertion moved from the fetch to the trigger, 2026-08-25.** It
+        was `odds.calls == []`, which stopped isolating anything once the desk
+        gained an hourly floor: a fixture 50 minutes out is inside the floor's
+        horizon, so *something* fetches now regardless of the staleness limit.
+
+        Moving the fixture beyond the floor's horizon was tried and rejected --
+        at 20 hours the kickoff is too far under **any** `max_odds_age_ms`, so
+        the test would pass without exercising the limit at all. That is a
+        decoration, and this repo's rule is that an assertion is never weakened
+        to make a test pass. The fixture stays at 50 minutes, where the limit is
+        what decides, and the assertion names the trigger that must not fire.
+        """
         from backend.config import OddsConfig
         from backend.odds.budget import CreditBudget
         from backend.runner import run_ingest_pass
@@ -911,7 +951,7 @@ class TestTheSweepIsScheduledRatherThanOpportunistic:
         commence = NOW + 50 * 60_000
         _store_fixture(conn, commence_ms=commence, fetched_ms=NOW - 3_600_000)
         odds = FakeOdds()
-        await run_ingest_pass(
+        _, counts = await run_ingest_pass(
             conn,
             FakeKalshi([_mlb_template(kalshi_events)]),
             odds,
@@ -924,7 +964,11 @@ class TestTheSweepIsScheduledRatherThanOpportunistic:
             now=NOW,
             suppression=SuppressionConfig(max_odds_age_ms=3_600_000),
         )
-        assert odds.calls == []
+        # No SCHEDULED firing: the slot's window closed an hour earlier when the
+        # freshness limit shrank, which is the agreement under test. Whatever
+        # the desk does here is a different trigger's business.
+        assert "(scheduled)" not in counts.sweep_decision
+        assert "(refresh)" not in counts.sweep_decision
 
 
 class TestAGameInProgressIsNotACandidate:

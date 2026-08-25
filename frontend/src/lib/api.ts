@@ -2010,6 +2010,33 @@ export async function recordPass(
 }
 
 /**
+ * Tell the backend someone has the desk open.
+ *
+ * The odds feed follows this instead of a clock (ADR 0071 §2.6). Called from
+ * `Nav.tsx` once a minute and on `visibilitychange`, and **only while the tab
+ * is visible** — that check lives at the call site, not here, because it is
+ * about whether to beat at all rather than about how.
+ *
+ * **Returns nothing and reports nothing.** Every other writer in this module
+ * hands back a `{recorded, detail}` shape so a component can say what did not
+ * happen. Here there is no component and nothing for a reader to do: a missed
+ * heartbeat costs one delayed sweep, the next tick retries a minute later, and
+ * an error in the chrome of every page would be noise about a request the
+ * reader never made. It throws on a transport failure like any `fetch`, and
+ * `Nav.tsx` swallows that deliberately.
+ *
+ * No body. The stamp's time is the server's `now_ms`; see the route.
+ */
+export async function recordAttention(): Promise<void> {
+  await fetch(`/desk-attention`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: "{}",
+  });
+}
+
+/**
  * What the market screen renders of `/api/market/{ticker}` — the venue's own
  * facts (what you transact against), never the tool's opinion of them. The
  * payload also carries fair/edge/EV fields; they are deliberately not typed

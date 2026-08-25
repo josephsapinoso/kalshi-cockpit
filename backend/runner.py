@@ -126,6 +126,7 @@ from .odds.client import (
 )
 from .odds.sweeplog import NO_DATA, SERVED, SKIPPED, record_sweep_outcome
 from .odds.timing import (
+    ATTENTION,
     DEFAULT_DAY_START_UTC_HOUR,
     MANUAL,
     SCHEDULED,
@@ -2122,6 +2123,10 @@ async def fetch_and_store_odds(
         allow_bootstrap=allow_bootstrap,
         manual=manual,
         desk_window=config.desk_window_utc,
+        # The deployed ceiling on attention-triggered spend, from the
+        # environment rather than the code default -- `fly.live.toml` is where a
+        # money control should be readable.
+        attention_daily_credits=config.attention_daily_credits,
     )
     logger.info("sweep decision: %s", decision.detail)
 
@@ -2144,7 +2149,15 @@ async def fetch_and_store_odds(
         # planner's rows instead would be the same behaviour with a migration
         # attached, and would make the exclusion depend on every future caller
         # remembering to label itself.
-        stamp = MANUAL if firing.trigger == MANUAL else None
+        #
+        # **`ATTENTION` joins it in v21, and for the opposite reason.** `MANUAL`
+        # is labelled so `_SERVED_SWEEP` can EXCLUDE it; `ATTENTION` is labelled
+        # so the attention sub-ceiling can COUNT it, and so ADR 0071's saving is
+        # measurable from `api_credits` rather than assumed. It is not `'manual'`
+        # and is therefore still counted as a served sweep, which is correct --
+        # it fetched real odds. Floor buys stay `DESK` and stay NULL, because
+        # nothing needs to count them apart.
+        stamp = firing.trigger if firing.trigger in (MANUAL, ATTENTION) else None
         quotes = await odds_client.fetch_odds(
             firing.sport_key, now_ms=now, trigger=stamp
         )

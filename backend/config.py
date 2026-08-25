@@ -26,6 +26,8 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+from .odds.timing import DEFAULT_ATTENTION_DAILY_CREDITS
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -330,6 +332,20 @@ class OddsConfig:
     # bounded arithmetic, stated where the value is set: sports x sweep_cost
     # x hours x 6/hour -- see `.env.example` and `odds/timing.py:DESK`.
     desk_window_utc: Optional[tuple[int, int]] = None
+    # Credits a budget day may spend on attention-triggered sweeps -- the
+    # sweeps that happen because someone has the site open (ADR 0071 §2.6).
+    #
+    # **A ceiling, not a target.** The attention design's worst case is a tab
+    # left open and visible around the clock, which is ~1,152 credits/day at
+    # two sports and ~2,304 at four -- double the fixed window it replaces and
+    # past the whole 20,000/month tier. `Nav.tsx`'s `visibilityState` check is
+    # what should prevent that; this is what does, and a guard a browser bug can
+    # defeat must not be the only one.
+    #
+    # The hourly floor is deliberately NOT charged to it, which is what makes a
+    # low value safe: past the slice the slate stops re-buying every ten minutes
+    # and keeps buying every hour, so it never goes fully dark.
+    attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS
 
     @classmethod
     def load(cls) -> "OddsConfig":
@@ -352,6 +368,10 @@ class OddsConfig:
             budget_day_start_utc_hour=hour,
             buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
             desk_window_utc=_desk_window_announced("ODDS_DESK_WINDOW_UTC"),
+            attention_daily_credits=_int(
+                "ODDS_ATTENTION_DAILY_CREDITS",
+                DEFAULT_ATTENTION_DAILY_CREDITS,
+            ),
         )
 
     @classmethod
@@ -388,6 +408,10 @@ class OddsConfig:
             budget_day_start_utc_hour=configured_day_start_utc_hour(),
             buy_props_on_schedule=_bool("ODDS_BUY_PROPS_ON_SCHEDULE", False),
             desk_window_utc=_desk_window_announced("ODDS_DESK_WINDOW_UTC"),
+            attention_daily_credits=_int(
+                "ODDS_ATTENTION_DAILY_CREDITS",
+                DEFAULT_ATTENTION_DAILY_CREDITS,
+            ),
         )
 
     @property

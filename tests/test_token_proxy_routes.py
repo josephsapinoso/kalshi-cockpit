@@ -51,6 +51,7 @@ TOKEN_HANDLERS = (
     "lockout",
     "pass",
     "parlay-lookup",
+    "desk-attention",
 )
 
 

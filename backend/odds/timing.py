@@ -85,6 +85,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Collection, Iterable, Mapping, Optional, Sequence
 
+from . import attention
 from .sweeplog import last_sweep_outcome
 
 logger = logging.getLogger(__name__)
@@ -351,6 +352,27 @@ MANUAL = "manual"
 # desk (ADR 0062). Stamped NULL in `api_credits` like every planner firing, so
 # `_SERVED_SWEEP` counts it and the cadence paces itself off recorded spend.
 DESK = "desk"
+# Someone has the site open, so the desk is buying at the refresh cadence.
+# v21, 2026-08-25, ADR 0071 section 2.6.
+#
+# **This one DOES reach `api_credits.trigger`, and the reason is a ceiling
+# rather than an exclusion.** `runner.py`'s stamping comment argues against
+# labelling the planner's rows, and that argument is about `_SERVED_SWEEP`: a
+# label the exclusion depends on is a label every future caller must remember.
+# It still holds, and this does not weaken it -- `'attention'` is not `'manual'`,
+# so `_SERVED_SWEEP` counts these rows as served sweeps exactly as it counts a
+# NULL one.
+#
+# What the label buys is the sub-ceiling. The attention slice has to know what
+# attention has already spent today, and a NULL-stamped row is indistinguishable
+# from a scheduled slot's. It is also what makes ADR 0071's saving *measurable*:
+# `api_credits` summed per budget-day by trigger separates attended spend from
+# the floor from the schedule, which is the instrument the design was told to
+# ship with rather than the claim.
+#
+# Floor buys stay `DESK` and stay NULL. They are not charged to the slice, so
+# nothing needs to count them apart.
+ATTENTION = "attention"
 
 
 def desk_window_contains(
@@ -411,6 +433,11 @@ def desk_is_open(desk_window: Optional[tuple[int, int]], now_ms: int) -> bool:
     is shut" but produces the same answer here and is the honest reading of an
     unset `ODDS_DESK_WINDOW_UTC`. Equal hours are refused by
     `desk_window_contains`, which owns that rule and states why.
+
+    **Superseded as the trigger by `desk_wants`, 2026-08-25, and kept.** The
+    clock window is now one input among three rather than the whole rule; see
+    `desk_wants`. This predicate still answers "is the configured window open",
+    which is what the refusal message and the schedule readout need.
     """
     if desk_window is None:
         return False
@@ -434,6 +461,118 @@ def desk_next_open_ms(
     return next_desk_open_ms(
         from_ms, start_hour=desk_window[0], end_hour=desk_window[1]
     )
+
+
+# ---------------------------------------------------------------------------
+# The desk follows attention, over a slow floor. ADR 0071 section 2.6.
+# ---------------------------------------------------------------------------
+#
+# The fixed window bought every ten minutes for twelve hours whether or not
+# anyone was looking. Two sports x 4 credits x 6/hour x 12h = **576/day,
+# ~17,300/month** against an 18,000 self-cap; at four sports (NCAAF and NFL,
+# entering scope this week) the same window is **1,152/day, ~34,600/month**,
+# which breaks even the 20,000 paid tier. `fly.live.toml` already recorded that
+# as a decision deferred to the day those sports land.
+#
+# Joe chose, in his own words, to have the feed follow attention rather than a
+# narrower fixed window or a manual wake button.
+
+#: The desk re-buys a sport at most this often when nobody is looking.
+#:
+#: Hourly, so a cold open is stale by up to an hour rather than the 13.7 hours
+#: measured on 2026-08-23. It is **not** chosen to make the slate usable
+#: untended -- `MAX_ODDS_AGE_S` is 900, so an hour-old sweep is still refused as
+#: stale. It is chosen so the first heartbeat has something recent to improve
+#: on, and so the record keeps accruing while the site is shut.
+DESK_FLOOR_INTERVAL_MS = 3_600_000
+
+#: A sport only earns the floor while it has a fixture this soon.
+#:
+#: Joe's answer, 2026-08-25, over "any upcoming fixture". Twelve hours means a
+#: Sunday NFL slate stops buying on Wednesday, which at four sports is the
+#: difference between ~384 credits/day of idle spend and paying for fixtures
+#: nobody will look at for days. Sports out of season drop out on their own,
+#: because `upcoming_fixtures_by_sport` has nothing to offer for them.
+DESK_FLOOR_HORIZON_MS = 12 * 3_600_000
+
+
+def desk_wants(
+    fixtures: Mapping[str, Sequence[int]],
+    *,
+    now_ms: int,
+    attended: bool,
+    last_sweeps: Mapping[str, int],
+    refresh_interval_ms: int,
+    desk_window: Optional[tuple[int, int]] = None,
+    allow_bootstrap: bool = True,
+    floor_interval_ms: int = DESK_FLOOR_INTERVAL_MS,
+    floor_horizon_ms: int = DESK_FLOOR_HORIZON_MS,
+) -> dict[str, int]:
+    """`sport_key -> the next instant the desk wants that sport bought`.
+
+    **One predicate, two callers**, which is the rule this module states at
+    `firing_for_slot` and the desk trigger spent five sites ignoring.
+    `decide_sweeps` fires every entry whose value is at or before `now_ms`;
+    `window_status` takes the `min()` to tell a human when the feed will next
+    look. Those two answers must be the same answer.
+
+    A sport is absent from the result when the desk does not want it at all.
+    Absent is not "wants it later" -- `window_status` must be able to say "the
+    desk is not going to look" rather than invent a time, and a sentinel far in
+    the future would silently win or lose a `min()` depending on which sentinel
+    was chosen.
+
+    Three ways in, checked in this order:
+
+    1. **Attended.** A heartbeat landed inside the TTL, so someone has the desk
+       open. Every sport with an upcoming fixture re-buys on the existing
+       `refresh_interval_ms` -- the same cadence the fixed window used, applied
+       only while it is worth paying for.
+    2. **The clock window, if one is still configured.** `desk_window` is
+       retained rather than deleted so an operator can pin a window back on
+       without a code change, and because deleting a setting that is live on the
+       box is a separate decision from changing what drives it. Unset -- which
+       is what `fly.live.toml` now does -- this contributes nothing.
+    3. **The floor.** Otherwise, hourly, and only for a sport with a fixture
+       inside `floor_horizon_ms`.
+
+    `attended` is passed in rather than read here, so this stays a pure function
+    of facts. Its source is `odds/attention.is_attended`, and the separation is
+    what lets the tests state a whole world in arguments.
+    """
+    wants: dict[str, int] = {}
+    windowed = desk_is_open(desk_window, now_ms)
+    for sport_key, commences in fixtures.items():
+        if attended or windowed:
+            cadence_ms = refresh_interval_ms
+        else:
+            soonest = min(commences) if commences else None
+            if soonest is None or soonest - now_ms > floor_horizon_ms:
+                # Nothing this sport is playing soon enough to pay for. Not
+                # "later" -- there is no scheduled moment at which the desk
+                # would buy it, because the horizon moves with `now_ms`.
+                continue
+            cadence_ms = floor_interval_ms
+        last = last_sweeps.get(sport_key)
+        if last is None:
+            # **A sport with no served sweep today has nothing pacing it**, and
+            # that is the hazard `allow_bootstrap` is written against one
+            # paragraph up: the cadence above is measured from `last`, so with
+            # no `last` every pass wants it. On the 15s quote cadence that is
+            # once per pass per uncovered sport until the budget is gone --
+            # and slice 1 of this lane made it reachable in a new way, because
+            # a *failing* sport no longer moves `last_sweeps` either, so a 401
+            # would retry every 15s rather than every ten minutes.
+            #
+            # The full pass every 900s is where an unpaced first buy belongs.
+            # It costs nothing to wait for: the floor is hourly, so 900s of
+            # imprecision is inside its own tolerance.
+            if not allow_bootstrap:
+                continue
+            wants[sport_key] = now_ms
+        else:
+            wants[sport_key] = max(now_ms, last + cadence_ms)
+    return wants
 
 
 def firing_for_slot(
@@ -781,6 +920,38 @@ _SERVED_SWEEP = (
 )
 
 
+#: Credits a budget day may spend on attention-triggered sweeps.
+#:
+#: 300 of `ODDS_DAILY_CREDIT_BUDGET`'s 700, proposed 2026-08-25 and approved by
+#: Joe as a shape ("cap it") rather than as this number. Read
+#: `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`'s comment before changing it: the
+#: slice is sized against what the *schedule* can lose without a kickoff cluster
+#: going dark, not against what attention would like to spend.
+#:
+#: In sweep terms at the deployed `ODDS_MARKETS = "h2h,spreads"` (4 credits a
+#: sport), 300 is 75 sport-sweeps -- at two sports, about six hours of continuous
+#: ten-minute refreshing, and at four about three. That is the ceiling on a tab
+#: left open, and the reason it can be set this low without breaking the screen
+#: is that the hourly floor is not charged to it: past the slice the slate stops
+#: re-buying every ten minutes and keeps buying every hour.
+DEFAULT_ATTENTION_DAILY_CREDITS = 300
+
+
+def attention_credits_spent_today(conn, *, since_ms: int) -> int:
+    """Credits spent on attention-triggered sweeps within the budget day.
+
+    Reads `api_credits` rather than a side file, because the database is already
+    the accounting boundary and `ondemand`'s inbox exists only because two
+    *processes* had to agree on a queue. Nothing here is queued.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(SUM(cost), 0) AS spent FROM api_credits "
+        "WHERE called_ms >= ? AND trigger = ?",
+        (since_ms, ATTENTION),
+    ).fetchone()
+    return int(row["spent"]) if row else 0
+
+
 def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
     """`sport_key -> most recent served /odds call`, within the budget day."""
     rows = conn.execute(
@@ -945,6 +1116,7 @@ def window_status(
     sweep_cost: int,
     horizon_ms: int = DEFAULT_HORIZON_MS,
     desk_window: Optional[tuple[int, int]] = None,
+    attention_ttl_ms: int = attention.DEFAULT_ATTENTION_TTL_MS,
 ) -> ActionableWindow:
     """The window, and the next planned sweep, from stored state alone.
 
@@ -1001,19 +1173,25 @@ def window_status(
             next_call_ms = next_slot.fire_from_ms
 
     if fixtures_by_sport:
-        if desk_is_open(desk_window, now_ms):
-            # The loop's desk pass will re-buy each sport once its last
-            # served sweep ages past the refresh interval; the soonest of
-            # those is the next call the desk wants.
-            desk_next: Optional[int] = min(
-                now_ms
-                if (last := served.get(sport)) is None
-                or now_ms - last >= refresh_ms
-                else last + refresh_ms
-                for sport in fixtures_by_sport
-            )
-        else:
-            desk_next = desk_next_open_ms(desk_window, now_ms)
+        # The same `desk_wants` the loop fires from -- one predicate, two
+        # callers. A screen that computed "next sweep" by its own reasoning
+        # would eventually disagree with the loop, and the screen is the one
+        # that gets believed.
+        wants = desk_wants(
+            fixtures_by_sport,
+            now_ms=now_ms,
+            attended=attention.is_attended(
+                conn, now_ms=now_ms, ttl_ms=attention_ttl_ms
+            ),
+            last_sweeps=served,
+            refresh_interval_ms=refresh_ms,
+            desk_window=desk_window,
+        )
+        # `None` when the desk wants nothing at all -- no sport is playing
+        # inside the floor's horizon and nobody is looking. That is a real
+        # state now, where under a clock window there was always a next hour,
+        # and the screen has to be able to say so rather than invent a time.
+        desk_next: Optional[int] = min(wants.values()) if wants else None
         if desk_next is not None:
             next_call_ms = (
                 desk_next
@@ -1153,6 +1331,8 @@ def decide_sweeps(
     allow_bootstrap: bool = True,
     manual: Sequence[ManualRefresh] = (),
     desk_window: Optional[tuple[int, int]] = None,
+    attention_ttl_ms: int = attention.DEFAULT_ATTENTION_TTL_MS,
+    attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS,
 ) -> SweepDecision:
     """Whether to spend an odds credit on this pass, and on what.
 
@@ -1473,49 +1653,98 @@ def decide_sweeps(
             )
         )
 
-    if desk_is_open(desk_window, now_ms):
-        for sport_key in sorted(fixtures):
-            if len(firing) >= remaining:
-                break
-            if any(
-                f.sport_key == sport_key for f in (*manual_firing, *firing)
-            ):
-                continue
-            if any(
-                s.sport_key == sport_key and s.is_due(now_ms) for s in slots
-            ):
-                # The slot owns this sport while it is due -- see the
-                # docstring. Firing here as well would double-buy the same
-                # cadence and could take the opening call props ride on.
-                continue
-            last = last_sweeps.get(sport_key)
-            if last is not None and now_ms - last < refresh_ms:
-                continue
-            if cost > credits_left:
-                refused_for_cost.append(
-                    f"{sport_key} desk refresh cannot be served: {cost} "
-                    f"credits and {credits_left} remain"
-                )
-                continue
-            credits_left -= cost
-            firing.append(
-                FiringSweep(
-                    sport_key=sport_key,
-                    cost=cost,
-                    trigger=DESK,
-                    detail=(
+    # The desk trigger. `desk_wants` owns *when*; everything in this loop is
+    # about whether the pass may act on it.
+    attended = attention.is_attended(
+        conn, now_ms=now_ms, ttl_ms=attention_ttl_ms
+    )
+    wants = desk_wants(
+        fixtures,
+        now_ms=now_ms,
+        attended=attended,
+        last_sweeps=last_sweeps,
+        refresh_interval_ms=refresh_ms,
+        desk_window=desk_window,
+        allow_bootstrap=allow_bootstrap,
+    )
+    # The attention slice, spent before the loop so a refusal can name it.
+    #
+    # **This is the belt to `document.visibilityState`'s braces.** A tab left
+    # open and visible for 24h is 1,152 credits/day at two sports and 2,304 at
+    # four, against a 20,000/month tier -- worse than the fixed window this
+    # replaces. The frontend guard is what should stop that; this is what does
+    # stop it. Modelled on `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`, whose
+    # comment is the one to read: the slice is sized against what the schedule
+    # can lose without a cluster going dark, and if it binds routinely the
+    # answer is a change of design, not a bigger slice.
+    #
+    # The floor is deliberately NOT charged to it. Past the slice the slate
+    # stops re-buying every ten minutes and keeps its hourly floor, so it never
+    # goes fully dark -- which is the property that makes a hard cap safe to
+    # set low.
+    attention_spent = attention_credits_spent_today(
+        conn, since_ms=budget.day_start_ms(now_ms)
+    )
+    for sport_key in sorted(fixtures):
+        if len(firing) >= remaining:
+            break
+        wanted_at = wants.get(sport_key)
+        if wanted_at is None or wanted_at > now_ms:
+            continue
+        if any(f.sport_key == sport_key for f in (*manual_firing, *firing)):
+            continue
+        if any(s.sport_key == sport_key and s.is_due(now_ms) for s in slots):
+            # The slot owns this sport while it is due -- see the docstring.
+            # Firing here as well would double-buy the same cadence and could
+            # take the opening call props ride on.
+            continue
+        on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
+        if not on_the_floor and attention_spent + cost > attention_daily_credits:
+            refused_for_cost.append(
+                f"{sport_key} desk refresh cannot be served: the attention "
+                f"slice is {attention_daily_credits} credits a day and "
+                f"{attention_spent} are spent; the hourly floor still runs"
+            )
+            continue
+        if cost > credits_left:
+            refused_for_cost.append(
+                f"{sport_key} desk refresh cannot be served: {cost} "
+                f"credits and {credits_left} remain"
+            )
+            continue
+        credits_left -= cost
+        if not on_the_floor:
+            attention_spent += cost
+        firing.append(
+            FiringSweep(
+                sport_key=sport_key,
+                # `ATTENTION` reaches `api_credits.trigger`; `DESK` stays NULL.
+                # Only the slice needs counting, and only these rows are in it.
+                trigger=ATTENTION if not on_the_floor and attended else DESK,
+                cost=cost,
+                detail=(
+                    "someone has the desk open; re-buying so the slate is "
+                    "priced while it is being read"
+                    if attended
+                    else (
                         f"desk window "
                         f"{desk_window[0]:02d}:00Z-{desk_window[1]:02d}:00Z "
                         f"is open; re-buying so the slate stays priced "
                         f"between kickoff windows"
-                    ),
-                    # No slot and no props, by design: the desk buy is the
-                    # team sweep alone, and `fetch_and_store_props` refuses a
-                    # firing with neither a slot nor a named fixture set.
-                    slot=None,
-                    projected_total_cost=cost,
-                )
+                    )
+                    if desk_is_open(desk_window, now_ms)
+                    else (
+                        "nobody is looking; the hourly floor keeps the slate "
+                        "from going a whole day stale"
+                    )
+                ),
+                # No slot and no props, by design: the desk buy is the
+                # team sweep alone, and `fetch_and_store_props` refuses a
+                # firing with neither a slot nor a named fixture set.
+                slot=None,
+                projected_total_cost=cost,
             )
+        )
 
     # Taps are prepended after the cap, not before it: `remaining` bounds how
     # many planned sweeps a pass opens, and a tap is not one of those.

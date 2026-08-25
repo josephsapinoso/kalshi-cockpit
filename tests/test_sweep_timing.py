@@ -473,9 +473,26 @@ class TestDecidingOnOnePass:
         assert [f.sport_key for f in decision.fire] == ["baseball_mlb"]
         assert decision.fire[0].trigger == "scheduled"
 
-    def test_it_holds_the_credit_when_kickoff_is_hours_away(self, conn, budget):
+    def test_it_holds_the_slot_credit_when_kickoff_is_hours_away(
+        self, conn, budget
+    ):
         """The whole point. `plan_sweep` fired here and burned the day's odds
-        at whatever time the process happened to start."""
+        at whatever time the process happened to start.
+
+        **Re-scoped 2026-08-25, and the claim is narrowed rather than dropped.**
+        It asserted `decision.fire == ()`, which stopped being the right
+        assertion when the desk gained an hourly floor: a sport playing in six
+        hours is inside that floor's horizon, so *something* now fires here by
+        design (ADR 0071 §2.6).
+
+        What this test was ever about is the **slot planner** — that a kickoff
+        six hours out does not open its pre-game window early. That is still
+        exactly true and is what is asserted now. The floor is a different
+        trigger with a different cadence (hourly, not the 30-minute slot) and a
+        different job (keep the slate priced between clusters, not target the
+        close), and conflating them is what would let a real regression in the
+        slot planner hide behind a desk buy.
+        """
         kickoff = NOW + 6 * HOUR
         add_fixture(conn, commence_ms=kickoff)
         decision = decide_sweeps(
@@ -483,8 +500,15 @@ class TestDecidingOnOnePass:
             in_scope={"baseball_mlb": kickoff + 3 * HOUR},
             budget=budget, cost=6, now_ms=NOW, max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
-        assert decision.fire == ()
-        assert "next slot" in decision.detail
+        assert [f.trigger for f in decision.fire] == [DESK]
+        assert not any(f.trigger == SCHEDULED for f in decision.fire)
+        assert decision.fire[0].slot is None
+        # The slot is still planned and still not due. `detail` now describes
+        # what fired rather than why nothing did — that is `decide_sweeps`'s
+        # standing contract, not a change — so the slot's own state is read off
+        # `slots_planned`, which is where it was always true.
+        assert decision.slots_planned
+        assert not any(s.is_due(NOW) for s in decision.slots_planned)
 
     def test_not_sweeping_always_says_why(self, conn, budget):
         """A pass that skips the sweep silently reads exactly like one that
@@ -585,10 +609,41 @@ class TestTheDeskWindowKeepsTheSlatePriced:
         assert decision.fire[0].projected_total_cost == 6
         assert decision.fire[0].prop_event_ids == ()
 
-    def test_outside_the_window_the_credit_is_held_and_the_reopen_named(
+    def test_outside_the_window_the_floor_buys_and_the_reopen_is_named(
         self, conn, budget
     ):
+        """**INVERTED 2026-08-25**, and the inversion is the lane's whole point.
+
+        This asserted `decision.fire == ()` — outside the configured window the
+        credit was held. It is now a floor buy, because a shut clock window is
+        no longer the same fact as "nobody wants these odds": the desk follows
+        attention over an hourly floor (ADR 0071 §2.6), and a sport playing in
+        six hours is inside the floor's twelve-hour horizon.
+
+        The reopen sentence is unchanged and still asserted. It is the honest
+        thing to say while the window is shut, and the window is still a
+        configured input even though it is no longer the only one.
+        """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.CLOSED,
+        )
+        assert [f.trigger for f in decision.fire] == [DESK]
+        assert "hourly floor" in decision.fire[0].detail
+
+    def test_a_shut_window_with_nothing_to_buy_still_names_the_reopen(
+        self, conn, budget
+    ):
+        """The reopen sentence, kept — on the path where it is still reachable.
+
+        It used to be asserted on the test above, which no longer reaches it:
+        `decision.detail` describes what fired, and now something does. The
+        sentence itself is not obsolete, because a shut window with every sport
+        outside the floor's horizon is a real state and "nothing fired" needs
+        its reason.
+        """
+        add_fixture(conn, commence_ms=NOW + 20 * HOUR)
         decision = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
             max_odds_age_ms=MAX_ODDS_AGE_MS, desk_window=self.CLOSED,
@@ -596,9 +651,31 @@ class TestTheDeskWindowKeepsTheSlatePriced:
         assert decision.fire == ()
         assert "reopens at 20:00Z" in decision.detail
 
-    def test_no_window_configured_is_the_pre_desk_behaviour(self, conn, budget):
-        """`None` is the default, so every existing caller is unchanged."""
+    def test_no_window_configured_still_gets_the_floor(self, conn, budget):
+        """**INVERTED 2026-08-25.** Was "`None` is the default, so every
+        existing caller is unchanged".
+
+        That is no longer true and is no longer wanted: `fly.live.toml` unsets
+        `ODDS_DESK_WINDOW_UTC` in this lane, so `None` is what the deployed
+        instance now passes. If `None` still meant "hold the credit", unsetting
+        the window would turn the feed off rather than hand it to attention.
+        """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in decision.fire] == [DESK]
+
+    def test_a_sport_outside_the_floor_horizon_is_not_bought(self, conn, budget):
+        """The floor's own bound, and the reason it is not "any upcoming
+        fixture" (Joe's answer, 2026-08-25).
+
+        A Sunday NFL slate must stop buying on Wednesday. At four sports the
+        difference between a twelve-hour horizon and an unbounded one is paying
+        an hourly rate for fixtures nobody will look at for days.
+        """
+        add_fixture(conn, commence_ms=NOW + 20 * HOUR)
         decision = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=6, now_ms=NOW,
             max_odds_age_ms=MAX_ODDS_AGE_MS,
@@ -733,9 +810,17 @@ class TestTheDeskWindowKeepsTheSlatePriced:
             max_odds_age_ms=MAX_ODDS_AGE_MS, sweep_cost=6,
             desk_window=self.CLOSED,
         )
-        # The slot for the +6h kickoff opens at +4h45m; the desk reopens
-        # sooner and is therefore the next call.
-        assert shut.next_call_ms == ms("2026-08-07T20:00:00")
+        # **CHANGED 2026-08-25.** This asserted 20:00Z — the hour the shut
+        # window reopened, which was the soonest thing the desk would do.
+        # The floor is sooner: the kickoff is inside its twelve-hour horizon
+        # and nothing has swept, so the desk wants this sport *now*, and the
+        # panel has to say so or it would tell a human to wait four hours for a
+        # buy the next pass will make.
+        #
+        # This is the one-predicate rule doing its job: `window_status` and
+        # `decide_sweeps` both read `desk_wants`, so the panel could not have
+        # kept the old answer while the loop changed its mind.
+        assert shut.next_call_ms == NOW
 
     def test_the_desk_counts_as_a_window_of_the_day(self, conn, budget):
         """`first_window_open_ms` is the sweep banner's "nothing has swept yet

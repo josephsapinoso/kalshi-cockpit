@@ -866,6 +866,11 @@ _MIGRATIONS: dict[int, _Migration] = {
         # exactly as it counts today. A backfill would have to invent the
         # statuses, and the rows this matters for are precisely the ones whose
         # status is unknowable after the fact.
+        #
+        # (`desk_attention` is also a v21 addition and appears nowhere here: it
+        # is a new table, so it rides `schema.sql`'s `IF NOT EXISTS` along with
+        # its index, exactly as `parlay_lookups` did at v20. `migrate` returns
+        # before `init_db` applies the schema file in the same boot.)
         columns=(
             ("api_credits", "http_status", "INTEGER"),
         ),
