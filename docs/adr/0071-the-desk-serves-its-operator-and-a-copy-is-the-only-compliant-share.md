@@ -149,6 +149,50 @@ all of this at length. They were not read. See `tasks/lessons.md`.
    transparency; an ordering is a claim. So: both prices on the row,
    ordering unchanged.
 
+   **Shipped 2026-08-24, and it cost `breakeven_win_rate` its place on the
+   row — which was not foreseen when Joe approved it.** The two cannot share
+   a row: `edge_tenths` is exactly `1000 × (fair − breakeven)`, an identity
+   proven against live payloads by `tests/test_api.py:1264-1310`, so fair
+   beside break-even hands back by subtraction precisely the number the
+   2026-08-21 ruling deleted. Put to Joe as a swap and approved 2026-08-24.
+
+   Break-even lost, on the merits rather than by elimination: it is the ask
+   with the fee added, not a third fact, while fair is the only one of the
+   three the row did not already carry. The 2026-08-20 convening's own
+   reasoning permits this — item 6 argued the row needs a number that makes
+   the price a decision, not that the number must be break-even. Precedent
+   was already shipped in the same direction: `ConsensusPanel.tsx` renders
+   fair% and is *forbidden* break-even (`tests/test_desk_panels.py:94`).
+
+   `TestBreakevenShipsAloneOnTheScreen` became
+   `TestFairAndBreakevenNeverShareTheRow`: same property, inverted direction,
+   dated docstring, mutation-verified red by restoring the break-even span.
+   **`breakeven_win_rate` left the component, not the wire** —
+   `test_api.py::TestBreakevenShipsAlone` still requires it on every priced
+   row of the payload.
+
+   Three things the swap forced, each worth its own line:
+
+   - **The row's units stay unlike on purpose.** Ask through `format_price`
+     (`34.2c`), fair through `format_probability` (`60.2%`).
+     `core/prices.py:130-143` records why: a fair value rendered as `53.8c`
+     beside a real ask at the same type size is "the one place a
+     left-to-right scan reads the wrong number as the thing you pay".
+   - **A latent bug went with it.** The break-even span was conditional, so a
+     row with no tradeable price dropped a grid child and shifted every
+     column from `Books` rightward one track left at xl. The fair cell is
+     unconditional and pinned as such; the failure was silent and visible
+     only as a misaligned desktop row. The swap also removed this row's one
+     piece of client-side arithmetic on a probability.
+   - **The screen had to say the gap is not profit.** Two numbers side by
+     side invite a subtraction, and the remainder is not money: a fee sits
+     between them, and this project measured the remainder and it did not
+     pay. A footer paragraph says both, in prose, with no per-row figure —
+     and it is where `Term k="breakeven"` now lives, the slate row having
+     been its only renderer. This is the narrow case ADR 0071 section 2.2
+     reserves for braking: not nagging, but refusing to let the screen imply
+     something false.
+
 6. **The odds feed follows attention, not the clock.** The 12-hour
    `ODDS_DESK_WINDOW_UTC` sweeps every 10 minutes whether or not anyone
    has opened the site, which is where ~576 credits/day goes. Replaced by

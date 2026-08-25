@@ -729,22 +729,74 @@ class TestThePhoneReachesAPriceBeforeALesson:
             assert phrase in page
 
 
-class TestBreakevenShipsAloneOnTheScreen:
-    """Fleet convening item 6, the screen half. The API half (the identity
-    itself) is `test_api.py::TestBreakevenShipsAlone`."""
+class TestFairAndBreakevenNeverShareTheRow:
+    """**The claim is unchanged; the direction was inverted 2026-08-24.**
 
-    def test_the_slate_row_renders_breakeven(self):
-        assert "breakeven_win_rate" in code(SLATE_PAGE)
+    This class was `TestBreakevenShipsAloneOnTheScreen` (fleet convening item
+    6, the screen half). The property it guards has never moved: `edge_tenths`
+    is exactly 1000 x (fair - breakeven), so the slate row may carry **one** of
+    those two and never both, or the reader reconstructs the measured-negative
+    edge by subtraction.
 
-    def test_fair_probability_does_not_co_render(self):
-        """Mutation observed red: interpolate `row.fair_probability` anywhere
-        in the slate page. `edge_tenths` is exactly 1000 x (fair - breakeven),
-        so fair beside break-even hands the reader the measured-negative edge
-        by subtraction -- the adjudication in the 2026-08-20 convening."""
+    What changed is which one. ADR 0071 section 2.2 settles the desk's job as
+    price transparency -- what Kalshi charges against what the sharps say it is
+    worth -- and under that job fair is the number the row lacks, while
+    break-even is the ask with the fee added rather than a third fact. Joe's
+    answer, 2026-08-24, Q17. Ask stays a price and fair stays a probability
+    (`format_price` vs `format_probability`), so their difference is not the
+    edge: the fee is missing from it.
+
+    The convening's own reasoning is what permits this rather than what
+    forbids it -- item 6 argued the row needs a number that makes the price a
+    decision, not that the number must be break-even specifically.
+
+    The API half is untouched: `test_api.py::TestBreakevenShipsAlone` still
+    requires `breakeven_win_rate` on every priced row of the **payload**. It
+    left the component, not the wire, so the market screen and the Board can
+    still render it.
+    """
+
+    def test_the_slate_row_renders_fair(self):
+        assert "fair_percent_display" in code(SLATE_PAGE)
+
+    def test_breakeven_does_not_co_render(self):
+        """The inverted assertion. Was `assert "breakeven_win_rate" in ...`.
+
+        Mutation-verified red 2026-08-24 by restoring the break-even span
+        beside the new fair one -- which is exactly the co-render the class
+        forbids, and the reason this is a swap rather than an addition.
+        """
+        assert "breakeven_win_rate" not in code(SLATE_PAGE)
+
+    def test_the_raw_fair_float_still_does_not_render(self):
+        """Unchanged, and it survives the swap for its original reason.
+
+        The row renders the **server-formatted string**, never the float:
+        `core/prices.py:130-143` records that a fair value put through
+        `format_price` came out as `53.8c` and sat beside a real ask at the
+        same type size, "the one place a left-to-right scan reads the wrong
+        number as the thing you pay". Rendering the float here would invite
+        exactly that, plus the client-side arithmetic the money rule forbids.
+        """
         assert "fair_probability" not in code(SLATE_PAGE)
         for method in ("p_multiplicative", "p_additive", "p_power", "p_shin",
                        "p_conservative"):
             assert method not in code(SLATE_PAGE)
+
+    def test_the_fair_cell_is_unconditional(self):
+        """A latent column-shift bug the swap had to avoid inheriting.
+
+        The break-even span rendered only when `breakeven_win_rate !== null`,
+        so on a row with no tradeable price the xl grid lost a child and every
+        column from `Books` rightward shifted one track left. The eleven-track
+        template has no slack for that. `fair_percent_display` is server-made
+        and already carries `--` for an unreadable value, so the cell is
+        always present -- asserted here because the failure is silent and
+        only visible as a misaligned desktop row.
+        """
+        page = code(SLATE_PAGE)
+        assert "fair_percent_display !== null &&" not in page
+        assert "fair_percent_display &&" not in page
 
 
 class TestMoneyRendersWithoutAVerdict:

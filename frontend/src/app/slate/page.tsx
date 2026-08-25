@@ -297,6 +297,31 @@ export default async function SlatePage() {
           and &ldquo;books under&rdquo; over-counts. That bias is deliberate: it
           cannot manufacture the reading that Kalshi is the sharp side.
         </p>
+        {/* **The row shows two numbers whose difference is not profit, so the
+            screen has to say so.** Added 2026-08-24 with the ask/fair swap
+            (ADR 0071 §2.2). Under the desk's job — price transparency — the
+            honest failure mode of putting a cost beside a worth is that a
+            reader subtracts them and reads the remainder as money. Two things
+            stand between that subtraction and the truth, and both belong
+            here rather than on the row: the fee, and the fact that this
+            project measured the remainder and it did not pay.
+
+            No per-row figure, no sign, no colour. This is prose, and
+            `breakeven_win_rate` deliberately does not appear on this page —
+            fair beside break-even reconstitutes the edge exactly. */}
+        <p>
+          <strong className="text-foreground">
+            The gap between those two numbers is not profit.
+          </strong>{" "}
+          A fee sits between them: pay 50c and the bet has to win about{" "}
+          <Term k="breakeven">51.75%</Term> of the time before you are even, not
+          50%. So a fair value a little above the ask is the normal state of a
+          working market, not an opportunity. And this project spent months
+          measuring whether the remainder pays after the fee —{" "}
+          <Term k="clv">it does not</Term>, on every test it could run. The two
+          numbers are here so you can see what you are paying for, which is a
+          different thing from a reason to bet.
+        </p>
         <p>
           <strong className="text-foreground">The books do not move here.</strong>{" "}
           A fixture is swept once or twice a day, so there is no book-side line
@@ -357,21 +382,41 @@ function Row({
         {row.ask_display} <Term k="ask">ask</Term>
       </span>
 
-      {/* The number that makes the price a decision (fleet convening item 6):
-          how often this bet must win, fee included, computed by the same
-          `breakeven_win_rate` the order path uses. **The consensus fair value
-          is deliberately NOT on this row** — `edge_tenths` is exactly
-          1000 × (fair − break-even), so rendering both hands the reader the
-          measured-negative edge by subtraction. Since 2026-08-21 the edge
-          point estimate itself is off this row too (the ruling above): the
-          Board renders it, one tap away, and this screen makes no claim
-          about mispricing in either direction. */}
-      {row.breakeven_win_rate !== null && (
-        <span className="tabular text-sm text-muted">
-          {(row.breakeven_win_rate * 100).toFixed(1)}%{" "}
-          <Term k="breakeven">to break even</Term>
-        </span>
-      )}
+      {/* **What it is worth, beside what it costs** (ADR 0071 §2.2, Joe's
+          answer 2026-08-24). This track held `breakeven_win_rate` until then,
+          on fleet convening item 6, and the two cannot share the row:
+          `edge_tenths` is exactly 1000 × (fair − break-even), so rendering
+          both hands the reader the measured-negative edge by subtraction.
+          The swap is the whole change — one of them, never both.
+
+          Fair won because break-even is the ask with the fee added, not a
+          third fact, while fair is the only one of the three that says
+          something the row does not already carry. Ask stays a price and
+          fair stays a probability, deliberately: their difference is NOT the
+          edge, because the fee is missing from it. Precedent is
+          `ConsensusPanel.tsx`, which renders fair% and is forbidden
+          break-even by `tests/test_desk_panels.py:94` for this same reason.
+
+          Two plain numbers. No sign, no arrow, no tone class — the 2026-08-21
+          ruling took the *claim* off this screen, not the facts, and a
+          comparison is only drawn if we draw it.
+
+          **Unconditional, and that is a fix.** The old span rendered only
+          when `breakeven_win_rate !== null`, so on a row with no tradeable
+          price every column from `Books` rightward shifted one track left at
+          xl. `fair_percent_display` is server-rendered and already carries
+          `--` for an unreadable fair value, so the cell is always present.
+          It also ends the one piece of client-side arithmetic on this row
+          (`* 100).toFixed(1)`), which is the drift `format_probability`
+          exists to prevent. */}
+      {/* The visible word is "fair", not "consensus fair": the xl track is
+          5rem and the longer label wrapped to three lines on every row. The
+          full phrase is in the glossary popover, and `SlateRow.tsx` on the
+          Board already says `{fair} fair / {ask} ask` — one vocabulary
+          across both screens. */}
+      <span className="tabular text-sm text-muted">
+        {row.fair_percent_display ?? "--"} <Term k="consensus">fair</Term>
+      </span>
 
       <Books row={row} />
       <Drift tenths={row.kalshi_drift_tenths} windowMs={driftWindowMs} />

@@ -71,59 +71,45 @@ friend's own instance on their own key is the permitted case.
    Folded in: the 2026-08-17 defect where a failed odds call resets the
    freshness clock, so an outage presents on screen as *fresh* data — same
    code, and the new design would inherit a lying clock.
-2. **Transparency. Half shipped, half BLOCKED ON JOE.**
-   - **DONE:** the fair-value parlay payout is restyled so an estimate
-     cannot read as a quote (ADR 0071 §2.8, 5 guards mutation-red,
-     `tests/test_parlay_estimate_is_not_a_price.py`).
-   - **BLOCKED:** both prices on every slate row. **Do not build this until
-     Joe answers**, and the reason is not the payload — `fair_percent_display`
-     and `ask_display` are *already on every row* (`routes.py:5062,5070`),
-     server-formatted, needing no backend work at all.
+2. **Transparency — DONE, both halves.**
+   - The fair-value parlay payout is restyled so an estimate cannot read as a
+     quote (ADR 0071 §2.8, 5 guards mutation-red).
+   - **Every slate row now reads `50.7c ask · 54.2% fair`** — two plain
+     numbers, no sign, no arrow, no tone class. No backend work was needed:
+     both display strings were already on every row (`routes.py:5062,5070`).
 
-   **The blocker is an identity.** `edge_tenths ≡ 1000 × (fair_probability −
-   breakeven_win_rate)`, proven on live payloads by `tests/test_api.py:1264-1310`.
-   The landing row renders **break-even** (`slate/page.tsx:369-374`). Fair
-   beside it reconstitutes the edge the 2026-08-21 ruling deleted, by
-   subtraction. Four guards: `test_board_screen.py:739` bans
-   `fair_probability` from the slate page, and `:736` **requires**
-   `breakeven_win_rate` on it — the class is `TestBreakevenShipsAloneOnTheScreen`,
-   from a fleet convening. So fair goes on only if break-even comes off, and
-   that reverses a convening.
+   **It cost `breakeven_win_rate` its place on the row, and Joe approved the
+   swap 2026-08-24.** The two cannot share a row — `edge_tenths ≡ 1000 ×
+   (fair − breakeven)` (`test_api.py:1264-1310`), so fair beside break-even
+   hands back the edge the 2026-08-21 ruling deleted.
+   `TestBreakevenShipsAloneOnTheScreen` became
+   `TestFairAndBreakevenNeverShareTheRow`: same property, inverted direction,
+   dated docstring. **`breakeven_win_rate` left the component, not the wire** —
+   `test_api.py::TestBreakevenShipsAlone` still requires it on the payload.
 
-   **Recommendation, for Joe to accept or veto:** swap break-even out for
-   fair. Under ADR 0071 §2.2 the transparency pair is *what you pay* against
-   *what it is worth* — ask and fair. Break-even is a fee-adjusted restatement
-   of the ask, not a third fact. The ruling's own logic permits this: ask is a
-   price and fair is a probability, so their difference is not the edge (the
-   fee is missing) — it is fair **+ break-even** that is banned. Precedent is
-   already shipped: `ConsensusPanel.tsx` renders fair% and is *forbidden*
-   break-even by `test_desk_panels.py:94`. Needs an ADR and two test
-   inversions with dated docstrings; `breakeven_win_rate` must stay on the
-   **payload** (`test_api.py:1256` requires it) and leave only the component.
-
-   **Also settled by the investigation:** there is **no room for a twelfth
-   column at 1280px.** The xl grid names eleven tracks summing to 968px plus
-   160px of gaps; the name track gets ~80px and already needed `truncate`
-   (commit `995dbfd`) to stop 'Philadelphia' painting over the ask. A 5rem
-   column costs 96px of an 80px budget. So the swap is also the only layout
-   that fits. At 390px there is no grid — the row is a wrapping flex line and
-   a short span just adds a line.
-
-   **Units, non-negotiable:** ask through `format_price` (`34.2c`), fair
-   through `format_probability` (`60.2%`). Never both as cents —
-   `core/prices.py:130-143` records that a fair value rendered as `53.8c`
-   beside a real ask is "the one place a left-to-right scan reads the wrong
-   number as the thing you pay". `fair_display` (the `c` form) is
-   `@deprecated`: do not render it.
-
-   **Latent bug found in passing, fix it while in there:** track 4 is
-   conditional (`slate/page.tsx:369`, `breakeven_win_rate !== null`), so when
-   the ask is not tradeable **every column from `Books` rightward shifts one
-   track left at xl**. Whatever replaces it must not be a second conditional
-   child.
+   Three things that fell out, all shipped:
+   - **A latent column-shift bug is fixed.** The break-even span was
+     conditional, so a row with no tradeable price dropped a grid child and
+     shifted every column from `Books` rightward one track left at xl. The
+     fair cell is unconditional and pinned as such.
+   - **The footer had to say the gap is not profit.** Two numbers side by side
+     invite a subtraction whose remainder is not money — a fee sits between
+     them, and this project measured the remainder and it did not pay. Prose,
+     no per-row figure. It is also where `Term k="breakeven"` now lives; the
+     slate row had been its only renderer, and the glossary's orphan rule
+     ("use it or delete it") caught that within a minute of the swap.
+   - **The visible label is `fair`, not `consensus fair`** — the longer label
+     wrapped to three lines in the 5rem track on all eleven rows. Full phrase
+     is in the popover, and it matches `SlateRow.tsx` on the Board.
 
    **Do not rank by the gap** — `beta = -0.141` means ranking by it puts
    the least trustworthy rows on top; ADR 0071 §2.5.
+
+   Verified: overflow gate green at 390/768/1280/1440/1920 against a seeded
+   local build, screenshot eyeballed at 1280. **A stale `next start` served
+   the old build once and the first "pass" was against it** — caught by
+   checking `EADDRINUSE` in the log and diffing the served HTML, the same trap
+   recorded on 2026-08-22.
 3. **Cheap corrections — DONE this session.** `AGENT_MODEL =
    "claude-sonnet-5"` set explicitly in `fly.live.toml`;
    `KALSHI_PUBLIC_READ_ONLY` shipped with 23 tests and five guards
