@@ -456,11 +456,22 @@ async def main() -> int:
             pass -- the odds sweep inside `run_once` is what makes odds fresh,
             and fresh odds is the whole definition of `is_open`. Every caller
             asks at the moment it needs to know.
+
+            **`desk_window` was missing here until 2026-08-25**, so this call
+            answered a different question from the one the loop's own
+            `decide_sweeps` asks four lines of config away: `window_status`
+            predicts desk buys in `next_call_ms` and `first_window_open_ms`, and
+            without the argument it predicted none. The loop was therefore
+            logging a cadence it did not follow. It is the same value
+            `run_once` hands `decide_sweeps` -- `OddsConfig.desk_window_utc` --
+            because `timing.py`'s standing rule is one predicate and two
+            callers, and this was the third.
             """
             return window_status(
                 conn, budget=budget, now_ms=db.now_ms(),
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 sweep_cost=odds_config.credits_per_sweep_per_sport,
+                desk_window=odds_config.desk_window_utc,
             )
 
         async def score_settle_and_alert(kind, counts, stamp, started):

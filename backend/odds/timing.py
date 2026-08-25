@@ -382,6 +382,60 @@ def next_desk_open_ms(now_ms: int, *, start_hour: int, end_hour: int) -> int:
     return int(cand.timestamp() * 1000)
 
 
+# ---------------------------------------------------------------------------
+# The desk trigger, as two predicates with one implementation each.
+# ---------------------------------------------------------------------------
+#
+# **This module states the rule and the desk was the one place it was never
+# applied.** `firing_for_slot`'s docstring says it out loud -- one predicate,
+# two callers, because "a screen and a control that compute the same thing by
+# two paths eventually disagree, and the one people act on is the screen".
+# `covers_commence` exists for the same reason.
+#
+# The desk trigger had **four** sites and no shared predicate: two hand-synced
+# inline `if`s (`decide_sweeps` and `window_status`), a third spelling in
+# `first_window_open_of_day`, and `scripts/run_loop.py`, which did not pass
+# `desk_window` at all -- so the loop's own cadence readout already disagreed
+# with the loop. Each site also unpacked the tuple itself and re-checked the
+# equal-hours case, which is a rule `desk_window_contains` already owns.
+#
+# Extracted before the meaning changes, deliberately. The desk is about to stop
+# being a clock and start following attention; doing that against four
+# hand-synced copies is how three of them get updated.
+
+
+def desk_is_open(desk_window: Optional[tuple[int, int]], now_ms: int) -> bool:
+    """Whether the desk wants a sweep right now.
+
+    `None` is "no desk trigger configured", which is not the same as "the desk
+    is shut" but produces the same answer here and is the honest reading of an
+    unset `ODDS_DESK_WINDOW_UTC`. Equal hours are refused by
+    `desk_window_contains`, which owns that rule and states why.
+    """
+    if desk_window is None:
+        return False
+    return desk_window_contains(
+        now_ms, start_hour=desk_window[0], end_hour=desk_window[1]
+    )
+
+
+def desk_next_open_ms(
+    desk_window: Optional[tuple[int, int]], from_ms: int
+) -> Optional[int]:
+    """When the desk next wants a sweep, or `None` if it never does.
+
+    `None` -- never `from_ms`, and never a far-future timestamp -- because a
+    caller merging this into a "next call" answer must be able to leave it out
+    rather than have it win a `min()`. Unreadable resolves to `None`, and "no
+    desk is configured" is the same shape of fact.
+    """
+    if desk_window is None or desk_window[0] == desk_window[1]:
+        return None
+    return next_desk_open_ms(
+        from_ms, start_hour=desk_window[0], end_hour=desk_window[1]
+    )
+
+
 def firing_for_slot(
     slot: SweepSlot,
     *,
@@ -652,17 +706,13 @@ def first_window_open_of_day(
             opens_at = max(slot.fire_from_ms, day_start_ms)
             if opens_at < day_end_ms:
                 opens.append(opens_at)
-    if desk_window is not None and fixtures:
-        start_hour, end_hour = desk_window
-        if start_hour != end_hour:
-            # The desk window is a window of this day like any slot's: it
-            # counts only if it opens inside the day, and a day whose start
-            # falls mid-window opens, for this purpose, at the boundary.
-            desk_open = next_desk_open_ms(
-                day_start_ms, start_hour=start_hour, end_hour=end_hour
-            )
-            if desk_open < day_end_ms:
-                opens.append(desk_open)
+    if fixtures:
+        # The desk window is a window of this day like any slot's: it counts
+        # only if it opens inside the day, and a day whose start falls
+        # mid-window opens, for this purpose, at the boundary.
+        desk_open = desk_next_open_ms(desk_window, day_start_ms)
+        if desk_open is not None and desk_open < day_end_ms:
+            opens.append(desk_open)
     return min(opens) if opens else None
 
 
@@ -950,26 +1000,21 @@ def window_status(
         else:
             next_call_ms = next_slot.fire_from_ms
 
-    if desk_window is not None and fixtures_by_sport:
-        start_hour, end_hour = desk_window
-        if start_hour != end_hour:
-            if desk_window_contains(
-                now_ms, start_hour=start_hour, end_hour=end_hour
-            ):
-                # The loop's desk pass will re-buy each sport once its last
-                # served sweep ages past the refresh interval; the soonest of
-                # those is the next call the desk wants.
-                desk_next = min(
-                    now_ms
-                    if (last := served.get(sport)) is None
-                    or now_ms - last >= refresh_ms
-                    else last + refresh_ms
-                    for sport in fixtures_by_sport
-                )
-            else:
-                desk_next = next_desk_open_ms(
-                    now_ms, start_hour=start_hour, end_hour=end_hour
-                )
+    if fixtures_by_sport:
+        if desk_is_open(desk_window, now_ms):
+            # The loop's desk pass will re-buy each sport once its last
+            # served sweep ages past the refresh interval; the soonest of
+            # those is the next call the desk wants.
+            desk_next: Optional[int] = min(
+                now_ms
+                if (last := served.get(sport)) is None
+                or now_ms - last >= refresh_ms
+                else last + refresh_ms
+                for sport in fixtures_by_sport
+            )
+        else:
+            desk_next = desk_next_open_ms(desk_window, now_ms)
+        if desk_next is not None:
             next_call_ms = (
                 desk_next
                 if next_call_ms is None
@@ -1428,9 +1473,7 @@ def decide_sweeps(
             )
         )
 
-    if desk_window is not None and desk_window_contains(
-        now_ms, start_hour=desk_window[0], end_hour=desk_window[1]
-    ):
+    if desk_is_open(desk_window, now_ms):
         for sport_key in sorted(fixtures):
             if len(firing) >= remaining:
                 break
@@ -1529,17 +1572,15 @@ def decide_sweeps(
             "served or too close to open a pre-game window"
         )
 
-    if not firing and desk_window is not None and fixtures:
-        start_hour, end_hour = desk_window
-        if start_hour != end_hour and not desk_window_contains(
-            now_ms, start_hour=start_hour, end_hour=end_hour
-        ):
+    if not firing and fixtures and not desk_is_open(desk_window, now_ms):
+        reopens_ms = desk_next_open_ms(desk_window, now_ms)
+        if reopens_ms is not None:
             # A closed desk is part of why nothing fired, and saying when it
             # reopens is the same honesty `window_status` gives the screen.
             detail += (
-                f"; the desk window ({start_hour:02d}:00Z-{end_hour:02d}:00Z) "
-                f"reopens at "
-                f"{_hhmm(next_desk_open_ms(now_ms, start_hour=start_hour, end_hour=end_hour))}Z"
+                f"; the desk window "
+                f"({desk_window[0]:02d}:00Z-{desk_window[1]:02d}:00Z) "
+                f"reopens at {_hhmm(reopens_ms)}Z"
             )
 
     return SweepDecision(
