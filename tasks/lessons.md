@@ -25,6 +25,49 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — Fixing a lie can move it rather than remove it
+
+`_SERVED_SWEEP` counted a failed odds call as a served sweep, so a 401 moved the
+sport's last-sweep stamp and the screen showed the odds as freshly bought. The
+fix was right and it was not the end: with `last_sweep_ms` no longer advancing,
+a failed look fell past `sweepTone`'s `refused` clause and — on a morning before
+the first window opened — reached its final `return "calm"`. The strip would
+have been quiet through a live outage, which is the exact 17-hour shape that
+strip was built for, reached by a new route the same commit opened.
+
+**The pattern:** a downstream consumer's correctness may depend on the bug. When
+a value stops being written the way it was, ask what read it *because* of the
+old behaviour — not just what read it. The tell here was that the fix removed a
+signal (`last_sweep_ms` advancing) rather than correcting one, and anything
+downstream that treated the presence of that signal as reassurance now gets
+silence instead. Silence and reassurance are the same colour on a screen.
+
+Both halves belong in one change. Shipping the backend fix alone would have
+traded a lying clock for a quiet one and looked like progress in the diff.
+
+---
+
+## 2026-08-25 — A test fixture that spends is also a fixture that paces
+
+The attention sub-ceiling's tests insert `api_credits` rows to exhaust the daily
+slice. Those rows are real `/odds` rows, so they also satisfy `_SERVED_SWEEP` —
+written at `NOW`, they made the sport *freshly swept*, and every assertion in the
+class passed or failed because of pacing rather than because of the cap. The
+suite was green on the ones that expected a refusal, for the wrong reason
+entirely.
+
+**The pattern:** when a fixture writes to a table more than one predicate reads,
+it sets up more than one condition, and only one of them is the one under test.
+Ask what *else* queries this table before choosing the timestamps. The tell is a
+test that passes immediately on a code path that was never exercised — here, the
+refusal branch was unreachable because the trigger never wanted the sweep in the
+first place. Backdating the rows past both cadences separated the two.
+
+Sibling of *a pooled number is not a finding until the parts agree*, one level
+down: the fixture had two effects and only the intended one was being read.
+
+---
+
 ## 2026-08-25 — A registered rule implemented as an optional parameter is not implemented
 
 The CLV registration says in two places that when the record carries more than

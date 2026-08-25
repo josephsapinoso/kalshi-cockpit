@@ -161,11 +161,37 @@ happened.
 2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM
 fleet — the runner imports `review_retired`, which refuses every row and calls
 nothing (`backend/agents/review.py:406`) — and **false of the odds feed the
-recorder was raised to buy**: ~576 credits/day, ~17,300/month, against an
-18,000 self-cap on a 20,000 paid tier (`fly.live.toml:242-250`). The claim was
-written when a sweep cost 2 credits under `h2h`; `ODDS_MARKETS = "h2h,spreads"`
-doubled it on 2026-08-23 and nobody revisited the sentence. The recorder is
-cheap to *decide about*, not free to run.
+recorder was raised to buy**. The claim was written when a sweep cost 2 credits
+under `h2h`; `ODDS_MARKETS = "h2h,spreads"` doubled it on 2026-08-23 and nobody
+revisited the sentence. The recorder is cheap to *decide about*, not free to
+run.
+
+**What it costs changed on 2026-08-25, and the number is now a ceiling rather
+than a figure.** The fixed `ODDS_DESK_WINDOW_UTC` bought ~576 credits/day
+(~17,300/month) whether or not anyone was looking — and would have been
+~1,152/day at four sports, past the whole 20,000 tier, which NCAAF and NFL made
+imminent. **The feed now follows attention over an hourly floor** (ADR 0071
+§2.6): the ten-minute cadence while a page is open, hourly otherwise for a
+sport with a fixture inside twelve hours. `ODDS_DESK_WINDOW_UTC` is unset on
+live and still read, so a window can be pinned back on without a code change.
+
+    idle floor only, 4 sports    ~384/day
+    attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
+    worst case                   ~684/day    inside the 700 daily cap
+
+**Do not quote a saving from this.** Every "attended hours" figure is a guess
+about how long the page is actually open; the three rows above are bounds, not
+a measurement. The instrument is `api_credits` summed per budget-day **by
+trigger**, which separates attention (`'attention'`) from the floor and the
+schedule (both NULL) — `scripts/inspect_live_db.py credits-day --date …`. It
+was first read on 2026-08-25 with the floor alone running.
+
+The attention slice is a **hard ceiling and the reason the design is safe**:
+its worst case is a tab left open and visible around the clock, which is double
+the window it replaces. `Nav.tsx`'s `document.visibilityState` check is what
+should prevent that; the slice is what does. The hourly floor is deliberately
+not charged to it, so past the slice the slate stops re-buying every ten
+minutes and keeps buying every hour — a ceiling, not an off switch.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
