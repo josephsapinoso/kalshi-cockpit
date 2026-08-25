@@ -78,6 +78,11 @@ class LoopState:
     last_success_ms: Optional[int] = None
     last_error: Optional[str] = None
     last_counts: dict[str, Any] = field(default_factory=dict)
+    #: Sleeps cut short by `wake_when`. Counted so "the loop is following
+    #: attention" is a number in the log rather than a claim in a docstring --
+    #: a wake path that silently stopped firing would otherwise look exactly
+    #: like a quiet day at the desk.
+    woken_early: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +92,7 @@ class LoopState:
             "last_success_ms": self.last_success_ms,
             "last_error": self.last_error,
             "last_counts": self.last_counts,
+            "woken_early": self.woken_early,
         }
 
 
@@ -94,6 +100,66 @@ def next_delay(interval_s: float, rng: Optional[random.Random] = None) -> float:
     """Interval with proportional jitter, never negative."""
     r = rng or random
     return max(1.0, interval_s * (1.0 + r.uniform(-JITTER, JITTER)))
+
+
+#: How often a sleep looks up to see whether it should end early.
+#:
+#: Five seconds against a 900s sleep is 180 checks, and the check this exists
+#: for is an indexed `MAX(seen_ms)` on a table `decide_sweeps` already reads
+#: every pass. The number that matters is the one on the other side: it bounds
+#: how long a person who has just opened the desk waits before the loop notices
+#: them, and five seconds is under the time the page takes to render.
+DEFAULT_WAKE_POLL_S = 5.0
+
+
+async def sleep_until(
+    delay_s: float,
+    *,
+    wake_when: Optional[Callable[[], bool]],
+    sleep,
+    poll_s: float = DEFAULT_WAKE_POLL_S,
+) -> bool:
+    """Sleep `delay_s`, or until `wake_when()` says stop. True if it woke early.
+
+    **Why a loop can need waking at all, since ADR 0071 §2.6.** The cadence is
+    chosen from what the *last* pass observed, and with the window shut that is
+    the 900s slow interval. Attention arrives from a different process — the API
+    writes `desk_attention` when a page heartbeats — so a sleeping loop cannot
+    see it, and the feed that was told to follow attention could not act on a
+    heartbeat for up to fifteen minutes. Measured on live 2026-08-25: the desk
+    sat blank from 16:49:33Z to 17:05:07Z, one slow sleep exactly, and served an
+    attention sweep in the first second after it ended.
+
+    **`wake_when=None` sleeps once, as this loop always has.** Every existing
+    caller and test passes nothing and gets byte-identical behaviour; the
+    chunking is opt-in, so a callback nobody supplied cannot change the cadence.
+
+    The predicate is called between chunks and never during one, so it may do
+    blocking I/O — a SQLite read is what it is for. It must be cheap.
+
+    **A predicate that raises does not end the process.** The only question it
+    answers is "should this sleep be shorter", and the failure direction of `no`
+    is precisely the cadence this loop ran on before any of this existed. Ending
+    a recording loop over it would trade a slow desk for a stopped record, which
+    is the worse of the two by a wide margin. It is logged, because a wake path
+    that has silently stopped working looks exactly like nobody opening the
+    page.
+    """
+    if wake_when is None or delay_s <= poll_s:
+        await sleep(delay_s)
+        return False
+    remaining = delay_s
+    while remaining > 0:
+        await sleep(min(poll_s, remaining))
+        remaining -= poll_s
+        try:
+            woke = wake_when()
+        except Exception:                                     # noqa: BLE001
+            logger.warning("wake check failed; sleeping on", exc_info=True)
+            return False
+        if woke:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +431,8 @@ async def run_forever(
     sleep=asyncio.sleep,
     rng: Optional[random.Random] = None,
     now_ms: Optional[Callable[[], int]] = None,
+    wake_when: Optional[Callable[[], bool]] = None,
+    wake_poll_s: float = DEFAULT_WAKE_POLL_S,
 ) -> LoopState:
     """Run `do_pass` on an interval until it fails too many times in a row.
 
@@ -380,6 +448,9 @@ async def run_forever(
 
     `max_passes` exists for tests and for a `--once` style invocation. Without
     it the loop runs until the process is killed or it gives up.
+
+    `wake_when` cuts a sleep short — see `sleep_until`. Omitted, the loop sleeps
+    exactly as it always has.
     """
     from .store.db import now_ms as default_now
 
@@ -424,6 +495,17 @@ async def run_forever(
         # interval before noticing that the sweep this pass just fired had
         # opened the window.
         current = interval_s() if callable(interval_s) else interval_s
-        await sleep(next_delay(current, rng))
+        if await sleep_until(
+            next_delay(current, rng),
+            wake_when=wake_when,
+            sleep=sleep,
+            poll_s=wake_poll_s,
+        ):
+            state.woken_early += 1
+            logger.info(
+                "woken early after pass %d (%d total): something is waiting "
+                "that the next scheduled pass would have kept waiting",
+                state.passes_attempted, state.woken_early,
+            )
 
     return state

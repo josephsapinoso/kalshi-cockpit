@@ -25,12 +25,47 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-25 — A gap the length of your own timer is a timer, not a fault
+
+The live loop went silent for 15m34s and I wrote it up as a wedge: "the
+recording loop stalled", in the commit message and in NEXT.md. Every figure I
+quoted was correct. The mechanism was invented.
+
+Two facts already in hand said so and I had not asked either of them. The pass
+before the gap logged **`pass 130 ok`** — a hang does not log its own
+completion. And the gap was **934s against a 900s slow interval with ±15%
+jitter**: 900 × 1.038, dead centre of the band. The loop had simply observed the
+window shut, taken its slow cadence, and slept.
+
+The pattern: **before calling a silence a fault, divide it by every interval the
+system sleeps on.** A duration that lands inside one of them is that timer until
+proven otherwise, and the proof is cheap — the constant is in the source. This
+generalises past loops: retry backoffs, cache TTLs, cron periods, connection
+keepalives. Any of them produces a gap that looks exactly like a hang from the
+outside, and each has a number you can check in seconds.
+
+What made the wrong story sticky is worth naming, because it will recur: **the
+symptom and the invented mechanism agreed perfectly.** A stalled loop and a
+sleeping loop produce the identical observable — no writes, no logs, a stale
+desk. Agreement between a symptom and a hypothesis is not evidence for the
+hypothesis when a second hypothesis predicts the same symptom. The question that
+separates them is never "does this fit" but "what would differ if it were the
+other one" — here, one log line and one arithmetic check.
+
+And the real defect was adjacent to the invented one and more interesting:
+**a trigger evaluated inside a pass cannot fire while the loop is between
+passes.** `decide_sweeps` asked "is anyone looking" correctly on every pass; the
+signal was written by a different process into a table the sleeping loop never
+read. A component can follow a signal faithfully and still be unreachable for
+the length of its caller's sleep. When a design says "X now follows Y", check
+what X's *scheduler* does with Y, not just what X does.
+
 ## 2026-08-25 — A refusal that names its own predicate describes a symptom, not a cause
 
 The parlay desk said `needs 2 fresh games and the slate has 0`. Every word was
 true. It is also what the screen says when twenty games are on, sixty-five sides
-are matched, and the recording loop has been wedged for fifteen minutes — which
-is what was actually happening. The owner read it as "there is nothing on
+are matched, and the loop that would re-buy the prices is fifteen minutes into
+a sleep nothing can wake — which is what was actually happening. The owner read it as "there is nothing on
 tonight" and asked why the desk was empty.
 
 The pattern: **a component that refuses correctly reports the predicate it

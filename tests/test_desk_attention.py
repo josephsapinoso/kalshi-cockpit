@@ -153,3 +153,72 @@ class TestAFutureStampDoesNotBuyForever:
         bounds it, so this cannot become an unbounded buy."""
         attention.stamp(conn, now_ms=NOW + 10 * MIN)
         assert attention.is_attended(conn, now_ms=NOW) is True
+
+
+class TestAnArrivalIsAChangeNotAState:
+    """`ArrivalWatch` answers a different question from `is_attended`, and the
+    difference is what a *sleeping* caller needs.
+
+    The loop cannot act on a state it is already in -- with the window shut it
+    is asleep for 900s and "someone is attended" was already true when it went
+    under. It can only act on a change it has not seen. On 2026-08-25 that gap
+    kept the desk blank for seven minutes with Joe watching it.
+    """
+
+    def test_an_empty_table_is_not_an_arrival(self, conn):
+        """A fresh deploy must not read the absence of heartbeats as one.
+        Mutation observed red: return True when `last_seen_ms` is None."""
+        assert attention.ArrivalWatch(conn).arrived() is False
+
+    def test_a_new_heartbeat_is_an_arrival(self, conn):
+        watch = attention.ArrivalWatch(conn)
+        attention.stamp(conn, now_ms=NOW)
+        assert watch.arrived() is True
+
+    def test_the_same_heartbeat_is_not_an_arrival_twice(self, conn):
+        """The consuming half. A predicate that kept reporting the same
+        heartbeat would cut EVERY sleep short for as long as a page was open,
+        including the sleeps with nothing to do. Mutation observed red: drop
+        the watermark assignment in `arrived`."""
+        watch = attention.ArrivalWatch(conn)
+        attention.stamp(conn, now_ms=NOW)
+        assert watch.arrived() is True
+        assert watch.arrived() is False
+        assert watch.arrived() is False
+
+    def test_each_further_heartbeat_is_its_own_arrival(self, conn):
+        """A page open for an hour heartbeats every 60s and should wake the
+        loop every 60s -- that is the cadence a watched desk belongs on."""
+        watch = attention.ArrivalWatch(conn)
+        for i in range(4):
+            attention.stamp(conn, now_ms=NOW + i * MIN)
+            assert watch.arrived() is True, i
+            assert watch.arrived() is False, i
+
+    def test_history_already_in_the_table_is_not_an_arrival(self, conn):
+        """A restart must not treat the whole record as one arrival and wake
+        immediately on nothing. Mutation observed red: start the watermark at
+        None instead of reading the table."""
+        attention.stamp(conn, now_ms=NOW - 10 * MIN)
+        attention.stamp(conn, now_ms=NOW - 5 * MIN)
+        watch = attention.ArrivalWatch(conn)
+        assert watch.watermark_ms == NOW - 5 * MIN
+        assert watch.arrived() is False
+
+    def test_an_older_stamp_landing_late_is_not_an_arrival(self, conn):
+        """`seen_ms` is the server's own clock, so out-of-order rows should not
+        happen -- but the comparison is `>` rather than `!=` so that if one
+        ever does, it cannot wake the loop on a heartbeat already served."""
+        watch = attention.ArrivalWatch(conn)
+        attention.stamp(conn, now_ms=NOW)
+        assert watch.arrived() is True
+        attention.stamp(conn, now_ms=NOW - MIN)
+        assert watch.arrived() is False
+
+    def test_an_arrival_is_not_the_same_question_as_attendance(self, conn):
+        """Both are true right after a heartbeat; only one stays true. This is
+        the distinction the class exists for, asserted rather than described."""
+        attention.stamp(conn, now_ms=NOW)
+        watch = attention.ArrivalWatch(conn)
+        assert attention.is_attended(conn, now_ms=NOW + MIN) is True
+        assert watch.arrived() is False

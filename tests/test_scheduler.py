@@ -10,12 +10,14 @@ hold the loop to the same standard.
 from __future__ import annotations
 
 import random
+import sqlite3
 
 import pytest
 
 from backend.config import StalenessConfig
 from backend.scheduler import (
     DEFAULT_FAST_INTERVAL_S,
+    DEFAULT_WAKE_POLL_S,
     JITTER,
     MAX_CONSECUTIVE_FAILURES,
     QUOTE_PASS_DURATION_BUDGET_S,
@@ -25,6 +27,7 @@ from backend.scheduler import (
     next_delay,
     quote_refresh_survives_interval,
     run_forever,
+    sleep_until,
 )
 
 
@@ -503,3 +506,115 @@ class TestACallableInterval:
             sleep=record_sleep, rng=random.Random(1),
         )
         assert 60 * (1 - JITTER) <= slept[0] <= 60 * (1 + JITTER)
+
+
+class TestASleepingLoopCanBeWoken:
+    """ADR 0071 §2.6 told the FEED to follow attention; the LOOP still slept.
+
+    Measured on live 2026-08-25. A pass ended at 16:49:33Z having observed the
+    window shut, so the cadence was the 900s slow interval. Joe opened the desk
+    at ~16:58Z and heartbeats began landing in `desk_attention` from the API
+    process; the loop saw none of them until its sleep ended at 17:05:07Z, and
+    fired an attention sweep in the first second after it did. The 934s gap is
+    900s plus jitter, not a hang -- the pass before it logged `ok`.
+
+    So the desk was blank for seven minutes with someone watching it, and the
+    trigger that would have fixed it was already true the whole time.
+    """
+
+    async def _record(self):
+        slept = []
+
+        async def sleep(seconds):
+            slept.append(seconds)
+
+        return slept, sleep
+
+    async def test_no_predicate_sleeps_once_for_the_whole_delay(self):
+        """The opt-in half of the contract: every caller that passes nothing
+        gets exactly the sleep it got before. Mutation observed red: default
+        `wake_when` to a lambda returning False and this becomes 180 sleeps."""
+        slept, sleep = await self._record()
+        woke = await sleep_until(900.0, wake_when=None, sleep=sleep)
+        assert woke is False
+        assert slept == [900.0]
+
+    async def test_a_signal_mid_sleep_ends_it_early(self):
+        """The incident, in one assertion. Mutation observed red: check the
+        predicate before the chunk instead of after, or drop the early
+        `return True` -- the sleep runs to its full length either way."""
+        slept, sleep = await self._record()
+        calls = [0]
+
+        def arrived():
+            calls[0] += 1
+            return calls[0] >= 3
+
+        woke = await sleep_until(
+            900.0, wake_when=arrived, sleep=sleep, poll_s=5.0
+        )
+        assert woke is True
+        assert slept == [5.0, 5.0, 5.0]
+        assert sum(slept) == 15.0
+
+    async def test_a_quiet_sleep_still_lasts_its_full_length(self):
+        """Waking early must be something that HAPPENS, not the new default.
+        A predicate that never fires may not shorten the cadence by a second."""
+        slept, sleep = await self._record()
+        woke = await sleep_until(
+            60.0, wake_when=lambda: False, sleep=sleep, poll_s=5.0
+        )
+        assert woke is False
+        assert sum(slept) == pytest.approx(60.0)
+
+    async def test_a_sleep_shorter_than_a_poll_is_not_chunked(self):
+        """The fast cadence is 15s and the poll is 5s; chunking a sleep that is
+        already shorter than one chunk would ask three times for nothing."""
+        slept, sleep = await self._record()
+        woke = await sleep_until(
+            DEFAULT_WAKE_POLL_S, wake_when=lambda: True, sleep=sleep
+        )
+        assert woke is False
+        assert slept == [DEFAULT_WAKE_POLL_S]
+
+    async def test_a_throwing_predicate_sleeps_on_rather_than_dying(self):
+        """The failure direction is the old cadence, not a stopped recorder.
+        A loop that ends because a wake check raised would trade a slow desk
+        for a lost record, which is the worse of the two. Mutation observed
+        red: remove the try/except and this raises out of the sleep."""
+        slept, sleep = await self._record()
+
+        def broken():
+            raise sqlite3.OperationalError("database is locked")
+
+        woke = await sleep_until(
+            900.0, wake_when=broken, sleep=sleep, poll_s=5.0
+        )
+        assert woke is False
+
+    async def test_the_loop_counts_the_wakes_it_took(self):
+        """A wake path that silently stopped firing reads exactly like nobody
+        opening the page, so the count is in `as_dict` and in the log."""
+        do_pass = Recorder(result=Counts(recommendations=0))
+        state = LoopState()
+        await run_forever(
+            do_pass,
+            interval_s=900.0,
+            state=state,
+            max_passes=3,
+            sleep=_noop_sleep,
+            wake_when=lambda: True,
+            wake_poll_s=5.0,
+        )
+        # Two sleeps between three passes, each woken on its first check.
+        assert state.woken_early == 2
+        assert state.as_dict()["woken_early"] == 2
+
+    async def test_a_loop_with_no_predicate_never_reports_a_wake(self):
+        do_pass = Recorder(result=Counts(recommendations=0))
+        state = LoopState()
+        await run_forever(
+            do_pass, interval_s=900.0, state=state, max_passes=3,
+            sleep=_noop_sleep,
+        )
+        assert state.woken_early == 0

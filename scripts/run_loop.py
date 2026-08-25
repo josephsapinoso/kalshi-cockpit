@@ -99,7 +99,7 @@ from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.portfolio_poll import poll_portfolio_forever  # noqa: E402
 from backend.odds.client import OddsClient  # noqa: E402
-from backend.odds import ondemand  # noqa: E402
+from backend.odds import attention, ondemand  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
     DEFAULT_DAY_START_UTC_HOUR,
     DUE_WINDOW_MS,
@@ -342,6 +342,48 @@ async def main() -> int:
     # recoverable by the person holding the phone.
     refresh_inbox = ondemand.inbox_path(args.db)
     served_after = [db.now_ms()]
+
+    # What may cut a sleep short. See `scheduler.sleep_until` for why a sleep
+    # needs cutting short at all.
+    #
+    # **Both signals are written by the OTHER process.** The API stamps
+    # `desk_attention` when a page heartbeats and writes the tap inbox when the
+    # refresh button is pressed; this process finds out only by looking. With
+    # the window shut the loop looks every 900s, so ADR 0071 §2.6's "the feed
+    # follows attention" was true of `decide_sweeps` and false of the loop that
+    # calls it -- a heartbeat could wait a quarter of an hour to be acted on,
+    # which is the whole time the desk is blank and someone is staring at it.
+    #
+    # **A heartbeat is consumed by being seen.** The watermark advances on read,
+    # so one heartbeat wakes the loop once. A page left open heartbeats every
+    # 60s and would therefore wake it every 60s -- which is correct rather than
+    # wasteful, and the arithmetic says so: a wake leads to a sweep, a sweep
+    # opens the window, and an open window is the 15s fast cadence. The 60s
+    # state is strictly cheaper than the state it converges to. The one case
+    # that does not converge -- attended, window shut, nothing buyable (budget
+    # spent, no fixtures) -- settles at 60s against the 900s floor, and it costs
+    # Kalshi polls, which are unmetered, not credits.
+    #
+    # **Failures are `sleep_until`'s to swallow, not this function's.** One
+    # guard, at the one site that knows what a `False` costs -- a longer sleep,
+    # which is the cadence this loop ran on before any of this existed.
+    arrivals = attention.ArrivalWatch(conn)
+
+    def wake_early() -> bool:
+        if arrivals.arrived():
+            return True
+        # `ondemand.take` is a pure read -- the API is the inbox's only writer
+        # -- so asking here cannot consume a tap. The pass serves it; this only
+        # decides whether the pass happens now or in 900s. Which matters: the
+        # tap is a person waiting on a button, and `run_quote_pass`'s docstring
+        # promises them "at most one tick". That was true of the fast cadence
+        # and false of the slow one, where a tap could wait a quarter of an
+        # hour -- and a shut window is exactly when someone taps refresh.
+        return bool(
+            ondemand.take(
+                refresh_inbox, now_ms=db.now_ms(), after_ms=served_after[0]
+            )
+        )
 
     def take_refresh_requests(stamp: int) -> list[ManualRefresh]:
         """Taps this pass should serve, and move the watermark past them.
@@ -670,6 +712,7 @@ async def main() -> int:
                 interval_s=tempo.interval_s,
                 state=state,
                 max_passes=args.max_passes,
+                wake_when=wake_early,
             )
         except LoopFailed as exc:
             # The last thing this process does. The loop dying is precisely the

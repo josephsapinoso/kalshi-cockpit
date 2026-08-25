@@ -39,6 +39,8 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from backend.odds import attention
@@ -54,6 +56,7 @@ from backend.odds.timing import (
     desk_wants,
     window_status,
 )
+from backend.scheduler import sleep_until
 from backend.store import db
 
 MIN = 60_000
@@ -353,3 +356,114 @@ class TestTheScreenPredictsWhatTheLoopWillDo:
         )
         assert status.next_slot is not None
         assert status.next_call_ms == status.next_slot.fire_from_ms
+
+
+class TestTheLoopActsOnAHeartbeatWithoutWaitingForItsSleep:
+    """§2.6 told the FEED to follow attention. The LOOP was still on a clock.
+
+    `decide_sweeps` asks `is_attended` on every pass and always did the right
+    thing with the answer. But the cadence is chosen from what the *previous*
+    pass observed, and with the window shut that is `slow_interval_s` -- so with
+    nobody looking the loop went to sleep for 900s, and a heartbeat arriving one
+    second later could not be acted on for another fourteen minutes.
+
+    Measured on live 2026-08-25: a pass ended 16:49:33Z with the window shut,
+    Joe opened the desk at ~16:58Z, and the loop fired
+    `baseball_mlb (attention)` at 17:05:08Z -- the first second after the sleep
+    ended, 934s later, which is 900s plus jitter. It was never stuck; it was
+    asleep, and nothing could wake it.
+
+    The pins are static because `run_loop.main()` has no caller but `__main__`
+    (see `test_run_loop_attributes_resolve.py` for why that is the shape here).
+    The behaviour itself is proved in `test_scheduler.py` and
+    `test_desk_attention.py`; these check the two halves are joined.
+    """
+
+    def _source(self) -> str:
+        return (
+            Path(__file__).resolve().parents[1] / "scripts" / "run_loop.py"
+        ).read_text(encoding="utf-8")
+
+    def test_the_loop_hands_run_forever_a_wake_predicate(self):
+        """Mutation observed red: drop `wake_when=wake_early` from the
+        `run_forever` call and the loop is back on the clock with every other
+        test still green."""
+        source = self._source()
+        assert "wake_when=wake_early" in source
+        assert "def wake_early()" in source
+
+    def test_the_predicate_watches_arrivals_not_attendance(self):
+        """`is_attended` is true for the whole TTL, so a sleeping loop asking
+        it would wake on every check for five minutes and then stop -- which is
+        neither the cadence wanted nor a signal. Mutation observed red: swap
+        `ArrivalWatch` for `is_attended` and the consuming tests in
+        `test_desk_attention.py` no longer describe what the loop does."""
+        block = self._source().split("def wake_early()", 1)[1].split(
+            "\n    def ", 1
+        )[0]
+        assert "arrivals.arrived()" in block
+        assert "is_attended" not in block
+
+    def test_the_predicate_also_covers_a_tap(self):
+        """`run_quote_pass` promises a tap is served within "at most one tick".
+        That was true of the 15s cadence and false of the 900s one -- and a shut
+        window is exactly when someone presses refresh."""
+        block = self._source().split("def wake_early()", 1)[1].split(
+            "\n    def ", 1
+        )[0]
+        assert "ondemand.take" in block
+
+
+class TestTheWholeWakePathOverARealDatabase:
+    """The two halves joined, because the source pins cannot prove they fit.
+
+    `test_scheduler.py` proves `sleep_until` ends early when a predicate says
+    so; `test_desk_attention.py` proves `ArrivalWatch` reports an arrival once.
+    Neither proves the loop wakes when the API stamps the table -- which is the
+    whole claim, and the half that was missing on 2026-08-25.
+
+    A fake clock, a real `sqlite3` connection, and the same composition
+    `run_loop.wake_early` builds.
+    """
+
+    async def test_a_stamp_landing_mid_sleep_cuts_it_short(self, tmp_path):
+        conn = db.init_db(tmp_path / "wake.db")
+        try:
+            watch = attention.ArrivalWatch(conn)
+            slept = []
+
+            async def sleep(seconds):
+                slept.append(seconds)
+                # The API process, stamping while the loop is under. Landing on
+                # the third chunk rather than the first is what distinguishes
+                # "woke because a heartbeat arrived" from "woke regardless".
+                if len(slept) == 3:
+                    attention.stamp(conn, now_ms=NOW)
+
+            woke = await sleep_until(
+                900.0, wake_when=watch.arrived, sleep=sleep, poll_s=5.0
+            )
+            assert woke is True
+            assert len(slept) == 3, "woke on the chunk after the stamp landed"
+            assert sum(slept) == 15.0, "15s, not the 900s the desk sat blank"
+        finally:
+            conn.close()
+
+    async def test_no_stamp_means_the_full_slow_interval(self, tmp_path):
+        """The other half of the claim: a quiet desk is not woken, so this
+        cannot be a shorter cadence wearing a heartbeat's clothes."""
+        conn = db.init_db(tmp_path / "quiet.db")
+        try:
+            watch = attention.ArrivalWatch(conn)
+            slept = []
+
+            async def sleep(seconds):
+                slept.append(seconds)
+
+            woke = await sleep_until(
+                900.0, wake_when=watch.arrived, sleep=sleep, poll_s=5.0
+            )
+            assert woke is False
+            assert sum(slept) == pytest.approx(900.0)
+        finally:
+            conn.close()

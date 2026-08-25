@@ -68,85 +68,102 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-25 (latest) — the desk was empty, the loop was wedged, and the screen blamed the slate
+## 2026-08-25 (latest) — the desk was empty because the loop was ASLEEP, and nothing could wake it
 
-**Joe opened `/parlays` at 09:58 PT and all three cards read `Not built
-tonight: needs N fresh games and the slate has 0`.** He read that as "there is
-nothing on tonight". There were **20 upcoming fixtures**, 65 matched candidate
-sides, and 24 of 700 credits spent.
+**Read the correction first.** The earlier version of this entry, and the
+commit message on `aa4a215`, said the recording loop had **wedged**. It had
+not. Every number reported was right and the mechanism was wrong, which is the
+combination that survives longest because the symptom keeps matching.
 
-**What had actually happened, and it is still unfixed.** The recording loop
-wedged. Passes ran every ~18s to `pass 130` at 16:49:33Z, then **nothing until
-17:05:07Z** — 15.5 minutes. Confirmed off the database, not the log:
-`/api/health`'s `recorder.last_write_ms` (which `store_quotes_from_discovery`
-moves every pass) froze at 16:49:29Z and `odds_sweep_log`'s last row is the same
-timestamp. During the stall the last odds sweep aged 13 → 26 minutes, past
-`MAX_ODDS_AGE_S=900`, so `build_ladder` refused all 65 sides as
-`stale_consensus` and no card reached its minimum leg count.
+- `pass 130 ok` is in the log at 16:49:33Z. **The pass returned.** A hang does
+  not log its own completion.
+- The gap to 17:05:07Z is **934s**, and `next_delay` jitters ±15% around the
+  900s slow interval — the band is [765, 1035]. 934 is 900 × 1.038.
+- `Tempo.interval_s` returns `slow_interval_s` when the window is shut. The
+  pass at 16:49:33 was the first to observe `fixtures_fresh = 0` (the last
+  sweep at 16:36:32 plus book age crossed `MAX_ODDS_AGE_S`), so it took the
+  slow cadence and slept.
 
-**Attention is fine and was proved by the incident.** The moment the loop
-unstuck it logged `baseball_mlb (attention): someone has the desk open;
-re-buying so the slate is priced while it is being read` and bought both sports;
-the desk went to 20/20 fresh with all three cards built. ADR 0071 §2.6 works.
+It was a **normal, designed sleep**. "The loop hung" was a story that fit the
+evidence I had looked at and not the evidence available.
 
-**OPEN — the stall itself. Nobody has diagnosed it.**
+**The real defect, and it is a genuine one.** ADR 0071 §2.6 told the *feed* to
+follow attention. `decide_sweeps` asks `is_attended` every pass and has always
+done the right thing with the answer. But the cadence is chosen from what the
+*previous* pass observed, and attention is written by the **other process** —
+the API stamps `desk_attention` when a page heartbeats. A sleeping loop cannot
+see a table being written. So the feed followed attention and the loop that
+calls it did not: a heartbeat could wait up to fifteen minutes to be acted on,
+which is exactly the fifteen minutes the desk is blank and someone is staring
+at it. Joe opened the desk at ~16:58Z; the loop fired
+`baseball_mlb (attention)` at 17:05:08Z, the first second after its sleep ended.
 
-- `scripts/run_loop.py` awaits each pass **bare** — no `asyncio.wait_for`, no
-  watchdog — so one hung pass stops everything, indefinitely. Every httpx client
-  in `backend/` already carries a timeout (`kalshi/rest.py:228`,
-  `odds/client.py:242`, `kalshi/quotes.py:240`), so a bare socket is not the
-  obvious culprit; a SQLite lock or a long query over `fair_prices` (~6.9M rows)
-  is a better guess than anything proved. **The log window does not reach back
-  far enough to say, and `flyctl logs` is lossy — instrument before theorising.**
-- The off-box heartbeat (`.github/workflows/heartbeat.yml`) alarms at **30
-  minutes** of recorder silence. This was 15.5 and self-recovered, so nothing
-  reached the phone. Correct by its own rule; the rule may be the wrong one,
-  because 15 minutes of silence blanks the desk for 15 minutes.
-- A per-pass timeout that *cancels* is not obviously safe (a cancel mid-write),
-  so the first move is probably a watchdog that dumps the hung task's stack and
-  lets the pass continue.
+The tap path had the same hole. `run_quote_pass`'s docstring promises a tap is
+served within "at most one tick" — true of the 15s cadence, false of the 900s
+one, and a shut window is precisely when someone presses refresh.
 
-**SHIPPED — the screen now explains itself (`e4500f5`, live).** Joe chose the
-wording fix and explicitly deferred the two items above.
+**FIXED — the sleep is interruptible.**
 
-- `lib/nextOddsWindow.ts` learns `last_look_ms` and a `loop_stalled` reading,
-  checked **before** `due_now`. `due_now` said the next pass serves the buy
-  "usually within a minute"; `next_sweep_ms <= now_ms` held for the whole 15
-  minutes and no pass came, so that sentence was on the wire and false every
-  time the page was read. Threshold `LOOP_STALL_MS = 180_000` — ten missed
-  passes at the observed ~18s cadence. `last_look_ms === null` stays *unknown*,
-  never *stopped*.
-- `StaleOddsExit` moved out of `app/slate/page.tsx` into
-  `components/StaleOddsExit.tsx`, verbatim, so the parlay desk reuses the
-  vocabulary rather than wording one fact two ways.
-- `ParlayCards` renders a `Freshness` block when a card actually failed **and**
-  sides were dropped for age — the conjunction, because a full desk routinely
-  carries a few stale sides (six, that afternoon, with all three cards built)
-  and a banner that fires on a working screen is one the reader learns to skip.
-  It invents no number: upcoming vs fresh, the sweep age and the limit are all
-  `ActionableWindow` fields put in a sentence. It renders when `/api/window` is
-  unreadable too — that is the outage it explains.
-- `Not built tonight` → `Not built right now`.
+- `backend/scheduler.py`: `sleep_until(delay, wake_when=…, sleep=…, poll_s=5)`
+  sleeps in chunks and ends early when the predicate fires. `wake_when=None`
+  sleeps once, exactly as before, so every existing caller and test is
+  untouched. A predicate that raises is swallowed and logged — the failure
+  direction is the old cadence, and ending a recording loop over "should this
+  sleep be shorter" trades a slow desk for a lost record. `LoopState.woken_early`
+  counts the wakes so a wake path that stops firing is distinguishable from
+  nobody opening the page.
+- `backend/odds/attention.py`: `ArrivalWatch`. **Not `is_attended`** — that is
+  a state, true for the whole 300s TTL, and a sleeping caller cannot act on a
+  state it is already in. This reports a *change*, once per heartbeat, and
+  consumes it. A page heartbeating every 60s therefore wakes the loop every
+  60s, which is the cadence a watched desk belongs on; and that state is
+  strictly cheaper than the one it converges to, because a wake leads to a
+  sweep, a sweep opens the window, and an open window is the 15s fast cadence.
+- `scripts/run_loop.py`: `wake_early()` = a new heartbeat, or a pending tap
+  (`ondemand.take` is a pure read and cannot consume one), handed to
+  `run_forever` as `wake_when`.
 
-Backend untouched. Every new guard mutated and observed red (precedence, both
-null branches, the conjunction, the tolerant fetch). Rendered against a demo DB
-shifted into the exact 09:58 shape — 11 upcoming, 0 fresh, all three unbuilt —
-and with a synthetic 15-minute-old `odds_sweep_log` row the stall sentence
-replaces the promise of a minute.
+Cost: an indexed `MAX(seen_ms)` every 5s, on a table `decide_sweeps` already
+reads every pass. No credits. Latency from opening the desk to the loop
+noticing goes from **up to 900s to under 5s**.
+
+Seven mutations observed red: predicate checked before the chunk, never
+returning early, no try/except, the watermark not advancing, the watch starting
+blind to history, the re-report guard removed, and the loop not passing the
+predicate at all. Plus a composition test over a real sqlite connection — a
+stamp landing on the third chunk ends the sleep at 15s instead of 900s, and a
+quiet desk still sleeps the full 900s.
+
+**STILL OPEN.**
+
+- **The 30-minute heartbeat threshold** (`.github/workflows/heartbeat.yml`).
+  Unchanged, and now clearly *not* what today was about — nothing had stopped.
+  Whether a genuinely stuck pass would be caught is still untested, because
+  nothing has ever been observed to hang: `run_forever` awaits `do_pass()` bare,
+  with no `asyncio.wait_for`. Leave it until something actually hangs; a timeout
+  that cancels mid-write is a real risk to buy against a hypothetical fault.
+- **A cold page still needs one manual refresh.** The wake happens in <5s and
+  the sweep a few seconds later, but the already-rendered server component does
+  not know. The `Freshness` block explains the wait; it does not remove it.
+
+**SHIPPED EARLIER THE SAME DAY — the screen explains itself (`e4500f5`).**
+`readNextWindow` learns `last_look_ms` and a `loop_stalled` reading checked
+before `due_now`; `StaleOddsExit` extracted to its own component; `ParlayCards`
+renders a `Freshness` block when a card failed **and** sides were dropped for
+age; `Not built tonight` → `Not built right now`. Note that the `loop_stalled`
+sentence is still right and still worth having — it just would not have fired
+today, because `last_look_ms` was 12 minutes old, not the 3 the threshold wants.
+That is correct: nothing was broken.
 
 **Two operational notes worth keeping.**
 
 1. **`flyctl deploy` by hand reports `git_sha: null`.** The workflow passes
    `-e GIT_SHA="${{ github.sha }}"` as a *runtime* machine variable
    (`deploy.yml:119`), not a build arg, and it is not inherited by the next
-   deploy. A hand deploy that omits it leaves `/api/health` unable to say which
-   commit is live. Redeployed with the flag; live is `e4500f5`.
-2. **The browser caches `/parlays` hard.** A bare reload served the pre-deploy
-   text; `?cb=1` served the new page. Verify a deploy with a cache-buster or
-   `/api/health`, never with a plain refresh.
-
-**Not pushed.** `e4500f5` is on local `main` only — the repo is public and
-publishing is Joe's call.
+   deploy.
+2. **The browser caches `/parlays` hard.** A bare reload served pre-deploy text;
+   `?cb=1` served the new page. Verify a deploy with a cache-buster or
+   `/api/health`, never a plain refresh.
 
 ## 2026-08-25 (later) — the odds feed stops watching the clock and starts watching whether anyone is there
 

@@ -120,3 +120,48 @@ def seen_at_least_once_since(conn: sqlite3.Connection, *, since_ms: int) -> int:
         (since_ms,),
     ).fetchone()
     return int(row["n"]) if row else 0
+
+
+class ArrivalWatch:
+    """Fires once for each heartbeat that lands after the last one it reported.
+
+    **This is not `is_attended` and must not be confused with it.**
+    `is_attended` answers "is someone there", which stays true for the whole
+    TTL and is what the sweep trigger asks. This answers "has someone arrived
+    since I last looked", which is true exactly once per heartbeat and is what
+    a *sleeping* caller needs — the loop cannot act on a state it was already
+    in, only on a change it has not yet seen.
+
+    **Why it consumes.** The caller is `scripts/run_loop.py`'s wake check,
+    running between chunks of a sleep. A predicate that reported "attended" on
+    every call would cut every sleep short forever while a page was open,
+    including the ones that had nothing to do. Consuming means one heartbeat
+    buys exactly one wake; a page heartbeating every 60s therefore wakes the
+    loop every 60s, which is the cadence a watched desk should be running at
+    anyway.
+
+    **A heartbeat that lands while a pass is running is not lost.** The
+    watermark only moves when this reports, so the next check after the pass
+    still sees it and wakes again — one redundant pass at worst, never a
+    missed arrival.
+
+    `seen_ms=None` starts the watch at "whatever is already in the table", so a
+    process that restarts does not treat the whole history as one arrival.
+    """
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+        self._seen_ms = last_seen_ms(conn)
+
+    @property
+    def watermark_ms(self) -> Optional[int]:
+        return self._seen_ms
+
+    def arrived(self) -> bool:
+        seen = last_seen_ms(self._conn)
+        if seen is None:
+            return False
+        if self._seen_ms is not None and seen <= self._seen_ms:
+            return False
+        self._seen_ms = seen
+        return True
