@@ -31,10 +31,12 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-25: 4,281 passed / 10 xfailed.** Do not
-inherit it — the entry below it said 4,192 and the real figure at session start
-was 4,200. Also: the full suite has run in both **5m26s and 18m49s** on the same
-machine this session. A slow run is not a hung one.
+**Test baseline, re-measured 2026-08-25 (late): 4,321 passed / 10 xfailed.**
+Do not inherit it — this line has been wrong in the same direction three times
+running (4,192 written when it was 4,200; 4,281 written before three lanes
+landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
+5m39s, 8m11s and 18m49s** on the same machine. A slow run is not a hung one —
+and per the 2026-08-25 lesson, neither is a gap the length of an interval.
 
 **Two things to know before planning. CLAUDE.md is current on both:**
 
@@ -57,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 3,895 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,321 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
