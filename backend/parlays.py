@@ -46,6 +46,7 @@ from backend.kalshi.spreads import (
     spread_margin_agrees,
 )
 from backend.match.linker import load_aliases, resolve_outcome
+from backend.store.db import ask_for_side
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ def ladder_candidates(
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
                f.p_conservative, f.oldest_book_age_ms, f.link_id,
+               f.market_width, f.book_count, f.books_used, f.anchored_on_sharp,
                l.kalshi_event_ticker, l.odds_event_id,
                o.commence_ms, o.home_team, o.away_team, o.sport_key,
                e.title AS event_title
@@ -303,6 +305,10 @@ def ladder_candidates(
                     "shin": row["p_shin"],
                 },
                 odds_age_now_ms=_live_age_ms(row, now_ms=now_ms),
+                market_width=row["market_width"],
+                book_count=row["book_count"],
+                books_used_json=row["books_used"],
+                anchored_on_sharp=bool(row["anchored_on_sharp"]),
             )
         )
 
@@ -422,7 +428,45 @@ def _at_stake(
     return row
 
 
-def _serialise_leg(leg: CandidateLeg) -> dict:
+def _method_spread_points(leg: CandidateLeg) -> Optional[float]:
+    """How far the four devig readings sit apart, in percentage points.
+
+    The same figure `DispersionStrip` shows as its always-visible summary, and
+    for the same reason: it bounds how seriously any single reading deserves to
+    be taken. `None` on fewer than two solvable readings -- one reading is not
+    perfect agreement, it is one reading.
+    """
+    values = [v for v in leg.p_by_method.values() if v is not None]
+    if len(values) < 2:
+        return None
+    return (max(values) - min(values)) * 100
+
+
+def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
+    """One leg, with the provenance behind its number.
+
+    Until 2026-08-26 this returned the fair percent and nothing else -- one
+    number standing in for three separate choices (which devig method, which
+    books, how far the field spreads) on a screen that offers money decisions.
+    The slate row has carried all three since ADR 0051; the parlay card had
+    none of them.
+
+    **Fair beside COST is lawful here and nowhere else** (ADR 0070 s2.3): a
+    parlay's hold is the product being displayed. The two render in unlike
+    units on purpose -- ask through `format_price` (`34.2c`), fair through
+    `format_probability` (`60.2%`) -- because `core/prices.py:130-143` records
+    that a fair value set in the same type as a real ask is the one place a
+    left-to-right scan reads the wrong number as the thing you pay.
+
+    **No edge, EV, breakeven or size appears here**, and
+    `tests/test_parlays_api.py` walks the keys to keep it that way.
+    """
+    facts = facts or dict(_NO_FACTS)
+    # A spread leg has no `recommendations` row by construction, so "no
+    # verdict" means the checks did not run rather than that they passed.
+    skeptic = facts["skeptic"]
+    if skeptic == "absent" and leg.market == "spreads":
+        skeptic = "not_on_this_path"
     return {
         "ticker": leg.kalshi_market_ticker,
         # The lookup tap echoes both tickers back, so the server can refuse
@@ -436,10 +480,35 @@ def _serialise_leg(leg: CandidateLeg) -> dict:
         "market": leg.market,
         "point": leg.point,
         "fair_percent_display": _percent(leg.p_conservative),
+        # --- What Kalshi charges, beside what the consensus says it is worth.
+        "ask_display": facts["ask_display"],
+        "depth_at_ask": facts["depth_at_ask"],
+        "quote_age_ms": facts["quote_age_ms"],
+        # --- Where the fair number came from.
+        "method_spread_display": (
+            f"{_method_spread_points(leg):.1f} pts"
+            if _method_spread_points(leg) is not None
+            else None
+        ),
+        "book_count": leg.book_count,
+        "books_used": json.loads(leg.books_used_json or "[]"),
+        "market_width_display": (
+            f"{leg.market_width * 100:.1f} pts"
+            if leg.market_width is not None
+            else None
+        ),
+        # Neutral wording is the caller's job, and the reason is arithmetic:
+        # a sharp anchor selects AT MOST THREE books, so it is a thinner fair
+        # value rather than a better one (CLAUDE.md).
+        "anchored_on_sharp": leg.anchored_on_sharp,
+        "odds_age_ms": leg.odds_age_now_ms,
+        # --- What the twelve mechanical checks said, or why they are silent.
+        "skeptic": skeptic,
+        "suppressed_reason": facts["suppressed_reason"],
     }
 
 
-def _serialise_card(card: Card) -> dict:
+def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
     if card.not_built_reason is not None:
         return {
             "key": card.key,
@@ -460,7 +529,10 @@ def _serialise_card(card: Card) -> dict:
         "key": card.key,
         "title": card.title,
         "what_it_is": card.what_it_is,
-        "legs": [_serialise_leg(leg) for leg in card.legs],
+        "legs": [
+            _serialise_leg(leg, (facts or {}).get(leg.kalshi_market_ticker))
+            for leg in card.legs
+        ],
         "not_built_reason": None,
         "joint": {
             # The headline is the CONSERVATIVE joint: each leg at the lowest
@@ -486,10 +558,115 @@ def _serialise_card(card: Card) -> dict:
     }
 
 
-def serialise_ladder(ladder: Ladder, *, generated_ms: int) -> dict:
+#: What a leg's desk facts look like when nothing could be read. Every field
+#: absent rather than zeroed -- an ask of 0 is a free contract and a book count
+#: of 0 is "no consensus", and neither is what "we did not look" means.
+_NO_FACTS: dict = {
+    "ask_tenths": None,
+    "ask_display": None,
+    "depth_at_ask": None,
+    "quote_age_ms": None,
+    "skeptic": "absent",
+    "suppressed_reason": None,
+}
+
+
+def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
+    """Kalshi's own price and the skeptic's verdict, for the SELECTED legs.
+
+    **Two queries for the whole ladder, and the scope is the design.** These
+    facts are attached after `build_ladder` has chosen its legs -- at most six
+    per card across six cards, deduped to roughly fifteen tickers -- not to the
+    ~200 candidates the pool holds. Enriching the pool would put a per-row read
+    on a path that already runs every pass, which is the N+1 shape
+    `/api/slate` is separately being cured of.
+
+    The ask is DERIVED (`1000 - best NO bid`) through `ask_for_side`, the one
+    definition in this codebase, so an empty book resolves to `None` rather
+    than to the endpoint. A leg whose book is one-sided has no price you could
+    pay, and saying so is the point.
+
+    `skeptic` is three-valued, and the third value is why this is not a
+    boolean:
+
+        checked            a `recommendations` row exists; its verdict stands
+        not_on_this_path   a SPREAD leg. ADR 0070 keeps spread rows off the
+                           recommendations path entirely ("Fair rows only, no
+                           recommendations", `runner.py`), so the checks did
+                           not run and never will on this row
+        absent             a moneyline the engine has not priced
+
+    Rendering `not_on_this_path` as a blank would read as "the checks passed",
+    which is the flattering misreading of a measurement that never happened.
+    """
+    if not tickers:
+        return {}
+    unique = sorted(set(tickers))
+    placeholders = ",".join("?" * len(unique))
+
+    quotes = {
+        row["ticker"]: row
+        for row in conn.execute(
+            f"""
+            SELECT ticker, observed_ms, confirmed_ms, yes_bid_tenths,
+                   no_bid_tenths, no_bid_qty
+            FROM (
+              SELECT ticker, observed_ms, confirmed_ms, yes_bid_tenths,
+                     no_bid_tenths, no_bid_qty,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY ticker ORDER BY observed_ms DESC
+                     ) AS rn
+              FROM kalshi_quotes
+              WHERE ticker IN ({placeholders})
+            ) WHERE rn = 1
+            """,
+            unique,
+        ).fetchall()
+    }
+
+    suppressed = {
+        row["ticker"]: row["suppressed_reason"]
+        for row in conn.execute(
+            f"""
+            SELECT ticker, suppressed_reason FROM (
+              SELECT ticker, suppressed_reason,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY ticker ORDER BY created_ms DESC
+                     ) AS rn
+              FROM recommendations
+              WHERE ticker IN ({placeholders}) AND side = 'yes'
+            ) WHERE rn = 1
+            """,
+            unique,
+        ).fetchall()
+    }
+
+    out: dict[str, dict] = {}
+    for ticker in unique:
+        facts = dict(_NO_FACTS)
+        quote = quotes.get(ticker)
+        if quote is not None:
+            ask = ask_for_side(quote, "yes")
+            facts["ask_tenths"] = ask
+            facts["ask_display"] = format_price(ask) if ask is not None else None
+            facts["depth_at_ask"] = quote["no_bid_qty"]
+            # `confirmed_ms` when present: a quote re-observed and unchanged is
+            # current, not stale, and ADR 0055 only writes a row when it moves.
+            seen = quote["confirmed_ms"] or quote["observed_ms"]
+            facts["quote_age_ms"] = max(0, now_ms - seen) if seen else None
+        if ticker in suppressed:
+            facts["skeptic"] = "checked"
+            facts["suppressed_reason"] = suppressed[ticker]
+        out[ticker] = facts
+    return out
+
+
+def serialise_ladder(
+    ladder: Ladder, *, generated_ms: int, facts: Optional[dict] = None
+) -> dict:
     return {
         "generated_ms": generated_ms,
-        "cards": [_serialise_card(card) for card in ladder.cards],
+        "cards": [_serialise_card(card, facts) for card in ladder.cards],
         "excluded": ladder.excluded,
         "notes": dict(NOTES),
     }
@@ -847,6 +1024,13 @@ def build_ladder_payload(conn, *, now_ms: int, max_odds_age_ms: int) -> dict:
     merged = dict(ladder.excluded)
     for reason, n in excluded.items():
         merged[reason] = merged.get(reason, 0) + n
+    # The selected legs, not the candidate pool: at most six per card across
+    # six cards, deduped. `leg_facts` is two queries for the whole ladder.
+    selected = [
+        leg.kalshi_market_ticker for card in ladder.cards for leg in card.legs
+    ]
     return serialise_ladder(
-        Ladder(cards=ladder.cards, excluded=merged), generated_ms=now_ms
+        Ladder(cards=ladder.cards, excluded=merged),
+        generated_ms=now_ms,
+        facts=leg_facts(conn, selected, now_ms=now_ms),
     )

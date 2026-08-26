@@ -666,6 +666,18 @@ export async function priceParlay(
 }
 
 /** One leg of a parlay card: a game's YES side at its consensus chance. */
+/**
+ * One leg, with the provenance behind its number.
+ *
+ * Until 2026-08-26 this carried `fair_percent_display` and nothing else — one
+ * number standing in for three separate choices (which devig method, which
+ * books, how far the field spreads) on a screen that offers money decisions.
+ * The slate row has shown all three since ADR 0051.
+ *
+ * **Every added field is nullable and `null` never means zero.** An ask of 0
+ * is a free contract on an empty book, a book count of 0 is "no consensus",
+ * and neither is what "we could not read it" means. Render an em-dash.
+ */
 export type ParlayCardLeg = {
   ticker: string;
   event_ticker: string;
@@ -677,6 +689,35 @@ export type ParlayCardLeg = {
   market: string;
   point: number | null;
   fair_percent_display: string;
+  /** Kalshi's derived ask. `null` when the book is one-sided — no price to pay. */
+  ask_display: string | null;
+  depth_at_ask: number | null;
+  quote_age_ms: number | null;
+  /** How far the four devig readings sit apart. `null` on fewer than two. */
+  method_spread_display: string | null;
+  /** Books surviving ANCHORING, often far fewer than quoted. */
+  book_count: number | null;
+  books_used: string[];
+  market_width_display: string | null;
+  /**
+   * **Not a quality mark.** A sharp anchor selects at most three books, so it
+   * is a thinner fair value rather than a better one (CLAUDE.md). Word it
+   * neutrally or not at all.
+   */
+  anchored_on_sharp: boolean | null;
+  odds_age_ms: number | null;
+  /**
+   * `checked` — a recommendation row exists and its verdict stands.
+   * `not_on_this_path` — a spread leg; ADR 0070 keeps spread rows off the
+   *   recommendations path, so the checks did not run and never will.
+   * `absent` — a moneyline the engine has not priced.
+   *
+   * The third value exists because rendering `not_on_this_path` as a blank
+   * would read as "the checks passed", which is the flattering misreading of
+   * a measurement that never happened.
+   */
+  skeptic: "checked" | "not_on_this_path" | "absent";
+  suppressed_reason: string | null;
 };
 
 /** One preset stake, fully priced server-side (the no-arithmetic rule). */

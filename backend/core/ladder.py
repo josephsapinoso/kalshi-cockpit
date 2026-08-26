@@ -194,6 +194,26 @@ class CandidateLeg:
     p_conservative: float
     p_by_method: Mapping[str, Optional[float]]
     odds_age_now_ms: Optional[int]
+    # --- Provenance. All four ride on the `fair_prices` row the ladder query
+    # already reads, so carrying them costs one more column each and no query.
+    #
+    # They exist because a card used to say `58.2%` and nothing else. That is
+    # one number standing in for three separate choices -- which devig method,
+    # which books, and how far those books sat from each other -- exactly the
+    # gap `DispersionStrip` was built to close on the slate (ADR 0051) and
+    # which the parlay screen never had.
+    #: The books' own disagreement. Bounds how seriously one reading deserves
+    #: to be taken; `None` when it could not be computed.
+    market_width: Optional[float] = None
+    #: How many books survived ANCHORING, which is often far fewer than quoted.
+    book_count: Optional[int] = None
+    #: Which ones, by name. A JSON array on the row; parsed at serialisation.
+    books_used_json: Optional[str] = None
+    #: True when the consensus anchored on sharp books. **Not a quality mark.**
+    #: CLAUDE.md: a sharp anchor selects at most three books, so it is a
+    #: THINNER fair value rather than a better one, and the wording must never
+    #: imply otherwise.
+    anchored_on_sharp: Optional[bool] = None
 
 
 @dataclass(frozen=True)

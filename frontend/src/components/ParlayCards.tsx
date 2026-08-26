@@ -4,9 +4,11 @@ import { DISPLAY_TIME_ZONE, formatAge, formatDuration } from "@/lib/api";
 import type {
   ActionableWindow,
   ParlayCardData,
+  ParlayCardLeg,
   ParlayLadder,
   Refreshable,
 } from "@/lib/api";
+import { glossSentence } from "@/lib/suppressionGloss";
 import LeagueTag from "@/components/LeagueTag";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
@@ -138,9 +140,11 @@ function Card({ card }: { card: ParlayCardData }) {
                 <span className="tabular text-xs text-muted">
                   {leg.fair_percent_display}
                 </span>
+                <LegFacts leg={leg} />
               </li>
             ))}
           </ol>
+          <LegProvenance card={card} />
           {card.joint && (
             <p className="mt-2 text-xs text-muted">
               <Term k="fair_value">Fair value</Term>:{" "}
@@ -178,6 +182,135 @@ function Card({ card }: { card: ParlayCardData }) {
  * and is the only surface where it still is — this card prints fair value
  * and never Kalshi's ask, so ADR 0065's mask genuinely holds here.
  */
+/** An em-dash, so a missing fact keeps its column instead of shifting the rest. */
+const MISSING = "—";
+
+/**
+ * The four facts behind a leg's number, in a FIXED order on a second line.
+ *
+ * Order is the whole design: a reader scanning six legs compares by position,
+ * not by reading labels. So a fact that could not be read renders as an
+ * em-dash rather than vanishing — omitting it shifts the other three and
+ * destroys the scan, and it makes "unreadable" look like "not applicable".
+ *
+ * `null` is never rendered as zero. An ask of 0 is a free contract on an empty
+ * book, which is CLAUDE.md rule 1 exactly; a book count of 0 is "no
+ * consensus". Both mean the opposite of what a zero would suggest.
+ *
+ * **Ask and fair sit in unlike units on purpose** — `34.2c` against `60.2%` —
+ * because `core/prices.py` records that a fair value set in the same type as a
+ * real ask is the one place a left-to-right scan reads the wrong number as the
+ * thing you pay. Fair beside cost is lawful here and only here (ADR 0070 §2.3):
+ * a parlay's hold is the product being displayed.
+ */
+function LegFacts({ leg }: { leg: ParlayCardLeg }) {
+  return (
+    <span className="tabular w-full font-mono text-[11px] text-muted">
+      <span title="What Kalshi charges for this leg right now">
+        {leg.ask_display ? `Kalshi ${leg.ask_display}` : `Kalshi ${MISSING}`}
+      </span>
+      {" · "}
+      <span title="Books behind the consensus, after anchoring">
+        {leg.book_count === null ? MISSING : `${leg.book_count} books`}
+      </span>
+      {" · "}
+      <span title="How far the four devig readings sit apart">
+        {leg.method_spread_display ?? MISSING}
+      </span>
+      {" · "}
+      <span title="Age of the sportsbook consensus behind this leg">
+        {leg.odds_age_ms === null ? MISSING : formatAge(leg.odds_age_ms)}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The breakdown, behind one tap per CARD rather than per leg.
+ *
+ * The same shape `DispersionStrip` settled on: the magnitude stays visible at
+ * every width and what moves behind the tap is the breakdown, not the fact.
+ * Six legs times eight facts in the open is a wall at 390px, and ADR 0068's
+ * "nothing behind a reveal" governs the market page's five desk AREAS — the
+ * precedent on this very screen is that `LegBuys` is already a `<details>`.
+ */
+function LegProvenance({ card }: { card: ParlayCardData }) {
+  if (card.legs.length === 0) return null;
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer list-none font-mono text-[0.65rem] uppercase tracking-widest text-muted">
+        what the desk checked on each leg
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {card.legs.map((leg) => (
+          <li key={leg.ticker} className="text-[11px] leading-relaxed">
+            <span className="font-semibold">{leg.label}</span>
+            <span className="block text-muted">
+              {leg.book_count === null
+                ? "Book count unreadable."
+                : `${leg.book_count} book${leg.book_count === 1 ? "" : "s"}${
+                    leg.books_used.length
+                      ? `: ${leg.books_used.join(", ")}`
+                      : ""
+                  }.`}
+              {leg.anchored_on_sharp === true &&
+                " Anchored on sharp books, which selects at most three of them — a thinner reading, not a better one."}
+              {leg.market_width_display &&
+                ` Books disagree by ${leg.market_width_display}.`}
+              {leg.method_spread_display &&
+                ` The four devig methods span ${leg.method_spread_display}; the card uses the lowest.`}
+            </span>
+            <span className="block text-muted">
+              <SkepticNote leg={leg} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * What the twelve mechanical checks said, or why they are silent.
+ *
+ * **Three states, and the third is why this is not a boolean.** A spread leg
+ * has no `recommendations` row by construction (ADR 0070 keeps spread rows off
+ * that path entirely), so a blank would read as "the checks passed" — the
+ * flattering misreading of a measurement that never ran.
+ *
+ * The suppression code renders verbatim (ADR 0050): the code is the fact, and
+ * a translation would be a second definition of it.
+ */
+function SkepticNote({ leg }: { leg: ParlayCardLeg }) {
+  if (leg.skeptic === "not_on_this_path") {
+    return (
+      <>
+        This is a spread rung. The skeptic&apos;s checks run on the moneyline
+        path only, so they did not run here.
+      </>
+    );
+  }
+  if (leg.skeptic === "absent") {
+    return <>The engine has not priced this market, so there is no verdict.</>;
+  }
+  if (!leg.suppressed_reason) {
+    return <>The skeptic&apos;s checks raised nothing on this leg.</>;
+  }
+  // ADR 0050: the code renders VERBATIM and the gloss is its caption — a
+  // translation would be a second definition of the code. Both, never one:
+  // `tests/test_suppression_gloss.py` asserts that any file rendering the
+  // field also calls the gloss, because a bare identifier on a screen a
+  // beginner reads is not a reason, and this component shipped without it
+  // until that test said so.
+  const gloss = glossSentence(leg.suppressed_reason);
+  return (
+    <>
+      Skeptic: <code className="font-mono">{leg.suppressed_reason}</code>
+      {gloss && <span className="block">{gloss}</span>}
+    </>
+  );
+}
+
 function LegBuys({ card }: { card: ParlayCardData }) {
   if (card.legs.length === 0) return null;
   return (
