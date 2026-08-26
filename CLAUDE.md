@@ -286,8 +286,20 @@ the headroom is not. See
 This tool existed to find out whether an edge is there — not to assume one. **It
 found out. The answer was no, and the record of how is the product** (ADR 0038).
 This is a statement about what the **tool** may claim, and it reaches nothing
-Joe does by hand: the gate guards `OrderPlacer`, and `ORDERS_ARE_DRY_RUNS = True`
-(`backend/store/orders.py:129`) means the tool has never placed an order at all.
+Joe does by hand: the gate guards `OrderPlacer` on the *engine* path, and
+`ORDERS_ARE_DRY_RUNS = True` (`backend/store/orders.py:129`) means that path has
+never placed an order at all.
+
+**The hand-bet path is armed, and that is not the same door.** Since 2026-08-26
+`MANUAL_ORDERS_ARE_DRY_RUNS = False` (`backend/store/manual_orders.py`) and
+`MANUAL_ORDERS_ENABLED = "true"` on live, so `POST /api/manual-orders` sends
+real immediate-or-cancel orders — one contract at a time, at Joe's own tap, with
+his own typed estimate and order token. ADR 0063 built it as a **separate**
+route, table and constant precisely so this sentence stays true: **`gate.py`
+never reads `manual_orders`**, so a hand bet cannot move the live-trading
+interlock's 300-game counter, and arming it did not arm the engine. Anything
+claiming "the tool has never placed an order" without that distinction is
+describing the state before 2026-08-26. See ADR 0073.
 **Do not cite ADR 0018 for this** — it decides that arming is a code change, not
 anything about Joe's discretion; see ADR 0038's sourcing correction.
 

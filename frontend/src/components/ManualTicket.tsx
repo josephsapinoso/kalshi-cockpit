@@ -466,6 +466,22 @@ function TicketBody({
           " · this path runs DRY — the order is recorded, not sent"}
       </p>
 
+      {/* The one moment the reader has to know money moves, said BEFORE the
+          confirm rather than in the receipt after it. The server's own
+          `note` says it too, but by then the order has gone. Rendered only
+          when the path is armed, so it cannot become wallpaper: while
+          `dry_run` is true the line above says the opposite, and a screen
+          that warns about both states warns about neither. */}
+      {!market.dry_run && (
+        <p className="max-w-[65ch] rounded-xl border border-accent/50 bg-accent-soft px-3 py-2 text-xs leading-relaxed">
+          <span className="font-semibold">This spends real money.</span>{" "}
+          Confirming sends the order to Kalshi immediately, at the live{" "}
+          <Term k="ask">ask</Term>, and this tool has no way to cancel one —
+          it fills or it is killed. All of it is lost if the market settles
+          the other way.
+        </p>
+      )}
+
       {note && <p className="max-w-[65ch] text-xs text-muted">{note}</p>}
 
       <div className="flex flex-wrap items-center gap-4">

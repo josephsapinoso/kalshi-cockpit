@@ -19,6 +19,7 @@ WHAT THIS DOES NOT ESTABLISH
 
 from __future__ import annotations
 
+import ast
 import re
 import sqlite3
 import time
@@ -172,8 +173,28 @@ class TestTheDoorIsUnreachableExceptOnPurpose:
         assert ManualOrderConfig().enabled is False
 
 
+@pytest.fixture
+def records_only(monkeypatch):
+    """Run the route's recording path instead of its sending path.
+
+    The deployed constant is False since 2026-08-26 (the path is armed), so a
+    test driving the happy path asks for a REST client -- which `conftest.py`
+    makes impossible by removing the credentials, giving a 503 rather than an
+    order. That refusal is asserted on its own in
+    `TestTheArmedPathCannotReachTheVenueFromATest`.
+
+    Everything ELSE the route does is unchanged by arming: the twelve checks,
+    the reserve-then-check write, the idempotency replay, the cool-off it
+    starts. Those are what the tests below are about, so they pin the constant
+    to True and exercise the same code with the POST short-circuited -- which
+    is precisely the property `kalshi/orders.py` claims for a dry run ("a dry
+    run builds the identical request body ... and writes the identical row").
+    """
+    monkeypatch.setattr(manual_store, "MANUAL_ORDERS_ARE_DRY_RUNS", True)
+
+
 class TestTheHappyPathRunsDry:
-    async def test_a_dry_run_is_recorded_and_says_so(self, tmp_path):
+    async def test_a_dry_run_is_recorded_and_says_so(self, tmp_path, records_only):
         path = _base_db(tmp_path)
         app = _app(path)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
@@ -194,7 +215,9 @@ class TestTheHappyPathRunsDry:
         assert row["p_yes_bp"] == 7000
         assert row["dry_run"] == 1
 
-    async def test_a_duplicate_key_replays_the_first_answer(self, tmp_path):
+    async def test_a_duplicate_key_replays_the_first_answer(
+        self, tmp_path, records_only
+    ):
         path = _base_db(tmp_path)
         app = _app(path)
         first = (await post(app, "/api/manual-orders", json=_body(), headers=AUTH)).json()
@@ -211,7 +234,7 @@ class TestTheHappyPathRunsDry:
 
 
 class TestTheGuardsRefuse:
-    async def test_a_second_order_hits_the_cooloff(self, tmp_path):
+    async def test_a_second_order_hits_the_cooloff(self, tmp_path, records_only):
         """Mutation observed red: the cool-off check dropped from the route."""
         path = _base_db(tmp_path)
         app = _app(path)
@@ -265,7 +288,9 @@ class TestTheGuardsRefuse:
         assert response.status_code == 422
         assert "capped at 1 contract" in response.json()["detail"]
 
-    async def test_an_acknowledged_combo_reaches_the_book(self, tmp_path):
+    async def test_an_acknowledged_combo_reaches_the_book(
+        self, tmp_path, records_only
+    ):
         """The acknowledgement opens the door; the book is what decides.
         The stub quotes a two-sided combo, which the record says is rare —
         the point of this test is that step 4 no longer refuses on the
@@ -492,9 +517,115 @@ class TestTheSeparationIsArchitecture:
             "keyless instance would then refuse where it works today"
         )
 
-    def test_the_constant_is_true(self):
-        """Arming is a code change (ADR 0063 §3), and it has not happened."""
-        assert manual_store.MANUAL_ORDERS_ARE_DRY_RUNS is True
+    def test_the_manual_path_is_armed_and_the_engine_path_is_not(self):
+        """The two doors have separate switches, and only one is open.
+
+        This test asserted `MANUAL_ORDERS_ARE_DRY_RUNS is True` until
+        2026-08-26, when Joe armed the manual path. The assertion is not
+        weakened to make that pass -- it is **re-pointed at the property that
+        still has to hold**: arming one door must not arm the other. The
+        engine's path is gated by ADR 0015's 300-game evidence floor, and no
+        act of Joe's discretion may open it (ADR 0063 §2's hardest rule is the
+        same boundary, drawn on populations rather than on switches).
+
+        If this file ever needs to say the manual path is dry again, that is a
+        disarm: set the constant back to True and change the assertion below in
+        the same commit."""
+        assert manual_store.MANUAL_ORDERS_ARE_DRY_RUNS is False, (
+            "the manual path was disarmed without updating this pin"
+        )
+        from backend.store.orders import ORDERS_ARE_DRY_RUNS
+
+        assert ORDERS_ARE_DRY_RUNS is True, (
+            "the ENGINE path is armed; ADR 0015 and ADR 0018 both say that "
+            "takes the gate's 300 scored games, not a hand-bet decision"
+        )
+
+    def test_neither_switch_can_be_moved_by_the_environment(self):
+        """Both are module constants (ADR 0018: "no environment read, no
+        config object, no override"), so arming stays a commit and a deploy
+        rather than something a secret can do at 2am."""
+        for module in ("manual_orders", "orders"):
+            source = (REPO / "backend" / "store" / f"{module}.py").read_text(
+                encoding="utf-8"
+            )
+            for name in ("ARE_DRY_RUNS = ",):
+                assignments = [
+                    line for line in source.splitlines() if name in line
+                ]
+                assert len(assignments) == 1, (module, assignments)
+                assert assignments[0].split("=")[1].strip() in ("True", "False")
+            # Code only. The first draft scanned the whole file and went red on
+            # a COMMENT that used the word "environment" -- a source scan that
+            # reads prose is a scan whose population includes the argument for
+            # the rule it is enforcing.
+            code = ast.parse(source)
+            reads = [
+                node
+                for node in ast.walk(code)
+                if isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "os"
+            ]
+            assert not reads, (
+                f"{module} reads the environment; both switches are module "
+                f"constants by ADR 0018, so that a secret cannot arm anything"
+            )
+
+
+class TestTheArmedPathCannotReachTheVenueFromATest:
+    """The suite is structurally incapable of sending an order.
+
+    From 2026-08-26 the deployed constant is False, so the happy path asks for
+    a REST client. `conftest.py::no_live_kalshi_credentials` removes
+    `KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH` for every test, so
+    `KalshiConfig.load()` raises and the route answers 503 **before** anything
+    is written or sent.
+
+    Without that fixture, running this suite on the machine that holds `.env`
+    would have placed a real immediate-or-cancel order on the exchange. That is
+    the single worst failure this repo could have, and it is why the guard is
+    asserted here rather than left as a property of a conftest nobody reads.
+    """
+
+    async def test_the_route_refuses_and_says_nothing_was_sent(self, tmp_path):
+        """Mutation observed red: drop the `delenv` calls from the fixture (on
+        a machine with credentials this then places a REAL order, so the
+        mutation is run by DELETING the env vars' source, never by restoring
+        them)."""
+        path = _base_db(tmp_path)
+        app = _app(path)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 503, response.text
+        detail = response.json()["detail"]
+        assert "no Kalshi credentials" in detail
+        assert "Nothing was sent" in detail
+
+    async def test_the_refusal_writes_no_row_that_could_read_as_a_bet(
+        self, tmp_path
+    ):
+        """The credentials check runs BEFORE `reserve_manual_order`, so a
+        refused request leaves the record untouched — no pending row to
+        reconcile, and no exposure held against a bet that never existed."""
+        path = _base_db(tmp_path)
+        app = _app(path)
+        await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        conn = sqlite3.connect(path)
+        count = conn.execute("SELECT COUNT(*) FROM manual_orders").fetchone()[0]
+        conn.close()
+        assert count == 0
+
+    def test_the_credential_fixture_is_autouse(self):
+        """Pinned on the source: an opt-in guard against sending real money is
+        a guard that the one test which forgets it does not have."""
+        source = (REPO / "conftest.py").read_text(encoding="utf-8")
+        block = source[source.index("def no_live_kalshi_credentials"):]
+        marker = source[: source.index("def no_live_kalshi_credentials")]
+        assert marker.rstrip().endswith("@pytest.fixture(autouse=True)"), (
+            "no_live_kalshi_credentials is no longer autouse"
+        )
+        assert 'delenv("KALSHI_API_KEY"' in block
+        assert 'delenv("KALSHI_PRIVATE_KEY_PATH"' in block
 
 
 class TestAnEmptyBookIsNotAFreeContract:
@@ -553,7 +684,10 @@ class TestTheManualMarketRead:
         assert body["p_yes_required"] is True
         assert body["sides"]["yes"]["ask_tenths"] == 450
         assert body["sides"]["yes"]["authorised_contracts"] >= 1
-        assert body["dry_run"] is True
+        # The read reports the DEPLOYED value, not a fixture's preference: the
+        # ticket renders "this path runs DRY" off this field, and a screen that
+        # says dry while the route sends is the worst wrong answer available.
+        assert body["dry_run"] is False
 
     async def test_an_unknown_ticker_is_a_404(self, tmp_path):
         quotes = StubQuotes(

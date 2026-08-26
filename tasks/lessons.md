@@ -25,6 +25,42 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-26 — `load_dotenv()` makes the whole test suite a credential holder, and arming is what turns that into spending
+
+A repo-root `conftest.py` deleted `ANTHROPIC_API_KEY` for every test, with a
+docstring explaining exactly why: `backend/config.py` calls `load_dotenv()` at
+import, every test imports it, so the owner's `.env` was in `os.environ` for the
+whole suite and a test could bill a real API call.
+
+The same sentence was true of `KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH`,
+and nobody had written the second fixture — because at the time no production
+code path could ask for a live order client during a test. The dry-run constant
+made it unreachable. **Flipping that constant to arm the path silently turned
+`pytest` on the owner's machine into something that could send a real order to
+the exchange.**
+
+**The pattern: a guard that is load-bearing only in one configuration is
+untested in the configuration where it matters, and the flag flip that changes
+the configuration does not look like it touches the guard.** The diff was one
+literal. Its blast radius was every test that drives the route.
+
+Two things to carry.
+
+**Before flipping any switch that arms a real-world effect, ask what in the test
+environment is currently prevented only by the switch being off.** Not "what
+does this change in production" — production is the part everyone reviews. The
+question is what the *suite* was allowed to do because the dangerous path was
+unreachable.
+
+**And the fixture must fail, not succeed quietly.** The tempting alternative
+here was `KALSHI_PUBLIC_READ_ONLY=true`, which hands every test a config object
+that loads fine. That is worse: it removes the exception that tells you a test
+just asked for credentials. The right shape is the one that raises at the first
+call, so the answer to "which tests wanted a live client?" is a list of red
+tests rather than silence.
+
+---
+
 ## 2026-08-26 — A source-scan pin measures what it can still match, and it goes quiet rather than red
 
 A test read `routes.py` and asserted that every `OrderPlacer(dry_run=...)`
@@ -2318,6 +2354,7 @@ is a script and not a judgement.
 
 ### 2026-08-26 — in this file, above
 
+- `load_dotenv()` makes the whole test suite a credential holder, and arming is what turns that into spending
 - A source-scan pin measures what it can still match, and it goes quiet rather than red
 - Pin a guard on the decision it changes, never on the string it prints
 - A derived value inherits its source's absence as an extreme, not as a gap

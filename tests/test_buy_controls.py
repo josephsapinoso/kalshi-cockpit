@@ -165,6 +165,24 @@ class TestTheComboAcknowledgementGatesTheConfirm:
             "the confirm no longer requires the combination acknowledgement"
         )
 
+    def test_the_armed_state_warns_before_the_confirm_not_after(self):
+        """The path is armed (2026-08-26), so the ticket has to say money
+        moves BEFORE the confirm — the server's note says it in the receipt,
+        by which time the order has gone. Rendered only when `dry_run` is
+        false, so it cannot become wallpaper.
+
+        Mutation observed red: drop the `!market.dry_run` block."""
+        ticket = source("components/ManualTicket.tsx")
+        body = ticket[ticket.index("function TicketBody"):]
+        assert "!market.dry_run &&" in body, (
+            "the ticket no longer distinguishes the armed state before the "
+            "confirm"
+        )
+        warning = body[body.index("!market.dry_run &&"):]
+        warning = warning[: warning.index("</p>")]
+        assert "spends real money" in warning
+        assert "no way to cancel" in warning
+
     def test_the_size_ceiling_comes_from_the_server(self):
         """`max_contracts` is served so the client cannot hold a stale copy
         of a constant that exists to be raised deliberately."""

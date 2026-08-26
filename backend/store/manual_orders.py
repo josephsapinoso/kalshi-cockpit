@@ -42,7 +42,32 @@ logger = logging.getLogger(__name__)
 # ORDERS_ARE_DRY_RUNS is for the engine path (ADR 0018's pattern): flipping
 # it requires a commit and a deploy, and tests/test_manual_orders.py pins
 # that no production call site passes anything else.
-MANUAL_ORDERS_ARE_DRY_RUNS = True
+#
+# ARMED 2026-08-26, on Joe's word, in his own message: "I already got money in
+# kalshi. Flip it, commit and deploy." Both of ADR 0063's blocking
+# prerequisites were discharged first -- the daily-loss switch reads
+# `venue_settlements` (ADR 0064), and the C0 probe observed a real create-order
+# response on 2026-08-23 (`tests/fixtures/create_order_responses.json`) -- and
+# ADR 0018's second barrier, a REST client on the placer, was wired in
+# `b2f2d14` rather than left for this commit to remember.
+#
+# **This is the line that spends money.** From here `POST /api/manual-orders`
+# sends a real immediate-or-cancel order to the exchange. What still bounds it,
+# all server-side and none of it waivable from a client: MANUAL_ORDERS_ENABLED
+# plus `instance_mode == "live"`, the desk lockout, the ten-minute cool-off,
+# the daily-loss switch over the venue's own settlement record, caps derived
+# from the observed balance and never typed, the price ceiling refused rather
+# than re-priced, the depth check, the netting refusal on any existing
+# position, MANUAL_ORDER_MAX_CONTRACTS below, and the reserve-then-check write
+# that records the intent BEFORE the request leaves.
+#
+# The engine's path is untouched and stays dry: `ORDERS_ARE_DRY_RUNS` is still
+# True, `gate.py` still never reads this table, and nothing here moves the
+# live-trading interlock's populations.
+#
+# To disarm, set this back to True and deploy. One line, revertible on its own,
+# which is why it landed in a commit of its own.
+MANUAL_ORDERS_ARE_DRY_RUNS = False
 
 STATUS_PENDING = "pending"
 

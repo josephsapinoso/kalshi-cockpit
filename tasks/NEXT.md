@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26 (buy-control session): 4,451 passed / 10 xfailed.**
+**Test baseline, re-measured 2026-08-26 (arming): 4,456 passed / 10 xfailed.**
 Do not inherit it — this line has been wrong in the same direction three times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
 landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
@@ -59,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,451 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,456 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -184,19 +184,51 @@ rounded to cents (the two fee models differ by $0.0002 at one contract, which
 of its `<summary>`. ruff clean, tsc clean, `next build` green, 0px horizontal
 overflow at 390 and 1280.
 
-**FOR JOE — the two things only you can do:**
+### ARMED, 2026-08-26 — the manual path sends real orders
 
-1. **Fund the account, or arming produces a dead button.** Caps derive from the
-   observed venue balance (ADR 0045) and never from a typed number. **Read off
-   live at 12:05Z, after this deployed: `max_position_dollars` $0.54,
-   `max_exposure_dollars` $2.16** — so a balance around $5.40, not the $2.56
-   this file carried from an older reading. Armed today, one contract is
-   affordable only up to about 52c after fees, and nothing larger is buyable at
-   all. Re-read it rather than quoting these:
-   `/api/manual/market/{ticker}` serves the `caps` block.
-2. **Say when to flip `MANUAL_ORDERS_ARE_DRY_RUNS`.** Everything else is done:
-   the C0 probe is discharged, the REST client is wired, the 1-contract ceiling
-   binds. It is one commit and a deploy, revertible alone, and it is yours.
+**Joe funded the account and said: "I already got money in kalshi. Flip it,
+commit and deploy."** `MANUAL_ORDERS_ARE_DRY_RUNS = False` shipped in its own
+commit. **`POST /api/manual-orders` now sends real immediate-or-cancel orders
+to the exchange**, one contract at a time, at his tap, with his own typed
+estimate and order token.
+
+**The engine path is untouched and stays dry.** `ORDERS_ARE_DRY_RUNS` is still
+True, `gate.py` still never reads `manual_orders`, and
+`test_the_manual_path_is_armed_and_the_engine_path_is_not` pins both halves —
+that test used to assert the manual constant was True and was **re-pointed, not
+weakened**, at the property that still has to hold.
+
+**Arming forced a guard that should have existed already, and it is the most
+important line in this entry.** `load_dotenv()` puts `.env` into `os.environ`
+for the whole suite, so `KalshiConfig.load()` inside a test returned **real
+signed credentials** on this machine. Harmless while nothing in production could
+ask for a live `OrderPlacer` during a test — which is exactly what arming
+changes. Without the fix, running `pytest` here would have **sent a real order
+to the exchange**. `conftest.py::no_live_kalshi_credentials` now removes
+`KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH` for every test; the route answers
+503 and writes no row. Pinned, autouse-ness included, by
+`TestTheArmedPathCannotReachTheVenueFromATest`. **Do not remove it, and do not
+reach for `KALSHI_PUBLIC_READ_ONLY` in conftest as a tidier alternative** — a
+config object that succeeds is the opposite of what the fixture is for.
+
+The ticket now says **"This spends real money"** above the confirm, naming that
+the order goes at the live ask and that this tool cannot cancel one. It renders
+only while armed, so it cannot become wallpaper.
+
+**To disarm:** set the constant back to True, update that one pin, deploy. One
+line, revertible alone — which is why it landed on its own.
+
+**FOR JOE — what is yours now:**
+
+1. **Caps still come from the balance, never from a number you type**
+   (ADR 0045). Before the deposit they read `max_position_dollars` $0.54,
+   `max_exposure_dollars` $2.16. **Re-read them rather than quoting those** —
+   `/api/manual/market/{ticker}` serves the `caps` block, and a figure in prose
+   is a measurement with no timestamp.
+2. **Raising the 1-contract ceiling is the next decision, and it has a
+   trigger.** ADR 0063: raised *"only when observed `fee_actual` matches
+   `fee_predicted` on real fills"*. Your first real fills are what supply that;
+   until then `MANUAL_ORDER_MAX_CONTRACTS = 1` stands.
 
 **Open:** the per-row "Pass" affordance on the slate (still); the scheduled
 parlay card plus debounce from the entry below; a `GoodChancePicks` buy control

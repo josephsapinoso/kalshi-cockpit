@@ -49,6 +49,37 @@ def no_live_agent_calls(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_live_kalshi_credentials(monkeypatch):
+    """No test may hold Kalshi credentials, whatever is in the environment.
+
+    Same mechanism as `no_live_agent_calls` above, and a strictly worse failure
+    if it is missing. `load_dotenv()` at `backend/config.py` import time puts
+    `.env` into `os.environ` for the whole suite, so on the owner's machine
+    `KalshiConfig.load()` inside a test returned **real, signed credentials**.
+
+    That was survivable only while no production code path could ask for a live
+    `OrderPlacer` during a test. It stopped being survivable on 2026-08-26,
+    when `MANUAL_ORDERS_ARE_DRY_RUNS` was set to False: from that commit the
+    manual route builds a REST client and POSTs, so a test driving the happy
+    path on a machine holding `.env` would have **sent a real order to the
+    exchange**. Not hypothetical -- this suite runs on the machine with the key.
+
+    So both credential variables are removed for every test.
+    `KalshiConfig.load()` then raises `ConfigError` (`_require` on
+    `KALSHI_PRIVATE_KEY_PATH`), the route words it as a 503, and nothing
+    reaches the venue. A test that wants the armed path injects its own fake
+    client and asserts on that.
+
+    `KALSHI_PUBLIC_READ_ONLY` is deliberately NOT set here. Setting it would
+    hand every test a config object that succeeds, which is the opposite of the
+    intent: asking for credentials inside a test must **fail**, at the first
+    call, loudly.
+    """
+    monkeypatch.delenv("KALSHI_API_KEY", raising=False)
+    monkeypatch.delenv("KALSHI_PRIVATE_KEY_PATH", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def odds_sweep_cost_is_supplied_not_ambient(monkeypatch):
     """The sweep cost is pinned to the deployed contract, for every test.
 

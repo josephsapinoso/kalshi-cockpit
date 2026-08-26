@@ -194,12 +194,38 @@ Two acts, and this ADR performs one of them.
   separate commit, revertible alone. The assistant does not place an order on
   his behalf and did not.
 
+**Addendum — the second act happened the same day.** Joe funded the account and
+said, in his own words, *"I already got money in kalshi. Flip it, commit and
+deploy."* `MANUAL_ORDERS_ARE_DRY_RUNS = False` shipped in its own commit, as
+this section said it would, and **the path is armed on live from 2026-08-26.**
+Both of ADR 0063's blocking prerequisites were discharged beforehand (the
+daily-loss switch over `venue_settlements`, ADR 0064; the C0 probe, 2026-08-23),
+and ADR 0018's second barrier was already wired. The assistant still places no
+order: every one is Joe typing his own estimate, his own order token, and
+confirming.
+
+**Arming forced one guard that did not exist and should have.** `load_dotenv()`
+puts `.env` into `os.environ` for the whole test suite, so `KalshiConfig.load()`
+inside a test returned real signed credentials on the owner's machine. That was
+harmless only while no production path could ask for a live `OrderPlacer`
+during a test — which is exactly what arming changes. From the same commit,
+`conftest.py::no_live_kalshi_credentials` removes both credential variables for
+every test, so the route answers 503 and **the suite is structurally incapable
+of sending an order**. Pinned by
+`tests/test_manual_orders.py::TestTheArmedPathCannotReachTheVenueFromATest`,
+including that the fixture is `autouse`.
+
+**And one screen change.** While the path was dry the ticket said so on the
+size line; armed, it says *"This spends real money"* above the confirm, naming
+that the order goes at the live ask and that this tool has no way to cancel one.
+The server's own note says the same thing in the receipt — by which time the
+order has gone. It renders only when armed, so it cannot become wallpaper.
+
 **The thing arming cannot fix.** Caps derive from the observed venue balance
-(ADR 0045) and never from a typed number. Read off live immediately after this
-shipped: **`max_position_dollars` $0.54, `max_exposure_dollars` $2.16** — armed
-today, a single contract is affordable only up to about 52c after fees and
-nothing larger is buyable at all. That is a deposit, not a code change, and no
-edit to this ADR moves it.
+(ADR 0045) and never from a typed number. Read off live before the deposit:
+`max_position_dollars` $0.54, `max_exposure_dollars` $2.16. Re-read the `caps`
+block rather than quoting those — the balance moves, and a figure in prose is a
+measurement with no timestamp.
 
 ## 7. Rejected, with reasons
 
