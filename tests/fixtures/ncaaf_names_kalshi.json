@@ -1,0 +1,2717 @@
+{
+  "captured_note": "Reduced capture: team names and kickoff only, for alias resolution. No prices, no market payloads.",
+  "events": [
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27METOWS",
+      "commence_ms": 1787878800000,
+      "teams": [
+        "Towson",
+        "Maine"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27MHUYSU",
+      "commence_ms": 1787878800000,
+      "teams": [
+        "Youngstown St.",
+        "Mercyhurst"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27OHDUMORE",
+      "commence_ms": 1787878800000,
+      "teams": [
+        "Morehead St.",
+        "Ohio Dominican Panthers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27STONDSU",
+      "commence_ms": 1787878800000,
+      "teams": [
+        "Delaware St.",
+        "Stony Brook"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27AUSCFUR",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Furman",
+        "Anderson (SC) Trojans"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27CHATUWGA",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "West Georgia",
+        "Chattanooga"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27CHSOLINW",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Lindenwood",
+        "Charleston Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27CUWVDAV",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Davidson",
+        "Concord Mountain Lions"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27EIUMURR",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Murray St.",
+        "Eastern Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27GSCELON",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Elon",
+        "Glenville State College Pioneers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27HCUSELA",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Southeastern Louisiana",
+        "Houston Christian"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27LAFGTWN",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Georgetown",
+        "Lafayette"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27MVSUNICH",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Nicholls St.",
+        "Mississippi Valley St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27NWIAWIU",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Western Illinois",
+        "Northwestern (IA) Red Raiders"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27SIUUWFL",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "West Florida Argonauts",
+        "Southern Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27UVAWPRE",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Presbyterian",
+        "UVA Wise Cavaliers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27WEBBPEAY",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "Austin Peay",
+        "Gardner-Webb"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27WSUUST",
+      "commence_ms": 1787882400000,
+      "teams": [
+        "St. Thomas",
+        "Winona State Warriors"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27CARKUTM",
+      "commence_ms": 1787884200000,
+      "teams": [
+        "Tennessee-Martin",
+        "Central Arkansas"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27SDSMTDRKE",
+      "commence_ms": 1787884200000,
+      "teams": [
+        "Drake",
+        "South Dakota Mines Hardrockers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27LCNWST",
+      "commence_ms": 1787886000000,
+      "teams": [
+        "Northwestern St.",
+        "Louisiana Christian Wildcats"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG27LIUUND",
+      "commence_ms": 1787886000000,
+      "teams": [
+        "North Dakota",
+        "LIU"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28COLGFOR",
+      "commence_ms": 1787965200000,
+      "teams": [
+        "Fordham",
+        "Colgate"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28MRSTNHC",
+      "commence_ms": 1787965200000,
+      "teams": [
+        "New Haven",
+        "Marist"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28URIMRMK",
+      "commence_ms": 1787965200000,
+      "teams": [
+        "Merrimack",
+        "Rhode Island"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28WMVILL",
+      "commence_ms": 1787965200000,
+      "teams": [
+        "Villanova",
+        "William & Mary"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28UNHALBY",
+      "commence_ms": 1787968800000,
+      "teams": [
+        "University at Albany",
+        "New Hampshire"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28WEBUNCO",
+      "commence_ms": 1787976000000,
+      "teams": [
+        "Northern Colorado",
+        "Weber St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG28IDHOCP",
+      "commence_ms": 1787979600000,
+      "teams": [
+        "Cal Poly",
+        "Idaho"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29FMSUDAY",
+      "commence_ms": 1788030000000,
+      "teams": [
+        "Dayton",
+        "Fairmont State Fighting Falcons"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29RMUWAG",
+      "commence_ms": 1788030000000,
+      "teams": [
+        "Wagner",
+        "Robert Morris"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29UNCTCU",
+      "commence_ms": 1788030000000,
+      "teams": [
+        "TCU",
+        "North Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29GCBUT",
+      "commence_ms": 1788033600000,
+      "teams": [
+        "Butler",
+        "Georgetown College Tigers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29HAWSTAN",
+      "commence_ms": 1788033600000,
+      "teams": [
+        "Stanford",
+        "Hawai'i"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29NMSUFSU",
+      "commence_ms": 1788033600000,
+      "teams": [
+        "Florida St.",
+        "New Mexico St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SJSUUSC",
+      "commence_ms": 1788033600000,
+      "teams": [
+        "USC",
+        "San Jose St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29CCSUSDAK",
+      "commence_ms": 1788037200000,
+      "teams": [
+        "South Dakota",
+        "Central Connecticut St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29LAWTVALP",
+      "commence_ms": 1788037200000,
+      "teams": [
+        "Valparaiso",
+        "Lawrence Tech Blue Devils"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SOUALST",
+      "commence_ms": 1788040800000,
+      "teams": [
+        "Alabama St.",
+        "Southern University"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29UCDPRST",
+      "commence_ms": 1788040800000,
+      "teams": [
+        "Portland St.",
+        "UC Davis"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29LEHHC",
+      "commence_ms": 1788042600000,
+      "teams": [
+        "Holy Cross",
+        "Lehigh"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29NCSTUVA",
+      "commence_ms": 1788042600000,
+      "teams": [
+        "Virginia",
+        "North Carolina St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29EWUNAU",
+      "commence_ms": 1788048000000,
+      "teams": [
+        "Northern Arizona",
+        "Eastern Washington"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29CAMPETSU",
+      "commence_ms": 1788049800000,
+      "teams": [
+        "East Tennessee St.",
+        "Campbell"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29JVSTNDSU",
+      "commence_ms": 1788049800000,
+      "teams": [
+        "North Dakota St.",
+        "Jacksonville St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29BRYSTNH",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Stonehill",
+        "Bryant"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29BUCKRICH",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Richmond",
+        "Bucknell"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29CITWOF",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Wofford",
+        "The Citadel"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MORGNCAT",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "North Carolina A&T",
+        "Morgan St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SAVSCST",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "South Carolina St.",
+        "Savannah State Tigers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SEMOINST",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Indiana St.",
+        "Southeast Missouri St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29VLBHAMP",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Hampton",
+        "Virginia-Lynchburg Dragons"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29VMIIDST",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Idaho St.",
+        "VMI"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29WSSUNORF",
+      "commence_ms": 1788051600000,
+      "teams": [
+        "Norfolk St.",
+        "Winston-Salem State Rams"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SACEMU",
+      "commence_ms": 1788053400000,
+      "teams": [
+        "Eastern Michigan",
+        "Sacramento St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29ACLAM",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Lamar",
+        "Abilene Christian"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29ALSUFAMU",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Florida A&M",
+        "Albany State Golden Rams"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29CAUGRAM",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Grambling St.",
+        "Clark Atlanta Panthers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29EKYWCU",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Western Carolina",
+        "Eastern Kentucky"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29ETAMMER",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Mercer",
+        "East Texas A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MCARPB",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Arkansas-Pine Bluff",
+        "Morehouse Maroon Tigers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MILESALCN",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Alcorn St.",
+        "Miles Golden Bears"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MONMTNTC",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Tennessee Tech",
+        "Monmouth"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29NCCUTXSO",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Texas Southern",
+        "North Carolina Central"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29OPSUIW",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Incarnate Word",
+        "Oklahoma Panhandle State Aggies"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SAMUNA",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "North Alabama",
+        "Samford"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SFAMCNS",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "McNeese",
+        "Stephen F. Austin"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SFILILST",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "Illinois St.",
+        "St. Francis (IL) Fighting Saints"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29STETSDST",
+      "commence_ms": 1788055200000,
+      "teams": [
+        "South Dakota St.",
+        "Stetson"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29AAMUHOW",
+      "commence_ms": 1788057000000,
+      "teams": [
+        "Howard",
+        "Alabama A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29UTPBUTRGV",
+      "commence_ms": 1788058800000,
+      "teams": [
+        "UT Rio Grande Valley",
+        "Texas Permian Basin Falcons"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29JKSTTNST",
+      "commence_ms": 1788060600000,
+      "teams": [
+        "Tennessee St.",
+        "Jackson St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29PVTARL",
+      "commence_ms": 1788062400000,
+      "teams": [
+        "Tarleton St.",
+        "Prairie View A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29SUUMONT",
+      "commence_ms": 1788062400000,
+      "teams": [
+        "Montana",
+        "Southern Utah"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MEMUNLV",
+      "commence_ms": 1788066000000,
+      "teams": [
+        "UNLV",
+        "Memphis"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26AUG29MTSTUTU",
+      "commence_ms": 1788066000000,
+      "teams": [
+        "Utah Tech",
+        "Montana St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03KCUMORE",
+      "commence_ms": 1788483600000,
+      "teams": [
+        "Morehead St.",
+        "Kentucky Christian Knights"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03MASSRUTG",
+      "commence_ms": 1788483600000,
+      "teams": [
+        "Rutgers",
+        "UMass"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03AKRWAKE",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Wake Forest",
+        "Akron"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03ALBYBUFF",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Buffalo",
+        "University at Albany"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03COOKUCF",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "UCF",
+        "Bethune-Cookman"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03LINWSTON",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Stony Brook",
+        "Lindenwood"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03MRMKDEL",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Delaware",
+        "Merrimack"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03SIUSAM",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Samford",
+        "Southern Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03UWGAKENN",
+      "commence_ms": 1788487200000,
+      "teams": [
+        "Kennesaw St.",
+        "West Georgia"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03ARPBMIZZ",
+      "commence_ms": 1788490800000,
+      "teams": [
+        "Missouri",
+        "Arkansas-Pine Bluff"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03COLOGT",
+      "commence_ms": 1788490800000,
+      "teams": [
+        "Georgia Tech",
+        "Colorado"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03EIUMINN",
+      "commence_ms": 1788490800000,
+      "teams": [
+        "Minnesota",
+        "Eastern Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03IDHOUTAH",
+      "commence_ms": 1788494400000,
+      "teams": [
+        "Utah",
+        "Idaho"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP03UABILL",
+      "commence_ms": 1788494400000,
+      "teams": [
+        "Illinois",
+        "UAB"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04SJSUEMU",
+      "commence_ms": 1788571800000,
+      "teams": [
+        "Eastern Michigan",
+        "San Jose St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04FPUMRST",
+      "commence_ms": 1788573600000,
+      "teams": [
+        "Marist",
+        "Franklin Pierce Ravens"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04INSTPUR",
+      "commence_ms": 1788573600000,
+      "teams": [
+        "Purdue",
+        "Indiana St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04NCATGAST",
+      "commence_ms": 1788573600000,
+      "teams": [
+        "Georgia St.",
+        "North Carolina A&T"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04LIUKU",
+      "commence_ms": 1788577200000,
+      "teams": [
+        "Kansas",
+        "LIU"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04TOLMSU",
+      "commence_ms": 1788577200000,
+      "teams": [
+        "Michigan St.",
+        "Toledo"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04UTEPOKLA",
+      "commence_ms": 1788577200000,
+      "teams": [
+        "Oklahoma",
+        "UTEP"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04FRESUSC",
+      "commence_ms": 1788580800000,
+      "teams": [
+        "USC",
+        "Fresno St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP04MIASTAN",
+      "commence_ms": 1788580800000,
+      "teams": [
+        "Stanford",
+        "Miami (FL)"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WEBSTET",
+      "commence_ms": 1788631200000,
+      "teams": [
+        "Stetson",
+        "Webber International Warriors"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BRYARMY",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Army",
+        "Bryant"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CCARWVU",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "West Virginia",
+        "Coastal Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ECUALA",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Alabama",
+        "East Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05LAFCONN",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "UConn",
+        "Lafayette"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05LIBJMU",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "James Madison",
+        "Liberty"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05OHIONEB",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Nebraska",
+        "Ohio"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ORSTHOU",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Houston",
+        "Oregon St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SCSUWAG",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Wagner",
+        "Southern Connecticut State Owls"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05STNHNHC",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "New Haven",
+        "Stonehill"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TARLBGSU",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Bowling Green",
+        "Tarleton St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UNHSYR",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Syracuse",
+        "New Hampshire"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UNTIND",
+      "commence_ms": 1788634800000,
+      "teams": [
+        "Indiana",
+        "North Texas"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BALLOSU",
+      "commence_ms": 1788636600000,
+      "teams": [
+        "Ohio St.",
+        "Ball St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05LEHGTWN",
+      "commence_ms": 1788636600000,
+      "teams": [
+        "Georgetown",
+        "Lehigh"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MOHPITT",
+      "commence_ms": 1788636600000,
+      "teams": [
+        "Pittsburgh",
+        "Miami (OH)"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05KENTSCAR",
+      "commence_ms": 1788637500000,
+      "teams": [
+        "South Carolina",
+        "Kent St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05DUQAFA",
+      "commence_ms": 1788638400000,
+      "teams": [
+        "Air Force",
+        "Duquesne"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05HCCOLG",
+      "commence_ms": 1788638400000,
+      "teams": [
+        "Colgate",
+        "Holy Cross"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SEMOISU",
+      "commence_ms": 1788638400000,
+      "teams": [
+        "Iowa St.",
+        "Southeast Missouri St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05YSUUK",
+      "commence_ms": 1788638400000,
+      "teams": [
+        "Kentucky",
+        "Youngstown St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WEBBWOF",
+      "commence_ms": 1788640200000,
+      "teams": [
+        "Wofford",
+        "Gardner-Webb"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SHUMONM",
+      "commence_ms": 1788642000000,
+      "teams": [
+        "Monmouth",
+        "Sacred Heart"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05URITEM",
+      "commence_ms": 1788642000000,
+      "teams": [
+        "Temple",
+        "Rhode Island"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05DRKEMONT",
+      "commence_ms": 1788645600000,
+      "teams": [
+        "Montana",
+        "Drake"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TNSTUGA",
+      "commence_ms": 1788645600000,
+      "teams": [
+        "Georgia",
+        "Tennessee St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BAYAUB",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Auburn",
+        "Baylor"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BCCIN",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Cincinnati",
+        "Boston College"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BSUORE",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Oregon",
+        "Boise St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CITCHAR",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Charlotte",
+        "The Citadel"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05FORNDSU",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "North Dakota St.",
+        "Fordham"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05FURTENN",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Tennessee",
+        "Furman"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MEAPP",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Appalachian St.",
+        "Maine"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MRSHPSU",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Penn St.",
+        "Marshall"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TOWSNAVY",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Navy",
+        "Towson"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TULNDUKE",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Duke",
+        "Tulane"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TXSTTEX",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Texas",
+        "Texas St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UTRGVUTSA",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "UTSA",
+        "UT Rio Grande Valley"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WCUCAMP",
+      "commence_ms": 1788647400000,
+      "teams": [
+        "Campbell",
+        "Western Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05OKSTTLSA",
+      "commence_ms": 1788648300000,
+      "teams": [
+        "Tulsa",
+        "Oklahoma St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05USTUND",
+      "commence_ms": 1788649200000,
+      "teams": [
+        "North Dakota",
+        "St. Thomas"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05NIUIOWA",
+      "commence_ms": 1788650100000,
+      "teams": [
+        "Iowa",
+        "Northern Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UNAARK",
+      "commence_ms": 1788650100000,
+      "teams": [
+        "Arkansas",
+        "North Alabama"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ALCNUSM",
+      "commence_ms": 1788652800000,
+      "teams": [
+        "Southern Miss",
+        "Alcorn St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TCETSU",
+      "commence_ms": 1788654600000,
+      "teams": [
+        "East Tennessee St.",
+        "Tusculum Pioneers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05DSUWM",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "William & Mary",
+        "Delaware St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ECSUNCCU",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "North Carolina Central",
+        "Elizabeth City State Vikings"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ELONDAV",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Davidson",
+        "Elon"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05LCALST",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Alabama St.",
+        "Lane Dragons"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05NORFODU",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Old Dominion",
+        "Norfolk St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05PREMER",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Mercer",
+        "Presbyterian"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05RICHHOW",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Howard",
+        "Richmond"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TNTCCHAT",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Chattanooga",
+        "Tennessee Tech"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05VILLBUCK",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Bucknell",
+        "Villanova"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WVSURMU",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Robert Morris",
+        "West Virginia State Yellow Jackets"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WYOCSU",
+      "commence_ms": 1788656400000,
+      "teams": [
+        "Colorado St.",
+        "Wyoming"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ACTTU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Texas Tech",
+        "Abilene Christian"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ARSTMEM",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Memphis",
+        "Arkansas St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CHSOGASO",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Georgia Southern",
+        "Charleston Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CHSUTM",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Tennessee-Martin",
+        "Chicago State Cougars"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CSUGRAM",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Grambling St.",
+        "Central State (OH) Marauders"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05EKYJVST",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Jacksonville St.",
+        "Eastern Kentucky"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05EWCJKST",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Jackson St.",
+        "Edward Waters Tigers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05FIUUSF",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "South Florida",
+        "Florida International"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05HCURICE",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Rice",
+        "Houston Christian"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05IDSTUSU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Utah St.",
+        "Idaho St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ILSTWIU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Western Illinois",
+        "Illinois St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05KSUSOU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Southern University",
+        "Kentucky State Thorobreds"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MILESAAMU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Alabama A&M",
+        "Miles Golden Bears"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MOSUTXAM",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Texas A&M",
+        "Missouri St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MURRMTU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Middle Tennessee",
+        "Murray St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05NICHKSU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Kansas St.",
+        "Nicholls St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05PEAYVAN",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Vanderbilt",
+        "Austin Peay"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SELAUSA",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "South Alabama",
+        "Southeastern Louisiana"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SHSUTROY",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Troy",
+        "Sam Houston"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05TWUMCNS",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "McNeese",
+        "Texas Wesleyan Rams"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UNIEWU",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Eastern Washington",
+        "Northern Iowa"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UWFLCARK",
+      "commence_ms": 1788660000000,
+      "teams": [
+        "Central Arkansas",
+        "West Florida Argonauts"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CLEMLSU",
+      "commence_ms": 1788661800000,
+      "teams": [
+        "LSU",
+        "Clemson"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05NWSTLT",
+      "commence_ms": 1788661800000,
+      "teams": [
+        "Louisiana Tech",
+        "Northwestern St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ULMMSST",
+      "commence_ms": 1788661800000,
+      "teams": [
+        "Mississippi St.",
+        "Louisiana-Monroe"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05VMIVT",
+      "commence_ms": 1788661800000,
+      "teams": [
+        "Virginia Tech",
+        "VMI"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WMUMICH",
+      "commence_ms": 1788661800000,
+      "teams": [
+        "Michigan",
+        "Western Michigan"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05FAUFLA",
+      "commence_ms": 1788662700000,
+      "teams": [
+        "Florida",
+        "Florida Atlantic"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CWUCP",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Cal Poly",
+        "Central Washington Wildcats"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05ETAMSFA",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Stephen F. Austin",
+        "East Texas A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05HAMPMD",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Maryland",
+        "Hampton"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05LAMULL",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Louisiana",
+        "Lamar"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SDAKUNCO",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Northern Colorado",
+        "South Dakota"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05SDSTNW",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Northwestern",
+        "South Dakota St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UTUBYU",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "BYU",
+        "Utah Tech"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WEBSUU",
+      "commence_ms": 1788663600000,
+      "teams": [
+        "Southern Utah",
+        "Weber St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05BUTMTST",
+      "commence_ms": 1788665400000,
+      "teams": [
+        "Montana St.",
+        "Butler"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MHUNMSU",
+      "commence_ms": 1788667200000,
+      "teams": [
+        "New Mexico St.",
+        "Mercyhurst"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05NAUARIZ",
+      "commence_ms": 1788669000000,
+      "teams": [
+        "Arizona",
+        "Northern Arizona"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05PRSTSDSU",
+      "commence_ms": 1788669000000,
+      "teams": [
+        "San Diego St.",
+        "Portland St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05CMUUNM",
+      "commence_ms": 1788670800000,
+      "teams": [
+        "New Mexico",
+        "Central Michigan"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MORGASU",
+      "commence_ms": 1788670800000,
+      "teams": [
+        "Arizona St.",
+        "Morgan St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05MVSUSAC",
+      "commence_ms": 1788670800000,
+      "teams": [
+        "Sacramento St.",
+        "Mississippi Valley St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UCDUSD",
+      "commence_ms": 1788670800000,
+      "teams": [
+        "San Diego",
+        "UC Davis"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UNLVHAW",
+      "commence_ms": 1788670800000,
+      "teams": [
+        "Hawai'i",
+        "UNLV"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05UCLACAL",
+      "commence_ms": 1788672600000,
+      "teams": [
+        "California",
+        "UCLA"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP05WKUNEV",
+      "commence_ms": 1788672600000,
+      "teams": [
+        "Nevada",
+        "Western Kentucky"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP06TXSOPV",
+      "commence_ms": 1788721200000,
+      "teams": [
+        "Prairie View A&M",
+        "Texas Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP06SCSTFAMU",
+      "commence_ms": 1788732000000,
+      "teams": [
+        "Florida A&M",
+        "South Carolina St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP06WSUWASH",
+      "commence_ms": 1788735600000,
+      "teams": [
+        "Washington",
+        "Washington St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP06LOUMISS",
+      "commence_ms": 1788748200000,
+      "teams": [
+        "Ole Miss",
+        "Louisville"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP06WISND",
+      "commence_ms": 1788748200000,
+      "teams": [
+        "Notre Dame",
+        "Wisconsin"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP07SMUFSU",
+      "commence_ms": 1788834600000,
+      "teams": [
+        "Florida St.",
+        "SMU"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP10FAMUMIA",
+      "commence_ms": 1789095600000,
+      "teams": [
+        "Miami (FL)",
+        "Florida A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP11NORFUVA",
+      "commence_ms": 1789178400000,
+      "teams": [
+        "Virginia",
+        "Norfolk St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP11RICHNCST",
+      "commence_ms": 1789178400000,
+      "teams": [
+        "North Carolina St.",
+        "Richmond"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP11VILLLOU",
+      "commence_ms": 1789178400000,
+      "teams": [
+        "Louisville",
+        "Villanova"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP11RUTGBC",
+      "commence_ms": 1789180200000,
+      "teams": [
+        "Boston College",
+        "Rutgers"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP11MIZZKU",
+      "commence_ms": 1789182000000,
+      "teams": [
+        "Kansas",
+        "Missouri"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ALBYLIU",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "LIU",
+        "University at Albany"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12APPECU",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "East Carolina",
+        "Appalachian St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ASUTXAM",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Texas A&M",
+        "Arizona St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ELONURI",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Rhode Island",
+        "Elon"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ETSUUNC",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "North Carolina",
+        "East Tennessee St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12HOWIND",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Indiana",
+        "Howard"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ODUVT",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Virginia Tech",
+        "Old Dominion"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12OKLAMICH",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Michigan",
+        "Oklahoma"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12OREOKST",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Oklahoma St.",
+        "Oregon"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12PSUTEM",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Temple",
+        "Penn St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12USFARMY",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Army",
+        "South Florida"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WAKEPUR",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Purdue",
+        "Wake Forest"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WOFKENT",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Kent St.",
+        "Wofford"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WSUKSU",
+      "commence_ms": 1789239600000,
+      "teams": [
+        "Kansas St.",
+        "Washington St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MRSTLAF",
+      "commence_ms": 1789241400000,
+      "teams": [
+        "Lafayette",
+        "Marist"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WKUUGA",
+      "commence_ms": 1789242300000,
+      "teams": [
+        "Georgia",
+        "Western Kentucky"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12COLGCMU",
+      "commence_ms": 1789243200000,
+      "teams": [
+        "Central Michigan",
+        "Colgate"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CPSJSU",
+      "commence_ms": 1789243200000,
+      "teams": [
+        "San Jose St.",
+        "Cal Poly"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12HCMOH",
+      "commence_ms": 1789243200000,
+      "teams": [
+        "Miami (OH)",
+        "Holy Cross"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UTMWVU",
+      "commence_ms": 1789243200000,
+      "teams": [
+        "West Virginia",
+        "Tennessee-Martin"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12BUCKVMI",
+      "commence_ms": 1789245000000,
+      "teams": [
+        "VMI",
+        "Bucknell"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12DRKEUNI",
+      "commence_ms": 1789246800000,
+      "teams": [
+        "Northern Iowa",
+        "Drake"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12DUQYSU",
+      "commence_ms": 1789246800000,
+      "teams": [
+        "Youngstown St.",
+        "Duquesne"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12EWUSDAK",
+      "commence_ms": 1789246800000,
+      "teams": [
+        "South Dakota",
+        "Eastern Washington"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12STONBALL",
+      "commence_ms": 1789246800000,
+      "teams": [
+        "Ball St.",
+        "Stony Brook"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WMLEH",
+      "commence_ms": 1789246800000,
+      "teams": [
+        "Lehigh",
+        "William & Mary"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UTUMONT",
+      "commence_ms": 1789250400000,
+      "teams": [
+        "Montana",
+        "Utah Tech"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ALAUK",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Kentucky",
+        "Alabama"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ARIZBYU",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "BYU",
+        "Arizona"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CALSYR",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Syracuse",
+        "California"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CCSUTOL",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Toledo",
+        "Central Connecticut St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12DUKEILL",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Illinois",
+        "Duke"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12EMUMSU",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Michigan St.",
+        "Eastern Michigan"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MDCONN",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "UConn",
+        "Maryland"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MSSTMINN",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Minnesota",
+        "Mississippi St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12RICEND",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Notre Dame",
+        "Rice"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12RMUAKR",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Akron",
+        "Robert Morris"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SHUMASS",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "UMass",
+        "Sacred Heart"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UCFPITT",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Pittsburgh",
+        "UCF"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ULMUAB",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "UAB",
+        "Louisiana-Monroe"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12USUWASH",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Washington",
+        "Utah St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UTSATXST",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Texas St.",
+        "UTSA"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WAGJMU",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "James Madison",
+        "Wagner"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WEBCOLO",
+      "commence_ms": 1789252200000,
+      "teams": [
+        "Colorado",
+        "Weber St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UNLVUNT",
+      "commence_ms": 1789253100000,
+      "teams": [
+        "North Texas",
+        "UNLV"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ALSTTROY",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "Troy",
+        "Alabama St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12LAMIDHO",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "Idaho",
+        "Lamar"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MHUUNM",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "New Mexico",
+        "Mercyhurst"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12STETCOOK",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "Bethune-Cookman",
+        "Stetson"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UCDSMU",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "SMU",
+        "UC Davis"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UNCOWYO",
+      "commence_ms": 1789254000000,
+      "teams": [
+        "Wyoming",
+        "Northern Colorado"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12DELVAN",
+      "commence_ms": 1789254900000,
+      "teams": [
+        "Vanderbilt",
+        "Delaware"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12IWNAU",
+      "commence_ms": 1789257600000,
+      "teams": [
+        "Northern Arizona",
+        "Incarnate Word"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MOREPEAY",
+      "commence_ms": 1789257600000,
+      "teams": [
+        "Austin Peay",
+        "Morehead St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MRMKME",
+      "commence_ms": 1789257600000,
+      "teams": [
+        "Maine",
+        "Merrimack"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CAMPFLA",
+      "commence_ms": 1789259400000,
+      "teams": [
+        "Florida",
+        "Campbell"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12BRYHAMP",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Hampton",
+        "Bryant"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12BUFFFIU",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Florida International",
+        "Buffalo"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CHATEKY",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Eastern Kentucky",
+        "Chattanooga"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CHSOCIT",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "The Citadel",
+        "Charleston Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12FURMER",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Mercer",
+        "Furman"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12JVSTOHIO",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Ohio",
+        "Jacksonville St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MEMBSU",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Boise St.",
+        "Memphis"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12NCATNCCU",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "North Carolina Central",
+        "North Carolina A&T"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12STNHUNH",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "New Hampshire",
+        "Stonehill"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12USDIDST",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Idaho St.",
+        "San Diego"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WEBBLIB",
+      "commence_ms": 1789261200000,
+      "teams": [
+        "Liberty",
+        "Gardner-Webb"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MONMWMU",
+      "commence_ms": 1789263000000,
+      "teams": [
+        "Western Michigan",
+        "Monmouth"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ARPBALCN",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Alcorn St.",
+        "Arkansas-Pine Bluff"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12BGSUNEB",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Nebraska",
+        "Bowling Green"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12GASTKENN",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Kennesaw St.",
+        "Georgia St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ILSTNIU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Northern Illinois",
+        "Illinois St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12INSTEIU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Eastern Illinois",
+        "Indiana St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12LINWMOSU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Missouri St.",
+        "Lindenwood"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MTUMRSH",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Marshall",
+        "Middle Tennessee"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12NHCSDST",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "South Dakota St.",
+        "New Haven"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12NWSTETAM",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "East Texas A&M",
+        "Northwestern St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SAMTNTC",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Tennessee Tech",
+        "Samford"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SEMOSIU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Southern Illinois",
+        "Southeast Missouri St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SOUHOU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Houston",
+        "Southern University"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SUUCSU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Colorado St.",
+        "Southern Utah"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TARLMCNS",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "McNeese",
+        "Tarleton St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TENNGT",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Georgia Tech",
+        "Tennessee"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TLSASHSU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Sam Houston",
+        "Tulsa"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TNSTAAMU",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Alabama A&M",
+        "Tennessee St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TOWSSCAR",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "South Carolina",
+        "Towson"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UNASELA",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Southeastern Louisiana",
+        "North Alabama"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12USATULN",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Tulane",
+        "South Alabama"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UTRGVNICH",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Nicholls St.",
+        "UT Rio Grande Valley"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UWGAARST",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Arkansas St.",
+        "West Georgia"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12VALPMURR",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Murray St.",
+        "Valparaiso"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WCUCIN",
+      "commence_ms": 1789264800000,
+      "teams": [
+        "Cincinnati",
+        "Western Carolina"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SDSUUCLA",
+      "commence_ms": 1789265700000,
+      "teams": [
+        "UCLA",
+        "San Diego St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12WIUWIS",
+      "commence_ms": 1789265700000,
+      "teams": [
+        "Wisconsin",
+        "Western Illinois"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12FORCCAR",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Coastal Carolina",
+        "Fordham"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12GASOCLEM",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Clemson",
+        "Georgia Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ISUIOWA",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Iowa",
+        "Iowa St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12LTLSU",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "LSU",
+        "Louisiana Tech"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12NAVYFAU",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Florida Atlantic",
+        "Navy"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12OSUTEX",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Texas",
+        "Ohio St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TTUORST",
+      "commence_ms": 1789266600000,
+      "teams": [
+        "Oregon St.",
+        "Texas Tech"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12CHARMISS",
+      "commence_ms": 1789267500000,
+      "teams": [
+        "Ole Miss",
+        "Charlotte"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12USMAUB",
+      "commence_ms": 1789267500000,
+      "teams": [
+        "Auburn",
+        "Southern Miss"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12GRAMTCU",
+      "commence_ms": 1789268400000,
+      "teams": [
+        "TCU",
+        "Grambling St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12PVBAY",
+      "commence_ms": 1789268400000,
+      "teams": [
+        "Baylor",
+        "Prairie View A&M"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SFAAC",
+      "commence_ms": 1789268400000,
+      "teams": [
+        "Abilene Christian",
+        "Stephen F. Austin"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12TXSOUTEP",
+      "commence_ms": 1789272000000,
+      "teams": [
+        "UTEP",
+        "Texas Southern"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12NDSUAFA",
+      "commence_ms": 1789275600000,
+      "teams": [
+        "Air Force",
+        "North Dakota St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12UNDPRST",
+      "commence_ms": 1789275600000,
+      "teams": [
+        "Portland St.",
+        "North Dakota"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ARKUTAH",
+      "commence_ms": 1789276500000,
+      "teams": [
+        "Utah",
+        "Arkansas"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12MTSTNEV",
+      "commence_ms": 1789277400000,
+      "teams": [
+        "Nevada",
+        "Montana St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12SACFRES",
+      "commence_ms": 1789277400000,
+      "teams": [
+        "Fresno St.",
+        "Sacramento St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP12ULLUSC",
+      "commence_ms": 1789279200000,
+      "teams": [
+        "USC",
+        "Louisiana"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP13NMSUHAW",
+      "commence_ms": 1789282800000,
+      "teams": [
+        "Hawai'i",
+        "New Mexico St."
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP18HOUTTU",
+      "commence_ms": 1789786800000,
+      "teams": [
+        "Texas Tech",
+        "Houston"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19BRWNNHC",
+      "commence_ms": 1789844400000,
+      "teams": [
+        "New Haven",
+        "Brown"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19DARTLEH",
+      "commence_ms": 1789844400000,
+      "teams": [
+        "Lehigh",
+        "Dartmouth"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19LAFCLMB",
+      "commence_ms": 1789844400000,
+      "teams": [
+        "Columbia",
+        "Lafayette"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19CORCOLG",
+      "commence_ms": 1789848000000,
+      "teams": [
+        "Colgate",
+        "Cornell"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19HARVUNH",
+      "commence_ms": 1789848000000,
+      "teams": [
+        "New Hampshire",
+        "Harvard"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19PRINBRY",
+      "commence_ms": 1789848000000,
+      "teams": [
+        "Bryant",
+        "Princeton"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19YALEHC",
+      "commence_ms": 1789851600000,
+      "teams": [
+        "Holy Cross",
+        "Yale"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19PENNBUCK",
+      "commence_ms": 1789855200000,
+      "teams": [
+        "Bucknell",
+        "Penn"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19LSUMISS",
+      "commence_ms": 1789871400000,
+      "teams": [
+        "Ole Miss",
+        "LSU"
+      ]
+    },
+    {
+      "event_ticker": "KXNCAAFGAME-26SEP19MSUND",
+      "commence_ms": 1789871400000,
+      "teams": [
+        "Notre Dame",
+        "Michigan St."
+      ]
+    }
+  ]
+}

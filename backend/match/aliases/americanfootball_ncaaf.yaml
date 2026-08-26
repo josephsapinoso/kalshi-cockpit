@@ -1,0 +1,67 @@
+# NCAA football team-name overrides.
+#
+# See americanfootball_nfl.yaml for the rules. Every entry here was DERIVED,
+# not guessed: `scripts/capture_ncaaf_names.py` reads a live Kalshi slate and a
+# live Odds API fixture list, runs both through the real `link_event`, and
+# prints the fixtures it refused on names beside the in-window book fixture
+# that shares a side. Both spellings below were read off that output.
+#
+# Derived 2026-08-26 against 339 Kalshi `KXNCAAFGAME` events and 111 Odds API
+# fixtures. Each entry was then checked individually: `_bijection` returns
+# False without it and True with it.
+#
+# Format:  <kalshi name>: <sportsbook name>
+# Both sides are normalised (casefold, accents and punctuation stripped) before
+# comparison, so exact spelling and capitalisation here do not matter -- but
+# the VALUE must be the book's full string including the mascot, because that
+# is what `_matches` compares the override against.
+
+teams:
+  # The okina. `normalise` turns punctuation into a space, so "Hawai'i"
+  # becomes "hawai i" and stops being a token-prefix of "hawaii".
+  Hawai'i: Hawaii Rainbow Warriors
+
+  # The books abbreviate where Kalshi spells out, and vice versa. None of
+  # these four shares a token prefix in the direction that matters.
+  North Carolina St.: NC State Wolfpack
+  University at Albany: Albany
+  Louisiana-Monroe: UL Monroe Warhawks
+
+  # Parenthesised disambiguation leaves a stray token: "Miami (FL)" becomes
+  # "miami fl", and "fl" is not a prefix of "hurricanes".
+  Miami (FL): Miami Hurricanes
+
+  # A rename the two sources disagree about. Houston Baptist became Houston
+  # Christian in 2022; the odds feed still carries the old name. This one will
+  # go stale in the other direction one day, which is why it is commented.
+  Houston Christian: Houston Baptist Huskies
+
+# ---------------------------------------------------------------------------
+# NOT FIXABLE HERE, and listed so nobody tries.
+#
+# Four fixtures on the same capture refuse for a reason no alias can repair:
+#
+#     Texas vs Texas St.            Iowa vs Iowa St.
+#     Washington vs Washington St.  Florida vs Florida Atlantic
+#
+# The short name is a token-prefix of BOTH book names, so `_matches` returns
+# True twice and `_bijection` refuses as ambiguous -- which is correct
+# behaviour, and exactly the guard that stops one team's line pricing another
+# team's market. Adding an alias for the longer name does not help: the short
+# name still matches both. **Verified, 2026-08-26: `_bijection` is False for
+# all four with the overrides above plus overrides for the longer names.**
+#
+# Fixing this class means changing the RESOLVER -- preferring an exact or
+# aliased hit over a prefix hit when disambiguating within a fixture -- which
+# is a production change with its own blast radius and belongs in its own
+# slice, not in a YAML file.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS FILE CANNOT DO FOR YOU
+#
+# On the 2026-08-26 capture, 231 of 339 Kalshi college fixtures had no
+# sportsbook counterpart AT ALL: Kalshi lists FCS and Division II (Ohio
+# Dominican, Fairmont State, Lawrence Tech), the odds feed carries roughly
+# FBS. Those drop regardless of what is written here, and they are not a
+# naming bug. Re-run the capture script rather than adding entries on a hunch;
+# a long alias file means the deterministic rule has stopped working.
