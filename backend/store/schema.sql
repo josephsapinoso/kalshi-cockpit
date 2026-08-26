@@ -667,6 +667,34 @@ CREATE INDEX IF NOT EXISTS idx_recs_created ON recommendations(created_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_recs_open ON recommendations(suppressed_reason, created_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_recs_unscored ON recommendations(clv_scored_ms) WHERE clv_scored_ms IS NULL;
 
+-- **The recording loop's hottest read, and it had no index until 2026-08-26.**
+--
+-- `engine.persist_if_changed` runs once per candidate, every pass:
+--
+--     SELECT id, entry_ask_tenths, fair_probability FROM recommendations
+--     WHERE ticker = ? AND side = ? ORDER BY created_ms DESC, id DESC LIMIT 1
+--
+-- With no index on `(ticker, side)` the planner answered
+-- `SCAN recommendations` + `USE TEMP B-TREE FOR ORDER BY` -- a full scan AND a
+-- temporary sort, ~350 times a pass, on a table that grows ~300 rows a pass
+-- and is never trimmed.
+--
+-- Measured on live 2026-08-26: `leg_price_persist_ms` 26,000-40,000 for 290
+-- fair prices and 4 recommendations (~97ms per row), quote passes taking
+-- 35-74s against a 15-SECOND cadence, and every API route starved on the
+-- shared vCPU -- `/api/window` 0.32s -> 17.8s, `/api/slate` 0.38s -> 24.6s,
+-- `/api/parlays` past Next's 30s proxy timeout and returning 500.
+--
+-- **Football was the trigger, not the cause.** The cost is rows x candidates;
+-- adding NCAAF roughly doubled the candidates and pushed a long-standing
+-- quadratic from tolerable into pathological.
+--
+-- The trailing columns make it covering for the ORDER BY as well as the WHERE,
+-- which is what removes the temp b-tree. Write amplification is ~300 inserts a
+-- pass against ~350 full scans; the trade is not close.
+CREATE INDEX IF NOT EXISTS idx_recs_ticker_side
+    ON recommendations(ticker, side, created_ms DESC, id DESC);
+
 -- ============================================================================
 -- Execution
 -- ============================================================================
