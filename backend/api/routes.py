@@ -116,6 +116,8 @@ from ..store import manual_orders as manual_store
 from ..store.manual_orders import (
     COMBO_MAX_CONTRACTS,
     MANUAL_ORDER_MAX_CONTRACTS,
+    MANUAL_ORDER_MAX_SPEND_TENTHS,
+    max_spend_dollars,
 )
 from ..store.orders import (
     DuplicateOrder,
@@ -233,7 +235,11 @@ class ManualOrderRequest(BaseModel):
 
     ticker: str = Field(min_length=1, max_length=80)
     side: str = Field(pattern=r"^(yes|no)$")
-    contracts: int = Field(gt=0, le=100)
+    # Wide enough that the SERVER's ceilings decide, not this schema. A
+    # market at a tenth of a cent turns $3 into thousands of contracts, and a
+    # schema bound tighter than `MANUAL_ORDER_MAX_CONTRACTS` would refuse with
+    # a validation error instead of the named reason the route gives.
+    contracts: int = Field(gt=0, le=1_000)
     max_price_tenths: int = Field(ge=1, le=999)
     p_yes_bp: int = Field(ge=1, le=9999)
     idempotency_key: str = Field(
@@ -4156,6 +4162,29 @@ def create_app(
             return None
         return stake + max(sent, asked)
 
+    def _manual_cap_dollars(risk_now) -> tuple[float, str]:
+        """The binding per-bet ceiling, and WHICH of the two produced it.
+
+        Two independent bounds and the tighter wins:
+
+        - the **balance-derived** cap, 10% of the observed Kalshi balance
+          (ADR 0045) -- never typed, and it moves on its own as the balance
+          does;
+        - the **spend cap**, the operator's own stated range.
+
+        Naming the binding one is not decoration. "$3 cap" and "your balance
+        only supports $0.54" are different problems with different remedies,
+        and the second one already has an answer on the screen
+        (`deposit_for_50c_display`). A refusal that does not say which bound
+        it hit sends the reader to fix the wrong thing.
+        """
+        spend = max_spend_dollars()
+        balance = risk_now.max_position_dollars
+        if balance is None or balance <= spend:
+            return (balance if balance is not None else 0.0, "balance")
+        return (spend, "spend")
+
+
     def _manual_authorised_count(
         cap_dollars: float,
         *,
@@ -4244,8 +4273,9 @@ def create_app(
                 and risk_now is not None
                 and risk_now.max_position_dollars is not None
             ):
+                cap_dollars, _binding = _manual_cap_dollars(risk_now)
                 authorised = _manual_authorised_count(
-                    risk_now.max_position_dollars,
+                    cap_dollars,
                     ticker=quote.ticker,
                     side=side,
                     ask_tenths=ask,
@@ -4453,26 +4483,35 @@ def create_app(
                     "is the bet you mean to make."
                 ),
             )
+        # **The STRUCTURAL ceilings, not the binding one.** What bounds the
+        # bet is money (check 9); these stop a market priced at a tenth of a
+        # cent turning a few dollars into a count that moves a thin book on
+        # its own. A combination is held tighter because the deepest resting
+        # bid this repo has ever measured on one was 18 units (ADR 0012 §5),
+        # so a far larger count could not fill anyway.
         if combo and request.contracts > COMBO_MAX_CONTRACTS:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"a combination order is capped at "
-                    f"{COMBO_MAX_CONTRACTS} contract on this path (ADR "
-                    f"0073), against an order for {request.contracts}. The "
-                    f"cap is what keeps an error in the hedged combo fee "
-                    f"costing a fraction of a cent instead of scaling."
+                    f"{COMBO_MAX_CONTRACTS} contracts on this path, against "
+                    f"an order for {request.contracts}. Combination books are "
+                    f"enter-only and the deepest resting bid ever measured "
+                    f"here was 18 units, so a larger count could not fill. "
+                    f"What bounds the BET is the ${max_spend_dollars():.2f} "
+                    f"spend cap, checked below."
                 ),
             )
         if request.contracts > MANUAL_ORDER_MAX_CONTRACTS:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"this path is armed at "
-                    f"{MANUAL_ORDER_MAX_CONTRACTS} contract, against an "
-                    f"order for {request.contracts}. Raising it is a code "
-                    f"change and it waits on observed `fee_actual` matching "
-                    f"`fee_predicted` on real fills (ADR 0063)."
+                    f"this path is capped at {MANUAL_ORDER_MAX_CONTRACTS} "
+                    f"contracts, against an order for {request.contracts}. "
+                    f"That is a structural ceiling, not the bet size: what "
+                    f"bounds the bet is the ${max_spend_dollars():.2f} spend "
+                    f"cap and the cap derived from your balance, whichever is "
+                    f"tighter."
                 ),
             )
 
@@ -4596,14 +4635,27 @@ def create_app(
                     "no fee."
                 ),
             )
-        if worst_case > risk_now.max_position_dollars:
+        # **The binding check, and it names WHICH bound it hit.** Two
+        # independent ceilings -- 10% of the observed balance (ADR 0045) and
+        # the spend cap -- and the tighter wins. "$3 cap" and "your balance
+        # only supports $0.54" are different problems with different remedies,
+        # and a refusal that does not say which one sends the reader to fix
+        # the wrong thing.
+        cap_dollars, binding = _manual_cap_dollars(risk_now)
+        if worst_case > cap_dollars:
+            reason = (
+                f"the ${max_spend_dollars():.2f} cap this path is set to"
+                if binding == "spend"
+                else (
+                    f"the ${cap_dollars:.2f} per-bet cap derived from your "
+                    f"balance (10% of it, never a number you type)"
+                )
+            )
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"{request.contracts} contracts at {format_price(ask)} "
-                    f"costs at most ${worst_case:.2f}, "
-                    f"over the ${risk_now.max_position_dollars:.2f} per-bet "
-                    f"cap derived from your balance."
+                    f"costs at most ${worst_case:.2f}, over {reason}."
                 ),
             )
 

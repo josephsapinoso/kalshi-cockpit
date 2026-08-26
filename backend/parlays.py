@@ -51,9 +51,27 @@ from backend.store.db import ask_for_side
 logger = logging.getLogger(__name__)
 
 #: Preset stakes, in cents. Served pre-priced so the client never does money
-#: arithmetic; $5 is the default the cousin-style ticket is framed at.
-STAKE_PRESETS_CENTS: tuple[int, ...] = (100, 500, 1000, 2000)
-DEFAULT_STAKE_CENTS = 500
+#: arithmetic.
+#:
+#: **Re-sized 2026-08-26 to the operator's own stated range, replacing someone
+#: else's.** These were $1/$5/$10/$20 defaulting to $5, framed by ADR 0070 s2.7
+#: around the cousin's $4.99 ticket -- the bet that prompted the desk, but not a
+#: bet Joe has ever placed. Asked directly, in his words: *"I bet .25 cents to 2
+#: or 3 bucks on parlays right now."*
+#:
+#: So three of the four presets were amounts he would never stake and the
+#: default sat above his ceiling, which means every payout figure on the card
+#: was priced for somebody else's bet. ADR 0071 s2.1 is the reason that
+#: matters: the desk exists to inform bets that are happening anyway, and a
+#: stake row he would not choose informs nothing.
+#:
+#: **This is a display range, not a limit.** Nothing here caps an order: the
+#: per-bet ceiling is derived from the observed balance (ADR 0045) and the
+#: manual path's own contract ceiling binds separately. Widening these back out
+#: costs nothing if his betting changes -- ask him rather than inferring it
+#: from a larger balance.
+STAKE_PRESETS_CENTS: tuple[int, ...] = (25, 50, 100, 300)
+DEFAULT_STAKE_CENTS = 100
 
 #: A market whose status says the venue is done with it cannot be a leg.
 _TERMINAL_STATUSES = frozenset({"closed", "settled", "finalized", "determined"})

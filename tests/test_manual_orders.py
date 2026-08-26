@@ -274,19 +274,42 @@ class TestTheGuardsRefuse:
         assert "enter" in response.json()["detail"]
         assert "acknowledgement" in response.json()["detail"]
 
-    async def test_an_acknowledged_combo_is_still_capped_at_one_contract(
+    async def test_a_combination_keeps_a_tighter_structural_ceiling(
         self, tmp_path
     ):
-        app = _app(_base_db(tmp_path))
+        """**Re-pointed 2026-08-26: one contract became a spend cap.**
+
+        This asserted a combination was capped at ONE contract. That number
+        came from ADR 0073 §5, which justified it by saying the cap "makes an
+        error in that hedge cost a fraction of a cent instead of scaling with
+        size" — but the combo fee is `k · C · P · (1-P)`, proportional to
+        SPEND, not to count. Capping spend caps that error directly; capping
+        count capped it only through whatever the price happened to be.
+
+        So the money bound moved to `MANUAL_ORDER_MAX_SPEND_TENTHS` and what
+        survives here is a structural ceiling, tighter for combinations than
+        for single markets: the deepest resting bid ever measured on a
+        combination book was 18 units (ADR 0012 §5), so a far larger count
+        could not fill anyway.
+        """
+        app = _app(_base_db(tmp_path, balance_tenths=3_000_000))
         response = await post(
             app, "/api/manual-orders",
             json=_body(
-                ticker=COMBO_TICKER, contracts=2, combo_acknowledged=True
+                ticker=COMBO_TICKER,
+                contracts=manual_store.COMBO_MAX_CONTRACTS + 1,
+                combo_acknowledged=True,
             ),
             headers=AUTH,
         )
         assert response.status_code == 422
-        assert "capped at 1 contract" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "enter-only" in detail, detail
+        assert "could not fill" in detail, detail
+
+    async def test_a_combination_is_bounded_tighter_than_a_single_market(self):
+        """The two structural ceilings are not the same number, on purpose."""
+        assert manual_store.COMBO_MAX_CONTRACTS < manual_store.MANUAL_ORDER_MAX_CONTRACTS
 
     async def test_an_acknowledged_combo_reaches_the_book(
         self, tmp_path, records_only
@@ -342,17 +365,52 @@ class TestTheGuardsRefuse:
         assert response.status_code == 422
         assert "per-bet cap" in response.json()["detail"]
 
-    async def test_the_size_ceiling_binds_before_anything_is_bought(
+    async def test_the_spend_ceiling_binds_before_anything_is_bought(
         self, tmp_path
     ):
-        """ADR 0063: the path arms at one contract. Mutation observed red:
-        raise `MANUAL_ORDER_MAX_CONTRACTS`."""
-        app = _app(_base_db(tmp_path))
+        """**Re-pointed 2026-08-26: the ceiling is money, not contracts.**
+
+        This asserted `contracts=2` was refused because the path armed at one
+        contract. That ceiling was replaced by
+        `MANUAL_ORDER_MAX_SPEND_TENTHS` on the owner's word -- one contract of
+        a combination near a cent is a bet of $0.015, and he bets 25c to $3, so
+        a contract cap did not make his bet small, it made the door
+        decorative.
+
+        The property survives and is the same one: **a size ceiling binds
+        before anything is bought.** It is now expressed in the unit the risk
+        is actually denominated in. The balance here is large enough that the
+        balance-derived cap does not bind first, so the spend cap is the one
+        under test.
+        """
+        # $3,000 balance -> $300 per-bet cap, far above the $3 spend cap, so
+        # the spend cap is what refuses. Without this the test would pass for
+        # the wrong reason.
+        app = _app(_base_db(tmp_path, balance_tenths=3_000_000))
         response = await post(
-            app, "/api/manual-orders", json=_body(contracts=2), headers=AUTH,
+            app, "/api/manual-orders", json=_body(contracts=20), headers=AUTH,
         )
         assert response.status_code == 422
-        assert "armed at 1 contract" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "cap this path is set to" in detail, detail
+        assert "$3.00" in detail, detail
+
+    async def test_the_structural_contract_ceiling_still_exists(self, tmp_path):
+        """Money is the binding bound; this is the backstop.
+
+        A market priced at a tenth of a cent turns $3 into thousands of
+        contracts, and a count that large is a different kind of order -- it
+        moves a thin book on its own -- even when the money is small.
+        """
+        app = _app(_base_db(tmp_path, balance_tenths=3_000_000))
+        response = await post(
+            app, "/api/manual-orders",
+            json=_body(contracts=manual_store.MANUAL_ORDER_MAX_CONTRACTS + 1),
+            headers=AUTH,
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "structural ceiling" in detail, detail
 
     async def test_a_stale_mirror_refuses_rather_than_assuming_no_losses(self, tmp_path):
         path = tmp_path / "stale.db"

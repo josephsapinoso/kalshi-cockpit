@@ -100,3 +100,30 @@ measured base rates are not encouraging: combos are enter-only on 40 of 40
 books ever read, ≤18 units deep, with an unidentified fee schedule. The
 desk shows the comparison honestly and lets Joe decide; it does not
 recommend, size, or claim.
+
+## Addendum, 2026-08-26 — the stake presets were somebody else's bet
+
+§2.7 set the presets at **$1/$5/$10/$20, $5 default**, framed around the
+cousin's $4.99 ticket. That ticket is what prompted this desk; it is not a bet
+Joe has ever placed.
+
+Asked directly, in his words: *"I bet .25 cents to 2 or 3 bucks on parlays
+right now."*
+
+So three of the four presets were amounts he would never stake and the default
+sat above his ceiling — every payout figure on the card was priced for
+somebody else's bet. Changed to **25c / 50c / $1 / $3, $1 default**.
+
+**ADR 0071 §2.1 is why this is a correction rather than a preference.** The
+desk exists to inform bets that are happening anyway; a stake row the operator
+would not choose informs nothing, and four of them is the whole stake block.
+
+**It is a display range, not a limit.** Nothing here caps an order: the per-bet
+ceiling is derived from the observed balance (ADR 0045) and the manual path's
+contract ceiling binds separately. Widening it back out costs nothing if his
+betting changes — ask him rather than inferring it from a larger balance.
+
+**The general lesson, recorded because it generalises past this parameter:**
+the number that prompted a feature is not evidence about the person who will
+use it. This one sat in the code for three days, unexamined, because it arrived
+with the idea.
