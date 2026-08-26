@@ -145,12 +145,41 @@ class LiveQuote:
         """
         return max(0, now_ms - self.observed_ms)
 
+    def opposing_bid_tenths(self, side: str) -> Optional[int]:
+        """The resting bid that would fill `side`'s ask, raw and unjudged.
+
+        The crossover is the same one `depth_at_ask` spells out and is just as
+        easy to get backwards: a YES ask is `1 - no_bid`, so it is the NO bid
+        that fills it.
+
+        **This exists so a caller can tell WHY there is no ask without
+        re-deriving one.** `ask_tenths` refuses both endpoints, which collapses
+        two different states into one `None`: nobody is resting on the other
+        side (the bid is a real `0`, which is what Kalshi sends for an empty
+        side -- 38 of 245 markets in the nested capture), and the bid could not
+        be read at all (a missing or malformed field). Those want different
+        sentences: the first is an ordinary market state and the second is a
+        data problem. The refusal keeps one definition; the diagnosis reads the
+        input instead of the output.
+        """
+        if side == "yes":
+            return self.market.no_bid_tenths
+        if side == "no":
+            return self.market.yes_bid_tenths
+        raise ValueError(f"side must be 'yes' or 'no', got {side!r}")
+
     def ask_tenths(self, side: str) -> Optional[int]:
-        """The derived ask for `side`, or None if the opposing bid is unreadable.
+        """The derived ask for `side`, or None when it is not a price to pay.
 
         Goes through `store.db.ask_for_side`, the same function the runner uses
         against a stored quote row, so "the price you would pay" has exactly one
         definition in this codebase.
+
+        `None` covers two cases and a caller that needs to tell them apart must
+        ask `opposing_bid_tenths`: the opposing bid was unreadable, or it was a
+        real value whose complement lands on 0 or 1000 -- settled outcomes
+        rather than quotes. An absent bid arrives as `0.0000`, so the second
+        case is the common one and it used to derive a confident 1000.
         """
         return ask_for_side(
             {

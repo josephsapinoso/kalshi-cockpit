@@ -70,6 +70,63 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Is the machine even running
+        id: machine
+        # **This runs BEFORE the HTTP probe, and the order is the whole point.**
+        #
+        # `auto_start_machines = true`, so the probe's own curl STARTS a
+        # stopped machine. The check below it then reads a container that is
+        # up -- because the check woke it -- and reports healthy. For as long
+        # as this workflow has existed it has been keeping the instance alive
+        # every fifteen minutes and calling that "alive": the observer changing
+        # the state it measures, which is the family `tasks/lessons.md` files
+        # under verification methods that lie.
+        #
+        # Found 2026-08-26. The chain runner had been dying roughly hourly,
+        # `entrypoint.sh` exited 0, Fly logged "machine exited with exit code
+        # 0, not restarting", and the box sat stopped -- recording nothing --
+        # until somebody (or this workflow) made a request. Nothing alarmed,
+        # because by the time anything looked, everything was up.
+        #
+        # Reading the Machines API costs no wake. `curl` against
+        # api.machines.dev is out of band from the app entirely.
+        continue-on-error: true
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${FLY_API_TOKEN:-}" ]; then
+            # Unreadable, not healthy. The rule this repo keeps relearning is
+            # that an absent measurement must not resolve to the reassuring
+            # answer -- so this reports "unknown" and the HTTP probe below
+            # still runs, rather than silently passing.
+            echo "state=unknown" >> "$GITHUB_OUTPUT"
+            echo "::warning::FLY_API_TOKEN is not set; cannot tell a running machine from one this workflow just woke."
+            exit 0
+          fi
+
+          machines="$(curl -sS --connect-timeout 10 --max-time 25             -H "Authorization: Bearer ${FLY_API_TOKEN}"             "https://api.machines.dev/v1/apps/kalshi-cockpit/machines" || true)"
+
+          if ! echo "${machines}" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "state=unknown" >> "$GITHUB_OUTPUT"
+            echo "::warning::Machines API did not return a list."
+            exit 0
+          fi
+
+          # The app process group only. A stopped one-off or a released
+          # machine is not this alarm's business.
+          stopped="$(echo "${machines}"             | jq -r '[.[] | select(.config.metadata.fly_process_group == "app" or .config.metadata.fly_process_group == null) | select(.state != "started")] | length')"
+          started="$(echo "${machines}" | jq -r '[.[] | select(.state == "started")] | length')"
+
+          if [ "${stopped}" -gt 0 ]; then
+            echo "state=stopped" >> "$GITHUB_OUTPUT"
+            echo "detail=${stopped} live machine(s) are not started (${started} started). A stopped machine records NOTHING, and the next page load pays a cold start. Fly only restarts a container that exits non-zero: check the machine event log for exit_code=0 with requested_stop=false, which is the entrypoint tearing down after a child died." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "state=started" >> "$GITHUB_OUTPUT"
+
       - name: Probe the live instance
         id: probe
         run: |
@@ -163,11 +220,15 @@ jobs:
         # exists for.
         if: >-
           always() &&
-          (steps.probe.outputs.verdict != 'up' || inputs.force_alarm)
+          (steps.probe.outputs.verdict != 'up' ||
+           steps.machine.outputs.state == 'stopped' ||
+           inputs.force_alarm)
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          VERDICT: ${{ steps.probe.outputs.verdict }}
-          DETAIL: ${{ steps.probe.outputs.detail }}
+          # A stopped machine outranks whatever the HTTP probe said, because
+          # the HTTP probe is what started it.
+          VERDICT: ${{ steps.machine.outputs.state == 'stopped' && 'stopped' || steps.probe.outputs.verdict }}
+          DETAIL: ${{ steps.machine.outputs.state == 'stopped' && steps.machine.outputs.detail || steps.probe.outputs.detail }}
           FORCED: ${{ inputs.force_alarm }}
         run: |
           set -uo pipefail
@@ -182,6 +243,13 @@ jobs:
           if [ "${FORCED}" = "true" ] && [ "${VERDICT}" = "up" ]; then
             title="Heartbeat test — this is not a real alarm"
             detail="You asked for this one. The live instance is answering normally; this proves the alarm path works, which is the only way to know it does before you need it."
+          elif [ "${VERDICT}" = "stopped" ]; then
+            # Distinct from "not answering", because the remedy is different.
+            # A machine that is stopped answers fine the moment you ask -- the
+            # asking is what starts it -- so this alarm is the only way anyone
+            # learns the box has been off.
+            title="The machine is switched off"
+            detail="${DETAIL}"
           elif [ "${VERDICT}" = "stalled" ]; then
             title="The recorder has stopped"
             detail="${DETAIL}"
@@ -222,8 +290,11 @@ jobs:
       - name: Fail the run when the instance is down
         # Separate from the alarm so the Discord post happens even if this
         # marks the run red. A red run is the record; the embed is the alert.
-        if: always() && steps.probe.outputs.verdict != 'up'
+        if: >-
+          always() &&
+          (steps.probe.outputs.verdict != 'up' ||
+           steps.machine.outputs.state == 'stopped')
         run: |
-          echo "::error::live is ${{ steps.probe.outputs.verdict }}:"
-          echo "::error::${{ steps.probe.outputs.detail }}"
+          echo "::error::live is ${{ steps.machine.outputs.state == 'stopped' && 'stopped' || steps.probe.outputs.verdict }}:"
+          echo "::error::${{ steps.machine.outputs.state == 'stopped' && steps.machine.outputs.detail || steps.probe.outputs.detail }}"
           exit 1

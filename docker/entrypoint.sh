@@ -152,15 +152,42 @@ fi
 
 pids=""
 
+# `shutdown [exit_code]` -- the code is the whole point of the argument.
+#
+# This function has two callers with OPPOSITE meanings, and until 2026-08-26 it
+# gave both the same answer:
+#
+#   * the INT/TERM trap. A deliberate stop -- a deploy, `fly machine stop`.
+#     Exit 0 is correct: nothing failed.
+#   * the teardown below, reached when `wait -n` returns because a child DIED.
+#     Exit 0 is a lie, and it is a lie the platform believes.
+#
+# Measured on live, 2026-08-26. The chain runner raised `LoopFailed` after five
+# consecutive failed passes, this function ran, and Fly logged:
+#
+#     machine exited with exit code 0, not restarting
+#
+# Fly's restart policy is on-failure, so a zero exit reads as "this container
+# finished its job." The machine stayed STOPPED -- with `auto_stop_machines =
+# "off"` and `min_machines_running = 1` set, because neither of those governs a
+# container that exited successfully -- until an HTTP request woke it via
+# `auto_start_machines`, at a measured 23-37 seconds of cold start. Between
+# visits the recorder wrote nothing at all.
+#
+# So the teardown must exit non-zero. The comment at that call site has always
+# said the tear-down exists "so the platform restarts it cleanly"; this is what
+# makes that sentence true.
 shutdown() {
-  echo "[entrypoint] shutting down"
+  code="${1:-0}"
+  echo "[entrypoint] shutting down (exit ${code})"
   for pid in ${pids}; do
     kill "${pid}" 2>/dev/null || true
   done
   wait || true
-  exit 0
+  exit "${code}"
 }
-trap shutdown INT TERM
+# The trap keeps the zero: a signal is somebody asking, not something breaking.
+trap 'shutdown 0' INT TERM
 
 echo "[entrypoint] starting backend on 127.0.0.1:8000"
 # `--timeout-keep-alive` must exceed the health check interval, and uvicorn's
@@ -279,4 +306,5 @@ elif [ -n "${loop_pid}" ] && ! kill -0 "${loop_pid}" 2>/dev/null; then
 else
   echo "[entrypoint] FRONTEND exited -- restarting container"
 fi
-shutdown
+# Non-zero, so Fly's on-failure restart policy actually fires. See `shutdown`.
+shutdown 1

@@ -194,6 +194,23 @@ class PassCounts:
     # `ODDS_MARKETS = "h2h,spreads"` keeps paying the doubled credit for it.
     # Pooled, the new league is invisible. 2026-08-24 code review, finding 8.
     dropped_unknown_spread_unit: int = 0
+    # A candidate the pricing engine REFUSED to price, by raising. Counted
+    # rather than allowed to propagate, and counted rather than swallowed --
+    # the two failure modes are opposite and both have happened here.
+    #
+    # Propagating is what took the live instance down: on 2026-08-26 a team
+    # moneyline arrived with a derived ask of 1000 tenths, `effective_price`
+    # raised, and because nothing between it and the pass caught it, ONE market
+    # failed the whole pass. Five consecutive failures ended the process, the
+    # entrypoint exited 0, and Fly read that as an intentional stop and did not
+    # restart -- so the recorder was dead between page loads for hours.
+    #
+    # Swallowing it silently would be worse, not better: it converts a loud
+    # crash into a record that quietly stops growing, which is the failure this
+    # project is least able to detect. A refused row is an EVENT, not an
+    # absence. If this number is non-zero the reason is in the log line beside
+    # it, once per pass per reason.
+    dropped_unpriceable: int = 0
     # How many rows the Skeptic was asked about, and how many it refused. Both
     # are structurally zero while `surfaced` is zero, which is the whole history
     # of this project so far -- reported anyway, because the day they are not is
@@ -1269,6 +1286,60 @@ def link_discovered_events(
     return linked
 
 
+#: Exceptions the pricing engine raises to REFUSE a candidate, as opposed to
+#: exceptions that mean this process is broken. Deliberately narrow.
+#:
+#: `core/ev.effective_price` raises `ValueError` on a price outside the
+#: tradeable range and on an unreadable fee; the sizing and EV arithmetic can
+#: raise `ArithmeticError`. Anything else -- a `sqlite3.Error`, an
+#: `AttributeError` from a shape that changed -- still propagates and still
+#: ends the pass, because those are defects and a defect that is counted and
+#: skipped is a defect nobody fixes.
+UNPRICEABLE_CANDIDATE = (ValueError, ArithmeticError)
+
+#: Reasons already logged this pass, so one bad series does not print a
+#: thousand identical lines. Reset per pass by `_priced_or_counted`'s caller
+#: through `PassCounts`; the set is keyed on the message, not the ticker,
+#: because "which tickers" is a count and "what went wrong" is the action item.
+_UNPRICEABLE_SEEN: set[str] = set()
+
+
+def _priced_or_counted(counts: "PassCounts", candidate, /, **kwargs):
+    """`build_recommendation`, with a refusal counted instead of propagated.
+
+    **One market must not be able to fail a whole pass.** On 2026-08-26 one
+    did: a team moneyline arrived with a derived ask of 1000 tenths (the
+    subtraction identity turning an absent NO bid into the endpoint),
+    `effective_price` raised, nothing caught it, and the pass died. Five
+    consecutive dead passes ended the recording process; the entrypoint exited
+    0; Fly read 0 as an intentional stop and left the machine down until the
+    next HTTP request woke it. The live instance was serving cold starts and
+    recording nothing for hours at a time.
+
+    The source defect is fixed (`store.db.derive_yes_ask` now refuses the
+    endpoints). This is the containment: the pass survives the NEXT refusal,
+    whatever produces it.
+
+    Returns `None` on a refusal. The caller must `continue`; a `None`
+    recommendation must never reach `pending`.
+    """
+    try:
+        return build_recommendation(candidate, **kwargs)
+    except UNPRICEABLE_CANDIDATE as exc:
+        counts.dropped_unpriceable += 1
+        reason = f"{type(exc).__name__}: {exc}"
+        if reason not in _UNPRICEABLE_SEEN:
+            _UNPRICEABLE_SEEN.add(reason)
+            logger.warning(
+                "pricing: refusing %s %s -- %s. Counted as "
+                "dropped_unpriceable; the pass continues.",
+                getattr(candidate, "ticker", "?"),
+                getattr(candidate, "side", "?"),
+                reason,
+            )
+        return None
+
+
 def _price_prop_event(
     conn,
     event: DiscoveredEvent,
@@ -1448,7 +1519,8 @@ def _price_prop_event(
             # from the no bid, so that is the resting size you would lift.
             depth = quote["no_bid_qty"] if side == "yes" else quote["yes_bid_qty"]
 
-            recommendation = build_recommendation(
+            recommendation = _priced_or_counted(
+                counts,
                 Candidate(
                     ticker=market.ticker,
                     side=side,
@@ -1474,6 +1546,8 @@ def _price_prop_event(
                 daily_pnl_dollars=daily_pnl,
                 created_ms=stamp,
             )
+            if recommendation is None:
+                continue
             pending.append(
                 ReviewCandidate(
                     recommendation=recommendation,
@@ -1866,7 +1940,8 @@ def run_pricing_pass(
                 # actually lift.
                 depth = quote["no_bid_qty"] if side == "yes" else quote["yes_bid_qty"]
 
-                recommendation = build_recommendation(
+                recommendation = _priced_or_counted(
+                    counts,
                     Candidate(
                         ticker=market.ticker,
                         side=side,
@@ -1898,6 +1973,8 @@ def run_pricing_pass(
                     daily_pnl_dollars=daily_pnl,
                     created_ms=stamp,
                 )
+                if recommendation is None:
+                    continue
                 pending.append(
                     ReviewCandidate(
                         recommendation=recommendation,

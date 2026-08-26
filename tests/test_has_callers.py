@@ -565,6 +565,52 @@ MUST_BE_SUPPLIED = [
 ]
 
 
+#: Wrappers that call a guarded function and forward **kwargs verbatim.
+#:
+#: Mapping is `wrapper -> wrapped`. A wrapper's own call sites are the real
+#: population for the checks below, and the forwarding call inside it carries
+#: no keywords of its own, so scanning for the wrapped name alone would report
+#: "one call site, supplying nothing" -- which is exactly what happened on
+#: 2026-08-26 when `_priced_or_counted` was introduced, and this test went red.
+#:
+#: **That red was correct and this entry is not a way to silence it.** The
+#: population genuinely moved; what must not move is the property. So the
+#: wrapper is named here AND `test_a_declared_wrapper_really_forwards_verbatim`
+#: proves it forwards, so this list cannot be used to exempt a wrapper that
+#: quietly supplies its own defaults -- which would be the guard-that-cannot-
+#: fail shape all over again, one level up.
+PASS_THROUGH_WRAPPERS: dict[str, str] = {
+    # Catches a refusal from the pricing engine so one unpriceable market
+    # cannot end a whole pass. Added after the live crash loop of 2026-08-26.
+    "_priced_or_counted": "build_recommendation",
+}
+
+
+def _forwarding_calls(tree: ast.AST, function: str) -> set[int]:
+    """`id()` of every call to `function` that sits inside a declared wrapper.
+
+    Computed once per module rather than per call: the naive form re-walked the
+    whole tree for every candidate, which on `routes.py` alone is quadratic and
+    took the suite past its timeout.
+    """
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if PASS_THROUGH_WRAPPERS.get(node.name) != function:
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Call):
+                name = (
+                    inner.func.id if isinstance(inner.func, ast.Name)
+                    else inner.func.attr if isinstance(inner.func, ast.Attribute)
+                    else None
+                )
+                if name == function:
+                    out.add(id(inner))
+    return out
+
+
 def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
     """Every production call of `function`, with the keywords it passes.
 
@@ -575,7 +621,14 @@ def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
     defining module too -- `price_against` is called from `_on_book` inside the
     module that defines it, and excluding definers the way `callers_of` does
     would skip its only production call site entirely.
+
+    A call through a declared pass-through wrapper counts as a call to the
+    wrapped function, and the forwarding call inside the wrapper does not
+    count -- see `PASS_THROUGH_WRAPPERS`.
     """
+    aliases = {function} | {
+        w for w, wrapped in PASS_THROUGH_WRAPPERS.items() if wrapped == function
+    }
     found: list[tuple[str, int, set[str], set[str]]] = []
     for path in production_sources():
         try:
@@ -583,6 +636,7 @@ def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
         except SyntaxError:                                   # noqa: PERF203
             continue
         rel = str(path.relative_to(ROOT)).replace("\\", "/")
+        forwarding = _forwarding_calls(tree, function)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -592,7 +646,12 @@ def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
                 else func.attr if isinstance(func, ast.Attribute)
                 else None
             )
-            if name != function:
+            if name not in aliases:
+                continue
+            if name == function and id(node) in forwarding:
+                # The forwarding call itself. Its keywords are `**kwargs`,
+                # which is the whole point; counting it would report a call
+                # site that supplies nothing.
                 continue
             keywords = {kw.arg for kw in node.keywords if kw.arg}
             literals = {
@@ -601,6 +660,80 @@ def _call_sites(function: str) -> list[tuple[str, int, set[str], set[str]]]:
             }
             found.append((rel, node.lineno, keywords, literals))
     return found
+
+
+@pytest.mark.parametrize(
+    "wrapper,wrapped", sorted(PASS_THROUGH_WRAPPERS.items()),
+    ids=[f"{w}->{f}" for w, f in sorted(PASS_THROUGH_WRAPPERS.items())],
+)
+def test_a_declared_wrapper_really_forwards_verbatim(wrapper, wrapped):
+    """`PASS_THROUGH_WRAPPERS` must not become an exemption list.
+
+    The entries there tell `_call_sites` to look through a wrapper at ITS
+    callers. That is correct only while the wrapper genuinely passes the
+    keywords along untouched. A wrapper that took `daily_pnl_dollars=0.0` as a
+    default, or that dropped a keyword, would satisfy the checks above while
+    reproducing the exact bug they exist to catch -- an optional safety
+    parameter, one level further out, where nothing is looking.
+
+    So: the wrapper must accept `**kwargs`, must forward `**kwargs` to the
+    wrapped function, and must not name any guarded parameter in its own
+    signature.
+    """
+    guarded = {p for f, p, _ in MUST_BE_SUPPLIED if f == wrapped}
+
+    definitions = []
+    for path in production_sources():
+        try:
+            tree = ast.parse(path.read_text("utf-8", errors="replace"))
+        except SyntaxError:                                   # noqa: PERF203
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == wrapper:
+                    definitions.append((path, node))
+
+    assert len(definitions) == 1, (
+        f"expected exactly one production definition of `{wrapper}`, found "
+        f"{len(definitions)}. Two would mean the scanner is looking through "
+        f"one wrapper while another goes unchecked."
+    )
+    _, node = definitions[0]
+
+    assert node.args.kwarg is not None, (
+        f"`{wrapper}` is declared a pass-through but takes no `**kwargs`, so "
+        f"it cannot be forwarding its callers' keywords."
+    )
+    named = (
+        {a.arg for a in node.args.args}
+        | {a.arg for a in node.args.posonlyargs}
+        | {a.arg for a in node.args.kwonlyargs}
+    )
+    overlap = named & guarded
+    assert not overlap, (
+        f"`{wrapper}` names {sorted(overlap)} in its own signature. A "
+        f"pass-through must not be able to supply, default, or drop a guarded "
+        f"parameter -- that is the guard-that-cannot-fail shape one level out."
+    )
+
+    forwards = False
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Call):
+            continue
+        name = (
+            inner.func.id if isinstance(inner.func, ast.Name)
+            else inner.func.attr if isinstance(inner.func, ast.Attribute)
+            else None
+        )
+        if name != wrapped:
+            continue
+        if any(kw.arg is None for kw in inner.keywords):      # `**kwargs`
+            forwards = True
+    assert forwards, (
+        f"`{wrapper}` never calls `{wrapped}(**kwargs)`. Either it is not a "
+        f"pass-through, or it rebuilds the keyword list by hand -- and a "
+        f"hand-built list is a second definition that can silently lose one."
+    )
 
 
 @pytest.mark.parametrize(

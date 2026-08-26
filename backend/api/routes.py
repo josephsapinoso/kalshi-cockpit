@@ -3498,14 +3498,25 @@ def create_app(
         # case it was written for: a guard that cannot fire, which is the shape
         # this repo keeps re-finding. 1000 is not a price, it is a settled
         # outcome, and here it means nobody is offering this side at all.
+        #
+        # **The check stays; what supplies the DIAGNOSIS moved, 2026-08-26.**
+        # `derive_yes_ask` now applies `is_valid_price` itself, because the
+        # same rule had been patched at three call sites and the fourth one
+        # nobody patched took the live recorder down. That makes this guard
+        # belt-and-braces -- and it collapses `live_ask` to `None` in both
+        # cases, so the two sentences below can no longer be told apart from
+        # the derived value. They are told apart from the INPUT instead: a
+        # readable opposing bid means the book is genuinely one-sided, an
+        # unreadable one means the field could not be parsed.
         if not is_valid_price(live_ask):
+            opposing_bid = quote.opposing_bid_tenths(side)
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"{quote.ticker} has no {side} offer right now"
                     + (
                         " -- the opposing bid is unreadable"
-                        if live_ask is None
+                        if opposing_bid is None
                         else " -- nothing is resting on the other side, so there "
                              "is nothing to lift"
                     )

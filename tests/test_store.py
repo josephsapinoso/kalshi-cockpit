@@ -602,6 +602,50 @@ class TestDerivedAsks:
         assert db.derive_yes_ask(None) is None
         assert db.derive_no_ask(None) is None
 
+    def test_a_zero_bid_is_the_same_absence_as_a_missing_one(self):
+        """The venue reports an empty side as 0.0000, not as null.
+
+        `dollars_to_tenths("0.0000")` is a correct `0`, so the ABSENCE reaches
+        the derivation as a legitimate number and `1000 - 0` hands back the
+        endpoint. Subtraction has no null, and the limit is the most flattering
+        number in the range: a YES ask of 0c is a free contract, and a NO ask
+        of 0c is the same on the other side.
+
+        Live, 2026-08-26: this took the recording process down. See
+        `derive_yes_ask`'s docstring for the chain.
+        """
+        assert db.derive_yes_ask(0) is None
+        assert db.derive_no_ask(0) is None
+
+    def test_a_full_bid_is_refused_too_because_the_ask_lands_on_zero(self):
+        """The other endpoint, and the one the prop ladder produces routinely.
+
+        Kalshi prices every rung of a ladder. On the far rung nobody will
+        trade, the NO bid rests at 100c, and the derived YES ask is 0 -- which
+        `core.ev.effective_price` refuses by raising.
+        """
+        assert db.derive_yes_ask(1000) is None
+        assert db.derive_no_ask(1000) is None
+
+    def test_the_refusal_agrees_with_the_test_every_consumer_applies(self):
+        """One definition, not four.
+
+        This rule was patched at three call sites before it was put in the
+        derivation (`runner.py`'s prop path, `routes.py::_tradeable_ask`, and
+        then here). The guard against a fourth is that the derivation uses the
+        SAME predicate the consumers do, so the two cannot drift apart.
+        """
+        from backend.core.prices import is_valid_price
+
+        for bid in range(0, 1001, 1):
+            ask = db.derive_yes_ask(bid)
+            assert (ask is not None) == is_valid_price(1000 - bid), bid
+
+    def test_ask_for_side_carries_the_refusal_through(self):
+        """The row-level reader must not reintroduce what the derivation removed."""
+        assert db.ask_for_side({"yes_bid_tenths": 0, "no_bid_tenths": 0}, "yes") is None
+        assert db.ask_for_side({"yes_bid_tenths": 0, "no_bid_tenths": 0}, "no") is None
+
     def test_ask_for_side_reads_the_opposing_bid(self):
         row = {"yes_bid_tenths": 450, "no_bid_tenths": 520}
         assert db.ask_for_side(row, "yes") == 480

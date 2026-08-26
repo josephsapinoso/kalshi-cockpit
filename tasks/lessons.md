@@ -25,6 +25,121 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-26 — Fixing a defect at the call site leaves the rule where the next call site cannot find it
+
+`derive_yes_ask` turns an absent NO bid into a YES ask. An absent bid arrives
+from the venue as `0.0000`, parses correctly to `0`, and `1000 - 0` hands back
+a 1000-tenths "ask" that is a settled outcome rather than a quote.
+
+That was refused three times, in three places, over eleven days:
+
+1. **2026-08-15, `runner.py`'s prop path.** A `ValueError` aborted a whole
+   pricing pass. Fixed with `if not is_valid_price(ask): continue` **at that
+   loop**, plus a comment predicting the team path would never trip it
+   *"because a game moneyline does not reach 0 or 1000 while it is still
+   pre-game and open."*
+2. **2026-08-26, `routes.py::_tradeable_ask`.** The manual ticket rendered
+   "YES 0c" on a live combination. Fixed **in the route**.
+3. **2026-08-26, live.** The team path — the one the 2026-08-15 comment said
+   was safe — took a 1000-tenths ask. The pass died, five dead passes ended
+   the recording process, and the machine sat switched off between page loads
+   for hours.
+
+Each fix was correct. Each was local. **Two of them wrote down, in a comment,
+the reasoning for why the other call sites did not need it — and that
+reasoning was the thing that turned out to be wrong.**
+
+**The pattern: when a value is unsafe, the fix belongs where the value is
+*made*, not where it is *used*.** A guard at the call site protects exactly one
+caller and silently declines to protect the next one somebody writes. And the
+comment justifying the local scope is worse than no comment, because it reads
+as evidence that the question was considered.
+
+Two tests to reach for:
+
+- **Assert the population of call sites**, not one of them. `assert
+  src.count("= build_recommendation(") == 0` turns a new unguarded caller into
+  a red test.
+- **Assert the producer agrees with the consumer's own predicate**, over the
+  whole input range, so the two definitions cannot drift:
+  `for bid in range(0, 1001): assert (derive_yes_ask(bid) is not None) ==
+  is_valid_price(1000 - bid)`.
+
+Corollary on blast radius: the local fix in (1) *was* the whole fix for that
+pass, and it still left the process able to die. **A refusal that raises needs
+two things — the value stopped at its source, and the loop able to survive one
+of them anyway.** Only the second one protects against the refusal nobody has
+predicted yet.
+
+---
+
+## 2026-08-26 — A monitor that has to touch the thing it measures is reporting its own effect
+
+`.github/workflows/heartbeat.yml` probed `/api/health` every fifteen minutes
+and, for as long as it had existed, reported the live instance healthy.
+
+The instance was switched off most of the time. `auto_start_machines = true`,
+so **the probe's own curl started the machine**, and the check then read a
+container that was up — because the check woke it — and called that alive. It
+was also, silently, the thing keeping the box running on a 15-minute cadence.
+
+Nothing in the workflow was wrong. Every branch it had was a real state, and
+the state it could not see was the one it destroyed by looking.
+
+**The pattern: before trusting a monitor, ask whether observing costs anything
+on the observed side.** An HTTP probe against auto-start; a query that warms a
+cache; a read that takes a lock; a request that resets an idle timer. In every
+case the measurement is of the system *after* the measurement, and the failure
+mode is always the flattering one — "it answered, so it was up."
+
+The fix is an out-of-band read: the Fly Machines API reports `state` without
+touching the app, so it runs **first**, and a stopped machine is seen rather
+than woken. Where no out-of-band read exists, the honest move is for the
+monitor to say what it cannot distinguish — which is what this repo's alarm
+text already had to learn once (2026-08-25, "it is alive and stuck").
+
+Same family as the entries this file already keeps under verification methods
+that lie, and one step further out: not a method that reports the wrong thing,
+but a method that *causes* the thing it reports.
+
+---
+
+## 2026-08-26 — Exit 0 means "I finished", and a supervisor that tears down on a failure is not finished
+
+`docker/entrypoint.sh` supervises three processes with `wait -n` and tears the
+container down when any of them dies, with a comment saying it does so *"so
+the platform restarts it cleanly."* It ended `exit 0`.
+
+Fly's restart policy is on-failure. It logged, accurately:
+
+    machine exited with exit code 0, not restarting
+
+So the container that had just announced `CHAIN RUNNER exited -- the record has
+stopped growing. Restarting.` did not restart. `min_machines_running = 1` and
+`auto_stop_machines = "off"` were both set and neither applies, because
+**neither governs a container that exited successfully.**
+
+The root cause was one function serving two callers with opposite meanings: a
+`trap ... INT TERM`, where 0 is correct because a signal is somebody asking,
+and a failure teardown, where 0 is a lie. The function took no argument, so
+both got the same answer.
+
+**The pattern: an exit code is an assertion about whether the work succeeded,
+and a shared cleanup path makes that assertion on behalf of callers that
+disagree about the answer.** Whenever one teardown is reached both
+deliberately and by failure, it needs the caller to say which — and the
+default should be the one that is safe to get wrong. Here that is non-zero: a
+spurious restart costs a cold start, a missed restart costs every hour until
+somebody notices.
+
+Worth carrying separately: **the comment asserted the platform behaviour
+rather than the code causing it.** "So the platform restarts it cleanly" was
+never true, and it read as though it had been verified. A sentence about what
+another system will do in response to us is a claim that needs an observation
+behind it, not a design intention.
+
+---
+
 ## 2026-08-26 — `load_dotenv()` makes the whole test suite a credential holder, and arming is what turns that into spending
 
 A repo-root `conftest.py` deleted `ANTHROPIC_API_KEY` for every test, with a

@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..core.prices import is_valid_price
+
 #: v22 adds `loop_failures` and needs no migration step. A pure new table is
 #: created by `executescript`'s `CREATE TABLE IF NOT EXISTS` on the next open,
 #: on an existing volume as well as a fresh one -- `_MIGRATIONS` exists for
@@ -1286,6 +1288,33 @@ def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 # Kalshi publishes YES bids and NO bids only. Asks are derived, and this is the
 # only place that derivation happens, so a caller cannot accidentally treat a
 # mid as a tradeable price.
+#
+# **Both functions run the derived value back through `is_valid_price`, and
+# that is the fix for a defect this project patched three times at three call
+# sites before putting it here.** Subtraction has no null: `1000 - x` turns
+# "x is missing" into "the answer is the limit", and the limit is the most
+# attractive number in the range. Kalshi reports an empty side as
+# `no_bid_dollars = 0.0000`, which `dollars_to_tenths` correctly parses to a
+# real `0` -- so the ABSENCE arrives as a legitimate zero and the derived ask
+# comes back as 1000 (or 0 on the other side). Neither is a quote; both are
+# settled outcomes.
+#
+# The three patches, in order, each local and each believing itself sufficient:
+#
+#   1. `runner.py:1443` -- the prop path, after a `ValueError` aborted the
+#      whole pricing pass on 2026-08-15. Its comment predicted the team path
+#      would never trip "because a game moneyline does not reach 0 or 1000
+#      while it is still pre-game and open".
+#   2. `routes.py::_tradeable_ask` -- the manual ticket, after the screen
+#      rendered "YES 0c" on a live combination on 2026-08-26.
+#   3. This one. The prediction in (1) was falsified on live 2026-08-26: the
+#      TEAM path at `runner.py:1859` checked only `is not None`, took a
+#      1000-tenths ask, and `core/ev.effective_price` raised -- five
+#      consecutive times, which ended the recording process, which exited 0,
+#      which Fly read as an intentional stop and did not restart. The live
+#      instance was down between visits for hours at a time.
+#
+# A rule enforced at the call site is a rule the next call site does not have.
 
 
 def derive_yes_ask(no_bid_tenths: Optional[int]) -> Optional[int]:
@@ -1294,17 +1323,32 @@ def derive_yes_ask(no_bid_tenths: Optional[int]) -> Optional[int]:
     Returns None when there is no NO bid — meaning nobody is offering to sell
     you YES at any price. That is *not* a free or zero-cost fill, so it must
     not collapse to a number.
+
+    **`None` and a literal `0` are the same absence here**, and only the first
+    used to be handled. The venue reports an empty side as
+    `no_bid_dollars = 0.0000`, so the missing bid arrives as a real zero and
+    the subtraction hands back 1000 — a settled outcome wearing a price's
+    clothes. The result is therefore run back through the validity test its
+    consumers already apply (`core.ev.effective_price`, `OrderRequest`), so
+    the refusal happens once, here, instead of at each caller that remembers.
     """
     if no_bid_tenths is None:
         return None
-    return 1000 - int(no_bid_tenths)
+    ask = 1000 - int(no_bid_tenths)
+    return ask if is_valid_price(ask) else None
 
 
 def derive_no_ask(yes_bid_tenths: Optional[int]) -> Optional[int]:
-    """The price you would pay to buy NO, from the best YES bid."""
+    """The price you would pay to buy NO, from the best YES bid.
+
+    Same refusal as `derive_yes_ask`, for the same reason and in the same
+    direction: an absent YES bid arrives as `0` and would derive a NO ask of
+    1000.
+    """
     if yes_bid_tenths is None:
         return None
-    return 1000 - int(yes_bid_tenths)
+    ask = 1000 - int(yes_bid_tenths)
+    return ask if is_valid_price(ask) else None
 
 
 def ask_for_side(row: sqlite3.Row | dict, side: str) -> Optional[int]:
