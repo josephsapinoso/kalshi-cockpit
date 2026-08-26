@@ -195,9 +195,11 @@ Two acts, and this ADR performs one of them.
   his behalf and did not.
 
 **The thing arming cannot fix.** Caps derive from the observed venue balance
-(ADR 0045) and never from a typed number. At the last recorded reading that
-balance was $2.56, giving a $0.26 per-bet cap — armed, the confirm is dead on
-everything but sub-25c longshots. That is a deposit, not a code change.
+(ADR 0045) and never from a typed number. Read off live immediately after this
+shipped: **`max_position_dollars` $0.54, `max_exposure_dollars` $2.16** — armed
+today, a single contract is affordable only up to about 52c after fees and
+nothing larger is buyable at all. That is a deposit, not a code change, and no
+edit to this ADR moves it.
 
 ## 7. Rejected, with reasons
 

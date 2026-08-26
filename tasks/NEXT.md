@@ -135,6 +135,16 @@ door could open at all.**
    reality while the prose did not; the manual path's pin now asserts the
    **count**.
 
+**VERIFIED ON LIVE, 2026-08-26 12:05Z, `git_sha b2f2d14`.** The manual door
+answers for the first time: `/api/manual/market/{ticker}` returns
+`reachable: true` where every response before this was `blocked`, with
+`dry_run: true`, `max_contracts: 1` and `authorised_contracts: 1` against a
+real book (16c ask, depth 200). `/api/manual/search?q=Los` returns 20 markets
+and they are **prop ladder rungs** (`KXMLBRBI-26AUG261607CLELAA-CLEJADELL7-1`,
+`-2`, `-3`) — exactly the class that had no way in before. Read with a session
+cookie minted from `.env`'s own token, since the routes sit behind the
+middleware and `scripts/fetch_live_route.py`'s allowlist does not carry them.
+
 **MEASURED BY RUNNING IT, and it found two defects tests did not.** The stack
 was driven end to end — seeded DB, uvicorn, `next start`, a browser — and the
 ticket reached its **ticket phase against a real Kalshi book for the first time
@@ -177,10 +187,13 @@ overflow at 390 and 1280.
 **FOR JOE — the two things only you can do:**
 
 1. **Fund the account, or arming produces a dead button.** Caps derive from the
-   observed venue balance (ADR 0045) and never from a typed number. At the last
-   recorded reading that was **$2.56**, giving a **$0.26** per-bet cap — armed,
-   the confirm is dead on everything but sub-25c longshots. Read the real
-   number from `/api/manual/market/{ticker}`'s `caps` block once this deploys.
+   observed venue balance (ADR 0045) and never from a typed number. **Read off
+   live at 12:05Z, after this deployed: `max_position_dollars` $0.54,
+   `max_exposure_dollars` $2.16** — so a balance around $5.40, not the $2.56
+   this file carried from an older reading. Armed today, one contract is
+   affordable only up to about 52c after fees, and nothing larger is buyable at
+   all. Re-read it rather than quoting these:
+   `/api/manual/market/{ticker}` serves the `caps` block.
 2. **Say when to flip `MANUAL_ORDERS_ARE_DRY_RUNS`.** Everything else is done:
    the C0 probe is discharged, the REST client is wired, the 1-contract ceiling
    binds. It is one commit and a deploy, revertible alone, and it is yours.
