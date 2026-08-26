@@ -72,6 +72,7 @@ from ..core.prices import (
 from ..core.sizing import size_position, verify_positive_after_fees
 from .. import bets as bets_module
 from .. import estimates as bet_estimates
+from .. import hedge as held_parlays
 from .. import passes as desk_passes
 from ..core.suppression import SuppressionConfig, gauntlet_view
 from ..core.teaser import find_wong_candidates
@@ -351,6 +352,64 @@ class ParlayLookupRequest(BaseModel):
     card_key: str
     stake_cents: int = Field(default=500, gt=0, le=100_000)
     legs: list[ParlayLookupLeg] = Field(min_length=2)
+
+
+class HeldLegRequest(BaseModel):
+    """One leg of a ticket Joe already holds (ADR 0074).
+
+    `ticker` is optional and that is the sportsbook case: a leg the venue does
+    not list has no market to quote, no result to read and no hedge to buy. It
+    is carried so the ticket's arithmetic is complete, and every surface says
+    such a leg cannot be priced rather than treating an absent quote as a bad
+    one.
+    """
+
+    ticker: Optional[str] = Field(default=None, max_length=80)
+    side: str = Field(pattern="^(yes|no)$")
+    label: str = Field(min_length=1, max_length=120)
+    event_ticker: Optional[str] = Field(default=None, max_length=80)
+    league: Optional[str] = Field(default=None, max_length=40)
+    commence_ms: Optional[int] = None
+
+
+class HeldPositionRequest(BaseModel):
+    """A parlay Joe holds, in the figures the slip actually shows him.
+
+    Money arrives in **cents**, because that is what a bet slip is denominated
+    in and a form that asked for tenths of a cent would be answered wrongly.
+    It is converted to tenths at this boundary, once, the way `RiskConfig`
+    converts dollars.
+
+    `return_cents` is the TOTAL returned on a win, stake included -- not "to
+    win". The equalising hedge is exactly that many dollars of contracts, so
+    the ambiguity would land straight in the size.
+    """
+
+    source: str = Field(pattern="^(kalshi_combo|sportsbook)$")
+    label: str = Field(min_length=1, max_length=80)
+    stake_cents: int = Field(gt=0, le=10_000_000)
+    return_cents: int = Field(gt=0, le=10_000_000)
+    legs: list[HeldLegRequest] = Field(min_length=1, max_length=20)
+    book: Optional[str] = Field(default=None, max_length=40)
+    placed_ms: Optional[int] = None
+    combo_ticker: Optional[str] = Field(default=None, max_length=80)
+    parlay_lookup_id: Optional[int] = None
+    note: Optional[str] = Field(default=None, max_length=400)
+
+
+class ResolveLegRequest(BaseModel):
+    """Joe's word on a leg the venue cannot settle for him.
+
+    `source` is fixed at `manual` by the route rather than accepted from the
+    client: the venue path writes its own rows, and letting a request claim
+    `venue` would put his word into the column that means the exchange said so.
+    """
+
+    outcome: str = Field(pattern="^(won|lost|void)$")
+
+
+class ClosePositionRequest(BaseModel):
+    status: str = Field(pattern="^(settled|closed|void)$")
 
 
 def create_app(
@@ -2627,6 +2686,143 @@ def create_app(
             ) from exc
         finally:
             write_conn.close()
+
+    @app.get("/api/hedge")
+    async def hedge_positions(conn=Depends(get_conn)) -> dict:
+        """Every parlay Joe holds, its legs' live prices, and what a hedge does.
+
+        Unauthenticated like `/api/parlays` and for the same reason: it reads,
+        it recommends nothing, and it is already behind `middleware.ts`. It
+        reaches the venue for a live book per watched ticker -- Kalshi is
+        unmetered, so this spends no credits and touches no LLM.
+
+        In-play by construction, and that is the point: a hedge is only ever
+        wanted while the game is running. Nothing here writes a
+        `recommendations` row, so `runner`'s `dropped_game_started` drop and
+        ADR 0006's evidence guard are untouched (ADR 0074 §4).
+        """
+        now = db.now_ms()
+        try:
+            fetch = live_quotes().fetch
+        except ConfigError:
+            # A demo instance holds no credentials. The record still renders;
+            # every leg simply has no readable book, which the payload already
+            # has words for.
+            async def fetch(ticker, *, observed_ms):                # noqa: ARG001
+                raise QuoteUnavailable("this instance holds no Kalshi credentials")
+
+        return await held_parlays.build_payload(
+            conn,
+            now_ms=now,
+            max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
+            spendable_tenths=db.latest_balance_tenths(conn),
+            fetch_quote=fetch,
+        )
+
+    @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])
+    def record_held_position(request: HeldPositionRequest) -> dict:
+        """Record a parlay Joe already holds.
+
+        Auth-gated because it writes. It moves no money and reaches no venue --
+        this is a note about a bet that has already been placed somewhere else.
+
+        Money arrives in cents and is converted to tenths **here**, once, at
+        the boundary. A ticket whose figures cannot carry the arithmetic is
+        refused now, while he can still correct them, rather than in the sixth
+        inning when the alert would have used them.
+        """
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            position_id = held_parlays.record_position(
+                write_conn,
+                now_ms=db.now_ms(),
+                source=request.source,
+                label=request.label,
+                stake_tenths=request.stake_cents * 10,
+                return_tenths=request.return_cents * 10,
+                legs=[leg.model_dump() for leg in request.legs],
+                book=request.book,
+                placed_ms=request.placed_ms,
+                combo_ticker=request.combo_ticker,
+                parlay_lookup_id=request.parlay_lookup_id,
+                note=request.note,
+            )
+        except held_parlays.PositionRefused as exc:
+            raise HTTPException(
+                status_code=422, detail=exc.refusal.detail
+            ) from exc
+        finally:
+            write_conn.close()
+        return {"position_id": position_id, "status": "recorded"}
+
+    @app.post(
+        "/api/hedge/legs/{leg_id}/resolve", dependencies=[Depends(require_auth)]
+    )
+    def resolve_held_leg(leg_id: int, request: ResolveLegRequest) -> dict:
+        """Joe's word on a leg the venue cannot settle for him.
+
+        Required rather than convenient: a sportsbook leg has no Kalshi ticker,
+        so `kalshi_markets.result` can never reach it, and without this route
+        the lock case is unreachable for exactly the slips he asked about.
+
+        `resolved_source` is fixed at `manual` here and is never taken from the
+        request. The two sources are not equally good evidence and the column
+        exists to keep them apart; a client that could claim `venue` would erase
+        the distinction the moment somebody found it convenient.
+        """
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            moved = held_parlays.resolve_leg(
+                write_conn,
+                leg_id=leg_id,
+                outcome=request.outcome,
+                now_ms=db.now_ms(),
+                source="manual",
+            )
+        finally:
+            write_conn.close()
+        if not moved:
+            # Either there is no such leg or it has already settled. Both are
+            # "this write changed nothing", and 409 says that without claiming
+            # to know which -- the check read one row count and can separate
+            # neither (ADR 0072 Decision 1).
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "That leg did not move. It has either already been settled "
+                    "or it does not exist — a settled leg is a fact and is not "
+                    "rewritten."
+                ),
+            )
+        return {"leg_id": leg_id, "outcome": request.outcome, "source": "manual"}
+
+    @app.post(
+        "/api/hedge/positions/{position_id}/close",
+        dependencies=[Depends(require_auth)],
+    )
+    def close_held_position(
+        position_id: int, request: ClosePositionRequest
+    ) -> dict:
+        """Stop watching a ticket. Nothing is deleted; the row keeps its history."""
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            moved = held_parlays.close_position(
+                write_conn,
+                position_id=position_id,
+                now_ms=db.now_ms(),
+                status=request.status,
+            )
+        finally:
+            write_conn.close()
+        if not moved:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "That ticket did not move. It is either already closed or "
+                    "it does not exist."
+                ),
+            )
+        return {"position_id": position_id, "status": request.status}
 
     @app.get("/api/odds/refreshable")
     def refreshable(conn=Depends(get_conn)) -> dict:

@@ -126,6 +126,33 @@ def format_price(tenths: Optional[Union[int, float]]) -> str:
     return f"{cents:.1f}c"
 
 
+def format_dollars(tenths: Optional[Union[int, float]]) -> str:
+    """Money as dollars, from integer tenths of a cent. ``None`` -> ``"--"``.
+
+    ``12_340`` -> ``"$12.34"``,  ``-9_070`` -> ``"-$9.07"``,
+    ``333_330`` -> ``"$333.33"``,  ``1_500_000`` -> ``"$1,500"``.
+
+    Cents are kept up to $1,000 and dropped above it. The slip that prompted
+    the parlay desk reads "$333.33", and a payout rounded to "$333" beside a
+    "$4.99" cost mixes two precisions in one sentence; a thousand dollars up,
+    the cents are noise. ``parlays._dollars`` had this rule first and now
+    delegates here, so the product has one dollar renderer and not two --
+    the same reason ``format_probability`` exists beside ``format_price``.
+
+    **The sign goes outside the dollar mark.** ``$-9.07`` reads as a price in
+    a currency nobody uses; ``-$9.07`` reads as a loss, which is what a hedge
+    that cannot lock a gain actually is.
+    """
+    if tenths is None:
+        return "--"
+    dollars = tenths / float(PRICE_MAX)
+    sign = "-" if dollars < 0 else ""
+    magnitude = abs(dollars)
+    if magnitude >= 1_000:
+        return f"{sign}${magnitude:,.0f}"
+    return f"{sign}${magnitude:,.2f}"
+
+
 def format_probability(probability: Optional[float]) -> str:
     """A probability as a percentage. **Never with a cent suffix.**
 

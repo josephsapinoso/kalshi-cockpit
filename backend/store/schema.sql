@@ -1440,3 +1440,109 @@ CREATE TABLE IF NOT EXISTS loop_failures (
     CHECK (pass_kind IS NULL OR pass_kind IN ('full', 'quote'))
 );
 CREATE INDEX IF NOT EXISTS idx_loop_failures_time ON loop_failures(failed_ms DESC);
+
+
+-- ============================================================================
+-- Parlays Joe is actually holding, and their legs
+-- ============================================================================
+-- ADR 0074. The `/parlays` desk prices combinations it might sell; **nothing
+-- in this project has ever recorded one he bought.** `parlay_lookups` records
+-- that a card was priced, `manual_orders` records that a ticker was sent, and
+-- neither is joined to the other or says "this ticket is live and I am on the
+-- hook for it".
+--
+-- That gap is why a hedge cannot be computed: hedging needs the stake, the
+-- payout and which legs are still alive, and only the operator knows all
+-- three -- a sportsbook slip is not on this venue at all, and a Kalshi combo
+-- ticket is a `KXMVE` market that discovery excludes outright.
+--
+-- **Two tables and not one.** A ticket is one row and its legs are many, and
+-- the leg is the unit everything downstream works on: the outcome resolves
+-- per leg, the live quote is per leg, and the hedge is bought on one leg's
+-- market. Flattening legs into a JSON column would put the only queryable
+-- fact behind a parser.
+--
+-- **`backend/gate.py` may never read either table.** Same rule and same
+-- reason as `manual_orders` (ADR 0063): these rows are the operator's own
+-- discretion, and the live-trading interlock's evidence populations must not
+-- be able to move because he typed in a bet slip. A table is a boundary; a
+-- column is a convention.
+--
+-- Money is integer tenths of a cent (CLAUDE.md), so a $5.00 stake is 5000 and
+-- a $333.33 return is 333330. NULL means "not observed", never zero.
+CREATE TABLE IF NOT EXISTS parlay_positions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_ms      INTEGER NOT NULL,
+    -- Where the ticket lives. `kalshi_combo` can be hedged AND is the case
+    -- that most needs it: combos are enter-only in 40 of 40 books this repo
+    -- has read, so a hedge on a leg market is the only exit that exists.
+    source          TEXT NOT NULL,
+    -- Which sportsbook, when it is one. Free text and purely descriptive:
+    -- nothing branches on it, and no odds are ever fetched from it.
+    book            TEXT,
+    label           TEXT NOT NULL,
+    stake_tenths    INTEGER NOT NULL,
+    -- TOTAL returned on a full win, stake included -- not "to win". The
+    -- equalising hedge is exactly this many dollars of contracts, so the
+    -- ambiguity would land straight in the size.
+    return_tenths   INTEGER NOT NULL,
+    placed_ms       INTEGER,
+    status          TEXT NOT NULL,
+    -- The minted `KXMVE` ticker, on a combo bought through this desk.
+    combo_ticker    TEXT,
+    -- The `parlay_lookups` row this was bought from, when it was. No FK:
+    -- `parlay_lookups` has no retention window today and may gain one, and a
+    -- pruned lookup must not take a live position with it.
+    parlay_lookup_id INTEGER,
+    note            TEXT,
+    closed_ms       INTEGER,
+    CHECK (source IN ('kalshi_combo', 'sportsbook')),
+    CHECK (status IN ('open', 'settled', 'closed', 'void')),
+    CHECK (stake_tenths > 0),
+    CHECK (return_tenths > stake_tenths)
+);
+CREATE INDEX IF NOT EXISTS idx_parlay_positions_open
+    ON parlay_positions(status, created_ms DESC);
+
+-- One leg of a held ticket.
+--
+-- **`ticket` is nullable and that is the sportsbook case, not an oversight.**
+-- A leg the venue does not list has no market to quote, no result to read and
+-- no hedge to buy; it is carried so the ticket's arithmetic is complete, and
+-- every surface must say that such a leg cannot be priced rather than
+-- treating an absent quote as a bad one.
+--
+-- `outcome` starts `pending` and moves once. `resolved_source` separates the
+-- two ways it can move, because they are not the same evidence: `venue` is
+-- `kalshi_markets.result`, written by the market-result pass; `manual` is
+-- Joe's word, which is the ONLY thing available for a leg with no ticker.
+-- A lock computed off a hand-marked leg is exactly as good as the marking,
+-- and the screen says which it was.
+CREATE TABLE IF NOT EXISTS parlay_position_legs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id     INTEGER NOT NULL REFERENCES parlay_positions(id),
+    leg_index       INTEGER NOT NULL,
+    ticker          TEXT,
+    -- The side of the LEG, not of the hedge. The hedge is the other one.
+    side            TEXT NOT NULL,
+    label           TEXT NOT NULL,
+    event_ticker    TEXT,
+    league          TEXT,
+    commence_ms     INTEGER,
+    outcome         TEXT NOT NULL,
+    resolved_ms     INTEGER,
+    resolved_source TEXT,
+    CHECK (side IN ('yes', 'no')),
+    CHECK (outcome IN ('pending', 'won', 'lost', 'void')),
+    CHECK (resolved_source IS NULL OR resolved_source IN ('venue', 'manual')),
+    -- A resolved leg carries when and from where; a pending one carries
+    -- neither. Without this a leg could read `won` with no provenance, which
+    -- is the state the `resolved_source` column exists to make impossible.
+    CHECK ((outcome = 'pending') = (resolved_ms IS NULL)),
+    CHECK ((outcome = 'pending') = (resolved_source IS NULL)),
+    UNIQUE (position_id, leg_index)
+);
+CREATE INDEX IF NOT EXISTS idx_parlay_position_legs_position
+    ON parlay_position_legs(position_id, leg_index);
+CREATE INDEX IF NOT EXISTS idx_parlay_position_legs_ticker
+    ON parlay_position_legs(ticker) WHERE ticker IS NOT NULL;

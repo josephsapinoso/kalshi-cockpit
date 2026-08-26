@@ -28,7 +28,7 @@ from ..core.prices import is_valid_price
 #: created by `executescript`'s `CREATE TABLE IF NOT EXISTS` on the next open,
 #: on an existing volume as well as a fresh one -- `_MIGRATIONS` exists for
 #: changes to tables that already hold rows, which this is not.
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
