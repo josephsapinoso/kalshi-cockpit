@@ -597,3 +597,76 @@ class TestTheFeeMultiplierIsForTheRecordOnly:
 
     def test_cents_spelling_takes_it_too(self):
         assert fees.calculate_fee_cents(500, 40, fee_multiplier=0.5) == 35
+
+
+class TestTheComboHedge:
+    """`combo_taker_fee` (ADR 0073): a ceiling above every combo charge on
+    the record, for the one caller that now needs one.
+
+    The eight rows below are the whole combo fee evidence this repo holds —
+    `docs/measurements/2026-08-18-combo-fill-fee-look-result.md`, C1/C4 —
+    reproduced as (count, price_dollars, charged). They are the reason the
+    hedge exists: the deployed model undercharged four of them, and every
+    row's implied coefficient exceeds 0.070.
+
+    WHAT THESE TESTS DO NOT ESTABLISH: that 0.071 bounds what Kalshi charges
+    for a combination. Those fills are one account, one sitting, one day, at
+    prices no higher than $0.228 — the deep tail of a curve that peaks at
+    $0.50. What is established is narrower and is all the hedge claims: it
+    is above every charge that has been observed.
+    """
+
+    # count, price in dollars, charged in dollars — capture order 1..8.
+    OBSERVED = [
+        (227.27, 0.001, 0.015930),
+        (90.90, 0.001, 0.006400),
+        (90.90, 0.001, 0.006400),
+        (45.45, 0.002, 0.006400),
+        (28.32, 0.033, 0.063340),
+        (71.94, 0.013, 0.064780),
+        (4.15, 0.228, 0.051200),
+        (909.09, 0.001, 0.063610),
+    ]
+
+    def test_the_hedge_covers_every_observed_combo_charge(self):
+        """The property the coefficient was chosen for. Mutation observed
+        red: set COMBO_TAKER_COEFFICIENT to 0.07 and rows 1, 5, 6 and 8
+        fall under their charge — the same four the measurement flagged."""
+        under = []
+        for count, price, charged in self.OBSERVED:
+            price_tenths = round(price * 1000)
+            hedged = fees.combo_taker_fee(price_tenths, count)
+            assert hedged is not None
+            if hedged < charged:
+                under.append((count, price, charged, hedged))
+        assert not under, f"the hedge undercharges these rows: {under}"
+
+    def test_the_deployed_model_is_the_one_that_undercharges(self):
+        """The finding the hedge answers, pinned so it cannot be forgotten:
+        `calculate_fee` really does come in low on four of the eight."""
+        under = [
+            (count, price)
+            for count, price, charged in self.OBSERVED
+            if (fees.calculate_fee(round(price * 1000), count) or 0.0) < charged
+        ]
+        assert len(under) == 4, (
+            f"expected the four rows ADR 0046 names, got {under}"
+        )
+
+    def test_the_hedge_is_never_below_the_model_it_replaces(self):
+        """Across the tradeable grid, not only on the observed rows — a
+        hedge that dipped under `calculate_fee` anywhere would be a
+        relaxation wearing a safety fix's clothes."""
+        for price_tenths in range(1, 1000):
+            hedged = fees.combo_taker_fee(price_tenths, 1)
+            plain = fees.calculate_fee(price_tenths, 1)
+            assert hedged is not None and plain is not None
+            assert hedged >= plain, price_tenths
+
+    def test_an_unreadable_price_refuses_rather_than_charging_nothing(self):
+        assert fees.combo_taker_fee(0, 1) is None
+        assert fees.combo_taker_fee(1000, 1) is None
+        assert fees.combo_taker_fee(450, float("nan")) is None
+
+    def test_a_zero_count_is_free_and_not_a_refusal(self):
+        assert fees.combo_taker_fee(450, 0) == 0.0

@@ -107,9 +107,29 @@ rather than needing a separate `/portfolio/fills` poll.
 
 **A limit we did not previously have.** `snap_tenths` refuses a grid point finer
 than a tenth of a cent, because the project's canonical unit cannot name it.
-That is unreachable on game markets and reachable on combo markets, which use
-`center_centi_edge_centi_cent`. Refusing beats sending a price we cannot
-represent; if combos are ever priced, the unit is what has to change.
+Refusing beats sending a price we cannot represent.
+
+> **Addendum, 2026-08-26 — the combo half of that sentence is not borne out
+> by this repo's own captures.** It read *"That is unreachable on game markets
+> and reachable on combo markets, which use `center_centi_edge_centi_cent`"*,
+> and on that reading a combination order was mechanically impossible before
+> any policy check ever ran. Counted across every combination market this repo
+> has captured — `tests/fixtures/combo_lookup_response.json`,
+> `combo_lookup_repeat.json` and `combo_priced_markets.json`, 43 markets in
+> total — **15 are `deci_cent`, 29 are `linear_cent`, and zero carry a
+> centi-cent structure.** Both are representable in tenths, so `snap_tenths`
+> does not refuse them.
+>
+> The claim came from Kalshi's published structure table, which is the same
+> provenance this ADR states plainly for its own test values ("transcribed
+> from Kalshi's published structure table ... because no game market carried
+> one on the day of capture"). The table lists a structure; it does not say
+> which markets use it. That distinction is the whole correction.
+>
+> **What is unchanged:** the refusal itself, and the sentence that a finer
+> grid would require the unit to change. What is corrected is only the belief
+> that combinations are on one. ADR 0073 depends on this — it is what makes a
+> bounded combination buy possible at all.
 
 **Still open, and unchanged by this.** There is no cancel path anywhere in the
 repo, so a resting GTC order cannot be withdrawn by this tool. That was true

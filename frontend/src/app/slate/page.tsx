@@ -23,6 +23,8 @@ import Link from "next/link";
 
 import CrewBubble from "@/components/CrewBubble";
 import DispersionStrip from "@/components/DispersionStrip";
+import ManualTicket from "@/components/ManualTicket";
+import MarketSearch from "@/components/MarketSearch";
 import LeagueTag from "@/components/LeagueTag";
 import GoodChancePicks from "@/components/GoodChancePicks";
 import Hint from "@/components/Hint";
@@ -286,6 +288,14 @@ export default async function SlatePage() {
         slate.is_current,
       ) && <RefreshOddsPanel actionable={actionable} />}
 
+      {/* The way in to a market no row here carries — a prop ladder rung the
+          recorder never priced, a series this instance does not walk.
+          Closed, and below the rows: it reaches further than anything else
+          on the screen, which is exactly why it does not sit open beside
+          tonight's games. No new nav slot; `Nav.tsx` budgets six links and
+          their order is load-bearing at 390px. */}
+      <MarketSearch />
+
       {/* Below the rows since 2026-08-22 (it sat above them): what the
           edge-finder was worth when it was measured against Kalshi's own
           close. It stays on the page even though the edge column is gone —
@@ -515,6 +525,22 @@ function Row({
             typeof row.ask_tenths === "number" ? row.ask_tenths / 1000 : null
           }
           anchoredBookCount={row.book_count ?? null}
+        />
+      </span>
+
+      {/* The hand-bet door (ADR 0063), last on the row so the facts are read
+          before the control. `priceAlreadyVisible` because this row prints
+          the ask three tracks left of here — ADR 0071 §2.2 puts it there on
+          purpose, so the ticket admits the anchor rather than pretending to
+          hide it. The engine's own door is not here and never was: this row
+          has always carried `suggested_contracts === 0`. */}
+      <span className="w-full xl:col-span-full">
+        <ManualTicket
+          ticker={row.ticker}
+          variant="inline"
+          priceAlreadyVisible
+          openLabel="Bet this by hand"
+          note="This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
         />
       </span>
     </div>

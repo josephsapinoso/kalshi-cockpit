@@ -4,6 +4,7 @@ import type { Recommendation } from "@/lib/api";
 import { EDGE_TONE_CLASS, EDGE_TONE_MARK, edgeTone } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import LeagueTag from "@/components/LeagueTag";
+import ManualTicket from "@/components/ManualTicket";
 
 /**
  * One candidate, as a line rather than a card.
@@ -16,9 +17,20 @@ import LeagueTag from "@/components/LeagueTag";
  * **This relaxes nothing.** These rows carry `suggested_contracts === 0`, the
  * suppression reasons are the server's, and the order endpoint re-derives every
  * decision inside the request. What changed is what is *visible*, not what is
- * bettable — which is why nothing here is tappable and nothing here shows a
- * size or a cost. A rejected row that opened an order ticket would suggest the
- * decision is reversible from this screen; it is not.
+ * bettable — nothing here shows a size or a cost, and the engine's decision is
+ * not reversible from this screen.
+ *
+ * **The hand-bet control below is not that reversal, and the row says so.**
+ * `POST /api/orders` — the engine's door — is untouched by it and still
+ * refuses these rows. What the control opens is `POST /api/manual-orders`
+ * (ADR 0063): a separate route, a separate table, never read by `gate.py`.
+ * ADR 0071 §2.1 is why it belongs here at all — Joe bets by hand whether or
+ * not this screen exists, and the desk's job is to inform and record those
+ * bets, "not to manufacture action and not to abstain on his behalf". A
+ * refused row that offered no hand-bet path would be abstaining on his behalf
+ * while he placed the same bet in the Kalshi app, where none of this
+ * project's limits can reach it. The note carried into the ticket keeps the
+ * two doors from reading as one.
  *
  * **Colour is a claim, not the sign of a subtraction.** The edge took
  * `text-positive` on `edge_cents > 0` alone, so the live demo drew
@@ -152,6 +164,22 @@ export default function SlateRow({
           </span>
         )}
       </span>
+      {/* The hand-bet door (ADR 0063), full width beneath the line so it
+          never competes with the reason for the row's attention.
+          `priceAlreadyVisible` because the ask is on the line above it. */}
+      <div className="w-full">
+        <ManualTicket
+          ticker={rec.ticker}
+          variant="inline"
+          priceAlreadyVisible
+          openLabel="Bet this by hand"
+          note={
+            resolved === "rejected"
+              ? "This is your own bet, not the engine's. The refusal above stands, is not reversed by placing this, and this order is recorded apart from it."
+              : "This is your own bet. It is recorded apart from the engine's record and never counts toward the gate."
+          }
+        />
+      </div>
     </div>
   );
 }

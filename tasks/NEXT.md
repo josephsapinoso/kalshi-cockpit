@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26 (later): 4,423 passed / 10 xfailed.**
+**Test baseline, re-measured 2026-08-26 (buy-control session): 4,451 passed / 10 xfailed.**
 Do not inherit it — this line has been wrong in the same direction three times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
 landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
@@ -59,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,423 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,451 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -70,7 +70,128 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-26 (latest) — one parlay generator becomes six, and the notifier is deliberately left behind
+## 2026-08-26 (latest) — the buy control reaches every card, and the ticket renders on a real book for the first time
+
+**Joe's ask, verbatim: "I want to be able to buy picks for games, props and
+parlays directly from the cockpit."** Four choices were put to him and answered
+in his own words: build the surfaces **and** prepare the arming commit; **both**
+parlay doors (per-leg and a bounded combination); the control **inline on every
+card**; and a **ticker search** for markets the cockpit never surfaced. Recorded
+in **ADR 0073** — read it before touching any of this.
+
+**The honest headline is that most of it already existed and none of it was
+reachable.** ADR 0063 shipped the whole hand-bet door on 2026-08-22 — twelve
+server-side checks, a `manual_orders` table, a ticket with an anti-anchoring
+reveal — mounted on `/market/[ticker]` alone, with `MANUAL_ORDERS_ENABLED=false`
+in both fly tomls. Every response on live was **"blocked"**. `lessons.md` has
+the name for it: *a feature and the one path that invokes it are two
+deliverables, and only the second one ships.*
+
+**What shipped**
+
+- **The ticket mounts inline on every per-game surface** — Games rows, Picks
+  rows and cards, parlay legs, a priced combination, a search result — via two
+  new props on `ManualTicket` rather than a second component. On the Picks
+  cards it mounts **outside** `TicketTrigger`, which wraps a whole card in a
+  `<button>`; an input nested in a button swallows its own clicks, and that is
+  pinned.
+- **`GET /api/manual/search`**, delegating to `estimates.search_markets` —
+  whose SELECT carries **no quote column**, which is what lets a search screen
+  exist without breaking ADR 0065's mask. Closed `<details>` on the Games and
+  market screens; **no new nav slot** (the six-link budget is load-bearing at
+  390px). `searchEstimateMarkets`, dead since the estimate form retired, was
+  repointed rather than duplicated.
+- **Parlay legs are individually buyable**, behind a `<details>` whose summary
+  says — before it is opened — that **buying legs is not buying the parlay**.
+  Thirty-six controls in the open would be the chase surface ADR 0067 refuses.
+- **A combination is bounded rather than refused**: `combo_acknowledged` as a
+  required request field (default False, so a client that has never heard of
+  combos refuses them), one contract, and a hedged fee.
+- **Arming plumbing, without the flip.** `MANUAL_ORDER_MAX_CONTRACTS = 1`
+  server-side and served to the client; `MANUAL_ORDERS_ENABLED = "true"` on
+  live (ADR 0018: turning it on **moves no money**); and ADR 0018's *second*
+  barrier wired ahead of time — the manual `OrderPlacer` now receives the app's
+  shared REST client, built only when armed. Without it, flipping the constant
+  gives a 503 and not an order. **`MANUAL_ORDERS_ARE_DRY_RUNS` stays True.**
+
+**THREE THINGS THE RECORD HAD WRONG, and the first one is why the combination
+door could open at all.**
+
+1. **ADR 0007's combo-grid claim is not borne out.** It says combination
+   markets use `center_centi_edge_centi_cent`, which `snap_tenths` refuses — on
+   that reading a combo order was mechanically impossible before any policy
+   check. **43 combination markets in this repo's own fixtures are `deci_cent`
+   (15) or `linear_cent` (29); zero are centi-cent**, and six pulled off the
+   **live** venue this session are all `deci_cent`. The claim came from
+   Kalshi's published structure table, which lists a structure and does not say
+   who uses it. Addendum written on ADR 0007.
+2. **"No order has ever been placed by this project" was stale in five
+   places** — `backend/kalshi/orders.py` twice and three `.claude/agents/*.md`
+   persona files. Joe's C0 probe placed four real orders on 2026-08-23. The
+   sentence that survives is narrower: *the app's own order path* has never
+   sent one.
+3. **ADR 0018 cited `routes.py:1382` as "the only construction of
+   `OrderPlacer`".** It is `:3811`, and there are two. The AST test tracked
+   reality while the prose did not; the manual path's pin now asserts the
+   **count**.
+
+**MEASURED BY RUNNING IT, and it found two defects tests did not.** The stack
+was driven end to end — seeded DB, uvicorn, `next start`, a browser — and the
+ticket reached its **ticket phase against a real Kalshi book for the first time
+in this project's life**: `KXNEXTNATOSECGEN-99-KIOH`, YES 16c / NO 91c, depth
+200, "your per-bet cap authorises 1 contract", contracts stepper locked at 1 in
+both directions, confirm disabled until the token is typed. A dry run then
+completed and wrote the row — `"count": "1.00"`, `"price": "0.1600"`,
+`side: bid`, `immediate_or_cancel`, `taker_at_cross` — and the cool-off engaged
+for 578s.
+
+- **An empty book is not "no ask" — it is a 0c ask, and the screen said so.**
+  Asks are derived (`yes_ask = 1000 - best_no_bid`), so a missing NO bid reads
+  as a resting bid of 100c and hands back **0c**. That is the shape of every
+  combination on the venue right now (`no_bid_dollars = 1.0000`, depth 0.0),
+  and the ticket rendered **"YES 0c"** — a free contract on the most illiquid
+  product Kalshi lists, which is CLAUDE.md rule 1 exactly. The order path was
+  already safe (the grid refuses 0); the screen was not. `_tradeable_ask` now
+  returns None off the tradeable range, on the read and on the POST.
+- **The demo database wrote a market status the venue never emits.**
+  `seed_demo` set `status = 'open'`; the wire says `active` (245 of 245 in
+  `events_sports_nested.json`) — `open` is the *event* query parameter, a
+  confusion `test_census_non_sports.py` already records once. Nothing noticed
+  because the one query filtering on it had no caller. The search returned
+  **zero markets for every query** on demo until this was fixed.
+
+**Also caught: a pin that went quiet.** `test_no_production_call_passes_the_constant_as_anything_else`
+matched `OrderPlacer(\s*dry_run=...)` on one line. The manual construction took
+a `rest=` argument and wrapped onto three, the regex stopped matching it, and
+the test **stayed green while covering one construction instead of two**. It
+now reads whole argument lists and asserts the count.
+
+**State.** 4,423 → **4,451 passed / 10 xfailed**, +28. Re-run before quoting it. Every new guard was
+mutated and observed red, including two that came back GREEN first time and
+were rewritten rather than kept: a combo-fee assertion on a display string
+rounded to cents (the two fee models differ by $0.0002 at one contract, which
+2dp erases), and the leg-buy disclaimer sliced over a whole component instead
+of its `<summary>`. ruff clean, tsc clean, `next build` green, 0px horizontal
+overflow at 390 and 1280.
+
+**FOR JOE — the two things only you can do:**
+
+1. **Fund the account, or arming produces a dead button.** Caps derive from the
+   observed venue balance (ADR 0045) and never from a typed number. At the last
+   recorded reading that was **$2.56**, giving a **$0.26** per-bet cap — armed,
+   the confirm is dead on everything but sub-25c longshots. Read the real
+   number from `/api/manual/market/{ticker}`'s `caps` block once this deploys.
+2. **Say when to flip `MANUAL_ORDERS_ARE_DRY_RUNS`.** Everything else is done:
+   the C0 probe is discharged, the REST client is wired, the 1-contract ceiling
+   binds. It is one commit and a deploy, revertible alone, and it is yours.
+
+**Open:** the per-row "Pass" affordance on the slate (still); the scheduled
+parlay card plus debounce from the entry below; a `GoodChancePicks` buy control
+was deliberately NOT added and ADR 0073 §3 says why.
+
+---
+
+## 2026-08-26 — one parlay generator becomes six, and the notifier is deliberately left behind
 
 **Joe picked this off the ranked list in the entry below.** The finding it rests
 on is that entry's headline: the three cards were never three products.

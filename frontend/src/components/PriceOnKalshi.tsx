@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { lookupParlay } from "@/lib/api";
 import type { ParlayCardData, ParlayLookupResult } from "@/lib/api";
+import ManualTicket from "@/components/ManualTicket";
 import Term from "@/components/Term";
 
 /**
@@ -34,6 +35,21 @@ import Term from "@/components/Term";
  * rather than minting another or being refused. See
  * `tests/fixtures/combo_lookup_repeat.json`. Had it come back 409, this
  * control would have been wrong to add.
+ *
+ * **A priced answer now carries a buy control (ADR 0073), and it is the
+ * narrowest one in the product.** One contract, an acknowledgement typed
+ * through before the confirm unlocks, a fee priced by a hedged coefficient
+ * because the measured model undercharges on combos (ADR 0046), and no
+ * payout figure. It renders only on `status === "priced"`: an empty book is
+ * the expected first answer on a fresh combination and there is nothing to
+ * buy there, which the existing words already say better than a disabled
+ * button would.
+ *
+ * **Expect it to refuse.** Every combination book this repo has read had no
+ * YES bid — 40 of 40 — so the depth check kills nearly every combo order.
+ * The control exists because the exceptions are real (3 of 20 and 3 of 9
+ * rows on 2026-08-09 carried a resting bid, the deepest 18 units at 13c),
+ * not because they are common.
  */
 export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
   const [state, setState] = useState<
@@ -165,6 +181,16 @@ function Result({ value }: { value: ParlayLookupResult }) {
       <p className="text-[11px] leading-snug text-muted">
         {value.notes.enter_only} {value.notes.fee}
       </p>
+      {/* The buy, on the minted market's own ticker. `priceAlreadyVisible`
+          because the ask is two lines above this — the mask cannot hold on
+          a block whose entire purpose is to show what Kalshi is charging. */}
+      <ManualTicket
+        ticker={value.minted_market_ticker}
+        variant="inline"
+        priceAlreadyVisible
+        openLabel="Buy this combination"
+        note="One combination, one contract. There is no resting YES bid on any combination book this tool has read, so the only exit is the outcome — and the fee here is a ceiling, not a quote."
+      />
     </div>
   );
 }

@@ -50,6 +50,7 @@ import {
 } from "@/lib/api";
 import ConsensusPanel from "@/components/ConsensusPanel";
 import ManualTicket from "@/components/ManualTicket";
+import MarketSearch from "@/components/MarketSearch";
 import PassControl from "@/components/PassControl";
 import PriceChart from "@/components/PriceChart";
 import ScoutDesk from "@/components/ScoutDesk";
@@ -315,8 +316,14 @@ export default function MarketPage() {
       {/* The manual ticket (ADR 0063/0065): below the desk's facts, above
           the history. It self-reports its own unreachable states (demo, flag
           off, lockout, cool-off) in words, so mounting it unconditionally is
-          honest on every instance. */}
-      <ManualTicket ticker={ticker} />
+          honest on every instance.
+
+          `priceAlreadyVisible` is true here and always has been: QuoteStrip
+          prints "Ask $X" near the top of this page whenever the quote is
+          current, so ADR 0065's mask has never held on this screen. The
+          ticket now says so rather than claiming to hide a number the page
+          is showing. */}
+      <ManualTicket ticker={ticker} priceAlreadyVisible />
 
       {/* The calm alternative (ADR 0066): a quiet row below the ticket's
           card, deliberately NOT styled as its sibling — passing must read as
@@ -389,6 +396,12 @@ export default function MarketPage() {
           ) : null}
         </div>
       </details>
+
+      {/* The same search as the Games screen, so a reader who came here for
+          one market can bet a different one without navigating back. It
+          carries no prices, so it cannot anchor the estimate the ticket
+          above still asks for. */}
+      <MarketSearch heading="Bet a different market" />
     </main>
   );
 }

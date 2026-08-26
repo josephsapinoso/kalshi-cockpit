@@ -33,6 +33,7 @@ from backend.config import (
     ManualOrderConfig,
     RiskConfig,
 )
+from backend.core.fees import calculate_fee, combo_taker_fee
 from backend.kalshi.orders import OrderRequest
 from backend.kalshi.grid import read_price_grid
 from backend.kalshi.quotes import QuoteUnavailable, parse_market_quote
@@ -42,6 +43,7 @@ from backend.store.orders import ExposureCapExceeded
 
 REPO = Path(__file__).resolve().parents[1]
 TICKER = "KXMLBGAME-26AUG22TEST-AAA"
+COMBO_TICKER = "KXMVECROSSCATEGORY0-SHARD1-S2026TEST-ABC"
 AUTH = {"Authorization": "Bearer secret-token"}
 
 
@@ -87,10 +89,15 @@ class StubQuotes:
         pass
 
 
-def _base_db(tmp_path):
+def _base_db(tmp_path, *, balance_tenths=50000, name="manual.db"):
     """A db whose mirror is fresh-and-empty and whose balance is $50
-    (50,000 tenths) -> derived caps: position $5, exposure $20, daily $5."""
-    path = tmp_path / "manual.db"
+    (50,000 tenths) -> derived caps: position $5, exposure $20, daily $5.
+
+    `balance_tenths` is a parameter because the per-bet cap can only be made
+    to bind at one contract by shrinking the bankroll: the path is armed at
+    `MANUAL_ORDER_MAX_CONTRACTS`, so the old way of reaching that guard —
+    asking for twenty — now stops at the size ceiling one check earlier."""
+    path = tmp_path / name
     conn = db.init_db(path)
     now = int(time.time() * 1000)
     conn.execute(
@@ -99,7 +106,7 @@ def _base_db(tmp_path):
     )
     conn.execute(
         "INSERT INTO venue_balance_snapshots (observed_ms, balance_tenths) "
-        "VALUES (?, 50000)", (now,),
+        "VALUES (?, ?)", (now, balance_tenths),
     )
     conn.commit()
     conn.close()
@@ -232,14 +239,95 @@ class TestTheGuardsRefuse:
         assert response.status_code == 423
         assert "not tonight" in response.json()["detail"].lower()
 
-    async def test_kxmve_is_refused_outright(self, tmp_path):
+    async def test_kxmve_is_refused_without_the_acknowledgement(self, tmp_path):
+        """ADR 0073 narrowed the blanket refusal to a bounded one; the
+        default is still NO. Mutation observed red: default the field True."""
         app = _app(_base_db(tmp_path))
         response = await post(
             app, "/api/manual-orders",
-            json=_body(ticker="KXMVECROSSCATEGORY-SHARD1-XYZ"), headers=AUTH,
+            json=_body(ticker=COMBO_TICKER), headers=AUTH,
         )
         assert response.status_code == 422
         assert "enter" in response.json()["detail"]
+        assert "acknowledgement" in response.json()["detail"]
+
+    async def test_an_acknowledged_combo_is_still_capped_at_one_contract(
+        self, tmp_path
+    ):
+        app = _app(_base_db(tmp_path))
+        response = await post(
+            app, "/api/manual-orders",
+            json=_body(
+                ticker=COMBO_TICKER, contracts=2, combo_acknowledged=True
+            ),
+            headers=AUTH,
+        )
+        assert response.status_code == 422
+        assert "capped at 1 contract" in response.json()["detail"]
+
+    async def test_an_acknowledged_combo_reaches_the_book(self, tmp_path):
+        """The acknowledgement opens the door; the book is what decides.
+        The stub quotes a two-sided combo, which the record says is rare —
+        the point of this test is that step 4 no longer refuses on the
+        ticker alone."""
+        quotes = StubQuotes(_payload(ticker=COMBO_TICKER))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders",
+            json=_body(ticker=COMBO_TICKER, combo_acknowledged=True),
+            headers=AUTH,
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["ticker"] == COMBO_TICKER
+
+    async def test_the_combo_fee_hedge_is_what_the_cap_is_checked_against(
+        self, tmp_path
+    ):
+        """ADR 0073: a combo's worst case runs through `combo_taker_fee`,
+        not `calculate_fee`.
+
+        Pinned on the CAP rather than on the displayed cost, and the reason
+        is a defect this test caught in its first draft: the two fees differ
+        by $0.0002 at one contract, and `worst_case_cost_display` is rounded
+        to cents, so a display assertion stayed GREEN with the hedge removed
+        — a test of a guard that could not see the guard.
+
+        The bankroll is chosen so the per-bet cap ($0.4675) falls strictly
+        between the two answers: $0.4674 through the deployed model, which
+        would be admitted, and $0.4676 through the hedge, which is refused.
+        Mutation observed red: price the combo through `calculate_fee`."""
+        stake = 450 / 1000
+        hedged = combo_taker_fee(450, 1)
+        plain = calculate_fee(450, 1)
+        assert hedged is not None and plain is not None
+        cap = 0.4675
+        assert stake + plain <= cap < stake + hedged, (
+            "the bankroll no longer separates the two fee models; this test "
+            "cannot see the guard it exists to pin"
+        )
+        quotes = StubQuotes(_payload(ticker=COMBO_TICKER))
+        app = _app(
+            _base_db(tmp_path, balance_tenths=4675), quotes=quotes
+        )
+        response = await post(
+            app, "/api/manual-orders",
+            json=_body(ticker=COMBO_TICKER, combo_acknowledged=True),
+            headers=AUTH,
+        )
+        assert response.status_code == 422
+        assert "per-bet cap" in response.json()["detail"]
+
+    async def test_the_size_ceiling_binds_before_anything_is_bought(
+        self, tmp_path
+    ):
+        """ADR 0063: the path arms at one contract. Mutation observed red:
+        raise `MANUAL_ORDER_MAX_CONTRACTS`."""
+        app = _app(_base_db(tmp_path))
+        response = await post(
+            app, "/api/manual-orders", json=_body(contracts=2), headers=AUTH,
+        )
+        assert response.status_code == 422
+        assert "armed at 1 contract" in response.json()["detail"]
 
     async def test_a_stale_mirror_refuses_rather_than_assuming_no_losses(self, tmp_path):
         path = tmp_path / "stale.db"
@@ -288,10 +376,14 @@ class TestTheGuardsRefuse:
         assert "rest at the ask" in response.json()["detail"]
 
     async def test_the_per_bet_cap_binds_on_the_worst_case(self, tmp_path):
-        """$50 balance -> $5 per-bet cap; 20 contracts at 45c is ~$9.30."""
-        app = _app(_base_db(tmp_path))
+        """$4 balance -> $0.40 per-bet cap; one contract at 45c is $0.4674
+        fee-inclusive. Reached at one contract deliberately: the size
+        ceiling would otherwise refuse a larger order first, and a guard
+        standing behind a stricter guard is decoration (ADR 0018's own
+        argument)."""
+        app = _app(_base_db(tmp_path, balance_tenths=4000))
         response = await post(
-            app, "/api/manual-orders", json=_body(contracts=20), headers=AUTH,
+            app, "/api/manual-orders", json=_body(), headers=AUTH,
         )
         assert response.status_code == 422
         assert "per-bet cap" in response.json()["detail"]
@@ -357,21 +449,98 @@ class TestTheSeparationIsArchitecture:
 
     def test_no_production_call_passes_the_constant_as_anything_else(self):
         """ADR 0018's pin, applied to the manual path: the constant is the
-        only dry_run value any production call site may pass."""
+        only dry_run value any production call site may pass.
+
+        **The scan reads whole argument lists, not one line, and counts
+        them.** It matched a one-line `OrderPlacer(dry_run=...)` until the
+        manual path took a `rest=` argument (ADR 0018's second barrier,
+        wired ahead of arming) and wrapped onto three lines -- at which
+        point the regex stopped matching that call and the pin quietly
+        covered one construction instead of two, while staying green. The
+        count assertion is here so that silence cannot repeat: a third
+        production placer has to be looked at rather than absorbed."""
         routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
-        calls = re.findall(
-            r"OrderPlacer\(\s*dry_run=([^)\n]+)\)", routes
+        calls = re.findall(r"OrderPlacer\(([^)]*)\)", routes, re.S)
+        assert len(calls) == 2, (
+            f"expected exactly two production OrderPlacer constructions "
+            f"(engine, manual); found {len(calls)}"
         )
-        assert calls, "the scan found no OrderPlacer constructions at all"
-        for value in calls:
-            assert value.strip() in (
+        for args in calls:
+            found = re.search(r"dry_run=([A-Za-z_][\w.]*)", args)
+            assert found, f"OrderPlacer constructed with no dry_run: {args!r}"
+            assert found.group(1) in (
                 "ORDERS_ARE_DRY_RUNS",
                 "manual_store.MANUAL_ORDERS_ARE_DRY_RUNS",
-            ), f"OrderPlacer constructed with dry_run={value!r}"
+            ), f"OrderPlacer constructed with dry_run={found.group(1)!r}"
+
+    def test_the_armed_path_would_get_a_rest_client(self):
+        """ADR 0018's second barrier, pinned on the source because it cannot
+        be driven while the constant is True: a live `OrderPlacer` with no
+        REST client raises, so arming without this wiring produces a 503
+        rather than an order. Mutation observed red: drop `rest=placer_rest`
+        from the construction."""
+        routes = (REPO / "backend" / "api" / "routes.py").read_text(encoding="utf-8")
+        manual = routes[routes.index("def place_manual_order"):]
+        placer = manual[manual.index("OrderPlacer("):]
+        placer = placer[: placer.index(")")]
+        assert "rest=" in placer, (
+            "the manual placer takes no REST client; flipping "
+            "MANUAL_ORDERS_ARE_DRY_RUNS would produce a 503, not an order"
+        )
+        assert "if not manual_store.MANUAL_ORDERS_ARE_DRY_RUNS:" in manual, (
+            "the REST client is built unconditionally; a dry run on a "
+            "keyless instance would then refuse where it works today"
+        )
 
     def test_the_constant_is_true(self):
         """Arming is a code change (ADR 0063 §3), and it has not happened."""
         assert manual_store.MANUAL_ORDERS_ARE_DRY_RUNS is True
+
+
+class TestAnEmptyBookIsNotAFreeContract:
+    """A derived ask off the tradeable range is not a price.
+
+    Asks are derived (`yes_ask = 1000 - best_no_bid`), so an empty book does
+    not report "no ask" -- it reports the endpoint. A missing NO bid reads as
+    a resting bid of 100c and hands back a **0c YES ask**. That is the shape
+    of every combination market on the venue today (`no_bid_dollars =
+    1.0000`, depth 0.0), and it rendered as "YES 0c" on the ticket the first
+    time the screen was driven against a real book (2026-08-26).
+
+    The order path was already safe -- `OrderRequest` refuses 0 on the grid --
+    so this is a screen defect, and the reason it counts is CLAUDE.md rule 1:
+    a free contract on the venue's most illiquid product is a large apparent
+    edge, and those are bugs until proven otherwise.
+    """
+
+    EMPTY = dict(yes_bid_tenths=0, no_bid_tenths=1000)
+
+    async def test_the_read_reports_no_ask_rather_than_zero_cents(self, tmp_path):
+        """Mutation observed red: return `ask_tenths` unfiltered."""
+        quotes = StubQuotes(_payload(**self.EMPTY))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["ask_tenths"] is None
+        assert body["sides"]["yes"]["ask_display"] is None
+        assert body["sides"]["no"]["ask_tenths"] is None
+        assert body["sides"]["yes"]["authorised_contracts"] in (None, 0)
+
+    async def test_the_order_refuses_and_names_the_endpoint(self, tmp_path):
+        quotes = StubQuotes(_payload(**self.EMPTY))
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH,
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "no live ask" in detail
+        assert "endpoint" in detail
+
+    async def test_a_real_ask_still_gets_through(self, tmp_path):
+        """The filter must refuse the endpoints and nothing else."""
+        app = _app(_base_db(tmp_path))
+        body = (await get(app, f"/api/manual/market/{TICKER}")).json()
+        assert body["sides"]["yes"]["ask_tenths"] == 450
 
 
 class TestTheManualMarketRead:

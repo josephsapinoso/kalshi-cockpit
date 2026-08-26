@@ -11,6 +11,26 @@
  * its half regardless (`p_yes_bp` is required at the route); this masking
  * is the client's half.
  *
+ * THE MASK IS SURFACE-DEPENDENT, AND SAYING SO IS THE HONEST OPTION.
+ * `priceAlreadyVisible` is passed true by every surface that renders
+ * Kalshi's ask above this control — which, from the day the ticket shipped,
+ * has included `/market/[ticker]` itself: its quote strip prints "Ask $X"
+ * above the ticket whenever the quote is current. On those surfaces the
+ * mask cannot hold, and a ticket that claims to be hiding a number the page
+ * is already showing teaches the reader to distrust the rest of the copy.
+ * The estimate step stays mandatory everywhere (the route refuses without
+ * `p_yes_bp`), and the wording tells the truth about which case this is.
+ * Where the surface shows fair value only — the parlay desk's legs, "who's
+ * likely to win tonight" — the mask genuinely holds and the original
+ * wording stands. ADR 0071 §2.2 makes price transparency the desk's job at
+ * the moment of a bet, so the fix is never to hide the ask on the card.
+ *
+ * MORE PLACES TO START A BET IS NOT MORE BETS. This control is mounted
+ * inline on the slate rows, the Picks cards and the parlay legs. What
+ * bounds purchases is the ten-minute cool-off after every completed order
+ * (`store/manual_orders.py`, no override) and the desk lockout — both
+ * server-side, both indifferent to how many buttons exist.
+ *
  * Every refusal renders the server's own sentence verbatim — the route has
  * a dozen distinct refusals and each explains itself better than a generic
  * message could. A 423 (lockout, cool-off) is a state, not an error, and
@@ -27,7 +47,7 @@
  * act is the strongest anti-impulse guard in the product.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
   DISPLAY_TIME_ZONE,
@@ -66,7 +86,28 @@ type Phase =
   | { name: "placed"; placed: ManualOrderPlaced }
   | { name: "refused"; status: number; words: string; calm: boolean };
 
-export default function ManualTicket({ ticker }: { ticker: string }) {
+/** How the control sits on the page. `section` is its own card (the market
+ *  screen); `inline` is a hairline-separated block inside somebody else's
+ *  card — a slate row, a Picks card, a parlay leg. */
+export type BuyVariant = "section" | "inline";
+
+export default function ManualTicket({
+  ticker,
+  variant = "section",
+  priceAlreadyVisible = false,
+  openLabel,
+  note,
+}: {
+  ticker: string;
+  variant?: BuyVariant;
+  /** True on any surface that renders Kalshi's ask above this control. */
+  priceAlreadyVisible?: boolean;
+  /** Overrides the open affordance's words on a crowded surface. */
+  openLabel?: string;
+  /** An extra sentence this surface must say before a bet — the parlay
+   *  desk's "buying a leg is not buying the parlay", for instance. */
+  note?: string;
+}) {
   const [phase, setPhase] = useState<Phase>({ name: "closed" });
   const [percent, setPercent] = useState("");
   const [pYesBp, setPYesBp] = useState<number | null>(null);
@@ -74,9 +115,16 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
   const [contracts, setContracts] = useState(1);
   const [maxPriceTenths, setMaxPriceTenths] = useState<number | null>(null);
   const [token, setToken] = useState("");
+  // ADR 0073's acknowledgement, per opened ticket. Cleared on close with
+  // everything else: it is consent to one order, not a preference.
+  const [comboOk, setComboOk] = useState(false);
   // One idempotency key per opened ticket: two taps are one order.
   const [intentKey, setIntentKey] = useState<string | null>(null);
   const estimateInput = useRef<HTMLInputElement>(null);
+  // Several of these can share a screen, so every id is instance-scoped.
+  const uid = useId();
+  const estimateId = `manual-p-yes-${uid}`;
+  const tokenId = `manual-token-${uid}`;
 
   useEffect(() => {
     if (phase.name === "estimate") estimateInput.current?.focus();
@@ -87,6 +135,7 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
     setPercent("");
     setPYesBp(null);
     setToken("");
+    setComboOk(false);
     setIntentKey(null);
   }, []);
 
@@ -141,6 +190,7 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
     const defaultSide: "yes" | "no" =
       market.sides.yes.ask_tenths !== null ? "yes" : "no";
     setSide(defaultSide);
+    setComboOk(false);
     setContracts(1);
     setMaxPriceTenths(market.sides[defaultSide].ask_tenths);
     setPhase({ name: "ticket", market });
@@ -164,6 +214,7 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
         max_price_tenths: maxPriceTenths,
         p_yes_bp: pYesBp,
         idempotency_key: intentKey,
+        combo_acknowledged: market.is_combo ? comboOk : false,
       },
       token.trim(),
     );
@@ -179,10 +230,16 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
     }
   };
 
-  return (
-    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+  const inline = variant === "inline";
+
+  const body = (
+    <>
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Place a bet</h2>
+        {phase.name === "closed" && inline ? null : inline ? (
+          <h3 className="text-sm font-semibold">Place a bet</h3>
+        ) : (
+          <h2 className="text-lg font-semibold">Place a bet</h2>
+        )}
         {phase.name !== "closed" && (
           <button
             onClick={close}
@@ -194,18 +251,21 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
       </div>
 
       {phase.name === "closed" && (
-        <div className="mt-3">
+        <div className={inline ? "" : "mt-3"}>
           <button
             onClick={() => setPhase({ name: "estimate" })}
             className="min-h-11 rounded-xl border border-border-strong px-4 py-2.5 text-sm font-semibold"
           >
-            Open the ticket
+            {openLabel ?? "Open the ticket"}
           </button>
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
-            The ticket asks for your own number first and shows the price
-            after — a number typed after seeing the ask is just the ask
-            wearing your handwriting.
+            {priceAlreadyVisible
+              ? "The ticket asks for your own number first. The price is already on this screen, so that number is anchored by it — type it anyway; it is recorded beside the order."
+              : "The ticket asks for your own number first and shows the price after — a number typed after seeing the ask is just the ask wearing your handwriting."}
           </p>
+          {note && (
+            <p className="mt-2 max-w-[65ch] text-xs text-muted">{note}</p>
+          )}
         </div>
       )}
 
@@ -219,13 +279,14 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
           }}
         >
           <label
-            htmlFor="manual-p-yes"
+            htmlFor={estimateId}
             className="text-xs font-semibold uppercase tracking-widest text-muted"
           >
-            Your <Term k="p_yes">P(YES)</Term>, percent — before the price
+            Your <Term k="p_yes">P(YES)</Term>, percent
+            {priceAlreadyVisible ? "" : " — before the price"}
           </label>
           <input
-            id="manual-p-yes"
+            id={estimateId}
             ref={estimateInput}
             value={percent}
             onChange={(event) => setPercent(event.target.value)}
@@ -240,12 +301,15 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
               market ends YES — not your side, YES.
             </p>
           )}
+          {note && (
+            <p className="mt-2 max-w-[65ch] text-xs text-muted">{note}</p>
+          )}
           <button
             type="submit"
             disabled={percentToBp(percent) === null}
             className="mt-3 block min-h-11 rounded-xl border border-border-strong px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
           >
-            Show me the price
+            {priceAlreadyVisible ? "Continue" : "Show me the price"}
           </button>
         </form>
       )}
@@ -277,6 +341,10 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
           setMaxPriceTenths={setMaxPriceTenths}
           token={token}
           setToken={setToken}
+          tokenId={tokenId}
+          comboOk={comboOk}
+          setComboOk={setComboOk}
+          note={note}
           sending={phase.name === "sending"}
           onConfirm={() => void confirm(phase.market)}
         />
@@ -298,6 +366,14 @@ export default function ManualTicket({ ticker }: { ticker: string }) {
           </p>
         </div>
       )}
+    </>
+  );
+
+  return inline ? (
+    <div className="mt-3 border-t pt-3">{body}</div>
+  ) : (
+    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+      {body}
     </section>
   );
 }
@@ -312,6 +388,10 @@ function TicketBody({
   setMaxPriceTenths,
   token,
   setToken,
+  tokenId,
+  comboOk,
+  setComboOk,
+  note,
   sending,
   onConfirm,
 }: {
@@ -324,17 +404,28 @@ function TicketBody({
   setMaxPriceTenths: (n: number | null) => void;
   token: string;
   setToken: (t: string) => void;
+  tokenId: string;
+  comboOk: boolean;
+  setComboOk: (ok: boolean) => void;
+  note?: string;
   sending: boolean;
   onConfirm: () => void;
 }) {
   const facts = market.sides[side];
-  const ceiling = facts.authorised_contracts;
+  // Two ceilings, and the smaller wins: what your bankroll authorises, and
+  // what this path is armed for. The server serves the second so the client
+  // cannot hold a stale copy of a constant that exists to be raised.
+  const ceiling =
+    facts.authorised_contracts === null
+      ? null
+      : Math.min(facts.authorised_contracts, market.max_contracts);
   const canConfirm =
     !sending &&
     facts.ask_tenths !== null &&
     maxPriceTenths !== null &&
     contracts >= 1 &&
     (ceiling === null || contracts <= ceiling) &&
+    (!market.is_combo || comboOk) &&
     token.trim().length > 0;
 
   return (
@@ -357,6 +448,14 @@ function TicketBody({
         ))}
       </div>
 
+      {facts.ask_tenths === null && (
+        <p className="max-w-[65ch] text-xs text-muted">
+          No resting bid on the other side of this book, so there is no{" "}
+          <Term k="ask">ask</Term> — nothing to buy here right now, on either
+          side that shows one.
+        </p>
+      )}
+
       <p className="max-w-[65ch] text-xs text-muted">
         <Term k="depth">Depth</Term>:{" "}
         {facts.depth_at_ask === null ? "—" : Math.round(facts.depth_at_ask)} at
@@ -366,6 +465,8 @@ function TicketBody({
         {market.dry_run &&
           " · this path runs DRY — the order is recorded, not sent"}
       </p>
+
+      {note && <p className="max-w-[65ch] text-xs text-muted">{note}</p>}
 
       <div className="flex flex-wrap items-center gap-4">
         <Stepper
@@ -393,15 +494,41 @@ function TicketBody({
         being measured.
       </p>
 
+      {market.is_combo && (
+        <div className="rounded-xl border border-negative/50 bg-negative/10 p-3">
+          <p className="max-w-[65ch] text-xs leading-relaxed">
+            {market.combo_note ??
+              "This is a combination market. You can enter it and you cannot exit it."}
+          </p>
+          <label className="mt-2 flex items-start gap-2 text-xs font-semibold">
+            <input
+              type="checkbox"
+              checked={comboOk}
+              onChange={(event) => setComboOk(event.target.checked)}
+              disabled={sending}
+              className="mt-0.5 h-5 w-5 shrink-0"
+            />
+            <span>
+              I understand there is no way out of this bet except the
+              outcome.
+            </span>
+          </label>
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            The box is a courtesy; the server refuses without the
+            acknowledgement whatever this screen renders.
+          </p>
+        </div>
+      )}
+
       <div>
         <label
-          htmlFor="manual-token"
+          htmlFor={tokenId}
           className="text-xs font-semibold uppercase tracking-widest text-muted"
         >
           Order token
         </label>
         <input
-          id="manual-token"
+          id={tokenId}
           type="password"
           value={token}
           onChange={(event) => setToken(event.target.value)}

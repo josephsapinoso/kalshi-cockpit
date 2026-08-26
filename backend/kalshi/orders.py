@@ -49,9 +49,23 @@ a `bid` always snaps down and an `ask` always snaps up.
 What is verified, and what is not
 ---------------------------------
 The **request** shape is taken from Kalshi's published OpenAPI spec, and the
-`price_ranges` parser is pinned by real captured bytes (1,426 markets). The
-**response** shape cannot be verified without a real fill, and no order has ever
-been placed by this project.
+`price_ranges` parser is pinned by real captured bytes (1,426 markets).
+
+**The response shape is no longer unobserved, and this paragraph said it was
+until 2026-08-26.** It read "no order has ever been placed by this project",
+which was written when it was true and left standing after it stopped being
+true: Joe ran the C0 probe on 2026-08-23 (`scripts/probe_create_order.py`,
+capture `data/captures/create_order_probe_20260823T041018Z.json`) and four
+real orders were created on the live venue -- 201, 409, 201, 201. The create
+response is **flat**: no `order` envelope, exactly as `_read_response`'s own
+note below records, and `tests/fixtures/create_order_responses.json` is
+hand-written from that capture.
+
+What is still true, and is the sentence that was doing the work: **the app's
+own order path has never sent an order.** Both doors are dry by their
+constants, and the probe deliberately bypasses `KalshiRestClient.post` (see
+its docstring), so nothing here has been exercised end to end against the
+venue.
 
 That is stated here because the previous version of this file had the same gap
 and hid it: it read `response["order"]["status"]` with a default of `"resting"`.

@@ -130,3 +130,4 @@ cookiejar*
 
 # transient log captures
 live.log
+.playwright-mcp/

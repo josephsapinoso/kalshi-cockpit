@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import OpportunityCard from "@/components/OpportunityCard";
 import { TicketTrigger } from "@/components/TicketProvider";
+import ManualTicket from "@/components/ManualTicket";
 import type { Recommendation } from "@/lib/api";
 import { liveSizing } from "@/lib/liveSizing";
 
@@ -276,6 +277,20 @@ export default function LiveBoard({
             ) : (
               card
             )}
+            {/* The hand-bet door (ADR 0063), OUTSIDE the trigger and never
+                inside it: `TicketTrigger` wraps the whole card in a
+                `<button>`, and an input nested in a button is invalid markup
+                that swallows its own clicks. Two doors, side by side and
+                visibly different — the card above is the engine's, sized by
+                `size_position` and gated by `gate.py`; this one is Joe's,
+                recorded in `manual_orders`, which the gate never reads. */}
+            <ManualTicket
+              ticker={row.ticker}
+              variant="inline"
+              priceAlreadyVisible
+              openLabel="Bet this by hand"
+              note="This is your own bet, not the engine's. It is recorded apart from the engine's record and never counts toward the gate."
+            />
           </div>
           );
         })}

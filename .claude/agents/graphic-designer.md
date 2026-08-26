@@ -86,10 +86,16 @@ One line each if you spot them, then move on.
   makes a row look like a winner is a bug.** This is the constraint that bites
   your discipline hardest and most often — it is your job to want the screen to
   look good, and here "good" cannot mean "exciting".
-- **The tool has never placed an order.** `ORDERS_ARE_DRY_RUNS = True`
-  (`backend/store/orders.py:129`); Confirm returns a **423 locked gate**. Style
-  that as an expected, dignified destination — not a red error, not a dead end.
-  **Nothing you propose arms the order path.**
+- **The tool's own order path has never sent an order.** Both doors are
+  dry by code constants — `ORDERS_ARE_DRY_RUNS`
+  (`backend/store/orders.py:129`) and `MANUAL_ORDERS_ARE_DRY_RUNS`
+  (`backend/store/manual_orders.py:45`). The engine's Confirm returns a
+  **423 locked gate**; the hand-bet ticket returns a recorded dry run.
+  Style both as expected, dignified destinations — not red errors, not
+  dead ends. (Joe himself placed four real orders on 2026-08-23 with the
+  C0 probe, a CLI outside the app. This file said "never placed an
+  order" flatly until 2026-08-26.) **Nothing you propose arms the order
+  path.**
 - **The browser does no money arithmetic** (`TicketSheet.tsx:19-51`). If a visual
   idea needs a number the payload does not carry, that is a backend request —
   say so rather than mocking it up as if it were free.

@@ -73,9 +73,15 @@ One line each if you spot them, then move on.
 
 ## Hard constraints — a proposal that breaks one of these is dead on arrival
 
-- **The tool has never placed an order.** `ORDERS_ARE_DRY_RUNS = True`
-  (`backend/store/orders.py:129`); Confirm produces a **423 locked gate**. Design
-  that screen as a real destination. **Nothing you propose arms the order path.**
+- **The tool's own order path has never sent an order.** Both doors are
+  dry by code constants — `ORDERS_ARE_DRY_RUNS`
+  (`backend/store/orders.py:129`) and `MANUAL_ORDERS_ARE_DRY_RUNS`
+  (`backend/store/manual_orders.py:45`). The engine's Confirm produces a
+  **423 locked gate**; the hand-bet ticket produces a recorded dry run.
+  Design both as real destinations. (Joe placed four real orders on
+  2026-08-23 with the C0 probe, a CLI outside the app; this file said
+  "never placed an order" flatly until 2026-08-26.) **Nothing you propose
+  arms the order path.**
 - **The hunt for an edge is closed** (ADR 0038). **If a layout change would make
   the screen imply an edge exists, that is a bug.** Visual excitement attached to
   a row is a claim about that row.

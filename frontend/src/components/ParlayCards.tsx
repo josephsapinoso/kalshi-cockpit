@@ -8,6 +8,7 @@ import type {
   Refreshable,
 } from "@/lib/api";
 import LeagueTag from "@/components/LeagueTag";
+import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import StaleOddsExit from "@/components/StaleOddsExit";
@@ -149,9 +150,68 @@ function Card({ card }: { card: ParlayCardData }) {
           )}
           <Stakes card={card} />
           <PriceOnKalshi card={card} />
+          <LegBuys card={card} />
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Buy the legs one at a time — a different bet from the card above it.
+ *
+ * **The sentence in the summary is the component.** Three legs bought
+ * separately are three bets that win or lose independently; the card's
+ * `fair_cost_display` is what ONE bet paying only when all three land is
+ * worth. The two numbers are not comparable and the larger one is on screen
+ * already, so a leg-buy control that did not say this would turn the card's
+ * joint figure into a promise about a bet the reader did not place.
+ *
+ * Each leg is a normal single market: a two-sided book, an exit, and the fee
+ * model this repo has actually measured — none of which is true of the
+ * combination (ADR 0012 §5, ADR 0046). That is the whole reason this exists
+ * beside the combo control rather than instead of the legs' own screens.
+ *
+ * Behind a `<details>`, closed: six cards times up to six legs is thirty-six
+ * controls, and a card whose loudest feature is a wall of buy buttons is the
+ * chase surface ADR 0067 refuses. `priceAlreadyVisible={false}` is correct
+ * and is the only surface where it still is — this card prints fair value
+ * and never Kalshi's ask, so ADR 0065's mask genuinely holds here.
+ */
+function LegBuys({ card }: { card: ParlayCardData }) {
+  if (card.legs.length === 0) return null;
+  return (
+    <details className="mt-3 border-t pt-3">
+      <summary className="cursor-pointer text-xs font-semibold text-muted">
+        Bet these legs one by one
+        <span className="ml-1 font-normal">
+          — which is not this parlay: separate bets win and lose separately,
+          and the fair value above is the price of all of them landing
+          together.
+        </span>
+      </summary>
+      <ul className="mt-2 divide-y divide-border">
+        {card.legs.map((leg) => (
+          <li key={`buy-${leg.ticker}`} className="py-2">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <LeagueTag league={leg.league} />
+              <span className="min-w-0 truncate text-sm font-semibold tracking-tight">
+                {leg.label}
+              </span>
+              <span className="tabular text-xs text-muted">
+                {leg.fair_percent_display} fair
+              </span>
+            </div>
+            <ManualTicket
+              ticker={leg.ticker}
+              variant="inline"
+              openLabel="Bet this leg"
+              note="One leg, on its own. This is not the parlay above it — it wins or loses by itself."
+            />
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

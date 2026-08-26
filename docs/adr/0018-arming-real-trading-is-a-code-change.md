@@ -35,12 +35,24 @@ ORDERS_ARE_DRY_RUNS = True
 
 A module constant. **No environment read, no config object, no override.**
 
-`backend/api/routes.py:1382` — the only construction of `OrderPlacer` on the
-request path — takes it:
+`backend/api/routes.py:3811` — the engine's construction of `OrderPlacer` on
+the request path — takes it:
 
 ```python
 placer = OrderPlacer(dry_run=ORDERS_ARE_DRY_RUNS)
 ```
+
+> **Corrected 2026-08-26, twice over.** This line cited `routes.py:1382` and
+> called it *"the only construction of `OrderPlacer` on the request path"*.
+> Both halves aged: the line is now `:3811`, and there is a **second**
+> production construction — the manual hand-bet path (ADR 0063), which takes
+> its own constant `MANUAL_ORDERS_ARE_DRY_RUNS`. The AST pin in
+> `tests/test_execution.py` was updated to expect two when that path landed,
+> so the test tracked reality while this prose did not; the manual path's own
+> pin in `tests/test_manual_orders.py` now asserts the **count**, not just
+> the values, so a third placer has to be looked at rather than absorbed.
+> Nothing about the decision changes — arming is still a code change, and
+> now it is two of them, one per door.
 
 and `OrderPlacer.place` (`backend/kalshi/orders.py:458`) short-circuits to
 `STATUS_DRY_RUN` before any POST is attempted. The only `dry_run=False`

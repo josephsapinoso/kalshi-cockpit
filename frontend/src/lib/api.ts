@@ -1662,9 +1662,24 @@ export type RecentEstimate = {
   stated_probability_is_revised: number;
 };
 
-export const searchEstimateMarkets = (q: string) =>
-  get<{ markets: EstimateMarket[] }>(
-    `/api/estimates/markets?q=${encodeURIComponent(q)}`,
+/**
+ * Find a market to hand-bet that no screen surfaced.
+ *
+ * Reuses `EstimateMarket` because the payload is the same rows from the
+ * same price-free SELECT: `/api/manual/search` delegates to
+ * `estimates.search_markets`, whose query carries no quote column at all.
+ * That is what lets a search screen exist without breaking ADR 0065's
+ * masking — you cannot browse for an ask here, so the number you type is
+ * still yours.
+ *
+ * **This replaced `searchEstimateMarkets`, which had no caller.** The
+ * standalone `/estimate` form retired with ADR 0065 and took its search box
+ * with it; the fetcher outlived the screen. Repointed rather than
+ * duplicated.
+ */
+export const searchManualMarkets = (q: string) =>
+  get<{ markets: EstimateMarket[]; query: string }>(
+    `/api/manual/search?q=${encodeURIComponent(q)}`,
   );
 
 export const fetchRecentEstimates = () =>
@@ -2277,6 +2292,14 @@ export type ManualMarket = {
   cooloff_until_ms: number | null;
   lockout_until_ms: number | null;
   dry_run: boolean;
+  /** The path's own size ceiling, served rather than hardcoded here — a
+   *  second definition of a constant that exists to be raised deliberately
+   *  would be a constant kept in sync by memory (ADR 0063). */
+  max_contracts: number;
+  /** A `KXMVE` combination market (ADR 0073). */
+  is_combo: boolean;
+  /** The sentence a combo order must carry, in the server's own words. */
+  combo_note: string | null;
 };
 
 export type ManualOrderPlaced = {
@@ -2333,6 +2356,8 @@ export async function placeManualOrder(
     max_price_tenths: number;
     p_yes_bp: number;
     idempotency_key: string;
+    /** Required on a combination ticker; the route 422s without it. */
+    combo_acknowledged?: boolean;
   },
   token: string,
 ): Promise<ManualOrderResult> {

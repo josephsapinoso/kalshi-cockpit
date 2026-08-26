@@ -25,6 +25,163 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-26 — A source-scan pin measures what it can still match, and it goes quiet rather than red
+
+A test read `routes.py` and asserted that every `OrderPlacer(dry_run=...)`
+passes one of two named constants. Its regex was `OrderPlacer\(\s*dry_run=([^)\n]+)\)`
+— one line, `dry_run` first. Then one of the two constructions took a second
+argument and wrapped onto three lines. The regex stopped matching it. The test
+**stayed green**, now asserting about one call site instead of two, and nothing
+anywhere said the coverage had halved.
+
+**The pattern: a scan-based test silently redefines its own population every
+time the code it scans is reformatted.** A `for x in matches: assert ...` loop
+is vacuously true over an empty or shrunken match set, and the shrinking is
+invisible — the failure mode is not a wrong assertion, it is a correct
+assertion about fewer things.
+
+The fix is one line and it is the general one: **assert the size of the
+population before asserting anything about its members.** `assert len(calls)
+== 2` turns a reformat that hides a call site into a red test that names the
+count, and it turns a genuinely new third call site into something a human has
+to look at rather than something the suite absorbs.
+
+Same shape as "count your tests" in CLAUDE.md's measurement rules, one layer
+down: a denominator nobody printed is a denominator nobody checked.
+
+---
+
+## 2026-08-26 — Pin a guard on the decision it changes, never on the string it prints
+
+A new fee model had to be the one a per-bet cap was checked against. The test
+asserted the served `worst_case_cost_display`. It passed. It also passed with
+the new model removed, because the two models differ by $0.0002 at one contract
+and the display is rounded to cents — **the assertion could not see the thing it
+existed to pin, in either direction.**
+
+The rewrite chose the bankroll so the cap fell strictly between the two answers:
+admitted under the old model, refused under the new one. Now the test is a
+statement about behaviour, and the mutation goes red.
+
+**The pattern: a rendered value has been through a lossy transform, so it can
+only pin differences larger than that transform's resolution.** Money rounded to
+cents, a percentage to one decimal, a duration to "2m ago" — each throws away
+exactly the precision a guard often turns on. Ask what the guard *decides*, and
+assert on that: the 422 versus the 200, the refusal text, the row that was or
+was not written.
+
+Corollary, because it is the cheap version of the same check: when a test
+depends on two numbers being different, **assert that they are different first**,
+in the test, with a message saying the fixture no longer separates them. That
+assertion is what tells the next person the test has gone blind, instead of
+letting it report success about nothing.
+
+---
+
+## 2026-08-26 — A derived value inherits its source's absence as an extreme, not as a gap
+
+Kalshi publishes bids only; asks are derived — `yes_ask = 1000 - best_no_bid`.
+So a book with **no** NO bid does not produce "no ask". It produces the
+endpoint: a missing bid reads as 100c, and the derived YES ask comes back as
+**0c**. The screen rendered "YES 0c" — a free contract — on the most illiquid
+product the venue lists.
+
+The order path was safe: the price grid refuses 0. But safety in the consumer is
+not honesty on the screen, and CLAUDE.md rule 1 says a large apparent edge is a
+bug until proven otherwise. This one was manufactured by the arithmetic itself.
+
+**The pattern: any value computed as `limit - x` turns "x is missing" into "the
+answer is the limit", and the limit is usually the most attractive number in the
+range.** Subtraction has no null. Complement, remaining-capacity, time-until,
+percentage-of-total: all of them convert an absent input into a confident
+extreme.
+
+The fix is to run the derived value back through the validity test its consumer
+already applies — here `is_valid_price`, which refuses 0 and 1000 as settled
+outcomes rather than quotes — and return None when it fails. "Unreadable
+resolves to None, never 0" is the repo's rule for *reading* a field; this is the
+same rule for *computing* one, and it is the harder half because the computation
+succeeded.
+
+---
+
+## 2026-08-26 — A fixture that writes a value the wire never emits is a defect with a delayed fuse
+
+The demo seeder wrote `status = 'open'` into `kalshi_markets`. The venue writes
+`active` — 245 of 245 in the committed payload capture. `open` is the *event*
+query parameter (`/events?status=open`), a confusion this repo had already
+recorded once, in a different file, about a different reader.
+
+It sat there harmlessly for months because the one query that filters on that
+column had no caller. The first caller shipped and the search returned **zero
+markets for every query** on the demo instance — a new feature that looked
+completely broken, on data that had been wrong the whole time.
+
+**The pattern: a fixture defect is invisible until the first reader that cares,
+and the reader gets blamed.** The debugging instinct points at the new code,
+which is the only thing that changed; the fixture is old, load-bearing and
+trusted precisely because nothing has complained about it.
+
+Two things follow. **A seeder is wire-format code and belongs under the same
+rule as a parser** — CLAUDE.md already says wire-format tests must load captured
+payloads rather than hand-constructed ones, and a seeder is a hand-constructed
+payload with a longer life than any test. And when a brand-new feature reads
+existing data and comes back empty, **check what the data says before checking
+what the code does** — one query against the table would have cost thirty
+seconds and pointed at the real defect immediately.
+
+---
+
+## 2026-08-26 — Bytecode caching is keyed on (mtime, size), so a same-length edit can survive its own revert
+
+Mutation testing a coefficient: `Decimal("0.071")` → `Decimal("0.070")`, run the
+test, write the original back. Same length, same second. CPython validates a
+cached `.pyc` on the source's **mtime and size** — both unchanged — so the stale
+bytecode carrying the mutation stayed live after the revert. The next full suite
+failed against a source file that was byte-for-byte correct, and the failure
+pointed at the tests rather than at the cache.
+
+**The pattern: a revert that restores the bytes does not always restore the
+behaviour.** Anything that caches on a cheap fingerprint — bytecode, a build
+system's timestamps, a browser's ETag — can be fooled by an edit that changes
+neither. Digits, boolean literals, comparison operators and single-character
+flags are exactly the edits that keep both, and exactly the edits mutation
+testing makes.
+
+So: **clear `__pycache__` on both sides of a mutation**, not just before the
+run. And more generally, when a test fails against source you have just read and
+believe, check whether anything between the file and the interpreter is holding
+an older copy — the fastest disambiguation is to touch the file and re-run.
+
+---
+
+## 2026-08-26 — A feature behind an off flag has never rendered, and the first render is part of the build
+
+A complete hand-bet path shipped four days earlier: a route with twelve
+server-side checks, a table, a full test suite, a ticket component with an
+anti-anchoring reveal. `MANUAL_ORDERS_ENABLED=false` meant every response on the
+live instance was "blocked", so **not one of its screens had ever drawn against
+a real quote, a real book or a real balance.**
+
+Driving it once — seeded database, real backend, real browser, real venue read —
+found two defects the suite could not: a derived ask rendering as 0c on an empty
+book (above), and a seeder status the venue never emits (above). Both are in
+code that was green.
+
+**The pattern: tests pin the shapes you thought of, and the first real render
+is where the shapes you did not think of arrive.** This repo already records
+"a feature and the one path that invokes it are two deliverables, and only the
+second one ships". The sharper version: **the invoking path is not shipped when
+it is written, it is shipped when it has been watched running**, and a flag that
+routes every response to a refusal is indistinguishable from a feature that
+works right up until the flag moves.
+
+Cheap corollary that paid twice here: when the flag is the only thing between a
+built feature and its first render, **turn the flag on before believing
+anything** — including "it is finished".
+
+---
+
 ## 2026-08-26 — A guard installed by an unverified edit is not installed
 
 I wrote a patch script whose every substitution went through one helper that
@@ -2148,10 +2305,104 @@ Related: [[code-with-no-caller-is-not-a-feature-it-is-a-plan]],
 # The pattern index
 
 Every lesson ever written, newest date first, one line each. The full text of
-each is in the linked archive file, unchanged.
+each is in the linked archive file, unchanged; the sections marked *in this
+file, above* are the ones not yet archived.
+
+**Regenerated 2026-08-26.** This index had listed the five entries of
+2026-08-17 as "in this file, above" and stopped there, while 61 later lessons
+sat unindexed above it — so the line "every lesson ever written" was false of
+its own file, and a session scanning the index for something relevant would
+have missed every lesson written in the last nine days. The titles below are
+the lessons' own headings, taken verbatim; keep it that way, so regenerating it
+is a script and not a judgement.
+
+### 2026-08-26 — in this file, above
+
+- A source-scan pin measures what it can still match, and it goes quiet rather than red
+- Pin a guard on the decision it changes, never on the string it prints
+- A derived value inherits its source's absence as an extreme, not as a gap
+- A fixture that writes a value the wire never emits is a defect with a delayed fuse
+- Bytecode caching is keyed on (mtime, size), so a same-length edit can survive its own revert
+- A feature behind an off flag has never rendered, and the first render is part of the build
+- A guard installed by an unverified edit is not installed
+
+### 2026-08-25 — in this file, above
+
+- A monitor that names a cause it cannot observe sends you to one place
+- Dedupe is not a rate limit, and the difference is who supplies the churn
+- A total is not a breakdown, and two spot checks cannot see a flip-flop
+- Measure the cost of a thing you put on the fast path, before it is on the fast path
+- A gap the length of your own timer is a timer, not a fault
+- A refusal that names its own predicate describes a symptom, not a cause
+- The only thing left in a quiet log is not the thing that quietened it
+- Fixing a lie can move it rather than remove it
+- A test fixture that spends is also a fixture that paces
+- A registered rule implemented as an optional parameter is not implemented
+- `G` is not evidence; leverage is
+
+### 2026-08-24 — in this file, above
+
+- An access-control finding names the layer it was read at
+- A baseline taken while you edit is not a baseline
+- A pin verifies the shape you saw, not the branch you rely on
+
+### 2026-08-23 — in this file, above
+
+- A wire format that was pinned but never exercised is a belief wearing a pin
+- A pinned fixture clock against a wall-clock instrument is a test with an expiry date
+- "The screen shows X" must come from the screen, not from the database that feeds it
+
+### 2026-08-21 — in this file, above
+
+- A field written after the spend is not a spend gate
+- When a rule and its floor are defined over different units, the smaller unit's zero-information observations vote
+
+### 2026-08-20 — in this file, above
+
+- A stored number answers the question it was stored for, not the question you are asking now
+- Log redaction does not reach exceptions: raise_for_status prints the URL, key and all
+- A claim about git state is verified with git, never asserted from prose
+- Two readers can share a word and not a definition, and the disagreement will be filed as a stale value
+- A status that can only be stamped after an event must never be stamped by a clock alone
+- Undo walks run in reverse, and a walk that happens to work forwards is a latent bug, not a working one
+- Fixing a stale-flag read at one use site does not fix the flag; every other reader is still wrong
+- A number that explains a mystery is captured and committed the day it is seen, or it is a rumour
+- When local and CI disagree, do not ask which to trust. Ask which one matches production, because the answer can be neither
+- "One source of truth" is a claim about the *clock* as much as the source. A flag written at the end of a step and read at the start of the next is already two clocks
+- A job that only runs when a gate is open looks exactly like a job that has died. Poll the thing that says it ran, not the thing it changes
+
+### 2026-08-19 — in this file, above
+
+- A schema change costs its time at boot, under a health check that does not wait; and rehearse the migration before writing it
+- `GROUP BY` treats NULLs as equal; a `UNIQUE` index treats them as distinct. A guard written on the all-NULL case cannot see the difference
+- Do not diagnose a resource-starved machine by consuming that resource; and a process that is *stuck* looks nothing like a process that is slow
+- A read-only handle to a WAL database reports the last checkpoint and calls it the present; and "the file stopped growing" is not "the table stopped growing"
+- An error message names the hop it was thrown on, not the hop that is broken; and a fix is not a fix until it is measured after deploying
+- A performance number expires when the thing it measured grows, and a benchmark that "isolates" a cost usually removes the cost
+- `flyctl volumes list` and `df` disagreed for three days, and the optimistic one is the one you type
+- "I checked and it was fine" is not monitoring, and the alarm you built is not evidence until you read the channel
+- Attribute cost by measuring the parts, because the expensive-looking part usually is not
+- A screenshot proves what the tab context says it does, not what the picture looks like
+- Two columns that must be equal are not checked by anyone, and rendering both is what finds them
+- A picture whose axis is set by its loudest number shows nothing about its quietest
+
+### 2026-08-18 — in this file, above
+
+- Find the render sites by scanning, not by remembering, and check that the guard's mutation is the one you meant
+- A query plan is a shape, not a cost, and the monitoring you add is code that can take the box down
+- An alert that cannot fire on the failure that happens is not coverage, and the count of alerts hides that
+- A default is a decision nobody made, and it is invisible from inside the running system
+- A guard written against one cause leaves the other causes uncovered, and the symptom is identical
+- `git checkout <file>` is a destroyer of uncommitted work, and guard-verification is exactly when you reach for it
+- The screen you verify against may be rendering a configuration nothing deploys, and a test that reads config text cannot tell you
+- Hand a reviewer your hypothesis and require it to be refutable, then let it win
 
 ### 2026-08-17 — in this file, above
 
+- A handoff written the night before states tomorrow in the past tense, and "the deadline has passed" is a claim that creates work
+- Scrutiny was spent asymmetrically, and the unguarded direction was the one that created work
+- A guard that is structurally always true reads exactly like a guard that fires, and "this condition is checked" is not evidence the condition varies
+- A decision justified by a statistic computed under a *different definition* than the one the decision affects, and the codebase already had the difference written down
 - An acceptance criterion carries implicit scope, and the person who sets it owns that scope
 - A boundary borrowed from another subsystem answers a question it was never about, and the reasoning for borrowing it reads well
 - An instrument that does not select the column its predicate turns on reports the absence of what it cannot see

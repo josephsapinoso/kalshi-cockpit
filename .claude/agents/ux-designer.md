@@ -83,11 +83,17 @@ write their report.
 
 ## Hard constraints — a proposal that breaks one of these is dead on arrival
 
-- **The tool has never placed an order.** `ORDERS_ARE_DRY_RUNS = True`
-  (`backend/store/orders.py:129`). Confirm today produces a **423, the locked
-  gate**. That is the realistic end of the flow and it must be designed as a
-  destination, not an error. **Nothing you propose arms the order path** — that
-  is a code change plus Joe's explicit say-so, never a side effect of design.
+- **The tool's own order path has never sent an order.** Both doors are
+  dry by code constants — `ORDERS_ARE_DRY_RUNS`
+  (`backend/store/orders.py:129`) and `MANUAL_ORDERS_ARE_DRY_RUNS`
+  (`backend/store/manual_orders.py:45`). The engine's Confirm produces a
+  **423, the locked gate**; the hand-bet ticket produces a recorded dry
+  run. Both are the realistic ends of their flows and must be designed as
+  destinations, not errors. (Joe placed four real orders on 2026-08-23
+  with the C0 probe, a CLI outside the app; this file said "never placed
+  an order" flatly until 2026-08-26.) **Nothing you propose arms the order
+  path** — that is a code change plus Joe's explicit say-so, never a side
+  effect of design.
 - **The hunt for an edge is closed** (ADR 0038, and the whole second section of
   `CLAUDE.md`). The measured answer was *no edge*. **If a flow you propose would
   leave Joe believing the tool has found him a winner, that is a bug, not a

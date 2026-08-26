@@ -46,6 +46,25 @@ MANUAL_ORDERS_ARE_DRY_RUNS = True
 
 STATUS_PENDING = "pending"
 
+# The path's size ceiling, in contracts. ADR 0063 §3: "first at a 1-contract
+# ceiling, raised only when observed `fee_actual` matches `fee_predicted` on
+# real fills." A constant rather than config, for the reason the dry-run
+# switch is one: raising it is a decision with a commit behind it, not an
+# environment variable somebody can nudge.
+#
+# It binds independently of `MANUAL_ORDERS_ARE_DRY_RUNS`, so the ceiling is
+# rehearsed dry exactly as it will bind live -- the same argument the
+# cool-off makes below.
+MANUAL_ORDER_MAX_CONTRACTS = 1
+
+# Combination (`KXMVE`) markets are bounded harder still (ADR 0073). One
+# contract, always: the book is enter-only on every combination this repo
+# has ever read (ADR 0012 §5), the fee model undercharges there (ADR 0046),
+# and the hedge that replaces it is fitted to eight fills at prices no
+# higher than $0.228. The ceiling is what makes an error in that hedge cost
+# a fraction of a cent instead of scaling with size.
+COMBO_MAX_CONTRACTS = 1
+
 # After any completed manual purchase the buy control rests (ADR 0063's
 # cool-off; no override). "Completed" means the order was actually carried
 # to an outcome — including a dry run, so the friction is rehearsed exactly

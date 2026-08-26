@@ -61,7 +61,9 @@ from ..core.parlay import (
     value_parlay,
 )
 from ..core.ev import breakeven_win_rate, edge_after_fees_tenths
+from ..core.fees import combo_taker_fee
 from ..core.prices import (
+    PRICE_MAX,
     format_price,
     format_probability,
     is_valid_price,
@@ -111,6 +113,10 @@ from ..settlement import open_position_dollars
 from ..slate import DRIFT_WINDOW_MS, book_distribution, kalshi_drift
 from ..store import db
 from ..store import manual_orders as manual_store
+from ..store.manual_orders import (
+    COMBO_MAX_CONTRACTS,
+    MANUAL_ORDER_MAX_CONTRACTS,
+)
 from ..store.orders import (
     DuplicateOrder,
     ExposureCapExceeded,
@@ -233,6 +239,12 @@ class ManualOrderRequest(BaseModel):
     idempotency_key: str = Field(
         min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"
     )
+    #: Required, and only meaningful, on a `KXMVE` combination ticker
+    #: (ADR 0073). A FIELD rather than a client-side checkbox: the whole
+    #: point is that the acknowledgement cannot be skipped by a client that
+    #: forgets to render it, and a default of False means a client that has
+    #: never heard of combos refuses them rather than buying one silently.
+    combo_acknowledged: bool = False
 
 
 class OddsRefreshRequest(BaseModel):
@@ -4059,6 +4071,67 @@ def create_app(
             )
         return None
 
+    def _tradeable_ask(ask_tenths: Optional[int]) -> Optional[int]:
+        """A derived ask, or `None` when it is not a price anyone can pay.
+
+        Asks are derived — `yes_ask = 1000 - best_no_bid` — so an EMPTY book
+        does not produce "no ask", it produces the endpoints: a missing NO bid
+        reads as a resting bid of 100c and hands back a 0c YES ask. 0 and 1000
+        are settled outcomes, not quotes (`is_valid_price` refuses both), and
+        this is exactly the shape of every combination market on the venue
+        right now: `no_bid_dollars = 1.0000`, depth 0.0, a YES ask that renders
+        as **0c**.
+
+        Observed on live 2026-08-26 while driving the ticket for the first
+        time. The order path was already safe — `OrderRequest` refuses the
+        price on the grid — but the SCREEN read "YES 0c", which is a free
+        contract on the most illiquid product the venue lists, and CLAUDE.md
+        rule 1 is that a large apparent edge is a bug until proven otherwise.
+        The honest render is no ask at all, which the ticket already has words
+        for.
+        """
+        if ask_tenths is None or not is_valid_price(ask_tenths):
+            return None
+        return ask_tenths
+
+    def _is_combo(ticker: str) -> bool:
+        """A combination (multivariate-event) market, by ticker prefix.
+
+        One predicate, used by the read, the size ceiling, the fee choice and
+        the refusal, so those four cannot disagree about what a combo is.
+        `JUNK_PREFIX` in discovery uses the same prefix and is why no combo
+        ever reaches `recommendations`.
+        """
+        return ticker.strip().upper().startswith("KXMVE")
+
+    def _manual_worst_case_dollars(
+        order: OrderRequest, *, combo: bool
+    ) -> Optional[float]:
+        """What this order costs if it fills completely, fee included.
+
+        `OrderRequest.worst_case_cost_dollars` for everything but a combo.
+        On a combo the same arithmetic runs through `combo_taker_fee`, whose
+        coefficient sits above every combo charge this repo has observed
+        (ADR 0073) -- because `calculate_fee` undercharged four of the eight
+        combo fills on the record, and a per-bet cap checked against an
+        understated cost is not a cap.
+
+        The fee is taken at the larger of the sent and un-snapped prices, for
+        the reason `worst_case_cost_dollars` gives: the curve peaks at 50c,
+        so a snapped-down price understates a fee just below the peak.
+
+        `None` when the fee is unreadable -- the caller refuses; it never
+        substitutes zero.
+        """
+        if not combo:
+            return order.worst_case_cost_dollars
+        stake = order.count * order.fill_price_tenths / float(PRICE_MAX)
+        sent = combo_taker_fee(order.fill_price_tenths, order.count)
+        asked = combo_taker_fee(order.limit_price_tenths, order.count)
+        if sent is None or asked is None:
+            return None
+        return stake + max(sent, asked)
+
     def _manual_authorised_count(
         cap_dollars: float,
         *,
@@ -4066,14 +4139,27 @@ def create_app(
         side: str,
         ask_tenths: int,
         price_grid,
-        hard_cap: int = 100,
+        hard_cap: int = MANUAL_ORDER_MAX_CONTRACTS,
     ) -> int:
         """The largest count whose fee-inclusive worst case fits the per-bet
         cap. Counted by construction rather than divided, because the fee
         rounds up on the whole order and a division would overstate by up to
-        one contract in exactly the direction a cap must not err."""
+        one contract in exactly the direction a cap must not err.
+
+        `hard_cap` defaults to the path's own ceiling (ADR 0063: "first at a
+        1-contract ceiling, raised only when observed `fee_actual` matches
+        `fee_predicted` on real fills"), so the loop can never authorise a
+        size the route would then refuse. Combination tickets are bounded to
+        one contract on top of that, and priced through the hedged combo fee
+        rather than `calculate_fee` -- ADR 0073, and ADR 0046's tripwire is
+        why: on a combo the deployed model is known wrong in the optimistic
+        direction, and a cap checked against an understated cost is not a
+        cap.
+        """
+        combo = _is_combo(ticker)
+        ceiling = min(hard_cap, COMBO_MAX_CONTRACTS if combo else hard_cap)
         authorised = 0
-        for count in range(1, hard_cap + 1):
+        for count in range(1, ceiling + 1):
             try:
                 candidate = OrderRequest(
                     ticker=ticker,
@@ -4085,7 +4171,8 @@ def create_app(
                 )
             except OrderRefused:
                 break
-            if candidate.worst_case_cost_dollars > cap_dollars:
+            worst = _manual_worst_case_dollars(candidate, combo=combo)
+            if worst is None or worst > cap_dollars:
                 break
             authorised = count
         return authorised
@@ -4124,7 +4211,7 @@ def create_app(
 
         sides = {}
         for side in ("yes", "no"):
-            ask = quote.ask_tenths(side)
+            ask = _tradeable_ask(quote.ask_tenths(side))
             depth = quote.depth_at_ask(side)
             authorised = None
             if (
@@ -4175,6 +4262,68 @@ def create_app(
             "cooloff_until_ms": manual_store.cooloff_until_ms(conn, now_ms=now),
             "lockout_until_ms": bet_estimates.lockout_until(conn, now_ms=now),
             "dry_run": manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
+            # The path's own size ceiling, served rather than mirrored: a
+            # client that hardcodes it is a second definition of a constant
+            # that exists to be raised deliberately (ADR 0063).
+            "max_contracts": (
+                min(MANUAL_ORDER_MAX_CONTRACTS, COMBO_MAX_CONTRACTS)
+                if _is_combo(quote.ticker)
+                else MANUAL_ORDER_MAX_CONTRACTS
+            ),
+            "is_combo": _is_combo(quote.ticker),
+            # The sentence the ticket must show before a combo order, in the
+            # server's words. Wording it here rather than in the client keeps
+            # the screen and the 422 saying the same thing, and keeps the
+            # measurement's own numbers in it.
+            "combo_note": (
+                "Every combination book this repo has ever read had no YES "
+                "bid — 40 of 40, across three runs on two dates. You can "
+                "enter this and you cannot exit it: the only way out is the "
+                "outcome. The fee is priced through a hedged coefficient "
+                "because the measured model undercharges on combos, so the "
+                "cost shown is a ceiling and not a quote."
+                if _is_combo(quote.ticker)
+                else None
+            ),
+        }
+
+    @app.get("/api/manual/search")
+    def manual_search(
+        q: str = Query(default="", max_length=80), conn=Depends(get_conn)
+    ) -> dict:
+        """Find a market to hand-bet that no screen surfaced.
+
+        The slate and the Picks board show what the recorder priced; a hand
+        bettor's market is whatever the venue lists, which is why the ticket
+        already reads ANY ticker (`/api/manual/market/{ticker}`) and why the
+        only thing missing was a way to name one.
+
+        **Serves no prices, by construction, and that is load-bearing rather
+        than incidental.** It delegates to `estimates.search_markets`, whose
+        SELECT carries no quote column at all, so ADR 0065's masking survives
+        the search screen: you cannot browse for an ask, type the number it
+        put in your head, and call it your estimate.
+
+        Reachability is checked here as well as on the order itself — not
+        because a market list is dangerous, but because a search box that
+        answers on an instance the buy control cannot reach is a door that
+        leads nowhere, described as a door.
+
+        Combination markets never appear: discovery excludes `KXMVE` from
+        `kalshi_markets` outright, and a combo has no ticker until a parlay
+        card mints one.
+        """
+        unreachable = _manual_reachable()
+        if unreachable is not None:
+            raise HTTPException(status_code=403, detail=unreachable)
+        query = q.strip()
+        if len(query) < 2:
+            return {"markets": [], "query": query}
+        return {
+            "markets": bet_estimates.search_markets(
+                conn, query, now_ms=db.now_ms()
+            ),
+            "query": query,
         }
 
     @app.post("/api/manual-orders", dependencies=[Depends(require_auth)])
@@ -4188,14 +4337,17 @@ def create_app(
         1.  idempotency replay — the first answer, again
         2.  the desk lockout — 423, same shape as the estimate route
         3.  the cool-off after the last completed purchase — 423
-        4.  KXMVE refusal — 422 (fee model unverifiable on combos, ADR 0046;
-            enter-only book, ADR 0012 §5)
+        4.  KXMVE bounds — 422 without `combo_acknowledged`, 422 above one
+            contract (ADR 0073; enter-only book, ADR 0012 §5, and a hedged
+            fee because ADR 0046's model undercharges there). The path's own
+            1-contract ceiling (ADR 0063) is checked here too.
         5.  daily-loss kill switch over the venue's own record — 422
             (ADR 0064; None refuses, never zeroes)
         6.  caps derived from the observed balance — 422 when unobserved
         7.  live quote; ask over the typed ceiling — 422 ("the ask moved")
         8.  depth at the ask — 422
-        9.  per-bet cap on the fee-inclusive worst case — 422
+        9.  per-bet cap on the fee-inclusive worst case — 422 (the combo
+            hedge prices a KXMVE order; an unreadable fee refuses)
         10. any existing venue position on this ticker — 422 (the wire's
             per-row position shape has never been observed, so holding
             ANYTHING here refuses; Kalshi nets, and a buy that closes a
@@ -4261,15 +4413,42 @@ def create_app(
         ticker = request.ticker.strip().upper()
 
         # 4.
-        if ticker.startswith("KXMVE"):
+        combo = _is_combo(ticker)
+        if combo and not request.combo_acknowledged:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "combination (KXMVE) markets are refused on the manual "
-                    "path: the fee model's never-undercharge property fails "
-                    "on combos (ADR 0046), and every combination book this "
-                    "repo has ever read had no YES bid — you can enter and "
-                    "you cannot exit (ADR 0012 §5)."
+                    "combination (KXMVE) markets need the acknowledgement "
+                    "before this door opens: every combination book this "
+                    "repo has ever read had NO YES BID — 40 of 40, across "
+                    "three runs on two dates — so you can enter and you "
+                    "cannot exit (ADR 0012 §5). The fee model also "
+                    "undercharges on combos (ADR 0046); a hedged coefficient "
+                    "prices this order and it is not a measurement of what "
+                    "Kalshi charges. Send `combo_acknowledged` only if that "
+                    "is the bet you mean to make."
+                ),
+            )
+        if combo and request.contracts > COMBO_MAX_CONTRACTS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"a combination order is capped at "
+                    f"{COMBO_MAX_CONTRACTS} contract on this path (ADR "
+                    f"0073), against an order for {request.contracts}. The "
+                    f"cap is what keeps an error in the hedged combo fee "
+                    f"costing a fraction of a cent instead of scaling."
+                ),
+            )
+        if request.contracts > MANUAL_ORDER_MAX_CONTRACTS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"this path is armed at "
+                    f"{MANUAL_ORDER_MAX_CONTRACTS} contract, against an "
+                    f"order for {request.contracts}. Raising it is a code "
+                    f"change and it waits on observed `fee_actual` matching "
+                    f"`fee_predicted` on real fills (ADR 0063)."
                 ),
             )
 
@@ -4326,13 +4505,15 @@ def create_app(
             raise HTTPException(
                 status_code=404 if exc.permanent else 503, detail=str(exc)
             ) from exc
-        ask = quote.ask_tenths(request.side)
+        ask = _tradeable_ask(quote.ask_tenths(request.side))
         if ask is None:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"no live ask on the {request.side} side — there is no "
-                    f"price to buy at."
+                    f"price to buy at. An empty book does not report 'no ask'; "
+                    f"it reports the endpoint (a 0c or 100c derived ask), and "
+                    f"neither is a price anyone can pay."
                 ),
             )
         if ask > request.max_price_tenths:
@@ -4380,12 +4561,23 @@ def create_app(
             )
         except OrderRefused as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if order.worst_case_cost_dollars > risk_now.max_position_dollars:
+        worst_case = _manual_worst_case_dollars(order, combo=combo)
+        if worst_case is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "the fee on this order could not be computed, so its "
+                    "worst-case cost cannot be checked against your per-bet "
+                    "cap. Refusing — an unreadable fee must never resolve to "
+                    "no fee."
+                ),
+            )
+        if worst_case > risk_now.max_position_dollars:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     f"{request.contracts} contracts at {format_price(ask)} "
-                    f"costs at most ${order.worst_case_cost_dollars:.2f}, "
+                    f"costs at most ${worst_case:.2f}, "
                     f"over the ${risk_now.max_position_dollars:.2f} per-bet "
                     f"cap derived from your balance."
                 ),
@@ -4420,10 +4612,34 @@ def create_app(
                     ),
                 )
 
-        # 11.
+        # 11. ADR 0018's SECOND barrier, wired here rather than left for the
+        #     arming commit to remember: `OrderPlacer.__init__` refuses when
+        #     `dry_run` is False and no REST client was passed, so flipping
+        #     the constant alone produces a 503 and not an order. The client
+        #     is the app's one shared `KalshiRestClient` (`combo_api`), built
+        #     on first use and closed in the lifespan — never a second one
+        #     per request, which would cost a PEM re-parse and an SSL setup
+        #     on the request that spends money.
+        #
+        #     Built ONLY when the path is armed. `combo_api()` calls
+        #     `KalshiConfig.load()`, which raises on a keyless instance, and
+        #     a dry run must keep working everywhere it works today.
+        placer_rest = None
+        if not manual_store.MANUAL_ORDERS_ARE_DRY_RUNS:
+            try:
+                placer_rest = combo_api()
+            except ConfigError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"the manual path is armed but this instance holds "
+                        f"no Kalshi credentials: {exc}. Nothing was sent."
+                    ),
+                ) from exc
         try:
             placer = OrderPlacer(
-                dry_run=manual_store.MANUAL_ORDERS_ARE_DRY_RUNS
+                rest=placer_rest,
+                dry_run=manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
             )
         except OrderRefused as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -4491,16 +4707,15 @@ def create_app(
             # "at most", never "costs $X": MLB's k is half the coefficient
             # charged, so the point figure would overstate — and never a
             # payout figure, which would assume untested H4 (ADR 0027).
-            "worst_case_cost_display": (
-                f"${order.worst_case_cost_dollars:.2f}"
-            ),
+            "worst_case_cost_display": f"${worst_case:.2f}",
             "kalshi_order_id": outcome.kalshi_order_id,
             "error_text": outcome.error_text,
             "cooloff_until_ms": submitted_ms + manual_store.COOLOFF_MS,
             "note": (
-                "Dry run — the manual path is not armed (ADR 0063: arming "
-                "follows the C0 probe and is a code change). This is "
-                "exactly the body a live order would send."
+                "Dry run — the manual path is not armed. Arming is a code "
+                "change (ADR 0063); the C0 probe it waited on was taken "
+                "2026-08-23. This is exactly the body a live order would "
+                "send."
                 if outcome.dry_run
                 else (
                     "LIVE ORDER sent immediate-or-cancel. If the status is "

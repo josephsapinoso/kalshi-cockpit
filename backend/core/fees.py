@@ -334,6 +334,67 @@ def calculate_fee(
     return float(_model_a(price_tenths, count, maker, multiplier))
 
 
+# The combination hedge (ADR 0073). **Not a fitted model and not a
+# correction to `TAKER_COEFFICIENT`** -- a ceiling above every combo charge
+# this repo has ever observed, for the one caller that now needs one.
+#
+# ADR 0046 declined to branch `calculate_fee` for combos on the ground that
+# "nothing in production prices a combo... the order path cannot reach one",
+# so "a branch would be dead code wearing a safety fix's clothes". ADR 0073
+# gives the branch a caller: the manual order path may now buy a `KXMVE`
+# ticker, bounded, and the per-bet cap it is checked against is computed
+# through a fee. That is exactly the condition ADR 0046's tripwire named --
+# "the fee input is known wrong in the optimistic direction" -- so the input
+# is replaced here rather than the tripwire ignored.
+#
+# 0.071, and the arithmetic is why. On the eight combo fills of
+# `docs/measurements/2026-08-18-combo-fill-fee-look-result.md` the implied
+# coefficient spans 0.070041-0.070548 at the finer grid, with **no row at or
+# below 0.070** -- the deployed coefficient undercharged four of eight.
+# 0.071 exceeds the largest observed implied k, so
+# `ceil(0.071 * D) >= 0.071 * D > 0.070548 * D >= charged` on every one of
+# those rows, by construction rather than by fit.
+#
+# WHAT THIS DOES NOT ESTABLISH, and it is most of what matters. Those eight
+# fills are one account, one sitting, one day, at prices $0.001-$0.228 -- the
+# deep tail of a fee curve that peaks at $0.50, so nothing here bounds the
+# deviation at a mid price, and that measurement's own scope section says so.
+# This is a hedge above what has been seen, NOT a bound on what Kalshi
+# charges. The safety that does not depend on the number is the one-contract
+# ceiling ADR 0073 puts on every combo order: the absolute size of an error
+# in this coefficient is a fraction of a cent.
+COMBO_TAKER_COEFFICIENT = Decimal("0.071")
+
+
+def combo_taker_fee(price_tenths: int, contracts: float) -> Optional[float]:
+    """The hedged fee for a taker buy on a combination market, in dollars.
+
+    Same form as `_model_a` -- `ceil(k * C * P * (1-P))` onto
+    `FEE_GRID_DOLLARS` -- with `COMBO_TAKER_COEFFICIENT` in place of
+    `TAKER_COEFFICIENT`. Rounding up onto a $0.0001 grid can only overstate
+    against the finer grid the combo charges were observed on (gcd $0.00001),
+    so the ceiling survives the grid mismatch too.
+
+    `None` on an unreadable or untradeable price, never `0.0` -- the caller
+    must refuse rather than substitute, for the reason `calculate_fee`'s
+    docstring gives at length.
+
+    No maker branch: zero maker rows have ever been observed on a combo, and
+    ADR 0073 permits taker IOC buys only, so a maker coefficient here would
+    be a number with no observation and no caller.
+    """
+    count = _exact_count(contracts)
+    if count is None:
+        return None
+    if count <= 0:
+        return 0.0
+    if not is_valid_price(price_tenths):
+        return None
+    price = _price_dollars(price_tenths)
+    raw = COMBO_TAKER_COEFFICIENT * count * price * (Decimal(1) - price)
+    return float(raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING))
+
+
 def calculate_fee_cents(
     price_tenths: int,
     contracts: int,

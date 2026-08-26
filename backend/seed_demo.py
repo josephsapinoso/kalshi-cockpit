@@ -491,12 +491,22 @@ def seed_all(
             ),
         )
 
+        # `'active'`, not `'open'`. A MARKET's status on the wire is
+        # `active` -- 245 of 245 in `tests/fixtures/events_sports_nested.json`
+        # -- while `open` is the *event* query parameter
+        # (`/events?status=open`), a confusion `tests/test_census_non_sports.py`
+        # already records once. This seeder wrote `open` into the market row
+        # from the start and nothing noticed, because the one query that
+        # filters on it (`estimates.search_markets`, `status = 'active'`) had
+        # no caller until the hand-bet search shipped -- at which point the
+        # demo database returned zero markets for every query. A demo that
+        # answers differently from live is not a demo (ADR 0041's premise).
         conn.execute(
             "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, "
             "series_ticker, title, yes_side_team, market_type, price_structure, "
             "close_ms, status, volume_24h, open_interest, first_seen_ms, "
             "last_seen_ms) VALUES (?, ?, ?, ?, ?, 'moneyline', 'linear_cent', "
-            "?, 'open', ?, ?, ?, ?)",
+            "?, 'active', ?, ?, ?, ?)",
             (
                 scenario.ticker, scenario.event_ticker, scenario.series,
                 f"{scenario.team} vs {scenario.opponent} Winner?", scenario.team,
