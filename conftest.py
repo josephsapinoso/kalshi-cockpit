@@ -129,6 +129,28 @@ def forget_scope_warnings():
     reset_scope_warnings()
 
 
+@pytest.fixture(autouse=True)
+def forget_computed_joints():
+    """The parlay copula cache is process-wide, so it is cross-test state.
+
+    That is deliberate -- it exists because `/api/parlays` answered in 2.3s
+    warm while recomputing a 200,000-sample Monte-Carlo per request -- but a
+    cache that outlives a REQUEST also outlives a TEST, and every test that
+    counts calls to `_joint` then has its assertion decided by which test
+    pytest happened to run first. Exactly the hazard `forget_scope_warnings`
+    above exists for, with collection order as the hidden input.
+
+    Caught by `tests/test_ladder.py::TestJointMemo` going red the first time
+    the whole suite ran after the cache was hoisted, which is the test doing
+    its job.
+    """
+    from backend.core.ladder import _JOINT_CACHE
+
+    _JOINT_CACHE.clear()
+    yield
+    _JOINT_CACHE.clear()
+
+
 def load_fixture(name: str):
     """Load a captured API payload, skipping the test if it hasn't been captured.
 

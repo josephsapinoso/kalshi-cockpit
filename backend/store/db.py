@@ -29,6 +29,16 @@ from ..core.prices import is_valid_price
 #: on an existing volume as well as a fresh one -- `_MIGRATIONS` exists for
 #: changes to tables that already hold rows, which this is not.
 SCHEMA_VERSION = 22
+
+#: Per-connection page cache, in KiB. Read connections get the larger share
+#: because a person is waiting on them; the writer is the recording loop.
+#:
+#: 16 MiB and 4 MiB against ~76-130 MB of measured headroom, with a
+#: per-request read connection and one long-lived writer. Raising these is a
+#: decision to take against a fresh `MemAvailable` reading, not a default to
+#: maximise -- the box has OOM-killed itself once already.
+READ_CACHE_KIB = 16 * 1024
+WRITE_CACHE_KIB = 4 * 1024
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # How long a blocked connection waits for the write lock before giving up.
@@ -1019,6 +1029,35 @@ def connect(
 
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+
+    # **Page cache and scratch space, sized against a measured box.**
+    #
+    # A connection is opened PER REQUEST (`routes.get_conn`), and SQLite's
+    # default page cache is ~2 MB. Measured on live 2026-08-26 with a session
+    # cookie, first hit versus warm:
+    #
+    #     /api/slate     5.94s -> 0.38s
+    #     /api/parlays   9.96s -> 2.32s
+    #
+    # That gap is the page cache, not the query plan: the same statements run
+    # a fifteenth of the time once the pages are resident.
+    #
+    # `temp_store = MEMORY` keeps sorts and the `GROUP BY` spills off the Fly
+    # volume, which is the slowest thing in the request.
+    #
+    # **Deliberately modest, and `mmap_size` is deliberately absent.** This box
+    # has already OOM-killed itself once
+    # (`docs/measurements/2026-08-19-live-oom-killed-itself.md`), page cache
+    # available was measured at ~130 MB steady and ~76 MB during a full pass,
+    # and `mmap_size` competes with that rather than adding to it. A reader
+    # gets more than a writer because readers are what a person waits on;
+    # the writer is the loop, and it already holds its pages warm.
+    #
+    # Negative `cache_size` is KiB rather than pages, which is the only form
+    # that means the same thing across page sizes.
+    conn.execute(f"PRAGMA cache_size = -{READ_CACHE_KIB if read_only else WRITE_CACHE_KIB}")
+    conn.execute("PRAGMA temp_store = MEMORY")
+
     if not read_only:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")

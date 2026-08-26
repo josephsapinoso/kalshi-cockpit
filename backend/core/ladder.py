@@ -47,6 +47,7 @@ kalshi_market_ticker)` in both ranking directions).
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Sequence
 
@@ -313,6 +314,48 @@ def _correlation_leg(leg: CandidateLeg, probability: float) -> Leg:
     )
 
 
+#: How many distinct leg-sets keep their computed joint. Bounded because this
+#: outlives a request: an unbounded dict on a long-lived process is a leak
+#: wearing a cache's clothes.
+#:
+#: 256 is roughly a day of distinct ladders at six cards a build -- generous,
+#: and each entry is one small dataclass plus its key.
+_JOINT_CACHE_MAX = 256
+
+#: Computed joints, keyed on `_joint_key`, shared ACROSS requests.
+#:
+#: **Measured on live 2026-08-26: `/api/parlays` answered in 2.3s warm.** The
+#: memo used to be a local dict, so it deduped the six cards within one build
+#: and every HTTP request then recomputed from nothing -- and `_joint` runs a
+#: 200,000-sample Monte-Carlo copula five times per distinct leg set. That
+#: crossed the stop-work trigger this project registered in advance
+#: (`tasks/NEXT.md`: "the stated stop-work trigger was 1s on `/api/parlays`").
+#:
+#: **This is a memo, not a TTL cache, and the difference is correctness.** The
+#: registered remedy was a payload cache, which would have to guess an expiry
+#: and would serve stale leg ages and stale freshness verdicts between
+#: refreshes. `_joint_key` already carries every field `_joint` reads -- its
+#: docstring says so and a test pins it -- and the copula is seeded
+#: (`correlation._MC_SEED`), so an equal key is an equal answer by
+#: construction. Nothing expires because nothing can go stale: ages,
+#: freshness and the ask are recomputed on every request as before.
+_JOINT_CACHE: "OrderedDict[tuple, JointEstimate]" = OrderedDict()
+
+
+def _cached_joint(selected: Sequence[CandidateLeg]) -> JointEstimate:
+    """The copula for these legs, computed at most once per distinct leg set."""
+    key = _joint_key(selected)
+    hit = _JOINT_CACHE.get(key)
+    if hit is not None:
+        _JOINT_CACHE.move_to_end(key)
+        return hit
+    value = _joint(selected)
+    _JOINT_CACHE[key] = value
+    while len(_JOINT_CACHE) > _JOINT_CACHE_MAX:
+        _JOINT_CACHE.popitem(last=False)
+    return value
+
+
 def _joint_key(selected: Sequence[CandidateLeg]) -> tuple:
     """Every field `_joint` reads, so equal keys mean an equal joint.
 
@@ -465,7 +508,7 @@ def build_ladder(
     # **A bound on the common case, not the worst one.** Six genuinely
     # distinct leg sets still pay for six; nothing here caps the work, it only
     # stops paying twice for an identical answer.
-    joints: dict[tuple, JointEstimate] = {}
+
 
     cards: list[Card] = []
     for recipe in CARD_SHAPES:
@@ -484,11 +527,7 @@ def build_ladder(
             )
             continue
         selected = tuple(pool[:recipe.max_legs])
-        memo = _joint_key(selected)
-        joint = joints.get(memo)
-        if joint is None:
-            joint = _joint(selected)
-            joints[memo] = joint
+        joint = _cached_joint(selected)
         cards.append(
             Card(
                 key=recipe.key,
