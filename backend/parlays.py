@@ -135,15 +135,15 @@ def ladder_candidates(
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
                f.p_conservative, f.oldest_book_age_ms, f.link_id,
-               l.kalshi_event_ticker, l.odds_event_id, l.league,
-               o.commence_ms, o.home_team, o.away_team,
+               l.kalshi_event_ticker, l.odds_event_id,
+               o.commence_ms, o.home_team, o.away_team, o.sport_key,
                e.title AS event_title
         FROM fair_prices f
         JOIN event_links l ON l.id = f.link_id
         JOIN kalshi_events e ON e.event_ticker = l.kalshi_event_ticker
         JOIN (
             SELECT odds_event_id, MIN(commence_ms) AS commence_ms,
-                   home_team, away_team
+                   home_team, away_team, sport_key
             FROM odds_snapshots GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE f.market IN ('h2h', 'spreads')
@@ -191,7 +191,30 @@ def ladder_candidates(
     alias_cache: dict[str, object] = {}
     candidates: list[CandidateLeg] = []
     for (link_id, market, outcome, point), row in freshest.items():
-        league = row["league"]
+        # **`odds_snapshots.sport_key`, not `event_links.league`.** They are
+        # different vocabularies for the same partition and only one of them
+        # names an alias file.
+        #
+        # `event_links.league` holds Kalshi's `product_metadata.competition`
+        # verbatim -- measured on this repo's own database: 'Pro Baseball',
+        # 'Pro Basketball (W)', 'Pro Football'. The alias files are named for
+        # The Odds API's sport keys: `baseball_mlb.yaml`,
+        # `americanfootball_nfl.yaml`. So `load_aliases("Pro Baseball")` looked
+        # for a file that has never existed, and `load_aliases` returns an
+        # EMPTY `TeamAliases` for a missing file rather than raising -- by
+        # design, because most leagues need no overrides.
+        #
+        # The two together mean **the parlay ladder ran with zero team aliases
+        # from the day it was built**, silently, on a screen that offers money
+        # decisions. The linker itself was always correct
+        # (`runner.py` loads aliases from `event.sport_key`); only this reader
+        # was wrong, which is why nothing upstream noticed.
+        #
+        # The same string is what the client renders, so this also stops a leg
+        # reading "Pro Baseball" where the rest of the app says "MLB":
+        # `frontend/src/lib/leagueLabel.ts` keys on sport keys and renders an
+        # unknown key verbatim.
+        league = row["sport_key"]
         if league not in alias_cache:
             alias_cache[league] = load_aliases(league)
         aliases = alias_cache[league]

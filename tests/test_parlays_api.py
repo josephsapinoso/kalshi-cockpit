@@ -67,7 +67,14 @@ def seed_game(
     conn.execute(
         "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
         "odds_event_id, league, method, commence_skew_ms, linked_ms) "
-        "VALUES (?, ?, 'baseball_mlb', 'exact_alias_pair', 0, 0)",
+        # `event_links.league` holds Kalshi's COMPETITION string, not a
+        # sport key -- measured on this repo's own database:
+        # 'Pro Baseball', 'Pro Basketball (W)', 'Pro Football'. This
+        # fixture used to write 'baseball_mlb' here, which made it
+        # agree with a reader that believed the same wrong thing and
+        # hid the alias bug for the life of the parlay desk. Seed what
+        # production seeds.
+        "VALUES (?, ?, 'Pro Baseball', 'exact_alias_pair', 0, 0)",
         (event_ticker, game),
     )
     link_id = conn.execute(
