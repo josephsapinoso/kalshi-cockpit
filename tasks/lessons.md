@@ -25,6 +25,181 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-26 — A mutation can lie, and a green result is not evidence until you know the mutation landed
+
+A component was forbidden from drawing a value. To prove the guard bit, the
+value was inserted back into the markup and the test re-run. It stayed **green**.
+
+The obvious conclusion — "the test is decoration" — was wrong. The insertion
+had gone into a `<details>` that appears in the file's own **docstring**, three
+hundred lines above the real one. The file changed. The string was present. A
+grep for it succeeded. And no code had been touched.
+
+**The pattern: a mutation is itself a change that can fail silently, and every
+way of checking it "worked" is satisfied by a change to the wrong place.** The
+file's mtime moves, the diff is non-empty, the mutated string greps — all true
+of an edit to a comment. So a green test after a mutation has two readings and
+they are opposites:
+
+- the guard does not bite, or
+- the mutation did not land where the guard looks.
+
+Only the second is cheap to rule out, so rule it out first. **Assert the
+mutation's effect, not its presence**: count the real call sites, print the
+line number, or slice the file the way the test slices it and confirm the
+change is inside that slice.
+
+Corollary for source-scanning tests specifically: strip comments in the TEST,
+and prefer an anchor that cannot exist in prose. `s.index("<details")` finds
+whichever comes first; `s.index('<details className="w-full')` finds the
+element.
+
+Same family as *"count your tests"* — a denominator nobody printed is a
+denominator nobody checked — one level further out: **a control nobody
+verified is a control that proves nothing.**
+
+---
+
+## 2026-08-26 — A test written after the code describes it; a test written against a claim constrains it
+
+Six guards written in one day passed on the first run and failed to bite when
+mutated. Each was rewritten rather than kept, and they had one shape in common.
+
+- A stub that returned the same answer for every key, so the code could be
+  handed either vocabulary and pass.
+- An LRU test whose fixture kept the hot key newest, so eviction-from-the-front
+  and eviction-from-the-back both preserved it.
+- A `for phrase in (...): if phrase in text: continue` loop that asserted
+  nothing at all.
+- An assertion ending in `or True`.
+- A guard that asserted an alias file "buys something" but not that removing an
+  entry costs anything — so a silently dropped entry stayed green.
+- An assertion on a display string rounded past the resolution of the thing it
+  was pinning.
+
+**The pattern: writing the test after the implementation makes the
+implementation the reference, and the natural sentence to write is a
+description of what the code does rather than a constraint on what it must
+do.** A description is satisfied by the code as written, which is exactly the
+condition under which mutation testing finds nothing.
+
+Two habits that convert one into the other:
+
+1. **Name the claim in the test name, then make the body the smallest thing
+   that could refute it.** "eviction is LRU" is a description; "asking again
+   protects an entry from eviction" is refutable, and it forces the fixture
+   that separates the two orderings.
+2. **Before writing the assertion, write down what the fixture would have to
+   look like for the wrong behaviour to pass it.** If the answer is "the
+   fixture I already have", the fixture is the problem, not the assertion.
+
+The repo rule already says every guard is verified by disabling it and watching
+it fail. This is why the rule cannot be relaxed to "and the obvious ones are
+fine": the obvious ones are precisely the ones written as descriptions.
+
+---
+
+## 2026-08-26 — Fifteen minutes of measurement outranked a day of planning, and the plan had ranked by what looked expensive
+
+A plan written from reading the code ranked the serving-path work: an N+1 into
+a 6.9-million-row table first, an unbounded `GROUP BY` second, everything else
+after. All of it real. None of it measured, because the box had been
+crash-looping and no reading would have meant anything.
+
+Once the box stayed up, twenty curls with a session cookie said:
+
+    /api/slate     0.38s warm     <- ranked FIRST from the code
+    /api/parlays   2.32s warm     <- not on the list at all
+
+The N+1 is genuinely there and genuinely grows. It is not what a person waits
+on. What they wait on is a 200,000-sample Monte-Carlo recomputed per request,
+which reads as a single innocuous function call.
+
+**The pattern: reading code ranks work by how expensive it LOOKS, and cost in
+source is a poor proxy for cost in time.** A loop over rows advertises itself;
+one call to a pure function does not. The proxy fails hardest exactly where the
+expensive thing has a clean interface — which is what a good abstraction is.
+
+Two consequences worth keeping:
+
+- **A plan's ranking is a hypothesis, and the measurement that tests it is
+  usually much cheaper than the first item on the list.** Take the measurement
+  before executing the plan, not after.
+- **State the ranking in the write-up when it turns out wrong.** The
+  measurement doc for this says the plan ranked the slate first and the slate
+  is 0.38s. A doc that quietly reports the right answer teaches nothing about
+  how the wrong one was reached.
+
+Corollary on prerequisites: this measurement could not have been taken honestly
+the day before, because the machine was off half the time. **When an
+environment is broken, measurements of it are not merely noisy — they are
+measurements of a different system**, and the right order is fix, verify the
+fix, then measure.
+
+---
+
+## 2026-08-26 — State that outlives a request outlives a test, and the tests that break are the ones that never heard of it
+
+A per-request memo was hoisted to a module-level cache to stop a Monte-Carlo
+being recomputed on every HTTP request. Correct, and measured: 345ms to 2ms.
+
+The full suite then went red in a test written months earlier, in a different
+file, that counts how many times the expensive function is called. Nothing was
+wrong with the cache and nothing was wrong with that test. What was wrong is
+that the two now shared state, and which one ran first decided the answer.
+
+**The pattern: making something live longer than a request also makes it live
+longer than a test, and the tests it breaks are the ones with no knowledge of
+it.** The author of the cache knows to clear it; the author of a test written
+before the cache existed cannot.
+
+So the reset belongs in `conftest.py`, autouse, not in the new test's own file.
+Clearing it locally protects the tests that already know about the hazard and
+leaves unprotected exactly the ones that do not — and it puts two definitions
+of one guard in the repo, which is how they drift apart.
+
+This repo already had the precedent, with the reasoning written out:
+`forget_scope_warnings` exists because a process-lifetime warning cache made
+"which test ran first" a hidden input. Same hazard, same fix, one file apart —
+**worth looking for the existing precedent before inventing the mechanism**,
+because a codebase that has met a hazard once usually names it somewhere.
+
+Checklist when introducing anything process-scoped — a cache, a memo, a
+warned-once set, a connection pool: *what does a test see if a previous test
+already populated this?* If the answer is "a different result", the reset is
+part of the change, and it is global.
+
+---
+
+## 2026-08-26 — A test that does real work to check a cheap property is a test that stops being run
+
+A cache was bounded at 256 entries. The test asserting the bound drove eviction
+through the real builder, so checking `len(cache) <= 256` ran a 200,000-sample
+Monte-Carlo copula roughly three hundred times. It took 71 seconds on its own
+and was the slowest thing in the suite — **inside the commit whose entire
+subject was not recomputing that copula.**
+
+Stubbing the expensive function took the file from 80 seconds to 4 and tested
+exactly the same property, because the property was never about the copula. It
+was about a dictionary.
+
+**The pattern: a test's cost should be proportional to what it asserts, and
+driving a cheap assertion through an expensive real path is the commonest way
+that goes wrong.** It usually happens because the expensive path is the
+convenient way to produce the state — which is a reason to reach for it, not a
+reason it belongs.
+
+Ask of any slow test: *which line is the assertion, and how much of the runtime
+is upstream of it?* If the answer is "nearly all of it", the upstream is setup
+and setup can be stubbed.
+
+The stakes are not tidiness. A suite is a guard that only works while people
+run it, and every minute added raises the odds it gets skipped, backgrounded,
+or trusted from memory. **A test nobody waits for has the same value as a test
+that does not exist**, with the added cost of looking like coverage.
+
+---
+
 ## 2026-08-26 — Fixing a defect at the call site leaves the rule where the next call site cannot find it
 
 `derive_yes_ask` turns an absent NO bid into a YES ask. An absent bid arrives
