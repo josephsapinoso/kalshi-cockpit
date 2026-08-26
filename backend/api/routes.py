@@ -1594,6 +1594,12 @@ def create_app(
             "e.title AS event_title, "
             "f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
             "f.p_conservative, f.market_width, f.book_count, f.books_used, "
+            # The sum of the books' RAW implied probabilities, before
+            # the vig is removed. Stored since the beginning and served
+            # by nothing -- and it is the one number that makes the
+            # bookmaker's cut visible to a beginner: 104.8% quoted means
+            # 4.8 points of margin, which is what devigging removes.
+            "f.overround, "
             "f.anchored_on_sharp, f.outcome_name, "
             "l.odds_event_id, "
             "o.commence_ms, o.home_team, o.away_team, o.sport_key "
@@ -1625,6 +1631,13 @@ def create_app(
         detail["home_team"] = row["home_team"]
         detail["away_team"] = row["away_team"]
         detail["league"] = row["sport_key"]
+        # The books' raw implied probabilities summed, before devigging. A
+        # fair coin market quoted with no margin sums to 1.0; anything above
+        # is the bookmaker's cut, and that difference is precisely what the
+        # four devig methods remove. `None` when the row predates the column
+        # or the devig could not report it -- never 1.0, which would assert a
+        # margin-free book.
+        detail["overround"] = row["overround"]
 
         # The full book distribution, exactly as the slate computes it --
         # same helpers, same refusals (`None` when nothing usable is stored,

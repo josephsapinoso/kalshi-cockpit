@@ -2,6 +2,7 @@
 
 import type { MarketDetail } from "@/lib/api";
 import DispersionStrip from "@/components/DispersionStrip";
+import FairValueSteps from "@/components/FairValueSteps";
 import Term from "@/components/Term";
 
 /**
@@ -83,8 +84,14 @@ export default function ConsensusPanel({ detail }: { detail: MarketDetail }) {
             )}
           </p>
 
+          <FairValueSteps detail={detail} />
+
           <div className="mt-3">
             <DispersionStrip
+              /* Present, not behind a reveal: ADR 0068 puts the desk's five
+                 areas fully on this screen, and this is the Consensus area's
+                 own provenance. The slate row keeps the text-only variant. */
+              variant="chart"
               books={detail.books ?? null}
               methods={detail}
               kalshiProbability={

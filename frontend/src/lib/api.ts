@@ -720,6 +720,22 @@ export type ParlayCardLeg = {
   suppressed_reason: string | null;
 };
 
+/**
+ * The chance the first N legs ALL land, for N = 1..legs.
+ *
+ * The plain product, not the card's headline. The headline joint adds a small
+ * same-day correlation nudge through a seeded copula; the difference is
+ * `independence_error_points`, stated in `correlation_note`. Re-running the
+ * copula at every prefix would be six more 200,000-sample runs per card for a
+ * difference in hundredths of a point.
+ */
+export type ParlayPrefix = {
+  legs: number;
+  /** For plotting. The display string beside it is what gets printed. */
+  chance: number;
+  chance_percent_display: string;
+};
+
 /** One preset stake, fully priced server-side (the no-arithmetic rule). */
 export type ParlayStake = {
   stake_cents: number;
@@ -730,6 +746,8 @@ export type ParlayStake = {
 };
 
 export type ParlayCardJoint = {
+  /** Chance at each prefix, for the difficulty chart. */
+  prefixes: ParlayPrefix[];
   conservative_percent_display: string;
   method_range_display: string | null;
   fair_cost_display: string;
@@ -2117,6 +2135,15 @@ export type Gauntlet = {
 };
 
 export type MarketDetail = {
+  /**
+   * The books' raw implied probabilities SUMMED, before devigging.
+   *
+   * A market quoted with no margin sums to 1.0; anything above is the
+   * bookmaker's cut, and that excess is exactly what the four devig methods
+   * remove. `null` when unrecorded — never 1.0, which would assert a
+   * margin-free book.
+   */
+  overround?: number | null;
   ticker: string;
   event_title: string | null;
   team: string | null;

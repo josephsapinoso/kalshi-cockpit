@@ -442,6 +442,38 @@ def _method_spread_points(leg: CandidateLeg) -> Optional[float]:
     return (max(values) - min(values)) * 100
 
 
+def _prefix_chances(legs: Sequence[CandidateLeg]) -> list[dict]:
+    """The chance that the first N legs ALL land, for N = 1..len(legs).
+
+    The picture behind `NOTES["chance"]`, drawn from this card's own legs in
+    the ladder's own order rather than from an illustration.
+
+    **This is the plain product, and the card's headline is not.** The headline
+    joint runs a seeded Gaussian copula that adds a small same-day correlation
+    nudge; the difference between the two is `independence_error_points`, which
+    the payload already states and which the chart repeats underneath itself.
+    Re-running the copula at every prefix would be `len(legs)` more
+    200,000-sample Monte-Carlo runs per card -- measured at ~85ms each -- for a
+    difference in hundredths of a point. The honest move is the cheap number
+    with its error named, not the expensive number with its cost hidden.
+
+    Rendered percent strings ride along, so the client plots the geometry and
+    prints nothing it computed itself.
+    """
+    out: list[dict] = []
+    running = 1.0
+    for index, leg in enumerate(legs, start=1):
+        running *= leg.p_conservative
+        out.append(
+            {
+                "legs": index,
+                "chance": running,
+                "chance_percent_display": _percent(running),
+            }
+        )
+    return out
+
+
 def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
     """One leg, with the provenance behind its number.
 
@@ -545,6 +577,10 @@ def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
                 else None
             ),
             "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
+            # For the chart: the plain product at each prefix. The headline
+            # above is the correlation-adjusted joint, and `correlation_note`
+            # states the gap between them.
+            "prefixes": _prefix_chances(card.legs),
             "correlation_note": (
                 "Same-night games move together a little; the headline "
                 "already charges for that "

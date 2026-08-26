@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { tickerLabel } from "@/lib/tickerLabel";
 import NotTonight from "@/components/NotTonight";
+import RecordChart from "@/components/RecordChart";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
 import {
@@ -131,6 +132,12 @@ export default async function BetsPage() {
       <div className="mt-4 max-w-[65ch]">
         <OpenPositions block={record.open_positions} />
       </div>
+
+      {/* The record as a picture, above the rows it is made of. A fact --
+          what happened to the money -- and deliberately not a verdict: no
+          trend line, no hit rate, no CLV series. The 2026-08-21 ruling caps
+          "CLV on his own bets" at per-bet rows until n >= 30. */}
+      <RecordChart bets={record.bets} />
 
       {record.bets.length === 0 ? (
         <p className="mt-8 max-w-[65ch] text-sm text-muted">

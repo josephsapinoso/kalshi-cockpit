@@ -31,12 +31,20 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26 (arming): 4,456 passed / 10 xfailed.**
-Do not inherit it — this line has been wrong in the same direction three times
+**Test baseline, last green 2026-08-26 (charts): 4,530 passed / 10 xfailed,
+plus ~50 chart tests landing in the same session — RE-RUN IT.**
+Do not inherit it — this line has been wrong in the same direction four times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
-landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
-5m39s, 8m11s and 18m49s** on the same machine. A slow run is not a hung one —
-and per the 2026-08-25 lesson, neither is a gap the length of an interval.
+landed; 4,456 written the day it became 4,474). Re-run before you quote it.
+
+**The suite is now ~21-22 minutes**, up from 5-8, and the reason is worth
+knowing before you assume it hung: it grew with the record, and one test added
+2026-08-26 briefly took 71 seconds on its own by driving a 200,000-sample
+copula ~300 times to assert a dictionary length. That one was fixed by stubbing
+`_joint`. **If the suite gets slower again, look for a test doing real work to
+check a cheap property** — a test nobody will wait for is a test that stops
+being run. A slow run is not a hung one, and per the 2026-08-25 lesson, neither
+is a gap the length of an interval.
 
 **Two things to know before planning. CLAUDE.md is current on both:**
 
@@ -70,7 +78,174 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-26 (latest) — the buy control reaches every card, and the ticket renders on a real book for the first time
+## 2026-08-26 (latest) — the live box was OFF between visits, and five commits later the desk draws pictures
+
+**Read this first: the instance had been down more than it was up, and nothing
+said so.** Joe asked for five things — the site is slow, desk facts in the
+parlays, buy parlays as combos, add NFL and college football, and graphs. The
+first one was not a slowness problem.
+
+### THE HEADLINE — live was crash-looping and Fly was not restarting it
+
+Found while taking a first latency reading, not by reading code. No test was
+failing. Machine events for the day:
+
+    06:51:15Z started -> 07:51:02Z stopped   exit_code=0, requested_stop=false
+    08:03:07Z started -> 09:00:48Z stopped   exit_code=0, requested_stop=false
+
+~60 minutes up, then nothing until an HTTP request woke it, at **23-37s of cold
+start**. The recorder wrote nothing in between. Five links:
+
+1. `store/db.py::derive_yes_ask` returned `None` for a `None` bid and a NUMBER
+   for a `0` one. Kalshi reports an empty side as `0.0000`, which parses to a
+   real `0`, so the ABSENCE arrived as a legitimate value and `1000 - 0` came
+   back as a price.
+2. The team pricing path guarded on `ask is None` only.
+3. `core/ev.effective_price` refused correctly — **by raising** — and nothing
+   caught it, so ONE market failed the whole pass.
+4. Five failed passes raised `LoopFailed` and ended the process.
+5. `entrypoint.sh` tore down and **exited 0**. Fly's policy is on-failure:
+   *"machine exited with exit code 0, not restarting"*. `min_machines_running
+   = 1` does not govern a container that exited successfully.
+
+**Nothing alarmed because the heartbeat probes `/api/health`, and with
+`auto_start_machines = true` that probe STARTS the machine.** It had been
+keeping the instance alive every fifteen minutes and calling that health.
+
+**This was the THIRD patch of the same defect**, and the first two were at call
+sites: `runner.py`'s prop path (2026-08-15, whose comment predicted the team
+path was safe — that prediction is what failed) and `routes.py::_tradeable_ask`
+(2026-08-26). Fixed at the source this time.
+
+**VERIFIED: 79 minutes clean on `3248e65`, then 70 minutes clean on `5edb2c9`**,
+both past the 57.7 and 59.8-minute windows the box previously died in. Full
+passes complete again (157s, 74s, 86s). `dropped_no_kalshi_quote: 1`,
+`dropped_unpriceable: 0` — the source fix is doing the work and the containment
+wrapper is idle, which is what a seatbelt should look like.
+`docs/measurements/2026-08-26-live-was-off-between-visits.md`.
+
+### THE OTHER HEADLINE — the serving path had never been measured
+
+Every latency doc here is about the recording loop; uvicorn runs
+`--no-access-log`. Measured over the public surface with a session cookie:
+
+    /api/health 0.15s   /api/slate    5.94s -> 0.38s
+    /api/window 0.32s   /api/parlays  9.96s -> 2.32s
+    /api/board  0.18s   /api/signal   1.53s -> 0.11s
+
+**`/api/parlays` at 2.3s WARM crossed a stop-work trigger this file registered
+in advance** (*"the stated stop-work trigger was 1s on `/api/parlays`"*).
+**And it overturned this session's own plan**, which had ranked the
+`/api/slate` N+1 first from reading the code — warm, the slate is 0.38s.
+
+Fixed by hoisting the joint memo out of `build_ladder` into a bounded
+module-level cache: **345ms -> 2ms**. A memo, not the payload cache the trigger
+named — a payload cache must guess an expiry and would serve stale leg ages on
+the one screen whose job is saying how old its inputs are. `_joint_key` carries
+every field `_joint` reads and the copula is seeded, so nothing can go stale.
+Plus `cache_size` 16 MiB read / 4 MiB write and `temp_store = MEMORY`;
+`mmap_size` deliberately absent (it competes with the page cache, and this box
+has OOM-killed itself once).
+`docs/measurements/2026-08-26-serving-path-baseline.md`.
+
+### What else shipped, in order
+
+- **`5b9bf5f` — the parlay ladder never had its team aliases.**
+  `ladder_candidates` loaded them with `event_links.league`, which holds
+  Kalshi's competition string ("Pro Baseball"), while the files are named for
+  sport keys. `load_aliases` returns an EMPTY mapping for a missing file, so it
+  failed open and silent for the desk's whole life. **The shared fixture wrote
+  `league = 'baseball_mlb'`, encoding the same misconception as the code**, so
+  the two agreed and nothing caught it. Measured effect: of 13 entries across
+  both files, **0 require the alias** — real but inert on today's leagues, and
+  load-bearing for NCAAF.
+- **`5edb2c9` — college football team names**, derived from the wire by
+  `scripts/capture_ncaaf_names.py` (0 odds credits, checked off
+  `x-requests-last`). Six entries, each verified individually. **NFL needed
+  nothing**: every open `KXNFLGAME` today is `'Pro Football Preseason'`, already
+  excluded; the regular season arrives ~Sept 10 on the existing path.
+- **`46cce28` — an unmatched fixture says WHICH kind.** `refusal_kind` splits
+  `not_carried` from `name_unresolved`, because the reason string could not:
+  the window is four hours and dozens of college games start inside it, so
+  every out-of-scope fixture was landing in "no team-pair bijection" beside the
+  real spelling problems.
+- **`e43f551` — desk facts on every parlay leg.** Ask, book count, method
+  spread, quote age on a second line in fixed order; provenance behind one
+  per-card tap. **The skeptic is three-valued**: a spread leg has no
+  `recommendations` row by construction, so a blank would read as "the checks
+  passed" when they never ran.
+- **`88d179f` — the perf work above.**
+- **Four charts + ADR 0074.** Chance collapsing (`/parlays`), the fair-value
+  pipeline and the dispersion axis (`/market`), cumulative money (`/bets`).
+
+### THE NUMBERS THAT MATTER
+
+- **231 of 339 Kalshi NCAAF fixtures have no sportsbook counterpart at all.**
+  Kalshi lists FCS and Division II; the odds feed carries roughly FBS. Live now
+  reads `events_unmatched: 525 of 746`. That is SCOPE, not a naming bug, and
+  the new split is what makes the two distinguishable.
+- **`fair_prices.overround` was stored since the beginning and served by
+  nothing.** It is the number that makes devigging checkable rather than a word
+  taken on trust. Now on `/api/market/{ticker}`.
+
+### ADR 0074 — the ask returns to one axis, on one screen
+
+Joe was told marking Kalshi's ask on the dispersion chart partly reverses the
+2026-08-21 ruling and said *"yeah mark the ask, go ahead."* Restored on
+`/market/[ticker]` ONLY, as a neutral tick — no colour, no arrow, no
+cheap/expensive wording. The ruling's other two removals (the `used` mark, the
+never-stretch rule) stay on both surfaces. The landing row is unchanged.
+
+**No chart wears a colour, and that is a finding about this repo**: `--accent`
+is the same red as `--negative` in both themes, so a coloured series reads as a
+verdict. Every mark is an ink token; identity is position and shape.
+
+### PROCESS — six of my own tests were decoration, all caught by mutating
+
+Worth carrying because the pattern was consistent: **a test written after the
+code tends to describe it rather than constrain it.** Caught this session — a
+stub that returned the same answer for every key; an LRU test whose fixture
+could not distinguish evicting the oldest from the newest; a loop with a
+`continue` and no assertion; an assertion ending in `or True`; a guard that
+asserted the alias file "buys something" but not that a dropped entry costs
+anything.
+
+**And one mutation LIED.** It reported green after inserting into a
+`<details>` that lives inside the file's own docstring — the file changed, the
+string was present, and no code was touched. *"The test stayed green"* is never
+on its own a conclusion; confirm the mutation landed where you think.
+
+Also: **the suite caught two real defects in my work** — a bare
+`suppressed_reason` with no gloss (ADR 0050 requires both), and a process-wide
+cache that made every `_joint`-counting test order-dependent (fixed in
+`conftest.py`, following `forget_scope_warnings`' precedent).
+
+### FOR JOE — the one thing code cannot fix
+
+**Buying a parlay as a combo is blocked on money, not on code.**
+`max_position_dollars` is 10% of the observed Kalshi balance
+(`config.py:505-514`, ADR 0045), and the live mirror reads **$5.40** — the same
+figure ADR 0073 recorded *before* the deposit. So the per-bet cap is **$0.54**,
+and a $5 bet needs **at least $50 in the account**. Nothing in the code moves
+that. Re-read the `caps` block rather than quoting this.
+
+### Open
+
+- **The combo purchase slice is unstarted**, and its harder half is that a
+  minted combo's book is empty on both sides — the order path is IOC, so it
+  cancels. Registered measurement first (does a maker ever quote a fresh
+  combo?), then decide about a resting order. ADR 0063 §3 pins IOC.
+- **The pragma change is NOT re-measured on live**, and that re-read must be
+  split by whether a full pass is running.
+- The `/api/slate` N+1 and the unbounded `GROUP BY odds_snapshots` (five call
+  sites) are real and grow forever; they are simply not what a person waits on.
+- Per-sport credit reservation for a saturated Saturday: when the daily cap
+  binds, EVERY sport stops. Guard 1 (record the refusal) unbuilt.
+- `ODDS_API_KEY` rotation; the cold-open wait; the scheduled parlay card.
+
+---
+
+## 2026-08-26 — the buy control reaches every card, and the ticket renders on a real book for the first time
 
 **Joe's ask, verbatim: "I want to be able to buy picks for games, props and
 parlays directly from the cockpit."** Four choices were put to him and answered
