@@ -562,6 +562,14 @@ MUST_BE_SUPPLIED = [
         "position_dollars",
         "the live ticker sizes every market as though nothing were held on it",
     ),
+    (
+        "link_discovered_events",
+        "unmatched_by_sport",
+        "the per-sport unmatched split reads empty on every pass, and "
+        "`events_unmatched: 525 of 746` stays the only number -- which cannot "
+        "distinguish a league the books do not carry from a league whose names "
+        "stopped resolving",
+    ),
 ]
 
 

@@ -223,6 +223,17 @@ class MatchCandidate:
     away_team: str
 
 
+#: A refusal whose cause is "the sportsbook feed does not carry this game".
+#: Distinct from a spelling problem, and the two want opposite responses: this
+#: one is scope and needs nobody, the other needs an alias entry.
+NOT_CARRIED = "not_carried"
+
+#: A refusal where at least one in-window fixture already resolves ONE of the
+#: two sides. The books plausibly carry this game under another spelling, so
+#: an alias may fix it.
+NAME_UNRESOLVED = "name_unresolved"
+
+
 @dataclass(frozen=True)
 class MatchResult:
     kalshi_event_ticker: str
@@ -230,10 +241,47 @@ class MatchResult:
     commence_skew_ms: Optional[int]
     method: str
     reason: Optional[str] = None
+    #: Which KIND of refusal this is -- `NOT_CARRIED`, `NAME_UNRESOLVED`, or
+    #: `None` when the event matched or was refused before the books were
+    #: consulted at all.
+    #:
+    #: **The reason string cannot carry this, and college football is why.**
+    #: The commence window is four hours. With a handful of concurrent MLB
+    #: games, "no fixture in the window" fires exactly when the books do not
+    #: carry the game. On a Saturday college slate dozens of games kick off
+    #: inside four hours, so that branch almost never fires and EVERY
+    #: out-of-scope fixture lands in "no team-pair bijection" instead --
+    #: alongside the genuine spelling problems.
+    #:
+    #: Measured 2026-08-26 against the live venue: of 339 Kalshi
+    #: `KXNCAAFGAME` events, 231 had no sportsbook counterpart at all (Kalshi
+    #: lists FCS and Division II; the odds feed carries roughly FBS). Reading
+    #: those as name failures would report a working league as broken, and
+    #: would send somebody to write 231 alias entries that cannot help.
+    refusal_kind: Optional[str] = None
 
     @property
     def matched(self) -> bool:
         return self.odds_event_id is not None
+
+
+def _sides_matched(
+    kalshi_teams: Sequence[str],
+    candidate: MatchCandidate,
+    aliases: TeamAliases,
+) -> int:
+    """How many of the two Kalshi sides resolve against this fixture's teams.
+
+    Used only to classify a REFUSAL, never to make a match: `_bijection` is
+    the matcher and requires one-to-one. A fixture sharing exactly one side is
+    the shape that says "the books carry this game, spelled differently".
+    """
+    return sum(
+        1
+        for name in kalshi_teams
+        if _matches(name, candidate.home_team, aliases)
+        or _matches(name, candidate.away_team, aliases)
+    )
 
 
 def _bijection(
@@ -297,19 +345,39 @@ def link_event(
         return MatchResult(
             kalshi_event_ticker, None, None, "none",
             reason="no sportsbook fixture within the commence-time window",
+            refusal_kind=NOT_CARRIED,
         )
 
     viable = [c for c in in_window if _bijection(kalshi_teams, c, aliases)]
 
     if not viable:
-        near = ", ".join(f"{c.away_team} @ {c.home_team}" for c in in_window[:3])
+        # Which refusal is this? A fixture sharing ONE side is the books
+        # carrying this game under a spelling we cannot resolve; a fixture
+        # sharing neither is a different game entirely, and if none shares a
+        # side the books do not carry this fixture at all.
+        sharing = [c for c in in_window if _sides_matched(kalshi_teams, c, aliases)]
+        near = ", ".join(
+            f"{c.away_team} @ {c.home_team}" for c in (sharing or in_window)[:3]
+        )
+        if sharing:
+            return MatchResult(
+                kalshi_event_ticker, None, None, "none",
+                reason=(
+                    f"no team-pair bijection. Kalshi sides {list(kalshi_teams)} "
+                    f"did not resolve against any of: {near}. Add an alias if "
+                    f"these are the same fixture."
+                ),
+                refusal_kind=NAME_UNRESOLVED,
+            )
         return MatchResult(
             kalshi_event_ticker, None, None, "none",
             reason=(
-                f"no team-pair bijection. Kalshi sides {list(kalshi_teams)} did "
-                f"not resolve against any of: {near}. Add an alias if these are "
-                f"the same fixture."
+                f"no sportsbook fixture at this kickoff shares either side. "
+                f"Kalshi sides {list(kalshi_teams)}; nearest in the window: "
+                f"{near}. The books do not carry this game -- scope, not a "
+                f"naming problem, and no alias entry can help."
             ),
+            refusal_kind=NOT_CARRIED,
         )
 
     if len(viable) > 1:

@@ -21,6 +21,8 @@ import pytest
 from backend.match.linker import (
     DEFAULT_COMMENCE_TOLERANCE_MS,
     EXACT_ALIAS_PAIR,
+    NAME_UNRESOLVED,
+    NOT_CARRIED,
     OBSERVED_KALSHI_COMMENCE_OFFSET_MS,
     PROP_LINK_METHOD,
     LinkedFixture,
@@ -177,7 +179,21 @@ class TestRefusal:
         assert "window" in result.reason
 
     def test_unrelated_teams_refuse(self, no_aliases):
-        """The 0.56% failure: same fixture window, different question."""
+        """The 0.56% failure: same fixture window, different question.
+
+        **Re-pointed 2026-08-26, not weakened.** This asserted
+        `"bijection" in result.reason`. `link_event` now distinguishes two
+        refusals that had shared that wording: a fixture in the window that
+        shares one side (a naming problem an alias may fix) from one that
+        shares neither (the books do not carry this game). Boston/New York
+        against Houston/San Diego is the second, so the reason changed -- and
+        the new classification is a STRICTLY stronger statement than the word
+        it replaced, because it says which kind of refusal this is rather than
+        which internal function produced it.
+
+        The property this test was written for is untouched: two unrelated
+        fixtures in one window must not match.
+        """
         result = link_event(
             kalshi_event_ticker="E",
             kalshi_teams=["Houston", "San Diego"],
@@ -186,6 +202,27 @@ class TestRefusal:
             aliases=no_aliases,
         )
         assert not result.matched
+        # The KIND, not the prose. `tasks/lessons.md`: pin a guard on the
+        # decision it changes, never on the string it prints -- and the first
+        # version of this very assertion went red on "does not carry" against a
+        # reason that says "do not carry".
+        assert result.refusal_kind == NOT_CARRIED
+
+    def test_a_shared_side_refuses_as_a_naming_problem_instead(self, no_aliases):
+        """The other half of the split, so the two cannot collapse together.
+
+        One side resolves and the other does not, which is the shape that says
+        "the books have this game under a spelling we cannot read".
+        """
+        result = link_event(
+            kalshi_event_ticker="E",
+            kalshi_teams=["Houston", "San Diego"],
+            kalshi_commence_ms=NOW,
+            candidates=[candidate("Houston Astros", "New York Yankees")],
+            aliases=no_aliases,
+        )
+        assert not result.matched
+        assert result.refusal_kind == NAME_UNRESOLVED
         assert "bijection" in result.reason
 
     def test_a_three_way_market_refuses(self, no_aliases):

@@ -211,6 +211,21 @@ class PassCounts:
     # absence. If this number is non-zero the reason is in the log line beside
     # it, once per pass per reason.
     dropped_unpriceable: int = 0
+    #: Unmatched Kalshi events per sport, split by WHY they did not match:
+    #: `{sport_key: {"not_carried": n, "name_unresolved": n}}`.
+    #:
+    #: **A pooled `events_unmatched` cannot answer the only question worth
+    #: asking of it.** Live on 2026-08-26 that number read 525 of 746, which
+    #: is either "college football is broken" or "Kalshi lists Division II and
+    #: the odds feed does not" -- and the two need opposite responses. The
+    #: split is `MatchResult.refusal_kind`, computed where the candidate list
+    #: already is.
+    #:
+    #: `name_unresolved` is the actionable half: it means an in-window fixture
+    #: already resolves one side, so an alias entry plausibly fixes it. Derive
+    #: the entry with `scripts/capture_ncaaf_names.py`; do not guess it.
+    #: `not_carried` is scope and needs nobody.
+    unmatched_by_sport: dict = field(default_factory=dict)
     # How many rows the Skeptic was asked about, and how many it refused. Both
     # are structurally zero while `surfaced` is zero, which is the whole history
     # of this project so far -- reported anyway, because the day they are not is
@@ -1129,6 +1144,7 @@ def link_discovered_events(
     *,
     now: int,
     alias_cache: Optional[dict[str, TeamAliases]] = None,
+    unmatched_by_sport: Optional[dict] = None,
 ) -> dict[str, tuple[int, Optional[int]]]:
     """Link each discovered event to a sportsbook fixture.
 
@@ -1136,6 +1152,14 @@ def link_discovered_events(
     resolved. Everything else goes to `unmatched_items` with a reason, because
     a matcher that silently drops what it cannot resolve looks identical to one
     with nothing to do.
+
+    `unmatched_by_sport`, when given, is FILLED IN with
+    `{sport_key: {refusal_kind: count}}` -- the split that turns a pooled
+    "525 of 746 unmatched" into "the books do not carry 231 of these" versus
+    "8 of these need an alias". Optional in the signature so the linking tests
+    need not care; **required at every production call site** by
+    `tests/test_has_callers.py`, because a counter nobody passes is a counter
+    that reads zero forever.
     """
     cache = alias_cache if alias_cache is not None else {}
     linked: dict[str, tuple[int, Optional[int]]] = {}
@@ -1240,6 +1264,14 @@ def link_discovered_events(
                 detail=" vs ".join(event.teams) or event.title,
                 reason=result.reason or "no_counterpart",
             )
+            # Keyed on `sport_key`, not `event.league`. The latter is Kalshi's
+            # competition string ("NCAA Football") and the alias files, the
+            # odds feed and every other counter speak sport keys -- the
+            # mismatch that silently disabled the parlay ladder's aliases.
+            if unmatched_by_sport is not None:
+                by_kind = unmatched_by_sport.setdefault(event.sport_key, {})
+                kind = result.refusal_kind or "other"
+                by_kind[kind] = by_kind.get(kind, 0) + 1
             unmatched_ms += (time.perf_counter() - _t) * 1000
 
     if derived:
@@ -1800,7 +1832,13 @@ def run_pricing_pass(
 
     alias_cache: dict[str, TeamAliases] = {}
     link_started = time.perf_counter()
-    linked = link_discovered_events(conn, events, now=stamp, alias_cache=alias_cache)
+    linked = link_discovered_events(
+        conn,
+        events,
+        now=stamp,
+        alias_cache=alias_cache,
+        unmatched_by_sport=counts.unmatched_by_sport,
+    )
     link_ms = int((time.perf_counter() - link_started) * 1000)
     judge_started = time.perf_counter()
     counts.events_discovered += len(events)
