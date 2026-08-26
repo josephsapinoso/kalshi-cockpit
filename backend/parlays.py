@@ -1,7 +1,8 @@
 """Read ladder candidates for the parlay desk, and word its payload (ADR 0070).
 
-The desk sells three cards a day — Safe, Middle, Lottery — built from the same
-devigged consensus the slate reads, one leg per game, priced at FAIR value.
+The desk sells six cards — six cuts of ONE pool of devigged consensus legs,
+one leg per game, priced at FAIR value. `core.ladder.CARD_SHAPES` owns which
+cuts exist; nothing here knows how many there are.
 Kalshi's actual quote for a combination exists only after a lookup mints the
 market, so everything here is the consensus side of the comparison; the quoted
 side arrives via the lookup path and is labelled as Kalshi's, never blended.
@@ -420,6 +421,9 @@ def _serialise_card(card: Card) -> dict:
         return {
             "key": card.key,
             "title": card.title,
+            # On an unbuilt card too: six cards on one screen, and a card
+            # the reader cannot name is worse than one they can.
+            "what_it_is": card.what_it_is,
             "legs": [],
             "not_built_reason": card.not_built_reason,
             "joint": None,
@@ -432,6 +436,7 @@ def _serialise_card(card: Card) -> dict:
     return {
         "key": card.key,
         "title": card.title,
+        "what_it_is": card.what_it_is,
         "legs": [_serialise_leg(leg) for leg in card.legs],
         "not_built_reason": None,
         "joint": {
@@ -619,7 +624,9 @@ async def price_card_on_kalshi(
     candidates, _ = ladder_candidates(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
-    ladder = build_ladder(candidates, max_odds_age_ms=max_odds_age_ms)
+    ladder = build_ladder(
+        candidates, max_odds_age_ms=max_odds_age_ms, now_ms=now_ms
+    )
     card = next((c for c in ladder.cards if c.key == card_key), None)
     if card is None:
         raise LookupRefused(404, f"no card named {card_key!r}")
@@ -811,7 +818,9 @@ def build_ladder_payload(conn, *, now_ms: int, max_odds_age_ms: int) -> dict:
     candidates, excluded = ladder_candidates(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
-    ladder = build_ladder(candidates, max_odds_age_ms=max_odds_age_ms)
+    ladder = build_ladder(
+        candidates, max_odds_age_ms=max_odds_age_ms, now_ms=now_ms
+    )
     merged = dict(ladder.excluded)
     for reason, n in excluded.items():
         merged[reason] = merged.get(reason, 0) + n

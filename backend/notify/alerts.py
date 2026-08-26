@@ -110,6 +110,22 @@ FAILURE_KINDS = (
 #: which ADR 0071 says this tool does not do.
 MAX_PARLAY_PUSHES_PER_DAY = 6
 
+#: Which cards reach the phone. **Not every card the screen shows.**
+#:
+#: The ladder went from three cuts to six on 2026-08-26 (Longshot, Next 3
+#: hours, Agreed). Six cards against the ceiling above means ONE ladder
+#: spends the whole day's pushes, where that constant's own comment calls
+#: six "two full ladders" -- and the day it was written, the existing three
+#: already burned the ceiling in four minutes through per-sport sweep churn
+#: (`tasks/lessons.md`, "Dedupe is not a rate limit").
+#:
+#: So the new cuts are screen-only until the trigger changes shape
+#: (a scheduled daily card plus a two-build debounce, decided 2026-08-26,
+#: not yet built). Adding a card must not silently change what the phone
+#: does; a notifier that grows with the screen is one nobody leaves
+#: un-muted.
+PUSHED_CARD_KEYS: frozenset[str] = frozenset({"safe", "middle", "lottery"})
+
 
 def _day(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
@@ -386,6 +402,12 @@ class Alerter:
         notes = ladder.get("notes") or {}
         pushed_today = self._parlay_pushes_today(day_start_ms=day_start_ms)
         for card in ladder.get("cards") or []:
+            if str(card.get("key")) not in PUSHED_CARD_KEYS:
+                # Neither sent nor skipped: a screen-only cut was never a
+                # candidate for the phone, and counting it as `skipped`
+                # would inflate `alerts_deduped` with rows that were never
+                # deduped. See PUSHED_CARD_KEYS.
+                continue
             if pushed_today >= MAX_PARLAY_PUSHES_PER_DAY:
                 # Deliberately no "you have hit the cap" notification. The one
                 # thing a phone being told too much does not need is one more

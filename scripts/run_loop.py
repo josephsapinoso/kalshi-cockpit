@@ -628,8 +628,13 @@ async def main() -> int:
             # Every pass was the first design and it was wrong on cost, not on
             # behaviour. `build_ladder` runs a 200,000-sample Monte-Carlo
             # copula per card, five times over (the headline plus one per devig
-            # method) -- measured at ~400ms for three cards on a developer
-            # laptop, and this VM is a shared-cpu-1x. A quote pass is budgeted
+            # method) -- measured at ~330ms for three cards and ~470ms for the
+            # six the ladder grew to on 2026-08-26, on a developer laptop, and
+            # this VM is a shared-cpu-1x. (Six cuts cost +43% rather than
+            # double, because `build_ladder` memoises the joint on the selected
+            # legs and several cuts routinely select the same ones; the figure
+            # is flat in slate size, since the copula's cost is per leg-set.)
+            # A quote pass is budgeted
             # 8s (`QUOTE_PASS_DURATION_BUDGET_S`) because a Kalshi quote has to
             # stay under 30s, and live quote passes already run ~4.2s. Spending
             # a second or more of that every fifteen seconds would eat the
@@ -637,7 +642,7 @@ async def main() -> int:
             #
             # And it would buy nothing. The ladder is a pure function of stored
             # odds, so between sweeps it rebuilds byte-identically: the key is
-            # the same, `UNIQUE (kind, key)` drops it, and the whole 400ms
+            # the same, `UNIQUE (kind, key)` drops it, and the whole build
             # produced a notification that was then discarded.
             #
             # So: a pass that actually swept, or a full pass. A sweep is the

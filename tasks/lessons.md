@@ -25,6 +25,40 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-26 — A guard installed by an unverified edit is not installed
+
+I wrote a patch script whose every substitution went through one helper that
+asserts its anchor exists — precisely so it would fail loudly rather than
+half-apply. Then I wanted a dry run, so I added a `DRY_RUN` flag to that script
+**with a `str.replace` of my own**, outside the helper. The replacement matched
+nothing. `str.replace` returns the string unchanged and says nothing about it.
+
+So `DRY_RUN=1` printed "patched" for every file and wrote all seven of them for
+real, into a tree with the full test suite thirty-five minutes into a run that
+existed to re-measure the baseline. The measurement was void and the tree was
+half-applied.
+
+**The pattern: a no-op edit is silent, so every anchor-based edit needs a count
+assertion — including the ones that install the safety.** The care I had taken
+was real and it was applied to the payload only; the scaffolding around it got
+none, because scaffolding does not feel like the thing that can be wrong.
+
+Two sharper halves worth keeping.
+
+**A dry run must be observable, not asserted.** The only trustworthy evidence
+that a dry run did nothing is that nothing changed — `git status` before and
+after, not a flag being read and a message being printed. A mode that reports
+itself is reporting the branch it took, and the branch it took is exactly what
+was in doubt.
+
+**And this is the repo's own rule one layer out.** "Every guard is verified by
+disabling it and watching the test fail" is about product guards; the same
+sentence applies to a guard in a throwaway script, and a throwaway script is
+where nobody applies it. If the guard had been mutated once — run `DRY_RUN=1`
+on a scratch copy and check the file was untouched — the missing branch would
+have shown up in two seconds instead of costing a thirty-five-minute
+measurement.
+
 ## 2026-08-25 — A monitor that names a cause it cannot observe sends you to one place
 
 The off-box heartbeat alarmed: *"the recording loop has not written a quote for

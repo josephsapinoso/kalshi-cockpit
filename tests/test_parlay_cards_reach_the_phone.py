@@ -202,6 +202,38 @@ class TestOneCardIsAnnouncedOnce:
         assert result.sent == ()
         assert notifier.posted == []
 
+    async def test_a_screen_only_cut_never_reaches_the_phone(self, conn):
+        """Longshot / Next 3 hours / Agreed shipped 2026-08-26 as SCREEN
+        cards. Six cards against `MAX_PARLAY_PUSHES_PER_DAY = 6` would make
+        one ladder the whole day's pushes, and the day they shipped the
+        existing three already burned the ceiling in four minutes.
+
+        Neither sent nor skipped: it was never a candidate, and counting it
+        as skipped would inflate `alerts_deduped` with a row that was never
+        deduped."""
+        notifier = FakeNotifier()
+        result = await Alerter(conn, notifier).parlay_cards(
+            _ladder(
+                _card("safe", ("A", "B")),
+                _card("longshot", ("C", "D")),
+                _card("soon", ("E", "F")),
+                _card("agreed", ("G", "H")),
+            ),
+            now_ms=NOW, day_start_ms=DAY_START,
+        )
+        assert result.sent == ("safe",)
+        assert result.skipped == ()
+        assert [p["card"]["key"] for p in notifier.posted] == ["safe"]
+
+    async def test_the_pushed_set_is_a_subset_of_the_registered_cards(self):
+        """A key that leaves `CARD_SHAPES` must not linger here as a
+        permission to push a card that no longer exists."""
+        from backend.core.ladder import CARD_SHAPES
+        from backend.notify.alerts import PUSHED_CARD_KEYS
+
+        assert PUSHED_CARD_KEYS <= {r.key for r in CARD_SHAPES}
+        assert PUSHED_CARD_KEYS != {r.key for r in CARD_SHAPES}
+
     async def test_every_rung_gets_its_own_notification(self, conn):
         notifier = FakeNotifier()
         result = await Alerter(conn, notifier).parlay_cards(

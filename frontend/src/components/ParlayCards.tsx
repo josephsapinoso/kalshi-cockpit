@@ -14,7 +14,12 @@ import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 
 /**
- * The ladder: three parlay cards at fair value (ADR 0070).
+ * The ladder: six parlay cards at fair value (ADR 0070).
+ *
+ * Six CUTS of one pool, not six products built separately — the server's
+ * `CARD_SHAPES` owns which cuts exist and this component renders however
+ * many arrive. Each carries a `what_it_is` line, because six cards on one
+ * screen cannot be told apart from their legs alone.
  *
  * Renders what the server worded and adds nothing to it. Honesty rules,
  * each load-bearing:
@@ -89,6 +94,11 @@ function Card({ card }: { card: ParlayCardData }) {
           </span>
         )}
       </header>
+      {/*
+        Above the built/unbuilt fork, so an unbuilt card still says what it
+        would have been. Server-worded like every other string here.
+      */}
+      <p className="mt-1 text-xs leading-snug text-muted">{card.what_it_is}</p>
 
       {card.not_built_reason !== null ? (
         <p className="mt-3 text-sm text-muted">

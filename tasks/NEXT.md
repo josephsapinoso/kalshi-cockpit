@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26: 4,388 passed / 10 xfailed.**
+**Test baseline, re-measured 2026-08-26 (later): 4,423 passed / 10 xfailed.**
 Do not inherit it — this line has been wrong in the same direction three times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
 landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
@@ -59,7 +59,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,388 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: 4,423 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -70,7 +70,116 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-26 (latest) — the alarm stops guessing, and the desk's cards reach the phone
+## 2026-08-26 (latest) — one parlay generator becomes six, and the notifier is deliberately left behind
+
+**Joe picked this off the ranked list in the entry below.** The finding it rests
+on is that entry's headline: the three cards were never three products.
+`build_ladder` ranked the pool by `(-p_conservative, commence_ms, ticker)`, took
+one leg per game, and cut the same ranking at 3, 4 and 6. `prefer_spreads` was
+the only structural difference in the entire ladder.
+
+`CARD_SHAPES` is now a tuple of **`Recipe`** — key, title, a one-line
+`what_it_is`, the leg bounds, and the four parameters that make a cut: rank
+direction, spread preference, kickoff horizon, method-agreement width.
+
+| key | title | shape | the cut |
+|---|---|---|---|
+| `safe` | Safe | 2–3 | unchanged |
+| `middle` | Middle | 4 | unchanged |
+| `lottery` | **Long ladder** | 6 | `prefer_spreads` — **title changed, key did not** |
+| `longshot` | Longshot | 2–3 | `longest_first` |
+| `soon` | Next 3 hours | 2–3 | `starts_within_ms = 3h` |
+| `agreed` | Agreed | 2–3 | all four devig methods inside 2 points |
+
+**`lottery`'s key is untouched on purpose.** `parlay_lookups` rows and the
+Discord dedupe history are keyed on it; renaming the key would make the record
+incomparable across a rename that buys nothing. Only the display title moved,
+because once Longshot exists "Lottery" is the wrong name for the six *likeliest*
+legs.
+
+**Three decisions were Joe's this session**, taken before any code: one grid of
+six cards each carrying a description (over a two-section split); the title
+rename; and — recorded but **not built** — the Discord trigger becomes **a
+scheduled daily card plus a two-build debounce**.
+
+### The notifier did NOT grow with the screen, and that is the load-bearing bit
+
+Six cards against `MAX_PARLAY_PUSHES_PER_DAY = 6` makes **one ladder the whole
+day's pushes**, where that constant's own comment calls six "two full ladders".
+And the entry below measured the existing three burning the ceiling in four
+minutes. So `PUSHED_CARD_KEYS = {safe, middle, lottery}` holds the phone exactly
+where it was; the new cuts are screen-only until the trigger changes shape.
+
+A screen-only card is **neither sent nor skipped** — counting it as skipped
+would inflate `alerts_deduped` with rows that were never deduped.
+
+### Measured, not predicted
+
+`build_ladder` over the same slate, three cuts against six, median of three,
+half the fixtures deliberately outside the 3-hour horizon so `soon` could not
+just reuse `safe`'s answer:
+
+    n=6    332 ms -> 480 ms
+    n=12   322 ms -> 473 ms
+    n=20   332 ms -> 463 ms
+
+**+43%, not the +100% the card count implies, and flat in slate size.** `_joint`
+runs a 200,000-sample copula five times per distinct leg set, and six cuts of one
+pool routinely select the *same* legs — so the joints are memoised on
+`_joint_key`, the full tuple of every field `_joint` reads. The stated stop-work
+trigger was 1s on `/api/parlays`; it was not reached, so no payload cache was
+built. The loop path is unchanged in shape: still gated on
+`counts.odds_sweeps > 0 or kind == "full"` against an 8s quote budget running
+~4.2s live.
+
+**The memo key is the whole selection, not the leading ticker**, and that
+distinction is now pinned by a test rather than by intent: two cuts routinely
+agree on the leaders and diverge below (Safe takes `[g0,g1,g2]`, Next 3 hours
+takes `[g0,g1,g3]` when `g2` kicks off late), and a key that stopped at the
+first ticker would serve one card's joint on the other.
+
+### Mutation
+
+**Seventeen mutations observed red.** One stayed GREEN on the first pass and it
+was a real hole: `memo = selected[0].kalshi_market_ticker` passed everything,
+because in every fixture then written the cards' *first* legs already differed.
+The fix was the divergent-slate test above, not a weakened assertion.
+
+### A process failure worth carrying
+
+The baseline test count was being re-measured — correctly, per the instruction
+at the top of this file — when I patched the tree **underneath the running
+suite**. The apply script had a `DRY_RUN` guard; the guard was itself installed
+by a `str.replace` that matched nothing and said nothing, so it silently was not
+there. Seven files were written mid-run and the measurement was void.
+
+Recovered without inheriting anything: the run was killed, the changes stashed,
+and the pre-change count taken as **4,400 tests collected** (consistent with the
+4,388 passed / 10 xfailed this file recorded). Lesson written.
+
+### Open, and unchanged from the entry below
+
+- **The scheduled card plus debounce.** Decided, not built. It is the trigger
+  Joe asked for and the reason the new cuts are screen-only.
+- **The cold-open wait** — a heartbeat can wait up to 900s to be acted on.
+  Precisely located across three files, wide test blast radius, wants its own
+  slice.
+- `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day figure
+  outside CLAUDE.md; no ADR for the attention TTL, floor horizon or credit
+  slice.
+
+### One thing to watch on live
+
+On a thin or single-sport slate, `soon` and `agreed` will often select exactly
+the same legs as `safe` — three cards showing one card. That is *honest* (each
+says what it is, and "the methods agree on the leaders" is a real fact) and it
+shares one copula run, so it costs nothing. But it may read as three copies.
+Worth looking at once there is a real evening slate behind it before deciding
+whether it needs anything.
+
+---
+
+## 2026-08-26 — the alarm stops guessing, and the desk's cards reach the phone
 
 **Shipped and verified on live at `b7e6f9f`.** Two commits, both deployed.
 State: **4,388 passed / 10 xfailed** (baseline 4,333 re-measured at session

@@ -699,6 +699,8 @@ export type ParlayCardJoint = {
 export type ParlayCardData = {
   key: string;
   title: string;
+  /** One server-worded line saying which cut of the pool this card is. */
+  what_it_is: string;
   legs: ParlayCardLeg[];
   not_built_reason: string | null;
   joint: ParlayCardJoint | null;

@@ -122,14 +122,38 @@ def _fresh_slate(conn, n: int = 6, start_p: float = 0.74) -> None:
 
 
 class TestTheLadderBuilds:
-    async def test_six_fresh_games_fill_all_three_cards(self, build):
+    async def test_six_fresh_games_fill_every_card(self, build):
         app = build(_fresh_slate)
         body = (await get(app, "/api/parlays")).json()
         by_key = {c["key"]: c for c in body["cards"]}
         assert len(by_key["safe"]["legs"]) == 3
         assert len(by_key["middle"]["legs"]) == 4
         assert len(by_key["lottery"]["legs"]) == 6
+        assert len(by_key["longshot"]["legs"]) == 3
+        assert len(by_key["soon"]["legs"]) == 3
+        assert len(by_key["agreed"]["legs"]) == 3
         assert all(c["not_built_reason"] is None for c in body["cards"])
+
+    async def test_the_wire_carries_every_registered_card(self, build):
+        """The payload is the screen's whole source of truth for which cards
+        exist -- `ParlayCards.tsx` maps over `cards` and knows nothing else."""
+        from backend.core.ladder import CARD_SHAPES
+
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        assert [c["key"] for c in body["cards"]] == [r.key for r in CARD_SHAPES]
+
+    async def test_every_card_says_what_it_is_built_or_not(self, build):
+        """Six cards on one screen cannot be told apart from their legs, and a
+        card that refused has no legs to be told apart by. Server-worded, like
+        every other string on this payload (2026-08-26)."""
+        app = build(lambda conn: _fresh_slate(conn, n=2))
+        body = (await get(app, "/api/parlays")).json()
+        unbuilt = [c for c in body["cards"] if c["not_built_reason"] is not None]
+        built = [c for c in body["cards"] if c["not_built_reason"] is None]
+        # Vacuity guard: this fixture has to contain both kinds to say anything.
+        assert unbuilt and built
+        assert all(c["what_it_is"] for c in body["cards"])
 
     async def test_each_leg_is_the_games_favorite_once(self, build):
         app = build(lambda conn: _fresh_slate(conn, n=3))
