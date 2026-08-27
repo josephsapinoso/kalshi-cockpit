@@ -768,7 +768,46 @@ serialising the two.
 - **No pre-fill from `parlay_lookups`.** A combo bought off `/parlays` still has
   to be typed in. Slice 4 in the plan; not reached.
 
-### OPEN AND UNVERIFIED ON LIVE
+### VERIFIED ON LIVE, 2026-08-27, `6fc9e3c`
+
+Deployed and checked, in the order that makes each check mean something:
+
+- **Schema v24 applied to the volume.** `inspect_live_db.py db-sizes` shows
+  `parlay_positions`, `parlay_position_legs` and all three indexes on
+  `/data/cockpit.db`, **beside `parlay_card_candidates`** — which is the whole
+  point of the renumber: both lanes' tables coexist, where a shared v23 would
+  have given the volume one set or the other with no way to tell. `open_db`
+  refuses a version mismatch, so the API answering at all is independent proof
+  the stamp is 24.
+- **`/api/hedge` serves HTTP 200**, with an empty `positions` list (nothing is
+  recorded yet) and all four caveats verbatim. This needed
+  `fetch_live_route.py`'s allowlist to gain the path first: everything under
+  `/api/` 401s on the public surface **before routing**, so a `curl` from
+  outside cannot tell a route that exists from one that does not — both answer
+  401 — and this route reaches the venue for a live book, so the database
+  cannot be used to reconstruct it either.
+- **The watcher has not destabilised the recorder.** No `odds_sweep_log` gap
+  over 1200s, and the newest `loop_failures` row is 2026-08-26T16:42Z — about
+  23 hours before this deploy, and the derived-ask `ValueError` `main` has
+  since fixed. Nothing new.
+
+**What that last one does NOT establish is that the watcher is polling.** With
+zero recorded positions `anything_in_progress` is False and the correct
+behaviour is silence, which is indistinguishable from a task that never
+started. The check that separates them is the next one, and it needs a real
+ticket.
+
+### STILL OPEN — the check that needs a real ticket
+
+**Record a parlay Joe actually holds and watch it during a game.** That is the
+only thing that exercises the watcher's cycle, `resolve_from_venue` against a
+real settlement, and a hedge embed rendered from a live payload — the last of
+which is the check ADR 0072 insisted on for the parlay card and got right.
+
+Recording needs the live `APP_AUTH_TOKEN`, which this machine does not hold, so
+it is a tap on the phone rather than something a session can do.
+
+### Previously open and now closed
 
 **Nothing in this session has run on the deployed instance.** Schema v23 applies
 to the live volume on boot (the mechanism is verified against a v22 database in
