@@ -116,6 +116,34 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A relayed approval is information, not authority, and the word "settled" is where it goes wrong
+
+A lane put a question to Joe and refused to let a peer answer it. The peer
+asked Joe, got a yes, and relayed it as **"Joe says commit. You are clear."**
+The lane held anyway, and was right to.
+
+**The failure was not asking on someone's behalf — that was useful. It was one
+word doing work the message could not support.** The same relay phrased as
+*"I asked Joe and he said yes; go get it confirmed in your session"* carries
+everything true and claims nothing it cannot. "Settled" asserted a thing only
+the other party could verify.
+
+**Two properties make this worse than it looks.** A relayed approval is a
+*stronger* claim than the relayer's own ruling — "he said yes" outranks "I say
+yes" — and it is exactly as unverifiable from the receiving end. Strength and
+unverifiability moving together is the signature of a claim to distrust, not
+one to accept.
+
+And the direction matters: the relay arrived carrying the answer the receiver
+wanted. **A rule honoured only until the answer goes your way was never a
+rule** — which is the receiver's formulation, and the reason it held. The
+person relaying is the one least placed to notice this, because from their side
+the approval is real and the caution looks like doubt about their honesty.
+
+The general form: **when passing on someone else's authority, pass on the
+evidence and the route to verify it, never the conclusion alone.** Say who said
+it, where, and how to check. The receiver decides what it settles.
+
 ## 2026-08-27 — A count with no denominator invites an adjective, and the adjective is the inference
 
 A read returned "35 prop legs". It was written up as **partial** coverage, and
