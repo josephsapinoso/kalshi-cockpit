@@ -116,6 +116,47 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — Verify against `origin`, not against `main`, because the object store makes them look alike
+
+An integrator merged, ran `git log --oneline -1 main`, saw the merge, and
+reported "done". `origin/main` was seven commits behind. Twice in one session.
+
+**The read passes because the object store is shared.** From the integrator's
+seat a local merge and a pushed merge are indistinguishable — even a lane in
+another worktree can `git show main:<file>` and see the new content, because
+the objects are right there. The only check that separates them is
+`git log --oneline -1 origin/main` **after a fetch**. Both gaps were caught
+from outside, by a lane that had stopped trusting `origin` and `main` to be the
+same word.
+
+**Why it is not merely untidy.** An unpushed ADR number or `SCHEMA_VERSION` is
+the ordinal race reopened — a lane fetching in that window sees the number as
+free, takes it, and the duplicate merges cleanly like every other instance. The
+whole merge-time allocation rule assumes the allocation is *visible* the moment
+it is made, and a push gap breaks that assumption without breaking anything
+that would announce itself.
+
+## 2026-08-27 — A fact that is displayed but is not a finding does not get acted on
+
+The board had printed `vs origin N unpushed` in its LANES section the whole
+time. It was true, it was on screen, and it was missed twice — because a reader
+scans the FINDINGS block and the VERDICT line, which is where the tool says
+what it *thinks*, and skims the inventory above it, which is where the tool
+says what it *saw*.
+
+**The pattern: in any report, the section a reader acts on is the one that
+carries conclusions, and everything outside it is decoration until it is
+promoted.** Putting a fact somewhere in the output is not the same as
+surfacing it. Ask which block a hurried reader reads, and whether the fact is
+in that block.
+
+This is the same failure as the two wording defects the same day, one layer up.
+There the hedge lived in the module docstring while the finding text overstated
+— **the docstring is not what a person acts on**. Here the observation lived in
+the inventory while the verdict stayed silent. In all three the correct
+information existed somewhere in the artefact and was not where the decision
+was made.
+
 ## 2026-08-27 — A relayed approval is information, not authority, and the word "settled" is where it goes wrong
 
 A lane put a question to Joe and refused to let a peer answer it. The peer

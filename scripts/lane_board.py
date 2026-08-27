@@ -815,8 +815,76 @@ def find_overlap(root: Path, lanes: list[Lane], main_ref: str) -> list[Finding]:
     return findings
 
 
+def find_unpushed(root: Path, lanes: list[Lane], main_ref: str) -> list[Finding]:
+    """Commits on the integration branch that have not reached `origin`.
+
+    **This was displayed and not a finding, which is the same defect one layer
+    up.** The board already printed `vs origin N unpushed` in the LANES
+    section, and twice on 2026-08-27 an integrator merged, read `git log -1
+    main`, and reported "done" -- while `origin/main` was several commits
+    behind. The read passes because the object store is shared, so from the
+    integrator's seat a local merge is indistinguishable from a pushed one. The
+    check that separates them is `git log -1 origin/main` after a fetch.
+
+    **An unpushed integration branch is strictly more consequential than an
+    unpushed lane**, and the severity turns on whether it allocates a global
+    counter. An unpushed ADR number or `SCHEMA_VERSION` means a lane fetching
+    right now sees that number as FREE -- the ordinal race reopened by a push
+    gap rather than by a reservation gap, and it merges cleanly like every
+    other instance of it. Anything else unpushed is worth saying and is not
+    worth failing over, or the check would be red for the seconds between every
+    commit and its push, and `ruff.toml`'s own comment in this repo says what
+    happens to a guard that fails every time.
+
+    Raised by the `parlay-props` lane, which caught both push gaps from the
+    outside because it had stopped trusting `origin` and `main` to be the same
+    thing.
+    """
+    main_lane = next((lane for lane in lanes if lane.is_main and not lane.unreadable), None)
+    if main_lane is None or not main_lane.upstream_ahead:
+        return []
+    changed = _out(["diff", "--name-only", f"origin/{main_ref}", main_ref], cwd=root)
+    if changed is None:
+        return [
+            Finding(
+                "UNREADABLE",
+                "unpushed",
+                main_ref,
+                "commits are unpushed but what they change could not be read",
+            )
+        ]
+    files = set(changed.split())
+    adrs = sorted(
+        f.rsplit("/", 1)[-1] for f in files if f.startswith(_ADR_DIR + "/")
+    )
+    counters = adrs + ([_DB_PATH] if _DB_PATH in files else [])
+    count = main_lane.upstream_ahead
+    if counters:
+        return [
+            Finding(
+                "COLLISION",
+                "unpushed",
+                main_ref,
+                f"{count} commit(s) not on origin, and they allocate a global "
+                f"counter ({', '.join(counters)}). A lane fetching right now sees "
+                f"those numbers as FREE. Push before anyone allocates.",
+            )
+        ]
+    return [
+        Finding(
+            "OVERLAP",
+            "unpushed",
+            main_ref,
+            f"{count} commit(s) not on origin. None allocates a global counter, so "
+            f"no lane can be misled into a duplicate -- but anything reading origin "
+            f"is behind. Reported; does not fail.",
+        )
+    ]
+
+
 def analyse(root: Path, lanes: list[Lane], main_ref: str = "main") -> list[Finding]:
     findings = find_overlap(root, lanes, main_ref)
+    findings += find_unpushed(root, lanes, main_ref)
     findings += find_adr_collisions(lanes)
     findings += find_schema_collisions(lanes)
     findings += [

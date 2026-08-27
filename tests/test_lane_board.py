@@ -110,6 +110,20 @@ def _add_lane(repo: Path, name: str) -> Path:
     return path
 
 
+def _give_it_a_remote(repo: Path) -> Path:
+    """A real bare remote, pushed to, so `origin/main` genuinely exists.
+
+    Faking the remote would test the parser and not the instrument, and the
+    whole defect this guards is that a LOCAL read looks identical to a pushed
+    one from the integrator's seat.
+    """
+    remote = repo.parents[1] / "remote.git"
+    _run(["git", "init", "-q", "--bare", str(remote)], repo)
+    _run(["git", "remote", "add", "origin", str(remote)], repo)
+    _run(["git", "push", "-q", "-u", "origin", "main"], repo)
+    return remote
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     return _base_repo(tmp_path)
@@ -526,6 +540,83 @@ class TestUnreadableIsNeverClean:
         result = lane_board.git(["status"], cwd=repo)
         assert result.ok is False
         assert result.returncode is None  # never 0
+
+
+class TestAnUnpushedIntegrationBranchIsAFinding:
+    """It was displayed and not a finding, which is the same defect one layer up.
+
+    The board printed `vs origin N unpushed` in its LANES section all along.
+    Twice on 2026-08-27 an integrator merged, read `git log -1 main`, and
+    reported "done" while `origin/main` was several commits behind -- the read
+    passes because the object store is shared, so a local merge is
+    indistinguishable from a pushed one from that seat. Both were caught from
+    outside, by the lane, not by the board.
+    """
+
+    def test_an_unpushed_adr_number_is_a_collision(self, repo: Path):
+        """**The consequential case.** A lane fetching right now sees that
+        number as free, allocates it, and the duplicate merges cleanly -- the
+        ordinal race reopened by a push gap instead of a reservation gap.
+
+        Mutation observed red: drop the `counters` branch and return the
+        informational finding for everything.
+        """
+        _give_it_a_remote(repo)
+        _write(repo / "docs/adr/0009-new.md", _adr("0009", "New"))
+        _commit(repo, "take 0009")
+
+        lanes, findings, _ = board(repo)
+        hit = findings_of(findings, "COLLISION", "unpushed", "main")
+        assert hit, "an unpushed ADR number must fail the board"
+        assert "0009-new.md" in hit[0].detail
+        _, code = lane_board.verdict(findings, lanes, strict_overlap=False)
+        assert code == 1
+
+    def test_an_unpushed_schema_bump_is_a_collision(self, repo: Path):
+        """The other global counter. Mutation observed red: drop `_DB_PATH`
+        from the `counters` test."""
+        _give_it_a_remote(repo)
+        _write(repo / lane_board._DB_PATH, _db(11))
+        _commit(repo, "bump to v11")
+
+        hit = findings_of(board(repo)[1], "COLLISION", "unpushed", "main")
+        assert hit and lane_board._DB_PATH in hit[0].detail
+
+    def test_unpushed_commits_that_allocate_nothing_do_not_fail(self, repo: Path):
+        """**The false-finding guard.** Every commit is unpushed for the
+        seconds between making it and pushing it, so failing on that alone
+        would put the board red almost always -- and `ruff.toml`'s own comment
+        in this repo says a guard that fails every time says as much as one
+        that never does.
+
+        Mutation observed red: promote this to COLLISION.
+        """
+        _give_it_a_remote(repo)
+        _write(repo / "README.md", "prose, allocating nothing\n")
+        _commit(repo, "docs only")
+
+        lanes, findings, _ = board(repo)
+        assert findings_of(findings, "COLLISION", "unpushed") == []
+        assert findings_of(findings, "OVERLAP", "unpushed", "main")
+        _, code = lane_board.verdict(findings, lanes, strict_overlap=False)
+        assert code == 0
+
+    def test_a_fully_pushed_branch_reports_nothing(self, repo: Path):
+        """Mutation observed red: emit the finding whenever a remote exists."""
+        _give_it_a_remote(repo)
+        assert findings_of(board(repo)[1], kind="unpushed") == []
+
+    def test_a_repo_with_no_remote_reports_nothing(self, repo: Path):
+        """No `origin/main` means unknowable, not unpushed. Every fixture in
+        this file above has no remote, so a false positive here would have made
+        the whole file noisy -- and per CLAUDE.md unreadable resolves to None,
+        never to a claim.
+
+        Mutation observed red: treat a missing upstream as 0 pushed.
+        """
+        _write(repo / "README.md", "no remote anywhere\n")
+        _commit(repo, "local only")
+        assert findings_of(board(repo)[1], kind="unpushed") == []
 
 
 class TestTheVerdictCannotLookGreenWhileBlind:
