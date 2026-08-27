@@ -78,10 +78,21 @@ main is not the whole picture:
 They live under `~/.herdr/worktrees/kalshi_betting_tool/` and are Herdr's, not
 this session's — nothing here starts or stops them.
 
-| lane | branch | state as of 2026-08-27 15:20Z |
-|---|---|---|
-| `hedging-research` | `hedging_research` | 5 ahead, 0 behind. Clean. Has merged main twice. Carries **ADR 0078** and **schema v24** (hedge tables). |
-| `parlay-props` | `parlay_props` | 0 ahead, 1 behind. One uncommitted file (`backend/odds/client.py`). |
+**There is no longer a hand-maintained table here, and that is the fix.** The
+one that stood in this spot said `parlay-props` was "0 ahead, 1 behind, one
+uncommitted file"; within hours it was 0 ahead, **10** behind, with **15**
+dirty files, and `hedging-research` had merged and been removed. A hand-typed
+lane state asserts the present tense and starts rotting the second it is saved.
+Read the generated board instead:
+
+    .venv\Scripts\python.exe scripts/lane_board.py
+
+It reads every worktree and local branch at once — ahead/behind, uncommitted
+work, ADR and schema claims, and which files two trees are changing at
+overlapping *hunks* rather than merely in the same file. `tasks/LANES.md`
+carries the last written snapshot plus the **allocation ledger**: what a live
+lane has said it will take before it exists on disk, which is the one thing no
+measurement can produce.
 
 **They have collided with main three times in one day, and git said nothing
 about the ones that mattered.** From `hedging_research`'s own commit messages:
@@ -90,11 +101,18 @@ nothing"*, then *"becomes 0078 — 0077 collided too"*, then *"two lanes both
 claimed schema v23, and the hedge tables take v24"*. Each was caught by a human
 reading a merge.
 
-`tests/test_parallel_lanes_do_not_collide.py` now fails on a duplicate ADR
-number instead. **Before claiming a number or a schema version, check the other
-lanes** — `git log --oneline main..<branch>` — rather than the next free slot in
-`docs/adr/`. The suite only sees this after a merge, which is the earliest a
-test can see it at all.
+`tests/test_parallel_lanes_do_not_collide.py` fails on a duplicate ADR number,
+and `scripts/lane_board.py` now sees the other lanes *before* a merge —
+including their uncommitted work, which no test can reach, because a test only
+sees the tree it runs in.
+
+**But do not claim a number by reading either one.** `tasks/lessons.md:168-191`
+settled that: reading `main` first answers "what was free when I looked", and a
+lane that runs for hours races every other lane for the whole of it. Write the
+ADR as `docs/adr/DRAFT-<slug>.md` with **no ordinal** and take the number in
+the merge commit, after `git fetch`, as the last thing before the push. The
+guard refuses a `DRAFT-` file on `main`, which is what makes that unavoidable
+rather than merely encouraged. Full rule: `docs/adr/README.md`.
 
 **`docs/adr/0006-*` is NOT a collision.** `0006-in-play-evidence.md` is the
 companion to `0006-in-play-scope.md` and shares its number on purpose. The

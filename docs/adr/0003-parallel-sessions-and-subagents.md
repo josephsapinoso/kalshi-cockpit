@@ -31,6 +31,30 @@ have proven independent:
 
 A task that needs two lanes is one task, not two workers.
 
+> **Amended 2026-08-27, and the amendment is that the table went stale rather
+> than that it was violated.** A lane was found writing across `ingest`,
+> `frontend` and config at once, and the first reading was that it had broken
+> §1. It had not: `backend/parlays.py` and `backend/core/ladder.py` appear in
+> **no lane above at all**, because this table was written 2026-08-07 for a
+> codebase with no parlay desk. You cannot violate a partition that does not
+> cover the files. Add a row:
+>
+> | parlay desk | `backend/parlays.py`, `backend/core/{ladder,parlay}.py`, their tests |
+>
+> **And one row of the table does not bind where it appears to.** A TypeScript
+> type declaration is owned by **whoever owns its producer**, not by the
+> `frontend` lane. `frontend/src/lib/api.ts`'s types must change in the same
+> commit as the backend field that fills them; splitting that across two
+> workers produces a tree where the API returns a field and the type denies it
+> — which is the incoherence §1 exists to prevent, so enforcing §1 literally
+> there would cause the harm. Recorded in `docs/adr/README.md` too, because a
+> lane arrives at that directory before it arrives here.
+>
+> **The correct partition for that lane was at the commit boundary, not the
+> worker boundary**: a spend change (stop buying a feed) and a product change
+> (admit prop markets to cards) are two commits by one worker, not two workers
+> on one file's consumers.
+
 ### 2. Three files are integrator-only
 
 `tasks/NEXT.md`, `tasks/lessons.md`, `tasks/audit-2026-08-07.md`.
@@ -43,6 +67,15 @@ merge that resolves cleanly and reads as nonsense. **Workers write to
 `CLAUDE.md`, `backend/config.py` and `backend/store/schema.sql` are also
 integrator-only: they are read by everything, and a schema change under a
 worker's feet invalidates its tests silently.
+
+> **Added 2026-08-27: `.env.example`, `fly.live.toml` and `tasks/LANES.md`.**
+> Not because a lane conflicted on them — nothing had — but because
+> `.env.example` is the contract (CLAUDE.md, Conventions) and `fly.live.toml
+> [env]` is the *deployed live config*, so a lane editing either changes what
+> the running machine does without a deploy having been the thing that decided
+> it. `tasks/LANES.md` is generated in the integration worktree only; a lane
+> regenerating it recreates exactly the append-conflict this section exists to
+> prevent. The rule should exist before the edit that isn't harmless.
 
 ### 3. Use git worktrees for anything that edits code
 

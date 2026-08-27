@@ -43,8 +43,11 @@ WHAT THIS DOES NOT ESTABLISH
 from __future__ import annotations
 
 import re
+import subprocess
 from collections import defaultdict
 from pathlib import Path
+
+import pytest
 
 from backend.store.db import SCHEMA_VERSION, _MIGRATIONS
 
@@ -154,6 +157,96 @@ class TestEveryADRNumberIsClaimedOnce:
             if match and not path.name.startswith(match.group(1)):
                 disagree.append(f"{path.name} declares {match.group(1)}")
         assert disagree == []
+
+
+#: A lane writes its ADR under a slug with no ordinal so there is nothing to
+#: collide on, and the number is taken in the merge commit after a fetch. See
+#: `docs/adr/README.md` and `tasks/lessons.md`, 2026-08-27.
+_IS_DRAFT = re.compile(r"^DRAFT-[A-Za-z0-9][A-Za-z0-9._-]*\.md$")
+
+
+def _drafts() -> list[Path]:
+    return sorted(p for p in ADR_DIR.glob("*.md") if _IS_DRAFT.match(p.name))
+
+
+def _current_branch() -> str | None:
+    """The branch this tree is on, or None if that cannot be established.
+
+    Unreadable resolves to None, never to a guess -- a detached HEAD in CI must
+    not be silently treated as the integration branch, and must not silently
+    exempt itself either.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "--no-optional-locks", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(ADR_DIR.parents[1]),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    name = done.stdout.strip()
+    return name if done.returncode == 0 and name and name != "HEAD" else None
+
+
+class TestTheNumberIsAllocatedAtMergeNotAtWrite:
+    """**This is the half a test could not previously reach.**
+
+    Everything above fires at merge, which is the first moment a collision is
+    representable in one tree. The collisions themselves were *created* hours
+    earlier, when two lanes each took the number that was free when they
+    looked. `tasks/lessons.md:168-191` settled that reading `main` first is not
+    the fix -- the window is exactly as long as the gap between looking and
+    pushing -- and that the fix is a filename with no ordinal in it.
+
+    A draft is legal in a lane and illegal here. That asymmetry is what forces
+    the number to be taken at the boundary rather than merely encouraged to be.
+    """
+
+    def test_no_draft_reaches_the_integration_branch(self):
+        """Mutation observed red: drop a `DRAFT-x.md` into `docs/adr/` on main.
+
+        Skips rather than passes off the integration branch, and names what it
+        found, because a draft in a lane is the correct state and a silent
+        green there would read as "checked and fine".
+        """
+        drafts = [p.name for p in _drafts()]
+        branch = _current_branch()
+        if branch != "main":
+            if drafts:
+                pytest.skip(
+                    f"on `{branch or 'a detached HEAD'}`, not the integration "
+                    f"branch; these still owe a number at merge: {drafts}"
+                )
+            pytest.skip(f"on `{branch or 'a detached HEAD'}`, not the integration branch")
+        assert drafts == [], (
+            f"these ADRs reached `main` without a number: {drafts}. Number them "
+            f"in the merge commit, after `git fetch`, and update anything citing "
+            f"them -- see docs/adr/README.md."
+        )
+
+    def test_a_draft_does_not_also_claim_an_ordinal(self):
+        """A draft that declares a number in its H1 has taken one anyway, and
+        has done it where nothing checks -- the worst of both.
+
+        Mutation observed red: give a `DRAFT-*.md` an H1 of `# 0079 — ...`.
+        """
+        offenders = [
+            p.name for p in _drafts() if _DECLARES_ADR.match(_first_line(p))
+        ]
+        assert offenders == [], (
+            f"a draft must carry no ordinal; these do: {offenders}"
+        )
+
+    def test_a_draft_is_never_counted_as_a_numbered_adr(self):
+        """The two globs must not overlap, or a draft would be invisible to one
+        check and double-counted by the other.
+
+        Mutation observed red: widen `_adr_files()` to `*.md`.
+        """
+        numbered = {p.name for p in _adr_files()}
+        assert numbered.isdisjoint({p.name for p in _drafts()})
 
 
 class TestTheSchemaVersionCoversItsMigrations:

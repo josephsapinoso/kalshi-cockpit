@@ -116,6 +116,53 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A detector's granularity is decided by its false-finding risk, not by what is easy to compute
+
+A cross-worktree collision detector was specified against a hand-measured
+"collision surface" of two files. At **file** level that is what it looked
+like. At **hunk** level one of the two was not a collision at all: the lane's
+edit was at line 685 and main's was an append at line 2467, 1,780 lines apart
+and semantically unrelated. That merge is clean, and a file-level detector
+would have opened its life by crying wolf on it.
+
+**The pattern: when you build something that reports problems, ask what its
+FIRST output on real data will be, and whether that output is true.** A guard
+whose first finding is false gets weakened or deleted — this repo already pins
+that reasoning in `tests/test_parallel_lanes_do_not_collide.py`'s `0006`
+companion exemption — and the cost of the coarser comparison is not "slightly
+noisier", it is the whole instrument.
+
+The same question caught a second one in the same file. A lane sitting ten
+commits behind holds main's **old** `SCHEMA_VERSION` without ever having
+touched `db.py`. Comparing *values* reports that as a collision; comparing
+*provenance* — did this tree change the file since the merge-base? — reports it
+as inherited, which is what it is. **Inherited is not claimed.** Any check on a
+global counter across branches has this failure mode, and the discriminator is
+always provenance rather than value.
+
+## 2026-08-27 — A test can pass for a reason you did not write, and only mutation finds out which
+
+Sixteen guards on a new instrument were mutation-tested. Fifteen went red.
+The one that stayed green was **the load-bearing one** — "an unreadable
+worktree is never reported as clean". Breaking the error return in
+`dirty_files` did not fail it, because the test deleted the worktree directory
+and a *different*, earlier check (`if not path.is_dir()`) caught that. The
+assertion was true, the behaviour was covered, and the line it was written to
+protect had no coverage at all.
+
+**The pattern: a green test tells you the assertion holds, not that it holds
+for the reason you intended.** Only mutating the specific line separates those,
+and the tests most worth mutating are the ones guarding the failure you would
+least like to have — because a plausible-looking test there is exactly what
+stops anyone writing a second one. The fix was a second case that reaches the
+same guard by another road: a worktree whose directory **exists** and whose
+`.git` pointer is corrupt.
+
+This is the sibling of the 2026-08-26 lesson that a mutation can lie by not
+landing. There the mutation missed the code; here it landed and the *test*
+missed the code. Both are answered by the same discipline — check what the
+mutation actually reached, not just that something went red.
+
 ## 2026-08-27 — A schema version is a claim about the whole database, so a lane cannot allocate one
 
 Two branches were open at once. One added `parlay_card_candidates` and bumped
