@@ -52,6 +52,11 @@ TOKEN_HANDLERS = (
     "pass",
     "parlay-lookup",
     "desk-attention",
+    # ADR 0074 -- the held-parlay record. None of the three reaches a venue or
+    # moves money; they are gated because every mutating route is.
+    "hedge-position",
+    "hedge-resolve",
+    "hedge-close",
 )
 
 

@@ -161,6 +161,37 @@ class MarketBook:
         )
 
 
+def event_ticker_for(ticker: Optional[str]) -> Optional[str]:
+    """The fixture a market ticker belongs to, from the ticker alone.
+
+    **Found by driving the real venue, 2026-08-26.** A ticket recorded with two
+    legs of the *same game* -- Boston to win and Miami to win, which cannot both
+    happen -- was priced as two independent legs and handed back a joint
+    probability. `assess` keys same-game detection on `event_ticker`, the form
+    accepts a bare Kalshi ticker, and nothing filled the gap: two sides of one
+    fixture have different market tickers, so they looked unrelated.
+
+    Kalshi game tickers are `SERIES-EVENT-SIDE`
+    (`KXMLBGAME-26AUG261840BOSMIA-BOS`), so the first two segments are the
+    fixture. That is the same structural read `frontend/src/lib/kalshiLink.ts`
+    makes, verified in a browser on 2026-08-22, and it is applied only to a
+    ticker with exactly three segments — anything else returns `None` rather
+    than guessing, because a wrong fixture key would *merge* two real games and
+    refuse a legitimate joint.
+
+    `core.correlation` then raises `CorrelationRefused` on the pair, which is
+    the right answer: this repo has no measured same-game correlation
+    (ADR 0012 §5), and a mutually exclusive pair is the case where inventing
+    one is most wrong.
+    """
+    if not ticker:
+        return None
+    segments = ticker.strip().upper().split("-")
+    if len(segments) != 3:
+        return None
+    return f"{segments[0]}-{segments[1]}"
+
+
 def hedge_side(leg_side: str) -> str:
     """The side you buy to hedge a leg. One expression, one place to be wrong."""
     if leg_side == "yes":
@@ -333,7 +364,10 @@ def record_position(
                 (leg.get("ticker") or None),
                 leg["side"],
                 leg["label"],
-                leg.get("event_ticker"),
+                # Derived when the caller did not supply one: the form takes a
+                # bare market ticker, and without the fixture two legs of one
+                # game read as unrelated.
+                leg.get("event_ticker") or event_ticker_for(leg.get("ticker")),
                 leg.get("league"),
                 leg.get("commence_ms"),
             ),
@@ -613,9 +647,21 @@ def assess(
                 Leg(
                     label=str(leg["label"]),
                     probability=probability,
-                    event_key=str(leg["event_ticker"] or leg["ticker"] or leg["id"]),
+                    event_key=str(
+                        leg["event_ticker"]
+                        or event_ticker_for(leg["ticker"])
+                        or leg["ticker"]
+                        or leg["id"]
+                    ),
                     league=str(leg["league"] or "unknown"),
-                    commence_ms=int(leg["commence_ms"] or 0),
+                    # A leg with no recorded kickoff is treated as today's.
+                    # `classify` reads this only to separate same-day from
+                    # unrelated, and the nudges are 0.05 / 0.02 -- so the
+                    # error is at most a fraction of a point on the joint,
+                    # in the direction that RAISES it (positive correlation
+                    # makes legs likelier to land together). Stated rather
+                    # than called conservative, because it is not.
+                    commence_ms=int(leg["commence_ms"] or now_ms),
                 )
             )
         outcome = derisk(
@@ -660,6 +706,18 @@ def _rung_payload(rung) -> dict:
         "if_leg_wins_display": format_dollars(rung.if_leg_wins_tenths),
         "if_leg_loses_display": format_dollars(rung.if_leg_loses_tenths),
         "floor_display": format_dollars(rung.floor_tenths),
+        # The raw figure, for `notify.alerts.hedge_key`'s ratchet ALONE.
+        #
+        # It is the one number in this payload that is not a rendered string,
+        # and it is here because the alternative is worse: a ratchet keyed on
+        # `floor_display` would re-announce a lock every time a rounding step
+        # moved the last cent, and re-keying it in the notifier would put a
+        # second definition of the same quantity one module away.
+        #
+        # **The client must not compute with it**, and cannot by accident:
+        # `HedgeRung` in `frontend/src/lib/api.ts` does not declare the field,
+        # so a component that reached for it would fail `tsc`.
+        "floor_tenths": rung.floor_tenths,
         "floor_is_a_gain": rung.floor_tenths > 0,
         "fillable": rung.fillable,
         "affordable": rung.affordable,

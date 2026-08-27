@@ -2437,3 +2437,179 @@ export async function placeManualOrder(
         `HTTP ${response.status}, and the body was not readable as JSON.`);
   return { ok: false, status: response.status, detail };
 }
+
+// -- held parlays and their hedges (ADR 0074) --------------------------------
+
+/**
+ * One leg of a ticket Joe holds, with the venue's live view of it.
+ *
+ * `chance_display` is a percentage or `"--"`. It comes from the venue's own
+ * BID — what somebody will actually pay — and never from a mid. `"--"` means
+ * nobody is bidding or the leg has no Kalshi market at all; it never means 0%.
+ */
+export type HeldLeg = {
+  id: number;
+  index: number;
+  label: string;
+  ticker: string | null;
+  side: "yes" | "no";
+  league: string | null;
+  commence_ms: number | null;
+  outcome: "pending" | "won" | "lost" | "void";
+  resolved_ms: number | null;
+  /** `venue` is the exchange's own result; `manual` is Joe's word. */
+  resolved_source: "venue" | "manual" | null;
+  chance_display: string;
+  quote_age_ms: number | null;
+  priceable: boolean;
+  is_hedge_leg: boolean;
+};
+
+/** One hedge size, fully costed. Every money field is a rendered string. */
+export type HedgeRung = {
+  contracts: number;
+  cost_display: string;
+  fee_display: string;
+  if_leg_wins_display: string;
+  if_leg_loses_display: string;
+  floor_display: string;
+  floor_is_a_gain: boolean;
+  fillable: boolean;
+  affordable: boolean;
+};
+
+export type HedgeRefusal = { reason: string; detail: string };
+
+/**
+ * What hedging would do, or why it cannot be priced.
+ *
+ * `kind` separates the two states that must never render alike: a `lock` has a
+ * floor that is true whichever way the last leg goes, and a `derisk` has none
+ * — it carries no `guaranteed` field at all, rather than a false one.
+ */
+export type HedgeBlock = {
+  refusal: HedgeRefusal | null;
+  kind?: "lock" | "derisk";
+  ticker?: string;
+  side?: "yes" | "no";
+  ask_display?: string;
+  depth_at_ask?: number | null;
+  ladder?: HedgeRung[];
+  // lock only
+  equalising?: HedgeRung;
+  best_available?: HedgeRung | null;
+  guaranteed?: boolean;
+  guaranteed_display?: string | null;
+  full_hedge_is_out_of_reach?: boolean;
+  // derisk only
+  live_legs?: number;
+  chance_display?: string;
+  notional_value_display?: string;
+  chance_refusal?: HedgeRefusal | null;
+};
+
+export type HeldPosition = {
+  id: number;
+  label: string;
+  source: "kalshi_combo" | "sportsbook";
+  book: string | null;
+  created_ms: number;
+  placed_ms: number | null;
+  combo_ticker: string | null;
+  stake_display: string;
+  return_display: string;
+  state: "lock" | "derisk" | "dead" | "won" | "void_leg" | "not_hedgeable";
+  state_detail: string;
+  /** False means the affordability cap is the book's depth standing in for a
+   * balance nobody could read — never a limit to act on. */
+  bankroll_known: boolean;
+  pending_legs: number;
+  legs: HeldLeg[];
+  /** `null` means there is nothing to hedge, which is not the same as a
+   * refusal — that arrives as a block whose `refusal` is set. */
+  hedge: HedgeBlock | null;
+};
+
+export type HedgeScreen = {
+  as_of_ms: number;
+  positions: HeldPosition[];
+  notes: Record<string, string>;
+};
+
+export async function fetchHedge(): Promise<HedgeScreen> {
+  return get<HedgeScreen>("/api/hedge");
+}
+
+export type HeldLegInput = {
+  ticker?: string | null;
+  side: "yes" | "no";
+  label: string;
+  event_ticker?: string | null;
+  league?: string | null;
+  commence_ms?: number | null;
+};
+
+export type HeldPositionInput = {
+  source: "kalshi_combo" | "sportsbook";
+  label: string;
+  stake_cents: number;
+  return_cents: number;
+  legs: HeldLegInput[];
+  book?: string | null;
+  note?: string | null;
+  combo_ticker?: string | null;
+};
+
+/**
+ * Every one of these posts to a Next route handler, never to `/api/` directly:
+ * the handler holds `APP_AUTH_TOKEN` and the browser deliberately does not.
+ * A refusal comes back with the backend's own sentence in `detail`, which the
+ * screen renders verbatim.
+ */
+async function postHedge(
+  path: string,
+  body: unknown,
+): Promise<{ ok: true; body: unknown } | { ok: false; detail: string }> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch {
+    return { ok: false, detail: "The cockpit did not answer. Nothing changed." };
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    // `refusalText` above, not a second copy of it. It already handles the
+    // three shapes that reach here -- FastAPI's plain string, the list of
+    // dicts pydantic produces when the body itself is invalid, and an object
+    // -- and an empty hedge form hits pydantic before it reaches any of the
+    // backend's own checks, so the list case is the common one rather than
+    // the exotic one. A `String(detail)` here rendered that as gibberish
+    // exactly where the screen promises the server's words.
+    const detail =
+      payload && typeof payload === "object" && "detail" in payload
+        ? refusalText((payload as { detail: unknown }).detail)
+        : `The cockpit refused that (${response.status}). Nothing changed.`;
+    return { ok: false, detail };
+  }
+  return { ok: true, body: payload };
+}
+
+export function recordHeldPosition(input: HeldPositionInput) {
+  return postHedge("/hedge-position", input);
+}
+
+export function resolveHeldLeg(legId: number, outcome: "won" | "lost" | "void") {
+  return postHedge("/hedge-resolve", { leg_id: legId, outcome });
+}
+
+export function closeHeldPosition(
+  positionId: number,
+  status: "settled" | "closed" | "void",
+) {
+  return postHedge("/hedge-close", { position_id: positionId, status });
+}

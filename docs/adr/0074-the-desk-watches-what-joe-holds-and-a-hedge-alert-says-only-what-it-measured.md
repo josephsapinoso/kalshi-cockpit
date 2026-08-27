@@ -133,11 +133,14 @@ which no book offers, so it is read as a crossed or stale book and refused. The
 absence of a lock-to-stake rule is asserted by a test, so a future session that
 adds one goes red and has to come back here.
 
-Six refusals, each returning a reason and never a number: `no_ask` (nothing
+Seven refusals, each returning a reason and never a number: `no_ask` (nothing
 resting — and note the derived-ask trap, `1000 - 0 = 1000`, which this repo has
 now fixed at three call sites and therefore tests at the boundary over the whole
 0..1000 grid), `no_depth`, `stale_quote`, `market_closed`, `crossed_book`, and
-`unreadable_ticket` (a misplaced decimal point in a typed payout).
+`unreadable_ticket` (a misplaced decimal point in a typed payout), and
+`fee_unreadable` -- unreachable through the front door, reached in tests by
+monkeypatching the fee, and kept because the alternative to a refusal there
+is a cost with no fee in it.
 
 ## Decision 6 — the figure is an upper bound, and the full hedge is usually unaffordable
 
@@ -204,6 +207,56 @@ Raising that cap is a money decision that belongs to him and wants its own ADR.
 It deliberately does not ride along inside a feature about display, which is how
 a per-bet limit gets relaxed by accident.
 
+## Decision 9 — a fixture is derived from the ticker, because a held parlay CAN be same-game
+
+Found by driving the real venue, and not by any test.
+
+`/parlays` takes at most one leg per fixture, so `CorrelationRefused` is
+structurally unreachable from card construction (ADR 0070 §2). **A ticket Joe
+already holds has no such property** — he can hold whatever a book sold him,
+including two legs of one game.
+
+The first live drive picked Boston-to-win and Miami-to-win from the same MLB
+fixture — **a pair that cannot both happen** — and the desk priced them as
+independent and returned a joint probability. `assess` keys same-game detection
+on `event_ticker`, the entry form takes a bare market ticker, and nothing filled
+the gap: the two sides of one fixture have different *market* tickers, so they
+looked unrelated.
+
+Kalshi game tickers are `SERIES-EVENT-SIDE`, so the first two segments are the
+fixture — the same structural read `lib/kalshiLink.ts` makes, verified in a
+browser on 2026-08-22. It is applied only to a ticker with exactly three
+segments; anything else derives nothing, because **a wrong fixture key merges
+two real games and refuses a legitimate joint**, which is the worse error.
+
+The fixture is filled in at record time *and* re-derived on read, and the second
+one is not redundant: a row written by anything other than `record_position`
+carries no fixture, and a mutation removing the read-side derivation stayed
+GREEN until a test wrote a row the way something else would.
+
+`core.correlation` then raises on the pair and the joint is withheld with its
+own words. The per-leg prices still render. ADR 0012 §5 is why nothing is
+invented: this repo has no measured same-game correlation, and a mutually
+exclusive pair is where inventing one is most wrong.
+
+## Measured by running it, against the venue's own book
+
+The suite did not find the defect above. Driving the stack did, which is the
+pattern `tasks/lessons.md` keeps recording.
+
+Two legs on `KXMLBGAME-26AUG261840BOSMIA`, a $5.00 ticket returning $100.00,
+hedged at the **derived** NO ask of 80c:
+
+    100 contracts    cost $81.12 (fee $1.12)
+    leg wins         $13.88
+    leg loses        $13.88
+    ratchet key      hedge_lock:1:2
+
+**Both branches equal to the cent**, which is the identity the whole feature
+rests on, arrived at from a real book rather than a fixture. With both legs live
+the same ticket reported `chance_display: "--"`, `notional_value_display: "--"`
+and the correlation refusal verbatim — no invented number anywhere.
+
 ## What the build changed about this ADR
 
 Two decisions above were **written before the code and corrected by it**, and
@@ -218,9 +271,16 @@ both are recorded rather than quietly amended:
    is the correction, and it surfaced the unread-balance question that a count
    would have hidden.
 
-**Thirty-one mutations were observed red** across `core/hedge.py` (15) and
-`hedge.py` (16). Three stayed GREEN on the first pass and each was a real hole,
-closed by a test rather than by weakening an assertion:
+**Forty-five mutations were observed red** across `core/hedge.py` (15),
+`hedge.py` (16) and the alert path (14). **Six stayed GREEN on the first
+pass, and the split is itself the finding:** three were real holes, one was a
+vacuous test, and **two were the harness patching the wrong function** --
+`parlay_cards` and `hedge_locks` share the lines `if key is None:` /
+`continue`, and `replace(old, new, 1)` takes the first. A GREEN mutation is a
+claim about the harness before it is a claim about the test.
+
+The three real holes, each closed by a test rather than by weakening an
+assertion:
 
 - the return-above-stake guard was unobservable through its reason code alone,
   because the odds floor catches the same input. The test now asserts the
@@ -229,6 +289,10 @@ closed by a test rather than by weakening an assertion:
   dropping half the search passed.
 - nothing exercised a de-risk whose live legs had no readable price, so the
   branch that explains a missing joint could be deleted in silence.
+
+And the vacuous one: the watcher's failure guard was tested against an empty
+database, so `anything_in_progress` was False, the cycle body never ran, and
+the `try/except` under test was never entered.
 
 ## Consequences
 

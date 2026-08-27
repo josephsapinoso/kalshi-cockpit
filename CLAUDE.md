@@ -328,6 +328,30 @@ his own answers, and recorded in **ADR 0071 — read it before planning**:
   Do not design for hypothetical operators beyond that — ADR 0071 §2.4 takes
   exactly one step in that direction and no more.
 
+**The desk now watches what Joe already holds — ADR 0074.** `/hedge` records a
+parlay he placed (a Kalshi combo or a sportsbook slip), reads its legs' live
+Kalshi prices **while the game is running**, and says what hedging the
+endangered one would do. It is the same job ADR 0071 names — price transparency
+at the moment of a bet — pointed at a bet that already exists, and it closes a
+hole the parlay desk opened: **combos are enter-only in 40 of 40 books this repo
+has read, so a hedge on a leg market is the only exit that exists.**
+
+Three properties to know before touching it:
+
+- **No model, no tokens, no credits.** Kalshi's live in-play price already
+  carries the score and the inning, and it is the price the hedge transacts at,
+  so nothing is fitted. No Anthropic client and no `api_credits` write is
+  reachable from `core/hedge.py`, `hedge.py` or `hedge_watch.py` — asserted over
+  the source with docstrings stripped.
+- **It touches no evidence and no interlock.** No `recommendations` row is
+  written, so `runner`'s `dropped_game_started` drop and ADR 0006's guard are
+  untouched; `gate.py` may never read `parlay_positions` or
+  `parlay_position_legs`, the same boundary `manual_orders` has.
+- **A lock is arithmetic; the timing is not.** With one leg live and the rest
+  won, the figure is exact and is pushed to the phone. With several legs live
+  there is no figure, the screen says so, and nothing is pushed. Neither claims
+  the price will get worse if he waits.
+
 ## The three rules everything else follows from
 
 1. **A large apparent edge is a bug until proven otherwise.** Big numbers get

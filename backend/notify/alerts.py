@@ -127,6 +127,29 @@ MAX_PARLAY_PUSHES_PER_DAY = 6
 PUSHED_CARD_KEYS: frozenset[str] = frozenset({"safe", "middle", "lottery"})
 
 
+#: How many hedge pushes one budget day may carry, across every ticket.
+#:
+#: ADR 0072 Decision 4's lesson, applied before it can bite rather than after:
+#: **a dedupe key bounds repetition and never volume.** The key below answers
+#: "have I said this before?" and is silent on how fast a live game hands you
+#: something new to say -- and a game in its closing minutes re-prices far
+#: faster than a slate does.
+#:
+#: Four is deliberately below the parlay ceiling. A parlay card is an offer and
+#: a missed one costs nothing; a hedge alert is about money already at risk, so
+#: the ones that get through should be the ones that moved the figure most --
+#: which the ratchet, not this constant, is what selects.
+MAX_HEDGE_PUSHES_PER_DAY = 4
+
+#: The step the ratchet climbs in, in integer tenths of a cent. $5.
+#:
+#: **A dollar figure rather than a fraction of the stake**, because the thing
+#: being bounded is how often a phone buzzes and that is a fact about the
+#: person, not about the ticket. A percentage rule would buzz four times over
+#: a $5 slip and once over a $300 one, which is backwards.
+HEDGE_RATCHET_STEP_TENTHS = 5_000
+
+
 def _day(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
 
@@ -158,6 +181,49 @@ def parlay_key(card: Mapping[str, Any]) -> Optional[str]:
     if not tickers:
         return None
     return f"{card.get('key')}:{'|'.join(tickers)}"
+
+
+def hedge_key(position: Mapping[str, Any]) -> Optional[str]:
+    """The identity of one hedge alert, for `notifications.UNIQUE (kind, key)`.
+
+    `hedge_lock:<position id>:<floor, floored to the ratchet step>`.
+
+    **A ratchet, because a dedupe key is not a threshold.** `UNIQUE (kind, key)`
+    never repeats a key, which is exactly right for a parlay card -- its
+    identity is fixed the moment its legs are chosen -- and exactly wrong for a
+    lock, whose value moves every minute the game runs. Keying on the position
+    alone would say it once and never again as the figure doubled; keying on the
+    exact figure would say it on every tick.
+
+    Flooring to a step gives both properties at once. The first lock worth
+    having is announced; a materially better one is announced again, because it
+    lands in a bucket nothing has claimed; and noise around a level is silent,
+    because it does not. It needs no timestamp comparison and no threshold to
+    tune, and it survives a restart -- the properties ADR 0072 Decision 3 chose
+    the card key for.
+
+    **It ratchets in one direction only, and that falls out rather than being
+    coded.** A figure that rises then falls back re-enters a bucket already
+    claimed, so it stays quiet. Only a genuinely new high says anything.
+
+    `None` when there is nothing to announce: no hedge block, not a lock, no
+    reachable rung, or a floor that is not a gain. A key like `hedge_lock:7:`
+    would make every un-announceable state the same state forever.
+    """
+    block = position.get("hedge") or {}
+    if block.get("kind") != "lock" or not block.get("guaranteed"):
+        return None
+    rung = block.get("best_available")
+    if not rung or not rung.get("floor_is_a_gain"):
+        return None
+    floor = rung.get("floor_tenths")
+    if floor is None:
+        # The payload renders money as strings, so the raw figure rides along
+        # only for this. Its absence means an older backend, and a key built
+        # from a rendered string would re-announce on a rounding change.
+        return None
+    step = int(floor) // HEDGE_RATCHET_STEP_TENTHS
+    return f"hedge_lock:{position.get('id')}:{step}"
 
 
 @dataclass(frozen=True)
@@ -444,6 +510,75 @@ class Alerter:
                 pushed_today += 1
 
         return AlertResult(tuple(sent), tuple(failed), tuple(skipped))
+
+    def _hedge_pushes_today(self, *, day_start_ms: int) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM notifications "
+            "WHERE kind = 'hedge_lock' AND sent_ms >= ? AND delivered = 1",
+            (day_start_ms,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    async def hedge_locks(
+        self, screen: Mapping[str, Any], *, now_ms: int, day_start_ms: int
+    ) -> AlertResult:
+        """Push the tickets whose hedge locks a gain. Nothing else.
+
+        **Only locks reach the phone.** A ticket with several legs live has no
+        guaranteed figure to state, and a push about it would be a buzz for a
+        number the tool cannot stand behind. Those stay on the screen -- Joe's
+        own choice, recorded in ADR 0074 Decision 2.
+
+        **Only reachable locks.** `guaranteed` is computed from the rung bounded
+        by the book's depth and by the observed balance; a lock nobody could
+        buy is not a lock, and announcing one would be the first entry in the
+        list of reasons to mute this channel.
+
+        A screen-only ticket is **neither sent nor skipped**. Counting it as
+        skipped would inflate `alerts_deduped` with rows that were never
+        deduped -- the distinction ADR 0072 drew for a screen-only parlay card.
+        """
+        if not self.enabled:
+            return AlertResult()
+
+        sent: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+        notes = dict(screen.get("notes") or {})
+        pushed_today = self._hedge_pushes_today(day_start_ms=day_start_ms)
+
+        for position in screen.get("positions") or []:
+            key = hedge_key(position)
+            if key is None:
+                continue
+            if pushed_today >= MAX_HEDGE_PUSHES_PER_DAY:
+                # Past the ceiling the day's pushes stop and the screen still
+                # has everything. A desk that keeps buzzing manufactures
+                # action, which ADR 0071 says this tool does not do.
+                skipped.append(key)
+                continue
+            outcome = await self._send(
+                "hedge_lock",
+                key,
+                lambda p=position: self.notifier.hedge_lock(p, notes=notes),
+                now_ms=now_ms,
+                detail=str(
+                    (position.get("hedge") or {}).get("guaranteed_display") or ""
+                ),
+            )
+            if outcome is None:
+                skipped.append(key)
+            elif outcome:
+                sent.append(key)
+                # Only a DELIVERED push spends the ceiling, so one Discord
+                # outage cannot silence the rest of the day (ADR 0072 §4).
+                pushed_today += 1
+            else:
+                failed.append(key)
+
+        return AlertResult(
+            sent=tuple(sent), failed=tuple(failed), skipped=tuple(skipped)
+        )
 
     def _surfaced_this_pass(self, pass_ms: int) -> Sequence:
         """Rows this pass wrote that the engine sized above zero.

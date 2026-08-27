@@ -31,10 +31,12 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26 (arming): 4,456 passed / 10 xfailed.**
-Do not inherit it — this line has been wrong in the same direction three times
-running (4,192 written when it was 4,200; 4,281 written before three lanes
-landed). Re-run before you quote it. Also: the full suite has run in **5m26s,
+**Test baseline, re-measured 2026-08-26 (hedging): 4,718 passed / 6 skipped /
+10 xfailed.** Do not inherit it — this line has been wrong in the same direction
+FOUR times running (4,192 written when it was 4,200; 4,281 written before three
+lanes landed; 4,456 written when `88d179f` actually measured 4,524). Re-run
+before you quote it. **The 6 skips are `load_fixture` skipping on a machine
+without the capture fixtures, not a regression.** Also: the full suite has run in **5m26s,
 5m39s, 8m11s and 18m49s** on the same machine. A slow run is not a hung one —
 and per the 2026-08-25 lesson, neither is a gap the length of an interval.
 
@@ -70,7 +72,187 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-26 (latest) — the buy control reaches every card, and the ticket renders on a real book for the first time
+## 2026-08-26 (latest) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
+
+**Joe's ask, verbatim: "if I have a 6-leg parlay and one of them is not doing
+well, i'd like to have an alert surface to me with high confidence that I should
+hedge a bet right away… if there is any ai or ml that needs to be done, make it
+independent of consuming tokens."** His example is a baseball game: he holds
+Cincinnati, San Francisco lead by two in the bottom of the sixth, and he wants
+to know when to bet the Giants separately.
+
+Four choices were put to him and answered in his own words: **both** Kalshi
+combos and sportsbook slips; **LOCK pushes to the phone, DE-RISK stays a screen
+row**; **Kalshi is the only hedge venue priced**; and **build the vertical
+slice**. Recorded in **ADR 0074 — read it before touching any of this.**
+
+### The token constraint answers itself, and that is the headline
+
+**No model is needed, so none was built.** A hedge needs two things: how likely
+the endangered leg still is, and what the other side costs. **Kalshi's live
+in-play ask is both.** "San Francisco lead by two in the bottom of the sixth" is
+exactly *why* the Cincinnati contract sits at 20c — the score, the inning and
+the base state are already in the price, put there by people with more
+information than this repo can lawfully obtain. And unlike a fitted win
+probability, it is the number the hedge actually transacts at, so there is no
+translation step to be wrong in.
+
+- **No Anthropic call on any path.** Asserted over the source of all three
+  modules, on the code with docstrings stripped.
+- **No Odds API credit.** Kalshi is unmetered; `ODDS_ATTENTION_DAILY_CREDITS` is
+  untouched and the attention ceiling is unchanged.
+- **No MLBAM.** ADR 0035 §2 authorises two schedule endpoints and forbids
+  per-game timer polling in those words. Not needed, so not reopened.
+
+**And Kalshi has been keeping this data the whole time.** ADR 0006's evidence:
+game markets stay open through the game, "twenty of twenty games measured had a
+two-sided quote in every minute after the true start", and
+`store_quotes_from_discovery` applies no commence filter. `kalshi_quotes` has
+been accumulating in-play prices for the life of the project with nothing
+reading them.
+
+### What shipped
+
+- **`backend/core/hedge.py`** — the arithmetic, pure, no DB and no clock. The
+  equalising hedge (`n = W` contracts, both branches equal), the floor at every
+  reachable size, and **seven refusals that return a reason instead of a
+  number**: `no_ask`, `no_depth`, `stale_quote`, `market_closed`,
+  `crossed_book`, `unreadable_ticket`, `fee_unreadable`.
+- **`backend/hedge.py`** — the record, the live book and the words. Schema v23:
+  `parlay_positions` and `parlay_position_legs`, both pure new tables (no
+  `_MIGRATIONS` step needed, and a v22 database is shown gaining them in a test).
+- **Four routes** — `GET /api/hedge`, and three auth-gated writes. The screen at
+  `/hedge`, reached from `/bets` and from the alert's own link; **no new nav
+  slot**, the six-link budget is load-bearing at 390px.
+- **`backend/hedge_watch.py`** — its own asyncio task beside
+  `poll_portfolio_forever`, 60s while a watched game is running and 600s
+  otherwise. **Not on the quote pass**, and ADR 0072 Decision 5 is why: that
+  pass is budgeted 8s and already runs ~4.2s live, and the last thing added
+  there "because it is pure" cost 400ms a pass and would have degraded silently.
+- **`DiscordNotifier.hedge_lock` + `Alerter.hedge_locks`** — the first alert in
+  this product that names a dollar figure it stands behind, because the figure
+  is arithmetic rather than a forecast.
+
+### THREE THINGS THE PLAN HAD WRONG, and the build corrected all three
+
+1. **Rule 1 was pointed at the wrong quantity.** The plan proposed suppressing a
+   lock that is large relative to the stake. A $4.99 ticket returning $333.33
+   with one leg left locks about **$172 — 34x the stake, and entirely real**;
+   that rule fires hardest on exactly the case the feature exists for. What
+   catches a genuine bug is an invariant no real book can satisfy: both sides
+   quoting for a dollar or less together. **The absence of the lock-to-stake
+   rule is now asserted by a test**, so re-adding it goes red.
+2. **The affordability cap was passed as a contract count**, which the caller
+   cannot compute without the ask, and the ask is chosen inside. Reworking it to
+   a balance surfaced the question a count would have hidden: **an unread
+   balance is not a balance of zero.** `latest_balance_tenths` answers `None` on
+   any five-minute poll outage, and folding that into a cap of 0 would have
+   silenced the alert for as long as the mirror was behind — the repo's
+   "unreadable never resolves to zero" rule, pointed at a budget, where the
+   failure mode is *silence* rather than a fabricated edge.
+3. **The plan's "no hedge button" line was right for a reason it did not
+   state.** `MANUAL_ORDER_MAX_CONTRACTS = 1` with a 10-minute `COOLOFF_MS` means
+   a 30-contract hedge through the manual door would take five hours. The screen
+   gives the size and the price and deep-links Kalshi. **Raising that cap is
+   Joe's decision and wants its own ADR**; it deliberately does not ride along
+   inside a display feature.
+
+### MEASURED BY RUNNING IT, and it found a defect the suite did not
+
+The stack was driven against the venue's own book. It picked two legs of the
+**same MLB fixture** — Boston-to-win and Miami-to-win, a pair that cannot both
+happen — and **the desk priced them as independent and returned a joint
+probability.**
+
+`/parlays` takes one leg per fixture so `CorrelationRefused` is structurally
+unreachable there (ADR 0070 §2); **a ticket Joe already holds has no such
+property.** Same-game detection keys on `event_ticker`, the form takes a bare
+market ticker, and the two sides of one fixture have different *market* tickers
+— so they looked unrelated. The fixture is now derived from the ticker
+(`SERIES-EVENT-SIDE`, the same read `lib/kalshiLink.ts` makes) at record time
+and again on read, and a three-segment ticker is the only shape it will read: a
+wrong fixture key **merges two real games** and refuses a legitimate joint,
+which is worse than not knowing.
+
+Verified afterwards on the same live book: the pair now returns
+`chance_display: "--"` with `core/correlation.py`'s own refusal attached, and
+the per-leg prices still render.
+
+**And the arithmetic checked out on real data.** $5.00 to return $100.00, the
+derived NO ask at 80c, 100 contracts costing $81.12 including a $1.12 fee:
+
+    leg wins    $13.88
+    leg loses   $13.88
+
+**Equal to the cent**, which is the identity the whole feature rests on,
+arrived at from a real book rather than a fixture. Ratchet key
+`hedge_lock:1:2`.
+
+### Mutation
+
+**Forty-nine mutations observed red** across `core/hedge.py` (15), `hedge.py`
+(20) and the alert path (14). **Seven stayed GREEN on the first pass**, and the
+split is the lesson:
+
+- **Four were real holes**, each closed with a test rather than a weakened
+  assertion: the return-above-stake guard was unobservable through its reason
+  code alone (the odds floor catches the same input, so the test now asserts the
+  *sentence*); nothing distinguished `floor(W)` from `ceil(W)` as the equalising
+  size; nothing exercised a de-risk whose live legs had no readable price; and
+  nothing reached the read-side fixture derivation, which only a row written
+  by something other than `record_position` can exercise.
+- **One was a vacuous test.** The watcher's failure guard was tested against an
+  empty database, so `anything_in_progress` was False and the cycle body never
+  ran.
+- **Two were the harness patching the wrong function.** `parlay_cards` and
+  `hedge_locks` share the exact lines `if key is None:` / `continue`, and
+  `replace(old, new, 1)` takes the first. Both went red once anchored uniquely.
+
+### Verified
+
+**4,718 passed / 6 skipped / 10 xfailed**, ruff clean, `tsc` clean, `next build` green with `/hedge` and
+the three route handlers in the manifest.
+
+**The baseline was re-measured and `tasks/NEXT.md` was stale again, in the same
+direction: it said 4,456; the truth at `88d179f` was 4,524 passed / 6 skipped /
+10 xfailed.** Taken on a **detached worktree at the same commit**
+(`git worktree add --detach`), which is the fix for "never patch the tree under
+a running suite" — the measurement runs on files nobody is editing instead of
+serialising the two.
+
+### NOT built, and each is deliberate
+
+- **No in-app hedge order.** See correction 3 above.
+- **No hedge observation history.** The watcher holds its last read in memory and
+  writes nothing; a `hedge_observations` table would let the screen say "the lock
+  was $180 ten minutes ago", which is genuinely useful and is a separate slice.
+  Nothing about the evidence record changes until it exists.
+- **No pre-fill from `parlay_lookups`.** A combo bought off `/parlays` still has
+  to be typed in. Slice 4 in the plan; not reached.
+
+### OPEN AND UNVERIFIED ON LIVE
+
+**Nothing in this session has run on the deployed instance.** Schema v23 applies
+to the live volume on boot (the mechanism is verified against a v22 database in
+a test, not on the volume itself), the watcher has never run against a real
+in-play book, and no hedge embed has ever been rendered from a live payload —
+which is the check ADR 0072 insisted on for the parlay card and got right.
+
+**The honest first test is a real one:** record a ticket against two live MLB
+tickers, mark one leg won by hand, and read the lock figure against a hand
+calculation while the game is running.
+
+### Still open from before, untouched
+
+- **The scheduled parlay card plus two-build debounce.** Decided 2026-08-26,
+  not built.
+- **The cold-open wait** — a heartbeat can wait up to 900s to be acted on.
+- `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day figure
+  outside CLAUDE.md; no ADR for the attention TTL, floor horizon or credit slice.
+
+---
+
+## 2026-08-26 — the buy control reaches every card, and the ticket renders on a real book for the first time
 
 **Joe's ask, verbatim: "I want to be able to buy picks for games, props and
 parlays directly from the cockpit."** Four choices were put to him and answered

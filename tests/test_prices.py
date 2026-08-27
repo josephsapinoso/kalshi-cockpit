@@ -146,6 +146,18 @@ class TestDollarFormatting:
         # `$-9.07` reads as a price in a currency nobody uses.
         assert prices.format_dollars(-9_070) == "-$9.07"
 
+    @pytest.mark.parametrize("tenths", [-1, -3, -4, 0, 1, 4])
+    def test_a_sign_is_never_printed_in_front_of_a_zero(self, tenths):
+        # Reachable: a hedge that costs a fraction of a cent more than it can
+        # pay has a floor of a few negative tenths. `-$0.00` is not a way to
+        # write that — on a money screen a minus in front of a zero reads as a
+        # defect and cannot be told from one.
+        assert prices.format_dollars(tenths) == "$0.00"
+
+    def test_the_smallest_amount_that_keeps_its_sign_keeps_it(self):
+        assert prices.format_dollars(-5) == "-$0.01"
+        assert prices.format_dollars(5) == "$0.01"
+
     def test_cents_are_dropped_above_a_thousand_on_both_signs(self):
         assert prices.format_dollars(1_500_000) == "$1,500"
         assert prices.format_dollars(-1_500_000) == "-$1,500"

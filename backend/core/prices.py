@@ -146,11 +146,19 @@ def format_dollars(tenths: Optional[Union[int, float]]) -> str:
     if tenths is None:
         return "--"
     dollars = tenths / float(PRICE_MAX)
-    sign = "-" if dollars < 0 else ""
     magnitude = abs(dollars)
-    if magnitude >= 1_000:
-        return f"{sign}${magnitude:,.0f}"
-    return f"{sign}${magnitude:,.2f}"
+    rendered = (
+        f"{magnitude:,.0f}" if magnitude >= 1_000 else f"{magnitude:,.2f}"
+    )
+    # **The sign is dropped when the rendering rounds to zero.** A floor of
+    # -3 tenths is a real number and `-$0.00` is not a way to write it: on a
+    # money screen a minus in front of a zero reads as a defect, and the
+    # reader cannot tell it from one. Half a cent either way is below what
+    # this surface claims to resolve, so it renders as zero and says so by
+    # not decorating it.
+    if float(rendered.replace(",", "")) == 0.0:
+        return f"${rendered}"
+    return f"{'-' if dollars < 0 else ''}${rendered}"
 
 
 def format_probability(probability: Optional[float]) -> str:

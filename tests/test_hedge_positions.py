@@ -306,6 +306,141 @@ class TestWhichSideTheHedgeBuys:
         assert hedge.leg_probability("yes", book(yes_bid=None)) is None
 
 
+class TestTwoLegsOfOneGame:
+    """Found by driving the real venue, not by a test (2026-08-26).
+
+    A ticket recorded with Boston-to-win and Miami-to-win — which cannot both
+    happen — was priced as two independent legs and handed back a joint
+    probability. The two sides of one fixture have different market tickers, so
+    without the fixture key they looked unrelated.
+    """
+
+    def test_the_fixture_is_derived_from_the_market_ticker(self):
+        assert (
+            hedge.event_ticker_for("KXMLBGAME-26AUG261840BOSMIA-BOS")
+            == "KXMLBGAME-26AUG261840BOSMIA"
+        )
+        assert hedge.event_ticker_for(
+            "KXMLBGAME-26AUG261840BOSMIA-MIA"
+        ) == hedge.event_ticker_for("KXMLBGAME-26AUG261840BOSMIA-BOS")
+
+    @pytest.mark.parametrize(
+        "ticker", [None, "", "KXMVESOMETHING", "A-B", "A-B-C-D"]
+    )
+    def test_a_ticker_it_cannot_read_returns_nothing_rather_than_guessing(
+        self, ticker
+    ):
+        # A wrong fixture key MERGES two real games and refuses a legitimate
+        # joint, which is worse than not knowing.
+        assert hedge.event_ticker_for(ticker) is None
+
+    def test_recording_fills_the_fixture_in(self, conn):
+        position_id = record(
+            conn,
+            legs=[
+                {
+                    "ticker": "KXMLBGAME-26AUG261840BOSMIA-BOS",
+                    "side": "yes",
+                    "label": "Boston wins",
+                },
+            ],
+        )
+        leg = hedge.legs_for(conn, position_id)[0]
+        assert leg["event_ticker"] == "KXMLBGAME-26AUG261840BOSMIA"
+
+    def test_an_explicit_fixture_is_never_overwritten(self, conn):
+        position_id = record(
+            conn,
+            legs=[
+                {
+                    "ticker": "KXMLBGAME-26AUG261840BOSMIA-BOS",
+                    "side": "yes",
+                    "label": "Boston wins",
+                    "event_ticker": "SOMETHING-ELSE",
+                },
+            ],
+        )
+        assert (
+            hedge.legs_for(conn, position_id)[0]["event_ticker"]
+            == "SOMETHING-ELSE"
+        )
+
+    def test_a_mutually_exclusive_pair_gets_no_joint_at_all(self, conn):
+        bos = "KXMLBGAME-26AUG261840BOSMIA-BOS"
+        mia = "KXMLBGAME-26AUG261840BOSMIA-MIA"
+        position_id = record(
+            conn,
+            legs=[
+                {"ticker": bos, "side": "yes", "label": "Boston wins"},
+                {"ticker": mia, "side": "yes", "label": "Miami wins"},
+            ],
+        )
+        _, _, assessment = assess(
+            conn,
+            position_id,
+            {
+                bos: book(ticker=bos, yes_bid=200, no_bid=790),
+                mia: book(ticker=mia, yes_bid=790, no_bid=200),
+            },
+        )
+        assert assessment.state == hedge.STATE_DERISK
+        # The per-leg prices still render; only the joint is withheld. This
+        # repo has no measured same-game correlation (ADR 0012 §5), and a pair
+        # that cannot both win is where inventing one is most wrong.
+        assert assessment.outcome.joint_probability is None
+        assert assessment.outcome.notional_value_tenths is None
+        assert assessment.outcome.joint_refusal is not None
+        assert assessment.outcome.ladder
+
+    def test_a_row_written_without_a_fixture_still_classifies(self, conn):
+        """The read-side fallback, and the only thing that reaches it.
+
+        `record_position` fills the fixture in, so a row missing one came from
+        somewhere else — a future import path, a hand-written INSERT, or a row
+        predating this column being populated. Deriving it again on read is
+        cheap and the alternative is a mutually exclusive pair quietly getting
+        a joint. A mutation removing this stayed GREEN until the row was
+        written the way something other than `record_position` would write it.
+        """
+        bos = "KXMLBGAME-26AUG261840BOSMIA-BOS"
+        mia = "KXMLBGAME-26AUG261840BOSMIA-MIA"
+        position_id = record(conn, legs=[{"ticker": bos, "side": "yes", "label": "Boston wins"}])
+        conn.execute(
+            "INSERT INTO parlay_position_legs (position_id, leg_index, ticker, "
+            "side, label, event_ticker, outcome) "
+            "VALUES (?, 1, ?, 'yes', 'Miami wins', NULL, 'pending')",
+            (position_id, mia),
+        )
+        conn.execute(
+            "UPDATE parlay_position_legs SET event_ticker = NULL WHERE ticker = ?",
+            (bos,),
+        )
+        conn.commit()
+        assert all(
+            leg["event_ticker"] is None for leg in hedge.legs_for(conn, position_id)
+        )
+
+        _, _, assessment = assess(
+            conn,
+            position_id,
+            {
+                bos: book(ticker=bos, yes_bid=200, no_bid=790),
+                mia: book(ticker=mia, yes_bid=790, no_bid=200),
+            },
+        )
+        assert assessment.outcome.joint_probability is None
+        assert assessment.outcome.joint_refusal is not None
+
+    def test_two_different_games_still_get_one(self, conn):
+        # The vacuity guard on the test above: a fixture key that merged every
+        # ticker would pass it and break this.
+        position_id = record(conn)
+        _, _, assessment = assess(
+            conn, position_id, {CIN: book(), LAD: book(ticker=LAD)}
+        )
+        assert assessment.outcome.joint_probability is not None
+
+
 class TestWhatStateATicketIsIn:
     def test_one_live_leg_with_the_rest_won_is_a_lock(self, conn):
         position_id = record(conn)
@@ -658,20 +793,29 @@ class TestTheInterlockCannotSeeThisRecord:
                     assert "UPDATE recommendations" not in node.value
 
     def test_no_anthropic_client_is_reachable_from_the_hedge_path(self):
-        """Joe's constraint, made executable: no token is spent here, ever."""
+        """Joe's constraint, made executable: no token is spent here, ever.
+
+        Over the CODE, not the prose — a module that explains in its docstring
+        why it never calls an agent must not fail for the sentence.
+        """
+        from conftest import python_code_without_prose
+
         for name in ("hedge.py", "core/hedge.py"):
-            source = (ROOT / "backend" / name).read_text(encoding="utf-8")
-            assert "anthropic" not in source.lower()
-            assert "structured_call" not in source
-            assert "agents" not in source
+            code = python_code_without_prose(ROOT / "backend" / name)
+            assert "anthropic" not in code.lower()
+            assert "structured_call" not in code
+            assert "agents" not in code
+            assert "hedge_lock" in code or "record_position" in code
 
     def test_no_odds_credit_is_spent_from_the_hedge_path(self):
         """And the other half: Kalshi is unmetered, The Odds API is not."""
+        from conftest import python_code_without_prose
+
         for name in ("hedge.py", "core/hedge.py"):
-            source = (ROOT / "backend" / name).read_text(encoding="utf-8")
-            assert "api_credits" not in source
-            assert "CreditBudget" not in source
-            assert "fetch_odds" not in source
+            code = python_code_without_prose(ROOT / "backend" / name)
+            assert "api_credits" not in code
+            assert "CreditBudget" not in code
+            assert "fetch_odds" not in code
 
 
 class TestReadingTheBooks:

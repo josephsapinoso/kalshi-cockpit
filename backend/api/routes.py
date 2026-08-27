@@ -2702,21 +2702,18 @@ def create_app(
         ADR 0006's evidence guard are untouched (ADR 0074 §4).
         """
         now = db.now_ms()
-        try:
-            fetch = live_quotes().fetch
-        except ConfigError:
-            # A demo instance holds no credentials. The record still renders;
-            # every leg simply has no readable book, which the payload already
-            # has words for.
-            async def fetch(ticker, *, observed_ms):                # noqa: ARG001
-                raise QuoteUnavailable("this instance holds no Kalshi credentials")
-
+        # No credential guard here, deliberately. `LiveQuoteSource` builds its
+        # client lazily, so an instance holding no Kalshi key fails inside
+        # `fetch` rather than here -- and `hedge.read_books` already treats
+        # every such failure as "this leg has no price this pass", which the
+        # payload has words for. A second guard at this level would be a
+        # branch no test could reach.
         return await held_parlays.build_payload(
             conn,
             now_ms=now,
             max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
             spendable_tenths=db.latest_balance_tenths(conn),
-            fetch_quote=fetch,
+            fetch_quote=live_quotes().fetch,
         )
 
     @app.post("/api/hedge/positions", dependencies=[Depends(require_auth)])
