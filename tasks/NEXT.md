@@ -31,12 +31,17 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: UNMEASURED on this tree, and that is the honest state as of
-the merge below.** The hedging lane measured **4,828 passed / 6 skipped / 10
-xfailed in 17:00** on its own merge; that tree did not contain the eight
-collision guards in `tests/test_parallel_lanes_do_not_collide.py`, and the
-tree that did measured 4,648. **Neither number is this one.** Re-run and
-replace this paragraph with a figure and a duration.
+**Test baseline: 4,885 passed / 10 xfailed in 20:59**, measured 2026-08-27 at
+`1fecb54`. `c24309a` sits on top of it and changed only `tasks/lessons.md`,
+adding no tests, so the figure carries to `c24309a` — which is the one
+qualification this line has ever needed and the one it has never had.
+
+**Two earlier runs this session are NOT this number and must not be quoted as
+it**: 4,842 at the merge before the lane-board work, and a third run that was
+killed mid-flight because two suites racing read as a hang. The line has been
+wrong in the same direction six times, always the same way — a number carried
+across a change to the thing it counts. If you change the test corpus, this
+paragraph is stale the moment you do.
 
 This line has now been wrong in the same direction six times (4,192 written
 when it was 4,200; 4,281 written before three lanes landed; 4,456 written when
@@ -137,7 +142,108 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-27 (latest) — a cold open buys odds on the pass it woke
+## 2026-08-27 (latest) — two lanes can be seen at once, and the tool that saw them told a human to delete sixteen projects
+
+**State: 4,885 passed / 10 xfailed in 20:59 at `1fecb54`**, ruff clean,
+`origin/main` at `c24309a`. Joe's ask was "have the partner oversee the herder
+worktrees so no collisions happen, and weigh priority between the worktrees and
+NEXT.md."
+
+### What shipped
+
+`scripts/lane_board.py` — a read-only cross-worktree detector. It reads every
+worktree and local branch together: ahead/behind, uncommitted work, ADR and
+schema claims, and the collision surface. **It closes the gap
+`tests/test_parallel_lanes_do_not_collide.py` names in its own docstring** —
+that a test only sees the tree it runs in, so it fires when lanes MERGE and not
+when a collision is created.
+
+`docs/adr/README.md` — the ADR numbering convention, which until today lived
+only in a lessons entry, the box above, and two regexes. A lane that went
+straight to `docs/adr/` could not find the rule it was about to break, which is
+roughly how all three of 2026-08-27's collisions happened.
+
+**The ordinal race is closed by allocation, not by detection.** A lane writes
+`docs/adr/DRAFT-<slug>.md` with no ordinal; the number is taken in the merge
+commit after a fetch. The guard refuses a `DRAFT-` on `main`.
+`tasks/lessons.md:168-191` had already ruled that reading `main` first is not
+the fix, and a detector cannot change that — it shortens the window.
+
+`tasks/LANES.md` — generated below a marker, with a hand-written allocation
+ledger above it that survives regeneration. Replaces the hand-typed lane table
+that used to sit in the box above and was wrong within hours of being written.
+
+`scripts/drive_hedge.py` + `tests/test_drive_hedge.py` — rescued from the
+hedging lane's scratchpad before it was deleted. The only instrument that drives
+the hedge payload against a real Kalshi book, and it found the same-game defect
+the suite did not. The seam test pins every symbol it reaches for; it is never
+run in CI.
+
+### Three things it got wrong first, and all three matter more than what it got right
+
+1. **It compared files, not hunks.** The hand-measured surface that specified it
+   called `frontend/src/lib/api.ts` contested; the two edits are 1,780 lines
+   apart and merge clean. Caught by the partner before it was built.
+2. **It reported an inherited `SCHEMA_VERSION` as a claim.** A lane ten commits
+   behind holds main's old stamp without touching `db.py`. Provenance decides,
+   not value.
+3. **Run from a LANE it named sixteen of Joe's unrelated repositories as
+   directories to delete**, `kalshi_orderbook_monitor` among them — the
+   predecessor project CLAUDE.md tells every session to read. `root` was the
+   lane, so the integration checkout read as a peer worktree and the projects
+   folder became a search root. **Caught by the `parlay-props` lane running the
+   tool for its own reasons**, not by its author and not by its tests.
+
+Sixteen mutations run; the load-bearing one — "unreadable is never clean" —
+stayed green because the test reached the guard by a different road. Fixed. The
+DRAFT guard shipped with a hole of the same shape: it SKIPPED on an
+unestablished branch, and `actions/checkout` leaves a detached HEAD, so it would
+have skipped on every CI run there has ever been. It fails closed now.
+
+### The partner's ruling (2026-08-27), still standing
+
+**Not the lane split.** ADR 0003 §1's table predates the parlay desk —
+`backend/parlays.py` and `backend/core/ladder.py` are in no lane at all — so the
+lane crossed a partition that does not cover the files. Amended. A **type
+declaration is owned by its producer**, not by the frontend lane; enforcing §1
+literally there causes the harm §1 prevents. `.env.example`, `fly.live.toml` and
+`tasks/LANES.md` joined the integrator-only list.
+
+**Dropped this session, do not reopen without naming what overturns it:** all
+further prop-feed analysis (the measurement is done); ADR 0032 stays closed;
+combo purchase slice; per-sport credit reservation; `/api/slate` N+1;
+`odds_snapshots` retention; the stale 576/day figure in `docs/`; `ODDS_API_KEY`
+rotation; NCAAF's single sweep (one observation with no comparison is an
+anecdote).
+
+**The four verification debts do not compete with lane work.** ADR 0077's cold
+open, the 20:00Z `parlay_daily` card, the hedge watcher polling, and NCAAF share
+one blocker: each needs a human or a session awake at a specific UTC minute on
+live. They collapse into one opportunistic checklist the next time anyone has
+live open for another reason.
+
+### Open, and both are Joe's
+
+- **`parlay-props` is holding its commit on Joe**, not on the partner — 15 files,
+  4,635 green, zero commits. It put the question to him directly and declined to
+  let a peer ruling answer it, which is correct. Split reviewed and approved:
+  commit 1 is the `_alternate` kill (**including `tests/test_runner.py`**, whose
+  only change inverts the assertion requiring an `_alternate` key — the partner
+  had it in commit 2, from the filename rather than the hunk) and touches nothing
+  main has moved; commit 2 carries the whole conflict surface and wants a merge
+  first.
+- **Cross-game prop parlays are CONSTRUCTIBLE.** Read 2026-08-27 off
+  `GET /multivariate_event_collections` (no mint, no book, no order path): of
+  1,389 collections, 17 are cross-game and **3 carry all five MLB prop series,
+  35 prop legs each, `detail_missing = 0`**. Those three share an identical
+  2033-leg total and are almost certainly one pool under three tickers — **treat
+  it as one observation**. Every NFL/NBA/CB multi-game collection carries zero
+  prop legs, so this is MLB-and-cross-category on today's slate; the calendar
+  caveat in `backend/kalshi/combos.py` is untouched. **Eligibility is not
+  liquidity** — this says nothing about the 40/40 enter-only record, and the two
+  sentences must stay apart.
+
+## 2026-08-27 — a cold open buys odds on the pass it woke
 
 **Joe picked this off four options.** ADR 0077. State: **4,640 passed / 10
 xfailed in 19:54** (up 17 from 4,623 measured earlier the same session), ruff
