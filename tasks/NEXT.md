@@ -31,17 +31,20 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,885 passed / 10 xfailed in 20:59**, measured 2026-08-27 at
-`1fecb54`. `c24309a` sits on top of it and changed only `tasks/lessons.md`,
-adding no tests, so the figure carries to `c24309a` — which is the one
-qualification this line has ever needed and the one it has never had.
+**Test baseline: 4,911 passed / 10 xfailed in 23:35**, measured 2026-08-27 at
+`7e828c8`, on a clean working tree, with `origin/main` at the same sha. That
+triple — the number, the sha it was taken on, and the fact that nothing had
+moved since — is the qualification this line has never carried, and its absence
+is the whole reason it has been wrong six times.
 
-**Two earlier runs this session are NOT this number and must not be quoted as
-it**: 4,842 at the merge before the lane-board work, and a third run that was
-killed mid-flight because two suites racing read as a hang. The line has been
-wrong in the same direction six times, always the same way — a number carried
-across a change to the thing it counts. If you change the test corpus, this
-paragraph is stale the moment you do.
+**Four other runs happened this session and NONE of them is this number.**
+4,842 before the lane-board work; 4,885 at `1fecb54`, before the parlay lane
+merged; and two killed mid-flight, one because two suites racing read as a
+hang and one because the tree changed underneath it. Each was true of a tree
+that no longer exists. **The failure mode is always the same — a number carried
+across a change to the thing it counts** — so if you change the test corpus,
+this paragraph is stale the moment you do, and the fix is to re-run rather than
+to reason about the delta.
 
 This line has now been wrong in the same direction six times (4,192 written
 when it was 4,200; 4,281 written before three lanes landed; 4,456 written when
@@ -222,16 +225,53 @@ one blocker: each needs a human or a session awake at a specific UTC minute on
 live. They collapse into one opportunistic checklist the next time anyone has
 live open for another reason.
 
+### The lane merged — `ba8fc0d`, ADR 0079
+
+**The `_alternate` prop feed stops being bought.** 66.3% of the rungs in the
+committed dump are quoted only on that feed and **0 of those 4,707 are
+two-sided**, so none could survive `prop_quotes_for_event` and none ever became
+a fair price. It bought sightings, not prices, at half the cost of every prop
+event. Tap goes 26 → 14 credits. Prop rungs also become parlay legs, gated so
+none of them move.
+
+**ADR 0079 is the first live exercise of the merge-time allocation rule**,
+taken after a fetch against a `main` that had moved seven times since the lane
+started. Nothing collided. The rule was written this morning out of three
+collisions and had never been run in anger.
+
+**`fly.live.toml:476` still says this does NOT re-open ADR 0032 — keep that
+sentence.** Halving a price is the most persuasive possible argument for
+reopening something that was closed on other grounds, and a future reader
+arriving on cost alone is exactly who it is for.
+
+### Three defects in the new tooling, all found from outside it
+
+Worth more than the tooling. **Every one was found by the lane running the
+board for its own reasons, or by merging — none by the author, and none by the
+tests.**
+
+1. **Run from a lane it named sixteen unrelated repositories as directories to
+   delete**, `kalshi_orderbook_monitor` among them. Fixed; the fixture had put
+   lanes in the same parent as the checkout, so no test *could* have caught it.
+2. **"git will conflict" was a claim it could not support.** The predicted
+   `backend/parlays.py` conflict auto-resolved — adjacency makes a conflict
+   possible, not certain, and both the author and the lane called it certain.
+   Now says MAY.
+3. **An unpushed integration branch was displayed and not a finding.** Twice an
+   integrator merged, read `git log -1 main`, and reported done while
+   `origin/main` was seven commits behind — the object store is shared, so from
+   that seat local and pushed look identical. Now a finding, failing only when
+   the unpushed commits allocate a global counter.
+
+All three share one shape, written up in `tasks/lessons.md`: **the correct
+information existed somewhere in the artefact and was not where the decision
+gets made.**
+
 ### Open, and both are Joe's
 
-- **`parlay-props` is holding its commit on Joe**, not on the partner — 15 files,
-  4,635 green, zero commits. It put the question to him directly and declined to
-  let a peer ruling answer it, which is correct. Split reviewed and approved:
-  commit 1 is the `_alternate` kill (**including `tests/test_runner.py`**, whose
-  only change inverts the assertion requiring an `_alternate` key — the partner
-  had it in commit 2, from the filename rather than the hunk) and touches nothing
-  main has moved; commit 2 carries the whole conflict surface and wants a merge
-  first.
+- **Close the `parlay-props` worktree** — merged at `ba8fc0d`, nothing left in
+  it. And delete the empty `hedging-research` shell, which the board reports on
+  every run and `git worktree prune` will not remove.
 - **Cross-game prop parlays are CONSTRUCTIBLE.** Read 2026-08-27 off
   `GET /multivariate_event_collections` (no mint, no book, no order path): of
   1,389 collections, 17 are cross-game and **3 carry all five MLB prop series,
