@@ -7,7 +7,7 @@ import Term from "@/components/Term";
 export const dynamic = "force-dynamic";
 
 /**
- * Tickets Joe holds, and what hedging one would do (ADR 0074).
+ * Tickets Joe holds, and what hedging one would do (ADR 0077).
  *
  * The one screen in the product that reads a market **while the game is
  * running**, because that is the only time a hedge is wanted. It writes no

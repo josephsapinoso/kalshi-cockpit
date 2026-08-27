@@ -521,7 +521,7 @@ to know when to bet the Giants separately.
 Four choices were put to him and answered in his own words: **both** Kalshi
 combos and sportsbook slips; **LOCK pushes to the phone, DE-RISK stays a screen
 row**; **Kalshi is the only hedge venue priced**; and **build the vertical
-slice**. Recorded in **ADR 0074 — read it before touching any of this.**
+slice**. Recorded in **ADR 0077 — read it before touching any of this.**
 
 ### The token constraint answers itself, and that is the headline
 

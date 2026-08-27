@@ -140,7 +140,7 @@ export default async function BetsPage() {
       <RecordChart bets={record.bets} />
 
       {/*
-        The way in to the hedge screen (ADR 0074). Here rather than in the nav:
+        The way in to the hedge screen (ADR 0077). Here rather than in the nav:
         the six-link budget is load-bearing at 390px (ADR 0073), and what he
         holds already lives on this page — a ticket the venue cannot see is the
         same subject as the positions above it.

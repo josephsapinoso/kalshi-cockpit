@@ -328,7 +328,7 @@ his own answers, and recorded in **ADR 0071 — read it before planning**:
   Do not design for hypothetical operators beyond that — ADR 0071 §2.4 takes
   exactly one step in that direction and no more.
 
-**The desk now watches what Joe already holds — ADR 0074.** `/hedge` records a
+**The desk now watches what Joe already holds — ADR 0077.** `/hedge` records a
 parlay he placed (a Kalshi combo or a sportsbook slip), reads its legs' live
 Kalshi prices **while the game is running**, and says what hedging the
 endangered one would do. It is the same job ADR 0071 names — price transparency

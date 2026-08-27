@@ -538,7 +538,7 @@ async def main() -> int:
             name="portfolio-poll",
         )
 
-        # The hedge watcher (ADR 0074), on the same reasoning and the same
+        # The hedge watcher (ADR 0077), on the same reasoning and the same
         # shape: its own task, its own connection, its own cadence.
         #
         # NOT on the quote pass, and that is the load-bearing choice. That pass
@@ -550,7 +550,7 @@ async def main() -> int:
         # It spends nothing metered -- one Kalshi orderbook read per watched
         # ticker, and only while a watched game is actually in progress. It
         # writes no `recommendations` row, so ADR 0006's evidence guard is
-        # untouched, and `gate.py` cannot see any table it uses (ADR 0074 §4).
+        # untouched, and `gate.py` cannot see any table it uses (ADR 0077 §4).
         hedge_quotes = LiveQuoteSource()
         hedge_task = asyncio.create_task(
             watch_hedges_forever(

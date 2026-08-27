@@ -15,7 +15,7 @@ import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import Term from "@/components/Term";
 
 /**
- * What Joe holds, and what hedging it would do (ADR 0074).
+ * What Joe holds, and what hedging it would do (ADR 0077).
  *
  * Two states render completely differently and that is the whole design:
  *

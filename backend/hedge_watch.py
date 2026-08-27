@@ -1,6 +1,6 @@
 """The watcher: a held ticket's legs, read while the game is running.
 
-ADR 0074. `hedge.py` can answer "what would a hedge do right now" whenever
+ADR 0077. `hedge.py` can answer "what would a hedge do right now" whenever
 somebody asks. This is the thing that asks when nobody is looking, which is the
 whole difference between a screen and an alert.
 
@@ -41,7 +41,7 @@ would silence the alert for the whole game.
 
 What this module does NOT establish
 -----------------------------------
-- **That an alert is worth acting on.** It reports a figure; ADR 0074 Decision 2
+- **That an alert is worth acting on.** It reports a figure; ADR 0077 Decision 2
   is why it never reports a moment.
 - **That the record is complete.** It watches what Joe typed in. A ticket he did
   not record is invisible, and no amount of polling finds it.

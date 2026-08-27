@@ -361,7 +361,7 @@ class ParlayLookupRequest(BaseModel):
 
 
 class HeldLegRequest(BaseModel):
-    """One leg of a ticket Joe already holds (ADR 0074).
+    """One leg of a ticket Joe already holds (ADR 0077).
 
     `ticker` is optional and that is the sportsbook case: a leg the venue does
     not list has no market to quote, no result to read and no hedge to buy. It
@@ -2718,7 +2718,7 @@ def create_app(
         In-play by construction, and that is the point: a hedge is only ever
         wanted while the game is running. Nothing here writes a
         `recommendations` row, so `runner`'s `dropped_game_started` drop and
-        ADR 0006's evidence guard are untouched (ADR 0074 §4).
+        ADR 0006's evidence guard are untouched (ADR 0077 §4).
         """
         now = db.now_ms()
         # No credential guard here, deliberately. `LiveQuoteSource` builds its

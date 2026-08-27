@@ -75,6 +75,61 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A schema version is a claim about the whole database, so a lane cannot allocate one
+
+Two branches were open at once. One added `parlay_card_candidates` and bumped
+`SCHEMA_VERSION` to 23. The other added `parlay_positions` and
+`parlay_position_legs` and bumped `SCHEMA_VERSION` to 23. Each was correct on
+its own, each shipped with the "a pure new table needs no migration step"
+reasoning intact, and each was verified against a v22 database.
+
+**The failure is silent, and that is what makes it worth a lesson.** A volume
+stamped v23 would carry one pair of tables or the other depending on which image
+booted it. `open_db` refuses on a version *mismatch* — and there is none. The
+stamp matches, so nothing looks wrong; what breaks is a query against a table
+that was never created, arriving as an error from somewhere else entirely.
+
+Merging caught it here only because both branches touched `db.py` on the same
+line. **Had one of them bumped the constant in a second place, or had the file
+been formatted so the two edits did not overlap, git would have merged them
+clean and produced a tree claiming v23 with four new tables and no record of
+which version introduced which.**
+
+**The pattern: any counter that names a global state cannot be incremented from
+a branch that can only see itself.** `SCHEMA_VERSION` is one. So is any
+migration ordinal, any "next ADR number", any fixture index. A lane picks a
+value that was free *when the lane started*, which is a different question from
+whether it is free now.
+
+Two things that would have caught it earlier, neither of which exists:
+
+- **A test that the version and the table set agree.** `SCHEMA_VERSION` is a
+  number; nothing asserts what schema it names. A checksum over
+  `sqlite_master` for a freshly built database, pinned per version, would go red
+  on any second allocation of the same number.
+- **Reading `main` before allocating.** `git show main:backend/store/db.py |
+  grep SCHEMA_VERSION` is three seconds and was not run at the start of the
+  lane, because the lane's own tree said 22 and that looked like the answer.
+
+**The ADR number collided too, in the same merge, and the first version of this
+lesson said it "got lucky".** It did not. Both lanes wrote a `docs/adr/0074-*.md`
+— "the desk draws four pictures" on one and "the desk watches what Joe holds" on
+the other — and git merged them **clean**, because they are different filenames
+that happen to share a prefix. Nothing conflicted, nothing was reported, and the
+tree carried two ADR 0074s with two dozen cross-references pointing at an
+ambiguous number. Renumbered to 0077 afterwards, by hand, across 24 files.
+
+That is the version of this failure with no safety net at all: the schema
+collision was caught only because both edits landed on the same LINE of
+`db.py`. **Filename-prefix allocation has no line to collide on.** A `ls
+docs/adr/ | tail` on `main`, not on the lane, is the whole check.
+
+So: three counters in this repo name a global state and can each be allocated
+twice — `SCHEMA_VERSION`, the ADR ordinal, and any migration step number. Read
+`main` before taking one, every time, and write down which you took.
+
+---
+
 ## 2026-08-26 — A mutation can lie, and a green result is not evidence until you know the mutation landed
 
 A component was forbidden from drawing a value. To prove the guard bit, the

@@ -402,7 +402,7 @@ class DiscordNotifier:
         )
 
     async def hedge_lock(self, position: dict, *, notes: dict) -> bool:
-        """A hedge that locks a known amount on a ticket Joe holds (ADR 0074).
+        """A hedge that locks a known amount on a ticket Joe holds (ADR 0077).
 
         **This is the only alert in the product that names a dollar figure it
         stands behind**, and it can because the figure is not a forecast: with

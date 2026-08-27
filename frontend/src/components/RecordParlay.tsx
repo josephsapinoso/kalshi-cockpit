@@ -7,7 +7,7 @@ import { recordHeldPosition, type HeldLegInput } from "@/lib/api";
 import Term from "@/components/Term";
 
 /**
- * Telling the desk about a ticket you already hold (ADR 0074).
+ * Telling the desk about a ticket you already hold (ADR 0077).
  *
  * Nothing in this project has ever recorded a bet Joe placed: `parlay_lookups`
  * records that a card was *priced*, `manual_orders` records that a ticker was

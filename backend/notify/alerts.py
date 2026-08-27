@@ -753,7 +753,7 @@ class Alerter:
         **Only locks reach the phone.** A ticket with several legs live has no
         guaranteed figure to state, and a push about it would be a buzz for a
         number the tool cannot stand behind. Those stay on the screen -- Joe's
-        own choice, recorded in ADR 0074 Decision 2.
+        own choice, recorded in ADR 0077 Decision 2.
 
         **Only reachable locks.** `guaranteed` is computed from the rung bounded
         by the book's depth and by the observed balance; a lock nobody could

@@ -1,4 +1,4 @@
-# ADR 0074 — The desk watches what Joe holds, and a hedge alert says only what it measured
+# ADR 0077 — The desk watches what Joe holds, and a hedge alert says only what it measured
 
 - **Status:** Accepted
 - **Date:** 2026-08-26
