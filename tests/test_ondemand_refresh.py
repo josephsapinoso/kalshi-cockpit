@@ -688,11 +688,15 @@ class TestTheEndpoint:
         ).json()
         assert body["accepted"] is False
         assert "the day's odds budget refuses this call" in body["detail"]
-        # 22, not 26: ten prop markets plus the one core market, across two
-        # regions. `conftest.py` pins both, because this literal used to come
-        # from whatever `.env` the machine held -- and the 26 it read there is
-        # a cost no deployed instance charges.
-        assert "22" in body["detail"]
+        # 12: five prop markets plus the one core market, across two regions.
+        # `conftest.py` pins both, because this literal used to come from
+        # whatever `.env` the machine held -- and the 26 it read there is a
+        # cost no deployed instance charges.
+        #
+        # It read 22 until 2026-08-27, when the five `_alternate` prop keys
+        # came off the request list: they carried no Under on any of 35,448
+        # rungs and so contributed 0 of 3,940 priceable lines.
+        assert "12" in body["detail"]
 
     async def test_a_sport_with_no_stored_fixture_is_refused_with_a_reason(
         self, live_app

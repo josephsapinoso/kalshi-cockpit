@@ -94,10 +94,33 @@ def parse_ms(value: Any) -> Optional[int]:
 # Back prices on the three team markets this project prices. In scope.
 TEAM_MARKETS = frozenset({"h2h", "spreads", "totals"})
 
-# MLB player props, and the `_alternate` feed for each. Kalshi runs a ladder per
-# player (`2+` through `8+`); a book quotes one primary line and the rest on the
-# alternate feed, so both are needed to compare more than one rung in seven --
-# measured 2026-08-14 at 48 of 263 Kalshi markets on primaries alone.
+# MLB player props. Kalshi runs a ladder per player (`2+` through `8+`); a book
+# quotes one primary line and the rest on the `_alternate` feed.
+#
+# **The alternate feed is parsed but no longer bought, and the reason corrects
+# an earlier note rather than contradicting it.** This comment used to end:
+# "so both are needed to compare more than one rung in seven -- measured
+# 2026-08-14 at 48 of 263 Kalshi markets on primaries alone." That coverage
+# figure is real and it is reproduced by the committed dump
+# `docs/measurements/2026-08-16-prop-rungs-dump.json.gz` -- 66.3% of the 7,103
+# distinct rungs in it are quoted ONLY on the alternate feed.
+#
+# What it left out is whether that coverage can be *priced*:
+#
+#     distinct rungs quoted at all        7,103
+#       of which priceable (two-sided)    1,466   (20.6%)
+#     rungs quoted ONLY on alternate      4,707   (66.3%)
+#       of those, priceable                   0
+#
+# No alternate rung in the record carries an Under, so it cannot survive the
+# both-sides admission in `prop_quotes_for_event` and can never reach
+# `fair_prices`. The alternate feed buys *visibility* of rungs nothing here can
+# price -- and every consumer this repo has, the parlay desk included, needs a
+# fair value rather than a sighting. Coverage was the right measurement of the
+# wrong quantity.
+#
+# The keys stay classified below so stored rows remain readable;
+# `prop_market_keys()` is what stops them being bought and carries the limits.
 #
 # These are **per-event** markets: they are not returned by `/sports/{k}/odds`
 # and must be requested through `fetch_props`. Kept in one set so the parser's
@@ -125,11 +148,37 @@ def prop_market_keys() -> list[str]:
     authorising the sweep that triggers the request. A planner reserving for
     five keys against a fetch requesting ten is the shape of the 2026-08-15
     outage, one level up.
+
+    **The `_alternate` twins are NOT requested, and this halves the price of a
+    prop event.** They were, until 2026-08-27. Counted off the committed dump
+    `docs/measurements/2026-08-16-prop-rungs-dump.json.gz` (41,827 rungs, 10
+    bookmakers, 20 fixtures, `truncated: false`):
+
+        alternate rungs stored                      35,448  (84.7% of the file)
+        alternate rungs carrying an Under                0
+        two-sided lines after folding the feeds      3,940
+        of those, lines REQUIRING an alternate row        0
+
+    `prop_quotes_for_event` admits a book only when it quotes **both** sides
+    (`runner.py:659-663`), so a feed that never carries an Under can never
+    contribute a consensus line. The second row is the finding and the third is
+    what licenses acting on it: the fold is the one production performs -- group
+    by `(event, book, base_market, player, point)` with `is_alternate`
+    collapsed away -- so an alternate Over pairing with a *primary* Under at a
+    shared point was still possible in principle. It never happens. Five of the
+    ten keys were buying nothing, and writing 84.7% of the rows to
+    `odds_snapshots`, which `store/retention.py` deliberately does not prune.
+
+    **What this does not establish.** The dump is one snapshot per fixture, 20
+    MLB fixtures on 2026-08-16, on The Odds API's `alternate_*` keys under
+    `ODDS_REGIONS = "us,eu"`. A book that goes two-sided on alternates only
+    near lock-in would not appear in it, and another provider or region set is
+    untouched by this. It is cheap to re-check on any prop tap -- and the
+    reason `PROP_MARKETS` still carries the alternate keys is that the stored
+    rows must stay readable: this stops us *buying* them, not *understanding*
+    them.
     """
-    return [
-        *PROP_BASE_MARKETS,
-        *(f"{m}{ALTERNATE_SUFFIX}" for m in PROP_BASE_MARKETS),
-    ]
+    return list(PROP_BASE_MARKETS)
 
 PRICEABLE_MARKETS = TEAM_MARKETS | PROP_MARKETS
 
@@ -399,7 +448,7 @@ class OddsClient:
         whose call failed at transport level is logged and skipped rather than
         aborting the batch -- one bad event must not cost the other thirteen.
         """
-        markets = list(markets or PROP_BASE_MARKETS)
+        markets = list(markets or prop_market_keys())
         regions = list(regions or self.config.regions)
         per_event_cost = sweep_cost(markets, regions)
 

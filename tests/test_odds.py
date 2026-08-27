@@ -22,13 +22,16 @@ import respx
 from backend.config import OddsConfig
 from backend.odds.budget import CreditBudget, sweep_cost
 from backend.odds.client import (
+    ALTERNATE_SUFFIX,
     EXCLUDED_MARKETS,
     PRICEABLE_MARKETS,
+    PROP_BASE_MARKETS,
     PROP_MARKETS,
     OddsAPIError,
     OddsClient,
     OddsQuote,
     QuotaExhausted,
+    prop_market_keys,
     store_quotes,
 )
 from backend.store import db
@@ -692,6 +695,63 @@ def captured_props() -> dict:
     would agree with whoever wrote the list and still be wrong about the wire.
     """
     return json.loads(PROP_FIXTURE.read_text(encoding="utf-8"))
+
+
+class TestTheAlternateFeedIsNotBought:
+    """Five of the ten prop keys bought nothing, and the count is a price.
+
+    `docs/measurements/2026-08-16-prop-rungs-dump.json.gz`: 35,448 alternate
+    rungs, **none carrying an Under**, against 3,940 two-sided lines of which
+    **zero** require an alternate row -- folded the way
+    `prop_quotes_for_event` folds, so a primary Under pairing with an
+    alternate Over is included in that zero. A feed that never carries an
+    Under cannot survive the both-sides admission at `runner.py:659-663`.
+
+    These pin the *request* list. They must NOT be read as a claim that the
+    alternate keys are unparseable: `PROP_MARKETS` still carries them so the
+    rows already in `odds_snapshots` stay readable, and
+    `TestPlayerPropsOnTheRealWireFormat` still holds the parser to them.
+    """
+
+    def test_the_request_list_is_base_keys_only(self):
+        keys = prop_market_keys()
+        assert keys == list(PROP_BASE_MARKETS)
+        assert not [k for k in keys if k.endswith(ALTERNATE_SUFFIX)], (
+            "an _alternate key here doubles the price of every prop event "
+            "and buys no consensus line"
+        )
+
+    def test_a_prop_event_costs_one_credit_per_base_key_per_region(self):
+        assert sweep_cost(prop_market_keys(), ["us", "eu"]) == 10, (
+            "10 credits at us,eu -- was 20 while the alternates were bought"
+        )
+
+    def test_the_stored_alternate_rows_are_still_readable(self):
+        """Stop buying them; keep understanding them.
+
+        Dropping the alternates from `PROP_MARKETS` too would make the parser
+        warn-and-drop on every historical row and would break the
+        `MAX(fetched_ms)` read in `prop_quotes_for_event`.
+        """
+        for base in PROP_BASE_MARKETS:
+            assert f"{base}{ALTERNATE_SUFFIX}" in PROP_MARKETS
+            assert f"{base}{ALTERNATE_SUFFIX}" in PRICEABLE_MARKETS
+
+    def test_the_fetch_default_agrees_with_what_callers_request(self):
+        """The 2026-08-15 outage shape: reserve for five, request ten.
+
+        `fetch_props` used to default to `PROP_BASE_MARKETS` while every real
+        caller passed `prop_market_keys()`. The two are now one list, and this
+        pins that they stay one.
+        """
+        import inspect
+
+        from backend.odds import client as client_mod
+
+        src = inspect.getsource(client_mod.OddsClient.fetch_props)
+        assert "markets or prop_market_keys()" in src, (
+            "the default must be the same list the planner reserves for"
+        )
 
 
 class TestPlayerPropsOnTheRealWireFormat:
