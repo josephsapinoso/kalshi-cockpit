@@ -2023,9 +2023,20 @@ class TestIngestActuallyBuysTheProps:
         sport_key, event_ids, markets = odds.prop_calls[0]
         assert sport_key == "baseball_mlb"
         assert event_ids == ("odds-1",)
-        # Both feeds. Primaries alone matched 48 of 263 Kalshi prop markets.
-        assert any(m.endswith(ALTERNATE_SUFFIX) for m in markets), markets
-        assert any(not m.endswith(ALTERNATE_SUFFIX) for m in markets), markets
+        # **Primary feed only, and the assertion is inverted from what it was.**
+        # It used to require an `_alternate` key, on the ground that primaries
+        # alone matched 48 of 263 Kalshi prop markets. That coverage figure
+        # holds -- 66.3% of the 7,103 rungs in the committed dump are quoted
+        # only on the alternate feed -- but 0 of those 4,707 rungs are
+        # two-sided, so none can survive `prop_quotes_for_event` and none ever
+        # became a fair price. The feed bought sightings, not prices, at half
+        # the cost of every prop event.
+        assert not [m for m in markets if m.endswith(ALTERNATE_SUFFIX)], markets
+        # **The count is the load-bearing line, not the one above it.** The
+        # negative assertion passes vacuously on an empty list, so "we stopped
+        # buying the alternate feed" and "we stopped buying props at all" look
+        # identical without this. The five base keys are still requested.
+        assert len(markets) == 5, markets
 
     async def test_no_kalshi_ladder_means_no_props_are_bought(
         self, conn, kalshi_events, prop_commence_ms

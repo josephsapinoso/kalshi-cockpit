@@ -100,7 +100,35 @@ class Recipe:
     starts_within_ms: Optional[int] = None
     #: Only legs whose four devig methods land within this many points.
     max_method_spread: Optional[float] = None
+    #: Which `fair_prices.market` values this card may draw a leg from.
+    #: `None` means every market in the pool.
+    #:
+    #: **Every registered card sets this, and that is the point.** Player-prop
+    #: rungs bracket the moneyline on both sides -- `1+ hits` sits ~80%, above
+    #: almost every moneyline, while the top rung of a strikeouts ladder sits
+    #: near zero. `_best_per_game` takes each game's single leading leg on the
+    #: recipe's own sort key, so a pool holding both does not produce a card
+    #: that *mixes* markets: it produces a card that is entirely props, at
+    #: whichever end the recipe ranks from. Admitting a market is therefore a
+    #: per-card decision, taken once and visibly, never a side effect of
+    #: widening the query that fills the pool.
+    markets: Optional[frozenset[str]] = None
+    #: Refuse any leg below this probability. Required on any card that admits
+    #: props, because the fair side of the card has no other floor:
+    #: `_stake_row` divides the stake by the joint with nothing bounding it,
+    #: so three legs at 0.2% render a $100,000,000 payout beside a fair cost
+    #: of 0c. CLAUDE.md rule 1 -- a large apparent number is a bug until shown
+    #: otherwise -- applies to the payout column exactly as to an edge.
+    min_leg_probability: Optional[float] = None
     pool_words: str = "fresh games"
+
+
+#: What every registered card draws from today: the two team markets.
+#:
+#: Named rather than inlined six times so that admitting a new market class is
+#: one visible edit per card, and so a test can assert that widening the pool
+#: query changed no card's composition.
+TEAM_MARKETS_ONLY: frozenset[str] = frozenset({"h2h", "spreads"})
 
 
 #: The registered cards. `key` is the identity written to `parlay_lookups` and
@@ -115,6 +143,7 @@ class Recipe:
 CARD_SHAPES: tuple[Recipe, ...] = (
     Recipe(
         key="safe",
+        markets=TEAM_MARKETS_ONLY,
         title="Safe",
         what_it_is="the 3 likeliest games on the slate",
         min_legs=2,
@@ -122,6 +151,7 @@ CARD_SHAPES: tuple[Recipe, ...] = (
     ),
     Recipe(
         key="middle",
+        markets=TEAM_MARKETS_ONLY,
         title="Middle",
         what_it_is="the 4 likeliest games on the slate",
         min_legs=4,
@@ -129,6 +159,7 @@ CARD_SHAPES: tuple[Recipe, ...] = (
     ),
     Recipe(
         key="lottery",
+        markets=TEAM_MARKETS_ONLY,
         title="Long ladder",
         what_it_is=(
             "six legs, taking a spread rung over a plain win where one exists"
@@ -139,6 +170,7 @@ CARD_SHAPES: tuple[Recipe, ...] = (
     ),
     Recipe(
         key="longshot",
+        markets=TEAM_MARKETS_ONLY,
         title="Longshot",
         what_it_is=(
             "the 3 least likely games on the slate — a long price by "
@@ -150,6 +182,7 @@ CARD_SHAPES: tuple[Recipe, ...] = (
     ),
     Recipe(
         key="soon",
+        markets=TEAM_MARKETS_ONLY,
         title="Next 3 hours",
         what_it_is="the 3 likeliest games starting within three hours",
         min_legs=2,
@@ -159,6 +192,7 @@ CARD_SHAPES: tuple[Recipe, ...] = (
     ),
     Recipe(
         key="agreed",
+        markets=TEAM_MARKETS_ONLY,
         title="Agreed",
         what_it_is=(
             "the 3 likeliest games where all four devig methods land within "
@@ -189,12 +223,22 @@ class CandidateLeg:
     odds_event_id: str
     league: str
     commence_ms: int
-    market: str                   # "h2h" | "spreads"
-    team: str
-    point: Optional[float]        # the spread rung; None on moneyline
+    market: str                   # "h2h" | "spreads" | an MLB prop key
+    #: The team whose YES this is. **`None` on a prop**, which carries no team
+    #: — and never the player name in its place: substituting one identifier
+    #: for another is how an unparsed field becomes a confident wrong answer.
+    team: Optional[str]
+    #: The spread rung, or the prop's line. `None` on a moneyline.
+    point: Optional[float]
     p_conservative: float
     p_by_method: Mapping[str, Optional[float]]
     odds_age_now_ms: Optional[int]
+    #: The player, on a prop leg only. Kalshi's spelling, verbatim.
+    #:
+    #: There is deliberately no `strike` field beside `point`: they are the
+    #: same number by identity, and two spellings of one fact is precisely
+    #: what `write_fair_price` refuses (`runner.py:866-871`).
+    player: Optional[str] = None
     # --- Provenance. All four ride on the `fair_prices` row the ladder query
     # already reads, so carrying them costs one more column each and no query.
     #
@@ -454,6 +498,12 @@ def _pool_for(
     out entirely because the cut happened to remove its best side.
     """
     pool: Sequence[CandidateLeg] = usable
+    if recipe.markets is not None:
+        pool = [leg for leg in pool if leg.market in recipe.markets]
+    if recipe.min_leg_probability is not None:
+        pool = [
+            leg for leg in pool if leg.p_conservative >= recipe.min_leg_probability
+        ]
     if recipe.starts_within_ms is not None:
         horizon_ms = now_ms + recipe.starts_within_ms
         pool = [leg for leg in pool if leg.commence_ms <= horizon_ms]

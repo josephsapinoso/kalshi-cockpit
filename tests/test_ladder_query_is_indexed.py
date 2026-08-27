@@ -195,3 +195,43 @@ class TestEachHalfIsLoadBearing:
             Path(__file__).resolve().parents[1] / "backend" / "store" / "schema.sql"
         ).read_text(encoding="utf-8")
         assert "CREATE INDEX IF NOT EXISTS idx_fair_market_computed" in schema
+
+
+class TestTheQueryNamesEveryMarketALegMayComeFrom:
+    """The literals in the SQL and the constants callers use must agree.
+
+    The query has to stay a literal triple-quoted string -- `ladder_sql()`
+    above extracts it by regex, and interpolating a constant would both break
+    that extraction and risk losing the `market=?` index seek. So the market
+    list is written twice, and this is what stops the two copies drifting: add
+    a prop series to `PROP_SERIES` without adding it here and the pool would
+    silently never contain it.
+    """
+
+    def test_the_sql_names_every_prop_market_key(self):
+        from backend.odds.client import PROP_BASE_MARKETS
+
+        sql = ladder_sql()
+        for market in PROP_BASE_MARKETS:
+            assert f"'{market}'" in sql, (
+                f"{market} is bought and devigged but no leg can come from it"
+            )
+
+    def test_the_sql_names_both_team_markets(self):
+        from backend.parlays import _TEAM_MARKETS
+
+        sql = ladder_sql()
+        for market in _TEAM_MARKETS:
+            assert f"'{market}'" in sql
+
+    def test_the_bought_prop_keys_and_the_kalshi_series_agree(self):
+        """One Odds API market key per Kalshi prop series, both directions.
+
+        A series in `PROP_SERIES` whose key is never bought produces Kalshi
+        rungs with no consensus; a key bought with no series produces a
+        consensus nothing can be matched to. Either way the credits are spent.
+        """
+        from backend.kalshi.props import PROP_SERIES
+        from backend.odds.client import PROP_BASE_MARKETS
+
+        assert set(PROP_SERIES.values()) == set(PROP_BASE_MARKETS)
