@@ -41,13 +41,13 @@ from backend.core.prices import format_dollars, format_price, format_probability
 from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.props import norm
-from backend.odds.client import PROP_BASE_MARKETS
 from backend.kalshi.spreads import (
     parse_spread_subtitle,
     spread_book_point,
     spread_margin_agrees,
 )
 from backend.match.linker import load_aliases, resolve_outcome
+from backend.odds.client import PROP_BASE_MARKETS
 from backend.store.db import ask_for_side
 
 logger = logging.getLogger(__name__)
