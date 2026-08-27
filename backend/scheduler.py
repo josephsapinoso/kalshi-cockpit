@@ -96,6 +96,51 @@ class LoopState:
         }
 
 
+def one_shot_wake(state: LoopState) -> Callable[[], bool]:
+    """A predicate that is true once per early wake, and false in between.
+
+    `run_forever` bumps `state.woken_early` whenever a sleep ends early. This
+    turns that running total into a per-pass answer: **did an early wake ask
+    for the pass that is running now?**
+
+    **It lives here, beside `LoopState`, and not as a closure in the loop
+    script.** The first version was a closure inside `run_loop.main`, and the
+    tests written for it re-implemented the same four lines against a real
+    `LoopState` -- which passed, and stayed green under every mutation of the
+    real code, because a re-implementation is a description and not a
+    constraint. The logic reads a field this module owns, so this module is
+    where it can be tested at all.
+
+    **Consumed on read**, and that is the whole safety property rather than a
+    detail. Its one caller raises `allow_bootstrap` on a quote pass with it,
+    and a bootstrap has nothing pacing it -- so a predicate that stayed true
+    would let a sport whose sweep keeps *failing* retry on every 15s pass until
+    the day's credits were gone. (Failing specifically: a sweep that succeeds
+    enters `last_sweeps` and paces itself, so the flag stops mattering. An
+    erroring one never does.) That is the hazard `run_quote_pass` hardcoded
+    `False` against, and a one-shot is what makes lifting it safe.
+
+    **Reads the counter rather than incrementing a private one.** `woken_early`
+    can move more than once between passes -- the loop polls every 5s, a page
+    heartbeats every 60s -- so a long sleep can end early, run a pass, and be
+    woken again. Differencing by one would leave a backlog of wakes, each
+    authorising a further bootstrap long after the person had gone.
+
+    Deliberately **not** `attention.is_attended`. That is a *state*, true for
+    the whole 300s TTL; this is an *event*. `backend/odds/attention.py`'s
+    `ArrivalWatch` makes the same distinction for the same reason.
+    """
+    seen = [state.woken_early]
+
+    def follows_early_wake() -> bool:
+        if state.woken_early == seen[0]:
+            return False
+        seen[0] = state.woken_early
+        return True
+
+    return follows_early_wake
+
+
 def next_delay(interval_s: float, rng: Optional[random.Random] = None) -> float:
     """Interval with proportional jitter, never negative."""
     r = rng or random

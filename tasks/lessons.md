@@ -25,6 +25,47 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-27 — A test written against a re-implementation cannot fail for the reason it exists
+
+A predicate lived as a closure inside a long `main()`. To test it, the test
+file re-implemented its four lines against the real state object it reads. The
+tests passed, read well, and named the properties that mattered.
+
+Then the **real** predicate was mutated — its consume removed, and its
+watermark differenced by one instead of read. Both mutations were **GREEN**.
+Nothing in the test file touched the code under test.
+
+**The pattern: a copy of the logic is satisfied by the code as written and by
+every other implementation too, so it constrains none of them.** This is the
+same failure as *"a test written after the code describes it"* and as
+*"asserting the ledger instead of the behaviour"*, one step further out — and
+it is harder to see, because a re-implementation looks like a unit test rather
+than like a description. The test file even said out loud that it was a
+re-implementation, with a source pin beside it as compensation, and the source
+pin only checked the call site.
+
+**The fix is never a better copy. It is to move the code somewhere the test can
+reach it.** Here the predicate read a field on `LoopState`, so it belonged in
+`scheduler.py` beside it; the closure was the accident. Both mutations bit
+immediately afterwards.
+
+Two habits:
+
+1. **If testing something requires re-writing it, that is a design signal, not
+   a testing problem.** Untestable-in-place usually means the logic is sitting
+   in the wrong scope — inside a `main()`, inside a request handler, inside a
+   loop body.
+2. **A source-text pin is not a substitute for reaching the code.** It can say
+   *that* a function is called; it cannot say the function is right. When both
+   are needed, write both and say which does which — one of them will otherwise
+   be quietly load-bearing for a job it cannot do.
+
+The tell that would have caught it earlier: **the test file imports the state
+object but not the function under test.** If the import list does not contain
+the thing whose name is in the test class, ask what is actually being executed.
+
+---
+
 ## 2026-08-27 — A test that asserts the ledger is not a test of the behaviour the ledger records
 
 Two guards written the same hour passed on the first run and came back GREEN
