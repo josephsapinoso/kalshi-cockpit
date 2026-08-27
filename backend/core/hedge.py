@@ -1,6 +1,6 @@
 """Hedging a parlay you already hold — the arithmetic, and only the arithmetic.
 
-ADR 0077. This module answers one question and refuses the other one.
+ADR 0078. This module answers one question and refuses the other one.
 
 **Answerable: what does hedging lock in?** You hold a ticket that returns `W` if
 every leg wins. One leg is still live and every other leg has already won. You

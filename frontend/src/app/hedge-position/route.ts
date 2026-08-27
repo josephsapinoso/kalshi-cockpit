@@ -8,7 +8,7 @@
  *
  * What this widens: nothing toward money. It writes a note saying "I hold this
  * ticket, for this stake, to return this much". It reaches no venue, places no
- * order, and `backend/gate.py` may never read the rows it creates (ADR 0077 §4)
+ * order, and `backend/gate.py` may never read the rows it creates (ADR 0078 §4)
  * — so a form cannot move the live-trading interlock.
  *
  * The body is relayed rather than reconstructed: the backend owns the

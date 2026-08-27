@@ -31,16 +31,15 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, measured on the merge 2026-08-27: 4,811 passed / 6 skipped /
-10 xfailed in 16:19.** Re-run before you quote it. The hedging lane measured
-4,718 at its own tip and `main` measured 4,623 at its; **neither was the
-merge**, and quoting either would have been the fifth time this line was wrong
-in the same direction (4,192 written when it
+**Test baseline, measured on the merge 2026-08-27: 4,828 passed / 6 skipped /
+10 xfailed in 17:00.** Re-run before you quote it. The hedging lane measured
+4,811 on its merge with `0a1c5b2` and `main` measured 4,640 at `3462ff9`;
+**neither was this tree.** This line has now been wrong in the same direction
+five times (4,192 written when it
 was 4,200; 4,281 written before three lanes landed; 4,456 written when `88d179f`
-actually measured 4,524; 4,456 again the day it became 4,474). The 6 skips are
-`load_fixture` skipping on a machine without the capture fixtures, not a
-regression.
-
+actually measured 4,524; 4,456 again the day it became 4,474; and both halves of
+this merge). The 6 skips are `load_fixture` skipping on a machine without the
+capture fixtures, not a regression.
 **The suite is now ~15-22 minutes**, up from 5-8, and the reason is worth
 knowing before you assume it hung: it grew with the record, and one test added
 2026-08-26 briefly took 71 seconds on its own by driving a 200,000-sample
@@ -82,7 +81,109 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-27 (latest) — the parlay push stops being a race and becomes a schedule
+## 2026-08-27 (latest) — a cold open buys odds on the pass it woke
+
+**Joe picked this off four options.** ADR 0077. State: **4,640 passed / 10
+xfailed in 19:54** (up 17 from 4,623 measured earlier the same session), ruff
+clean.
+
+### Three facts agreed, and none was wrong on its own
+
+1. **`last_sweeps` is scoped to the budget day** —
+   `last_sweep_by_sport(conn, since_ms=budget.day_start_ms(now_ms))`. Every
+   10:00Z roll leaves every sport unpaced.
+2. **`run_quote_pass` passed `allow_bootstrap=False`, hardcoded.** Correct
+   about the cadence: with no `last`, every pass wants every uncovered sport,
+   so a *failing* sport would retry every 15s until the credits were gone.
+3. **`pass_kind` returns `"quote"` inside `last_full_ms + 900s`** — where an
+   early wake lands by construction.
+
+Together: open the desk after the roll, the loop wakes in 5s, runs a quote
+pass, and **that pass can buy nothing**. Up to 900s of blank desk, while
+`window_status` — calling `desk_wants` with the default `allow_bootstrap=True`
+— says a sweep is due **now**.
+
+**MEASURED, NOT ARGUED. Budget day 20260827 rolled at 10:00:00Z; its first
+credit was spent at 10:13:56Z.** Fourteen minutes, read off `api_credits` on
+the live volume.
+
+### The fix
+
+`run_quote_pass` takes `allow_bootstrap`, **still defaulting to `False`**, and
+the loop raises it only for a pass that follows an early wake.
+`scheduler.one_shot_wake(state)` turns `LoopState.woken_early` — the total
+`run_forever` already keeps — into a per-pass answer.
+
+**An event, not a state, and that is the whole safety argument.**
+`is_attended` is true for the entire 300s TTL while a quote pass runs every
+15s. A wake is at most one per heartbeat. Consumed on read; seeded from the
+counter rather than zero; read rather than incremented, because `woken_early`
+can move more than once between passes and differencing leaves a backlog.
+
+**What actually bounds the spend, stated exactly because this is a spend
+path:** one *successful* sweep enters `last_sweeps` and paces the sport for
+the day, so the flag then changes no answer; while sweeps are *failing*
+(`_SERVED_SWEEP` needs `http_status < 400`) the one-shot caps retries at one
+per heartbeat instead of one per 15s pass.
+
+### A CLAIM I MADE AND THEN REFUTED BEFORE SHIPPING IT
+
+The first docstring said the mechanism was "bounded by the attention slice".
+**It is not.** `desk_wants`' bootstrap branch fires `trigger=ATTENTION`, which
+the slice caps — but `decide_sweeps` has a **second** bootstrap path (a sport
+with no stored fixtures at all), also gated on this flag, stamping
+`trigger=BOOTSTRAP`, and `attention_credits_spent_today` counts only
+`ATTENTION`. Corrected in the docstring and pinned by
+`TestTheSecondBootstrapPathIsGatedByTheSameFlag`.
+
+### NOT changed, and both deliberate
+
+- **`pass_kind` still returns `"quote"` after a wake.** Forcing a full pass was
+  the other candidate and is rejected: a full pass measured **86.4s** on live
+  this morning against a quote pass's few seconds, and it would run on every
+  cold open. The cheap pass was the right pass; it just was not allowed to buy.
+- **`window_status` still asks the optimistic question.** It cannot see
+  `Tempo.last_full_ms` — that lives in the loop process — so it cannot know
+  whether the next pass is full. What the fix buys is that *for a reader* the
+  promise comes true in seconds instead of 900s. Asserted by
+  `TestWhatIsStillNotGuaranteed` rather than claimed closed.
+
+**This is why the "wide test blast radius" this file warned about did not
+materialise.** `desk_wants` and `pass_kind` are untouched and the nine named
+assertions pinning them all pass unmodified.
+
+### PROCESS — two mutations GREEN again, and the same lesson in a new dress
+
+Eleven mutations red. Two green, and the **code moved rather than the tests
+kept**: the predicate began as a closure inside `run_loop.main`, so its tests
+re-implemented its four lines against a real `LoopState`. They passed — and
+stayed green while the *real* predicate had its consume removed and its
+watermark differenced by one.
+
+**A faithful re-implementation is a description, not a constraint.** Yesterday
+the failure was asserting a *ledger* instead of a behaviour; today it is
+asserting a *copy* instead of the original. `one_shot_wake` moved beside
+`LoopState`, where it belongs anyway since it reads a field that module owns,
+and both mutations bit. **The tell: the test file imported the state object but
+not the function under test.** Lesson written.
+
+### Open
+
+- **Live: not deployed at the time of writing this line.** Verify after deploy
+  by opening the desk shortly after a 10:00Z roll and reading `api_credits` for
+  a sweep inside a minute rather than at +14.
+- **The 20:00Z parlay card from the entry below is still unobserved.** First
+  real chance is tonight.
+- Unchanged: the combo purchase slice and its registered measurement; the
+  pragma change not re-measured on live; per-sport credit reservation
+  (Guard 1); `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day
+  figure outside CLAUDE.md.
+- **`odds_snapshots` and `fair_prices` still have no retention rule.** 1.91 GB
+  of a 5 GB volume, 712 MB free-listed. Dated risk.
+
+---
+
+## 2026-08-27 — the parlay push stops being a race and becomes a schedule
 
 **Joe picked this off the state read.** It is the item he had already decided on
 2026-08-26 and that was never built — *"the Discord trigger becomes a scheduled
@@ -521,7 +622,7 @@ to know when to bet the Giants separately.
 Four choices were put to him and answered in his own words: **both** Kalshi
 combos and sportsbook slips; **LOCK pushes to the phone, DE-RISK stays a screen
 row**; **Kalshi is the only hedge venue priced**; and **build the vertical
-slice**. Recorded in **ADR 0077 — read it before touching any of this.**
+slice**. Recorded in **ADR 0078 — read it before touching any of this.**
 
 ### The token constraint answers itself, and that is the headline
 

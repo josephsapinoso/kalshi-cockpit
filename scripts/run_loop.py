@@ -119,6 +119,7 @@ from backend.scheduler import (  # noqa: E402
     LoopFailed,
     LoopState,
     Tempo,
+    one_shot_wake,
     quote_refresh_survives_interval,
     run_forever,
 )
@@ -498,6 +499,14 @@ async def main() -> int:
     )
     state = LoopState()
 
+    # True once per early wake: this pass exists because someone is here.
+    # `backend/scheduler.one_shot_wake` owns the reasoning -- in particular why
+    # it is an event and not `attention.is_attended`, and why it is consumed on
+    # read. It lives there rather than as a closure here because a closure in
+    # this script can only be tested by re-implementing it, and a
+    # re-implementation stays green under every mutation of the real thing.
+    follows_early_wake = one_shot_wake(state)
+
     discord_config = DiscordConfig.from_env()
     if discord_config is None:
         log.warning(
@@ -538,7 +547,7 @@ async def main() -> int:
             name="portfolio-poll",
         )
 
-        # The hedge watcher (ADR 0077), on the same reasoning and the same
+        # The hedge watcher (ADR 0078), on the same reasoning and the same
         # shape: its own task, its own connection, its own cadence.
         #
         # NOT on the quote pass, and that is the load-bearing choice. That pass
@@ -550,7 +559,7 @@ async def main() -> int:
         # It spends nothing metered -- one Kalshi orderbook read per watched
         # ticker, and only while a watched game is actually in progress. It
         # writes no `recommendations` row, so ADR 0006's evidence guard is
-        # untouched, and `gate.py` cannot see any table it uses (ADR 0077 §4).
+        # untouched, and `gate.py` cannot see any table it uses (ADR 0078 §4).
         hedge_quotes = LiveQuoteSource()
         hedge_task = asyncio.create_task(
             watch_hedges_forever(
@@ -819,9 +828,15 @@ async def main() -> int:
                 # It is paced by `refresh_interval_ms` inside `decide_sweeps`,
                 # not by this interval: the pass asks on every tick and is told
                 # "not yet" on all but one in forty. It is bounded above by the
-                # same `budget.refusal_reason` as every other call, and it
-                # cannot bootstrap -- see `run_quote_pass`, which owns both
-                # arguments.
+                # same `budget.refusal_reason` as every other call.
+                #
+                # **And it may now bootstrap, but only on the pass an early
+                # wake asked for.** `last_sweeps` is scoped to the budget day,
+                # so every 10:00Z roll leaves every sport unpaced and a quote
+                # pass used to drop all of them -- fourteen minutes of blank
+                # desk on 2026-08-27, measured, while `window_status` promised
+                # a sweep was due now. `follows_early_wake` is consumed on
+                # read; see it for why a one-shot and not `is_attended`.
                 counts = await run_quote_pass(
                     conn, kalshi, odds_client=odds, budget=budget,
                     config=odds_config,
@@ -839,6 +854,7 @@ async def main() -> int:
                     # times a day against the full pass's ~1, so it is the
                     # majority of the slates the kill switch is applied to.
                     day_start_hour=odds_config.budget_day_start_utc_hour,
+                    allow_bootstrap=follows_early_wake(),
                 )
 
             with counts_survive_a_late_failure(log, kind, counts):

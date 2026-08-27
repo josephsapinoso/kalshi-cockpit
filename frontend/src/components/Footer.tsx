@@ -60,7 +60,7 @@ const SECONDARY = [
       "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
   },
   {
-    // ADR 0077. Here rather than in the nav: it is empty until Joe has
+    // ADR 0078. Here rather than in the nav: it is empty until Joe has
     // recorded a ticket, and a nav slot is the six-link budget (ADR 0073).
     // Here rather than only linked from /bets, because `/bets` is where he
     // goes to READ what settled — a screen nobody can find is served and

@@ -1,4 +1,4 @@
-"""`backend/core/hedge.py` — what hedging a held parlay locks in (ADR 0077).
+"""`backend/core/hedge.py` — what hedging a held parlay locks in (ADR 0078).
 
 What these tests establish: the equalising hedge pays the same whichever way the
 last leg goes, to the tenth of a cent; the floor is always the worse branch; the

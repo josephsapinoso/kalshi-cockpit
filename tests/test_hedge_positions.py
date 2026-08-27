@@ -106,7 +106,7 @@ class TestTheSchemaCarriesTheNewTables:
         assert {"parlay_positions", "parlay_position_legs"} <= names
 
     def test_the_previous_version_gains_them_without_a_migration_step(self, tmp_path):
-        """The claim ADR 0077's Consequences makes, executed rather than asserted.
+        """The claim ADR 0078's Consequences makes, executed rather than asserted.
 
         A pure new table needs no `_MIGRATIONS` entry because `init_db` applies
         `schema.sql` with `CREATE TABLE IF NOT EXISTS` on every open. ADR 0072
@@ -657,7 +657,7 @@ class TestThePayload:
     def test_it_carries_no_edge_ev_kelly_or_size_key(self, conn):
         """The key-walk `tests/test_parlays_api.py` runs on the parlay desk.
 
-        ADR 0038 closed the hunt and ADR 0077 keeps this surface out of it: a
+        ADR 0038 closed the hunt and ADR 0078 keeps this surface out of it: a
         hedge takes the venue's price as given and claims nothing about
         mispricing. A key named for an edge is how that stops being true.
         """
@@ -787,7 +787,7 @@ class TestTheInterlockCannotSeeThisRecord:
         assert "from .hedge" not in source
 
     def test_the_hedge_modules_write_no_recommendation_row(self):
-        """No in-play row enters the evidence record (ADR 0006, ADR 0077 §4)."""
+        """No in-play row enters the evidence record (ADR 0006, ADR 0078 §4)."""
         for name in ("hedge.py", "core/hedge.py"):
             source = (ROOT / "backend" / name).read_text(encoding="utf-8")
             tree = ast.parse(source)

@@ -1,4 +1,4 @@
-"""The four hedge routes (ADR 0077).
+"""The four hedge routes (ADR 0078).
 
 What these tests establish: `GET /api/hedge` serves held tickets with every
 money string worded server-side and no edge-shaped key anywhere in the payload;

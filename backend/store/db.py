@@ -25,7 +25,7 @@ from typing import Optional
 from ..core.prices import is_valid_price
 
 #: v22 adds `loop_failures`, v23 adds `parlay_card_candidates`, and v24 adds
-#: `parlay_positions` + `parlay_position_legs` (ADR 0077). **None of the three
+#: `parlay_positions` + `parlay_position_legs` (ADR 0078). **None of the three
 #: needs a migration step.** A pure new table is created by `executescript`'s
 #: `CREATE TABLE IF NOT EXISTS` on the next open, on an existing volume as well
 #: as a fresh one -- `_MIGRATIONS` exists for changes to tables that already

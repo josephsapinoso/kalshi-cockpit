@@ -1,6 +1,6 @@
 """Held parlays: what Joe is on the hook for, and what a hedge would do to it.
 
-ADR 0077. `core/hedge.py` owns the arithmetic and touches nothing; this module
+ADR 0078. `core/hedge.py` owns the arithmetic and touches nothing; this module
 owns the record, the live book, and the words. The split is the one
 `core/ladder.py` and `parlays.py` already use, for the same reason: a pure
 function is testable against a hand calculation, and a function that reads a
@@ -31,7 +31,7 @@ What this module refuses to do
 - **Rank positions.** They are listed in the order they were recorded. ADR 0071
   §2.5 forbids ranking by the consensus-vs-Kalshi gap, and this module does not
   compute that gap at all.
-- **Say whether to hedge.** It reports what is available. ADR 0077 Decision 2.
+- **Say whether to hedge.** It reports what is available. ADR 0078 Decision 2.
 
 What this module does NOT establish
 -----------------------------------

@@ -1517,7 +1517,7 @@ CREATE INDEX IF NOT EXISTS idx_loop_failures_time ON loop_failures(failed_ms DES
 -- ============================================================================
 -- Parlays Joe is actually holding, and their legs
 -- ============================================================================
--- ADR 0077. The `/parlays` desk prices combinations it might sell; **nothing
+-- ADR 0078. The `/parlays` desk prices combinations it might sell; **nothing
 -- in this project has ever recorded one he bought.** `parlay_lookups` records
 -- that a card was priced, `manual_orders` records that a ticker was sent, and
 -- neither is joined to the other or says "this ticket is live and I am on the

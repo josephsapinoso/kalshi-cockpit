@@ -4,7 +4,7 @@
  *
  * Needed rather than convenient: a sportsbook leg has no Kalshi ticker, so
  * `kalshi_markets.result` can never reach it, and without this the lock case is
- * unreachable for exactly the slips he asked about (ADR 0077).
+ * unreachable for exactly the slips he asked about (ADR 0078).
  *
  * **`resolved_source` is not sent from here.** The backend fixes it at
  * `manual`. `venue` means the exchange's own result said so, and the two are

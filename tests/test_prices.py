@@ -120,7 +120,7 @@ class TestFormatting:
 
 
 class TestDollarFormatting:
-    """`format_dollars` — the one renderer for a money amount (ADR 0077).
+    """`format_dollars` — the one renderer for a money amount (ADR 0078).
 
     It exists because the hedge surfaces report dollars, not per-contract
     prices, and `parlays._dollars` was the only dollar renderer in the product
