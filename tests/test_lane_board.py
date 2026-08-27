@@ -287,6 +287,26 @@ class TestOverlapIsSeparatedFromCollision:
         _, findings, _ = board(repo)
         assert findings_of(findings, "COLLISION", "hunk", "app.py")
 
+    def test_a_hunk_collision_does_not_claim_the_merge_will_fail(self, repo: Path):
+        """It says MAY conflict, because that is all it knows.
+
+        On 2026-08-27 this board reported `backend/parlays.py` as overlapping
+        and git auto-resolved it cleanly: main's added import and the lane's
+        two lines sat inside one 3-line context window, and adjacency makes a
+        conflict **possible, not certain**. Both the board's author and the
+        lane predicted a conflict and both were wrong in the same direction --
+        the lane found out by merging and checking the result by hand rather
+        than trusting the clean exit.
+
+        The wording is what a person acts on, so it is worth a test of its own.
+        Mutation observed red: restore "git will conflict".
+        """
+        self._two_edits(repo, lane_line=100, main_line=100)
+        _, findings, _ = board(repo)
+        hit = findings_of(findings, "COLLISION", "hunk", "app.py")[0]
+        assert "will conflict" not in hit.detail
+        assert "MAY conflict" in hit.detail
+
     def test_distant_edits_to_one_file_are_an_overlap_not_a_collision(self, repo: Path):
         """**The false-finding guard for the file half.** Mutation observed
         red: compare at file level instead of hunk level.

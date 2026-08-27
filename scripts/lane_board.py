@@ -31,9 +31,14 @@ WHAT THIS DOES NOT ESTABLISH
   NOT the fix ... The fix is to allocate at MERGE time, not at write time."*
   What it genuinely establishes is the collision *surface* between live trees,
   for which no guard existed at all.
-- **A predicted conflict is not a conflict.** Overlapping hunks mean a human
-  will have to look at that file; they do not mean the merge fails, and
-  non-overlapping edits to one file merge correctly. This is why file-level
+- **A predicted conflict is not a conflict, and the finding says MAY.** On
+  2026-08-27 this board reported `backend/parlays.py` as overlapping and git
+  auto-resolved it cleanly -- main's added import and the lane's two lines sat
+  inside one 3-line context window, and **adjacency makes a conflict possible,
+  not certain**. Both the board's author and the lane called it certain and
+  both were wrong in the same direction. Overlapping hunks mean a human should
+  look at that file; they do not mean the merge fails, and non-overlapping
+  edits to one file merge correctly. This is why file-level
   overlap is reported but does **not** fail the exit code by default: on the
   day this shipped, a file-level detector called `frontend/src/lib/api.ts` a
   collision when the two edits were 1,780 lines apart. `tasks/NEXT.md:99-103`
@@ -781,7 +786,9 @@ def find_overlap(root: Path, lanes: list[Lane], main_ref: str) -> list[Finding]:
                         "COLLISION",
                         "hunk",
                         path,
-                        f"{lane.label} vs {main_ref}: overlapping hunks -- git will conflict",
+                        f"{lane.label} vs {main_ref}: overlapping hunks -- git MAY conflict "
+                        f"and a human should look. Adjacency makes a conflict "
+                        f"possible, not certain.",
                     )
                 )
             else:
