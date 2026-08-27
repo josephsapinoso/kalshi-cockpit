@@ -243,6 +243,27 @@ live open for another reason.
   liquidity** — this says nothing about the 40/40 enter-only record, and the two
   sentences must stay apart.
 
+  **The denominator was measured afterwards and it is 35.** `35 prop legs` was
+  first written up as *partial* coverage, and it is not: every open MLB prop
+  event on the slate is eligible. Set-compared per series against
+  `KXMVECROSSCATEGORY-R` rather than count-matched — same event tickers,
+  `open_but_not_eligible` and `eligible_but_not_open` both empty on all five
+  series, 7 games × 5 statistics. **This is n = 7 games at one instant and
+  neither "partial" nor "total" may be written as a property.** The honest
+  sentence is: *on the 2026-08-27 slate all 35 open prop events were eligible;
+  whether that holds structurally is unmeasured.* Only one of the three
+  collections was checked. A clean hypothesis with a clean test: the `-R`
+  suffix on all three suggests a **rolling** collection tracking the slate,
+  against the fixed `-W5`..`-W13` NFL ones that carry zero props — re-read on a
+  different slate size decides it. Not evidence yet.
+
+  Consequence for `parlays.py:947-968`: the lane's pre-tap check is still worth
+  building and **its reason changed**. Not "eligibility is partial so the
+  fallback fires often" but "eligibility is total today and the code must be
+  correct on the day it is not" — when `covering` is empty the prefix fallback
+  fires anyway and the tap posts a leg the chosen collection does not contain.
+  It fails at Kalshi rather than silently, but after a tap instead of before.
+
 ## 2026-08-27 — a cold open buys odds on the pass it woke
 
 **Joe picked this off four options.** ADR 0077. State: **4,640 passed / 10
