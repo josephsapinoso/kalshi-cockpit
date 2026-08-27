@@ -117,3 +117,76 @@ class TestTheCallSitesPassTheRightCode:
     def test_the_trap_names_its_exit_code_explicitly(self):
         src = self._source()
         assert "trap 'shutdown 0' INT TERM" in src
+
+
+class TestNoCarriageReturnReachesTheContainer:
+    """A CRLF in a file the container executes is a crash loop, and it happened.
+
+    2026-08-27, on live: `docker/entrypoint.sh` reached the image with CRLF
+    endings, so the kernel read the shebang as an interpreter literally named
+    `bash\\r` and the container died with
+
+        env: 'bash\\r': No such file or directory
+        Main child exited normally with code: 127
+
+    ten times in ninety seconds, until Fly gave up. The Python never ran, so
+    the two schema migrations in that deploy never started -- the failure is
+    upstream of every application-level guard there is.
+
+    **`.gitattributes` already had `*.sh text eol=lf`, and it did not help.**
+    That attribute normalises on checkout and on staging; it does not rewrite a
+    file that was already sitting in the working tree from before the rule
+    existed. The blobs in git were LF the whole time. Only the working copy was
+    wrong.
+
+    **And the working copy is what ships.** `flyctl deploy --remote-only`
+    uploads the build context from disk, not `git archive HEAD`, so a clean
+    `git status` and a correct repository prove nothing about the image. That
+    is the specific gap this test closes, and it is why the check reads the
+    working tree rather than `git show`.
+    """
+
+    #: Files whose first line an interpreter reads, or which the container
+    #: executes. A CR anywhere in these is a boot failure, not a diff nuisance.
+    PATTERNS = ("*.sh", "*.bash", "Dockerfile*", "docker/*")
+
+    def _candidates(self):
+        import subprocess
+
+        root = Path(__file__).resolve().parent.parent
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z", *self.PATTERNS],
+            cwd=root, capture_output=True, check=True,
+        ).stdout.decode().split("\0")
+        return root, [t for t in tracked if t]
+
+    def test_the_tracked_shell_files_are_lf_in_the_working_tree(self):
+        root, tracked = self._candidates()
+        assert tracked, "no shell/docker files found -- the glob is wrong"
+        offenders = [
+            name for name in tracked
+            if b"\r" in (root / name).read_bytes()
+        ]
+        assert not offenders, (
+            f"CRLF in files the container executes: {offenders}. "
+            "`flyctl deploy --remote-only` ships the WORKING TREE, so a clean "
+            "`git status` does not save you. Fix with: "
+            "`git rm --cached -r . && git reset --hard HEAD`."
+        )
+
+    def test_the_entrypoint_shebang_is_reachable(self):
+        """The specific byte that took live down, asserted on its own.
+
+        Named separately from the sweep above because this is the one file
+        whose first line decides whether the container boots at all, and a
+        sweep that grows to cover more files should never be able to stop
+        covering this one.
+        """
+        root, _ = self._candidates()
+        first = (root / "docker" / "entrypoint.sh").read_bytes().split(b"\n")[0]
+        assert first.startswith(b"#!"), first
+        assert not first.endswith(b"\r"), (
+            "the shebang ends in a carriage return; the kernel will look for "
+            "an interpreter with a CR in its name and the container will exit "
+            "127 before any Python runs"
+        )

@@ -331,6 +331,44 @@ where a config change makes a test red rather than a comment wrong.
   always misses. Idempotent on a second boot, and a pre-existing undelivered row
   correctly stays a failure rather than being written off.
 
+### Deployed 2026-08-27 ~22:15Z, and it took live down for four minutes first
+
+**Live is at `7c25247`** — `/api/health` `build.git_sha`, read after the run
+went green and checked against `origin/main`, not inferred from the deploy
+succeeding. `status: ok`, recorder writing, **`suppressed_last_24h` served**,
+which is also the proof both migrations applied: the endpoint queries the
+column and would 500 without it.
+
+**The first deploy attempt crash-looped the box.** `docker/entrypoint.sh`
+reached the image with CRLF endings, so the kernel looked for an interpreter
+named `bash`, the container exited **127 before any Python ran**, and Fly
+gave up after ten restarts. **The migrations never started** — the failure is
+upstream of every application-level guard there is.
+
+**The repository was correct the whole time.** The blobs in git were LF,
+`git status` was clean, the suite was green, and `.gitattributes` carried
+`*.sh text eol=lf` **plus a comment describing this precise failure**. Only the
+working copy was wrong — and `flyctl deploy --remote-only` uploads the working
+tree, not `git archive HEAD`, so every check that reads the repository was
+looking at a different object than the one being shipped. `text eol=lf`
+normalises on checkout and staging and does **not** rewrite a file already on
+disk from before the rule existed.
+
+Fixed with `git rm --cached -r . && git reset --hard HEAD`, and guarded:
+`TestNoCarriageReturnReachesTheContainer` reads the **working tree** on purpose
+— the obvious implementation against `git show HEAD:` would have passed
+throughout. Mutation observed red by restoring the CRLF.
+
+**A second miss in the same deploy, smaller:** the first two attempts ran
+without `-e GIT_SHA="$(git rev-parse HEAD)"`, so `/api/health` reported
+`git_sha: null` — the one field this file tells every session to check. It is
+documented at `fly.live.toml:3` and was simply forgotten. Redeployed with it.
+
+**Read the logs, not the exit code.** `flyctl` reported
+`Unrecoverable error: timeout reached waiting for health checks ... request
+canceled` — a *client-side* API timeout, which is not a health check failing,
+and the exit code cannot separate the two.
+
 ### Open
 
 - **ADR 0079's prop tap — needs Joe.** One tap on the phone. Look for the

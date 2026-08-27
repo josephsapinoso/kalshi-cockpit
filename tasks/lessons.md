@@ -25,6 +25,56 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-27 — The deploy ships the working tree, so a correct repository proves nothing
+
+A deploy took live down for about four minutes. The cause was a carriage return
+in `docker/entrypoint.sh`: the kernel read the shebang as an interpreter
+literally named `bash\r`, the container exited 127 before any Python ran, and
+Fly restarted it ten times and gave up.
+
+**Everything that was supposed to prevent this was in place and none of it
+fired.** `.gitattributes` carried `*.sh text eol=lf` **and a comment describing
+this exact failure, including the words "crash loop with nothing in the logs
+pointing at the cause"**. The blobs in git were LF. `git status` was clean. The
+full suite was green. The file on disk was CRLF.
+
+**The gap: `flyctl deploy --remote-only` uploads the build context from disk,
+not `git archive HEAD`.** So the artifact that ships is the working tree, and
+every check that reads the repository — status, diff, the committed blob, CI —
+is looking at a different object than the one being deployed. They agreed with
+each other and all of them were irrelevant.
+
+And `text eol=lf` does not do what it looks like it does. It normalises on
+checkout and on staging; **it does not reach back and rewrite a file already
+sitting in the working tree from before the rule existed.** An attribute added
+after a file was checked out is a rule with no retroactive effect, and nothing
+announces that.
+
+Three habits:
+
+1. **Ask what the deploy actually uploads.** If it is the working directory,
+   then "the repo is correct" is not evidence about the deployed artifact, and
+   the check has to read the same bytes the uploader will. The guard written
+   here reads the working tree on purpose, and says so, because the obvious
+   implementation — `git show HEAD:file` — would have passed throughout.
+2. **A convention recorded in a config file is not enforcement.** `.gitattributes`
+   stated the rule perfectly and had no way to fail. The distance between "we
+   wrote down that this must not happen" and "something breaks when it does" is
+   the whole distance.
+3. **Failures upstream of the interpreter are invisible to every
+   application-level guard.** No test, migration guard or health check can run
+   in a container that dies at exec. When a deploy fails, read whether the
+   process ever started before reasoning about what it did.
+
+**And one thing that went right, worth copying:** the deploy tool reported
+`Unrecoverable error: timeout reached waiting for health checks... request
+canceled` — a *client-side* API timeout, which is not the same as a health check
+failing, and the exit code could not tell the two apart. Reading the logs rather
+than trusting the exit code is what found the real cause in one step. This
+repo's standing rule that `flyctl` output is lossy applies to its failures too.
+
+---
+
 ## 2026-08-27 — Deliberately producing the signature an alarm watches for disables the alarm, and nothing announces it
 
 An alarm was built to catch one specific thing: a notification row claimed and
