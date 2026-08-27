@@ -401,6 +401,99 @@ class DiscordNotifier:
             }
         )
 
+    async def hedge_lock(self, position: dict, *, notes: dict) -> bool:
+        """A hedge that locks a known amount on a ticket Joe holds (ADR 0078).
+
+        **This is the only alert in the product that names a dollar figure it
+        stands behind**, and it can because the figure is not a forecast: with
+        one leg live and every other already won, buying `n` contracts of the
+        other side has a known answer in both branches. Two observed numbers
+        and some algebra.
+
+        **Every string arrives pre-rendered**, exactly as `parlay_card` does
+        and for its reason: the screen and the embed must not be able to
+        disagree by a rounding step, which they would within a week if this
+        formatted its own floats.
+
+        **It says what is available and never "hedge now".** ADR 0072 Decision
+        1: alert text may contain only nouns traceable to a field the check
+        actually read. This check read a price, a depth and a payout. It did
+        not read the future, so it does not mention it -- and the
+        `not_advice` caveat travels in the footer saying so.
+
+        **A de-risk never reaches this method.** Hedging one of several live
+        legs locks nothing, and a phone that buzzes for a number the tool
+        cannot stand behind is a phone nobody leaves un-muted. Those stay on
+        the screen; `Alerter.hedge_locks` is what enforces it.
+
+        **No button, and the link goes to the cockpit.** Same ruling as every
+        other embed here -- and in this case the hedge cannot be placed from
+        the cockpit either (the manual door is capped at one contract), so the
+        screen names the size and Kalshi takes the order.
+        """
+        if not self.config:
+            return False
+        block = position.get("hedge") or {}
+        rung = block.get("best_available")
+        if block.get("kind") != "lock" or not block.get("guaranteed") or not rung:
+            # Nothing to say. Guarded here as well as in the policy because a
+            # transport that renders an unlocked "lock" is one that will
+            # eventually be called by something that forgot to check.
+            return False
+
+        fields = [
+            _field(
+                "Locks",
+                f"{block['guaranteed_display']} whichever way it goes",
+                inline=False,
+            ),
+            _field(
+                "Buy",
+                f"{rung['contracts']} x {block.get('side', '').upper()} "
+                f"at {block.get('ask_display')}",
+                inline=False,
+            ),
+            _field("Costs", rung["cost_display"]),
+            _field("Ticket", f"{position['stake_display']} -> "
+                             f"{position['return_display']}"),
+        ]
+        live = [leg for leg in position.get("legs") or []
+                if leg.get("outcome") == "pending"]
+        if live:
+            fields.append(
+                _field(
+                    "Leg still live",
+                    f"{live[0].get('label')} — {live[0].get('chance_display')} "
+                    "by the venue's own bid",
+                    inline=False,
+                )
+            )
+
+        return await self._post(
+            {
+                "title": f"Hedge available — {position.get('label')}",
+                "description": (
+                    "Every other leg has won. Buying the other side of the "
+                    "last one now has a known answer in both branches."
+                ),
+                "url": f"{self.config.cockpit_base_url}/hedge",
+                # Deliberately NOT the palette's opportunity green. Green is
+                # "we found something"; this is "you already have something,
+                # and here is what it is worth to close it".
+                "color": COLOUR_PARLAY,
+                "fields": fields,
+                "footer": {
+                    "text": "\n".join(
+                        note for note in (
+                            notes.get("upper_bound"),
+                            notes.get("not_advice"),
+                            notes.get("no_button"),
+                        ) if note
+                    )
+                },
+            }
+        )
+
     # -- digests -----------------------------------------------------------
 
     async def daily_digest(

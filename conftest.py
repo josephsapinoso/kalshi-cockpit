@@ -151,6 +151,37 @@ def forget_computed_joints():
     _JOINT_CACHE.clear()
 
 
+def python_code_without_prose(path) -> str:
+    """A module's SOURCE with every comment and string literal removed.
+
+    For guards that assert a module cannot reach something -- an Anthropic
+    client, a credit meter, a table it must not read. Asserting against raw
+    source is the obvious way to write those and it is wrong in the direction
+    that hurts: a module whose docstring *explains* that it never writes
+    `api_credits` fails a test for the sentence, so the next person weakens the
+    assertion or deletes the explanation. Both are worse than the guard.
+
+    Comments and docstrings are dropped by tokenizing rather than by regex,
+    which cannot be fooled by a `#` inside a string or a triple-quote inside a
+    comment. Every remaining STRING token goes too -- an import path or a SQL
+    statement that must be caught lives in a NAME token either way, and a
+    string is exactly where prose hides.
+
+    Written for `tests/test_hedge_alerts.py`, which failed on its own
+    docstring the first time it ran.
+    """
+    import io
+    import tokenize
+
+    source = Path(path).read_text(encoding="utf-8")
+    kept: list[str] = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        kept.append(token.string)
+    return " ".join(kept)
+
+
 def load_fixture(name: str):
     """Load a captured API payload, skipping the test if it hasn't been captured.
 

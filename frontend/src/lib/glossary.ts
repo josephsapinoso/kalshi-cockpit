@@ -42,6 +42,27 @@ export const GLOSSARY = {
       "other slightly, so the number here is computed with that link " +
       "included, not by bare multiplication.",
   },
+  hedge: {
+    label: "hedge",
+    definition:
+      "Betting the other side of something you already have money on, to " +
+      "cut what you can lose. You hold Cincinnati; Cincinnati are losing; " +
+      "you buy San Francisco separately so one of the two pays.",
+  },
+  lock: {
+    label: "lock",
+    definition:
+      "A hedge big enough that you end up with the same amount whichever " +
+      "way the last leg goes. Only possible when every other leg has " +
+      "already won — then it is arithmetic, not a guess.",
+  },
+  derisk: {
+    label: "de-risk",
+    definition:
+      "Hedging while more than one leg is still live. It cuts the swing " +
+      "but guarantees nothing: the ticket can still lose on a leg you did " +
+      "not hedge.",
+  },
   hold: {
     label: "hold",
     definition:

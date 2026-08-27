@@ -109,6 +109,8 @@ from backend.odds.timing import (  # noqa: E402
     window_status,
 )
 from backend.parlays import build_ladder_payload  # noqa: E402
+from backend.hedge_watch import watch_hedges_forever  # noqa: E402
+from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -545,6 +547,34 @@ async def main() -> int:
             name="portfolio-poll",
         )
 
+        # The hedge watcher (ADR 0078), on the same reasoning and the same
+        # shape: its own task, its own connection, its own cadence.
+        #
+        # NOT on the quote pass, and that is the load-bearing choice. That pass
+        # is budgeted 8s so a Kalshi quote stays inside its 30s limit and
+        # already runs ~4.2s live; ADR 0072 Decision 5 is the record of what
+        # happens when work is added there because it looked free. This cannot
+        # slow the recorder because it is not on the recorder's clock.
+        #
+        # It spends nothing metered -- one Kalshi orderbook read per watched
+        # ticker, and only while a watched game is actually in progress. It
+        # writes no `recommendations` row, so ADR 0006's evidence guard is
+        # untouched, and `gate.py` cannot see any table it uses (ADR 0078 §4).
+        hedge_quotes = LiveQuoteSource()
+        hedge_task = asyncio.create_task(
+            watch_hedges_forever(
+                args.db,
+                # A factory, because an `Alerter` binds a connection and the
+                # watcher owns the only one it may use -- the loop's own
+                # connection is used sequentially by its pass, and a concurrent
+                # task on that handle would interleave two transactions.
+                lambda watch_conn: Alerter(watch_conn, discord),
+                fetch_quote=hedge_quotes.fetch,
+                max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
+            ),
+            name="hedge-watch",
+        )
+
         def window_now():
             """The window as of *this instant*, from one expression.
 
@@ -859,6 +889,10 @@ async def main() -> int:
             portfolio_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await portfolio_task
+            hedge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await hedge_task
+            await hedge_quotes.aclose()
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()
             )

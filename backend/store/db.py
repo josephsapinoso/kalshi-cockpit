@@ -24,12 +24,22 @@ from typing import Optional
 
 from ..core.prices import is_valid_price
 
-#: v22 adds `loop_failures`, v23 adds `parlay_card_candidates`. Neither needs a
-#: migration step. A pure new table is created by `executescript`'s
+#: v22 adds `loop_failures`, v23 adds `parlay_card_candidates`, and v24 adds
+#: `parlay_positions` + `parlay_position_legs` (ADR 0078). **None of the three
+#: needs a migration step.** A pure new table is created by `executescript`'s
 #: `CREATE TABLE IF NOT EXISTS` on the next open, on an existing volume as well
 #: as a fresh one -- `_MIGRATIONS` exists for changes to tables that already
 #: hold rows, which these are not.
-SCHEMA_VERSION = 23
+#:
+#: **v23 was claimed twice**, on two branches at once: `parlay_card_candidates`
+#: on one and the hedge tables on the other, both correct in isolation and
+#: neither aware of the other. A volume stamped v23 would then have had one
+#: pair of tables or the other depending on which image booted it, and
+#: `open_db` would have raised on neither -- the stamp matches, so nothing
+#: looks wrong. The hedge tables took v24 on merge; the lesson is that a
+#: version number is a claim about the WHOLE schema and a lane cannot allocate
+#: one alone.
+SCHEMA_VERSION = 24
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.

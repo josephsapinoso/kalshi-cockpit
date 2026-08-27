@@ -116,6 +116,82 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A schema version is a claim about the whole database, so a lane cannot allocate one
+
+Two branches were open at once. One added `parlay_card_candidates` and bumped
+`SCHEMA_VERSION` to 23. The other added `parlay_positions` and
+`parlay_position_legs` and bumped `SCHEMA_VERSION` to 23. Each was correct on
+its own, each shipped with the "a pure new table needs no migration step"
+reasoning intact, and each was verified against a v22 database.
+
+**The failure is silent, and that is what makes it worth a lesson.** A volume
+stamped v23 would carry one pair of tables or the other depending on which image
+booted it. `open_db` refuses on a version *mismatch* — and there is none. The
+stamp matches, so nothing looks wrong; what breaks is a query against a table
+that was never created, arriving as an error from somewhere else entirely.
+
+Merging caught it here only because both branches touched `db.py` on the same
+line. **Had one of them bumped the constant in a second place, or had the file
+been formatted so the two edits did not overlap, git would have merged them
+clean and produced a tree claiming v23 with four new tables and no record of
+which version introduced which.**
+
+**The pattern: any counter that names a global state cannot be incremented from
+a branch that can only see itself.** `SCHEMA_VERSION` is one. So is any
+migration ordinal, any "next ADR number", any fixture index. A lane picks a
+value that was free *when the lane started*, which is a different question from
+whether it is free now.
+
+Two things that would have caught it earlier, neither of which exists:
+
+- **A test that the version and the table set agree.** `SCHEMA_VERSION` is a
+  number; nothing asserts what schema it names. A checksum over
+  `sqlite_master` for a freshly built database, pinned per version, would go red
+  on any second allocation of the same number.
+- **Reading `main` before allocating.** `git show main:backend/store/db.py |
+  grep SCHEMA_VERSION` is three seconds and was not run at the start of the
+  lane, because the lane's own tree said 22 and that looked like the answer.
+
+**The ADR number collided too, in the same merge, and the first version of this
+lesson said it "got lucky".** It did not. Both lanes wrote a `docs/adr/0074-*.md`
+— "the desk draws four pictures" on one and "the desk watches what Joe holds" on
+the other — and git merged them **clean**, because they are different filenames
+that happen to share a prefix. Nothing conflicted, nothing was reported, and the
+tree carried two ADR 0074s with two dozen cross-references pointing at an
+ambiguous number. Renumbered to 0077 afterwards, by hand, across 24 files.
+
+That is the version of this failure with no safety net at all: the schema
+collision was caught only because both edits landed on the same LINE of
+`db.py`. **Filename-prefix allocation has no line to collide on.** A `ls
+docs/adr/ | tail` on `main`, not on the lane, is the whole check.
+
+**"Read `main` before taking one" is NOT the fix, and this lesson said it was
+for about an hour.** While the merge above was being tested, `main` gained
+another commit that took ADR **0077** — the number this lane had just renumbered
+*to*. Three collisions in one day, on two different counters, and the second
+renumber happened for the same reason as the first.
+
+Reading `main` at the start of a lane answers "what was free when I started",
+which is not the question. A lane that runs for hours is racing every other lane
+for the whole of it, and the check has a window exactly as long as the gap
+between looking and pushing.
+
+**The fix is to allocate at MERGE time, not at write time.** Concretely:
+
+- Write the ADR under a name that cannot collide — a slug with no ordinal — and
+  number it in the merge commit, after `git fetch`, as the last thing before the
+  push.
+- Or number it optimistically and treat `ls docs/adr/ | tail` + `git show
+  main:backend/store/db.py | grep SCHEMA_VERSION` as **part of the push**, not
+  part of the planning. Re-run them after every `git fetch`, however many times
+  that is.
+
+Three counters in this repo name global state and can each be allocated twice:
+`SCHEMA_VERSION`, the ADR ordinal, and any migration step number. **None of them
+is safe to hold across a test run.**
+
+---
+
 ## 2026-08-26 — A mutation can lie, and a green result is not evidence until you know the mutation landed
 
 A component was forbidden from drawing a value. To prove the guard bit, the
@@ -288,6 +364,140 @@ The stakes are not tidiness. A suite is a guard that only works while people
 run it, and every minute added raises the odds it gets skipped, backgrounded,
 or trusted from memory. **A test nobody waits for has the same value as a test
 that does not exist**, with the added cost of looking like coverage.
+
+---
+
+## 2026-08-26 — A guard that greps its own module must read the code, not the prose
+
+`test_the_watcher_spends_nothing_metered` asserts `"api_credits" not in source`
+over `backend/hedge_watch.py`. It failed on the module's own docstring, which
+explains — correctly, and usefully — that no `api_credits` row is written.
+
+Both obvious fixes are worse than the guard. Weakening the assertion removes the
+thing it was for. Deleting the sentence removes the explanation a reader needs
+and leaves the next person to rediscover why the module is written that way.
+
+**The pattern: a source-grep guard is asserting about *behaviour*, so it must
+read the tokens that produce behaviour.** Comments and string literals are
+exactly where the words it is searching for legitimately appear — and the better
+the module is documented, the more likely the guard is to fire on it. So the
+better-documented a codebase gets, the more this class of test punishes it.
+
+`conftest.python_code_without_prose` tokenizes and drops `COMMENT` and `STRING`.
+Tokenizing rather than regex, because a `#` inside a string and a triple-quote
+inside a comment both defeat the regex, and every identifier a guard needs to
+catch survives as a `NAME` token either way.
+
+Add a vacuity guard beside it (`assert "watch_hedges_forever" in code`): a
+stripper that ate the module would make every assertion pass.
+
+---
+
+## 2026-08-26 — A GREEN mutation is a claim about the harness before it is a claim about the test
+
+Four mutations survived a run over `notify/alerts.py` and `hedge_watch.py`. Read
+at face value, that is four holes in the tests. Checked by hand, **two of the
+four were the harness patching the wrong code**:
+
+- `Alerter.parlay_cards` and `Alerter.hedge_locks` both contain the exact lines
+  `if key is None:` / `continue`. `source.replace(old, new, 1)` takes the
+  **first** occurrence, so the mutation landed in the function nobody was
+  testing, the tests passed, and it read as a hole.
+- A second anchor was mangled by heredoc escaping and matched nothing, which the
+  harness reported as `ANCHOR MISSING` — the one failure mode it *does* name.
+
+The two genuine holes were real and worth the run. The false ones cost as long
+to chase as the real ones took to fix.
+
+**The pattern: a mutation that stays GREEN must be reproduced by hand before it
+is treated as a finding.** Apply it, run the one test that should have caught
+it, look at the diff. And when a codebase has two functions that legitimately
+share a line — which is normal for a policy module with several event types —
+anchor on the surrounding line that is unique, not on the line being changed.
+
+**And the third hole was a vacuous test, which the harness found correctly.**
+`test_a_failing_cycle_never_takes_the_loop_down` ran the watcher against an
+empty database, so `anything_in_progress` was False, the cycle body never ran,
+and the `try/except` under test was never entered. A loop guard tested on an
+idle system tests nothing. **Seed the condition that makes the body run**, and
+say so in the test, or the next reader deletes the seeding as noise.
+
+---
+
+## 2026-08-26 — Rule 1 has a scope, and it belongs on the input rather than on the result
+
+CLAUDE.md rule 1 is that a large apparent edge is a bug until proven otherwise.
+The plan for the hedge feature applied it the obvious way: suppress a lock that
+is large relative to the stake.
+
+That would have silenced the feature at its most useful. A $4.99 ticket
+returning $333.33 with one leg left, hedged at even money, locks about $172 —
+**34x the stake, and entirely real.** It is simply what hedging a longshot
+parlay looks like. A lock-to-stake rule fires hardest on exactly the cases the
+feature exists for.
+
+What catches a genuine bug is an invariant that **cannot be true of the input**:
+both sides of a book quoting for a dollar or less together is free money, which
+no real book offers, so it is bad data by construction.
+
+**The pattern: before writing a suppression, name the legitimate value it would
+silence.** If you can name one, the rule is keyed on the wrong quantity — move
+it from the result to a property of the input that no valid input can have. Rule
+1 is about *apparent* edges; a number that is large because the arithmetic says
+so is not an apparent edge, it is an answer.
+
+Pin the absence with a test. `TestRuleOneIsAppliedToTheBookAndNotToTheSizeOfTheLock`
+asserts a 34x lock is reported, so a future session that adds the suppression
+goes red and has to reopen the ADR rather than quietly re-deciding it.
+
+---
+
+## 2026-08-26 — An unknown budget must not resolve to zero, exactly as an unknown price must not
+
+The repo's oldest rule is that an unreadable price resolves to `None`, never
+`0`. It was written about prices and the same shape reaches anything a decision
+is bounded by.
+
+`latest_balance_tenths` answers `None` whenever the newest five-minute poll
+could not read the venue's figure — a routine outage, not an empty account.
+Folding that into an affordability cap of **0 contracts** would have made every
+hedge unaffordable and **silenced the alert for exactly as long as the mirror
+was behind**.
+
+The direction is what makes it dangerous. A price that wrongly reads zero
+manufactures an edge and gets caught by a suppression rule; a *budget* that
+wrongly reads zero produces silence, and silence is indistinguishable from
+"nothing is happening". Nothing fires, nothing is logged, and the feature looks
+like it is working.
+
+`affordable_contracts` returns `(count, known)` as a pair so a caller cannot
+take the number without the flag, falls back to what the order book allows, and
+the screen says the cap is not real.
+
+---
+
+## 2026-08-26 — Killing a background command's shell does not kill the process it started
+
+A full-suite run launched in the background was stopped by killing the PIDs the
+process table showed. It reported success, the task notification arrived, and
+the **actual pytest kept running** — detached from the shell that started it.
+
+The cost was not the wasted CPU. A second suite was then launched beside it,
+the two competed for a shared-core laptop, throughput fell to ~12 tests a
+minute, and the run projected out to six hours against a 14-minute history. That
+read as a hang in an unfamiliar worktree, and the next twenty minutes went into
+diagnosing a slow test file that was not slow.
+
+**The pattern: after killing a long-running background job, verify by the
+command line rather than by the exit code.** `wmic process where "name='python.exe'"
+get ProcessId,CommandLine` shows what is actually running and what it was
+invoked as, which is what separates "my job" from "the job I thought I killed".
+
+And the second half: **a full test run does not have to block editing.**
+`git worktree add --detach <path> <sha>` gives the baseline its own copy of the
+tree at the right commit, so the measurement is taken on files nobody is
+touching — which is the property the "never patch under a running suite" lesson
+actually needs, rather than serialising the two.
 
 ---
 

@@ -139,6 +139,20 @@ export default async function BetsPage() {
           "CLV on his own bets" at per-bet rows until n >= 30. */}
       <RecordChart bets={record.bets} />
 
+      {/*
+        The way in to the hedge screen (ADR 0078). Here rather than in the nav:
+        the six-link budget is load-bearing at 390px (ADR 0073), and what he
+        holds already lives on this page — a ticket the venue cannot see is the
+        same subject as the positions above it.
+      */}
+      <p className="mt-4 max-w-[65ch] text-sm text-muted">
+        A parlay you placed somewhere else is invisible here.{" "}
+        <Link href="/hedge" className="underline decoration-dotted">
+          Record it on the hedging screen
+        </Link>{" "}
+        and the desk will watch its legs while the games run.
+      </p>
+
       {record.bets.length === 0 ? (
         <p className="mt-8 max-w-[65ch] text-sm text-muted">
           Nothing has settled since the recorder started watching. When a
