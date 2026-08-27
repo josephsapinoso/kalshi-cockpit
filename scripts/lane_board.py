@@ -997,6 +997,11 @@ you push. It is a snapshot, not a lock -- see the script's docstring and
   writing `0077-a.md` and `0077-b.md` have no line to conflict on. Guard:
   `tests/test_parallel_lanes_do_not_collide.py`. Rule: `docs/adr/README.md`.
 
+- **How to run a lane day to day is ADR 0003 §6** — commit early, keep
+  lanes short, split at the decision boundary, close on merge, one
+  integrator, two lanes is comfortable. Stated once there, pointed at
+  from here, so the two cannot disagree.
+
 ## Allocation ledger
 
 The only part a measurement cannot produce, because it is a claim about the

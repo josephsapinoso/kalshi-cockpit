@@ -117,6 +117,46 @@ A worker that needed a file outside its lane must say so rather than reaching fo
 it. That report is the integrator's merge list, and it is the only signal that
 the partition was wrong.
 
+### 6. How to actually run a lane — added 2026-08-27
+
+§1–§5 say how work is *partitioned*. They say nothing about how a lane is run
+day to day, so every session re-derived it and 2026-08-27 spent most of a day
+paying for the gaps. Six rules, each sourced to something that went wrong:
+
+1. **Commit early, and often, not at the end.** Every guard in this repo reads
+   commits — the collision guard, CI, and `scripts/lane_board.py`. A lane
+   holding 712 uncommitted insertions is invisible to all of them, which is
+   different from unsafe: the files are on disk and survive a session ending.
+   The exposure is that nothing can *see* the work, so nothing can warn anyone
+   about it.
+2. **Keep a lane short.** All three of that day's collisions happened because a
+   lane ran for hours holding a claim on a counter. `tasks/lessons.md:168-191`:
+   a lane that runs for hours races every other lane for the whole of it.
+3. **Split at the decision boundary, not the worker boundary.** A lane carrying
+   two decisions is two *commits* by one worker, not two workers — splitting it
+   across workers puts both on the same file's consumers and manufactures a
+   collision that did not exist. Assign a commit to a decision by reading the
+   hunk, not the filename: `tests/test_runner.py` looked like test-suite work
+   and was in fact the spend change, because its only edit inverted one
+   assertion.
+4. **Close a lane the moment its branch merges.** A removed worktree leaves
+   directories behind that `git worktree prune` does not clean, and the next
+   session cannot tell them from a live lane. The board reports them; a human
+   deletes them.
+5. **One session is the integrator.** It owns §2's files, deploys, and the odds
+   budget. A lane with something for those files writes it to its own file and
+   hands it over — that is what §2 is for, and it works: a lesson written in a
+   lane and merged by the integrator cost nothing, while appending directly
+   would have manufactured a second conflict.
+6. **Two concurrent lanes is comfortable; be deliberate past that.** Collision
+   risk scales with *pairs*, so three lanes carry three times the surface of
+   two rather than one and a half.
+
+Before claiming an ADR number or a schema version, and again before pushing,
+run `scripts/lane_board.py`. It is the only thing that can see two lanes at
+once, and it reads uncommitted work — which no test can, because a test only
+ever sees the tree it runs in.
+
 ## Consequences
 
 Serial work stays correct by default; parallel work is correct only if the lanes
