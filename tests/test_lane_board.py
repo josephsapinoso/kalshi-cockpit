@@ -76,8 +76,13 @@ def _db(version: int) -> str:
 
 def _base_repo(root: Path) -> Path:
     """A repo with `main`, a few ADRs including a companion, and a db.py."""
-    repo = root / "origin"
+    # The integration checkout lives beside unrelated projects, and the lanes
+    # live somewhere else entirely. That is the real layout -- main under
+    # `Documents/Claude/Projects/`, lanes under `~/.herdr/worktrees/` -- and
+    # getting it wrong in a fixture is what let the sibling-scan defect ship.
+    repo = root / "projects" / "origin"
     repo.mkdir(parents=True)
+    (root / "lanes").mkdir(parents=True, exist_ok=True)
     _run(["git", "init", "-q", "-b", "main"], repo)
     _run(["git", "config", "user.email", "t@example.invalid"], repo)
     _run(["git", "config", "user.name", "test"], repo)
@@ -93,8 +98,12 @@ def _base_repo(root: Path) -> Path:
     return repo
 
 
+def _lane_root(repo: Path) -> Path:
+    return repo.parents[1] / "lanes"
+
+
 def _add_lane(repo: Path, name: str) -> Path:
-    path = repo.parent / name
+    path = _lane_root(repo) / name
     _run(["git", "worktree", "add", "-q", "-b", name, str(path), "main"], repo)
     _run(["git", "config", "user.email", "t@example.invalid"], path)
     _run(["git", "config", "user.name", "test"], path)
@@ -380,7 +389,7 @@ class TestUnreadableIsNeverClean:
         """Mutation observed red: fold 3 into 0. The verdict then reads OK on a
         board that never saw one of its lanes."""
         _add_lane(repo, "lane-a")
-        stale = repo.parent / "left-behind"
+        stale = _lane_root(repo) / "left-behind"
         (stale / "frontend").mkdir(parents=True)
 
         lanes, findings, _ = board(repo)
@@ -395,13 +404,73 @@ class TestUnreadableIsNeverClean:
         repository" -- disappears from the report entirely.
         """
         _add_lane(repo, "lane-a")
-        stale = repo.parent / "left-behind"
+        stale = _lane_root(repo) / "left-behind"
         (stale / "frontend").mkdir(parents=True)
 
         lanes, _, _ = board(repo)
         lane = lane_named(lanes, "left-behind")
         assert lane.kind == "unregistered-dir"
         assert "absent from `git worktree list`" in lane.unreadable
+
+    def test_a_sibling_of_the_integration_checkout_is_never_a_lane_candidate(
+        self, repo: Path
+    ):
+        """**The destructive false positive, pinned.** Reported by the
+        `parlay-props` lane before anyone acted on it.
+
+        Run from a LANE, the integration checkout looks like just another
+        worktree, so its parent -- a general projects folder -- was treated as
+        a lane root. Sixteen of Joe's unrelated repositories were reported with
+        the words "a human deletes it", one of them the predecessor project
+        `CLAUDE.md` tells every session to read.
+
+        Mutation observed red **only with both checks in `derive_lane_roots`
+        removed together**, and that is worth saying rather than hiding: the
+        two are redundant, either alone suppresses the defect, so mutating one
+        is masked by the other. Removing both reproduces exactly what shipped
+        -- the neighbour below reported as a leftover lane shell.
+        """
+        lane = _add_lane(repo, "lane-a")
+        neighbour = repo.parent / "someones-other-project"
+        neighbour.mkdir(parents=True)
+
+        # Read the world the way the lane sees it -- which is where it broke.
+        lanes, _ = lane_board.collect(lane, main_ref="main")
+        labels = {entry.label for entry in lanes}
+        assert "someones-other-project" not in labels
+
+    def test_a_directory_with_its_own_git_is_never_reported(self, repo: Path):
+        """The second half of the gate. A leftover lane shell has no `.git` --
+        git removed the pointer and left the directories -- while somebody
+        else's checkout always has one.
+
+        Mutation observed red: drop the `_is_its_own_repository` check. An
+        unrelated repository sitting in the lane root is reported as a shell to
+        delete.
+        """
+        _add_lane(repo, "lane-a")
+        stranger = _lane_root(repo) / "not-a-lane"
+        stranger.mkdir(parents=True)
+        _run(["git", "init", "-q"], stranger)
+
+        lanes, _, _ = board(repo)
+        assert "not-a-lane" not in {entry.label for entry in lanes}
+
+    def test_the_finding_does_not_instruct_a_human_to_delete(self, repo: Path):
+        """It is an observation, not an order. The first wording said "a human
+        deletes it", and a false positive phrased as an instruction is how a
+        reporting tool causes the harm it was built to prevent.
+
+        Mutation observed red: restore that phrasing.
+        """
+        _add_lane(repo, "lane-a")
+        stale = _lane_root(repo) / "left-behind"
+        (stale / "frontend").mkdir(parents=True)
+
+        lanes, _, _ = board(repo)
+        reason = lane_named(lanes, "left-behind").unreadable
+        assert "a human deletes it" not in reason
+        assert "check before removing it" in reason
 
     def test_a_binary_change_reports_none_lines_not_zero(self, repo: Path):
         """Mutation observed red: map numstat's `-` to 0. A binary change then

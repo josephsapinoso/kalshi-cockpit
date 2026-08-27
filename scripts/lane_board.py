@@ -236,7 +236,7 @@ def list_worktrees(root: Path) -> tuple[list[dict[str, str]], str | None]:
 
 
 def derive_lane_roots(
-    entries: list[dict[str, str]], root: Path, override: Path | None
+    entries: list[dict[str, str]], main_ref: str, override: Path | None
 ) -> list[Path]:
     """Directories that hold lane worktrees.
 
@@ -244,17 +244,46 @@ def derive_lane_roots(
     goes empty the moment the last lane merges, which is why `--lane-root`
     exists and why `tasks/LANES.md` records the path in prose.
     """
+    integration = _integration_path(entries, main_ref)
     roots: list[Path] = []
     for entry in entries:
         path = Path(entry["worktree"])
-        if path.resolve() == root.resolve():
+        if integration is not None and path.resolve() == integration.resolve():
             continue
         parent = path.parent
+        # **Never scan the integration checkout's own neighbourhood.** Run from
+        # a LANE, `root` is the lane, so the main checkout looks like just
+        # another worktree and its parent -- a general projects folder holding
+        # sixteen unrelated repositories, one of them the predecessor project
+        # `CLAUDE.md` tells every session to read -- becomes a "lane root".
+        # Every sibling was then reported with the words "a human deletes it".
+        # Caught by the `parlay-props` lane before anyone acted on it.
+        if integration is not None and parent.resolve() == integration.parent.resolve():
+            continue
         if parent not in roots:
             roots.append(parent)
     if override is not None and override not in roots:
         roots.append(override)
     return roots
+
+
+def _integration_path(entries: list[dict[str, str]], main_ref: str) -> Path | None:
+    for entry in entries:
+        branch = entry.get("branch", "").rsplit("/", 1)[-1]
+        if branch == main_ref:
+            return Path(entry["worktree"])
+    return None
+
+
+def _is_its_own_repository(path: Path) -> bool:
+    """True when this directory is an independent checkout, not a lane shell.
+
+    The discriminator that stops the scan reporting unrelated projects. A
+    leftover worktree shell has no `.git` of its own -- git removed the pointer
+    and left the directories -- while somebody else's project always has one.
+    """
+    pointer = path / ".git"
+    return pointer.is_dir() or pointer.is_file()
 
 
 def unregistered_dirs(lane_roots: list[Path], entries: list[dict[str, str]]) -> list[Path]:
@@ -263,6 +292,12 @@ def unregistered_dirs(lane_roots: list[Path], entries: list[dict[str, str]]) -> 
     `git worktree prune` does not remove these -- it only cleans `.git`'s
     administrative copies -- so a merged lane can leave a shell behind that
     looks like a lane and is not one.
+
+    **Anything that is its own repository is skipped**, because the alternative
+    is telling a human to delete a project that merely happens to sit nearby.
+    `docs/adr/README.md` makes that argument about ADR numbering and it applies
+    to this scan word for word: a guard whose first finding is a false one gets
+    weakened or deleted.
     """
     known = {Path(e["worktree"]).resolve() for e in entries}
     found: list[Path] = []
@@ -272,8 +307,9 @@ def unregistered_dirs(lane_roots: list[Path], entries: list[dict[str, str]]) -> 
         except OSError:
             continue
         for child in children:
-            if child.resolve() not in known:
-                found.append(child)
+            if child.resolve() in known or _is_its_own_repository(child):
+                continue
+            found.append(child)
     return found
 
 
@@ -560,7 +596,7 @@ def collect(
             )
         )
 
-    lane_roots = derive_lane_roots(entries, root, lane_root)
+    lane_roots = derive_lane_roots(entries, main_ref, lane_root)
     for stale in unregistered_dirs(lane_roots, entries):
         lanes.append(
             Lane(
@@ -568,8 +604,11 @@ def collect(
                 kind="unregistered-dir",
                 path=stale,
                 unreadable=(
-                    f"present on disk at {stale}, absent from `git worktree list`. "
-                    f"`git worktree prune` will not remove it; a human deletes it."
+                    f"present on disk at {stale}, absent from `git worktree list`, "
+                    f"and carrying no `.git` of its own -- so it looks like the "
+                    f"shell a merged lane leaves behind. `git worktree prune` "
+                    f"does not remove these. Nothing can be established about "
+                    f"its contents from here; check before removing it."
                 ),
             )
         )
@@ -1045,7 +1084,7 @@ def main(argv: list[str] | None = None) -> int:
         notes,
         stamp,
         verdict_line,
-        derive_lane_roots(entries, root, lane_root),
+        derive_lane_roots(entries, args.main, lane_root),
         main_label=args.main,
         max_files=args.max_files if args.max_files > 0 else 10**9,
     )

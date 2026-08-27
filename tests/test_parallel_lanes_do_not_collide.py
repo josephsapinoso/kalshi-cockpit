@@ -172,9 +172,8 @@ def _drafts() -> list[Path]:
 def _current_branch() -> str | None:
     """The branch this tree is on, or None if that cannot be established.
 
-    Unreadable resolves to None, never to a guess -- a detached HEAD in CI must
-    not be silently treated as the integration branch, and must not silently
-    exempt itself either.
+    Unreadable resolves to None, never to a guess. What is DONE with the None
+    is the load-bearing part -- see `_drafts_are_allowed_here`.
     """
     try:
         done = subprocess.run(
@@ -188,6 +187,24 @@ def _current_branch() -> str | None:
         return None
     name = done.stdout.strip()
     return name if done.returncode == 0 and name and name != "HEAD" else None
+
+
+def _drafts_are_allowed_here() -> bool:
+    """A draft is legal in a lane and illegal on the integration branch.
+
+    **This fails CLOSED, and the first version of it did not.** It skipped
+    whenever the branch could not be established -- and `actions/checkout`
+    leaves a DETACHED HEAD by default (`.github/workflows/ci.yml:52` sets no
+    `fetch-depth`), so `rev-parse --abbrev-ref HEAD` returns the literal
+    "HEAD", the branch read as unknown, and the check would have skipped on
+    every CI run there has ever been. A guard that is green and silent in the
+    one place it is guaranteed to run is not a guard.
+
+    So: exempt only when we POSITIVELY know this is a named branch that is not
+    the integration branch. Unknown is not an exemption.
+    """
+    branch = _current_branch()
+    return branch is not None and branch != "main"
 
 
 class TestTheNumberIsAllocatedAtMergeNotAtWrite:
@@ -212,19 +229,50 @@ class TestTheNumberIsAllocatedAtMergeNotAtWrite:
         green there would read as "checked and fine".
         """
         drafts = [p.name for p in _drafts()]
-        branch = _current_branch()
-        if branch != "main":
+        if _drafts_are_allowed_here():
+            branch = _current_branch()
             if drafts:
                 pytest.skip(
-                    f"on `{branch or 'a detached HEAD'}`, not the integration "
-                    f"branch; these still owe a number at merge: {drafts}"
+                    f"on lane branch `{branch}`; these still owe a number at "
+                    f"merge: {drafts}"
                 )
-            pytest.skip(f"on `{branch or 'a detached HEAD'}`, not the integration branch")
+            pytest.skip(f"on lane branch `{branch}`, not the integration branch")
         assert drafts == [], (
             f"these ADRs reached `main` without a number: {drafts}. Number them "
             f"in the merge commit, after `git fetch`, and update anything citing "
             f"them -- see docs/adr/README.md."
         )
+
+    def test_an_unestablished_branch_is_not_an_exemption(self, monkeypatch):
+        """**The CI hole, pinned.** `actions/checkout` checks out a detached
+        HEAD, so the branch is unknowable on every run of
+        `.github/workflows/ci.yml`.
+
+        Mutation observed red: `return branch != "main"` -- which is what this
+        file shipped with for one commit. Unknown then reads as "some lane",
+        the check skips, and the draft rule is enforced nowhere that runs
+        automatically.
+        """
+        monkeypatch.setattr(
+            "tests.test_parallel_lanes_do_not_collide._current_branch", lambda: None
+        )
+        assert _drafts_are_allowed_here() is False
+
+    def test_a_named_lane_branch_is_an_exemption(self, monkeypatch):
+        """The other half: failing closed must not mean failing always, or a
+        lane cannot hold a draft at all and the rule is unusable.
+
+        Mutation observed red: `return False` unconditionally.
+        """
+        monkeypatch.setattr(
+            "tests.test_parallel_lanes_do_not_collide._current_branch",
+            lambda: "parlay_props",
+        )
+        assert _drafts_are_allowed_here() is True
+        monkeypatch.setattr(
+            "tests.test_parallel_lanes_do_not_collide._current_branch", lambda: "main"
+        )
+        assert _drafts_are_allowed_here() is False
 
     def test_a_draft_does_not_also_claim_an_ordinal(self):
         """A draft that declares a number in its H1 has taken one anyway, and
