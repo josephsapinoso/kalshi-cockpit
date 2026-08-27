@@ -917,6 +917,33 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_time ON notifications(sent_ms DESC);
 
+-- One row per parlay card slot, holding the composition it is currently
+-- showing and how many CONSECUTIVE ladder builds it has held it for.
+--
+-- This is the two-build debounce. `notifications` already stops a card being
+-- pushed twice; this stops a card being pushed ONCE too early. Card
+-- compositions churn because sports are swept on independent clocks and
+-- `build_ladder` drops legs past `MAX_ODDS_AGE_S` -- so whichever sport was
+-- swept most recently owns the top of the probability ranking, and a sport
+-- entering the pool rewrites every card. Measured on live 2026-08-26: the
+-- whole day's push ceiling spent in four minutes on two compositions that
+-- differed only by which sport happened to be fresh.
+--
+-- **Consecutive, which is why this replaces rather than accumulates.** Under
+-- churn the same two compositions alternate, so "seen twice ever" is satisfied
+-- by exactly the pattern being suppressed. A build whose composition differs
+-- resets `builds` to 1; a slot that builds nothing has its row deleted, so an
+-- appear/vanish/reappear cycle does not count as two in a row.
+--
+-- A table and not a dict in memory, for `notifications`' own reason: this box
+-- restarts, and a policy that forgets on restart re-announces on restart.
+CREATE TABLE IF NOT EXISTS parlay_card_candidates (
+    card_key    TEXT PRIMARY KEY,   -- safe | middle | lottery | ...
+    key         TEXT NOT NULL,      -- notify/alerts.py::parlay_key(card)
+    first_ms    INTEGER NOT NULL,   -- when this composition first appeared
+    builds      INTEGER NOT NULL    -- consecutive builds it has held
+);
+
 -- ============================================================================
 -- Anthropic agent calls
 -- ============================================================================

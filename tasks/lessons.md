@@ -25,6 +25,56 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-27 — A test that asserts the ledger is not a test of the behaviour the ledger records
+
+Two guards written the same hour passed on the first run and came back GREEN
+when mutated. Both had the same shape, and it is not the shape the earlier
+lesson names.
+
+The earlier lesson is *a test written after the code describes it rather than
+constraining it*. These did not describe the code. They asserted a **stored
+consequence** of the behaviour instead of the behaviour:
+
+- The scheduled parlay card must not spend the change channel's daily ceiling.
+  The test asserted `_parlay_pushes_today(...) == 0` — the row count in the
+  ledger. The mutation incremented the **in-memory** counter that actually
+  gates the next send and never touched the ledger, so the assertion held
+  while the property it exists for was broken.
+- A ceiling shared across three rungs of one ladder. The test asserted the
+  ladder sent one card. The mutation replaced a local counter with a re-query
+  that returns the same number, so nothing moved — and the docstring's claim
+  that this mutation had once been observed red was simply false.
+
+**The pattern: a ledger, a counter and a log are *records of* a decision, and a
+decision can be changed without changing its record.** Asserting the record is
+cheap, reads like a strong check, and is satisfied by any mutation that acts
+before the record is written or on a different copy of the state.
+
+The discriminating question, asked before writing the assertion: **if this
+behaviour were wrong, would the thing I am asserting still be right?** For a
+ledger the answer is usually yes, because the ledger is written by the same
+branch the mutation left alone.
+
+Two habits that convert one into the other:
+
+1. **Assert the next decision, not the record of the last one.** "The ceiling
+   was not spent" becomes "a later composition that had earned a push still got
+   one". That forces a fixture where something downstream depends on the value.
+2. **When the fixture for that is intricate, the intricacy is the finding.**
+   The channel-separation guard needed a call in which one rung takes the
+   scheduled branch while another falls through settled — because that is the
+   *only* state in which the two channels meet. A property with one narrow
+   interaction state is worth knowing about; writing the easy ledger assertion
+   instead is what hid it.
+
+And a note on the second case, kept because deleting it would repeat it: the
+docstring asserting "mutation observed red" was **inherited from an earlier
+version of the code** and was never re-checked when the code around it changed.
+A recorded mutation result ages exactly like any other measurement. Re-run the
+battery when the code under it moves; do not carry the sentence forward.
+
+---
+
 ## 2026-08-26 — A mutation can lie, and a green result is not evidence until you know the mutation landed
 
 A component was forbidden from drawing a value. To prove the guard bit, the

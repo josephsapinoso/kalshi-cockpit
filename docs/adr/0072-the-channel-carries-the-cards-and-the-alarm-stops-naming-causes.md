@@ -148,6 +148,13 @@ named only that one.
 before?" and is silent on how fast the world hands you something new to say —
 and the turnover rate is a property of the upstream data, one file away.
 
+**SUPERSEDED IN PART BY ADR 0076 (2026-08-27) — read that first for this
+section and for §the-two-triggers-are-one-mechanism.** The constant is now
+**3** and counts one of two channels; the day total across both is still 6.
+And the claim that the daily card and the material-change alert are the same
+event seen twice was measured on live and refused: the first build after the
+slate turns over is the least trustworthy one, not the most.
+
 `MAX_PARLAY_PUSHES_PER_DAY = 6` — two full ladders. Past it the day's pushes stop
 and the screen still has everything; a desk that keeps buzzing manufactures
 action, which ADR 0071 says this tool does not do. **Undelivered pushes do not

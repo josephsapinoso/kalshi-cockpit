@@ -90,6 +90,7 @@ from backend.config import (  # noqa: E402
     assert_kalshi_quote_age_limits_agree,
     assert_odds_age_limits_agree,
     assert_risk_day_start_agrees,
+    configured_parlay_card_utc_hour,
 )
 from backend.core.suppression import SuppressionConfig  # noqa: E402
 from backend.kalshi.rest import KalshiRestClient  # noqa: E402
@@ -174,12 +175,14 @@ class CombinedPass:
     """
 
     def __init__(self, recording, scoring=None, alerts=None, *, kind="full",
-                 seconds=0.0, settlement=None, market_results=None):
+                 seconds=0.0, settlement=None, market_results=None,
+                 parlay=None):
         self.recording = recording
         self.scoring = scoring
         self.settlement = settlement
         self.market_results = market_results
         self.alerts = alerts
+        self.parlay = parlay
         self.kind = kind
         self.seconds = seconds
 
@@ -207,6 +210,18 @@ class CombinedPass:
             merged.update(
                 {k: v for k, v in self.alerts.as_dict().items() if v}
             )
+        # `parlay_` prefixed for the same reason as `clv_` and `settle_`: two
+        # alerters reporting into one line need their own namespaces. And this
+        # one is not optional decoration -- `alerts_held` is the state that
+        # separates "the ladder keeps rebuilding the same card" from "the
+        # ladder is churning", and a field nothing logs is a field nobody can
+        # read. The result used to be discarded at the call site entirely, so
+        # every parlay push and every refusal was invisible in the pass log.
+        if self.parlay is not None:
+            merged.update({
+                f"parlay_{k.removeprefix('alerts_')}": v
+                for k, v in self.parlay.as_dict().items() if v
+            })
         return merged
 
 
@@ -326,6 +341,12 @@ async def main() -> int:
     risk = RiskConfig.load()
     gate_config = GateConfig.load()
     staleness = StalenessConfig.load()
+    # Read once at startup rather than per pass, for `market_result_config`'s
+    # reason below -- but note the difference: this one *raises* on a bad hour
+    # instead of falling back, so the failure is a refusal to start rather than
+    # a card that silently lands at the wrong time every day. An hour is a
+    # value being validated, not one being trusted.
+    parlay_card_hour = configured_parlay_card_utc_hour()
     # Loaded once, here, rather than inside the pass: a bad value announces at
     # ERROR and falls back to the default, and doing that on every pass would
     # be 96 identical ERROR lines a day -- the exact failure the pass itself was
@@ -650,13 +671,28 @@ async def main() -> int:
             # the wait when the pool changes for the other reason -- a game
             # commencing and dropping out of `ladder_candidates`.
             #
-            # This still covers BOTH triggers Joe asked for. The daily card is
-            # the first build after the slate turns over; the material-change
-            # alert is any later pass whose legs differ. Same event seen twice,
-            # so one call rather than a scheduled push plus a watcher that
-            # could disagree with it.
+            # **This block used to end by claiming the two triggers Joe asked
+            # for were one mechanism** -- *"the daily card is the first build
+            # after the slate turns over; the material-change alert is any
+            # later pass whose legs differ. Same event seen twice, so one call
+            # rather than a scheduled push plus a watcher that could disagree
+            # with it."* That was measured on live and it was wrong: the first
+            # build after the slate turns over is the one most contaminated by
+            # which sport happened to be swept last, and the day's entire push
+            # ceiling went in four minutes on two such compositions. They are
+            # two mechanisms and `Alerter.parlay_cards` now runs both -- a
+            # scheduled card at `PARLAY_CARD_UTC_HOUR`, and a change alert
+            # debounced over `PARLAY_DEBOUNCE_BUILDS` consecutive builds.
+            #
+            # **What stays true is the gate above**, and it is what makes the
+            # debounce mean anything: a "build" is a pass that could have
+            # changed the answer. Counting byte-identical rebuilds towards a
+            # consecutive-builds run would let a quiet slate satisfy the
+            # debounce by doing nothing, which is the opposite of the property
+            # being bought.
+            parlay = None
             if alerter.enabled and (counts.odds_sweeps > 0 or kind == "full"):
-                await alerter.parlay_cards(
+                parlay = await alerter.parlay_cards(
                     build_ladder_payload(
                         conn,
                         now_ms=stamp,
@@ -664,6 +700,7 @@ async def main() -> int:
                     ),
                     now_ms=stamp,
                     day_start_ms=budget.day_start_ms(stamp),
+                    card_hour_utc=parlay_card_hour,
                 )
             if kind == "full":
                 await alerter.daily_digest(
@@ -705,6 +742,7 @@ async def main() -> int:
             return CombinedPass(
                 counts, scoring, alerts, kind=kind, seconds=elapsed,
                 settlement=settlement, market_results=market_results,
+                parlay=parlay,
             )
 
         async def one_pass() -> CombinedPass:

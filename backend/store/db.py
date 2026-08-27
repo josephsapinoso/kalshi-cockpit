@@ -24,11 +24,12 @@ from typing import Optional
 
 from ..core.prices import is_valid_price
 
-#: v22 adds `loop_failures` and needs no migration step. A pure new table is
-#: created by `executescript`'s `CREATE TABLE IF NOT EXISTS` on the next open,
-#: on an existing volume as well as a fresh one -- `_MIGRATIONS` exists for
-#: changes to tables that already hold rows, which this is not.
-SCHEMA_VERSION = 22
+#: v22 adds `loop_failures`, v23 adds `parlay_card_candidates`. Neither needs a
+#: migration step. A pure new table is created by `executescript`'s
+#: `CREATE TABLE IF NOT EXISTS` on the next open, on an existing volume as well
+#: as a fresh one -- `_MIGRATIONS` exists for changes to tables that already
+#: hold rows, which these are not.
+SCHEMA_VERSION = 23
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
