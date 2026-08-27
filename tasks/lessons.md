@@ -116,6 +116,40 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A count with no denominator invites an adjective, and the adjective is the inference
+
+A read returned "35 prop legs". It was written up as **partial** coverage, and
+a code risk was designed around that word — a pre-tap check whose motivation
+was "eligibility is partial, so the fallback fires often". Nobody had measured
+what 35 was a fraction of.
+
+It was 35 of 35. Coverage was total on that slate, and the risk as stated did
+not exist.
+
+**The pattern: a bare count carries no adjective, so the reader supplies one,
+and the supplied adjective then gets built on as though it were measured.** The
+tell is that the number arrived alone. `35` is a measurement; "35, which is
+partial" is a measurement plus a guess wearing the measurement's authority.
+Two figures in `.env.example` went wrong in this exact shape, in the same
+direction, which is why the lane that produced the 35 refused to divide by an
+assumed slate size and asked for the denominator instead. That refusal is the
+behaviour to copy.
+
+**And when the denominator arrived it was 35 against 35 — which is the moment
+to spend more scrutiny, not less.** Two equal totals is a perfectly convincing
+coincidence. What turned it into a result was a per-series *set* comparison:
+same event tickers, `open_but_not_eligible` and `eligible_but_not_open` both
+empty. Same move as reading `detail_missing = 0` before trusting a zero.
+**Check the thing that would make the good answer fake, before reporting the
+good answer.**
+
+The correction did not license the opposite adjective either. n = 7 games at
+one instant is not "total" any more than 35 alone was "partial". The sentence
+that survives names its scope: *on this slate, all 35 open prop events were
+eligible; whether that holds structurally is unmeasured.* The code risk stayed
+on the backlog with its reason replaced rather than being deleted — the failure
+mode is real, it simply does not fire today.
+
 ## 2026-08-27 — A reporting tool must be run from every seat it will be run from, and its findings must not be phrased as instructions
 
 A cross-worktree detector was written, tested and demonstrated from the
