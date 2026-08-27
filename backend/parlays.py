@@ -164,7 +164,27 @@ def ladder_candidates(
         JOIN (
             SELECT odds_event_id, MIN(commence_ms) AS commence_ms,
                    home_team, away_team, sport_key
-            FROM odds_snapshots GROUP BY odds_event_id
+            FROM odds_snapshots
+            -- **Restricted to LINKED events, and this cannot change the
+            -- answer.** The outer query inner-joins on `l.odds_event_id`, so
+            -- an event absent from `event_links` was going to be discarded
+            -- anyway -- the subquery was grouping the entire history of the
+            -- table to build rows it then threw away.
+            --
+            -- Measured 2026-08-26: without it the plan reads
+            -- `SCAN odds_snapshots` on every request, and `/api/parlays`
+            -- answered in 15s while every other route was sub-second. With it,
+            -- plus `idx_odds_event_commence`, the plan is
+            -- `SEARCH odds_snapshots (odds_event_id=?)`.
+            --
+            -- **Deliberately NOT filtered on `commence_ms` here**, which would
+            -- be the obvious way to cut it further. `MIN(commence_ms)` is the
+            -- fixture's earliest recorded start, and filtering rows before
+            -- taking the MIN would let a RESCHEDULED fixture through whose
+            -- true earliest start is in the past. Rare, and a silent wrong
+            -- answer is worse than a slower right one.
+            WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
+            GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE f.market IN ('h2h', 'spreads')
           AND f.computed_ms >= ?

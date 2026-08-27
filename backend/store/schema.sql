@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     outcome_point       REAL,               -- spread/total/prop line
     price_decimal       REAL NOT NULL       -- decimal odds
 );
+-- Leads with `odds_event_id`, which is what lets the parlay ladder's fixture
+-- lookup be a seek once its subquery is restricted to linked events.
+--
+-- **A second index on `(odds_event_id, commence_ms)` was added on 2026-08-26
+-- and removed the same hour, because it changed no plan.** With it:
+-- `SEARCH ... USING INDEX idx_odds_event_commence`. Without it:
+-- `SEARCH ... USING INDEX idx_odds_event`. Identical shape -- the leading
+-- column is all the equality needs. It would have cost write amplification on
+-- the highest-volume table in the system to buy nothing, which is what an
+-- index that changes no plan always is.
 CREATE INDEX IF NOT EXISTS idx_odds_event ON odds_snapshots(odds_event_id, market, fetched_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 
@@ -507,6 +517,13 @@ CREATE TABLE IF NOT EXISTS fair_prices (
     anchored_on_sharp   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_fair_link ON fair_prices(link_id, computed_ms DESC);
+
+-- `ladder_candidates` selects on `market IN (...) AND computed_ms >= ?`, which
+-- `idx_fair_link` cannot serve because it leads with `link_id`. Without this
+-- the plan read `SCAN f` -- every fair price ever computed, on every request
+-- to `/api/parlays`. With it: `SEARCH f USING INDEX (market=? AND computed_ms>?)`.
+CREATE INDEX IF NOT EXISTS idx_fair_market_computed
+    ON fair_prices(market, computed_ms DESC);
 
 -- The Quant's independent opinion. Deliberately a separate table from
 -- fair_prices: the whole point is that it is NOT derived from the same
