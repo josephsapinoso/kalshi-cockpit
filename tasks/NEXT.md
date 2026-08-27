@@ -31,7 +31,7 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, last green 2026-08-27: 4,640 passed / 10 xfailed in 19:54 —
+**Test baseline, last green 2026-08-27: 4,648 passed / 10 xfailed in 20:20 —
 RE-RUN IT.**
 Do not inherit it — this line has been wrong in the same direction four times
 running (4,192 written when it was 4,200; 4,281 written before three lanes
@@ -60,6 +60,38 @@ is a gap the length of an interval.
    first; price transparency as the job; a gap you may show on a row and
    never rank by; sharing means someone runs their own copy. Read it before
    planning anything, and do not re-derive the purpose.
+
+**TWO OTHER LANES ARE RUNNING. Check them before you plan anything**, because
+main is not the whole picture:
+
+    git worktree list
+
+They live under `~/.herdr/worktrees/kalshi_betting_tool/` and are Herdr's, not
+this session's — nothing here starts or stops them.
+
+| lane | branch | state as of 2026-08-27 15:20Z |
+|---|---|---|
+| `hedging-research` | `hedging_research` | 5 ahead, 0 behind. Clean. Has merged main twice. Carries **ADR 0078** and **schema v24** (hedge tables). |
+| `parlay-props` | `parlay_props` | 0 ahead, 1 behind. One uncommitted file (`backend/odds/client.py`). |
+
+**They have collided with main three times in one day, and git said nothing
+about the ones that mattered.** From `hedging_research`'s own commit messages:
+*"the hedging ADR becomes 0077, because 0074 was taken twice and git said
+nothing"*, then *"becomes 0078 — 0077 collided too"*, then *"two lanes both
+claimed schema v23, and the hedge tables take v24"*. Each was caught by a human
+reading a merge.
+
+`tests/test_parallel_lanes_do_not_collide.py` now fails on a duplicate ADR
+number instead. **Before claiming a number or a schema version, check the other
+lanes** — `git log --oneline main..<branch>` — rather than the next free slot in
+`docs/adr/`. The suite only sees this after a merge, which is the earliest a
+test can see it at all.
+
+**`docs/adr/0006-*` is NOT a collision.** `0006-in-play-evidence.md` is the
+companion to `0006-in-play-scope.md` and shares its number on purpose. The
+guard keys on what a document's H1 *claims to be*, not on its filename, for
+exactly this reason — and that exemption is pinned, because a guard whose first
+finding is a false one gets deleted.
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
