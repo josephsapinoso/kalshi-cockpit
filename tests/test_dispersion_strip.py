@@ -183,6 +183,15 @@ class TestAReadingOutsideTheSpreadIsKept:
         assert d["bookSpan"]["hiX"] < max(x["x"] for x in outside)
 
 
+def code(path) -> str:
+    """Comments removed: this component's docstring names the very tokens the
+    greps below forbid, and explaining a prohibition must not trip it."""
+    text = path.read_text(encoding="utf-8")
+    text = re.sub(r"\{\s*/\*.*?\*/\s*\}", "", text, flags=re.DOTALL)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
+
+
 class TestTheAskDoesNotSetTheScale:
     """**The ask is not an input to the number this strip explains**, and
     letting it into the domain destroyed the picture on exactly the rows worth
@@ -216,24 +225,70 @@ class TestTheAskDoesNotSetTheScale:
         assert d["kalshi"]["x"] is not None
         assert 0.0 <= d["kalshi"]["x"] <= 1.0
 
-    def test_the_screen_no_longer_draws_the_ask_at_all(self):
-        """Inverted 2026-08-21. The component used to draw the ask among the
-        readings (with "off this scale" wording when it fell outside), and
-        this test pinned that wording. The partner's betting-desk ruling
-        (docs/reviews/2026-08-21-items-2-3-ruling.md, "no direction") took
-        the ask off the strip entirely: its position relative to the
-        readings renders "Kalshi is low/high here", which is the tool's
-        opinion of an edge on the landing screen. The ask is still on the
-        row, as a price; the geometry above stays because the lib still
-        computes it and any future consumer inherits the never-stretch
-        rule. What the component must now do is not consult it."""
-        source = STRIP_TSX.read_text(encoding="utf-8")
-        without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-        assert "d.kalshi" not in without_comments, (
-            "DispersionStrip renders the ask against the readings again -- "
-            "that is a direction claim the 2026-08-21 ruling removed"
+    def test_the_landing_variant_still_does_not_draw_the_ask(self):
+        """**Re-pointed 2026-08-26 on the owner's word, not weakened.**
+
+        This asserted the component never consults `d.kalshi` at all. The
+        2026-08-21 ruling that produced it is named "strip the LANDING
+        SCREEN", and its objection was that the ask's position among the
+        readings renders "Kalshi is low/high here" -- the tool's opinion of an
+        edge on the screen a phone opens on.
+
+        The chart variant restores the axis on `/market/[ticker]` only, where
+        ADR 0068 puts the desk fully present and ADR 0071 s2.2 makes price
+        transparency the screen's entire job. So the property that survives is
+        narrower and still real: **the default (landing) variant draws no
+        ask**, and the ruling's other two removals survive on both variants --
+        no `used` mark, and no direction on the tick.
+
+        What replaces the old blanket assertion is three specific ones, below.
+        """
+        source = code(STRIP_TSX)
+        # The strip branch -- everything after the `variant === "chart"` block
+        # returns -- must not consult the ask.
+        strip_branch = source[source.index("<details"):]
+        assert "d.kalshi" not in strip_branch, (
+            "the landing-screen variant renders the ask against the readings "
+            "again; that is the direction claim the 2026-08-21 ruling removed"
         )
-        assert "off this scale" not in without_comments
+
+    def test_the_chart_never_inks_the_used_reading(self):
+        """The ruling's second removal, and it survives on BOTH variants.
+
+        Marking the reading the sizer picked re-renders the discredited point
+        estimate one layer down. All four are drawn alike; the caption says
+        the lowest is the one taken.
+        """
+        source = code(STRIP_TSX)
+        assert "m.used" not in source and ".used" not in source, (
+            "a mark is styled by `used` again"
+        )
+
+    def test_the_ask_tick_carries_no_direction(self):
+        """The ruling's first objection was DIRECTION, not the ask itself.
+
+        A neutral tick with its own label is the two prices side by side that
+        ADR 0071 s2.5 permits. Colour, an arrow, or cheap/expensive wording
+        would make it the verdict the ruling removed.
+        """
+        source = code(STRIP_TSX).lower()
+        for word in ("cheap", "expensive", "overpriced", "underpriced",
+                     "text-positive", "text-negative", "--positive",
+                     "--negative", "--accent"):
+            assert word not in source, f"the ask tick took a direction: {word!r}"
+
+    def test_the_ask_is_still_never_clamped_onto_the_scale(self):
+        """The never-stretch rule is what makes drawing it honest at all.
+
+        `dispersion()` returns `x: null` off-scale and the axis is not widened
+        to hold it; the component says so in words instead. A marker pinned to
+        the end of a scale it is not on is a drawing that lies.
+        """
+        source = code(STRIP_TSX)
+        assert "d.kalshi.x !== null" in source, (
+            "the chart draws the ask without checking it is on the scale"
+        )
+        assert "off this scale" in source
 
 
 class TestItRefusesToDrawRatherThanMislead:

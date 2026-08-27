@@ -16,6 +16,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from backend import parlays
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db as store
@@ -181,15 +182,24 @@ class TestTheLadderBuilds:
 
     async def test_money_strings_are_rendered_server_side(self, build):
         """The client does no money arithmetic: every stake preset arrives
-        pre-priced, with the $5 default flagged."""
+        pre-priced, with exactly one flagged as the default.
+
+        **Re-pointed 2026-08-26, not weakened.** This asserted the literal
+        amounts `$1/$5/$10/$20`, which made a change to WHICH stakes are
+        offered indistinguishable from a break in the no-arithmetic rule it
+        exists to protect. The presets moved to Joe's own range that day; the
+        property did not. It now reads the constant, so the amounts are pinned
+        once, by `TestTheStakePresetsAreTheOperatorsOwnRange`.
+        """
         app = build(lambda conn: _fresh_slate(conn, n=3))
         body = (await get(app, "/api/parlays")).json()
         safe = next(c for c in body["cards"] if c["key"] == "safe")
         stakes = safe["at_stakes"]
-        assert [s["stake_display"] for s in stakes] == [
-            "$1.00", "$5.00", "$10.00", "$20.00"
-        ]
-        assert [s["is_default"] for s in stakes] == [False, True, False, False]
+        assert [s["stake_cents"] for s in stakes] == list(
+            parlays.STAKE_PRESETS_CENTS
+        )
+        assert all(s["stake_display"].startswith("$") for s in stakes)
+        assert sum(s["is_default"] for s in stakes) == 1
         assert all("payout_display" in s for s in stakes)
         assert safe["joint"]["conservative_percent_display"].endswith("%")
 
@@ -289,3 +299,59 @@ class TestHonesty:
         assert joint["method_range_display"] is not None
         assert "–" in joint["method_range_display"]
         assert "correlation_note" in joint
+
+
+class TestTheStakePresetsAreTheOperatorsOwnRange:
+    """Re-sized 2026-08-26 from someone else's bet to Joe's.
+
+    They were $1/$5/$10/$20 defaulting to $5, framed by ADR 0070 §2.7 around
+    the cousin's $4.99 ticket — the bet that prompted the desk, but not a bet
+    Joe has ever placed. Asked directly, in his words: *"I bet .25 cents to 2
+    or 3 bucks on parlays right now."*
+
+    Three of the four were amounts he would never stake and the default sat
+    above his ceiling, so every payout figure on the card was priced for
+    somebody else's bet. ADR 0071 §2.1 is why that matters: the desk informs
+    bets that are happening anyway, and a stake row he would not choose
+    informs nothing.
+
+    **This is a display range, not a limit** — nothing here caps an order.
+    """
+
+    #: His stated range, in cents. The presets must lie inside it, and the
+    #: ends must be reachable: a range whose extremes cannot be selected is a
+    #: narrower range than the one he gave.
+    LOW, HIGH = 25, 300
+
+    def test_every_preset_is_inside_the_range_he_named(self):
+        for cents in parlays.STAKE_PRESETS_CENTS:
+            assert self.LOW <= cents <= self.HIGH, (
+                f"${cents / 100:.2f} is outside the 25c-$3 range Joe stated; "
+                f"a preset he would not choose prices a bet he would not place"
+            )
+
+    def test_both_ends_of_his_range_are_offered(self):
+        """Not merely 'inside' — the extremes must be selectable."""
+        assert min(parlays.STAKE_PRESETS_CENTS) == self.LOW
+        assert max(parlays.STAKE_PRESETS_CENTS) == self.HIGH
+
+    def test_the_default_is_one_he_would_actually_pick(self):
+        assert parlays.DEFAULT_STAKE_CENTS in parlays.STAKE_PRESETS_CENTS
+        assert self.LOW <= parlays.DEFAULT_STAKE_CENTS <= self.HIGH
+
+    def test_the_presets_are_distinct_and_ascending(self):
+        """Two rows priced the same is a row wasted on a screen with four."""
+        presets = list(parlays.STAKE_PRESETS_CENTS)
+        assert presets == sorted(presets)
+        assert len(set(presets)) == len(presets)
+
+    async def test_the_served_rows_match_the_constant(self, build):
+        """The payload must not carry a stake the constant does not name."""
+        app = build(lambda conn: _fresh_slate(conn, n=4))
+        body = (await get(app, "/api/parlays")).json()
+        built = [c for c in body["cards"] if c["joint"] is not None]
+        assert built, "fixture built no cards"
+        for card in built:
+            served = [row["stake_cents"] for row in card["at_stakes"]]
+            assert served == list(parlays.STAKE_PRESETS_CENTS)
+            assert sum(row["is_default"] for row in card["at_stakes"]) == 1

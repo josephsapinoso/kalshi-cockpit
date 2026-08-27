@@ -10,6 +10,7 @@ import type {
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import LeagueTag from "@/components/LeagueTag";
+import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
@@ -145,6 +146,12 @@ function Card({ card }: { card: ParlayCardData }) {
             ))}
           </ol>
           <LegProvenance card={card} />
+          {card.joint && (
+            <ParlayDifficulty
+              prefixes={card.joint.prefixes}
+              independenceNote={card.joint.correlation_note}
+            />
+          )}
           {card.joint && (
             <p className="mt-2 text-xs text-muted">
               <Term k="fair_value">Fair value</Term>:{" "}

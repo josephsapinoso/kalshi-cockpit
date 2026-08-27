@@ -105,7 +105,7 @@ class TestTheSchemaCarriesTheNewTables:
         }
         assert {"parlay_positions", "parlay_position_legs"} <= names
 
-    def test_a_v22_volume_gains_them_without_a_migration_step(self, tmp_path):
+    def test_the_previous_version_gains_them_without_a_migration_step(self, tmp_path):
         """The claim ADR 0074's Consequences makes, executed rather than asserted.
 
         A pure new table needs no `_MIGRATIONS` entry because `init_db` applies
@@ -118,7 +118,11 @@ class TestTheSchemaCarriesTheNewTables:
         connection = db.init_db(path)
         connection.execute("DROP TABLE parlay_position_legs")
         connection.execute("DROP TABLE parlay_positions")
-        db._set_meta(connection, "schema_version", "22")
+        # One version back, read from `SCHEMA_VERSION` rather than typed. It
+        # said "22" until the merge with `main`, which had ALSO claimed v23 --
+        # so a hand-written number here starts asserting about a version two
+        # steps back the moment another lane adds a table.
+        db._set_meta(connection, "schema_version", str(db.SCHEMA_VERSION - 1))
         connection.commit()
         connection.close()
 

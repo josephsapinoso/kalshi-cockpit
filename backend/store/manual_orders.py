@@ -71,24 +71,60 @@ MANUAL_ORDERS_ARE_DRY_RUNS = False
 
 STATUS_PENDING = "pending"
 
-# The path's size ceiling, in contracts. ADR 0063 §3: "first at a 1-contract
-# ceiling, raised only when observed `fee_actual` matches `fee_predicted` on
-# real fills." A constant rather than config, for the reason the dry-run
-# switch is one: raising it is a decision with a commit behind it, not an
-# environment variable somebody can nudge.
+# **The binding ceiling is MONEY, not contracts, since 2026-08-26.**
 #
-# It binds independently of `MANUAL_ORDERS_ARE_DRY_RUNS`, so the ceiling is
-# rehearsed dry exactly as it will bind live -- the same argument the
-# cool-off makes below.
-MANUAL_ORDER_MAX_CONTRACTS = 1
+# Both of these were 1 contract (ADR 0063 §3, ADR 0073 §5). At a combination
+# priced near a cent that is a bet of about $0.015 -- and the operator, asked
+# directly, bets **25c to $3 on parlays**. A one-contract ceiling did not make
+# his bet small; it made the door decorative, which is the state ADR 0073 §1
+# already caught this path in once ("a feature and the one path that invokes
+# it are two deliverables").
+#
+# A spend cap is the better bound and not merely the more convenient one:
+#
+# - **The risk it bounds is denominated in money.** A contract cap lets one
+#   bet be $0.015 and another $0.90, on the same number.
+# - **It bounds the fee-model error BETTER than the contract cap did.** ADR
+#   0073 §5 justified one contract by saying it "makes an error in that hedge
+#   cost a fraction of a cent instead of scaling with size" -- but the combo
+#   fee is `k · C · P · (1-P)`, proportional to spend, not to count. Capping
+#   spend caps the error directly; capping count capped it only through
+#   whatever the price happened to be.
+#
+# A constant rather than config, for the reason the dry-run switch is one:
+# raising it is a decision with a commit behind it, not an environment
+# variable somebody can nudge. It binds independently of
+# `MANUAL_ORDERS_ARE_DRY_RUNS`, so it is rehearsed dry exactly as it binds
+# live.
+#
+# **This overrides ADR 0063 §3's trigger, on the owner's word, and the
+# override is recorded rather than quiet** -- that trigger said the ceiling
+# rises "only when observed `fee_actual` matches `fee_predicted` on real
+# fills", and no fill through this door has been checked. See ADR 0075.
+MANUAL_ORDER_MAX_SPEND_TENTHS = 3_000  # $3.00 -- the top of his stated range
 
-# Combination (`KXMVE`) markets are bounded harder still (ADR 0073). One
-# contract, always: the book is enter-only on every combination this repo
-# has ever read (ADR 0012 §5), the fee model undercharges there (ADR 0046),
-# and the hedge that replaces it is fitted to eight fills at prices no
-# higher than $0.228. The ceiling is what makes an error in that hedge cost
-# a fraction of a cent instead of scaling with size.
-COMBO_MAX_CONTRACTS = 1
+# The structural ceiling, in contracts. **Not the binding one** -- the spend
+# cap above is, and this exists so the authorisation loop terminates and so a
+# market priced at a tenth of a cent cannot turn $3 into thirty thousand
+# contracts. A count that large is a different kind of order (it moves a thin
+# book on its own) even when the money is small.
+MANUAL_ORDER_MAX_CONTRACTS = 500
+
+# Combination (`KXMVE`) markets keep a tighter structural ceiling. The book is
+# enter-only on every combination this repo has ever read (ADR 0012 §5) and
+# the deepest resting bid ever measured was 18 units, so a count far past that
+# could not fill anyway and would only be an order the venue rejects in parts.
+COMBO_MAX_CONTRACTS = 250
+
+
+def max_spend_dollars() -> float:
+    """The spend ceiling in dollars, converted in exactly one place.
+
+    Money is integer tenths of a cent everywhere in the risk path
+    (`core/prices.py`); this is the single boundary where that becomes a float
+    for comparison against the balance-derived cap.
+    """
+    return MANUAL_ORDER_MAX_SPEND_TENTHS / 1000.0
 
 # After any completed manual purchase the buy control rests (ADR 0063's
 # cool-off; no override). "Completed" means the order was actually carried

@@ -275,6 +275,33 @@ def configured_day_start_utc_hour() -> int:
     return hour
 
 
+def configured_parlay_card_utc_hour() -> int:
+    """The **one** env read of `PARLAY_CARD_UTC_HOUR`, validated.
+
+    The hour at or after which the day's scheduled parlay card is pushed. Joe
+    chose 4pm Eastern, on the ground that the MLB and WNBA slates are set by
+    then and nothing has started -- `build_ladder` only takes pre-game
+    fixtures, so a later card is a smaller one.
+
+    **20:00Z is 4pm Eastern only while EDT is in force**, and this is written
+    down rather than discovered: from the first Sunday in November the same
+    constant lands at 3pm Eastern. A UTC hour is what the budget day already
+    cuts on and what a loop with no locale can act on; a card that tracks a
+    local hour across a DST boundary is a different and larger decision, and it
+    would need somewhere to put a timezone name. If the winter hour is wrong,
+    the fix is to change this variable, not to add a timezone.
+
+    Raises rather than clamping, per `clamping-is-for-values-you-trust` and for
+    `configured_day_start_utc_hour`'s reason: an hour arriving from the
+    environment is being *validated*, and `hour=25` silently becoming 23 would
+    move the card three hours with nothing saying so.
+    """
+    hour = _int("PARLAY_CARD_UTC_HOUR", 20)
+    if not 0 <= hour <= 23:
+        raise ConfigError(f"PARLAY_CARD_UTC_HOUR={hour} must be 0-23.")
+    return hour
+
+
 @dataclass(frozen=True)
 class OddsConfig:
     api_key: str

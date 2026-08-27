@@ -31,15 +31,25 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, re-measured 2026-08-26 (hedging): 4,718 passed / 6 skipped /
-10 xfailed.** Do not inherit it — this line has been wrong in the same direction
-FOUR times running (4,192 written when it was 4,200; 4,281 written before three
-lanes landed; 4,456 written when `88d179f` actually measured 4,524). Re-run
-before you quote it. **The 6 skips are `load_fixture` skipping on a machine
-without the capture fixtures, not a regression.** Also: the full suite has run in **5m26s,
-5m39s, 8m11s and 18m49s** on the same machine. A slow run is not a hung one —
-and per the 2026-08-25 lesson, neither is a gap the length of an interval.
+**Test baseline, measured on the merge 2026-08-27: 4,811 passed / 6 skipped /
+10 xfailed in 16:19.** Re-run before you quote it. The hedging lane measured
+4,718 at its own tip and `main` measured 4,623 at its; **neither was the
+merge**, and quoting either would have been the fifth time this line was wrong
+in the same direction (4,192 written when it
+was 4,200; 4,281 written before three lanes landed; 4,456 written when `88d179f`
+actually measured 4,524; 4,456 again the day it became 4,474). The 6 skips are
+`load_fixture` skipping on a machine without the capture fixtures, not a
+regression.
 
+**The suite is now ~15-22 minutes**, up from 5-8, and the reason is worth
+knowing before you assume it hung: it grew with the record, and one test added
+2026-08-26 briefly took 71 seconds on its own by driving a 200,000-sample
+copula ~300 times to assert a dictionary length. That one was fixed by stubbing
+`_joint`. **If the suite gets slower again, look for a test doing real work to
+check a cheap property** — a test nobody will wait for is a test that stops
+being run. A slow run is not a hung one, and per the 2026-08-25 lesson, neither
+is a gap the length of an interval. **Two suites racing each other reads as a
+hang**: verify by command line, not by a kill's exit code.
 **Two things to know before planning. CLAUDE.md is current on both:**
 
 1. **The signal test has NOT declared. The 2026-08-24 `NO SIGNAL` was
@@ -61,7 +71,7 @@ Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
     .venv\Scripts\python.exe -m pytest -q     (NEVER bare python; PATH is 3.14)
     cd frontend && npx tsc --noEmit
 
-Expected: 4,456 passed / 10 xfailed, ruff clean, tsc clean, `next build` green.
+Expected: the number above, ruff clean, tsc clean, `next build` green.
 Check `/api/health` `git_sha` against `origin/main` before assuming anything
 is live. The terminal spread/total look was **VETOED by Joe 2026-08-21
 16:11Z**, recorded per §7.1 in
@@ -72,7 +82,434 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-26 (latest) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
+## 2026-08-27 (latest) — the parlay push stops being a race and becomes a schedule
+
+**Joe picked this off the state read.** It is the item he had already decided on
+2026-08-26 and that was never built — *"the Discord trigger becomes a scheduled
+daily card plus a two-build debounce"* — and it is the reason the three newer
+parlay cuts (`longshot`, `soon`, `agreed`) have been screen-only.
+
+**ADR 0076. Read it before touching any of this.** State: **4,623 passed /
+10 xfailed in 22:08** (baseline 4,595 re-measured at session start, not
+inherited), ruff clean, tsc clean. **Schema v23.**
+
+### What was actually wrong, and it was NOT the dedupe
+
+ADR 0072 treated Joe's two triggers as one mechanism, and `run_loop.py` said so
+in its own words: *"The daily card is the first build after the slate turns
+over; the material-change alert is any later pass whose legs differ. Same event
+seen twice, so one call."*
+
+Elegant, and false. Measured on live: the day's whole ceiling in **four
+minutes**, the card swapping sport entirely and all three rungs re-pushing.
+**Both pushes were correct under the dedupe rule** — sports are swept on
+independent clocks, `build_ladder` drops legs past `MAX_ODDS_AGE_S`, and ranking
+is by probability, so whichever sport is currently fresh owns the top of every
+card.
+
+The precise error: **"the first build after the slate turns over" is the LEAST
+trustworthy build there is**, not the most. It is the one most contaminated by
+which sport happened to be swept last — and a deploy or a day-roll is exactly
+when that is most arbitrary.
+
+### What shipped
+
+- **A scheduled card**, `kind = 'parlay_daily'`, keyed `<day_start_ms>:<card_key>`
+  on the **budget** day. Fires on the first build at or after
+  `PARLAY_CARD_UTC_HOUR`. **Joe chose 4pm Eastern → 20**, set explicitly in
+  `fly.live.toml` rather than left to the code default. Deliberately **not**
+  debounced: a debounce could delay or skip the one push that is supposed to be
+  guaranteed.
+- **A two-build debounce** on the change channel, in `parlay_card_candidates`
+  (**schema v23**, a pure new table needing no migration step). Replaced on a
+  different key, **deleted** when a slot builds nothing. `PARLAY_DEBOUNCE_BUILDS
+  = 2` is the smallest number that suppresses an alternation, which is the shape
+  the churn actually has.
+- **`MAX_PARLAY_PUSHES_PER_DAY` 6 → 3**, counting the change channel only. Joe
+  was asked how many pushes a day at the worst and said keep 6; the scheduled
+  card is bounded by construction at one per rung, so 3 + 3 holds the total
+  where the original constant's own reasoning put it.
+- **`held` is a fourth outcome**, not a flavour of `skipped`. A stuck `skipped`
+  means the ladder is rebuilding identically; a stuck `held` means it is
+  churning, and they have opposite remedies.
+
+**THE DEFECT THE SPLIT CREATED, AND THE ONE LINE THAT CLOSES IT.** The two
+channels have different `kind`s, so `UNIQUE (kind, key)` does not see across
+them: the card sent at 20:00Z would be re-announced by the change channel ten
+minutes later having **changed nothing**. A scheduled send now also claims the
+change key for the same composition — one composition, one buzz. Claimed even
+on a *failed* delivery, because a change alert re-sending what the daily card
+could not deliver would arrive as if the card had changed.
+
+**The asymmetry runs one way, on purpose.** A change alert earlier in the day
+does not stop the scheduled card re-sending the same legs at the stated hour.
+The daily card is the product; at most one duplicate a day is the price, and it
+is inside the ceiling.
+
+### THE GAP FOUND BY READING THE DIFF, NOT BY A FAILING TEST
+
+**`parlay_cards`' result was DISCARDED at the call site**, and had been since
+ADR 0072. So every parlay push and every refusal was invisible in the pass log
+— including `held`, the state this session added *specifically* so that "the
+ladder keeps rebuilding the same card" and "the ladder is churning" could be
+told apart. A field nothing logs is a field nobody can read, and this repo has
+four modules' worth of that failure on record.
+
+Now merged into `CombinedPass` under a **`parlay_` prefix**, following `clv_`,
+`settle_` and `outcome_`: `after_pass` and `parlay_cards` both emit
+`alerts_sent`, so an unprefixed merge would have one silently overwrite the
+other.
+
+### PROCESS — 61 tests green on the first run, and two of the new guards were decoration
+
+**Twenty-one mutations observed red** across the debounce, the schedule, the
+config agreement and the pass-log wiring. **Two came back GREEN and neither was
+kept as a pass**, and they share a shape the existing lesson does not name — a
+new lesson is written:
+
+1. **"The scheduled card does not spend the change ceiling"** asserted the
+   **ledger** (`_parlay_pushes_today(...) == 0`). The mutation incremented the
+   *in-memory* counter that actually gates the next send and never touched the
+   ledger. Replaced by a behavioural guard that drives the one narrow state in
+   which the two channels meet — a call where one rung takes the scheduled
+   branch while another falls through settled. That one is red.
+2. **"Incrementing locally rather than re-querying the ceiling"** was claimed as
+   a guard by the code's own comment and by a test docstring saying *"mutation
+   observed red"*. It is not a guard: `_send` commits before returning, so a
+   re-query sees exactly what the increment counted. **The sentence was
+   inherited from an earlier version of the code and never re-checked.** Both
+   the comment and the docstring now say what is true and why the note is being
+   kept rather than deleted.
+
+**The pattern: a ledger, a counter and a log are records OF a decision, and a
+decision can be changed without changing its record.** Ask before writing the
+assertion: if this behaviour were wrong, would the thing I am asserting still be
+right?
+
+**And one process failure avoided by name.** A full-suite run was killed
+mid-flight because `fly.live.toml`, `.env.example` and the test file were edited
+underneath it — the same "patched the tree under the running suite" failure this
+file records from 2026-08-26. The measurement was declared void rather than
+reported.
+
+### Driven, not only tested
+
+A seeded database, the real `build_ladder_payload`, and a real `DiscordNotifier`
+with only `_post` stubbed — so a shape drift between `_serialise_card` and
+`parlay_key` had somewhere to show up. Held on the first sighting, released on
+the second, silent on the third, scheduled card at 20:00Z on its own key,
+silent for the rest of the hour. **Six embeds on the worst-case day**, which is
+the number Joe chose.
+
+### Open
+
+- **The three screen-only cuts still do not reach the phone.** Six rungs against
+  a 3-push change ceiling is a separate decision about Joe's attention, and
+  `PUSHED_CARD_KEYS` is unchanged.
+- **THE SCHEDULED CARD HAS NOT BEEN OBSERVED ON LIVE, and the prediction that
+  it would be within minutes was wrong.** Deployed at 05:44Z on `427632a`,
+  schema v23 applied on boot, `pass 1 ok` at 05:46:39Z with no `parlay_` fields
+  in the line — which is *correct*: `/api/parlays` reports
+  `excluded: {"stale_consensus": 233}` and **all six cards unbuilt**, so there
+  was nothing to push. The reasoning that the card would fire immediately (the
+  deploy lands after 20:00Z, today's key is unclaimed) was right about the gate
+  and wrong about the input. **A ladder with no legs pushes nothing, whatever
+  the clock says.**
+
+  So what IS established on live: the new signature runs without raising, the
+  new table applied to the volume, and the refusal path is silent rather than
+  noisy. What is NOT: that a `parlay_daily` row is ever written.
+
+  **When to look.** The log says `next slot is baseball_mlb at 15:51Z-16:51Z`,
+  which is after the 10:00Z budget-day roll — so the first real card is due
+  **20:00Z on 2026-08-27**. Verify then with `inspect_live_db.py notifications`
+  for a `parlay_daily` row with `delivered = 1`, `/api/health`
+  `undelivered_last_24h` still 0, and a `parlay_sent` field in the pass line.
+- Unchanged from the entries below: the combo purchase slice and its registered
+  measurement; the pragma change not re-measured on live; per-sport credit
+  reservation (Guard 1); the cold-open wait; `ODDS_API_KEY` rotation; `docs/`
+  still carrying the stale 576/day figure outside CLAUDE.md.
+- **A scare that was not one, recorded because the instrument earned it.**
+  `loop_failures` carries five rows on 2026-08-26 between 15:32Z and 16:42Z —
+  the `ask 1000 tenths is not a tradeable price` ValueError, five consecutive
+  full passes, the loop dead. That reads as the source fix having failed. It
+  did not: the rows sit **entirely inside release 139** (12:39Z–16:49Z) and
+  stop **seven minutes before release 140**, which is the build carrying the
+  fix. Thirteen hours clean since, none after this deploy. **This is exactly
+  what `loop_failures` was built for the day before** — a run of failing passes
+  that used to leave the same evidence as one wedged pass is now legible after
+  the fact, and the question was settled read-only in two commands.
+- **`odds_snapshots` and `fair_prices` still have no retention rule.** The
+  database is 1.91 GB of a 5 GB volume with 712 MB free-listed. Dated risk.
+
+---
+
+## 2026-08-26 — three commits had no entry, and one of them raised the bet
+
+**Written at the start of the next session, because the state file was three
+commits behind the tree and the gap was on the armed money path.** `516fc68`,
+`976a244` and `8b9690e` all landed after the entry below was written, which
+still lists two of the things they fixed as *open*. Re-verified before writing
+any of this: working tree clean, nothing unpushed, live `git_sha` = `8b9690e`.
+
+### THE CORRECTION THAT MATTERS — the manual ceiling is money, not one contract
+
+**`MANUAL_ORDER_MAX_CONTRACTS = 1` is gone.** The entry below tells a fresh
+session that it stands and that raising it needs `fee_actual` to match
+`fee_predicted` on real fills. Both sentences are now false. **ADR 0075**
+(`516fc68`) replaced the count ceiling with a spend ceiling:
+
+    MANUAL_ORDER_MAX_SPEND_TENTHS = 3_000     the binding bound, $3.00
+    MANUAL_ORDER_MAX_CONTRACTS    = 500       structural
+    COMBO_MAX_CONTRACTS           = 250       structural, tighter
+
+Joe's words when asked what he stakes: *"I bet .25 cents to 2 or 3 bucks on
+parlays right now."* One contract of a combination near a cent is a bet of
+**$0.015** — the ceiling did not make his bet small, it made the door
+decorative, which is the state ADR 0073 §1 already caught this path in once.
+
+**It is a tighter-reasoned bound, not a loosened one**, and that is why it was
+allowed to override its own trigger. The combo fee is `k · C · P · (1 − P)` —
+proportional to **spend**, not to count. A one-contract cap bounded the
+fee-model error only through whatever the price happened to be: at 90c it
+bounded it forty times more loosely than at 2c. A spend cap bounds it directly.
+ADR 0075 writes down now, not after the fact, what would refute it — the first
+real fill whose `fee_actual` exceeds `fee_predicted` past the hedge's margin.
+**Re-read after five fills.**
+
+Also from that commit: the stake presets were **$1/$5/$10/$20 defaulting to
+$5** — three amounts Joe would never stake and a default above his ceiling, so
+every payout figure on the card was priced for someone else. Now
+**25c/50c/$1/$3, default $1**. The general lesson is on ADR 0070: *the number
+that prompted a feature is not evidence about the person who will use it.*
+
+**The two independent bounds both still apply and the tighter wins.**
+`_manual_cap_dollars` returns the figure **and which bound produced it** —
+"$3 cap" and "your balance only supports $0.54" are different problems with
+different remedies. Caps still derive from the observed balance (ADR 0045),
+never from a number anyone types, so the $3 only starts binding above a ~$30
+balance. **Re-read the `caps` block rather than quoting any figure here.**
+
+### The two performance commits closed two items the entry below lists as open
+
+- **`976a244`** — the recorder was scanning a growing table once per candidate.
+- **`8b9690e`** — `/api/parlays` still answered in **15s** on live after that,
+  so it was the route, not contention. `ladder_candidates` was doing
+  `SCAN odds_snapshots USING INDEX idx_odds_event` — every row, every call, on
+  a table with **no retention rule at all**. Two parts: the subquery restricted
+  to linked events (the outer query inner-joins on `l.odds_event_id`, so an
+  unlinked event could never survive — the group was building rows to throw
+  away), and one index `fair_prices(market, computed_ms DESC)`. Both scans
+  became seeks.
+
+  **A second index was written and deleted the same hour.**
+  `(odds_event_id, commence_ms)` looked necessary and **changed no plan** —
+  `idx_odds_event` already leads with `odds_event_id`, which is all an equality
+  needs. The claim "neither half works alone" was asserted before the
+  restriction-without-index combination had been measured, and the test written
+  to pin it is what refuted it. An index that changes no plan buys nothing and
+  costs write amplification on the highest-volume table in the system.
+
+**VERIFIED ON LIVE this session: `/api/parlays` is ~2s over an ssh control**,
+down from 15s. Coarse — ±1s resolution, two samples through
+`flyctl ssh` + `fetch_live_route.py` — but the fix is doing its work.
+
+### THE GATE THAT WAS OPEN — `8b9690e` shipped without a full suite
+
+Its own commit message says so: three runs killed at 3%, 31% and 21% with no
+traceback, *"a fresh session should run it clean before building on this."*
+
+**Run: `4,595 passed / 10 xfailed in 19:29`.** Clean. The gate is discharged
+and nothing was hiding in it. Note the drift the top of this file warns about
+for the fifth time running — the inherited baseline said **4,530**.
+
+### Read this session, worth carrying
+
+- **Odds credits, budget day 20260826: 2,936 used / 17,064 remaining** of the
+  20,000 tier. The attention-following feed (ADR 0071 §2.6) is holding.
+- **NCAAF has been swept once today**, 10:12:48Z, and not since — while MLB and
+  WNBA sweep every few minutes. The benign reading is that the hourly floor
+  only buys a sport with a fixture inside twelve hours and the college season
+  has not started. **It has not been confirmed**, and a sport that silently
+  never sweeps looks identical to a sport with no fixtures. One check, not an
+  assumption.
+- **The database is 1.91 GB on a 5 GB volume**, with 712 MB free-listed
+  (37% of the file, reclaimable only by `VACUUM`). `kalshi_quotes` retention is
+  holding and this is the designed steady state, not a leak. But
+  `odds_snapshots` (118 MB) and `fair_prices` (175 MB + 55 MB of indexes) have
+  **no retention rule and grow forever**, exactly as `store/retention.py:53-55`
+  says they deliberately do. A dated risk, not today's.
+
+---
+
+## 2026-08-26 — the live box was OFF between visits, and five commits later the desk draws pictures
+
+**Read this first: the instance had been down more than it was up, and nothing
+said so.** Joe asked for five things — the site is slow, desk facts in the
+parlays, buy parlays as combos, add NFL and college football, and graphs. The
+first one was not a slowness problem.
+
+### THE HEADLINE — live was crash-looping and Fly was not restarting it
+
+Found while taking a first latency reading, not by reading code. No test was
+failing. Machine events for the day:
+
+    06:51:15Z started -> 07:51:02Z stopped   exit_code=0, requested_stop=false
+    08:03:07Z started -> 09:00:48Z stopped   exit_code=0, requested_stop=false
+
+~60 minutes up, then nothing until an HTTP request woke it, at **23-37s of cold
+start**. The recorder wrote nothing in between. Five links:
+
+1. `store/db.py::derive_yes_ask` returned `None` for a `None` bid and a NUMBER
+   for a `0` one. Kalshi reports an empty side as `0.0000`, which parses to a
+   real `0`, so the ABSENCE arrived as a legitimate value and `1000 - 0` came
+   back as a price.
+2. The team pricing path guarded on `ask is None` only.
+3. `core/ev.effective_price` refused correctly — **by raising** — and nothing
+   caught it, so ONE market failed the whole pass.
+4. Five failed passes raised `LoopFailed` and ended the process.
+5. `entrypoint.sh` tore down and **exited 0**. Fly's policy is on-failure:
+   *"machine exited with exit code 0, not restarting"*. `min_machines_running
+   = 1` does not govern a container that exited successfully.
+
+**Nothing alarmed because the heartbeat probes `/api/health`, and with
+`auto_start_machines = true` that probe STARTS the machine.** It had been
+keeping the instance alive every fifteen minutes and calling that health.
+
+**This was the THIRD patch of the same defect**, and the first two were at call
+sites: `runner.py`'s prop path (2026-08-15, whose comment predicted the team
+path was safe — that prediction is what failed) and `routes.py::_tradeable_ask`
+(2026-08-26). Fixed at the source this time.
+
+**VERIFIED: 79 minutes clean on `3248e65`, then 70 minutes clean on `5edb2c9`**,
+both past the 57.7 and 59.8-minute windows the box previously died in. Full
+passes complete again (157s, 74s, 86s). `dropped_no_kalshi_quote: 1`,
+`dropped_unpriceable: 0` — the source fix is doing the work and the containment
+wrapper is idle, which is what a seatbelt should look like.
+`docs/measurements/2026-08-26-live-was-off-between-visits.md`.
+
+### THE OTHER HEADLINE — the serving path had never been measured
+
+Every latency doc here is about the recording loop; uvicorn runs
+`--no-access-log`. Measured over the public surface with a session cookie:
+
+    /api/health 0.15s   /api/slate    5.94s -> 0.38s
+    /api/window 0.32s   /api/parlays  9.96s -> 2.32s
+    /api/board  0.18s   /api/signal   1.53s -> 0.11s
+
+**`/api/parlays` at 2.3s WARM crossed a stop-work trigger this file registered
+in advance** (*"the stated stop-work trigger was 1s on `/api/parlays`"*).
+**And it overturned this session's own plan**, which had ranked the
+`/api/slate` N+1 first from reading the code — warm, the slate is 0.38s.
+
+Fixed by hoisting the joint memo out of `build_ladder` into a bounded
+module-level cache: **345ms -> 2ms**. A memo, not the payload cache the trigger
+named — a payload cache must guess an expiry and would serve stale leg ages on
+the one screen whose job is saying how old its inputs are. `_joint_key` carries
+every field `_joint` reads and the copula is seeded, so nothing can go stale.
+Plus `cache_size` 16 MiB read / 4 MiB write and `temp_store = MEMORY`;
+`mmap_size` deliberately absent (it competes with the page cache, and this box
+has OOM-killed itself once).
+`docs/measurements/2026-08-26-serving-path-baseline.md`.
+
+### What else shipped, in order
+
+- **`5b9bf5f` — the parlay ladder never had its team aliases.**
+  `ladder_candidates` loaded them with `event_links.league`, which holds
+  Kalshi's competition string ("Pro Baseball"), while the files are named for
+  sport keys. `load_aliases` returns an EMPTY mapping for a missing file, so it
+  failed open and silent for the desk's whole life. **The shared fixture wrote
+  `league = 'baseball_mlb'`, encoding the same misconception as the code**, so
+  the two agreed and nothing caught it. Measured effect: of 13 entries across
+  both files, **0 require the alias** — real but inert on today's leagues, and
+  load-bearing for NCAAF.
+- **`5edb2c9` — college football team names**, derived from the wire by
+  `scripts/capture_ncaaf_names.py` (0 odds credits, checked off
+  `x-requests-last`). Six entries, each verified individually. **NFL needed
+  nothing**: every open `KXNFLGAME` today is `'Pro Football Preseason'`, already
+  excluded; the regular season arrives ~Sept 10 on the existing path.
+- **`46cce28` — an unmatched fixture says WHICH kind.** `refusal_kind` splits
+  `not_carried` from `name_unresolved`, because the reason string could not:
+  the window is four hours and dozens of college games start inside it, so
+  every out-of-scope fixture was landing in "no team-pair bijection" beside the
+  real spelling problems.
+- **`e43f551` — desk facts on every parlay leg.** Ask, book count, method
+  spread, quote age on a second line in fixed order; provenance behind one
+  per-card tap. **The skeptic is three-valued**: a spread leg has no
+  `recommendations` row by construction, so a blank would read as "the checks
+  passed" when they never ran.
+- **`88d179f` — the perf work above.**
+- **Four charts + ADR 0074.** Chance collapsing (`/parlays`), the fair-value
+  pipeline and the dispersion axis (`/market`), cumulative money (`/bets`).
+
+### THE NUMBERS THAT MATTER
+
+- **231 of 339 Kalshi NCAAF fixtures have no sportsbook counterpart at all.**
+  Kalshi lists FCS and Division II; the odds feed carries roughly FBS. Live now
+  reads `events_unmatched: 525 of 746`. That is SCOPE, not a naming bug, and
+  the new split is what makes the two distinguishable.
+- **`fair_prices.overround` was stored since the beginning and served by
+  nothing.** It is the number that makes devigging checkable rather than a word
+  taken on trust. Now on `/api/market/{ticker}`.
+
+### ADR 0074 — the ask returns to one axis, on one screen
+
+Joe was told marking Kalshi's ask on the dispersion chart partly reverses the
+2026-08-21 ruling and said *"yeah mark the ask, go ahead."* Restored on
+`/market/[ticker]` ONLY, as a neutral tick — no colour, no arrow, no
+cheap/expensive wording. The ruling's other two removals (the `used` mark, the
+never-stretch rule) stay on both surfaces. The landing row is unchanged.
+
+**No chart wears a colour, and that is a finding about this repo**: `--accent`
+is the same red as `--negative` in both themes, so a coloured series reads as a
+verdict. Every mark is an ink token; identity is position and shape.
+
+### PROCESS — six of my own tests were decoration, all caught by mutating
+
+Worth carrying because the pattern was consistent: **a test written after the
+code tends to describe it rather than constrain it.** Caught this session — a
+stub that returned the same answer for every key; an LRU test whose fixture
+could not distinguish evicting the oldest from the newest; a loop with a
+`continue` and no assertion; an assertion ending in `or True`; a guard that
+asserted the alias file "buys something" but not that a dropped entry costs
+anything.
+
+**And one mutation LIED.** It reported green after inserting into a
+`<details>` that lives inside the file's own docstring — the file changed, the
+string was present, and no code was touched. *"The test stayed green"* is never
+on its own a conclusion; confirm the mutation landed where you think.
+
+Also: **the suite caught two real defects in my work** — a bare
+`suppressed_reason` with no gloss (ADR 0050 requires both), and a process-wide
+cache that made every `_joint`-counting test order-dependent (fixed in
+`conftest.py`, following `forget_scope_warnings`' precedent).
+
+### FOR JOE — the one thing code cannot fix
+
+**Buying a parlay as a combo is blocked on money, not on code.**
+`max_position_dollars` is 10% of the observed Kalshi balance
+(`config.py:505-514`, ADR 0045), and the live mirror reads **$5.40** — the same
+figure ADR 0073 recorded *before* the deposit. So the per-bet cap is **$0.54**,
+and a $5 bet needs **at least $50 in the account**. Nothing in the code moves
+that. Re-read the `caps` block rather than quoting this.
+
+### Open
+
+- **The combo purchase slice is unstarted**, and its harder half is that a
+  minted combo's book is empty on both sides — the order path is IOC, so it
+  cancels. Registered measurement first (does a maker ever quote a fresh
+  combo?), then decide about a resting order. ADR 0063 §3 pins IOC.
+- **The pragma change is NOT re-measured on live**, and that re-read must be
+  split by whether a full pass is running.
+- The `/api/slate` N+1 and the unbounded `GROUP BY odds_snapshots` (five call
+  sites) are real and grow forever; they are simply not what a person waits on.
+- Per-sport credit reservation for a saturated Saturday: when the daily cap
+  binds, EVERY sport stops. Guard 1 (record the refusal) unbuilt.
+- `ODDS_API_KEY` rotation; the cold-open wait; the scheduled parlay card.
+
+---
+
+## 2026-08-26 (hedging lane) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
 
 **Joe's ask, verbatim: "if I have a 6-leg parlay and one of them is not doing
 well, i'd like to have an alert surface to me with high confidence that I should

@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
     outcome_point       REAL,               -- spread/total/prop line
     price_decimal       REAL NOT NULL       -- decimal odds
 );
+-- Leads with `odds_event_id`, which is what lets the parlay ladder's fixture
+-- lookup be a seek once its subquery is restricted to linked events.
+--
+-- **A second index on `(odds_event_id, commence_ms)` was added on 2026-08-26
+-- and removed the same hour, because it changed no plan.** With it:
+-- `SEARCH ... USING INDEX idx_odds_event_commence`. Without it:
+-- `SEARCH ... USING INDEX idx_odds_event`. Identical shape -- the leading
+-- column is all the equality needs. It would have cost write amplification on
+-- the highest-volume table in the system to buy nothing, which is what an
+-- index that changes no plan always is.
 CREATE INDEX IF NOT EXISTS idx_odds_event ON odds_snapshots(odds_event_id, market, fetched_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
 
@@ -508,6 +518,13 @@ CREATE TABLE IF NOT EXISTS fair_prices (
 );
 CREATE INDEX IF NOT EXISTS idx_fair_link ON fair_prices(link_id, computed_ms DESC);
 
+-- `ladder_candidates` selects on `market IN (...) AND computed_ms >= ?`, which
+-- `idx_fair_link` cannot serve because it leads with `link_id`. Without this
+-- the plan read `SCAN f` -- every fair price ever computed, on every request
+-- to `/api/parlays`. With it: `SEARCH f USING INDEX (market=? AND computed_ms>?)`.
+CREATE INDEX IF NOT EXISTS idx_fair_market_computed
+    ON fair_prices(market, computed_ms DESC);
+
 -- The Quant's independent opinion. Deliberately a separate table from
 -- fair_prices: the whole point is that it is NOT derived from the same
 -- sportsbook consensus, so when the two agree that is genuine corroboration
@@ -666,6 +683,34 @@ CREATE TABLE IF NOT EXISTS recommendations (
 CREATE INDEX IF NOT EXISTS idx_recs_created ON recommendations(created_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_recs_open ON recommendations(suppressed_reason, created_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_recs_unscored ON recommendations(clv_scored_ms) WHERE clv_scored_ms IS NULL;
+
+-- **The recording loop's hottest read, and it had no index until 2026-08-26.**
+--
+-- `engine.persist_if_changed` runs once per candidate, every pass:
+--
+--     SELECT id, entry_ask_tenths, fair_probability FROM recommendations
+--     WHERE ticker = ? AND side = ? ORDER BY created_ms DESC, id DESC LIMIT 1
+--
+-- With no index on `(ticker, side)` the planner answered
+-- `SCAN recommendations` + `USE TEMP B-TREE FOR ORDER BY` -- a full scan AND a
+-- temporary sort, ~350 times a pass, on a table that grows ~300 rows a pass
+-- and is never trimmed.
+--
+-- Measured on live 2026-08-26: `leg_price_persist_ms` 26,000-40,000 for 290
+-- fair prices and 4 recommendations (~97ms per row), quote passes taking
+-- 35-74s against a 15-SECOND cadence, and every API route starved on the
+-- shared vCPU -- `/api/window` 0.32s -> 17.8s, `/api/slate` 0.38s -> 24.6s,
+-- `/api/parlays` past Next's 30s proxy timeout and returning 500.
+--
+-- **Football was the trigger, not the cause.** The cost is rows x candidates;
+-- adding NCAAF roughly doubled the candidates and pushed a long-standing
+-- quadratic from tolerable into pathological.
+--
+-- The trailing columns make it covering for the ORDER BY as well as the WHERE,
+-- which is what removes the temp b-tree. Write amplification is ~300 inserts a
+-- pass against ~350 full scans; the trade is not close.
+CREATE INDEX IF NOT EXISTS idx_recs_ticker_side
+    ON recommendations(ticker, side, created_ms DESC, id DESC);
 
 -- ============================================================================
 -- Execution
@@ -871,6 +916,33 @@ CREATE TABLE IF NOT EXISTS notifications (
     UNIQUE (kind, key)
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_time ON notifications(sent_ms DESC);
+
+-- One row per parlay card slot, holding the composition it is currently
+-- showing and how many CONSECUTIVE ladder builds it has held it for.
+--
+-- This is the two-build debounce. `notifications` already stops a card being
+-- pushed twice; this stops a card being pushed ONCE too early. Card
+-- compositions churn because sports are swept on independent clocks and
+-- `build_ladder` drops legs past `MAX_ODDS_AGE_S` -- so whichever sport was
+-- swept most recently owns the top of the probability ranking, and a sport
+-- entering the pool rewrites every card. Measured on live 2026-08-26: the
+-- whole day's push ceiling spent in four minutes on two compositions that
+-- differed only by which sport happened to be fresh.
+--
+-- **Consecutive, which is why this replaces rather than accumulates.** Under
+-- churn the same two compositions alternate, so "seen twice ever" is satisfied
+-- by exactly the pattern being suppressed. A build whose composition differs
+-- resets `builds` to 1; a slot that builds nothing has its row deleted, so an
+-- appear/vanish/reappear cycle does not count as two in a row.
+--
+-- A table and not a dict in memory, for `notifications`' own reason: this box
+-- restarts, and a policy that forgets on restart re-announces on restart.
+CREATE TABLE IF NOT EXISTS parlay_card_candidates (
+    card_key    TEXT PRIMARY KEY,   -- safe | middle | lottery | ...
+    key         TEXT NOT NULL,      -- notify/alerts.py::parlay_key(card)
+    first_ms    INTEGER NOT NULL,   -- when this composition first appeared
+    builds      INTEGER NOT NULL    -- consecutive builds it has held
+);
 
 -- ============================================================================
 -- Anthropic agent calls
@@ -1470,6 +1542,13 @@ CREATE INDEX IF NOT EXISTS idx_loop_failures_time ON loop_failures(failed_ms DES
 --
 -- Money is integer tenths of a cent (CLAUDE.md), so a $5.00 stake is 5000 and
 -- a $333.33 return is 333330. NULL means "not observed", never zero.
+--
+-- **Schema v24.** These were written as v23 on their own branch while
+-- `parlay_card_candidates` was written as v23 on another. Both were correct
+-- in isolation; a volume stamped v23 would have had one pair of tables or
+-- the other depending on which image booted it, and `open_db` would have
+-- raised on neither, because the stamp matched. A version number is a claim
+-- about the whole schema and a lane cannot allocate one alone.
 CREATE TABLE IF NOT EXISTS parlay_positions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     created_ms      INTEGER NOT NULL,

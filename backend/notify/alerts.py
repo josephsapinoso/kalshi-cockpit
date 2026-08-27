@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional, Sequence
 
 from .. import gate
@@ -95,7 +95,9 @@ FAILURE_KINDS = (
 )
 
 
-#: How many parlay-card pushes one budget day may carry, across all rungs.
+#: How many **change-alert** pushes one budget day may carry, across all rungs.
+#: The scheduled daily card does not spend this and does not need to; see
+#: `PARLAY_DAILY_KIND`.
 #:
 #: **The dedupe key alone is not a ceiling, and the reason is the candidate
 #: filter.** `parlays.ladder_candidates` takes pre-game fixtures only
@@ -105,10 +107,55 @@ FAILURE_KINDS = (
 #: per rung -- each one correct by the dedupe rule and collectively a phone
 #: nobody leaves un-muted.
 #:
-#: Six is two full ladders. Past it the day's pushes stop and the screen still
-#: has everything; a desk that keeps buzzing is one that manufactures action,
-#: which ADR 0071 says this tool does not do.
-MAX_PARLAY_PUSHES_PER_DAY = 6
+#: **This was 6, and it is 3 because the day now has two channels rather than
+#: one.** The old comment justified 6 as "two full ladders" when every parlay
+#: push came through here. The scheduled card is now bounded by construction at
+#: `len(PUSHED_CARD_KEYS)` per day, so 3 + 3 keeps the worst-case day total
+#: exactly where the original reasoning put it. Joe chose that total when the
+#: split was put to him: *keep 6 at the worst*.
+#:
+#: Past it the day's change alerts stop and the screen still has everything; a
+#: desk that keeps buzzing is one that manufactures action, which ADR 0071 says
+#: this tool does not do.
+MAX_PARLAY_PUSHES_PER_DAY = 3
+
+#: The `notifications.kind` of the guaranteed once-a-day card.
+#:
+#: **A separate kind from `parlay_card`, so it has a separate ceiling and a
+#: separate dedupe bucket.** Keyed on `<day_start_ms>:<card_key>` -- the budget
+#: day and not the calendar day, for `daily_digest`'s reason: a boundary that
+#: disagrees with the credit meter's would split one night's slate across two
+#: reports.
+PARLAY_DAILY_KIND = "parlay_daily"
+
+#: The `notifications.kind` of the composition-changed alert. Named rather than
+#: spelled twice, because the scheduled push burns this key as well as its own
+#: (see `parlay_cards`) and a near-miss between the two spellings would open a
+#: second dedupe bucket that doubles the phone traffic -- the exact failure
+#: `FAILURE_KINDS` above was made a read constant to prevent.
+PARLAY_CHANGE_KIND = "parlay_card"
+
+#: How many consecutive ladder builds a composition must hold before the change
+#: channel will announce it.
+#:
+#: **Measured on live 2026-08-26: the whole day's ceiling spent in four
+#: minutes.**
+#:
+#:     22:41:43Z  safe: LADATL-LAD | BOSMIA-BOS | MILNYM-MIL   (all MLB)
+#:     22:45:10Z  safe: CHICONN-CHI | PDXDAL-DAL | GSCONN-GS   (all WNBA)
+#:
+#: The card swapped sport entirely and all three rungs re-pushed. Both pushes
+#: were *correct* under the dedupe rule -- this is not a bug in the dedupe.
+#: Sports are swept on independent clocks, `build_ladder` drops legs past
+#: `MAX_ODDS_AGE_S`, and ranking is by probability, so whichever sport is
+#: currently fresh owns the top of every card.
+#:
+#: Two is the smallest number that suppresses an alternation, which is the
+#: shape the churn actually has. The cost is one build of latency: builds are
+#: gated on `counts.odds_sweeps > 0 or kind == "full"`, so ~10 minutes while
+#: someone is looking and up to an hour when nobody is. That delay is the
+#: feature.
+PARLAY_DEBOUNCE_BUILDS = 2
 
 #: Which cards reach the phone. **Not every card the screen shows.**
 #:
@@ -183,6 +230,26 @@ def parlay_key(card: Mapping[str, Any]) -> Optional[str]:
     return f"{card.get('key')}:{'|'.join(tickers)}"
 
 
+def parlay_card_due_ms(day_start_ms: int, hour_utc: int) -> int:
+    """The instant this budget day's scheduled card becomes due.
+
+    The first UTC `hour_utc` at or after `day_start_ms`. **Not
+    `day_start.replace(hour=...)`**, which is only the same thing while the
+    card hour is later in the clock than the budget day's start: the budget day
+    begins at 10:00Z by default, so a card configured for 05:00Z belongs to the
+    *next* calendar date and a plain `replace` would put it seventeen hours in
+    the past and fire it instantly at the day roll.
+
+    Pure, and module-level rather than a method, so the arithmetic can be
+    tested without a database or a notifier.
+    """
+    start = datetime.fromtimestamp(day_start_ms / 1000, timezone.utc)
+    due = start.replace(hour=hour_utc, minute=0, second=0, microsecond=0)
+    if due < start:
+        due += timedelta(days=1)
+    return int(due.timestamp() * 1000)
+
+
 def hedge_key(position: Mapping[str, Any]) -> Optional[str]:
     """The identity of one hedge alert, for `notifications.UNIQUE (kind, key)`.
 
@@ -233,17 +300,28 @@ class AlertResult:
     `skipped` is populated when an alert was *already sent*, which is a
     different state from having nothing to say and is the one that proves the
     dedupe is working rather than the notifier being broken.
+
+    **`held` is a fourth state and not a flavour of `skipped`.** A card waiting
+    out `PARLAY_DEBOUNCE_BUILDS` was a genuine candidate that was *not* deduped
+    -- nothing about it had been sent before. Filing it under `alerts_deduped`
+    would say the dedupe was working when what was working is the debounce, and
+    the two have different remedies: a stuck `skipped` means the ladder is
+    rebuilding identically, a stuck `held` means it is churning. That is the
+    same distinction `PUSHED_CARD_KEYS` already draws for screen-only cuts,
+    which are neither sent nor skipped.
     """
 
     sent: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
+    held: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "alerts_sent": list(self.sent),
             "alerts_failed": list(self.failed),
             "alerts_deduped": list(self.skipped),
+            "alerts_held": list(self.held),
         }
 
 
@@ -430,29 +508,121 @@ class Alerter:
         ).fetchone()
         return int(row["n"] or 0)
 
+    def _observe_candidate(
+        self, card_key: str, key: Optional[str], *, now_ms: int
+    ) -> int:
+        """Record this build's composition for one card slot; return its run.
+
+        The returned number is how many **consecutive** builds this slot has
+        shown `key` for, counting this one. `0` when the slot built nothing.
+
+        Three transitions, and each is a separate behaviour a test can pin:
+
+        - **Same key as last build** -- the run continues, `builds += 1`, and
+          `first_ms` is left alone so it keeps meaning "when this composition
+          first appeared" rather than "when it was last seen".
+        - **Different key** -- the row is *replaced*, run restarts at 1. Not
+          accumulated: under churn the same two compositions alternate, so a
+          counter that only ever went up would be satisfied by exactly the
+          pattern being suppressed.
+        - **No key at all** (an unbuilt card, `parlay_key` is `None`) -- the row
+          is **deleted**. A composition that appears, vanishes and reappears has
+          not held for two consecutive builds, and leaving the row would let it
+          claim it had.
+
+        Commits, because the caller is about to `await` a network send and a
+        run counted only in an uncommitted transaction is a run that a crash
+        between here and there silently rewinds.
+        """
+        if key is None:
+            self.conn.execute(
+                "DELETE FROM parlay_card_candidates WHERE card_key = ?",
+                (card_key,),
+            )
+            self.conn.commit()
+            return 0
+        row = self.conn.execute(
+            "SELECT key, builds FROM parlay_card_candidates WHERE card_key = ?",
+            (card_key,),
+        ).fetchone()
+        if row is not None and row["key"] == key:
+            builds = int(row["builds"]) + 1
+            self.conn.execute(
+                "UPDATE parlay_card_candidates SET builds = ? WHERE card_key = ?",
+                (builds, card_key),
+            )
+        else:
+            builds = 1
+            self.conn.execute(
+                "INSERT INTO parlay_card_candidates "
+                "(card_key, key, first_ms, builds) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT (card_key) DO UPDATE SET "
+                "key = excluded.key, first_ms = excluded.first_ms, builds = 1",
+                (card_key, key, int(now_ms)),
+            )
+        self.conn.commit()
+        return builds
+
     async def parlay_cards(
-        self, ladder: dict, *, now_ms: int, day_start_ms: int
+        self,
+        ladder: dict,
+        *,
+        now_ms: int,
+        day_start_ms: int,
+        card_hour_utc: int,
     ) -> "AlertResult":
-        """Push each built parlay card that is genuinely new.
+        """Push the day's scheduled card, and any composition that has held
+        still long enough to be worth a second buzz.
 
-        **The dedupe key IS the change-detection**, and that is the design
-        rather than a shortcut. `notifications` has `UNIQUE (kind, key)`, so a
-        key derived from the card's identity means a card whose legs have not
-        moved is dropped by the database and one whose legs have moved is a
-        different row. No timestamp comparison, no "last sent" column, no
-        threshold to tune -- and it survives the restart that a policy held in
-        memory would not, which is the whole argument for this table
-        (`schema.sql`, the `notifications` comment).
+        **Two channels, and separating them is the whole point of this method.**
+        Until 2026-08-27 there was one, and `run_loop.py` justified it in these
+        words: *"The daily card is the first build after the slate turns over;
+        the material-change alert is any later pass whose legs differ. Same
+        event seen twice, so one call."* Then it was measured on live, and the
+        first build after the slate turns over is precisely the **least**
+        trustworthy one -- see `PARLAY_DEBOUNCE_BUILDS` for the four minutes in
+        which the day's whole ceiling went.
 
-        `parlay_key` is the canonical card identity: it is what
-        `parlays.price_card_on_kalshi` already compares to decide the slate has
-        drifted under a tap, and what `parlay_lookups.selected_legs` stores. Any
-        other key would be a second definition of "the same card".
+        **1. The scheduled card** (`PARLAY_DAILY_KIND`). Fires on the first
+        build at or after `card_hour_utc`, keyed on the budget day so it goes
+        once and once only. Immune to churn by construction rather than by
+        policy: whatever the ladder says at that hour is the day's card.
+        Deliberately **not** debounced -- a debounce could delay or skip the one
+        push that is supposed to be guaranteed, and Joe picked the hour on the
+        basis that the card would be there.
+
+        It does not spend `MAX_PARLAY_PUSHES_PER_DAY`, because it cannot run
+        away: its own key bounds it at `len(PUSHED_CARD_KEYS)` a day.
+
+        **2. The change alert** (`PARLAY_CHANGE_KIND`), keyed on `parlay_key`
+        and now gated on the composition surviving `PARLAY_DEBOUNCE_BUILDS`
+        consecutive builds. The `notifications` claim is still what stops a
+        re-push; the debounce only adds a condition, so nothing that used to be
+        suppressed is now sent.
+
+        **A successful scheduled push burns the change key for the same
+        composition**, and without that the split would double every card. The
+        two channels have different `kind`s, so `UNIQUE (kind, key)` does not
+        see across them: the card sent at the stated hour would be re-announced
+        by the change channel ten minutes later as soon as it had held two
+        builds, having changed nothing at all. Claiming both is one
+        composition, one buzz.
+
+        **The asymmetry is deliberate and only runs one way.** A change alert
+        earlier in the day does *not* stop the scheduled card re-sending the
+        same legs at the stated hour. The daily card is the product and Joe
+        expects it to be there; the change alert is a nudge. Paying for that
+        with at most one duplicate a day is the trade that was chosen.
+
+        `parlay_key` is the canonical card identity throughout: it is what
+        `parlays.price_card_on_kalshi` compares to decide the slate has drifted
+        under a tap, and what `parlay_lookups.selected_legs` stores. Any other
+        key would be a second definition of "the same card".
 
         **Price drift alone does not re-send, deliberately.** The legs are the
         card; a re-quote of the same six legs is the same suggestion, and a
         phone that buzzes when a fair value moves a tenth of a cent is a phone
-        that gets silenced. What the ladder rebuilds is what this reacts to.
+        that gets silenced.
 
         Unbuilt cards send nothing -- `DiscordNotifier.parlay_card` refuses them
         too, and both refusals are deliberate: a push saying "nothing tonight"
@@ -461,55 +631,111 @@ class Alerter:
         sent: list[str] = []
         failed: list[str] = []
         skipped: list[str] = []
+        held: list[str] = []
 
         if not self.enabled:
-            return AlertResult((), (), ())
+            return AlertResult((), (), (), ())
 
         notes = ladder.get("notes") or {}
+        scheduled_due = now_ms >= parlay_card_due_ms(day_start_ms, card_hour_utc)
         pushed_today = self._parlay_pushes_today(day_start_ms=day_start_ms)
+
         for card in ladder.get("cards") or []:
-            if str(card.get("key")) not in PUSHED_CARD_KEYS:
+            card_key = str(card.get("key"))
+            if card_key not in PUSHED_CARD_KEYS:
                 # Neither sent nor skipped: a screen-only cut was never a
                 # candidate for the phone, and counting it as `skipped`
                 # would inflate `alerts_deduped` with rows that were never
-                # deduped. See PUSHED_CARD_KEYS.
+                # deduped. Not tracked in `parlay_card_candidates` either --
+                # a slot that cannot be pushed has no run worth counting, and
+                # a key added to `PUSHED_CARD_KEYS` later correctly starts at
+                # zero rather than inheriting a run it never earned.
                 continue
+
+            # **Observed before any of the send decisions, and for every
+            # buildable slot.** The run is a fact about the ladder, not about
+            # what was sent: skipping the write when the ceiling is spent, or
+            # when the scheduled card has already gone, would leave a stale row
+            # that the next eligible build would read as a continuing run.
+            key = parlay_key(card)
+            builds = self._observe_candidate(card_key, key, now_ms=now_ms)
+
+            # **No `not_built_reason` check, and its absence is the decision.**
+            # One was written, mutated, and observed GREEN: an unbuilt card
+            # always serialises with `legs: []` (`Card.__post_init__`
+            # guarantees legs-or-reason, and `_serialise_card` returns the
+            # empty list), so `parlay_key` already returns None for exactly
+            # that case. A second check that changes no answer reads like a
+            # guard and is not one. `DiscordNotifier.parlay_card` keeps its own
+            # refusal because it is reachable from elsewhere; this is not.
+            if key is None:
+                continue
+
+            detail = f"{card_key}: {len(card.get('legs') or [])} legs"
+
+            if scheduled_due:
+                outcome = await self._send(
+                    PARLAY_DAILY_KIND, f"{day_start_ms}:{card_key}",
+                    lambda c=card: self.notifier.parlay_card(c, notes=notes),
+                    now_ms=now_ms,
+                    detail=detail,
+                )
+                if outcome is not None:
+                    # Today's card for this rung has just gone out, or failed
+                    # trying. Burn the change key for the same composition so
+                    # the other channel cannot re-announce it; see the
+                    # docstring. Claimed even on a failed delivery, because a
+                    # change alert re-sending what the daily card could not
+                    # deliver would arrive as if the card had changed.
+                    self._claim(
+                        PARLAY_CHANGE_KIND, key, now_ms=now_ms, detail=detail
+                    )
+                    (sent if outcome else failed).append(card_key)
+                    continue
+                # `None` means today's scheduled card already went. Fall
+                # through: a composition that has since changed is exactly what
+                # the other channel is for.
+
+            if builds < PARLAY_DEBOUNCE_BUILDS:
+                held.append(card_key)
+                continue
+
             if pushed_today >= MAX_PARLAY_PUSHES_PER_DAY:
                 # Deliberately no "you have hit the cap" notification. The one
                 # thing a phone being told too much does not need is one more
                 # message. `alerts_deduped` in the pass log is where this is
                 # visible, which is where someone looking for it will be.
-                skipped.append(str(card.get("key")))
+                skipped.append(card_key)
                 continue
-            # **No `not_built_reason` check here, and its absence is the
-            # decision.** One was written, mutated, and observed GREEN: an
-            # unbuilt card always serialises with `legs: []`
-            # (`Card.__post_init__` guarantees legs-or-reason, and
-            # `_serialise_card` returns the empty list), so `parlay_key` already
-            # returns None for exactly that case and this `continue` already
-            # catches it. A second check that changes no answer reads like a
-            # guard and is not one. `DiscordNotifier.parlay_card` keeps its own
-            # refusal because it is reachable from elsewhere; this is not.
-            key = parlay_key(card)
-            if key is None:
-                continue
+
             outcome = await self._send(
-                "parlay_card", key,
+                PARLAY_CHANGE_KIND, key,
                 lambda c=card: self.notifier.parlay_card(c, notes=notes),
                 now_ms=now_ms,
-                detail=f"{card.get('key')}: {len(card.get('legs') or [])} legs",
+                detail=detail,
             )
             bucket = (
                 skipped if outcome is None else sent if outcome else failed
             )
-            bucket.append(str(card.get("key")))
+            bucket.append(card_key)
             if outcome:
-                # Counted here rather than re-queried per card: three rungs in
-                # one ladder must not all pass a ceiling that only one of them
-                # has room for.
+                # **An optimisation, not a guard, and the comment here used to
+                # claim otherwise.** It read "counted here rather than
+                # re-queried per card: three rungs in one ladder must not all
+                # pass a ceiling that only one of them has room for" -- which
+                # would be true if a re-query could miss the send. It cannot:
+                # `_send` commits the row before returning, so re-reading the
+                # count per card gives the same answer. Mutating the increment
+                # into a re-query was observed GREEN, which is what established
+                # this. What makes three rungs share one budget is that the
+                # count is committed, not that it is cached; this line only
+                # avoids a query per card. The property itself is pinned
+                # behaviourally by the ceiling tests.
                 pushed_today += 1
 
-        return AlertResult(tuple(sent), tuple(failed), tuple(skipped))
+        return AlertResult(
+            tuple(sent), tuple(failed), tuple(skipped), tuple(held)
+        )
 
     def _hedge_pushes_today(self, *, day_start_ms: int) -> int:
         row = self.conn.execute(

@@ -96,6 +96,17 @@ primary_region = "ord"
   # -- and this change is a tightening, not a loosening.
   COCKPIT_BASE_URL = "https://kalshi-cockpit.fly.dev"
 
+  # The hour the day's parlay card is pushed. 20:00Z is 4pm Eastern, which is
+  # what Joe chose (ADR 0076): the MLB and WNBA slates are set and nothing has
+  # started. Set here explicitly rather than left to the code default, for
+  # `ODDS_MARKETS`' reason -- a value the owner chose should be visible in the
+  # deploy file, not inferred from a default somebody may change.
+  #
+  # **This is 4pm Eastern only while EDT is in force.** From the first Sunday in
+  # November the same value lands at 3pm Eastern; changing THIS is the fix, and
+  # a timezone is not.
+  PARLAY_CARD_UTC_HOUR = "20"
+
   # The gate stays LOCKED until the paper record earns it: >=300 scored
   # recommendations, positive CLV surviving the noise guard, and every fill
   # matching its predicted fee.

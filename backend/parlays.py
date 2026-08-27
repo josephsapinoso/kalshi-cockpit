@@ -51,9 +51,27 @@ from backend.store.db import ask_for_side
 logger = logging.getLogger(__name__)
 
 #: Preset stakes, in cents. Served pre-priced so the client never does money
-#: arithmetic; $5 is the default the cousin-style ticket is framed at.
-STAKE_PRESETS_CENTS: tuple[int, ...] = (100, 500, 1000, 2000)
-DEFAULT_STAKE_CENTS = 500
+#: arithmetic.
+#:
+#: **Re-sized 2026-08-26 to the operator's own stated range, replacing someone
+#: else's.** These were $1/$5/$10/$20 defaulting to $5, framed by ADR 0070 s2.7
+#: around the cousin's $4.99 ticket -- the bet that prompted the desk, but not a
+#: bet Joe has ever placed. Asked directly, in his words: *"I bet .25 cents to 2
+#: or 3 bucks on parlays right now."*
+#:
+#: So three of the four presets were amounts he would never stake and the
+#: default sat above his ceiling, which means every payout figure on the card
+#: was priced for somebody else's bet. ADR 0071 s2.1 is the reason that
+#: matters: the desk exists to inform bets that are happening anyway, and a
+#: stake row he would not choose informs nothing.
+#:
+#: **This is a display range, not a limit.** Nothing here caps an order: the
+#: per-bet ceiling is derived from the observed balance (ADR 0045) and the
+#: manual path's own contract ceiling binds separately. Widening these back out
+#: costs nothing if his betting changes -- ask him rather than inferring it
+#: from a larger balance.
+STAKE_PRESETS_CENTS: tuple[int, ...] = (25, 50, 100, 300)
+DEFAULT_STAKE_CENTS = 100
 
 #: A market whose status says the venue is done with it cannot be a leg.
 _TERMINAL_STATUSES = frozenset({"closed", "settled", "finalized", "determined"})
@@ -146,7 +164,27 @@ def ladder_candidates(
         JOIN (
             SELECT odds_event_id, MIN(commence_ms) AS commence_ms,
                    home_team, away_team, sport_key
-            FROM odds_snapshots GROUP BY odds_event_id
+            FROM odds_snapshots
+            -- **Restricted to LINKED events, and this cannot change the
+            -- answer.** The outer query inner-joins on `l.odds_event_id`, so
+            -- an event absent from `event_links` was going to be discarded
+            -- anyway -- the subquery was grouping the entire history of the
+            -- table to build rows it then threw away.
+            --
+            -- Measured 2026-08-26: without it the plan reads
+            -- `SCAN odds_snapshots` on every request, and `/api/parlays`
+            -- answered in 15s while every other route was sub-second. With it,
+            -- plus `idx_odds_event_commence`, the plan is
+            -- `SEARCH odds_snapshots (odds_event_id=?)`.
+            --
+            -- **Deliberately NOT filtered on `commence_ms` here**, which would
+            -- be the obvious way to cut it further. `MIN(commence_ms)` is the
+            -- fixture's earliest recorded start, and filtering rows before
+            -- taking the MIN would let a RESCHEDULED fixture through whose
+            -- true earliest start is in the past. Rare, and a silent wrong
+            -- answer is worse than a slower right one.
+            WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
+            GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
         WHERE f.market IN ('h2h', 'spreads')
           AND f.computed_ms >= ?
@@ -450,6 +488,38 @@ def _method_spread_points(leg: CandidateLeg) -> Optional[float]:
     return (max(values) - min(values)) * 100
 
 
+def _prefix_chances(legs: Sequence[CandidateLeg]) -> list[dict]:
+    """The chance that the first N legs ALL land, for N = 1..len(legs).
+
+    The picture behind `NOTES["chance"]`, drawn from this card's own legs in
+    the ladder's own order rather than from an illustration.
+
+    **This is the plain product, and the card's headline is not.** The headline
+    joint runs a seeded Gaussian copula that adds a small same-day correlation
+    nudge; the difference between the two is `independence_error_points`, which
+    the payload already states and which the chart repeats underneath itself.
+    Re-running the copula at every prefix would be `len(legs)` more
+    200,000-sample Monte-Carlo runs per card -- measured at ~85ms each -- for a
+    difference in hundredths of a point. The honest move is the cheap number
+    with its error named, not the expensive number with its cost hidden.
+
+    Rendered percent strings ride along, so the client plots the geometry and
+    prints nothing it computed itself.
+    """
+    out: list[dict] = []
+    running = 1.0
+    for index, leg in enumerate(legs, start=1):
+        running *= leg.p_conservative
+        out.append(
+            {
+                "legs": index,
+                "chance": running,
+                "chance_percent_display": _percent(running),
+            }
+        )
+    return out
+
+
 def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
     """One leg, with the provenance behind its number.
 
@@ -553,6 +623,10 @@ def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
                 else None
             ),
             "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
+            # For the chart: the plain product at each prefix. The headline
+            # above is the correlation-adjusted joint, and `correlation_note`
+            # states the gap between them.
+            "prefixes": _prefix_chances(card.legs),
             "correlation_note": (
                 "Same-night games move together a little; the headline "
                 "already charges for that "
