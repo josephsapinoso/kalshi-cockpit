@@ -202,16 +202,39 @@ the number Joe chose.
 - **The three screen-only cuts still do not reach the phone.** Six rungs against
   a 3-push change ceiling is a separate decision about Joe's attention, and
   `PUSHED_CARD_KEYS` is unchanged.
-- **Nothing has been observed on live yet.** Note the deploy lands *after*
-  20:00Z, so the first build fires today's card immediately rather than waiting
-  a day — correct behaviour (guaranteed, late rather than never) and the reason
-  this is verifiable in minutes. Verify with `inspect_live_db.py notifications`
-  for a `parlay_daily` row with `delivered = 1`, and `/api/health`
-  `undelivered_last_24h` still 0.
+- **THE SCHEDULED CARD HAS NOT BEEN OBSERVED ON LIVE, and the prediction that
+  it would be within minutes was wrong.** Deployed at 05:44Z on `427632a`,
+  schema v23 applied on boot, `pass 1 ok` at 05:46:39Z with no `parlay_` fields
+  in the line — which is *correct*: `/api/parlays` reports
+  `excluded: {"stale_consensus": 233}` and **all six cards unbuilt**, so there
+  was nothing to push. The reasoning that the card would fire immediately (the
+  deploy lands after 20:00Z, today's key is unclaimed) was right about the gate
+  and wrong about the input. **A ladder with no legs pushes nothing, whatever
+  the clock says.**
+
+  So what IS established on live: the new signature runs without raising, the
+  new table applied to the volume, and the refusal path is silent rather than
+  noisy. What is NOT: that a `parlay_daily` row is ever written.
+
+  **When to look.** The log says `next slot is baseball_mlb at 15:51Z-16:51Z`,
+  which is after the 10:00Z budget-day roll — so the first real card is due
+  **20:00Z on 2026-08-27**. Verify then with `inspect_live_db.py notifications`
+  for a `parlay_daily` row with `delivered = 1`, `/api/health`
+  `undelivered_last_24h` still 0, and a `parlay_sent` field in the pass line.
 - Unchanged from the entries below: the combo purchase slice and its registered
   measurement; the pragma change not re-measured on live; per-sport credit
   reservation (Guard 1); the cold-open wait; `ODDS_API_KEY` rotation; `docs/`
   still carrying the stale 576/day figure outside CLAUDE.md.
+- **A scare that was not one, recorded because the instrument earned it.**
+  `loop_failures` carries five rows on 2026-08-26 between 15:32Z and 16:42Z —
+  the `ask 1000 tenths is not a tradeable price` ValueError, five consecutive
+  full passes, the loop dead. That reads as the source fix having failed. It
+  did not: the rows sit **entirely inside release 139** (12:39Z–16:49Z) and
+  stop **seven minutes before release 140**, which is the build carrying the
+  fix. Thirteen hours clean since, none after this deploy. **This is exactly
+  what `loop_failures` was built for the day before** — a run of failing passes
+  that used to leave the same evidence as one wedged pass is now legible after
+  the fact, and the question was settled read-only in two commands.
 - **`odds_snapshots` and `fair_prices` still have no retention rule.** The
   database is 1.91 GB of a 5 GB volume with 712 MB free-listed. Dated risk.
 
