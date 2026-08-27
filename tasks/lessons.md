@@ -116,6 +116,111 @@ battery when the code under it moves; do not carry the sentence forward.
 
 ---
 
+## 2026-08-27 — A reporting tool must be run from every seat it will be run from, and its findings must not be phrased as instructions
+
+A cross-worktree detector was written, tested and demonstrated from the
+integration checkout, where it was correct. Run from a **lane**, it named
+sixteen of Joe's unrelated repositories as leftover directories to delete —
+including the predecessor project `CLAUDE.md` tells every session to read. The
+cause was one line: it excluded "the tree I am running in" instead of "the
+integration tree", so from a lane the main checkout looked like an ordinary
+worktree and its parent — a general projects folder — became a search root.
+
+**Two patterns, and the second is the one that could have done damage.** The
+fixture half of this — why no test could have caught it — generalises further
+than this incident and has its own entry below, *The fixture asserted the bug
+away*, written from the lane that found it.
+
+**An instrument's answer can depend on where it is invoked from, and testing it
+from the author's own seat covers one case out of however many exist.** When a
+tool reads the *environment* rather than only its inputs, the layout in the
+fixture is part of the assertion — get it wrong and the tests agree with the
+bug.
+
+**A false positive phrased as an instruction is a destructive tool.** The
+finding ended "a human deletes it". A finding that ends in an imperative is
+acted on; one that ends in an observation is checked. Any output a person may
+act on without re-deriving it must say what was *observed* and what could not
+be established — here, "carrying no `.git` of its own… nothing can be
+established about its contents from here; check before removing it." The cost
+of the imperative is not a wasted minute, it is the deletion.
+
+**It was caught by a peer running the tool for its own reasons, not by its
+author or its tests.** That is what the oversight loop is for, and it worked in
+the direction it was not built for. Do not treat "I reviewed it" as covering
+"someone else ran it somewhere else".
+
+## 2026-08-27 — The fixture asserted the bug away
+
+Written from the `parlay_props` lane, which found both instances, and merged verbatim rather than paraphrased. It extends the layout half of the entry above to cardinality, which is the harder case.
+
+### The pattern
+
+**A fixture encodes assumptions about the world, and a test can only find bugs
+its fixture is capable of expressing.** When the fixture's shape is wrong, the
+test does not fail — it passes, and it passes *specifically on the case the
+guard exists to catch*. Green then means "my fixture cannot reach the defect",
+which is indistinguishable from "there is no defect".
+
+Two instances on one day, and the difference between them is the point.
+
+#### Layout — the collision detector
+
+`scripts/lane_board.py` told a human to delete sixteen unrelated projects,
+including the predecessor repo `CLAUDE.md` instructs every session to read.
+
+Run from the integration checkout it was correct. Run from a **lane**, the
+integration checkout read as a peer worktree and its parent — the whole
+projects folder — became a lane root. No test caught it because the fixture put
+lanes in the same parent directory as the checkout, which is not the deployed
+layout. The one condition that breaks the script could not occur in the
+fixture.
+
+Their formulation, which is the right one: *when a tool reads the environment
+rather than only its inputs, the layout in the fixture is part of the
+assertion.*
+
+#### Cardinality — the parlay prop dedupe
+
+`ladder_candidates` keyed its freshest-row map on
+`(link_id, market, outcome_name, outcome_point)`. On a prop, `outcome_name` is
+only `"Over"`/`"Under"`, so the player has to be in the key or players sharing
+a rung collapse and `setdefault` silently keeps whichever arrived first.
+
+The test written for exactly that defect **passed with the fix reverted.**
+
+The fixture seeded one Kalshi prop event per player, so each player got its own
+`event_links` row, its own `link_id`, and the four-tuple key was already unique.
+The real structure — counted off the committed
+`tests/fixtures/events_mlb_props_nested.json` — is one prop event per game **per
+statistic**, holding every player in it: `KXMLBTB-26AUG151310CWSDET` carries 66
+markets across **18 distinct players**, and batters' rungs cluster on
+0.5/1.5/2.5, so one `link_id` covers many players sharing a line.
+
+With the fixture corrected to that cardinality, reverting the fix drops a
+pitcher from the pool, which is what the test claimed to detect all along.
+
+### Why the second one generalises further
+
+The first is about **layout** — where things sit. The second is about
+**cardinality** — how many of X hang off one Y. Cardinality is harder to notice,
+because a one-to-one fixture reads as a simplification rather than as a claim,
+and it is worse when wrong, because one-to-one is the case in which most
+grouping, keying and dedupe bugs are invisible by construction.
+
+### What to do about it
+
+- **Mutation-test every guard, and treat a green mutant as a fixture bug
+  first.** Both of these surfaced only because the fix was reverted and the
+  test still passed. CLAUDE.md already requires this; neither would have been
+  found without it.
+- **When a fixture is one-to-one, say why in a comment, or make it many-to-one.**
+  If the real cardinality is unknown, that is the thing to go and measure — in
+  both cases above the answer was already committed in the repo.
+- **Prefer counting the real artefact to inventing a shape.** The 18-players
+  figure came from a captured payload already in `tests/fixtures/`. The fixture
+  had been wrong beside the evidence that corrected it.
+
 ## 2026-08-27 — A detector's granularity is decided by its false-finding risk, not by what is easy to compute
 
 A cross-worktree collision detector was specified against a hand-measured
