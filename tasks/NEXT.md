@@ -267,6 +267,41 @@ All three share one shape, written up in `tasks/lessons.md`: **the correct
 information existed somewhere in the artefact and was not where the decision
 gets made.**
 
+### Deployed 2026-08-27 ~20:18Z, and what that did and did not settle
+
+**Live is at `9d34ef3`** — `/api/health` `build.git_sha`, read after the run
+went green, not inferred from the run's success. It had been 20 commits behind
+at `f59d102`.
+
+**ADR 0079's credit check is PENDING, not passed.** The reason to deploy was
+that live was buying 26 credits per prop tap for a feed where 0 of 4,707 rungs
+are two-sided; deployed it should be 14. **No prop tap has run on the new
+build yet.** All 89 `api_credits` rows for budget-day 20260827 are 4-credit
+`h2h,spreads` sweeps — 356 credits, every one `trigger = 'attention'` — and the
+last is `20:16:05Z`, before the deploy landed. To settle it:
+
+    flyctl ssh console -a kalshi-cockpit       -C "python /app/scripts/inspect_live_db.py credits-day --date <YYYYMMDD>"
+
+and look for a prop-tap row at **14**, not 26. **Do not report ADR 0079 as
+verified on live until that row exists.** A deploy that succeeded is not a
+behaviour that changed.
+
+**The registered checks and when each can be taken**, written before the
+results so the choice of check cannot be contaminated by the answer:
+
+| check | settles when |
+|---|---|
+| ADR 0079 tap at 14 credits | the next prop tap on live |
+| ADR 0077 cold open | a sweep within a minute of a 10:00Z roll — needs tomorrow |
+| 20:00Z `parlay_daily` card | tomorrow's 20:00Z; today's window passed at deploy time |
+| hedge watcher polls | **blocked on Joe** recording a real parlay from his phone. Zero positions makes correct silence indistinguishable from a task that never started |
+| NCAAF sweeps more than once | a full day; NCAAF rows are present today at 4 credits, so it is sweeping |
+
+One of those is answered early and is worth keeping: **NCAAF is sweeping.** It
+appears repeatedly through 19:27–20:16Z alongside MLB and WNBA. The 2026-08-26
+worry that it swept once at 10:12:48Z and never again does not hold on today's
+record.
+
 ### Open, and both are Joe's
 
 - **Close the `parlay-props` worktree** — merged at `ba8fc0d`, nothing left in
