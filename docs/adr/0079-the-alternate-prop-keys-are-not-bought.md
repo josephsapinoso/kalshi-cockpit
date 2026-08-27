@@ -1,12 +1,14 @@
-# DRAFT — The `_alternate` prop keys are not bought
+# 0079 — The `_alternate` prop keys are not bought
 
-**No ordinal on purpose.** Three lanes collided on the ADR counter and
-`SCHEMA_VERSION` on 2026-08-26 and git reported two of them as clean merges.
-Per `tasks/lessons.md` (2026-08-27) the ordinal is allocated **at merge time,
-after a fetch, as the last act before pushing** — not reserved now. Highest
-merged at the time of writing is 0078.
+Accepted 2026-08-27.
 
-Proposed 2026-08-27.
+**The number was allocated here, not when this was written.** It lived as
+`DRAFT-alternate-prop-keys-are-not-bought.md` for the whole of the lane and
+took 0079 after a `git fetch`, as the last act before the push, per
+`docs/adr/README.md`. Three lanes collided on the ADR counter and
+`SCHEMA_VERSION` on 2026-08-26 and git reported two of those collisions as
+clean merges, because two lanes writing different filenames have nothing to
+conflict on.
 
 ## Context
 
