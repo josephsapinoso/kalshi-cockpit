@@ -26,6 +26,7 @@ import httpx
 import pytest
 
 import backend.parlays as parlays
+from backend.kalshi.combos import echoed_legs
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db as store
@@ -95,14 +96,46 @@ def seed_game(conn, *, game, team, other, p, computed_ms):
         )
 
 
-class FakeCollections:
-    """The smallest shape `_choose_collection` reads."""
+#: The three events `build` seeds, in the shape `seed_game` writes them.
+SEEDED_EVENTS = tuple(f"KXMLBGAME-game-{i}" for i in range(3))
 
-    def __init__(self, tickers):
+
+class FakeCollections:
+    """The shape `_choose_collection` reads, with the fields it now reads.
+
+    **This class used to default to zero legs, and that hid the branch under
+    test.** `fake_fetch` returned `FakeCollections([])`, so
+    `leg_event_tickers <= set()` was false on every call, `covering` was empty
+    on every call, and the prefix fallback returned the collection every time.
+    Every green test in this file was exercising the fallback -- the branch
+    nobody intended to exercise -- while the covering path, which was 100% of
+    the live slate on 2026-08-27, had never once been run. Line coverage was
+    total and evidential value was nil.
+
+    So the default now COVERS, and a test that wants the fallback asks for it
+    by name. `size_min`, `size_max` and `is_all_yes` carry the values the
+    committed capture actually shows for the catch-all collections
+    (`tests/fixtures/combo_collections.json`): 2, 0 and False. `size_max = 0`
+    is an unbounded sentinel and `is_all_yes = False` means *unrestricted*, and
+    both matter -- a guard reading either literally would refuse every tap.
+    """
+
+    def __init__(
+        self,
+        tickers=SEEDED_EVENTS,
+        *,
+        collection_ticker="KXMVESPORTSMULTIGAMEEXTENDED-R",
+        size_min=2,
+        size_max=0,
+        is_all_yes=False,
+    ):
         from backend.kalshi.combos import ComboScope
 
-        self.collection_ticker = "KXMVESPORTSMULTIGAMEEXTENDED-R"
+        self.collection_ticker = collection_ticker
         self.scope = ComboScope.MULTI_GAME
+        self.size_min = size_min
+        self.size_max = size_max
+        self.is_all_yes = is_all_yes
         self.legs = tuple(
             type("L", (), {"event_ticker": t})() for t in tickers
         )
@@ -150,15 +183,37 @@ def build(tmp_path, monkeypatch):
                 raise collections_error
             if collections is not None:
                 return collections
-            return [FakeCollections([])]
+            # Covers the seeded events: the production-normal path. Pass
+            # `collections=[FakeCollections([])]` to drive the fallback.
+            return [FakeCollections()]
 
         async def fake_lookup(api, collection_ticker, legs, *, side="yes",
                               allow_market_creation=False):
+            """Mints, and echoes the legs back the way the venue does.
+
+            **The canned `CAPTURED_RESPONSE` echoes NFL legs**, which are not
+            the legs any test here asks for -- and that went unnoticed for the
+            life of this file because nothing compared the two. `echoed_legs`
+            compares them now, so the fake has to be faithful or every test
+            refuses for the wrong reason.
+
+            The echo is REVERSED on purpose. In the real capture
+            (`combo_lookup_repeat.json`) the request order is `[PITBUF, NECLE]`
+            and the echo comes back `[NECLE, PITBUF]`, so a comparison that
+            depended on order would pass here and fail on the venue.
+            """
             assert allow_market_creation is True
             assert side == "yes"
             if lookup_error is not None:
                 raise lookup_error
-            return response if response is not None else CAPTURED_RESPONSE
+            if response is not None:
+                return response
+            payload = json.loads(json.dumps(CAPTURED_RESPONSE))
+            payload["market"]["mve_selected_legs"] = [
+                {"event_ticker": e, "market_ticker": m, "side": side}
+                for e, m in reversed(list(legs))
+            ]
+            return payload
 
         monkeypatch.setattr(parlays, "fetch_collections", fake_fetch)
         monkeypatch.setattr(parlays, "lookup_combo", fake_lookup)
@@ -617,3 +672,326 @@ class TestTheClientIsSharedAcrossTaps:
         to support a route the demo does not expose."""
         app, fake_api, _ = build()
         assert fake_api.constructions == []
+
+
+class TestChoosingACollection:
+    """`_choose_collection`, which had no test of its own until 2026-08-27.
+
+    It has two routes and they mean opposite things -- one knows the collection
+    lists these events, the other is a prefix guess -- and nothing separated
+    them, in the code or in this file. See `FakeCollections` for how the
+    default fixture kept the guessing route running on every test.
+    """
+
+    def _c(self, tickers, ticker="KXMVESPORTSMULTIGAMEEXTENDED-R", **kw):
+        return FakeCollections(tickers, collection_ticker=ticker, **kw)
+
+    def test_a_covering_collection_wins_and_says_so(self):
+        cover = self._c(("A", "B", "C"))
+        chosen = parlays._choose_collection([cover], {"A", "B"}, leg_count=2)
+        assert chosen.collection is cover
+        assert chosen.verified is True
+
+    def test_the_smallest_covering_collection_wins(self):
+        """Fewest legs first, then ticker. A tighter collection is a closer
+        description of the bet than a catch-all that also contains it."""
+        wide = self._c(("A", "B", "C", "D"), ticker="KXMVECROSSCATEGORY-WIDE")
+        tight = self._c(("A", "B"), ticker="KXMVECROSSCATEGORY-TIGHT")
+        for order in ([wide, tight], [tight, wide]):
+            chosen = parlays._choose_collection(order, {"A", "B"}, leg_count=2)
+            assert chosen.collection is tight
+
+    def test_the_tiebreak_is_the_ticker_not_the_input_order(self):
+        """Otherwise the same slate picks a different collection depending on
+        what order Kalshi happened to paginate it in."""
+        a = self._c(("A", "B"), ticker="KXMVECROSSCATEGORY-AAA")
+        b = self._c(("A", "B"), ticker="KXMVECROSSCATEGORY-BBB")
+        for order in ([a, b], [b, a]):
+            chosen = parlays._choose_collection(order, {"A", "B"}, leg_count=2)
+            assert chosen.collection.collection_ticker.endswith("AAA")
+
+    def test_nothing_covering_falls_back_and_admits_it(self):
+        """The branch every test in this file used to take silently."""
+        other = self._c(("X", "Y"))
+        chosen = parlays._choose_collection([other], {"A", "B"}, leg_count=2)
+        assert chosen.collection is other
+        assert chosen.verified is False, (
+            "the legs were never checked against this collection"
+        )
+
+    def test_the_fallback_prefixes_are_tried_in_their_stated_order(self):
+        cross = self._c((), ticker="KXMVECROSSCATEGORY-R")
+        sports = self._c((), ticker="KXMVESPORTSMULTIGAMEEXTENDED-R")
+        for order in ([cross, sports], [sports, cross]):
+            chosen = parlays._choose_collection(order, {"A"}, leg_count=2)
+            assert chosen.collection.collection_ticker.startswith(
+                parlays._FALLBACK_COLLECTION_PREFIXES[0]
+            )
+
+    def test_no_collection_at_all_is_none(self):
+        assert parlays._choose_collection([], {"A"}, leg_count=2) is None
+
+    def test_a_collection_outside_the_prefixes_is_not_guessed_at(self):
+        """`None` must stay reachable. It is the only honest refusal, and the
+        route turns it into words."""
+        odd = self._c(("X",), ticker="KXMVESOMETHINGELSE-R")
+        assert parlays._choose_collection([odd], {"A"}, leg_count=2) is None
+
+    def test_a_card_below_size_min_is_refused(self):
+        """Server-side, because the client's own length check is the only
+        other size guard and the server never trusts the UI."""
+        c = self._c(("A", "B"), size_min=3)
+        assert parlays._choose_collection([c], {"A", "B"}, leg_count=2) is None
+        assert parlays._choose_collection(
+            [c], {"A", "B"}, leg_count=3
+        ).collection is c
+
+    def test_size_max_zero_is_unbounded_not_zero_legs(self):
+        """The sentinel, pinned because reading it literally is the obvious
+        mistake and it would refuse every tap.
+
+        Sourced: all three catch-all collections in
+        `tests/fixtures/combo_collections.json` carry `size_max 0`, and the
+        `lottery` rung the desk pushes has six legs.
+        """
+        c = self._c(tuple(f"E{i}" for i in range(6)), size_max=0)
+        chosen = parlays._choose_collection(
+            [c], {f"E{i}" for i in range(6)}, leg_count=6
+        )
+        assert chosen is not None and chosen.collection is c
+
+    def test_is_all_yes_false_does_not_refuse(self):
+        """Same shape of mistake. `False` means *unrestricted*, not yes-only;
+        every catch-all in the capture carries it while the desk posts
+        all-YES."""
+        c = self._c(("A", "B"), is_all_yes=False)
+        assert parlays._choose_collection(
+            [c], {"A", "B"}, leg_count=2
+        ).collection is c
+
+
+class TestTheMintedLegsAreCheckedAgainstWhatWasAsked:
+    """`echoed_legs` -- the only check that can catch a wrong mint.
+
+    `mve_selected_legs` is on every captured response and was read by nothing
+    until 2026-08-27, so a market minted over the wrong legs would have been
+    priced and shown as the card.
+    """
+
+    CAPTURE = json.loads(
+        (FIXTURES / "combo_lookup_repeat.json").read_text(encoding="utf-8")
+    )
+
+    def _requested(self):
+        return [
+            (m["event_ticker"], m["market_ticker"])
+            for m in self.CAPTURE["selected_markets"]
+        ]
+
+    def test_the_real_capture_matches_despite_a_different_order(self):
+        """Request order is PITBUF then NECLE; the echo is NECLE then PITBUF.
+        A list comparison would call every real tap a mismatch."""
+        request = self._requested()
+        echoed = [
+            leg["event_ticker"]
+            for leg in self.CAPTURE["first_call"]["response"]["market"][
+                "mve_selected_legs"
+            ]
+        ]
+        assert [e for e, _ in request] != echoed, (
+            "the capture must actually be reordered, or this asserts nothing"
+        )
+        for call in ("first_call", "second_call"):
+            assert echoed_legs(
+                request, self.CAPTURE[call]["response"]
+            ).verdict == "match"
+
+    def test_the_posted_collection_is_not_what_binds(self):
+        """Why the echo is needed at all: Kalshi re-homes the market.
+
+        The capture posted to KXMVESPORTSMULTIGAMEEXTENDED-R and got back
+        KXMVECROSSCATEGORY-SHARD1-R. So choosing the collection well
+        guarantees nothing about the legs, and only the legs can check them.
+        """
+        posted = self.CAPTURE["collection_ticker"]
+        homed = self.CAPTURE["first_call"]["response"]["market"][
+            "mve_collection_ticker"
+        ]
+        assert posted != homed
+
+    def test_a_substituted_leg_is_a_mismatch(self):
+        """The failure that matters: the OTHER team in the same game."""
+        request = self._requested()
+        wrong = [
+            (event, market.replace("-NE", "-CLE"))
+            for event, market in request
+        ]
+        assert wrong != request
+        echo = echoed_legs(wrong, self.CAPTURE["first_call"]["response"])
+        assert echo.is_mismatch
+        assert "CLE" in echo.detail
+
+    def test_a_flipped_side_is_a_mismatch(self):
+        """A leg echoed back as `no` is a different bet, not a spelling."""
+        response = {
+            "market": {
+                "mve_selected_legs": [
+                    {"event_ticker": "E", "market_ticker": "M", "side": "no"}
+                ]
+            }
+        }
+        assert echoed_legs([("E", "M")], response, side="yes").is_mismatch
+
+    def test_a_missing_field_is_unreadable_not_agreement(self):
+        """Three values, not a boolean. `unreadable` must never silently pass:
+        that is how an absent field becomes a check nobody notices died."""
+        echo = echoed_legs([("E", "M")], {"market_ticker": "X"})
+        assert echo.verdict == "unreadable"
+        assert not echo.is_mismatch
+
+    def test_a_malformed_leg_list_is_unreadable(self):
+        echo = echoed_legs([("E", "M")], {"market": {"mve_selected_legs": [1]}})
+        assert echo.verdict == "unreadable"
+
+
+class TestTheRouteActsOnTheLegEcho:
+    """End to end: a wrong mint is refused rather than priced.
+
+    The mint has already happened by the time the echo can be read -- this
+    cannot prevent it. What it changes is whether Joe is shown a price for a
+    parlay he did not ask for, or told that is what happened.
+    """
+
+    def _wrong_legs_response(self):
+        payload = json.loads(json.dumps(CAPTURED_RESPONSE))
+        payload["market"]["mve_selected_legs"] = [
+            {
+                "event_ticker": "KXNFLGAME-SOMETHING-ELSE",
+                "market_ticker": "KXNFLGAME-SOMETHING-ELSE-XXX",
+                "side": "yes",
+            }
+        ]
+        return payload
+
+    async def test_a_mismatched_mint_is_refused_not_priced(self, build):
+        app, _, path = build(
+            book_payload=POPULATED_BOOK, response=self._wrong_legs_response()
+        )
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 502
+        assert "not the ones asked for" in response.json()["detail"]
+
+    async def test_the_mismatch_is_recorded_with_the_minted_ticker(self, build):
+        """The market exists. Losing its ticker off the audit table is the one
+        outcome where a missing row costs something."""
+        app, _, path = build(
+            book_payload=POPULATED_BOOK, response=self._wrong_legs_response()
+        )
+        legs = await _served_legs(app)
+        await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        conn = store.open_db(path, read_only=True)
+        row = conn.execute(
+            "SELECT * FROM parlay_lookups ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "error"
+        assert "leg echo mismatch" in row["error"]
+        assert row["minted_market_ticker"], (
+            "the minted ticker must survive the refusal"
+        )
+
+    async def test_an_unreadable_echo_still_prices(self, build):
+        """`unreadable` is not agreement, but it is not a refusal either.
+
+        The field could simply stop being sent. Refusing then would lose a real
+        market over a wire change, and the market exists either way -- so it is
+        logged and the tap proceeds. Asserted so a later 'tighten this up'
+        has to argue with the reason.
+        """
+        payload = json.loads(json.dumps(CAPTURED_RESPONSE))
+        payload["market"].pop("mve_selected_legs", None)
+        app, _, _ = build(book_payload=POPULATED_BOOK, response=payload)
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] == "priced"
+
+
+class TestTheRecordSaysWhetherTheCollectionWasVerified:
+    """`parlay_lookups.collection_unverified` -- the measurement nobody has.
+
+    Whether a catch-all accepts legs it does not enumerate is unmeasured: the
+    2026-08-23 capture says Kalshi minted such a post, and that is one
+    observation. This column is what turns the question into a rate.
+    """
+
+    async def test_a_covering_choice_is_recorded_as_verified(self, build):
+        app, _, path = build(book_payload=POPULATED_BOOK)
+        legs = await _served_legs(app)
+        await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        conn = store.open_db(path, read_only=True)
+        row = conn.execute(
+            "SELECT * FROM parlay_lookups ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "priced"
+        assert row["collection_unverified"] == 0
+
+    async def test_a_fallback_choice_is_recorded_as_unverified(self, build):
+        """A zero-leg collection covers nothing, so the prefix fallback picks
+        it -- which is exactly what this whole file used to do by default."""
+        app, _, path = build(
+            book_payload=POPULATED_BOOK, collections=[FakeCollections([])]
+        )
+        legs = await _served_legs(app)
+        await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        conn = store.open_db(path, read_only=True)
+        row = conn.execute(
+            "SELECT * FROM parlay_lookups ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "priced"
+        assert row["collection_unverified"] == 1
+
+    async def test_an_unverified_failure_does_not_flush_the_collections_cache(
+        self, build
+    ):
+        """The flush exists for a rotated `-R` suffix making the list stale.
+
+        That is the wrong diagnosis when the fallback chose the collection
+        without checking the legs: there the list was fine and the legs were
+        the problem, so flushing throws away a good fetch and re-buys it on
+        the next tap. `test_a_failed_lookup_drops_the_cache` still holds for
+        the covering case, and the two together are the whole rule.
+        """
+        calls: list = []
+        app, _, _ = build(
+            collections=[FakeCollections([])],
+            lookup_error=RuntimeError("HTTP 400 leg not in collection"),
+            collections_calls=calls,
+        )
+        legs = await _served_legs(app)
+        for _ in range(2):
+            response = await post(
+                app, "/api/parlays/lookup",
+                {"card_key": "safe", "legs": legs}, headers=HEADERS,
+            )
+            assert response.status_code == 502
+        assert len(calls) == 1, (
+            "a leg problem must not be blamed on the collection list"
+        )

@@ -39,7 +39,7 @@ from ..core.prices import is_valid_price
 #: looks wrong. The hedge tables took v24 on merge; the lesson is that a
 #: version number is a claim about the WHOLE schema and a lane cannot allocate
 #: one alone.
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 26
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -631,7 +631,52 @@ _QUANTITIES_ARE_REAL_UNDO = (
 )
 
 
+#: Schema versions that added ONLY new tables, and so need no `_MIGRATIONS`
+#: step at all.
+#:
+#: `executescript` applies `schema.sql` on every open, existing volume as well
+#: as fresh, and every `CREATE TABLE IF NOT EXISTS` in it is a no-op once the
+#: table is there. `_MIGRATIONS` is for changes to tables that already hold
+#: rows.
+#:
+#: **Declared rather than inferred, because a hole in the version line has two
+#: causes and only one of them is fine.** A version with no step is correct
+#: when nothing needed migrating and a bug when a step was deleted -- and from
+#: the key list alone the two are identical. Naming them here makes the
+#: difference checkable: `test_every_version_is_accounted_for` requires each
+#: version from the first migration to `SCHEMA_VERSION` to be in exactly one of
+#: the two places.
+#:
+#: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24)
+
+
 _MIGRATIONS: dict[int, _Migration] = {
+    # `parlay_lookups.collection_unverified` -- whether the collection was
+    # chosen by the prefix fallback rather than by coverage. Its own version
+    # rather than riding along with v25 because it is an unrelated decision and
+    # would otherwise not be revertible on its own.
+    26: _Migration(
+        columns=(
+            (
+                "parlay_lookups",
+                "collection_unverified",
+                "INTEGER NOT NULL DEFAULT 0",
+            ),
+        ),
+    ),
+    # The first column-add step since v21: v22-v24 were pure new tables, which
+    # `schema.sql` creates on its own. A column on a table that already exists
+    # on the live volume needs a step, and this is that.
+    #
+    # `notifications.suppressed` separates a deliberate never-sent claim from a
+    # delivery that failed. See the column's comment in `schema.sql` and
+    # `Alerter.delivery_health`.
+    25: _Migration(
+        columns=(
+            ("notifications", "suppressed", "INTEGER NOT NULL DEFAULT 0"),
+        ),
+    ),
     2: _Migration(
         columns=(
             ("recommendations", "last_confirmed_ms", "INTEGER"),

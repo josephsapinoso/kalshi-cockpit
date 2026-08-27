@@ -62,7 +62,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from .rest import KalshiRestClient
 
@@ -363,6 +363,95 @@ def liquidity(collections: Sequence[ComboCollection]) -> LiquidityReport:
 
 class MarketCreationRefused(RuntimeError):
     """Raised when a lookup would create a market without explicit permission."""
+
+
+@dataclass(frozen=True)
+class LegEcho:
+    """What Kalshi says it minted, checked against what we asked for.
+
+    `verdict` is one of `match`, `mismatch`, `unreadable` -- three values and
+    not a boolean, because "the legs are wrong" and "the response did not say"
+    need different handling and merging them is how an absent field becomes a
+    silent pass.
+    """
+
+    verdict: str
+    detail: str = ""
+
+    @property
+    def is_mismatch(self) -> bool:
+        return self.verdict == "mismatch"
+
+
+def echoed_legs(
+    selected_markets: Sequence[tuple[str, str]],
+    response: Mapping[str, Any],
+    *,
+    side: str = "yes",
+) -> LegEcho:
+    """Compare `mve_selected_legs` in a mint response to what was posted.
+
+    **This is the only check that can catch a wrong mint, and until 2026-08-27
+    nothing read the field.** `market_ticker` was the only thing taken off the
+    response (`parlays.price_card_on_kalshi`), so a market minted over legs the
+    caller never asked for would have been priced and shown as the card.
+
+    **Why the posted collection cannot be trusted to imply the legs.** Measured
+    in `tests/fixtures/combo_lookup_repeat.json`: the capture posted to
+    `KXMVESPORTSMULTIGAMEEXTENDED-R` and the response came back with
+    `mve_collection_ticker: KXMVECROSSCATEGORY-SHARD1-R`. Kalshi re-homes the
+    market under a collection of its own choosing, so the collection in the URL
+    binds nothing and the legs in the body are the only thing that does.
+
+    **The comparison is on sets, and that is measured, not defensive.** In the
+    same capture the request order is `[PITBUF, NECLE]` and the echo order is
+    `[NECLE, PITBUF]`. A list comparison would report every tap as a mismatch.
+
+    `side` is compared too: the desk posts all-YES, and a leg echoed back as
+    `no` is a different bet, not a different spelling.
+
+    What this does not establish
+    ----------------------------
+    - **That the market is priced correctly**, or that the minted ticker is the
+      one a previous tap got. Idempotency is `lookup_combo`'s claim.
+    - **Anything, when the field is absent.** That is `unreadable`, and the
+      caller must not read it as agreement -- the market is already minted by
+      the time this runs, so the honest response is to record it, not to
+      pretend the check passed.
+    """
+    market = response.get("market") or {}
+    raw = market.get("mve_selected_legs")
+    if raw is None:
+        raw = response.get("mve_selected_legs")
+    if not isinstance(raw, list):
+        return LegEcho(
+            "unreadable",
+            f"no mve_selected_legs in response keys {sorted(response)}",
+        )
+
+    try:
+        got = {
+            (
+                str(leg["event_ticker"]),
+                str(leg["market_ticker"]),
+                str(leg.get("side", side)),
+            )
+            for leg in raw
+        }
+    except (KeyError, TypeError) as exc:
+        return LegEcho("unreadable", f"malformed mve_selected_legs: {exc!r}")
+
+    want = {(event, market_t, side) for event, market_t in selected_markets}
+    if got == want:
+        return LegEcho("match")
+
+    missing = sorted(want - got)
+    extra = sorted(got - want)
+    return LegEcho(
+        "mismatch",
+        f"asked for {len(want)} legs, Kalshi minted {len(got)}; "
+        f"missing={missing} unexpected={extra}",
+    )
 
 
 async def lookup_combo(

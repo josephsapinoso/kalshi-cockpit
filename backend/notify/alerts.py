@@ -344,7 +344,15 @@ class Alerter:
 
     # -- the ledger of what was said ---------------------------------------
 
-    def _claim(self, kind: str, key: str, *, now_ms: int, detail: str = "") -> bool:
+    def _claim(
+        self,
+        kind: str,
+        key: str,
+        *,
+        now_ms: int,
+        detail: str = "",
+        suppressed: bool = False,
+    ) -> bool:
         """Reserve one alert. False when it has already been made.
 
         `ON CONFLICT DO NOTHING` rather than `INSERT OR IGNORE`: the latter
@@ -353,11 +361,20 @@ class Alerter:
         fixture in this repo silently inserted nothing for the life of the
         project. This form still raises on a broken row and only swallows the
         conflict it is written for.
+
+        **`suppressed=True` means no send will follow, and the caller must say
+        so at the point it decides.** It cannot be worked out afterwards: a
+        claim with no delivery is also what a process that died mid-send leaves
+        behind, which is the exact case ADR 0049 built `undelivered_last_24h`
+        to catch. Defaulting to `False` is deliberate -- the dangerous
+        direction is a real failure being written off as intentional, so
+        silence has to mean "a send was attempted".
         """
         cursor = self.conn.execute(
-            "INSERT INTO notifications (sent_ms, kind, key, delivered, detail) "
-            "VALUES (?, ?, ?, 0, ?) ON CONFLICT (kind, key) DO NOTHING",
-            (now_ms, kind, key, detail or None),
+            "INSERT INTO notifications "
+            "(sent_ms, kind, key, delivered, suppressed, detail) "
+            "VALUES (?, ?, ?, 0, ?, ?) ON CONFLICT (kind, key) DO NOTHING",
+            (now_ms, kind, key, 1 if suppressed else 0, detail or None),
         )
         self.conn.commit()
         return cursor.rowcount > 0
@@ -372,21 +389,39 @@ class Alerter:
         `delivered = 0` -- the loop died, the alert was claimed, and nothing
         reached the phone. One for one, and nothing said so for months.
 
+        **`suppressed` rows are excluded, and this is the whole reason the
+        column exists.** ADR 0076 burns the change channel's key whenever the
+        scheduled parlay card goes out, so that one composition cannot buzz
+        twice. That claim is never sent and never will be, and it used to land
+        in `failed_recent` -- three a day, permanently, on a field whose entire
+        job is saying "something was claimed and never arrived". The class of
+        bad night `test_an_old_failure_falls_out_of_the_24h_count` guards
+        against had become the steady state.
+
+        **They are reported rather than merely dropped.** A silent filter would
+        make a burn storm invisible, and this repo has just written down the
+        lesson that a fact outside the block a reader acts on does not get
+        acted on. `suppressed_last_24h` should sit at or below
+        `len(PUSHED_CARD_KEYS)` per day; anything else is a finding.
+
         Returns plain values rather than a dataclass because its one consumer
         serialises it straight to JSON.
         """
         row = self.conn.execute(
             "SELECT MAX(CASE WHEN delivered = 1 THEN sent_ms END) AS last_ok, "
-            "SUM(CASE WHEN delivered = 0 AND sent_ms >= ? THEN 1 ELSE 0 END) "
-            "AS failed_recent, COUNT(*) AS total "
+            "SUM(CASE WHEN delivered = 0 AND suppressed = 0 AND sent_ms >= ? "
+            "THEN 1 ELSE 0 END) AS failed_recent, "
+            "SUM(CASE WHEN suppressed = 1 AND sent_ms >= ? THEN 1 ELSE 0 END) "
+            "AS suppressed_recent, COUNT(*) AS total "
             "FROM notifications",
-            (now_ms - window_ms,),
+            (now_ms - window_ms, now_ms - window_ms),
         ).fetchone()
         # `None` for "never delivered anything", never 0 -- a zero timestamp is
         # 1970 and would render as a delivery. This repo's recurring defect.
         return {
             "last_delivered_ms": row["last_ok"],
             "undelivered_last_24h": int(row["failed_recent"] or 0),
+            "suppressed_last_24h": int(row["suppressed_recent"] or 0),
             "total_ever": int(row["total"] or 0),
         }
 
@@ -687,8 +722,14 @@ class Alerter:
                     # docstring. Claimed even on a failed delivery, because a
                     # change alert re-sending what the daily card could not
                     # deliver would arrive as if the card had changed.
+                    # `suppressed=True`: no send follows this claim, ever.
+                    # Without it the row is indistinguishable from a process
+                    # that died between claiming and sending, and
+                    # `delivery_health` would report it as a failed push --
+                    # see that method and the column in `schema.sql`.
                     self._claim(
-                        PARLAY_CHANGE_KIND, key, now_ms=now_ms, detail=detail
+                        PARLAY_CHANGE_KIND, key, now_ms=now_ms, detail=detail,
+                        suppressed=True,
                     )
                     (sent if outcome else failed).append(card_key)
                     continue

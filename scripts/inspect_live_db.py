@@ -334,14 +334,24 @@ _SQL_PASS_GAPS = (
 # read as three parlay pushes repeating when the parlay keys had not moved at
 # all. A total is not a breakdown, and deducing a breakdown from one is how a
 # wrong story survives.
+# `suppressed` is selected beside `delivered`, and without it this section
+# cannot be read. A row that was claimed and deliberately never sent (ADR
+# 0076 burns the change key when the scheduled card goes out) is
+# `delivered = 0` like a genuine failure, so `n - delivered` overstates the
+# failures by up to `len(PUSHED_CARD_KEYS)` a day. Read on live 2026-08-27
+# this section said `parlay_card 20 / 15 delivered` and the five were every
+# one a burn.
 _SQL_NOTIFICATIONS_BY_KIND = (
     "SELECT kind, COUNT(*) AS n, SUM(delivered) AS delivered, "
+    "SUM(suppressed) AS suppressed, "
+    "SUM(CASE WHEN delivered = 0 AND suppressed = 0 THEN 1 ELSE 0 END) "
+    "AS undelivered, "
     "MIN(sent_ms) AS first_ms, MAX(sent_ms) AS last_ms "
     "FROM notifications GROUP BY kind ORDER BY n DESC"
 )
 
 _SQL_NOTIFICATIONS_TAIL = (
-    "SELECT id, sent_ms, kind, key, delivered, detail "
+    "SELECT id, sent_ms, kind, key, delivered, suppressed, detail "
     "FROM notifications ORDER BY sent_ms DESC, id DESC"
 )
 
@@ -1423,12 +1433,17 @@ def _q_notifications(conn: sqlite3.Connection, args) -> list[Section]:
     - **Why a kind is absent.** `opportunity` has never fired in this
       project's life, which is a fact about the Board being empty rather than
       about the notifier.
+
+    `undelivered` is the column to read, not `n - delivered`. A `suppressed`
+    row was claimed on purpose and never sent -- the scheduled parlay card
+    burning the change channel's key -- so it is neither a delivery nor a
+    failure, and only the explicit column tells the three apart.
     """
     kinds = _fetch(
         conn,
         _SQL_NOTIFICATIONS_BY_KIND,
         (),
-        title="notifications: count and delivered by kind",
+        title="notifications: by kind -- delivered, suppressed, undelivered",
         cap=args.limit,
     )
     kinds = _derive_iso(kinds, "first_ms", "first_iso")

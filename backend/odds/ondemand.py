@@ -76,17 +76,28 @@ DEFAULT_COOLDOWN_MS = 120_000
 
 # Credits a budget day may spend on taps, out of `ODDS_DAILY_CREDIT_BUDGET`.
 #
-# 150 of 700 (`fly.live.toml:222`). In tap terms that is 37 team refreshes, or
-# 6 fixtures' props with a few team refreshes left over -- and the second of
-# those is the one that sizes it, because a prop refresh is 24 credits against
-# a team refresh's 4.
+# 150 of 700 (`fly.live.toml:222`). What that buys is **not written here as a
+# figure**, because every time it has been it went stale:
 #
-# Those two per-tap figures read 26 and 6 until 2026-08-24 (ADR 0071 section 4).
-# Both are derived, not configured: a team sweep is `len(markets) x
-# len(regions)` and a prop tap adds 10 prop keys x 2 regions on top, so
-# `ODDS_MARKETS` gaining `spreads` on 2026-08-23 moved 2 -> 4 and 22 -> 24. The
-# 6 was older still, from a three-market configuration that never ran on the
-# box. Restating a derived number in a comment is how all three drifted.
+#     team tap     sweep_cost(ODDS_MARKETS, ODDS_REGIONS)
+#     prop tap     the above + sweep_cost(prop_market_keys(), ODDS_REGIONS)
+#
+# and `sweep_cost` is `markets x regions` (`budget.py:66`). The prop tap is
+# what sizes the slice, because it is the dearer of the two. Both are DERIVED
+# from configuration; neither is set anywhere.
+#
+# **This comment has now drifted four times, and the fourth was written by the
+# commit that caused it.** It read "26 and 6" until 2026-08-24 (ADR 0071 SS4),
+# then "24 and 4" until ADR 0079 took the `_alternate` prop keys off on
+# 2026-08-27 -- which halved the prop half and left this text saying 24, and
+# "6 fixtures' props", while `fly.live.toml` was updated and this was not. The
+# previous version of this paragraph ended with the sentence "restating a
+# derived number in a comment is how all three drifted", and then restated
+# three more.
+#
+# So the numbers live in `tests/test_odds.py` instead, where a change to
+# `ODDS_MARKETS` or `prop_market_keys()` makes a test fail rather than making a
+# comment wrong. Read them there, or compute them; do not add them back here.
 #
 # **Not a forecast and not a target.** A planned MLB + WNBA evening spends
 # ~300-500 on the schedule (`fly.live.toml` carries the reconciled figure), so

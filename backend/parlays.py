@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, Sequence
+from typing import NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
 from backend.core.ladder import (
@@ -38,7 +38,9 @@ from backend.core.ladder import (
 )
 from backend.core.parlay import ParlayQuote, value_parlay
 from backend.core.prices import format_dollars, format_price, format_probability
-from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
+from backend.kalshi.combos import (
+    ComboScope, echoed_legs, fetch_collections, lookup_combo,
+)
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.props import norm
 from backend.kalshi.spreads import (
@@ -952,41 +954,83 @@ async def _collections(api, *, now_ms: int):
     return items
 
 
-def _choose_collection(collections, leg_event_tickers: set[str]):
-    """The collection to mint under: exact coverage first, then the
-    catch-all sports collections by prefix, else nothing (refused in words)."""
+class _Chosen(NamedTuple):
+    """A collection, and whether anything is known about it accepting the legs.
+
+    Two values, not one, because until 2026-08-27 the caller could not tell the
+    two apart and neither could the record. `verified=False` means the prefix
+    fallback picked it and the legs were never checked against anything.
+    """
+
+    collection: object
+    verified: bool
+
+
+def _choose_collection(
+    collections, leg_event_tickers: set[str], *, leg_count: int = 0
+):
+    """The collection to mint under: coverage first, then the catch-all
+    collections by prefix, else nothing (refused in words).
+
+    Returns `None`, or a `_Chosen` saying which of the two routes was taken.
+
+    **The fallback does not check the legs, and that is deliberate rather than
+    an oversight.** `_FALLBACK_COLLECTION_PREFIXES` records that the 2026-08-23
+    capture posted NFL legs to `KXMVESPORTSMULTIGAMEEXTENDED-R` and Kalshi
+    minted the market anyway -- so a catch-all's enumerated leg list understates
+    what it accepts, and refusing on non-coverage would refuse taps that work.
+    Nobody has measured how often the fallback fires or how often Kalshi then
+    accepts it; `parlay_lookups.collection_unverified` exists to find out.
+
+    **What IS refused here is `size_min`, and only that.** Reading the
+    committed capture: all three catch-all collections carry `size_min 2`,
+    `size_max 0` and `is_all_yes False`. So `size_max = 0` is an unbounded
+    sentinel and `is_all_yes False` means *unrestricted*, not yes-only -- a
+    guard on either would have refused every tap this desk can make, which is
+    an outage rather than a check. `size_min` is the one that means what it
+    reads like. `leg_count` defaults to 0 so a caller that does not pass it
+    gets the old behaviour rather than a silent refusal.
+    """
     eligible = [
         c for c in collections
         if c.scope in (ComboScope.MULTI_GAME, ComboScope.CROSS_SPORT,
                        ComboScope.CROSS_CATEGORY)
     ]
+    if leg_count:
+        # Server-side, because `PriceOnKalshi.tsx`'s `legs.length < 2` is the
+        # only other size guard and CLAUDE.md is explicit that the server never
+        # trusts the UI to have disabled a button.
+        eligible = [c for c in eligible if leg_count >= (c.size_min or 0)]
     covering = [
         c for c in eligible
         if leg_event_tickers <= {leg.event_ticker for leg in c.legs}
     ]
     if covering:
-        return min(covering, key=lambda c: (len(c.legs), c.collection_ticker))
+        return _Chosen(
+            min(covering, key=lambda c: (len(c.legs), c.collection_ticker)),
+            True,
+        )
     for prefix in _FALLBACK_COLLECTION_PREFIXES:
         matches = sorted(
             (c for c in eligible if c.collection_ticker.startswith(prefix)),
             key=lambda c: c.collection_ticker,
         )
         if matches:
-            return matches[0]
+            return _Chosen(matches[0], False)
     return None
 
 
 def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
                    collection_ticker=None, minted=None, no_bid_tenths=None,
                    ask_tenths=None, depth=None, fair_joint=None, hold=None,
-                   error=None) -> None:
+                   error=None, collection_unverified=False) -> None:
     """Every lookup is recorded, every outcome -- it minted a real market."""
     conn.execute(
         "INSERT INTO parlay_lookups (requested_ms, card_key, stake_cents, "
         "selected_legs, collection_ticker, status, minted_market_ticker, "
         "book_no_bid_tenths, derived_yes_ask_tenths, book_depth, "
-        "fair_joint_conservative, hold, error) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "fair_joint_conservative, hold, error, collection_unverified) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             now_ms, card_key, stake_cents,
             json.dumps([
@@ -994,6 +1038,7 @@ def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
             ]),
             collection_ticker, status, minted, no_bid_tenths, ask_tenths,
             depth, fair_joint, hold, error,
+            1 if collection_unverified else 0,
         ),
     )
     conn.commit()
@@ -1064,9 +1109,11 @@ async def price_card_on_kalshi(
             legs=legs, status="error", error=exc.detail,
         )
         raise
-    collection = _choose_collection(
-        collections, {event for event, _ in served}
+    chosen = _choose_collection(
+        collections, {event for event, _ in served}, leg_count=len(legs),
     )
+    collection = chosen.collection if chosen else None
+    unverified = bool(chosen) and not chosen.verified
     if collection is None:
         _record_lookup(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
@@ -1090,11 +1137,17 @@ async def price_card_on_kalshi(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
             legs=legs, status="error",
             collection_ticker=collection.collection_ticker, error=str(exc),
+            collection_unverified=unverified,
         )
-        # The collection ticker we just posted to is the most likely thing
-        # that was wrong -- the `-R` suffix rotates and the fallback is
-        # prefix-matched. Without this, one rotation means an hour of 502s.
-        invalidate_collections_cache()
+        # **Only when coverage picked it.** The flush is for a rotated `-R`
+        # suffix making a cached list stale, and on that theory throwing the
+        # list away is right. It is the wrong theory for a collection the
+        # prefix fallback chose without checking the legs: there the list was
+        # fine and the legs were the problem, so flushing discards a good
+        # fetch and re-buys it on the next tap. Without the flush at all, one
+        # rotation means an hour of 502s -- so it is narrowed, not removed.
+        if not unverified:
+            invalidate_collections_cache()
         raise LookupRefused(
             502, f"Kalshi refused the combination: {exc}"
         ) from exc
@@ -1108,9 +1161,40 @@ async def price_card_on_kalshi(
             legs=legs, status="error",
             collection_ticker=collection.collection_ticker,
             error=f"no market_ticker in response keys {sorted(response)}",
+            collection_unverified=unverified,
         )
         raise LookupRefused(
             502, "Kalshi answered without naming the minted market."
+        )
+
+    # **What Kalshi says it minted, against what was asked for.** Until
+    # 2026-08-27 nothing read this, so a market minted over the wrong legs --
+    # the other team, say -- would have been priced and shown as the card. It
+    # cannot prevent the mint, which has already happened by the time the
+    # response exists; it is the difference between a wrong bet shown as right
+    # and a refusal that says so.
+    #
+    # `unreadable` is NOT treated as agreement. It is recorded and the tap
+    # proceeds, because the market exists either way and refusing would lose a
+    # real ticker off the audit table for a field Kalshi merely stopped
+    # sending. A mismatch is different and does refuse.
+    echo = echoed_legs(legs, response, side="yes")
+    if echo.verdict != "match":
+        logger.warning(
+            "combo leg echo %s on %s: %s", echo.verdict, minted, echo.detail
+        )
+    if echo.is_mismatch:
+        _record_lookup(
+            conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
+            legs=legs, status="error",
+            collection_ticker=collection.collection_ticker, minted=minted,
+            error=f"leg echo mismatch: {echo.detail}",
+            collection_unverified=unverified,
+        )
+        raise LookupRefused(
+            502,
+            "Kalshi minted a combination whose legs are not the ones asked "
+            "for. Nothing is priced; the market exists and is recorded.",
         )
 
     # Inside its own try: the market is ALREADY MINTED by the time this runs,
@@ -1127,6 +1211,7 @@ async def price_card_on_kalshi(
             legs=legs, status="error",
             collection_ticker=collection.collection_ticker, minted=minted,
             error=f"orderbook after mint: {exc}",
+            collection_unverified=unverified,
         )
         raise LookupRefused(
             502,
@@ -1149,7 +1234,7 @@ async def price_card_on_kalshi(
             conn, now_ms=now_ms, card_key=card_key, stake_cents=stake_cents,
             legs=legs, status="book_empty",
             collection_ticker=collection.collection_ticker, minted=minted,
-            fair_joint=joint.conservative,
+            fair_joint=joint.conservative, collection_unverified=unverified,
         )
         return {
             "status": "book_empty",
@@ -1188,6 +1273,7 @@ async def price_card_on_kalshi(
         collection_ticker=collection.collection_ticker, minted=minted,
         no_bid_tenths=best_no_bid, ask_tenths=ask_tenths, depth=depth,
         fair_joint=joint.conservative, hold=valuation.hold,
+        collection_unverified=unverified,
     )
 
     return {

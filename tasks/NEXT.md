@@ -19,6 +19,14 @@ test guards the *file*, and what actually breaks first is the instruction at the
 top of it — a session that cannot read the whole file reads the head and
 silently believes it has the state. **Split at ~90%, not at 100%.**
 
+**Split again 2026-08-27, at 259,407 bytes — 98.9%, and that is a miss.** The
+2026-08-24 through 2026-08-20 entries (27 of them) moved to
+`archive/next-2026-08-27.md`, verbatim, leaving ~140KB here. The rule above says
+90% and it was not followed, because the entry that crossed the line was the one
+being written and nobody checks the size before adding. **Check `wc -c` BEFORE
+writing an entry, not after** — at 98.9% the margin was 2,737 bytes, roughly one
+paragraph, and the failure mode is silent.
+
 ---
 
 ## SESSION START — if Joe said "read NEXT.md", this box is your prompt
@@ -31,11 +39,18 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,911 passed / 10 xfailed in 23:35**, measured 2026-08-27 at
-`7e828c8`, on a clean working tree, with `origin/main` at the same sha. That
-triple — the number, the sha it was taken on, and the fact that nothing had
-moved since — is the qualification this line has never carried, and its absence
-is the whole reason it has been wrong six times.
+**Test baseline: 4,942 passed / 10 xfailed in 23:00**, measured 2026-08-27 on
+the tree committed as the ADR 0080 change, with `origin/main` at `e077010`
+immediately before the push. That triple — the number, the tree it was taken
+on, and the fact that nothing moved after — is the qualification this line has
+never carried, and its absence is the whole reason it has been wrong six times.
+
+**Two runs this session are NOT this number and neither was reported as one.**
+One was started at session open and killed as void because the tree was edited
+under it — the exact failure this file records twice. The other read
+`2 failed, 4,940 passed` and was a real finding, not a flake: adding a
+migration at v25 after three tableless versions tripped a contiguity guard on
+`_MIGRATIONS`. Fixed properly, then re-run whole.
 
 **Four other runs happened this session and NONE of them is this number.**
 4,842 before the lane-board work; 4,885 at `1fecb54`, before the parlay lane
@@ -145,7 +160,203 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-27 (latest) — two lanes can be seen at once, and the tool that saw them told a human to delete sixteen projects
+## 2026-08-27 (latest) — the alarm that watches for a silent death had been taught to fire every day, and the combo tests were all in the wrong branch
+
+**State at start: `main` = `e077010`** (clean, nothing unpushed; a NEXT.md-only
+commit), **live `git_sha` = `9d34ef3`**, so live carried all current code. No
+lane was working: `parlay-props` was a spent shell at `e90b154` (merged
+`ba8fc0d`, 0 ahead / 3 behind, clean) and `hedging-research` an empty
+unregistered directory. Joe said "read NEXT.md and start".
+
+**Nothing here was on the plan.** Three live readings were taken before
+planning, two of them the registered checks the entry below is waiting on, and
+the third turned into the session.
+
+---
+
+### The two registered checks, and one of them is now ANSWERED
+
+**The 20:00Z `parlay_daily` card FIRED and DELIVERED.** Three rows at
+**2026-08-27T20:06:02.409Z** — `safe: 3 legs`, `middle: 4 legs`,
+`lottery: 6 legs` — all `delivered = 1`. The entry below predicted "tomorrow's
+20:00Z"; it happened the same day. **ADR 0076's scheduled card is observed
+working on live for the first time.** `parlay_daily` now has 6 rows all told,
+two batches of three (06:14:49Z and 20:06:02Z), every one delivered.
+
+**ADR 0079's prop tap is still PENDING, and the recognition rule below is
+WRONG. Do not look for a row at 14.** A tap writes **two** `api_credits` rows
+and 14 is their sum:
+
+| row | endpoint | markets | cost |
+|---|---|---|---|
+| team sweep | `/sports/{k}/odds` | `h2h,spreads` | 4 |
+| the props | `/sports/{k}/events/{id}/odds` | the 5 base keys | **10** (was 20) |
+
+So the number to read is **10 on the `/events/` row**, and the discriminator is
+`endpoint LIKE '%/events/%/odds'`. **`_SERVED_SWEEP`'s `LIKE '%/odds'` matches
+both**, which is deliberate (`client.py:493-500`) and is why the naive filter
+cannot separate them. All **92** rows for budget-day 20260827 are 4-credit team
+sweeps — 368 credits, latest 20:26:07Z — so **no prop tap has run on the new
+build.** That is not a defect; it is no observation. **It needs Joe to tap a
+prop on the phone**, and then `inspect_live_db.py credits-tail`.
+
+---
+
+### THE ONE THAT MATTERS — `/api/health` said five pushes had failed and none had
+
+`undelivered_last_24h: 5`, read on live at 20:25Z, with nothing having failed.
+**ADR 0080.** The entry below tells the next session to verify the card by
+checking this field is "still 0"; it can never be 0 again on a day the card
+fires.
+
+Three pieces, each right on its own, in `backend/notify/alerts.py`:
+
+1. `_claim` writes `delivered = 0` **before** the send — deliberately, so a
+   crash between claiming and sending cannot silently re-alert.
+2. ADR 0076's channel-burn claims `PARLAY_CHANGE_KIND` **with no send behind
+   it**, so one composition cannot buzz twice. That row is `delivered = 0`
+   forever, three a day.
+3. `delivery_health` counted every `delivered = 0` row in 24h as a failure.
+
+**The burn leaves exactly the signature ADR 0049 built this field to detect** —
+its own words: *"the alerter claims the row before sending, so a process that
+dies mid-send leaves exactly this. The loop died and Joe was not told, and
+nothing said so for months."* And `test_alerts.py` already named the harm:
+*"otherwise one bad night reads as a permanently broken alerter."* The burn made
+it permanent.
+
+**Bounded, and stated so nobody over-reads it.** `heartbeat.yml` does **not**
+read this block — it reads `status`, machine state and `recorder.age_ms` — so
+**no false alarm ever reached Joe's phone.** The damage was to a human read of
+`/api/health` and to ADR 0072's verification method, which used
+`undelivered_last_24h at 0` as its evidence.
+
+**Fixed at schema v25**: `notifications.suppressed`, set by the writer at the
+point it decides, because no reader can recover it afterwards — a claim with no
+send and a death mid-send are identical in the record by construction. Not a
+sentinel inside `delivered` (`inspect_live_db.py` does `SUM(delivered)`, so a
+`2` would report each burn as two deliveries in the tool used to read this).
+`suppressed_last_24h` is published beside the corrected count, which is also
+**what makes the fix checkable from outside**.
+
+**The five live rows were NOT backfilled.** Two are provable burns (ids 1531 and
+1533, same millisecond as `delivered = 1` `parlay_daily` rows); the other three
+are *consistent* with the day's other burns and that is not measured. They
+default to `suppressed = 0` — still counted — and age out on their own.
+
+### THE SECOND ONE — every green test on the combo tap ran the branch nobody meant to run
+
+`tests/test_parlay_lookup.py` had 19 green tests. **All 19 ran the prefix
+fallback.** `FakeCollections([])` built a collection with zero legs, so
+`covering` was empty on every call, the fallback returned every time, and the
+production-normal covering path — 100% of the live slate on 2026-08-27 — had
+**never been executed once**. There was no test of `_choose_collection` at all.
+
+**And the fake echoed back NFL legs on every call**, which are not the legs any
+test asks for. Nothing compared the two, so it never mattered. It matters now.
+
+**NEXT.md's citation is 8 lines stale**: the function is `parlays.py:955-976`,
+not `:947-968`; the prefix table is `:896-899`, not `:888-891`.
+
+### The fix is DETECTION, and the reason is a measurement, not a preference
+
+The obvious fix — refuse when `covering` is empty — **is wrong**, and the
+capture says why. `combo_lookup_repeat.json` posted to
+`KXMVESPORTSMULTIGAMEEXTENDED-R` and Kalshi answered with
+`mve_collection_ticker: KXMVECROSSCATEGORY-SHARD1-R`. **The collection in the
+URL binds nothing; Kalshi re-homes the market.** Combined with the 2026-08-23
+capture minting NFL legs a catch-all did not enumerate, a coverage refusal would
+refuse taps that work.
+
+So what shipped is the check that needs no venue observation and was sitting in
+the response the whole time:
+
+- **`echoed_legs` compares `mve_selected_legs` to what was posted.** That field
+  is on every captured response and **was read by nothing** — `market_ticker`
+  was all that came off the payload, so a market minted over the *other team*
+  would have been priced and shown as the card. A mismatch now refuses, with the
+  minted ticker kept on the row.
+- **The comparison is on SETS, and that is measured.** Request order in the
+  capture is `[PITBUF, NECLE]`; the echo is `[NECLE, PITBUF]`. A list
+  comparison would call every real tap a mismatch.
+- **`unreadable` is a third value, not a `False`.** An absent field is recorded
+  and the tap proceeds — the market exists either way, and refusing would lose a
+  real ticker over a wire change. It must never read as agreement.
+- **`parlay_lookups.collection_unverified`** (schema v26) records whether the
+  fallback chose the collection. **Whether a catch-all accepts legs it does not
+  enumerate is unmeasured** — one observation, 2026-08-23. This column turns it
+  into a rate.
+- **`size_min` is enforced server-side.** The only other size guard was
+  `PriceOnKalshi.tsx`'s `legs.length < 2`, and CLAUDE.md is explicit that the
+  server never trusts the UI.
+- **The cache flush stops guessing.** `invalidate_collections_cache()` is for a
+  rotated `-R` suffix; it is the wrong diagnosis for a leg problem, so it no
+  longer fires when the fallback chose without coverage.
+
+**TWO GUARDS I DRAFTED WOULD HAVE REFUSED EVERY TAP, and reading the capture is
+what stopped them.** All three catch-all collections carry `size_min 2`,
+`size_max 0`, `is_all_yes False`. **`size_max = 0` is an unbounded sentinel and
+`is_all_yes = False` means *unrestricted*.** Refusing on either would have been
+an outage wearing a guard's clothes. Both sentinels are now pinned by tests
+sourced to the capture, because the next reader will make the same mistake.
+
+### THE THIRD — ADR 0079 left a stale figure in the comment `fly.live.toml` points at
+
+`backend/odds/ondemand.py` still said *"6 fixtures' props"* and *"a prop refresh
+is 24 credits"*. ADR 0079 halved the prop keys, so it is 14 and ~10 fixtures.
+`fly.live.toml` was updated by the merge; this was not — **and
+`fly.live.toml:317` tells anyone changing `ODDS_MANUAL_DAILY_CREDITS` to read
+this comment first.**
+
+The comment's own last line was *"Restating a derived number in a comment is how
+all three drifted."* It drifted a fourth time, in the commit that caused it. So
+the numbers are gone from the comment and live in `tests/test_odds.py` instead,
+where a config change makes a test red rather than a comment wrong.
+
+---
+
+### Verification
+
+- **Suite: see the box at the top.** Re-measured on the final tree, not
+  inherited. **A baseline run was started at session open and KILLED as void** —
+  the tree was edited under it, the exact failure this file records twice. It
+  was never reported as a number.
+- **Twelve mutations observed red**, six per defect area: the burn dropping its
+  flag; `delivery_health` dropping the exclusion; the burn removed entirely; the
+  fallback claiming it was verified; the echo check removed; `size_min` not
+  enforced; the echo comparing order; `unreadable` treated as agreement; the
+  cache flush unconditional again; `manual_cost` forgetting the prop half.
+- **Both migrations driven on a database that already existed**, wound back to
+  v24 and reopened — the gap `init_db`'s own docstring says a fresh fixture
+  always misses. Idempotent on a second boot, and a pre-existing undelivered row
+  correctly stays a failure rather than being written off.
+
+### Open
+
+- **ADR 0079's prop tap — needs Joe.** One tap on the phone. Look for the
+  `/events/` row at **10**.
+- **`undelivered_last_24h` will NOT read 0 immediately after deploy.** The five
+  unmarked rows decay over 24 hours. **The check that settles it is
+  `suppressed_last_24h` going non-zero at the next scheduled card**, and the
+  full confirmation is tomorrow's 20:00Z. Do not read a lingering 5 as the fix
+  having failed.
+- **B0, ruled in scope by the partner and NOT done:** post one non-covering
+  combination and record what Kalshi actually does. It replaces two unsourced
+  sentences in this repo with an observation and costs no money — but it leaves
+  **one durable minted market on Joe's account**, so it is his call and it is
+  flagged here rather than taken.
+- **The pre-tap membership check NEXT.md originally asked for is still not
+  built, deliberately.** Its correct shape depends on B0. Detection now exists
+  and protects against it in the meantime.
+- **Close the `parlay-props` worktree** and delete the empty `hedging-research`
+  shell. Both Joe's; nothing in this repo starts or stops a lane.
+- Unchanged: the combo purchase slice; the pragma change not re-measured on
+  live; `odds_snapshots` / `fair_prices` still have no retention rule (1.91 GB
+  of a 5 GB volume).
+
+---
+
+## 2026-08-27 — two lanes can be seen at once, and the tool that saw them told a human to delete sixteen projects
 
 **State: 4,885 passed / 10 xfailed in 20:59 at `1fecb54`**, ruff clean,
 `origin/main` at `c24309a`. Joe's ask was "have the partner oversee the herder
@@ -282,8 +493,10 @@ last is `20:16:05Z`, before the deploy landed. To settle it:
 
     flyctl ssh console -a kalshi-cockpit       -C "python /app/scripts/inspect_live_db.py credits-day --date <YYYYMMDD>"
 
-and look for a prop-tap row at **14**, not 26. **Do not report ADR 0079 as
-verified on live until that row exists.** A deploy that succeeded is not a
+and look for the **`/events/{id}/odds` row at 10**, not 20. **A tap writes TWO
+rows** -- a 4-credit team sweep and the per-event props -- so 14 is their sum
+and no single row ever carries it; see the 2026-08-27 entry above. **Do not
+report ADR 0079 as verified on live until that row exists.** A deploy that succeeded is not a
 behaviour that changed.
 
 **The registered checks and when each can be taken**, written before the
@@ -1938,2034 +2151,6 @@ path over the odds bill. It is listed in the measurement doc's closing section.
 
 ---
 
-## 2026-08-24 (fifth session, close) — SUPERSEDED by the entry above: the screen's declaration did not survive audit
-
-**Nothing below is retracted — it is an accurate record of what the screen
-said, and its instruction to run a `measurement-skeptic` pass before writing
-anything is what caught the defect. Read it for the three questions it names;
-they were all answered on 2026-08-25 and two of them were answered wrongly by
-this entry's own reasoning. The verdict `NO SIGNAL at 311 of 300` is REFUSED.**
-
-**Observed on the live screen at ~2026-08-24 21:4xZ, immediately after
-deploying `1bdc33b`. It is recorded here and NOWHERE ELSE. Nothing has been
-written to CLAUDE.md, no ADR, no measurement doc — deliberately.**
-
-    SIGNAL TEST   NO SIGNAL    311 of 300 games    measured 1s ago
-    beta  -0.0766   se 0.0215   interval [-0.1545, +0.0013]
-    rows  14,616
-    by market type, diagnostic only:
-      moneyline  -0.0677 · 230g · 91%
-      prop       -0.5192 ·  81g ·  9%
-
-The instrument's own words on the page: *"The record has reached the
-registered floor of 300 games, so this verdict is a declaring one. It was
-fixed in advance in
-`docs/measurements/2026-08-09-preregistration-clv-signal-test.md`."*
-
-**Why this matters more than anything else in this file.** CLAUDE.md still
-says the verdict is **UNRESOLVED at G = 199** and that it *"may not be
-reported as no signal"* below the registered floor of 300. G is now **311**.
-The project's central pre-registered question has answered, on a rule fixed
-before the data was seen. That is the question this whole tool was built to
-settle.
-
-**DO NOT write it into the record without a `measurement-skeptic` pass
-first.** This repo's own rule is that a result entering the record gets
-audited, and "good news arrives as a formal declaration" is the case most
-worth checking. Three things to put to it, none of which this session did:
-
-1. **`beta` moved from −0.1412 to −0.0766 while G went 199 → 311.** The
-   direction is toward zero. Explain the move before quoting the number.
-2. **The arms disagree by a factor of 7.7** — moneyline −0.0677 (230 games)
-   against prop −0.5192 (81 games). The pooled-number rule says print the
-   parts and the largest contributor's share beside any aggregate; the
-   screen does, and the parts do not obviously agree.
-3. **The interval [−0.1545, +0.0013] includes zero.** The registered
-   NO-SIGNAL threshold is 0.40 and −0.0766 is far below it, so the verdict
-   follows the registration — but "the interval excludes the threshold" and
-   "the effect is distinguishable from zero" are different claims and only
-   the first is being made.
-
-**Also unwritten:** whether crossing the floor changes anything operationally.
-It should not — ADR 0038 already closed the hunt on other grounds, and
-CLAUDE.md already said to treat the outcome as settled for planning. The
-gate's 300-*actionable*-game interlock is a different counter and is
-untouched. But that reasoning has not been written down, and a future session
-finding "NO SIGNAL, declared" will want it.
-
----
-
-## 2026-08-24 (fifth session) — the purpose gets settled, and the feed is told to follow attention
-
-Seventeen questions to Joe over five rounds (the `grilling` skill), every
-answer his, recorded as **ADR 0071**. Read that ADR before planning
-anything — it settles what this tool is *for* after ADR 0038 closed the
-hunt, which is the question every session has been re-deriving badly.
-
-**State: 4,192 passed / 10 xfailed** (+23 over the 4,169 baseline, which was
-re-measured at session start rather than inherited), ruff clean. **Lane 3 is
-shipped; lanes 1 and 2 are not started.** Nothing is committed — check
-`git status` before assuming otherwise.
-
-**The settled direction, in one paragraph.** The tool is a **personal
-betting desk first**, a portfolio repo second, and a hunting instrument not
-at all. Joe bets by hand whether or not it exists, so its job is to inform
-and record bets that are happening anyway — specifically **price
-transparency**: what Kalshi charges against what the sharp consensus says
-it is worth. Not nagging, not abstaining on his behalf. Sharing means
-**someone runs their own copy**, because Kalshi's Developer Agreement §3.1
-forbids sharing API-derived data with third parties without written
-authorization — a hosted instance friends can visit is non-compliant, a
-friend's own instance on their own key is the permitted case.
-
-**Three lanes, approved, none started:**
-
-1. **The bill.** Replace the fixed 12-hour `ODDS_DESK_WINDOW_UTC` with a
-   frontend heartbeat over a slow hourly floor (~576 credits/day today).
-   Folded in: the 2026-08-17 defect where a failed odds call resets the
-   freshness clock, so an outage presents on screen as *fresh* data — same
-   code, and the new design would inherit a lying clock.
-2. **Transparency — DONE, both halves.**
-   - The fair-value parlay payout is restyled so an estimate cannot read as a
-     quote (ADR 0071 §2.8, 5 guards mutation-red).
-   - **Every slate row now reads `50.7c ask · 54.2% fair`** — two plain
-     numbers, no sign, no arrow, no tone class. No backend work was needed:
-     both display strings were already on every row (`routes.py:5062,5070`).
-
-   **It cost `breakeven_win_rate` its place on the row, and Joe approved the
-   swap 2026-08-24.** The two cannot share a row — `edge_tenths ≡ 1000 ×
-   (fair − breakeven)` (`test_api.py:1264-1310`), so fair beside break-even
-   hands back the edge the 2026-08-21 ruling deleted.
-   `TestBreakevenShipsAloneOnTheScreen` became
-   `TestFairAndBreakevenNeverShareTheRow`: same property, inverted direction,
-   dated docstring. **`breakeven_win_rate` left the component, not the wire** —
-   `test_api.py::TestBreakevenShipsAlone` still requires it on the payload.
-
-   Three things that fell out, all shipped:
-   - **A latent column-shift bug is fixed.** The break-even span was
-     conditional, so a row with no tradeable price dropped a grid child and
-     shifted every column from `Books` rightward one track left at xl. The
-     fair cell is unconditional and pinned as such.
-   - **The footer had to say the gap is not profit.** Two numbers side by side
-     invite a subtraction whose remainder is not money — a fee sits between
-     them, and this project measured the remainder and it did not pay. Prose,
-     no per-row figure. It is also where `Term k="breakeven"` now lives; the
-     slate row had been its only renderer, and the glossary's orphan rule
-     ("use it or delete it") caught that within a minute of the swap.
-   - **The visible label is `fair`, not `consensus fair`** — the longer label
-     wrapped to three lines in the 5rem track on all eleven rows. Full phrase
-     is in the popover, and it matches `SlateRow.tsx` on the Board.
-
-   **Do not rank by the gap** — `beta = -0.141` means ranking by it puts
-   the least trustworthy rows on top; ADR 0071 §2.5.
-
-   Verified: overflow gate green at 390/768/1280/1440/1920 against a seeded
-   local build, screenshot eyeballed at 1280. **A stale `next start` served
-   the old build once and the first "pass" was against it** — caught by
-   checking `EADDRINUSE` in the log and diffing the served HTML, the same trap
-   recorded on 2026-08-22.
-3. **Cheap corrections — DONE this session.** `AGENT_MODEL =
-   "claude-sonnet-5"` set explicitly in `fly.live.toml`;
-   `KALSHI_PUBLIC_READ_ONLY` shipped with 23 tests and five guards
-   mutation-verified red; all four stale-number sites corrected.
-
-**Lane 1's plan is written and is the next session's brief** (a Plan agent
-worked it read-only). Seven slices, and **take them in order — slice 1 must
-ship first**, because slices 3–5 read the same predicate the defect
-corrupts. Two things in it need Joe:
-
-- **The new design's worst case is worse than what it replaces.** One tab
-  left visible for 24h buys **1,152 credits/day — double today's 576** and
-  past the 20,000 plan. The `document.visibilityState` check in `Nav.tsx` is
-  therefore the single most load-bearing guard in the change, and slice 6
-  (an attention sub-ceiling, modelled on `ondemand`'s manual slice) is the
-  belt to its braces. Recommended, not yet approved.
-- **The saving is an assumption until measured.** Every "attended hours" row
-  in the plan's table is a guess about how long Joe actually has the page
-  open. Ship with the instrument named — `api_credits` summed per budget-day
-  on the live volume — not with the saving claimed.
-
-Three corrections the plan found that this session did not: `run_loop.py:460`
-calls `window_status` **without** `desk_window`, so the loop's own cadence
-already ignores the desk; the desk trigger is the one place the module's own
-"one predicate, two callers" rule was never applied (it is two hand-synced
-inline `if`s at `timing.py:1409` and `:931`); and a failed odds call writes
-**no `odds_sweep_log` row at all**, so the failure is visible only as a
-credit row with NULL headers.
-
-**The defect, located** (it was recorded on 2026-08-17 and never fixed):
-`backend/odds/client.py:324-334` records the credit before the status check
-at `:336-339` — correct, and it must stay. The lie is that the resulting row
-satisfies `_SERVED_SWEEP` (`timing.py:707-709`), so a 401 moves that sport's
-last-sweep stamp to now and **defers the retry ten minutes**. Fix: a nullable
-`api_credits.http_status` (schema v21) and `AND COALESCE(http_status, 200) <
-400`, which leaves every pre-v21 row counting exactly as it does today.
-Evidence: `docs/JOE-odds-key-rotation.md:151-166`.
-
-**Two corrections to the record, both in ADR 0071:**
-
-- **CLAUDE.md's "the recorder keeps running because it costs nothing" is
-  false** on the odds axis — ~576 credits/day, ~17,300/month against an
-  18,000 self-cap. True of the LLM fleet only. The spine paragraph needs
-  editing.
-- **A privacy leak was reported to Joe and then withdrawn.** A subagent
-  called `/api/ledger`, `/api/bets`, `/api/results` unauthenticated; they
-  are not. Verified against live: health 200, all four others **401**. The
-  gate is `frontend/src/middleware.ts`, which runs before Next's rewrites,
-  and uvicorn binds loopback. Lesson written.
-
-**Facts worth carrying:** the **search cap binds before the call cap** (60
-searches ÷ 12 worst-case = 5 convenings/day, vs 24 calls ÷ 4 = 6), so
-`fly.live.toml:289`'s "the money control" comment names the wrong cap. The
-Odds API's **free 500-credit tier includes Pinnacle, Betfair Exchange and
-Matchbook** — the exact three books `runner.py:150` devigs from — and
-excludes DraftKings/FanDuel; the paid 20K tier is $30/month. Pinnacle closed
-direct public API access 2025-07-23, so every route to them is a reseller.
-
----
-
-## 2026-08-24 (fourth session) — the parlay desk earns a nav slot and every game names its sport
-
-Two UI changes on Joe's direct asks, both committed, pushed, and live
-(machine version 126, deployed ~20:56Z; verify `/api/health` `git_sha`
-against `origin/main` at `aef8b5b`):
-
-- **Nav swap (`1d88aba`)**: `/parlays` took Evidence's nav slot — nav is
-  now Games · Picks · Parlays · Your bets · Gate · Playbook, budget still
-  six. `/ledger` ("Evidence") moved to the footer beside Estimates. The
-  reasoning is in `Nav.tsx`'s slot comment and `Footer.tsx`'s row comment;
-  `test_every_screen_is_reachable.py` still pins budget and reachability.
-- **League tags (`aef8b5b`)**: Joe reported he can't tell which sport a
-  game is. `event_links.league` (the odds feed's sport key) now travels on
-  `/api/slate`, `/api/board`, and the picks block; new
-  `frontend/src/components/LeagueTag.tsx` renders it through `leagueLabel`
-  beside every game name on Games, Picks, Likely winners, and each parlay
-  leg (legs already carried the key). `None` on an unlinked row renders
-  nothing — never a guess from the ticker prefix. Full suite passed
-  (4,169 + 10 xfailed), tsc clean.
-
-Nothing new is open from this session. The prior entry below is still the
-live brief for the parlay-desk watch items.
-
----
-
-## 2026-08-24 (third session) — the desk is used for real, and a combo book is populated for the first time ever
-
-Joe used `/parlays` and "Price on Kalshi" for real and placed bets in the
-Kalshi app. Live at `3d0240e` (the review fixes were deployed first). All
-four watch-after-deploy items are answered, read off the live DB
-(read-only, over ssh):
-
-- **Every tap wrote a `parlay_lookups` row** — 4 rows: `safe` twice
-  (~03:54Z and ~18:19Z), `middle` and `lottery` once each.
-- **The `safe` card returned `priced` — the FIRST populated combination
-  book this repo has ever read** (every prior read: 40/40 empty, both
-  sides). At 03:54Z: NO bid 599 tenths, depth **501**, derived YES ask
-  40.1c vs `fair_joint_conservative` 38.7%, hold 3.4%. By 18:19Z the
-  maker had repriced: depth 59, ask 42.4c, hold 7.2%. So a maker DOES
-  arrive on minted cross-category combos — `book_empty` is a first
-  answer, not a permanent one. **Enter-only is NOT refuted**: the price
-  is still the complement of a resting NO bid; no YES bid was observed.
-- **Idempotency held in production**: the 18:19Z repeat tap returned the
-  same `minted_market_ticker` as 03:54Z — 14.5h and one deploy apart,
-  beyond the seconds-apart bound the capture pinned.
-- `middle` and `lottery`: `book_empty`, the expected first answer.
-- Fills mirrored via the poller with `source='venue_hand'`; on every
-  combo fill `fee_actual` matched the `model_a_deci` prediction — live
-  observations consistent with the standard formula at 0.070 on KXMVE,
-  where ADR 0012 §5 records the combo fee model as unverified. Two of
-  the combos bet have no lookup row (built in the Kalshi app directly).
-  Amounts/prices stay out of the repo per the operator-data ruling.
-
-**Open:** settlements for these positions land on `/bets` after the 12h
-mirror pass — first real end-to-end check of the combo settlement path.
-
----
-
-## 2026-08-24 (second session) — all 14 review findings fixed, and the repeat tap turns out to be idempotent
-
-**The list below is DONE — all 10 main findings and all 4 cut-by-cap
-items.** State: **4,169 passed / 10 xfailed** (+70 over the 4,099 baseline),
-ruff clean, tsc clean, `next build` green, overflow gate green at
-390/768/1280/1440/1920. **Not yet committed or deployed when this entry was
-written — check `git log` and `/api/health` `git_sha` before trusting any of
-it as live.**
-
-**The one measurement this session took.** Finding 7 asked what Kalshi
-answers when the SAME combination is looked up twice — never observed, and
-it had become load-bearing, because finding 2's fix adds a retry button that
-makes the second tap one press away. `scripts/capture_combo_repeat_lookup.py`
-(new) ran it live: **200 with the same `market_ticker` and the same
-envelope — IDEMPOTENT.** So the retry is safe, `price_card_on_kalshi` needs
-no already-exists branch, and repeat taps do not burn the 5,000/week
-creation budget. Captured to `tests/fixtures/combo_lookup_repeat.json`, and
-**bounded as captured**: one collection (`KXMVESPORTSMULTIGAMEEXTENDED-R`),
-one NFL leg pair, two calls seconds apart. It says nothing about a third
-call, concurrent taps, a started game, or another collection scope. Had it
-come back 409, the retry button would have been wrong to ship.
-
-**Fixed, by finding:**
-
-1–2. **The frozen card and the dead ends.** `lookupParlay` now wraps its
-fetch and guards the ok-path `response.json()` (`refreshOdds`'s pattern); a
-transport failure says the market *may already have been created* rather
-than inviting a blind retry. `PriceOnKalshi` catches too, and every
-non-final state offers "Ask Kalshi again" — a priced answer deliberately
-does not, and the retry never wears `bg-accent`. New
-`tests/test_parlay_screen.py` (8 source-text tests).
-3. **Post-mint failures recorded.** The order-book fetch moved inside its
-own try/except; a failure writes an `error` row **carrying the minted
-ticker** and the 502 names it, so a real market can never be lost off the
-audit table.
-4. **The depth-blind payout is gone** — CLAUDE.md rule 1 on a payout. Was
-"$5.00 → ~333 contracts → $333.33" against 18 resting; now `min(wanted,
-depth)`, with cost shown and words when the stake is capped. **The test that
-pinned `~333` as "the cousin's arithmetic" was INVERTED with a dated
-docstring.** `depth is None` is unreachable from the route (`_parse_levels`
-drops zero-size levels, so a derived ask always has size) — kept as a typed
-guard, documented as such, and tested by direct call rather than pretending
-the route reaches it.
-5. **Collections cache failure modes.** Cold-cache failure is a recorded row
-and a 502, not a bare 500; an empty result is **never cached** (unreadable ≠
-"the venue has none"); a failed lookup invalidates, so the rotating `-R`
-suffix can no longer mean an hour of 502s.
-6. **`sorted(served)`**, not `list`.
-8. **Unknown spread units counted apart.** New `dropped_unknown_spread_unit`
-on `PassCounts`, in `ALWAYS_REPORT` even at zero, fed by
-`spreads.unrecognised_spread_unit`. NHL "goals" entering scope no longer
-looks identical to a quiet night while `h2h,spreads` keeps paying doubled
-credits.
-9. **The spread join identity lives once** — `spreads.spread_book_point` and
-`spreads.spread_margin_agrees`, imported by both the runner and the parlay
-reader. The ladder now performs the margin-vs-strike cross-check it was
-missing, so a subtitle-drifted market can no longer match a stale fair row.
-10. **One shared Kalshi client**, lazy, `LiveQuoteSource`'s pattern, closed
-in the lifespan. `COMBO_LOOKUP_TIMEOUT_S = 15.0` (longer than the quote
-source's 5s — the first call mints; shorter than REST's 30s — a person is
-waiting).
-
-**Cut-by-cap items, all four done:** `_CANDIDATE_SCAN_FLOOR_MS` (24h, wider
-of it and `max_odds_age_ms`, so it can never bind before the freshness rule)
-on the twice-per-tap `fair_prices` scan; `lib/proxy.ts` shares the seven handlers'
-mechanics while **each keeps its own refusal words** (they say different
-things about what did not happen) — `/refresh-odds` deliberately keeps its
-own relay because its caller reads a typed `OddsRefreshResult`, pinned with
-its reason in `tests/test_token_proxy_routes.py` (39 tests); `best_yes_ask`
-and `format_price`/`format_probability` replace the hand-rolled copies
-(`format_probability`'s docstring names the exact rounding drift `_percent`
-was causing); `POPULATED_BOOK` now derives from the **captured** envelope
-with a shape assertion — no populated combo book has ever existed to
-capture, which is why it is built rather than loaded.
-
-**Mutation-verified red, file restored byte-identical each time:** the depth
-cap, the empty-collections cache write, the cache invalidation call, the
-sorted legs, the post-mint error row, the unknown-unit counter, the shared
-client, and the way back to `idle`.
-
-**One existing test's assertion was updated, not dropped:**
-`test_pass_control.py`'s "the handler holds the token" read `APP_AUTH_TOKEN`
-in the route source; that moved into `lib/proxy.ts`, so it now follows the
-indirection with a dated docstring. The claim is unchanged.
-
-**Two lessons written:** a baseline taken while you edit is not a baseline
-(10 phantom failures cost a false diagnosis this session); a pin verifies
-the shape you saw, not the branch you rely on (finding 7).
-
-**Watch after deploy:** first real "Price on Kalshi" tap — `book_empty` is
-still the expected first answer, and the retry is now one tap. Confirm a
-`parlay_lookups` row per tap and that a repeat tap returns the same
-`minted_market_ticker`. Watch `dropped_unknown_spread_unit` in the pass line
-when NCAAF/NFL land.
-
----
-
-## 2026-08-24 — code review of the parlay-desk session: 14 findings (ALL FIXED — see the entry above)
-
-`/code-review` over `e4e7166..9f09952` (the parlay-desk commits): 45 raw
-candidates → 16 verified after dedup → **14 survived** (12 CONFIRMED, 2
-PLAUSIBLE), 2 refuted (event-loop blocking matches the accepted sync-SQLite
-baseline at `routes.py:3185-3189`; the spread dog-side skip is deliberate and
-redundant). **Nothing is fixed yet — this list IS the next session's work.**
-Line numbers are as of `9f09952`.
-
-**Fix first — user-facing dead ends and broken contracts:**
-
-1. **Frozen card on network failure** — `frontend/src/lib/api.ts:759`:
-   `lookupParlay` has no try/catch around fetch and an unguarded
-   `response.json()`; `PriceOnKalshi.tsx` `tap()` doesn't catch either. A
-   dropped connection leaves "Asking Kalshi…" forever (button unmounts, no
-   retry) while the backend may already have minted the market. Sibling
-   `refreshOdds` catches both cases — copy its pattern.
-2. **No way back to `idle`** — `PriceOnKalshi.tsx:55`: no state transitions
-   back, so the *designed* second tap after `book_empty` ("Try again
-   shortly" — the expected first answer on a fresh combo) is impossible
-   without a page reload. Same dead-end after a 409 drift refusal.
-3. **Post-mint failures unrecorded** — `backend/parlays.py:535`: the
-   orderbook fetch after `lookup_combo` mints sits outside the try/except —
-   an httpx timeout/429/5xx there returns a raw 500 and **no
-   `parlay_lookups` row**, losing the minted ticker from the audit table
-   whose docstring promises every outcome is a row.
-4. **Depth-blind payout / rule-1 violation** — `backend/parlays.py:590`:
-   `contracts = stake/ask` renders "$5.00 → ~333 contracts → $333.33"
-   beside "about 18 contracts resting". Only the resting size is buyable on
-   an enter-only book, and a stale lone NO bid produces exactly the giant
-   apparent edge CLAUDE.md rule 1 says to suppress, shown as a payout.
-5. **Collections cache failure modes** — `backend/parlays.py:489`:
-   cold-cache `fetch_collections` error escapes as an unrecorded 500; a
-   transiently-empty result is cached the full hour; a failed lookup never
-   invalidates despite the `-R` ticker rotation NEXT.md already records —
-   up to an hour of 502s with no recovery short of restart.
-
-**Fix while in there — cheap and confirmed:**
-
-6. **Nondeterministic leg order** — `backend/parlays.py:488`:
-   `legs = list(served)` from a set; order POSTed to Kalshi and recorded in
-   `selected_legs` varies across processes. One-word fix: `sorted(served)`.
-7. **Repeat-tap wire shape unverified (PLAUSIBLE)** —
-   `backend/kalshi/combos.py:414`: the create POST was captured once, on a
-   brand-new combo; no already-exists handling, yet the designed second tap
-   hits exactly that case. If Kalshi answers 409/400 the combo becomes
-   permanently unpriceable and each retry burns the 5,000/week budget.
-   Capture the repeat-call payload (combo lookups are pre-authorised).
-8. **Spread unit whitelist (PLAUSIBLE)** — `backend/kalshi/spreads.py:38`:
-   regex pins `runs?|points?`; NHL "goals"/soccer entering seasonal scope
-   → silently zero spread supply while `h2h,spreads` keeps paying doubled
-   credits. At minimum add a unit-unrecognized counter distinct from
-   `dropped_unresolved_outcome`.
-9. **Spread join identity duplicated** — `backend/parlays.py:184` vs
-   `runner.py:1032`: strike↔point identity implemented twice; the
-   margin-vs-strike cross-check exists only in the runner, so the ladder
-   can match a subtitle-drifted market to a stale fair row until freshness
-   ages it out. Centralize the identity next to the regex in `spreads.py`.
-10. **Per-tap Kalshi client** — `backend/api/routes.py:2552`:
-    `KalshiConfig.load()` + PEM re-parse + fresh `httpx.AsyncClient` per
-    request, against "one shared AsyncClient" — ~500ms per tap, port-
-    exhaustion risk. Follow `LiveQuoteSource`'s lazy shared client
-    (`quotes.py:206-242`).
-
-**Cut by the 10-finding cap, all CONFIRMED — a follow-up cleanup pass:**
-the unbounded `fair_prices` scan in `ladder_candidates`
-(`backend/parlays.py:102-123`, no `computed_ms` floor on a never-pruned
-~6.9M-row table, paid twice per tap); the 7th hand-copied token-proxy route
-(`frontend/src/app/parlay-lookup/route.ts` + `middleware.ts:50` allowlist);
-hand-rolled `1000 - best_no_bid` and three display-format duplications
-(`parlays.py:565/597/613/615` vs `OrderBook.best_yes_ask`,
-`core.prices.format_price`, `_percent`); hand-constructed `POPULATED_BOOK`
-wire payload (`tests/test_parlay_lookup.py:228` — the captured-fixtures
-rule names MLBAM as its only exception).
-
-Full verifier transcripts died overnight once and were re-verified by
-direct inspection 2026-08-24; verdicts above are from that pass.
-
----
-
-## 2026-08-23 (third session) — the parlay desk: three cards at fair value, spreads priced, and the combo's real cost one tap away
-
-Joe's direction, with a screenshot: his cousin-in-law hit a Kalshi 6-leg
-combo ($4.99 → $333.33, six cross-game spread legs) and he wants the
-cockpit to produce good parlays like it. He chose the heavy options by
-AskUserQuestion: **spreads now, auto-fetch the real combo price via
-`lookup_combo`, ladder of three cards**. ADR **0070**; commits `9caf361`
-(Slice A), `e4e7166` (B), `d123623` (C). Schema **v20**. State at close:
-**4,099 passed / 10 xfailed**, ruff clean, tsc clean, `next build` green,
-overflow gate green at all five widths. **NOT yet deployed when this
-entry was first written — check `/api/health` `git_sha` before trusting
-anything below as live.**
-
-- **Slice A — `/parlays` (ADR 0070).** `backend/core/ladder.py` (pure:
-  one leg per fixture so `CorrelationRefused` is structurally
-  unreachable; conservative headline joint + per-method band; staleness
-  = stalest leg; unbuildable cards say why), `GET /api/parlays`
-  (server-worded money strings at preset stakes $1/$5/$10/$20 — the
-  no-client-arithmetic rule; key-walk bans every edge-shaped stem,
-  mutation red), v20 `fair_prices.oldest_book_age_ms` (NULL refuses,
-  never age zero — mutation red), `parlay_lookups` table, `/parlays`
-  page + footer link (the delete-commit question answered: Joe asked
-  for the screen by name) + slate contextual link + 5 glossary terms.
-- **Slice B — spreads.** Kalshi spread markets were ALREADY discovered
-  and quoted every 15s; what was missing was the link (every spread
-  event failed `link_event` "expected 2 sides, got N" every pass — they
-  now inherit their game's link by fixture segment,
-  `spread_fixture_segment`), the odds (`fly.live.toml` `ODDS_MARKETS =
-  "h2h,spreads"`; sweep 2→4 credits; desk window 576/day ~17,300/mo, so
-  **daily cap 600→700 and monthly self-cap 13,000→18,000** — inside the
-  paid 20,000 tier; at 4 sports even that breaks, warning updated), and
-  the devig path (`_price_spread_event`: one devig per rung, two-sided
-  complementary books only, **`fair_prices` only — no recommendations**,
-  keeping spreads off the gate/board/evidence record). One subtitle
-  parser (`backend/kalshi/spreads.py`), pinned on the captured fixture,
-  margin cross-checked against `floor_strike`.
-- **Slice C — "Price on Kalshi".** The first combo lookup this repo ever
-  spent found ADR 0012's pinned endpoint DEAD (routing 404; lesson
-  written). Current wire: `POST /multivariate_event_collections/{t}`
-  with a `side` per leg; response + minted market's book captured as
-  fixtures (2026-08-23, first ever). **A fresh combo's book is EMPTY on
-  both sides** — the endpoint's honest-refusal branch is the expected
-  first answer. `POST /api/parlays/lookup` (auth; drifted card → 409
-  before touching the exchange, mutation red; prices off the ORDER BOOK
-  as 1000 − best NO bid, never the list row; every outcome writes a
-  `parlay_lookups` row), `PriceOnKalshi.tsx` (the screen's one
-  `bg-accent` control), `/parlay-lookup` token-holding route handler.
-  `combos.py` moved out of ADR 0022's quarantine — the tripwire fired
-  exactly as designed — into MUST_HAVE_CALLERS.
-
-**Honesty rails, all pinned by tests:** no edge/EV/kelly/breakeven key in
-any parlay payload (ADR 0038/0046 untouched — no combo EV through
-`calculate_fee`, fee sentence travels verbatim); enter-only warning on
-every card (40/40 books); fair-value-is-not-a-quote sentence; the
-2026-08-21 spread/total *edge look* veto is untouched (this is ingestion
-for card pricing, no registered look, no edge computed).
-
-**Watch after deploy:** first real pass with `h2h,spreads` — confirm
-`fair_prices` rows with `market='spreads'` and non-null
-`oldest_book_age_ms`, spread events linking as `spread_fixture_segment`
-and leaving `unmatched_items`, and `credits-day` near the 576/day
-arithmetic. First real "Price on Kalshi" tap on a live card: expect
-`book_empty` first (the captured reality); a second tap moments later may
-find the quoter arrived. The lookup collections cache is per-process
-(1h). The `-R` suffix on collection tickers rotates — the fallback is
-prefix-matched, not pinned.
-
----
-
-## 2026-08-23 (second session) — the desk presents fully: likely winners on the slate, five areas per game, Willy's seat
-
-Joe, frustrated ("nothing bettable almost at all... what the hell man?"),
-then the reframe that unlocked the build: **"I just want to see what are
-good-chance picks and everything is rejected."** Live reads confirmed the
-board's emptiness is the measured finding, not a defect (90 of 100
-candidates no-edge; Kalshi within ~0.1c of the sharps). His direction,
-approved by plan: the picks question is a *different* question from edge,
-and the desk becomes fully visible — **"I don't want to hover over every
-game anymore"** — five areas: skeptic, willy balters, scout, team
-specialist, consensus, plus the site explaining why sport factors aren't
-computed here. Plan:
-`C:\Users\josep\.claude\plans\nothing-is-bettable-in-lexical-gray.md`.
-ADRs **0067 / 0068 / 0069**. State at close: see the verification block
-below; schema **v19**.
-
-- **Slice A — "Likely winners tonight" (`f265ef1`, ADR 0067).**
-  `/api/slate` gains a `picks` block: one entry per game, the consensus
-  favorite, ranked by `fair_probability` alone (one stored unscored column
-  — a sort, never a composite; the rows below still order by kickoff).
-  YES-side rows only (a NO row's `team` names the opponent); freshest row
-  per ticker; stale consensus and unpriced favorites **counted out by
-  name**; stale Kalshi quote withholds the ask. The chance≠edge note
-  travels in the payload and renders verbatim; a key-walk test bans any
-  edge-shaped field in the block. `GoodChancePicks.tsx` on the landing
-  slate: game links only, no ticket, no `bg-accent`, no streak tally.
-  Three mutations verified red. Glossary +3 (`favorite`, `priced_in`,
-  `consensus_chance`).
-- **Slices B+C — the five-panel market screen (ADR 0068).** Anchored nav
-  (Consensus · Skeptic · Scout · Specialists · Willy), everything fully
-  present. `/api/market/{ticker}` joins `fair_prices`, serves `books` +
-  `kalshi_drift_tenths` (slate's own helpers) and a `gauntlet` block —
-  `suppression.gauntlet_view()` reconstructs all 12 checks' verdicts from
-  `suppressed_reason` (fail-only checks report `not_taken`; `sizing:`
-  passes through; unknown codes surface), served with `judged_ms`.
-  **Deliberately no `breakeven_win_rate` on this route** — fair% renders
-  here now, and the pair reconstructs the edge by subtraction.
-  `ConsensusPanel.tsx` (fair% side-named, book distribution, soft-fallback
-  warning, drift, and the standing explainer: sport factors are already in
-  the sharp line — ADR 0036/0037 as product copy, source-pinned).
-  `SkepticPanel.tsx` (free — the retired LLM Skeptic stays retired; codes
-  verbatim + gloss captions + as-of line). ScoutDesk: master's read and
-  staff filings OUT of `<details>` (exactly one `<details>` left — the
-  spend meter — pinned by count, mutation red); specialists get their own
-  section, every state in words, two-column at xl.
-- **Slice D — Willy Balters' seat (ADR 0069, schema v19).**
-  `backend/agents/pro_bettor.py`: a Walters-*style* fiction (name pinned
-  both ends, "Billy Walters" turns tests red), fourth metered call after
-  the master settles, **no tools** (source-pinned over the call block,
-  mutation red), `SharpTake` all-strings (walker test, mutation red).
-  `status` semantics unchanged — the seat is additive; unaffordable/failed
-  = `sharp_absent_reason`, honest words on screen. v19 adds
-  `scout_briefings.sharp_json` (NULL never `{}`); GET serves `sharp`.
-  Send captions now say **four** metered calls. Budget: 4 calls /
-  worst-case 12 searches per convening → **5 full convenings/day**
-  (searches bind), ~$0.50–0.70 each at list prices.
-
-**Verified before close:** full pytest green (see below), ruff clean, tsc
-clean, `next build` green, overflow gate green at 390/768/1280/1440/1920
-including `--market-ticker`, picks block confirmed on the seeded demo
-(6 ranked, exclusions counted) and rendered server-side on `/`.
-
-**Watch after deploy:** the picks block's staleness exclusion uses live
-odds age vs `max_odds_age_s` — outside the desk window whole slates will
-correctly rank nothing and say why; if Joe reports "picks always empty",
-check `/api/window` first, not the block. Willy's first real take is
-unreviewed — read it critically, same as the desk's first briefing.
-
----
-
-## 2026-08-23 — the desk window opens: the slate stops being stale 14 hours a day
-
-Work list was empty; the partner audited live and reordered everything: **the
-screen was 89% `stale_odds` refusals (63/71 rows, median odds age 13.7h) with
-0 of 600 daily credits spent**, because the scheduler only sweeps 75–15 min
-before kickoff clusters. Four slices shipped (one main-tree + two worktree
-lanes + one census correction). State: **4,001 passed / 10 xfailed** locally
-(3,996 + the 5 prune-frontier fixes), ruff clean, tsc clean. Commits
-`b22f471`..`b9e4b3a` pushed; live deploy dispatched (run 32652551993) —
-**verify `/api/health` `git_sha == b9e4b3a` before trusting this entry**.
-
-- **Slice 1 — the desk window (`b22f471`).** New `DESK` trigger in
-  `decide_sweeps`: inside `ODDS_DESK_WINDOW_UTC` (live `16-04`, **Joe's
-  answer 2026-08-23** for when he actually looks: 9am–9pm PT), every sport
-  with stored upcoming fixtures re-buys on the existing 10-min refresh
-  cadence. A due slot owns its sport (SCHEDULED + prop ride preserved,
-  pinned incl. the refused-slot case); desk buys never carry props; same
-  `credits_left`, refused by name. `window_status` predicts desk buys in
-  `next_call_ms` and `first_window_open_ms`, so the stale-exit UI is honest
-  with zero frontend change. Cost: **288/day at 2 sports, ~8,600/mo** vs
-  caps 600/day, 13,000/mo. **At 4 sports it BREAKS the 13,000 monthly
-  self-cap (~17,300)** — recorded in `fly.live.toml` as a decision for when
-  NCAAF/NFL land. Three guards mutation-red. Watch after deploy:
-  `odds_snapshots` growth (retention deliberately excludes it, ADR 0054;
-  desk sweeps ~4× its write rate; the live volume was at auto-extend limit
-  per ADR 0002's correction) — check `db-sizes` in a few days.
-- **Slice 2 — the CLAUDE.md actionable paragraph corrected (`eb312a1`),
-  and the skeptic inverted the draft.** Live census: **11 rows / 6 games /
-  `suggested_contracts = 0` on all / 4 sharp-anchored**. First draft said
-  the soft-fallback reason was dead; measurement-skeptic FAILED it on 8
-  defects — 4/11 (36%) against a **73% base rate** is sharp
-  UNDER-representation, evidence *consistent with* ADR 0021. Spine
-  paragraph now carries the base rate, the thin-consensus twin
-  (`devig.py:289` selects ≤3 sharp books), and the still-unrun separating
-  measurement (unsuppressed split by `anchored_on_sharp`).
-  `docs/measurements/2026-08-23-actionable-population-reaudit.md`.
-- **Slice 3 — live routes are readable (`c374486`/merge `fb440cf`).**
-  `scripts/fetch_live_route.py`: GET-only structurally (AST-pinned),
-  8-path allowlist, loopback-hardcoded, in the ssh image via
-  `.dockerignore` negation + `SSH_INVOKED_SCRIPTS`. Usage: `flyctl ssh
-  console -a kalshi-cockpit -C "python /app/scripts/fetch_live_route.py
-  /api/slate"`. Until now NO session had ever read any live route but
-  `/api/health` — every "the screen shows X" was a DB reconstruction
-  (lesson written).
-- **Slice 4 — `unmatched_items` reader (`ab8509c`/merge `a66354a`).**
-  `scripts/list_unmatched.py`, read-only (mode=ro pinned red), before NCAAF
-  fills the queue. **Falsifiable prediction standing:** first
-  `americanfootball_ncaaf` row in `api_credits` ~**2026-08-25** (48h
-  bootstrap horizon before the 08-27 kickoffs); if 08-26 passes without
-  one, the horizon is NOT the explanation — investigate.
-- **Also:** 5 pre-existing test failures fixed (`b9e4b3a`) — the
-  prune-frontier fixture froze NOW_MS while the query stamps real
-  `datetime.now()`; went red by pure wall-clock 3 days after writing.
-  Lesson: a pinned fixture clock against a wall-clock instrument is a test
-  with an expiry date. **The prior session's "3,937 passed" was true when
-  written and silently false today** — same family as the stale stored
-  number.
-
-**Killed/deferred by the partner ruling (do not re-derive):** NCAAF alias
-file (premature — 48h horizon explains zero NCAAF calls); `no_edge`
-mislabel (real, bounded, behind these); manual-ticket fixture render
-(arming is behind funding; balance $2.533). Loose facts carried: unexplained
-live machine restart 2026-08-23T03:42Z; `portfolio_poll` warns the
-positions row shape was never captured.
-
-**VERIFIED ON LIVE, ~17:25Z, on the served payloads (a first):**
-`/api/health` `git_sha == b9e4b3a`, `instance_mode: live`. `/api/window`
-read through the new fetcher: `fixtures_fresh: 21 of 21`, last sweep 37s
-old, `spent_today: 6`, next refresh +10 min — and **WNBA was bought with no
-due slot** (its kickoff slot opens 19:25Z), which is the DESK trigger
-observed working, not inferred. `/api/slate` served **59 rows, zero
-`suppressed_reason` of any kind** — against 63-of-71 `stale_odds` the same
-morning. Still worth checking in a few days: `credits-day` matches the
-~288/day arithmetic, and `db-sizes` for `odds_snapshots` growth.
-
----
-
-## 2026-08-22 (third session) — the pass gets its caller, the probe gets cheap to start, and stale odds get an exit
-
-Session start found the work list empty; the partner convened and ruled
-(three lanes), and Joe added a fourth live: his slate read `stale_odds × 33`
-as a letdown and he approved the exit slice by AskUserQuestion. He also
-asked whether staleness should *weigh less* — answered in session: it is a
-validity check, not a quality factor (a stale comparison's biggest "edges"
-are the line moves we missed — rule #1), and the fix is a fresh read, not a
-softer bar. Four lanes ran in parallel (three worktrees + one read-only
-agent); merged clean; **state: 3,937 passed / 10 xfailed** (+42), ruff
-clean, tsc clean, `next build` green. Plan:
-`C:\Users\josep\.claude\plans\read-tasks-next-md-and-start-reactive-pearl.md`.
-
-**Shipped, by lane:**
-
-- **A — the Pass control lands on the market screen (ADR 0066).**
-  `POST /api/desk/pass` had no caller anywhere in `frontend/` — the
-  four-time-repeated pattern at route level. Now: `app/pass/route.ts`
-  (token held server-side), `"/pass"` in `JSON_ROUTE_HANDLERS`,
-  `recordPass()` in `lib/api.ts`, and `PassControl.tsx` on
-  `/market/[ticker]` below the ManualTicket — bordered pill, no confirm
-  (a dialog gives the impulse a veto), reason optional-and-collapsed,
-  never `bg-accent`, Hint says it records a decision and blocks nothing.
-  **The per-row slate Pass is REJECTED and ADR 0066 records why** (390px
-  geometry forces a full-width bar under every row; tap-cheap passes turn
-  the decisions headline into noise; night+market is the complete ladder)
-  — do not re-propose it. Six source-grep tests; five mutations red plus
-  the existing `{total, first_ms}` tripwire re-verified red.
-- **B — the C0 probe suggests its own candidates, sending nothing.**
-  `probe_create_order.py --suggest` walks `/events` discovery (never
-  `/markets`), prints three copy-paste commands for markets with side ask
-  in (1c, 10c] and resting depth; AST-based test proves the suggest branch
-  cannot reach the send path (mutation red). Runbook got a ten-line phone
-  quickstart. A live run already produced three real candidates — all
-  NCAAF longshots at 2c, worst case ~$0.02+fee.
-- **D — stale odds get an exit on the slate.** Beside the stale count in
-  the refusal disclosure: when the next scheduled odds window opens
-  (`lib/nextOddsWindow.ts` reading `/api/window.next_sweep_ms` —
-  `timing.py`'s own `window_status()`, one predicate two callers; five
-  honest states incl. due-now/budget-spent/unknown-refuses-in-words), the
-  existing `RefreshOddsButton` with its credit cost named before the tap
-  (a caller, not a gate — server gates untouched), and a `<Term k="stale">`
-  glossary entry: stale is a clock verdict, not a quality one. Matching is
-  split-exact so `stale_kalshi_quote` (which no odds refresh fixes) never
-  gets a lying button. 17 tests, 8 mutations red.
-- **C — the manual door's read side verified on live, read-only**
-  (runtime-realist, loopback over `flyctl ssh`; zero POSTs). Both answers
-  YES: `GET /api/manual/market/{ticker}` serves real uncached venue facts
-  (`authorised_contracts` arithmetic checked: 23 at a 1c ask under the
-  $0.2555 cap), and the pass-aware `/bets` is the shipped bundle
-  (`43 bets · 0 passes` server-rendered on live). Three facts that bound
-  the arming decision, for Joe below.
-
-**FOR JOE:**
-
-1. **The C0 probe now starts itself**: run
-   `.venv\Scripts\python.exe scripts\probe_create_order.py --suggest`
-   (sends nothing, names three candidates + exact commands), then the real
-   command from the runbook's new quickstart.
-2. **Before arming, know this (Lane C):** the venue balance is **$2.56**,
-   so the derived per-bet cap is $0.26 — armed, the confirm button would
-   be dead on everything but sub-25c longshots until you fund the account.
-   Also: the reachable-path ticket UI has never rendered on live (flag
-   false routes every response to "blocked"), and the flag reads at boot
-   only (a Fly env change forces the restart anyway).
-
-**Continuation, same session (~14:30Z) — every loose thread closed:**
-
-- **$2.56 is current, not stale**: latest `venue_balance_snapshots` row was
-  150s old on the 5-min cadence, still 2555 tenths. The funding fact above
-  stands as a fact about the account, not about the poller.
-- **The KXMVE GET answered** (one loopback call): `/api/manual/market/`
-  serves a combo ticker 200 with no combo-specific warning, but the book
-  itself is the guard in practice — YES ask 0c, depth 0.0 both sides (the
-  enter-only shape the record describes), so `authorised_contracts` is 0
-  and no ticket could confirm. The POST's 422 stays the structural guard.
-  Cosmetic gap (GET doesn't *name* the POST refusal) noted, not fixed.
-- **Lane D's overflow gate ran for real** — the first "pass" was against a
-  stale leftover server from Lane A's run (EADDRINUSE caught it). Against
-  the merged build with refused rows seeded: **1280 FAILED, pre-existing
-  on de931ec** — the name link ('Philadelphia', 90px) painted over the ask
-  column's 80px `minmax(0,1fr)` track. Fixed with `truncate` (`995dbfd`,
-  the `min-w-0` was already there for exactly this), gate re-run **green
-  at all five widths**, 390 screenshot eyeballed (Lane D's
-  nothing-to-schedule branch renders honestly on the stale demo).
-- Worktrees and their branches fully deleted; `995dbfd` deployed and
-  verified on live.
-
-**Continuation 2 (~04:10Z next UTC day) — the C0 probe is TAKEN.** Joe ran
-`--suggest`, then authorized the spend by pasting the command in session;
-the session executed it with the confirmation ticker on stdin
-(`INSTANCE_MODE=live` set explicitly for the one invocation — the
-prerequisite refusal fired first on the demo default, as designed).
-Statuses **201 / 409 / 201 / 201+200** — full detail in the runbook's new
-Result section (`docs/runbooks/c0-create-order-probe.md`). The 409
-(`order_already_exists`) is the observed idempotency refusal. The fill paid
-`average_fee_paid 0.0014` on 2c×1, which `calculate_fee(20,1)` predicts
-exactly at the full 0.070 coefficient — first non-MLB fill, consistent with
-the series-attribute reading of the baseball split, pinning nothing beyond
-this cell (the runbook pre-registered that caution). Capture LOCAL only
-(SHA in the runbook); synthetic fixtures + shape tests shipped
-(`tests/fixtures/create_order_responses.json`,
-`tests/test_create_order_response_shapes.py`, 10 tests, resting-default
-mutation verified red); `_read_response`'s "never been observed" docstring
-corrected. The create response is FLAT — no `order` wrapper.
-
-**Open: the arming decision is now genuinely Joe's** — the probe
-precondition (ADR 0063) is discharged. Before arming matters: fund the
-account (the $2.56 balance caps every bet at $0.26).
-
----
-
-## 2026-08-22 (second session) — the every-page review ships whole: kill list, glossary, real limits, and a manual door built dry
-
-Joe asked for an every-page UI review "with Claude and Chrome" plus two
-requirements: tooltips that teach a novice every term, and **purchasing from
-the portal instead of the Kalshi app**. All 14 screens were screenshotted
-live in Chrome; the partner convened six agents over the evidence and ruled;
-Joe approved the plan by AskUserQuestion (buy path as ruled, all four kill
-items, C0 probe greenlit — he runs it himself). Full plan:
-`C:\Users\josep\.claude\plans\enumerated-noodling-simon.md`. Mid-session Joe
-also corrected the record: **he is NOT phone-first — equally desktop**;
-memory updated, every slice designed and verified for both.
-
-**State: 3,895 passed / 10 xfailed** (+58 over baseline), ruff clean, tsc
-clean, `next build` green. ADRs 0063 (manual path separate, never feeds the
-gate), 0064 (daily loss reads `venue_settlements`, refuses on stale), 0065
-(P(YES) is the ticket's precondition; `/estimate` form retired).
-
-**Shipped, by lane:**
-
-- **A-lane (screens).** Kill list: `/builder` deleted, `/rejections` folded
-  into the Slate's disclosure, `/scout` index absorbed (meter now a
-  disclosure in ScoutDesk), `/estimate` is record-only under "Estimates",
-  `/bets` took Scout's nav slot, `/slate`+`/dashboards` moved to the
-  reachability EXEMPT list with reasons. Landing leads with games (panel
-  demoted behind `lib/refreshUrgency.ts`, node-tested; SignalStrip below
-  rows; 4 stats → 2; heading now "Games"). Board's schedule/refresh fold
-  into `<details>`, SignalStrip below the cards. `lib/tickerLabel.ts` keeps
-  ticker tails; `lib/leagueLabel.ts` says MLB not baseball_mlb; gate
-  conditions got plain headlines. `components/Hint.tsx` makes every
-  hover-only caveat tap-visible (soft fallback above all). Glossary 14 → 22
-  terms (contract, consensus, devig, settled, bankroll, depth, exposure,
-  quarter-Kelly, fill, W/L, net; three orphans deleted; `stake` no longer
-  instructs "$2, every time"), TicketSheet fully termed, and
-  `tests/test_glossary_coverage.py` pins coverage four ways. Kalshi deep
-  links exist (`lib/kalshiLink.ts`, scheme verified in a browser).
-- **B-lane (limits).** Daily loss reads the venue mirror and refuses on
-  stale (ADR 0064; settlements joined the 5-min poll cadence). Caps render
-  always as server display strings with `caps_basis`; the slate says "your
-  cap is Xc a bet" + the deposit line. Open positions surface on slate and
-  /bets (count on the 12h clock, portfolio value on the 5-min clock, each
-  with its own staleness refusal, never summed). Scope sentences rewritten.
-  /bets gains Not-tonight, "CLV scored on N of M", and the decisions
-  headline over the new append-only `desk_passes`.
-- **D-lane (the manual door, DRY).** `manual_orders` table +
-  `MANUAL_ORDERS_ARE_DRY_RUNS = True` + `POST /api/manual-orders` with
-  twelve unwaivable server-side checks (demo refuses on mode regardless of
-  the `MANUAL_ORDERS_ENABLED` flag — false in both fly tomls; lockout and
-  10-min cooloff 423s; KXMVE refused; daily-loss over the mirror;
-  balance-derived caps; ceiling refused never repriced; depth; fee-inclusive
-  worst case; live positions read refusing anything unprovably non-netting;
-  IOC only). `GET /api/manual/market/{ticker}` serves any ticker's live
-  facts + "authorises N". The ManualTicket on the market screen asks P(YES)
-  with the ask masked before revealing anything (pinned by source test).
-  Migration **v18** adds `fills.venue_order_id` (the join back to manual
-  orders). `gate.py` never reads `manual_orders` — pinned.
-
-**FOR JOE — the two things only you can do:**
-
-1. **Run the C0 probe** (before the manual path can ever arm):
-   `.venv\Scripts\python.exe scripts\probe_create_order.py
-   --i-am-joe-and-this-spends-money --ticker <TICKER> --side yes` on a
-   market with an ask ≤10c. Worst case under $0.14. Runbook:
-   `docs/runbooks/c0-create-order-probe.md`. The capture stays local
-   (operator data); fixtures get hand-written from the shape.
-2. **Decide when to arm**: after the probe, arming = set
-   `MANUAL_ORDERS_ENABLED=true` on live AND flip
-   `MANUAL_ORDERS_ARE_DRY_RUNS` in a commit (ADR 0063; starts at a
-   1-contract ceiling).
-
-**Open:** the per-row "Pass" affordance on the slate (B6 left it for a
-design pass); `docs/measurements` has nothing new (no measurements were
-taken — this was build work under standing rulings).
-
----
-
-## 2026-08-22 ~13:15Z — the betting-desk list closes out: CLV on his own bets, then the ticket cleanup
-
-**Both remaining items on the 2026-08-21 partner ruling's work list are DONE.**
-That closes the list started 2026-08-21 (refusal-on-real-data, strip the
-landing screen, CLV on his own bets, ticket cleanup) — all four shipped.
-State: **3,837 passed / 10 xfailed** (net +12 over the 3,825 session-start
-baseline: +13 new CLV tests, −1 test deleted with the dead code it pinned),
-ruff clean, tsc clean, `next build` green. Two commits (`3067bf2`, `84fbbea`),
-**neither deployed** — live needs a deploy to carry this.
-
-- **CLV lands on his own bets (`3067bf2`).** `backend/scoring.py`'s
-  `markets_awaiting_scoring` unions in `venue_settlements`, gated on a
-  `kalshi_markets` discovery row and an `event_links` match, stopping once
-  any `closing_lines` row exists for the ticker (no `clv_scored_ms` to flip,
-  so this is the only stop-predicate available). Most hand-bet tickers
-  refuse structurally at the join — expected, per the ruling.
-  `backend/bets.py:bet_clv()` reads it back on request: LEFT JOIN
-  `closing_lines` at the primary horizon, the exact `clv.clv_tenths()`
-  convention, and the entry-before-close rule via `position_first_seen_ms`
-  (NULL refuses, never treated as "before everything"). Four refusal
-  reasons, each named: `no_closing_line`, `unreadable_close`,
-  `entry_time_unknown`, `entry_after_close`. `/bets` renders per-row only —
-  your price, the close, the difference — **no average, no hit rate**,
-  checked by a source-grep test (`test_module_computes_no_aggregate_clv`)
-  so the constraint can't quietly regress.
-- **The ticket cleanup (`84fbbea`), janitorial, one slice, nav-swap clause
-  dropped** (Scout already took the sixth slot). Removed the `!actionable`
-  branch on `TicketSheet`/`TicketProvider` that a 2026-08-18 finding proved
-  structurally unreachable — `TicketTrigger` is the sheet's sole opener,
-  passes no override, and every row it opens already arrived actionable
-  (`board.surfaced` is `routes.py`'s actionable-only partition). Renamed
-  `/ledger`'s nav label and page heading from "Ledger" to "Evidence" — now
-  that `/bets` is Joe's real settled-bet record, the old name on the
-  engine's evidence page was the exact "one word, two screens" confusion
-  the 2026-08-20 nav convening fixed for three other nouns and explicitly
-  left this one alone for. Route and function names (`/ledger`,
-  `fetchLedger`) untouched, matching `/board`'s "Picks" precedent.
-
-**Deployed 2026-08-22 ~13:40Z**: `ed05307` verified live (`/api/health`
-`git_sha` matches, `instance_mode: live`). **The two invoice numbers (ADR
-0062 §4) are DROPPED, not open** — Joe declined to pull them, 2026-08-22
-("let's just drop that"); do not carry them as work or ask again.
-
-**Next session starts here.** Nothing is queued by name — the explicit work
-list is empty for the first time since 2026-08-21. Check the partner's
-"later, maybe" lists (2026-08-21 review + ADR 0061) for anything worth
-promoting, or wait for Joe's direction. The footer parity note stands
-(6-and-6, at the bound — the next footer addition must answer the
-delete-commit question, not land there by default).
-
----
-
-## 2026-08-21 ~23:30Z — the landing screen stops claiming an edge, and the session hands off
-
-**"Strip the landing screen" is DONE** — the last slice this session ships.
-State: **3,825 passed / 10 xfailed**, ruff clean, tsc clean, build green,
-overflow gate green at 390/768/1280/1440/1920, deployed (verify
-`/api/health` `git_sha` against `origin/main` — the deploy was dispatched
-at the end of this entry's session).
-
-- **The edge point estimate is off the slate rows** (`+X.Xc`, tone, mark
-  — all gone). The Board (`/board`) is the edge-finder feature and still
-  renders it through `EDGE_TONE_CLASS`; the landing screen now leads with
-  ask, break-even, books, freshness. Page docstring names the ruling.
-- **`DispersionStrip` is a range behind a tap**: summary shows the spread
-  in points on every width (the ADR 0052 phone reader still sees the
-  magnitude untapped); the tap reveals the two ranges and the caveat. The
-  ask is no longer drawn against the readings (direction claim) and the
-  `used` mark is gone (the point estimate one layer down). The geometry
-  lib is untouched; its tests still run.
-- **`Width` stands alone** — its warning ink compared against the edge,
-  which is no longer shown, so the comparison went with it.
-- **Two pins inverted with dated docstrings** citing the ruling:
-  `test_board_screen.py` now bans `edge_cents`/`edgeTone` from the slate
-  page (mutation verified red: re-adding `row.edge_cents` fails it);
-  `test_dispersion_strip.py` now bans `d.kalshi` from the component.
-
-**NEXT SESSION STARTS HERE — CLV on his own bets** (the ruling's
-re-scope, `docs/reviews/2026-08-21-items-2-3-ruling.md`). Scoped this
-session, ready to build:
-
-1. **Union into `backend/scoring.py` `markets_awaiting_scoring`**: a
-   second SELECT over `venue_settlements` v JOIN `kalshi_markets` m ON
-   m.ticker = v.ticker JOIN `event_links` l ON l.kalshi_event_ticker =
-   m.event_ticker JOIN the same MIN(commence) odds subquery — so closes
-   get captured for his markets. Stop-predicate: NOT EXISTS a
-   `closing_lines` row for the ticker (else refetched every pass
-   forever). Most hand-bet tickers will refuse structurally (no link) —
-   that is expected and honest; the partner said so.
-2. **`/api/bets` computes per-bet CLV on read** (like the matcher: on
-   read, not at ingest — no new columns): LEFT JOIN `closing_lines` at
-   `DEFAULT_HORIZON_HOURS`, then the EXACT existing convention —
-   `backend/analysis/clv.py:clv_tenths(entry_price_tenths, close_mid,
-   side)` (close mid = (yes_bid+yes_ask)/2; entry is already
-   side-denominated in both tables). Apply the same entry-before-close
-   exclusion using `position_first_seen_ms` (NULL → refuse; a bet placed
-   after the close observation must not be scored against it —
-   `clv.py:234` has the argument).
-3. **Render per-bet rows ONLY on `/bets`**: your price, Kalshi's close,
-   the difference — server-rendered display strings. **NO average, NO
-   hit rate, NO "you beat the close X% of the time"** until n ≥ 30 with
-   the per-group view printed beside it — the partner's hard constraint,
-   on the most ego-loaded quantity in the product.
-
-Then the last item: **ticket cleanup** — `TicketSheet`/`TicketProvider`
-dead-code removal + "Ledger" rename, janitorial, one slice. The nav-swap
-clause is dropped (Scout holds the sixth slot).
-
-**Still open from before:** footer parity (6-and-6, at the bound);
-partner's "later, maybe" lists (2026-08-21 review + ADR 0061); the Fly
-invoice and first Anthropic invoice remain the two unpulled numbers
-(ADR 0062 §4).
-
----
-
-## 2026-08-21 ~22:45Z — the refusal lands on real data, and the lockout gets the desk's name
-
-**"The refusal on real data + the desk lockout" is DONE, built exactly to
-the ruling** (`docs/reviews/2026-08-21-items-2-3-ruling.md`). State:
-**3,825 passed / 10 xfailed**, ruff clean, tsc clean, build green, overflow
-gate green at all five widths.
-
-- **Fills joined the 5-minute cadence.** `poll_fills` extracted from
-  `poll_portfolio` and called beside `poll_balance` in the forever loop.
-  NOT a registration amendment — §7.6 sets a completeness floor and the
-  comment says so; settlements, positions and the matcher stay on the
-  registered 12h clock. Without this the strip would read "no bets
-  tonight" at 8pm off a 10am mirror — the false negative in the
-  flattering direction the ruling called disqualifying.
-- **`/api/slate` gained `tonight`**, a SIBLING of `money` (whose contract
-  is never-sum): distinct-ticker count and unsigned stake since the day
-  roll, from `bets.tonight_activity` — no `source` filter (committed
-  money is committed money, ADR 0043's split is for fee calibration), day
-  rolls at the odds budget's hour, and **null — never 0 — when the fills
-  mirror is stale** (`TONIGHT_STALE_AFTER_MS` = 30 min = 6× cadence).
-  `lockout_until_ms` rides the same key: one fetch, one state. Three
-  guards mutation-verified red (staleness dropped, DISTINCT dropped, day
-  bound dropped), file restored byte-identical each time.
-- **`POST /api/desk/lockout`** — the lockout outlived the study that
-  named it. Same `self_lockouts` table, same clock-derived release, no
-  disengage, no picker; `/api/estimates/lockout` stays deprecated-but-
-  working (a deployed frontend may still call it; both write one table so
-  they cannot disagree — the test proves the release instant agrees
-  across both names). `frontend/src/app/lockout/route.ts` repointed.
-- **The landing screen** renders the strip beside the money line
-  (`TonightStrip.tsx`): "N markets · $X.XX staked tonight, your own
-  fills", stale → "not read since HH:MM — which is not the same as no
-  bets", plus the one-tap "Not tonight". Locked → a banner that keeps
-  the slate visible, has NO show-anyway, names the release time, and
-  admits it cannot stop a bet in the Kalshi app. No engagement counter.
-
-**The work list, by name, unchanged in order:** strip the landing screen
-(NEXT — edge point estimate off the slate rows; DispersionStrip becomes a
-range behind a tap, no direction, no `used` mark; note
-`tests/test_dispersion_strip.py` pins "off this scale" and ADR 0052's
-on-the-phone spirit — update those tests with dated docstrings citing the
-ruling, keep the `<DispersionStrip` callsite pin satisfied); then CLV on
-his own bets (re-scoped: per-bet rows, NO aggregate below n ≥ 30); then
-the ticket cleanup (nav-swap clause dropped).
-
-**Still open from before:** footer parity (6-and-6, at the bound);
-partner's "later, maybe" lists.
-
----
-
-## 2026-08-21 ~21:45Z — /bets ships, and the partner re-rules the refusal work by name
-
-**"His own record" is DONE** (the top item of the betting-desk list): the
-poller has mirrored `venue_settlements` since 2026-08-18 and nothing had
-ever read it back to him. `backend/bets.py` computes per-settlement net via
-the ONE registered settlement formula (A2: payout − cost − fee, integer
-tenths, `Decimal` multiply) — a void or unreadable price/fee is **None,
-never $0.00**, and the totals count what they exclude. Totals cover the
-whole table while the list is windowed (the /api/ledger lesson).
-`GET /api/bets` + `/bets` page (net strip, W/L, per-position rows linking
-to market screens, the mirror caveat in words), linked from the footer —
-nav is deliberately not decided here. Money display strings render
-server-side (`format_net_dollars`), per `lib/api.ts`'s no-arithmetic rule.
-The embargo line: this never touches `bet_estimates` (Amendment 2 stopped
-the study without result; A7 rules the wallet outside the embargo).
-State: **3,816 passed / 10 xfailed**, ruff clean, tsc clean, build green,
-overflow gate green at all five widths with `/bets` listed.
-
-**The partner convened on the two refusal items and ruled — full text in
-`docs/reviews/2026-08-21-items-2-3-ruling.md`.** The load-bearing calls:
-tonight's count/stakes come from **fills, not settlements** (settlements
-are the wrong clock and can only produce a net — the chase trigger this
-repo already deleted twice); **fills join the 300s balance cadence** (the
-12h mirror at 8pm renders "no bets tonight" while three are on — a false
-negative on the interrupting screen; not an amendment, cadence is a floor);
-the strip **refuses when stale** (as_of > 30 min → null, never 0); it lands
-on **the landing screen only**, as a sibling `tonight` key beside `money`
-(never inside it); the lockout **repoints to `POST /api/desk/lockout`,
-render-only**, honest that it cannot stop a hand bet, no show-anyway, no
-counter, old study routes left deprecated in place.
-
-**The work list is now BY NAME (the numbering collided across entries —
-the partner's call). In order:**
-1. **The refusal on real data + the desk lockout** — build per the ruling
-   doc, one slice (fills cadence, `tonight` payload, landing strip, banner,
-   `/api/desk/lockout`).
-2. **Strip the landing screen** — promoted: edge point estimate off,
-   dispersion-as-range behind a tap, no direction, no `used` mark. Same
-   file as the refusal work.
-3. **CLV on his own bets** — demoted and re-scoped: per-bet rows only
-   (your price, Kalshi's close, the difference), NO average or hit rate
-   until n ≥ 30 with the per-group view beside it.
-4. **Ticket cleanup, janitorial, last** — `TicketSheet`/`TicketProvider`
-   dead-code removal + "Ledger" rename. The nav-swap clause is DROPPED
-   (Scout took the sixth slot).
-
-**Still open from before:** footer parity note (footer is now 6-and-6 with
-nav — at the bound, so the next footer addition must answer the
-delete-commit question); partner's "later, maybe" lists (2026-08-21 review
-+ ADR 0061).
-
----
-
-## 2026-08-21 ~20:30Z — the desk gets a token meter and a nav slot in one change, and the gold goes out
-
-**The partner's betting-desk item 6 is done, all three clauses, one slice.**
-It was flagged urgent because the meter is protecting Joe's fresh $20 — the
-account had actually run dry (ADR 0062 §3). State: **3,807 passed / 10
-xfailed** (+13), ruff clean, tsc clean, `next build` green, overflow gate
-passes at 390/768/1280/1440/1920 with `/scout` on the page list.
-
-**The meter (schema v17).** The 24-call cap counts calls; a staff scout's
-call carries the web-search tool at `max_uses: 6`, so one convening could
-spend 12 searches — billed per-search, results billed as input — inside
-three perfectly-counted calls. Now:
-
-- `agent_calls` gains `input_tokens` / `output_tokens` / `web_searches`
-  (nullable, no backfill; migration 17). `structured_call` returns
-  `StructuredCallOutcome` — parse AND the API's usage block, usage kept even
-  on a safety refusal (still billed), `None` only when no response arrived;
-  `settle` writes it. NULL usage rows are counted as `calls_unmetered_today`
-  so the sums state what they miss.
-- Two daily brakes in `AgentBudget`, evaluated over RECORDED usage **before**
-  the next reserve — never a field the gated call will write (the
-  receipt-not-a-brake lesson): `AGENT_MAX_SEARCHES_PER_DAY=60`,
-  `AGENT_MAX_TOKENS_PER_DAY=500000` (defaults bind early, arithmetic in
-  `.env.example`; also set in `fly.live.toml`). The desk states its staff
-  pair's pre-known worst case (`STAFF_PAIR_SEARCHES_WORST_CASE = 12`) at
-  both gates — `convene_desk` and the POST route's early refusal — from one
-  module-level constant so they cannot drift.
-- Mutation-verified red, file restored byte-identical each time: sum→count
-  in `state()`, token check dropped, settle-usage dropped, and
-  `searches_worst_case` dropped from the desk's `can_afford`.
-
-**The screen and the slot.** `GET /api/scout` (public read) serves the last
-50 convenings as summaries — never briefing bodies — plus today's spend in
-the three units that bill: calls, searches, tokens. Counts, not dollars;
-`spend: null` on a keyless instance (the demo), which is "no account to
-meter", not an empty meter. New `/scout` page renders the meter above the
-convening record and deliberately has **no send button** — the desk is sent
-from a game's screen, because a desk sent from a list invites filling the
-list. **Scout takes the nav's open sixth slot** (Log's retired one), placed
-so Gate keeps its visible position at 390px and Playbook stays the link that
-scrolls; `test_the_nav_budget_is_still_six` records the trade.
-
-**The gold is out.** The `fresh` tile and the unpriced-finding chip wore
-`accent-2` — the palette slot every other screen reserves for "do not trust
-this" (test_palette_contrast.py) — to light the staff's own unfalsifiable
-`likely_already_priced` guess as if it were an edge signal. Both are
-neutral now: glyph, border and weight carry the state; the verdict strip
-says "recent is not the same as unpriced". ScoutDesk's send copy now names
-the searches and points at the Scout screen's running total.
-
-**For the next session:** live needs a deploy to carry all of this (v17
-migrates at boot via `scripts/migrate_db.py`; additive columns, safe on the
-volume). The 08-18 session entries moved verbatim to
-`tasks/archive/next-2026-08-18.md` (index updated); the 08-17-dated entries
-still in this file share titles with archived ones but differ in text —
-left untouched, resolve deliberately or not at all.
-
-**The partner's remaining betting-desk list, renumbered:**
-1. `/bets` — his own record from `venue_settlements` (embargo checked this
-   session: Amendment 2 stopped the study without result, the estimate log
-   stays embargoed forever, and A7 rules `venue_settlements` outside it —
-   buildable so long as it never touches `bet_estimates`).
-2. Refusal onto real data — tonight's count/stakes over `venue_settlements`
-   with the lockout beside it, on the deciding screen.
-3. Repoint the lockout off the stopped study's endpoint.
-4. CLV on his own bets — union `venue_settlements.ticker` into
-   `backend/scoring.py:97`.
-5. Strip the landing screen — edge point estimate off; dispersion-as-range
-   behind a tap, no direction, no `used` mark.
-6. `TicketSheet`/`TicketProvider` unreachable-code removal; "Ledger" rename.
-
-**Still open from before:** footer 5-and-5 parity note; partner's "later,
-maybe" lists (2026-08-21 review + ADR 0061).
-
----
-
-## 2026-08-21 ~18:30Z — Joe rules the purpose, the Skeptic retires, and the cost record gets honest
-
-**The ruling, verbatim and now in ADR 0062 + agent memory:** *"I always
-wanted this to be a betting desk. the edge-finder should have been a
-feature, but not a determiner."* Preceded by "I don't care about 1-2 cent
-diffs" — his position size makes the venue's whole cost advantage ~15
-cents/bet. ADR 0038 closed the hunt on measurement; 0062 closes it on
-purpose. Gate, dry-run constant, suppression rules, odds feed: untouched.
-
-**Built this session (the partner's item 3, the one bleeding money):**
-
-- **Scheduled Skeptic killed.** The partner's cost audit found `agent_calls`
-  refuting `fly.live.toml`'s "surfaced=0 protects the bill": **24 Opus calls
-  in 4m22s on 2026-08-16** (whole daily cap, four prop rows re-reviewed 6x),
-  all blocked — so `surfaced` read 0 *after* the spend. `run_pricing_pass`
-  now defaults to `review_retired` (refuses every surfaced row as
-  `skeptic_unreviewed` / "retired (ADR 0062)", zero Anthropic calls;
-  `review_surfaced` stays importable, opt-in only). Mutation-verified:
-  restoring the old default turns `TestTheScheduledSkepticIsRetired` red.
-  From now on `surfaced` is frozen at its historical values.
-- **Four doc corrections**, all understating deployed reality:
-  `fly.live.toml` spend-trap block rewritten with the refutation; sweep cost
-  6→2 (h2h only); "400/day"→600; `.env.example` 400→600; ADR 0002 "$5/mo,
-  1GB" gets a dated correction (live is 2GB, volume at auto-extend limit).
-- **Lesson written:** a field computed after the spend is a receipt, not a
-  brake — the money-shaped case of "verification methods that lie".
-- **"The recorder costs nothing" is retired** (ADR 0062 §4): ~70 Odds
-  credits/day measured, sole reason the $30/mo tier exists, plus 2GB
-  always-on machine. Recorder keeps running (feeds Board + scout desk).
-
-**Joe answered three of the open calls, same day (~16:10Z):**
-- **The Anthropic account had actually run DRY** — "I ran out of API
-  credits, so its a fresh new $20 i just deposited." This retroactively
-  hardens ADR 0062 §3: the spend was not hypothetical, it emptied the
-  account. The Skeptic retirement and the coming scout-desk token meter
-  are protecting a fresh $20, so treat that meter (work item 6) as urgent.
-- **The $30/mo Odds tier stays.** His call, recorded.
-- **The 22:40Z look is VETOED** — result file committed, see SESSION START
-  box. Fly invoice remains the one unpulled number.
-
-**The partner's remaining betting-desk work list, in priority order** (full
-reasoning in its 2026-08-21 ruling; each is a vertical slice):
-1. `/bets` — his own record from `venue_settlements` (zero routes/screens
-   today; check the ADR 0044 embargo release first).
-2. Move the refusal onto real data — tonight's count/stakes over
-   `venue_settlements` with the lockout beside it, on the deciding screen.
-3. Repoint the lockout off the stopped study's endpoint.
-4. CLV on his own bets — union `venue_settlements.ticker` into
-   `backend/scoring.py:97`.
-5. Strip the landing screen — edge point estimate off; dispersion-as-range
-   behind a tap, no direction, no `used` mark.
-6. Meter the scout desk by tokens/searches, THEN promote it to nav — same
-   change, not sequential (its 24-call cap meters calls, not the up-to-12
-   web searches per convening); neutralise the gold
-   `likely_already_priced` tile in the same change.
-7. `TicketSheet`/`TicketProvider` unreachable-code removal; nav swap;
-   "Ledger" rename.
-
-**Still open from before:** footer 5-and-5 parity note; partner's
-"later, maybe" lists (2026-08-21 review + ADR 0061).
-
----
-
-## 2026-08-21 ~16:45Z — the market screen joins the shell, and the desk scales to a real instrument panel
-
-Joe saw the desktop render ("it's so small") and directed the process
-himself: graphic-designer briefed first, then a partner convening with
-ui-designer and ux-designer. **ADR 0061** records the outcome; the two
-decisions that will be re-derived at full cost if lost:
-
-- **Root cause:** the market page hardcoded `max-w-3xl` — narrower than its
-  own Nav. It now imports `SHELL_WIDTH`, and `test_desktop_tier.py` bans
-  `max-w-3xl` in shell surfaces alongside `max-w-5xl`.
-- **The 24rem facts rail all three designers first assumed was killed on
-  arithmetic** (main would be 856px → 122px tiles; the rail eats exactly
-  the pixels that answer the complaint). Rule: a data band goes full shell
-  width, prose caps at 65ch inside it; a rail must earn its content.
-
-Also: tiles ~193px at xl (`xl:` variants only — container queries rejected
-for breaking sub-xl byte-identity), six-across pinned; re-send buttons lose
-`bg-accent` (red = money; pinned, mutation-verified both); quote strip takes
-no size step (the ask never exceeds body size); ticker demoted below the
-board; `check_mobile.py` gained `--market-ticker` (ADR 0047's own gate had
-never measured this page) and passes at 390/768/1280/1440/1920 with the
-real MIL ticker; ScoutDesk + market page joined `PROSE_FILES`.
-
-State: **3,791 passed / 10 xfailed**, ruff clean, tsc clean, build green,
-deployed (`9952a0f` verified on live). **Joe answered the look-at-it
-question 2026-08-21 ~15:20Z: "6 tiles across one row is fine"** — the
-six-across pin stands as built. He also re-sent the scouts post-board
-(filed 15:17Z): the master's own tiles rendered correctly on live, and his
-read correctly named the unchecked same-day lineups as the briefing's real
-content. Session ended here at Joe's request; this entry is the handoff.
-
-**Still open:** tonight's terminal spread/total look at 22:40Z (session
-alive in band 22:35–22:45Z; replay gate PASSED 04:04Z); footer 5-and-5
-parity note; partner's "later, maybe" lists (2026-08-21 review + ADR 0061).
-
----
-
-## 2026-08-21 ~15:30Z — the briefing becomes a cockpit, and the market screen serves the venue's facts
-
-Joe read the desk's first real briefing (Braves–Brewers, filed 14:03Z) and
-gave three directions, verbatim in the memory file
-`briefings-are-visual-first-and-sport-neutral.md`: visual like a cockpit,
-sport-neutral, good on desktop AND phone. He then asked for the market
-screen itself to be made more useful, "ask the partner to consult with the
-relevant agents."
-
-**The partner convened seven agents and ruled: render the venue's facts,
-never the tool's opinion** — full direction + the explicitly-not-doing list
-in `docs/reviews/2026-08-21-market-screen-direction.md`. All eight build-now
-items are built, tested, mutation-verified where they guard money or
-honesty:
-
-- **The board**: the master scout fills six sport-neutral instrument tiles
-  (fresh / stale_only / unconfirmed / clear), completed server-side
-  (`complete_board` — missing→unconfirmed, duplicates→most-alarming,
-  unearned clear→unconfirmed). Binary verdict strip, no counts — a count
-  was the one number the schema forbids, manufactured client-side. Glyphs
-  as primary channel; `clear` unlit; only `fresh` carries hue.
-- **The market screen**: ScoutDesk above the fold, chart in a closed
-  details with the history-not-a-quote caveat in its summary; header is
-  `Away @ Home / YES = team / league · start · status` off the odds clock
-  (never `kalshi_events.commence_ms`, ADR 0006); quote strip with LIVE ages
-  (`_serialise` now gets `now_ms`/`staleness` — they were frozen at write
-  time) and a stale ask refused outright; `close_ms`/`market_status`
-  served so settled markets say so. NO line and candles toggle gone,
-  ranges Today/All.
-- `--border-strong` token added (dashed borders were 1.30:1 — invisible).
-
-State: **3,789 passed / 10 xfailed**, ruff clean, tsc clean, `next build`
-green. The first briefing predates the board; its screen shows a derived
-board and says so. **The Braves game is worth re-sending to see the real
-board** — and the fixture's fun wrinkle (a two-city series claim the scout
-couldn't verify) is exactly what the unconfirmed state was built for.
-
-**Still open:** tonight's terminal spread/total look at 22:40Z (band
-22:35–22:45Z, session must be alive, replay gate PASSED at 04:04Z); the
-footer 5-and-5 parity note; the partner's "later, maybe" list in the
-review doc.
-
----
-
-## 2026-08-21 ~06:30Z — the Scout desk is switched on, on Joe's word: a staff of two and a master, metered
-
-**ADR 0060.** Joe asked for it by shape ("the master scout … a team report to
-him … each knowing their own home teams player status, team statuses, weather
-if they're playing at home … an expert opinion that would finally serve me at
-my desk"). That is the decision ADR 0022 §4 recorded as not-yet-taken, now
-taken by the person whose money it spends.
-
-**What shipped, all tested:**
-
-- `backend/agents/scout_desk.py` — one convening = two staff scouts (one per
-  club; the home scout owns the venue/weather) + one master who synthesises
-  their notes and may not add facts. Three metered calls via the existing
-  `AgentBudget` against the same `agent_calls` day as the Skeptic (24/day →
-  ≤8 briefings). Staff pair reserved before the first request; master reserved
-  only after a note exists; a refusal spends zero. **No numeric field exists
-  anywhere in `DeskBriefing`** — walked by test, not trusted to the prompt.
-- `scout.py`'s unmetered solo `research()` is **deleted**, not wired; the
-  module survives as the desk's schema home. Quarantine row removed from
-  `test_has_callers.py`; `scout_desk.py` and `routes.py` allowlisted in
-  `BILLED_PATH_CALL_SITES` with their meter named; the historian is now the
-  set's only member.
-- `scout_briefings` table (schema.sql, IF-NOT-EXISTS so no migration);
-  `POST /api/scout/{ticker}` (auth, 202 accepted-never-briefed, 429 before
-  writing on an exhausted day, 422 unlinked ticker, 503 no key, 409 already
-  running) + public `GET /api/scout/{ticker}` with `gone_quiet` for a
-  `running` row older than 15 min.
-- Frontend: `/scout-desk` Next route handler holds the bearer server-side
-  (same pattern and same widening statement as `/refresh-odds`; middleware
-  names the path), `ScoutDesk.tsx` on the Market screen — send button says
-  "three metered calls" before the tap, filed-nothing renders dark vs
-  looked-found-nothing, refused/failed/gone-quiet all have words. Crew
-  bubble's Scout line updated (still an admission; pinned test still holds).
-- Mutation-verified guards: numeric field into the briefing schema, dropped
-  budget pre-check, reserve-after-call — each red, file restored each time.
-
-**Verification:** 3,782 passed / 10 xfailed (+17 new: 9 desk, 8 API, minus
-the timezone guard that caught `ScoutDesk.tsx` rendering device-zone clocks
-— fixed with `DISPLAY_TIME_ZONE`), ruff clean, tsc clean, `next build` green.
-
-**What the desk does not do, so nobody re-litigates it:** no probability, no
-price, no bet verdict — schemas make those unrepresentable; ADR 0038 is
-untouched (§5 of ADR 0060 has the argument). The demo cannot send it (no key,
-no token, both halves refuse independently).
-
-**First real convening is the open question.** Nothing has run against a live
-game. When Joe sends it, read the briefing critically: quality is unmeasured,
-and the `likely_already_priced` flags are the honesty valve to check first.
-
-**Still open, unchanged:** tonight's terminal spread/total look at 22:40Z
-(band 22:35–22:45Z; a session must be alive in the band; replay gate already
-passed at 04:04Z), and the footer 5-and-5 parity note.
-
----
-
-## 2026-08-21 ~04:30Z — the replay gate passes exactly, and the ledger's null kickoff is fixed
-
-State at close: tests **3,766 passed / 10 xfailed** (+4), ruff clean, tsc
-clean, pushed through `6a23920`. **Live is current: deployed `1673331` at
-04:17Z on Joe's word** (run 32446407696, dispatch went through in auto mode
-first try; `/api/health` verified `git_sha` + `instance_mode: live`). That
-deploy carried `d487d2d` (estimate-form demotion) and `6a23920` (below).
-Nothing tonight's look needs is on live — the sweep is a local script.
-
-**The free replay gate for tonight's look was run at 04:04Z and PASSES
-exactly.** All five sharp edge values (−25.0, −3.5, −19.2, −15.3, −2.9
-tenths), sharp counts 3/3 games and 2/2, both UNDERPOWERED verdicts, total
-rows 3 and 4, and the full exclusion dict (incl. `outside_window: 16`)
-match Amendment 1's registered gate evidence line for line. The rows
-artifact is at
-`docs/measurements/2026-08-21-spread-edge-rows-2026-08-21T040406Z.json`
-(replay by-product; committed in `e8d4614` by a broad `git add -A` — kept,
-since it is derived public-market data and doubles as the gate evidence). The band session should still
-re-run the gate before the anchor — it is free and the registration says
-before the anchor, not eighteen hours before.
-
-**The `/api/ledger` `commence_ms` defect is FIXED (`6a23920`).** The route
-now joins `r.link_id → event_links → MIN(odds_snapshots.commence_ms)` —
-the scorer's own definition (`backend/scoring.py:markets_awaiting_scoring`)
-— so the ledger's pre/post-commence axis agrees with the machinery that
-writes the clv fields. The documented 3-hour trap was refused, not merely
-avoided: `kalshi_events.commence_ms` is never touched, and a test plants
-the raw `occurrence_datetime` value three hours late and asserts it does
-not surface. Unlinked rows resolve to `None`, never a substitute. Four
-guards, each verified red by mutation (MIN→MAX, the kalshi_events join,
-COALESCE-to-0). Note for any consumer: rows written before the linker had
-a `link_id` still read `None` — that is honest, not a regression.
-
-**Open, in order:**
-
-1. **Tonight's terminal spread/total look, 22:40:00Z** (band 22:35–22:45Z,
-   4 credits, Joe's veto until the anchor). A session must be alive in the
-   band or the look goes UNTAKEN — session timers cap at 1h and die with
-   the session, so this needs Joe (or a session he starts) around 22:30Z.
-   Every branch writes
-   `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
-2. The next deploy carries `d487d2d` + `6a23920` (no urgency).
-3. The footer 5-and-5 parity note (a constraint on future nav work, not a
-   task — `tests/test_every_screen_is_reachable.py` docstring).
-
----
-
-## 2026-08-21 ~03:15Z — the H4 series closes on a measured reason: the channel diagnostic is BLIND on a denominator of 1
-
-State at close: tests **3,762 passed / 10 xfailed**, ruff clean, tsc clean,
-`next build` green, everything pushed. Live is on `349dca0` (deployed this
-session, dispatch went through in auto mode first try) — commits after it
-are docs/tasks-only except the estimate-form demotion (`d487d2d`), which is
-UI + a scope guard and can ride the next deploy; nothing urgent needs it
-live tonight.
-
-**The partner convened, re-ruled, and the ruling is executed.** Its key
-move: do NOT build the A9–A12 analyzer on schedule — the record suggested
-the balance channel cannot see payouts — and instead register the cheapest
-test of that (ADR 0059 is the generalised rule). The chain, all committed
-in order: **Amendment 3** (`9693847`, pre-registrar: the A15 disclosure of
-a partial unblinding, A16 closing the span/cluster voting defect it found
-— ~4,000 empty snapshot pairs could have voted — and A17 registering the
-channel diagnostic with all three verdicts' consequences fixed);
-**analyzer** (`7c78a32`, before the data); **pull** 02:49:45Z (30m35s
-after the amendment, one attempt, sections untruncated, SHA in the result
-file, raw capture NOT committed per the operator-data ruling);
-**three audits** by the measurement-skeptic (FAIL 11 → FAIL 9 → PASS,
-chain kept in the record); **result** (`ca8c581`).
-
-**The verdict: BLIND, on a covered-winner denominator of 1** —
-`docs/measurements/2026-08-21-h4-channel-diagnostic-result.md`. Per the
-consequences fixed before the pull: **Look 2 is written up early as
-BLOCKED ON INSTRUMENT** (`2026-08-21-h4-settlement-fee-result.md`),
-**Look 3 is cancelled, the series is closed**, the analyzer is never
-built, ADR 0027 stands, H4 stays UNTESTED. Reopening has exactly one
-door: A17.11's different-channel amendment (candidates named there).
-**The audit's finding worth reading:** the pull's own fills section shows
-the balance channel reconciling 15 of 16 fills to half a tenth, and a
-+4950-tenth movement in the winner's own payout window 1h31m *before*
-settlement — the registered tolerance cannot credit it, and the pull
-cannot separate "paid early at position close" from "position closed, no
-credit due". That is why BLIND extends to no claim about the venue.
-
-Also this session, all committed and pushed: **`h4-balance-spans`
-shipped** (`349dca0`, six window-mutation guards red — it fed the
-diagnostic its one registered pull and now stays unused); **README's
-combo row corrected** (`5aa39ef`, the public repo carried a refuted
-reason); **the stopped study's form demoted** (`d487d2d`: Log's nav slot
-retired, `/estimate` reachable from the footer with the terminal banner,
-and `classify_positions` now bounds the study window on the right at the
-owner stop — guard red both ways); **ADR 0059** (`45735e4`); the
-unit-mismatch lesson (`6a8092e`).
-
-**TONIGHT'S HANDOFF — the terminal spread/total look, 22:40:00Z:**
-
-1. Registration: `2026-08-21-preregistration-spread-total-edge-second-look.md`
-   (+ its Amendment 1). Band **22:35:00–22:45:00Z**, 4 credits, floors 8
-   sharp rows / 3 games per arm, NO pooling with look 1.
-2. **Joe holds a veto until the anchor.** A veto before the sweep spends
-   nothing and is recorded as VETOED; after a successful sweep there is
-   no veto — the look is the look.
-3. Before the anchor, run the free replay gate:
-   `.venv\Scripts\python.exe scripts\measure_spread_edge.py --replay
-   docs\measurements\2026-08-20-spread-sweep-raw-2026-08-20T212616Z.json`
-   — it must reproduce look 1's numbers exactly or the anchor is not
-   taken (INSTRUMENT FAULT).
-4. Inside the band, run the sweep. **Every branch — including VETOED and
-   UNTAKEN (band lapses, vendor closed, 401) — writes**
-   `docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
-5. Session timers cap at 1h and die with the session; if no session is
-   alive in the band, the look goes UNTAKEN and that too is written up.
-
-**TWO QUESTIONS FOR JOE — ANSWERED 2026-08-21 (~03:45Z), verbatim:**
-
-1. How many open Kalshi positions right now? — **"1"**
-2. Are you still placing bets? — **"here and there. not much. just some
-   fun parlays."**
-
-So the drying-up branch did NOT fire: winners will still trickle in,
-occasionally, mostly KXMVE combos (multi-leg, so outside the stopped
-study's scope anyway). This changes nothing already decided — the H4
-series stays closed on its own ground (BLOCKED ON INSTRUMENT), the
-recorder keeps running because it costs nothing — but a future partner
-triage should know the account is quiet-but-alive, not dead.
-
-**Still open, in order:** the `/api/ledger` `commence_ms` defect (partner
-ranked it last, "droppable without guilt"; the 3-hour-offset trap is
-documented in the 2026-08-20 entry below), and the footer's 5-and-5
-parity note (the next screen the nav sheds must answer the delete-commit
-question, not land in the footer by default —
-`tests/test_every_screen_is_reachable.py` docstring).
-
----
-
-## 2026-08-21 ~02:00Z — h4-balance-spans ships with its guards red, and both deploys landed
-
-State: tests **3,745 passed / 10 xfailed** (+6 new guards, +2 parametrized
-whitelist tests), ruff clean. Pushed `349dca0`; live deploy dispatched (run
-32438057600 — the dispatch went through in auto mode this time, first try).
-
-**Open item 1 (the waiting deploy) closed itself before this session acted:**
-live was already on `aee4b5a` at 01:47Z, so Joe ran the dispatch. The only
-commit live then lacked was `30f1c2e`, docs-only.
-
-**Open item 2 is DONE: `h4-balance-spans` shipped (`349dca0`).** Amendment 1
-A12.3's instrument: sections A–D as `h4-settlement-balance` but filtered only
-by each table's own clock ≥ study start — no ±900s `EXISTS` window, because
-the span design has no window — plus section E, the **whole**
-`venue_settlements` table (P_j sums every settlement inside a span,
-pre-study included; a study filter there would silently zero prediction
-terms). No join, no delta, same discipline. Six window-mutation guards in
-`TestH4SpansAreUnwindowedAndUnjoined`, **each verified red**: `>=`→`>`,
-study filter dropped, `EXISTS` window re-added to balance or fills, poll
-endpoint filter dropped, E gaining a study filter. File restored
-byte-identical after each mutation. **A12.4's fallback cap on Look 2 is
-discharged.**
-
-**What Look 2 still needs before the 2026-09-03 pull, and it is the next
-H4 work:** the analyzer change (A9 seven-branch aggregate tree, A10 E7 +
-positive-control gate, A11 early-credit scan, A12 span pairing/residuals)
-committed **before** the data exists, as Look 1's was (`4dbd3e2`). Nothing
-about it is blocked; the registration specifies it.
-
-**Still open, unchanged:** the `/api/ledger` `commence_ms` defect (item 3
-below, low urgency, 3-hour-offset trap documented), and the terminal
-spread/total look at 22:40Z tonight (armed; Joe holds the veto).
-
----
-
-## 2026-08-21 ~00:20Z — H4 Look 1 is taken and moves nothing, tomorrow's terminal spread look is armed, and one deploy waits on Joe
-
-State at close: tests **3,737 passed / 10 xfailed**, ruff clean, tsc clean,
-CI green on `883c884`+; live on `1539f76` — **one deploy behind, see the
-first open item**. The partner convened at session start and set the list;
-all six items are done or armed.
-
-**H4 Look 1 is TAKEN and recorded** —
-`docs/measurements/2026-08-20-h4-settlement-fee-result.md` (`883c884`).
-Chain, in order: registration `4e0a025` (23:13Z), analyzer pre-committed
-`4dbd3e2` (23:29Z), pull 23:44:23Z, two measurement-skeptic audits (first
-draft FAILED on six defects, second on one — the record carries the
-corrections). Verdict per kind: single-kind UNDERPOWERED (1 cluster),
-combo-kind **S1 UNTESTABLE (W = 0)**. **H4 stays untested, ADR 0027
-unchanged, no U2 figure is a bound** — the pull's own positive control (a
-$5.00 predicted credit, observed $0.00) shows the balance channel did not
-respond inside ±900s, which is E6's structural blindness: a flat balance
-passes "stopped moving" whether the credit settled or never came.
-**Amendment 1 (`9bc9dad`) now governs Looks 2–3**: total seven-branch
-aggregate tree (A9), E7 + a positive-control gate (A10), the early-credit
-scan (A11), span-based windows replacing ±900s (A12, with a registered
-fallback: if the `h4-balance-spans` query has not shipped by 2026-09-03,
-Look 2 runs the old design **capped at UNDECIDABLE-COVERAGE on winning
-clusters**), and the consequence of each §6.1 answer (A13 — no answer
-changes any verdict). The raw pull is operator data: NOT committed, held at
-`data/captures/h4_look1_pull_2026-08-20T234423Z.json`, SHA-256 in the
-result file. **One tension flagged for Joe in the result file:** the
-cluster table carries derived position facts (tickers, counts, win/loss);
-if he rules even derived aggregates out, the table moves private.
-
-**The terminal spread/total look is armed for 2026-08-21 22:40:00Z** (band
-22:35–22:45Z, 4 credits, **Joe holds a veto until the anchor**).
-Registration `5f890b5` + Amendment 1 `5438d9b`: the replay gate first
-FAILED by its letter (row counts 3/4 vs 11/12) because its premise
-conflated matched with sharp-anchored games; the pre-registrar ruled the
-premise wrong and the instrument right — all five edge values, sharp
-counts, games and verdicts reproduce exactly, all 16 dropped rows non-sharp
-— and restated the gate stricter. The instrument
-(`scripts/measure_spread_edge.py`) carries the three permitted edits:
-per-game commence window [taken_at+15m, +12h] with counters, 08-21
-filenames, the new registration name. Floors unchanged (8 sharp rows / 3
-games per arm); NO pooling with look 1; totals arm registered as
-more-likely-than-not UNDERPOWERED again. Every branch — including VETOED
-and UNTAKEN — writes
-`docs/measurements/2026-08-21-spread-total-edge-second-look-result.md`.
-
-**§6.1 QUESTION PENDING FOR JOE (H4):** did you deposit, withdraw, or
-transfer money in/out of Kalshi around **2026-08-18 14:51–14:56 UTC
-(~7:51–7:56 AM PT Tue)**, or anywhere on 08-18/08-19? Answer goes into the
-result file dated; per A13 no answer changes any verdict, so no urgency.
-
-**Open items, in order:**
-
-1. **Live is one deploy behind.** `6cef368` makes the phone's estimate page
-   tell the truth about Amendment 2 (study stopped by owner; it currently
-   renders "$X of $100" as if live). My live dispatch was blocked by the
-   permission classifier (tried once, per rule). Joe: GitHub app → Actions
-   → Deploy → Run workflow → instance `live`, type `kalshi-cockpit`. Or a
-   future session tries the dispatch once again.
-2. **`h4-balance-spans` whitelisted query** (A12) — ship before 2026-09-03
-   or Look 2 self-caps. Code-change-sized; the registration specifies it.
-3. **The `/api/ledger` `commence_ms` defect** (below, 2026-08-20 entry) —
-   unchanged, low urgency, 3-hour-offset trap documented.
-4. **Analyzer E1–E6 had zero test coverage at look time** — fixed same day
-   (`tests/test_analyze_h4_look.py`, 15 tests, two guards mutation-red),
-   noted here because the first result draft *claimed* coverage that did
-   not exist and the skeptic caught it. Pattern already in lessons.md
-   (git-state claims; this is the test-state twin).
-
-Also this session: the probe key-leak fix + corrected lesson (`450557a`),
-the secret-scan false positive on the test's own fake key (`5a047b8`,
-nothing real, nothing rotated), four findings recorded (`8358c9b`: ADR 0058
-observation note, ADR 0054 5GB-ceiling amendment + fly.live.toml correction,
-ledger defect filed), housekeeping (`1202d6e`: two discharged bullets
-struck, v16 watch killed as unreachable, stored-number lesson written).
-
----
-
-## 2026-08-20 ~21:35Z — the spread test is TAKEN: UNDERPOWERED both arms, and the partner's list is the open work
-
-**The registered spread/total test ran at 21:26:16Z**, inside the window, 70
-min before first pitch, 4 credits.
-`docs/measurements/2026-08-20-spread-total-edge-result.md` + raw/rows
-artifacts beside it. **Verdict per the registered floor: UNDERPOWERED on
-both arms** (3 sharp-anchored spread rows, 2 totals, against a floor of 8) —
-no pass, no fail, the ADR 0038 quadrant row unchanged. All 5 sharp rows were
-negative at the charged fee; that is a description under an UNDERPOWERED
-verdict, not a finding, and the result doc says so. A second look on a
-fuller slate (≥5 games, ~1.7 sharp rows/game observed) is a NEW
-authorization, not a continuation — the convening bought one sweep.
-
-**Protocol notes worth keeping:** the first attempt 401'd on a stale local
-`ODDS_API_KEY` (no spend); Joe fixed `.env` and the sweep ran five minutes
-later. The 401 traceback printed the dead key into the transcript —
-`raise_for_status` embeds the URL — and the instrument now fails with the
-status alone (`095c1e9`, lessons.md has the pattern; other capture scripts
-still share it and are owed a sweep). The new key sits on a 20K/month plan
-per the vendor counter (1336 used), which changes the credit arithmetic
-whenever a bigger look is authorized.
-
-**ADR 0058 landed (partner-approved, `e6ba046`):** the per-series fee
-(`fee_multiplier` 0.5 MLB) corrects **settled PnL only**
-(`settlement.py:244`). Guards stay on 0.070 — a cost correction cannot
-create an edge. `fills.fee_predicted` is excluded because
-`_fee_model_verified` (`gate.py:738-748`) reads it and correcting it would
-decide ADR 0043's open hand-fills question permissively as a side effect;
-`recommendations.fee_predicted` is excluded because engine.py computes it
-and the gate's edge from one EV object. **Not yet implemented** — the
-implementing commit must add a fee-regime marker to `settlements` (or
-append its SHA to the ADR as the basis boundary) and the ADR 0058 tripwire
-test.
-
-**The partner's execution list is DONE, all four items** (~21:45Z):
-(1) ADR 0058 implemented in `3b572c5` — migration **v16** adds
-`settlements.fee_model_used` (NULL = pre-v16 flat regime), the settlement
-pass reads `/series/{ticker}` live and tags every row
-(`series_mult_0.5:override_unchecked` / `flat_0.070:series_unread`), fees
-take keyword-only `fee_multiplier` refusing outside (0,1], both tripwire
-halves armed and mutation-red; suite 3,718 passed. **NOT yet deployed —
-deploy after the 22:21Z window closes, before WNBA 22:45Z if possible.**
-*(Done 22:26Z: live is on `1539f76`, healthy, v16 ran at boot. The first
-`h4-settlement-balance` pull works on live: 13 post-study settlements, a
-flat balance beside the 08-18/19 cluster then $8.31 on 08-20, ZERO fills
-inside any window -- no fill confound -- and every balance poll ok=1. The
-H4 subtraction itself is NOT taken: it needs a pre-registration first,
-and the pre-registrar owns that. ~~The next session should also watch the
-first settlement row written under v16 for its `fee_model_used` tag --
-that is the implementation's one live observable.~~ **Watch KILLED by the
-partner 2026-08-20: the `settlements` table is fed from `orders`, and no
-order has ever been placed (`ORDERS_ARE_DRY_RUNS = True`), so the row this
-watch waits for is unreachable — it would idle forever.**)*
-(2) ADR 0027 carries the dated denominator correction (`e3986fb`).
-(3) `h4-settlement-balance` shipped (`a02e8d2`), four sections, no join,
-three guards mutation-red — run it after the deploy for the H4 read and
-the ADR 0027 re-derivation. (4) `orders()` logged as the fifth zero-caller
-instance (memory + ADR 0027 correction, grep-verified). Killed by the
-partner, do not revive: per-series fee on any guard path, stale-book devig
-exclusion, generic UX polish, anything gated on H4 or beta.
-
-**Joe decided: the calibration study is STOPPED** (~22:05Z, "just scrap
-it. I am a newbie bettor."). Amendment 2 on the registration records the
-terminal state — STOPPED WITHOUT RESULT, nothing scored, machinery kept
-(`ed9dd03`). Follow-up for a future partner triage, not urgent: whether
-the phone UI's estimate form should come out now that nothing consumes
-it — a form feeding a stopped study is quiet misdirection.
-
-Also open, unchanged: the two `parse_portfolio_value_tenths` defect notes
-(portfolio_poll.py:252-266) — the partner re-examined them 2026-08-20 and
-ruled them NOT H4 blockers — and the `fee_multiplier_override` field no
-backend code reads (ADR 0058 hole 2; observation note appended to the ADR:
-absent from 24/24 events in the one committed sweep).
-
-New open item, found 2026-08-20 (code-change-sized, no ADR; low urgency —
-no frontend consumer reads it — but it sits on the registered evidence
-route): **every `/api/ledger` row carries `commence_ms: null`.** The route
-(`backend/api/routes.py:1260`, SQL ~1404-1412) joins only `fair_prices`,
-never `kalshi_events`, yet `_serialise` (`routes.py:3563`) emits the key
-anyway — the exact null-pretending-the-join-was-attempted anti-pattern the
-same function's `methods` block was built to avoid. A consumer cannot
-distinguish "never joined" from "event unknown", and pre/post-commence
-bucketing (the axis behind the clv-coverage denominator error) silently
-returns nothing. **Trap for the fixer:** `kalshi_events.commence_ms` stores
-the RAW `occurrence_datetime`, which runs exactly 3 hours late (ADR 0006;
-the −3h correction lives in `scripts/inspect_live_db.py:1141-1148`) —
-adding the join without deciding the offset ships a second defect.
-
----
-
-## 2026-08-20 ~19:45Z — the dropouts are diagnosed, the zero is verified, and the spread test is armed for 21:21Z
-
-State when this was written: tests 3,675 passed / 10 xfailed, tsc clean, live
-on `faa46b9` (deployed ~19:20Z via the dispatch, which went through in auto
-mode this time). The 21:21Z–22:21Z MLB window had not yet opened; the session
-timer is armed to fire `measure_spread_edge.py` at ~21:26Z.
-
-**The top open item is closed: both mid-window cadence dropouts are one
-mechanism, and nothing is broken.**
-`docs/measurements/2026-08-20-cadence-dropouts-are-the-freshness-floor.md`,
-with two committed retrospective pulls beside it. Short version: a new book in
-the feed, `everygame`, sat on all 9 MLB fixtures with a `last_update` stamp
-~13 minutes behind each sweep, so every fixture's oldest-book age crossed the
-900s limit ~2 minutes after the sweep, `is_open` correctly flipped False, and
-the cadence correctly took ADR 0057's bounded sleep to the next refresh.
-Dropout 2's "468s matches nothing cleanly" matched to 3 seconds once the
-bound was computed from the actual 16:16:37.974 sweep instead of the nominal
-minute. Two corrections recorded: the flag was NOT stale (the handoff's
-hypothesis is refuted — `interval_s()` runs after the assignment), and the
-in-pass "window is open" lines are `decide_sweeps`' *slot* view, a different
-quantity sharing a word with the freshness flag. **No code change was made
-and none should be made without an ADR**: excluding stale books from the
-consensus alters the devig population (rule 2), and the alternative —
-accepting that the effective window is `900s − laggard_lag` — costs only
-passes that would (on the likely, unverified branch) have confirmed
-suppressed rows. The sliver closed the same evening: `book-rows`
-(`481d772`, deployed) shows everygame two-sided on all 9 fixtures in both
-sweeps, so it contributed to the runner's consensus, `odds_age_ms` read
->900s alongside the window flag, and **the sleeps cost zero live coverage**
-— every row was suppressed `stale_odds` throughout. §4 of the doc has the
-rows.
-
-**CI was red from ~14:30Z to ~20:00Z and the cause predates this session.**
-`tests/test_series_fee_multiplier.py` (convening item 9) read the raw fills
-capture under a docstring claiming it was "tracked in git"; it never was
-(`data/` is gitignored, the force-add never happened), so the suite passed
-only on Joe's machine and failed in CI on every push since it landed. Fixed
-in `9eb699f`: `scripts/sanitize_fills_capture.py` derives a committed
-fixture carrying exactly the six consumed fields with pseudonymous
-`order_id`s — the raw capture's account-linked identifiers (order/trade/
-fill ids, subaccount_number) stay out of the public repo, and every
-retained value was already public row-by-row in the 2026-08-14 attribution
-doc. **Superseded ~21:05Z by Joe's ruling: operator account data never enters
-the repo, sanitized or otherwise — anticipate operators other than the
-author.** The fixture and sanitizer are removed (`fc88a31`); the fills
-prediction now runs only where the private capture exists and skips loudly
-elsewhere (verified both ways: 3 passed/4 skipped without, 7 passed with).
-Open sliver, Joe's call if he ever wants it: the sanitized fixture lives on
-in public git history (9eb699f..2aebfaf), and the same values sit in the
-committed 2026-08-14 attribution doc — a history rewrite is pointless
-without redacting those docs too, so nothing was rewritten.
-
-**The suspicious zero is verified benign, row by row.** New whitelisted
-`estimate-match-status` query, run against live: all 35 positions are
-`out_of_scope` and correctly so — 12 combos (multi-leg), 23 singles of which
-22 pre-date the study start and the one post-study single is
-`KXEARNINGSMENTIONKLAR` (not sports). `position_unlogged = 0` is real: no
-sports single-leg venue position exists inside the study window at all. The
-one `bet_estimates` row has `match_status` NULL, which is the designed
-"pending" state (24h window open or result not yet known), not a fault.
-
-**The ~585 MB question has its first observation, and it is a level, not a
-leak.** `docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md`,
-raw samples committed. New read-only `/proc` reader
-(`scripts/inspect_live_proc.py`, `a41f20e`, deployed) sampled the loop's RSS
-every 45s across three full passes on the freshly booted box: the first full
-pass builds ~583 MiB within a minute of boot, the level is dead flat between
-passes (17 min), and passes 2 and 3 moved it +61 then −55 MiB — a breathing
-band, no monotonic growth. Consistent with the `raw_events` materialisation
-suspect but does not name it (RSS is a size, not an inventory). Not urgent
-at 2 GB; the number to carry is ~644 MiB as the loop's per-pass ceiling.
-CI is green again as of `a41f20e`.
-
-**Tooling shipped for both** (`faa46b9`): `window-freshness --at <ISO|ms>`
-(fixture ages per the production measure, then per-book stamps, stalest
-first — the retrospective instrument for any future "why did the window
-close" question) and `estimate-match-status` (the §7.5 coverage cells).
-Four guards mutation-verified red. The mutation-testing byte-restore gotcha
-bit again — `write_text` on Windows rewrote every line ending; restored from
-the byte copy, which is why the backup rule exists.
-
----
-
-## 2026-08-20 ~17:00Z — the gate is measured, the product has a plan, and a slice is built but NOT deployed
-
-**The window-gate fix passed its measurement. All four registered observations,
-plus the 12-hour stability watch, separately.**
-`docs/measurements/2026-08-20-window-gate-observations-result.md`; the durable
-evidence is the committed sweep-log pull beside it. Headlines: first pass
-**+6.9s** after the 15:26Z open (pre-fix worst case 900s); 3 in-window full
-passes all `quotes_pruned: 0` against a backlog proven live by the **8,148-row
-prune 45 seconds after the close**; 0 early wakes all day; 0 restarts since the
-03:54Z deploy.
-
-**The top open item is new: two mid-window cadence dropouts, same signature.**
-15:28:50→15:34:54 (370s) and 16:18:49→16:26:34 (468s) — healthy quote pass,
-total log silence, healthy quote pass, pass numbers consecutive, every in-pass
-decision reading `window is open`. The first dropout's arithmetic lands exactly
-on the bounded-sleep branch (369.7 × 1.15 = the 15:36:00 refresh), which only
-runs when `tempo.window_open` is False — **the cadence still reads the flag
-assigned at the END of the previous pass**, the same staleness family fix 1
-cured at the prune. Cost: ~14 min of a 60-min window. Unexplained; do not
-force-fit the second dropout (468s matches nothing cleanly). Start at
-`scripts/run_loop.py`'s end-of-pass `tempo.window_open = window.is_open`
-assignment and what it evaluates against.
-
-**The fleet convened (Joe called it) and the plan is recorded:**
-`docs/reviews/2026-08-20-fleet-convening.md`. Ten items, blast-radius first.
-Items 1–3 are BUILT, tested, and green locally — **not deployed**:
-
-- **Item 1** — `estimate_match` no longer stamps "he did not bet" on evidence
-  of nothing. Amendment 2 (A10–A12) is in the registration *before* the code;
-  schema **v14** adds `match_status_ms`; the absence proof is
-  window-closed ∧ result-known ∧ settlements-poll-postdates-knowing;
-  `absence_pending` rows stay matchable; the A12 repair pass is **self-running
-  and self-extinguishing** inside `run_match_pass` (pre-amendment stamps are
-  `unmatched_no_position` + NULL ms). Three guards mutation-verified red.
-  **After deploying, read the `A12 repair pass:` log line and reconcile its
-  counts** — that is the repair's one observable.
-- **Item 2** — `/gate` now says its caps cannot see hand bets (they are
-  structural: `settlements.order_id` NOT NULL → orders only).
-- **Item 3** — `/` now lands on the **Slate** (re-export, so the two routes
-  cannot drift); the Board moved to `/board`; nav reads **Games / Picks /
-  Log / Ledger**; `/slate` still served, linked from the Footer. Five python
-  test files followed the Board to its new path.
-
-Also this session: migration-undo order in `tests/test_store.py` corrected to
-descending (it was right only while no later migration touched a rebuilt
-table), and `migrate()` skips a column-add on a mid-migration-missing table
-(v11 drops `bet_estimates` for schema.sql to rebuild in the same boot).
-
-**Superseded the same evening — the deploys happened and the plan is nearly
-done.** Live is on `99e10c3` (four deploys today: 03:54Z the gate fix, then
-items 1–3, then 4–6+10, then 7), migrations v13→v14→v15 ran clean, and the
-A12 repair found **zero falsely-stamped rows** — the bug was fixed before it
-bit the live data. Items **1–7, 9, 10 of the convening plan are BUILT AND
-DEPLOYED**; item 8 (the registered spread/total test,
-`docs/measurements/2026-08-20-preregistration-spread-total-edge.md`) has its
-instrument shaken down free (`scripts/measure_spread_edge.py`, `--replay`
-mode) and fires inside the 21:21Z window.
-
-**The finding of the day is item 9:** Kalshi's public `/series` metadata
-carries `fee_multiplier` — 0.5 on both MLB series, 1 on ATP/WNBA — captured
-as `tests/fixtures/series_fee_fields.json` and verified by predicting **all
-11 attributed fills to $0.0001** (`tests/test_series_fee_multiplier.py`).
-That is the durable source ADR 0028 said was missing; moving
-`TAKER_COEFFICIENT` or making the fee model read per-series is now an
-ADR-sized decision with evidence, not a guess.
-
-**One suspicious zero to verify next session:** the first `classify_positions`
-pass stamped all 35 venue positions `out_of_scope`, 0 `position_unlogged`.
-The benign explanation checks out locally — every post-study-start fill in
-the committed capture is a KXMVE combo (multi-leg → out of §2's population)
-— but the live table's later settlements were not directly inspected.
-Add a whitelisted `inspect_live_db.py` query for `estimate_match_status`
-at the next natural deploy and read the composition; a zero in the
-denominator's most interesting cell is checked, never believed.
-
-Also still open, unchanged: the two mid-window cadence dropouts (top item,
-above), the ~585 MB holder, `unmatched_events` growth. Nothing below this
-line is newer than 2026-08-20 03:00Z.
-
----
-
-**THE JOB IS DONE AND UNVERIFIED. Your job is the verification.**
-*(Superseded 17:00Z — the verification above is taken. Kept for the
-correction it carries about the second prune route.)* The window
-gate was fixed in two commits on 2026-08-20 (~03:30-04:00Z) and deployed to live
-before the betting window opened. **ADR 0057.** Nothing about it has been seen
-running.
-
-- `6b0b7ee` — the prune asks whether a window is open **at the prune**.
-- `a1d0242` — a closed-window sleep is **bounded by the next window-open time**.
-
-**The correction worth carrying forward:** the handoff described fault 1 as a
-stale flag, which was the measured incident and was real. Reading the function
-showed a **second** route it had not named — `run_once` fires the odds sweep and
-*then* prunes, and the sweep is what opens the window, so a full pass that opens
-a window prunes inside the first ~40-94s of it every time. A fix that read the
-window at the top of the pass would have shipped green and left the likely
-*dominant* case running. The gate is now read at the use, not at the top.
-
-**READ THE REGISTRATION BEFORE LOOKING AT ANY LOG.**
-`docs/measurements/2026-08-20-window-gate-plan.md`, written before the code
-changed. Four observations are registered against the `baseball_mlb`
-15:26Z-16:26Z window; do not choose new ones after seeing the output.
-
-    1. no `quotes_pruned` > 0 on any pass stamped 15:26Z-16:26Z   (falsifies fix 1)
-    2. first pass after 15:26Z within ~17s of it, not up to 900s  (falsifies fix 2)
-    3. `window_open` latches true within one pass of 15:26Z
-    4. passes stay ~900s apart BEFORE 15:26Z, except 2-4 in the last ~15 min
-
-**Observation 4 is the one that catches this fix going wrong**, and it is the
-one that will look like a bug if you have not read the registration. Two to four
-extra quote passes in the quarter-hour before a window are *designed*: the sleep
-bound recomputes and converges. More than that, or early wakes with no window
-coming, means the "already due" spin guard has failed and it is burning Kalshi
-requests — see ADR 0057.
-
-**The null result to watch for.** If no window opens at 15:26Z at all — empty
-slate, or the odds budget is spent — then observations 1-3 have no denominator
-and this is **untested, not confirmed**. Check `next_sweep_ms` and
-`sweeps_remaining_today` on `/api/health` before reading a quiet window as a
-pass. `tempo.next_wake_ms` is now published in the loop's exit-state line and in
-`as_dict`, which is how an early wake is told apart from a random one.
-
-**The 12-hour stability watch rides on the same deploy and is a SEPARATE
-observation.** It must not be reported as evidence for either fix.
-
-**CI was red and is green again, and it was never the window gate.** An email
-alert at ~04:15Z flagged `Tests + warehouse` failing. The identical two failures
-were already on `0d18825` and `82b47c6`, both pre-session, so the gate commits
-did not cause it. Fixed in `82cd2aa`; run 32331675208 is green on all three
-jobs. **Live was not redeployed** — CI runs on push, Deploy is dispatch-only, so
-the box has been on `5656133` and untouched since 03:54Z.
-
-**The finding underneath it is worth more than the fix, and it touches config
-rather than tests.** `credits_per_sweep_per_sport` is
-`len(markets) * len(regions)`, read from the environment via `load_dotenv()`, so
-the tests were measuring whichever `.env` the machine held. The values they
-passed under **run on no instance**: `flyctl secrets list` shows `ODDS_API_KEY`
-alone and `fly.toml` sets neither variable, so **live takes the `h2h` default and
-a sweep costs 2, not 6**. CI was accidentally right. `conftest.py` now pins both
-variables to the `.env.example` contract.
-
-**The `.env` divergence is reconciled.** Joe's local `.env` carried
-`ODDS_MARKETS=h2h,spreads,totals` against `.env.example`'s `h2h`; he chose to
-match the contract, and it was changed on 2026-08-20. Laptop, CI and live now
-all compute a sweep at **2 credits**. Nothing was committed — `.env` is
-gitignored, which is exactly why the drift was invisible for the life of the
-project. `conftest.py` pins both variables regardless, so tests do not depend on
-it either way.
-
-**Live sets neither variable**, so its values are the *defaults*: `flyctl secrets
-list` shows `ODDS_API_KEY` alone. Absence is the config, and that is the part
-that is easy to misread as "unset means unused".
-
-Everything else below is open and none of it is urgent.
-
-### Live state at 03:00Z 2026-08-20, verified not inherited
-
-`8efc706`, 2 GB, healthy. Both instances current, nothing unpushed.
-
-```
-quote passes     3.0-3.2s        MemAvailable   951 MB
-full passes      33-114s         page cache     1.0 GB
-IO pressure      avg60 0.00      disk           1.9G/4.9G, 39%
-link slow / OOM  0               unmatched_items 494 rows
-```
-
-**Two numbers that look like faults and are not.** Meet them before you
-investigate them:
-
-- **`recorder.age_ms` of 637,514.** The window was closed, so the loop is on its
-  900s slow cadence and runs *no quote passes at all*; age climbs toward 900s
-  and resets. Verified against the log — last pass 02:50:05, read at 03:00:28.
-  **Check whether a window is open before reading a high age as a fault.** Third
-  session to meet this.
-- **`MemFree` of 69 MB** (23:19Z reading). Linux spends spare RAM on page cache.
-  **Read `MemAvailable`, never `MemFree`** — the naive read says "69 MB left" and
-  reopens a closed investigation.
-
-**ADR 0055 is correct as well as fast, checked 23:19Z.**
-`dropped_no_kalshi_quote` is **0** — absent from the pass line and not in
-`runner.py`'s `ALWAYS_REPORT`, so absent means zero, read in the code rather than
-assumed. `suppressed` was 8 beside 20 recommendations on a sweep pass, so the
-pipeline decides rather than sleeps. **The live Board itself was NOT read** —
-`/api/slate` is 401 and Chrome is still blocked on the live host.
-
-**A CORRECTION LANDED AT 22:10Z AND IT IS THE MOST IMPORTANT THING TO READ.**
-`2026-08-19-the-prune-loses-to-the-writer.md` claimed the prune *"cannot win at
-any schedule"*, ceiling 3.84M rows/day. **That was the memory starvation
-measured a second way and written up as an independent finding.** The 40,000-row
-prune was not a config limit; `budget_s` buys as many batches as fit, and the
-20s batch cost was the symptom. With memory the same prune clears **440,000** in
-one pass and the table shrinks **11.2M rows/day**. The file is marked superseded
-in part; ADR 0055 stands on its *second* premise (84.5% of writes carried no
-information) and its first must not be cited onward.
-
-**The pattern, which is the actual lesson: every number taken from a degraded
-system describes the degradation.** Three numbers were taken off a box minutes
-from an OOM kill and only one was suspected of being a symptom.
-
-**Still open, in the order they are worth doing.**
-
-- ~~**`unmatched_events` is the next table with this shape.**~~ **DISCHARGED
-  by ADR 0056 — the table was drained and dropped, verified absent from live
-  `sqlite_master`/`dbstat` on 2026-08-20.** This bullet outlived its fix and
-  cost a recon agent to re-eliminate; deleted as work, not tidying.
-- ~~**What holds the ~585 MB is still unverified**~~ **MEASURED 2026-08-20:
-  it is a level, not a leak** —
-  `docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md`. Killed
-  by the partner as a line of work; the number to carry is ~644 MiB per-pass
-  ceiling on a 2 GB box.
-- **The 84.5% dedup is a property of the slate, not of Kalshi.** College
-  football and NFL are 57% of today's markets at 98-99% unchanged; today's
-  baseball runs 51-74%. As sports come into season the saving falls. Re-measure
-  when NFL/NBA start rather than assuming.
-
-**Do not re-derive these; they were eliminated by measurement today.**
-`priceable_series` (`kalshi_events` holds 1,590 rows; `leg_series_ms` reads **0**
-on live), the WAL (flat at 51.6 MB), and the store leg's `upsert` half
-(**38-44ms** against `quotes` at 82-193ms — the split in `0c609de` answered the
-question it was built for).
-
-**Deploying works and needs two flags.** `gh workflow run deploy.yml -f
-instance=live -f confirm_live=kalshi-cockpit` — the guard rejects the dispatch
-without the second. In auto mode the classifier blocks live deploys, `flyctl
-machine restart` and `flyctl scale`; Joe switches to manual on request. Say it
-once and ask.
-
-Also open, and now measured rather than suspected:
-
-- **ADR 0054's latency half is UNRESOLVED**, by its own registered rule. The
-  table lost 28% of its rows and the prune-free store leg did not move
-  (before 5997/14030 at 6.9M, after 9164/14345 at 4.9M — n=2 a side). Do not
-  write it up as confirmed *or* refuted. The **disk** half stands — the DB
-  file is flat at 1546.4 MB — but **that is not evidence the table stopped
-  growing**, and it was read that way. ~25% of the file is freelist being
-  reused, so the row count can climb behind a flat file size. Size on disk and
-  rows in a table answer different questions. **The +6.4M/day this used to
-  quote is superseded** — after 2 GB and ADR 0055 the table *shrinks* 11.2M/day
-  (written 2.25M, pruned 13.47M). See the CORRECTION at the foot of
-  `2026-08-19-the-prune-loses-to-the-writer.md`.
-
-**Health check flapping: the keep-alive fix is sound and live has failed
-checks again anyway.** Both are true and the order matters. The fix was two
-hops each defaulting to a 5s keep-alive against a 15s check —
-`KEEP_ALIVE_TIMEOUT=50000` for Next and `--timeout-keep-alive 75` for uvicorn,
-in `docker/entrypoint.sh` — measured at 0 failures of 12 where it had been 5 of
-10. `docs/measurements/2026-08-19-health-flap-is-the-proxy-hop.md`.
-
-**The sentence that used to sit here — "no Fly check failure since the 15:30Z
-deploy" — stopped being true at 18:36Z**, and it is corrected rather than
-deleted because the correction is the useful part. Seven failures fell between
-18:36Z and 18:52Z and were followed at 18:59:16Z by an OOM kill. That is the box
-dying, not the keep-alive regressing. **Do not re-open the keep-alive fix on
-this evidence, and do not re-attribute it to CPU or long passes either** — the
-backend answered 50 of 50 probes while IO pressure hit 90%.
-
-The general shape, which is why it is worth the space: **a verified fix stays
-verified for the failure it was measured against, and the same symptom can
-return for a different reason.** A green measurement is not a standing
-guarantee, and "we already fixed that" is how the second cause gets missed.
-records the wrong fix that shipped first and why its reasoning read as sound.
-
-Everything else is done and none of it is urgent: ADR 0047's plan is fully
-discharged (gloss = ADR 0050, strip = ADR 0051, phone = ADR 0052), and ADR 0038
-closed the hunt. `VACUUM` is **not** wanted: 25.2% of the file is freelist and
-those pages are what is keeping it flat.
-
-STOP AND ASK JOE: money-touching beyond standing approvals. Pushing and
-deploying were both pre-approved on 2026-08-18. **The live deploy is blocked by
-the auto-mode classifier** — demo goes through, live does not; Joe switched to
-manual mode on request and it then worked. Say it once and ask, do not retry.
-`gh workflow run` is NOT blanket-blocked: the heartbeat dispatch went through
-where the live `deploy.yml` dispatch did not.
-
-GOTCHAS, each of which bit: Bash heredocs eat backticks/backslashes — long
-content via the Write tool, commit messages via `git commit -F <file>`. **Assert
-your edit changed something**; a `str.replace` that matches nothing returns the
-input silently, and it happened three times this session. **Mixed line endings**
-— `frontend/src/lib/*.ts` is LF, `app/*/page.tsx` is CRLF; `docker/entrypoint.sh`
-is LF. Anything touching `bet_estimates` goes in `schema.sql`, never a
-migration. `git checkout <file>` wipes uncommitted edits — back up with a byte
-copy before disabling a guard to verify it (lessons.md, top). Run `date -u`
-before acting on any deadline sentence — a deploy took 40 minutes this session
-and the window opened during it. `flyctl ssh console -C` works fine but always
-exits `Error: The handle is invalid.` on Windows; ignore it, the output above it
-is real.
-
-Delete this box when its job is taken — a stale session-start box is a
-handoff claiming work that is already done.
 
 ---
 
@@ -4013,6 +2198,40 @@ checklist.
 
 Every session entry ever written to this file, newest date first. Full text in
 the linked archive file, unchanged.
+
+### Split 2026-08-27 — [`archive/next-2026-08-27.md`](archive/next-2026-08-27.md)
+
+Filed by the date of the split. The 2026-08-24 through 2026-08-20 entries
+that were still in `NEXT.md` when it reached 98.9% of the readable-size
+ceiling.
+
+- 2026-08-24 (fifth session, close) — SUPERSEDED by the entry above: the screen's declaration did not survive audit
+- 2026-08-24 (fifth session) — the purpose gets settled, and the feed is told to follow attention
+- 2026-08-24 (fourth session) — the parlay desk earns a nav slot and every game names its sport
+- 2026-08-24 (third session) — the desk is used for real, and a combo book is populated for the first time ever
+- 2026-08-24 (second session) — all 14 review findings fixed, and the repeat tap turns out to be idempotent
+- 2026-08-24 — code review of the parlay-desk session: 14 findings (ALL FIXED — see the entry above)
+- 2026-08-23 (third session) — the parlay desk: three cards at fair value, spreads priced, and the combo's real cost one tap away
+- 2026-08-23 (second session) — the desk presents fully: likely winners on the slate, five areas per game, Willy's seat
+- 2026-08-23 — the desk window opens: the slate stops being stale 14 hours a day
+- 2026-08-22 (third session) — the pass gets its caller, the probe gets cheap to start, and stale odds get an exit
+- 2026-08-22 (second session) — the every-page review ships whole: kill list, glossary, real limits, and a manual door built dry
+- 2026-08-22 ~13:15Z — the betting-desk list closes out: CLV on his own bets, then the ticket cleanup
+- 2026-08-21 ~23:30Z — the landing screen stops claiming an edge, and the session hands off
+- 2026-08-21 ~22:45Z — the refusal lands on real data, and the lockout gets the desk's name
+- 2026-08-21 ~21:45Z — /bets ships, and the partner re-rules the refusal work by name
+- 2026-08-21 ~20:30Z — the desk gets a token meter and a nav slot in one change, and the gold goes out
+- 2026-08-21 ~18:30Z — Joe rules the purpose, the Skeptic retires, and the cost record gets honest
+- 2026-08-21 ~16:45Z — the market screen joins the shell, and the desk scales to a real instrument panel
+- 2026-08-21 ~15:30Z — the briefing becomes a cockpit, and the market screen serves the venue's facts
+- 2026-08-21 ~06:30Z — the Scout desk is switched on, on Joe's word: a staff of two and a master, metered
+- 2026-08-21 ~04:30Z — the replay gate passes exactly, and the ledger's null kickoff is fixed
+- 2026-08-21 ~03:15Z — the H4 series closes on a measured reason: the channel diagnostic is BLIND on a denominator of 1
+- 2026-08-21 ~02:00Z — h4-balance-spans ships with its guards red, and both deploys landed
+- 2026-08-21 ~00:20Z — H4 Look 1 is taken and moves nothing, tomorrow's terminal spread look is armed, and one deploy waits on Joe
+- 2026-08-20 ~21:35Z — the spread test is TAKEN: UNDERPOWERED both arms, and the partner's list is the open work
+- 2026-08-20 ~19:45Z — the dropouts are diagnosed, the zero is verified, and the spread test is armed for 21:21Z
+- 2026-08-20 ~17:00Z — the gate is measured, the product has a plan, and a slice is built but NOT deployed
 
 ### Split 2026-08-25 — [`archive/next-2026-08-25.md`](archive/next-2026-08-25.md)
 

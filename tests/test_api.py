@@ -93,11 +93,20 @@ class TestHealth:
         Not hypothetical: the live record on 2026-08-18 held one `failure` row
         and it was `delivered = 0`. The loop died, the alert was claimed, and
         nothing reached the phone.
+
+        `suppressed_last_24h` is the count that field could not previously be
+        read without. ADR 0076 burns the change channel's key when the
+        scheduled card goes out -- a claim with no send, which leaves the same
+        `delivered = 0` signature as the death above. Live read
+        `undelivered_last_24h: 5` on 2026-08-27 with nothing actually failing.
+        The two are now separate numbers, and the second is published rather
+        than silently filtered so a burn storm would still be visible.
         """
         health = (await get(demo_app, "/api/health")).json()["notifications"]
         assert health is not None
         assert set(health) == {
-            "last_delivered_ms", "undelivered_last_24h", "total_ever"
+            "last_delivered_ms", "undelivered_last_24h",
+            "suppressed_last_24h", "total_ever",
         }
         # Never zero for "nothing has ever landed". Zero is 1970 and would
         # render as a delivery.

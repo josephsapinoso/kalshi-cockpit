@@ -652,6 +652,79 @@ class TestTheScheduledCardLandsAtItsHour:
         assert parlay_card_due_ms(day_start, 10) == day_start
 
 
+class TestTheBurnIsNotAFailedDelivery:
+    """The scheduled card's channel-burn must not read as an undelivered push.
+
+    ADR 0076 claims `PARLAY_CHANGE_KIND` for the composition the scheduled card
+    just sent, with no send behind it, so one card cannot buzz twice. That row
+    is `delivered = 0` forever -- which is also exactly what a process that
+    died between claiming and sending leaves behind, and that second case is
+    the one ADR 0049 built `undelivered_last_24h` to catch.
+
+    Measured on live 2026-08-27: `/api/health` read `undelivered_last_24h: 5`
+    with **no failed delivery anywhere in the window**. Three burns a day is a
+    permanent alarm, and `test_an_old_failure_falls_out_of_the_24h_count` in
+    `test_alerts.py` says why that matters -- one bad night must not read as a
+    permanently broken alerter.
+    """
+
+    async def test_a_burn_is_not_counted_as_undelivered(self, conn):
+        """Mutation observed red: drop `suppressed=True` at the burn site."""
+        alerter = Alerter(conn, FakeNotifier())
+        await _push(alerter, _ladder(_card()), now_ms=_at(20, 0), hour=20)
+
+        burns = conn.execute(
+            "SELECT COUNT(*) AS n FROM notifications "
+            "WHERE kind = 'parlay_card' AND suppressed = 1"
+        ).fetchone()["n"]
+        assert burns == 1, "the burn must exist, or this asserts nothing"
+
+        health = alerter.delivery_health(now_ms=_at(20, 1))
+        assert health["undelivered_last_24h"] == 0
+        assert health["suppressed_last_24h"] == 1
+
+    async def test_a_real_failure_is_still_counted_beside_a_burn(self, conn):
+        """The discriminating case, and one call produces both rows.
+
+        A scheduled card whose delivery FAILS still burns the change key --
+        deliberately, so a change alert cannot re-send what the card could not
+        deliver. So this single push writes one genuine failure (`parlay_daily`,
+        attempted and refused) and one deliberate claim (`parlay_card`, never
+        attempted). They must be counted apart.
+
+        Mutation observed red: drop `suppressed=True` and `undelivered` reads 2.
+        """
+        alerter = Alerter(conn, FakeNotifier(deliver=False))
+        result = await _push(
+            alerter, _ladder(_card()), now_ms=_at(20, 0), hour=20
+        )
+        assert result.failed == ("safe",)
+
+        health = alerter.delivery_health(now_ms=_at(20, 1))
+        assert health["undelivered_last_24h"] == 1, "the daily card really failed"
+        assert health["suppressed_last_24h"] == 1, "the burn really was deliberate"
+        assert health["last_delivered_ms"] is None
+
+    async def test_a_burn_still_blocks_the_change_channel(self, conn):
+        """The behaviour the row exists for, asserted rather than its record.
+
+        Marking the row `suppressed` must not weaken what it does. After the
+        scheduled card goes, the change channel may not re-announce the same
+        composition however many builds follow -- which is the property, where
+        the count above is only its trace.
+        """
+        notifier = FakeNotifier()
+        alerter = Alerter(conn, notifier)
+        await _push(alerter, _ladder(_card()), now_ms=_at(20, 0), hour=20)
+        assert len(notifier.posted) == 1
+
+        for i in range(PARLAY_DEBOUNCE_BUILDS + 2):
+            await _push(
+                alerter, _ladder(_card()), now_ms=_at(20, 10 + i), hour=20
+            )
+        assert len(notifier.posted) == 1, "the same composition buzzed twice"
+
+
 class TestTheDayHasACeiling:
     """The dedupe key alone is not a ceiling, and this is why.
 

@@ -551,6 +551,68 @@ class TestMigration:
         conn.close()
 
 
+class TestTheSuppressedColumnLandsOnAVolumeThatAlreadyExists:
+    """v25 on a database that predates it, which is the only case that matters.
+
+    `init_db`'s own docstring records why: a FRESH database gets every column
+    from `CREATE TABLE`, so a fixture-built one passes whatever the migration
+    does. The failure needs a database that already exists, which is exactly
+    what production always has and a test fixture usually does not.
+    """
+
+    def _v24_notifications(self, tmp_path):
+        """A v24 volume: the column dropped, the stamp wound back."""
+        path = tmp_path / "v24.db"
+        conn = db.init_db(path)
+        conn.execute("ALTER TABLE notifications DROP COLUMN suppressed")
+        conn.execute(
+            "INSERT INTO notifications (sent_ms, kind, key, delivered, detail) "
+            "VALUES (1, 'failure', 'loop-died', 0, 'claimed, never landed')"
+        )
+        db._set_meta(conn, "schema_version", "24")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_it_migrates_and_keeps_the_row(self, tmp_path):
+        path = self._v24_notifications(tmp_path)
+        conn = db.init_db(path)
+        columns = [r[1] for r in conn.execute("PRAGMA table_info(notifications)")]
+        assert "suppressed" in columns
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM notifications"
+        ).fetchone()["n"] == 1
+        conn.close()
+
+    def test_an_existing_undelivered_row_stays_a_failure(self, tmp_path):
+        """The safe direction, and it is the whole reason the default is 0.
+
+        Rows written before v25 carry no record of whether a send was
+        attempted. Defaulting them to `suppressed = 0` keeps them counted as
+        failures: an alarm that stays on until it ages out is recoverable, and
+        a real death written off as intentional is not. The five live rows on
+        2026-08-27 were left exactly this way rather than backfilled, because
+        which of them were burns could not be established.
+        """
+        conn = db.init_db(self._v24_notifications(tmp_path))
+        row = conn.execute(
+            "SELECT * FROM notifications WHERE key = 'loop-died'"
+        ).fetchone()
+        assert row["suppressed"] == 0
+        conn.close()
+
+    def test_migrating_twice_leaves_it_alone(self, tmp_path):
+        """`ALTER TABLE ADD COLUMN` raises on a column that already exists, so
+        a step that is not idempotent bricks the one volume that cannot be
+        rebuilt."""
+        path = self._v24_notifications(tmp_path)
+        db.init_db(path).close()
+        conn = db.init_db(path)
+        assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        conn.close()
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

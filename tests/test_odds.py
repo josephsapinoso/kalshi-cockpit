@@ -21,6 +21,7 @@ import respx
 
 from backend.config import OddsConfig
 from backend.odds.budget import CreditBudget, sweep_cost
+from backend.odds.ondemand import manual_cost
 from backend.odds.client import (
     ALTERNATE_SUFFIX,
     EXCLUDED_MARKETS,
@@ -724,6 +725,33 @@ class TestTheAlternateFeedIsNotBought:
     def test_a_prop_event_costs_one_credit_per_base_key_per_region(self):
         assert sweep_cost(prop_market_keys(), ["us", "eu"]) == 10, (
             "10 credits at us,eu -- was 20 while the alternates were bought"
+        )
+
+    def test_a_whole_prop_tap_is_the_team_sweep_plus_the_props(self):
+        """The number a person actually spends, in one place that can fail.
+
+        `backend/odds/ondemand.py`'s comment carried this figure and got it
+        wrong four times running -- 26, then 24, while ADR 0079 made it 14 in
+        the same commit that left the comment saying 24. The comment now points
+        here and states no number, because a stale comment is silent and a
+        stale assertion is red.
+
+        Both halves, deliberately: a prop tap buys the team lines too
+        (`manual_cost`'s own docstring says why), so quoting only the 10 would
+        understate what a tap costs by the same reasoning that made the
+        original figure wrong.
+        """
+        team = sweep_cost(["h2h", "spreads"], ["us", "eu"])
+        props = sweep_cost(prop_market_keys(), ["us", "eu"])
+        assert team == 4
+        assert manual_cost(
+            team_cost=team, prop_cost_per_event=props, odds_event_id=None
+        ) == 4, "a team-only tap"
+        assert manual_cost(
+            team_cost=team, prop_cost_per_event=props, odds_event_id="evt"
+        ) == 14, (
+            "a prop tap on the deployed h2h,spreads x us,eu config -- 24 while "
+            "the alternates were bought, and ADR 0079 is what moved it"
         )
 
     def test_the_stored_alternate_rows_are_still_readable(self):

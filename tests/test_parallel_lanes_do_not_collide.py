@@ -49,7 +49,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.store.db import SCHEMA_VERSION, _MIGRATIONS
+from backend.store.db import (
+    SCHEMA_VERSION, _MIGRATIONS, _TABLELESS_VERSIONS,
+)
 
 ADR_DIR = Path(__file__).resolve().parents[1] / "docs" / "adr"
 
@@ -323,16 +325,49 @@ class TestTheSchemaVersionCoversItsMigrations:
         """Not a bug, and asserted so the test above cannot be "fixed" into
         demanding equality.
 
-        v22 (`loop_failures`) and v23 (`parlay_card_candidates`) are pure new
-        tables. `executescript` creates them from `schema.sql` via
-        `CREATE TABLE IF NOT EXISTS` on every open, on an existing volume as
-        well as a fresh one, so neither needs a `_MIGRATIONS` entry --
-        `_MIGRATIONS` is for changes to tables that already hold rows.
-        """
-        assert SCHEMA_VERSION > max(_MIGRATIONS)
+        v22 (`loop_failures`), v23 (`parlay_card_candidates`) and v24 (the
+        hedge tables) are pure new tables. `executescript` creates them from
+        `schema.sql` via `CREATE TABLE IF NOT EXISTS` on every open, on an
+        existing volume as well as a fresh one, so none needs a `_MIGRATIONS`
+        entry -- `_MIGRATIONS` is for changes to tables that already hold rows.
 
-    def test_the_migration_keys_have_no_gaps(self):
-        """A gap means a step was deleted rather than superseded, and a
-        database stamped inside the gap would skip straight past it."""
-        keys = sorted(_MIGRATIONS)
-        assert keys == list(range(keys[0], keys[-1] + 1))
+        **This used to assert `SCHEMA_VERSION > max(_MIGRATIONS)`, and that was
+        a description rather than a constraint.** It happened to be true while
+        the newest versions were all tableless. It went red on 2026-08-27 the
+        first time a column was added *after* one -- a state that is entirely
+        safe: `migrate()` runs every key above the recorded stamp and then
+        writes `SCHEMA_VERSION`, so a top step numbered exactly at the stamp
+        runs once and is skipped forever after. Equality is fine; only a key
+        ABOVE the stamp re-runs, and the test above is what forbids that.
+        """
+        assert max(_MIGRATIONS) <= SCHEMA_VERSION
+        assert set(_MIGRATIONS).isdisjoint(_TABLELESS_VERSIONS), (
+            "a version cannot both have a migration step and be declared as "
+            "having needed none"
+        )
+
+    def test_every_version_is_accounted_for(self):
+        """No hole in the version line, and this replaces a contiguity check on
+        `_MIGRATIONS` alone.
+
+        The old form asserted `sorted(keys) == range(first, last + 1)`, whose
+        stated reason was that "a database stamped inside the gap would skip
+        straight past it". That reason is right and the check could not see the
+        case it names: while every gap sat ABOVE the last key it passed
+        trivially, so versions 22-24 -- three real schema versions -- were never
+        checked at all.
+
+        A version with no migration step has two causes: nothing needed
+        migrating, or a step was deleted. They are indistinguishable from the
+        key list, so `_TABLELESS_VERSIONS` declares the first kind and this
+        requires every version to be in exactly one of the two places.
+        """
+        first = min(_MIGRATIONS)
+        expected = set(range(first, SCHEMA_VERSION + 1))
+        accounted = set(_MIGRATIONS) | set(_TABLELESS_VERSIONS)
+        assert accounted == expected, (
+            f"unaccounted schema versions: {sorted(expected - accounted)}; "
+            f"declared but not real: {sorted(accounted - expected)}. A version "
+            "needs either a `_MIGRATIONS` step or a line in "
+            "`_TABLELESS_VERSIONS` saying what table it added."
+        )

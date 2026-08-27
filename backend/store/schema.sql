@@ -912,6 +912,22 @@ CREATE TABLE IF NOT EXISTS notifications (
     -- that has been silent for a day should be distinguishable from a system
     -- that found nothing to say.
     delivered   INTEGER NOT NULL,
+    -- Whether this row is a deliberate claim that was never sent. A THIRD
+    -- fact, and it needs its own column because `delivered = 0` already
+    -- carries two meanings that must not be merged: "we tried and Discord
+    -- refused" and "the process died between claiming and sending". ADR 0049
+    -- built `/api/health`'s `undelivered_last_24h` to catch the second one.
+    --
+    -- ADR 0076 then introduced a claim that is *supposed* to have no send:
+    -- when the scheduled card goes out, the change channel's key for the same
+    -- composition is burned so it cannot re-announce it. That row leaves
+    -- exactly the signature of a death, three times a day, and without this
+    -- column the alarm can never read 0 again.
+    --
+    -- Recorded rather than inferred, for the same reason `delivered` is --
+    -- see the comment above it. A join back to `parlay_daily` on a shared
+    -- millisecond would be a deduction, and this is a fact the writer knows.
+    suppressed  INTEGER NOT NULL DEFAULT 0,
     detail      TEXT,
     UNIQUE (kind, key)
 );
@@ -1056,6 +1072,15 @@ CREATE TABLE IF NOT EXISTS parlay_lookups (
     fair_joint_conservative  REAL,               -- the card's headline joint at lookup time
     hold                     REAL,               -- 1 - fair x offered decimal, fee-free
     error                    TEXT,
+    -- 1 when the collection was picked by the prefix fallback rather than
+    -- because it was known to contain these legs. Recorded rather than acted
+    -- on: `parlays._choose_collection` falls back precisely because the
+    -- enumerated leg list is known to understate what a catch-all `-R`
+    -- collection accepts (the 2026-08-23 capture posted NFL legs to
+    -- `KXMVESPORTSMULTIGAMEEXTENDED-R` and Kalshi minted them), so refusing
+    -- would refuse taps that work. Nobody has measured how often the fallback
+    -- fires or how often it is then accepted. This column is that measurement.
+    collection_unverified    INTEGER NOT NULL DEFAULT 0,
     CHECK (status IN ('priced', 'book_empty', 'no_collection', 'error'))
 );
 CREATE INDEX IF NOT EXISTS idx_parlay_lookups_time

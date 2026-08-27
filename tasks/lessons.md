@@ -25,6 +25,126 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-27 — Deliberately producing the signature an alarm watches for disables the alarm, and nothing announces it
+
+An alarm was built to catch one specific thing: a notification row claimed and
+then never delivered, because the process died between the claim and the send.
+It had a real incident behind it — the loop died, nobody was told, and nothing
+said so for months.
+
+Eleven days later a feature was added that claims a row and deliberately never
+sends it. It is correct, it is well argued, its docstring explains itself at
+length. It also produces **the exact signature the alarm looks for**, three
+times a day, forever. The alarm now reads 5 on a day when nothing failed, and
+the state file was telling the next session to check that it read 0.
+
+**The pattern: an alarm is a claim about what a signature MEANS, and that claim
+is invalidated by any new code that produces the signature on purpose.** Nothing
+breaks, no test fails, no exception is raised. The alarm keeps working perfectly
+and now means something else.
+
+Two properties make it hard to see from inside the change:
+
+1. **The new feature is on one side of the system and the alarm is on the
+   other.** Here the writer is a notifier and the reader is a health endpoint,
+   two modules apart, and the shared vocabulary is a single column's zero.
+2. **The failure direction is towards silence.** A false alarm gets
+   investigated once and then normalised, and a normalised alarm is a deleted
+   alarm that still costs a line of JSON. That is worse than an alarm that
+   never fired, because it reads as coverage.
+
+**The habit: when writing a row, a flag, a log line or a status that mimics an
+existing failure state, go and find every reader of that state before shipping.**
+`grep` for the column, not for the feature. The question is not "is my write
+correct" — it was — but "who else has already decided what this value means".
+
+And the repair shape is the same every time: **the writer declares its intent at
+the point of writing, because no reader can recover it afterwards.** A claim
+with no send and a death mid-send are indistinguishable in the record by
+construction; only the process that chose knows which one it is. A deduction —
+joining on a shared timestamp, matching a sibling row — would be a guess dressed
+as a check.
+
+---
+
+## 2026-08-27 — A fixture can occupy the wrong branch, and then full coverage means nothing
+
+A function had two routes with opposite meanings: one picks a collection
+*known* to contain the legs, the other guesses by ticker prefix and checks
+nothing. The test file for it had 19 green tests.
+
+Every one of them ran the guessing route. The shared fixture built a collection
+with **zero legs**, so the coverage test `legs <= collection.legs` was false on
+every call and the fallback returned each time. The production-normal route —
+100% of the live slate the day this was found — had never been executed once.
+The fake downstream of it ignored its arguments, so it accepted whatever the
+wrong route produced.
+
+**This is not "a test that describes the code instead of constraining it", and
+it is not "a test that asserts the ledger instead of the behaviour". It is one
+step earlier: the test never reached the code it claims to be about.** Line
+coverage was total. Branch coverage would have looked fine too — the branch was
+covered, just always the same one.
+
+The tells, in order of how early they would have caught it:
+
+1. **A fixture whose value is empty, zero, or `None` for a field the code
+   branches on.** `FakeCollections([])` is the smallest thing that satisfies the
+   type and the largest thing that changes the answer. An empty collection is
+   not a neutral default; it is a specific and unusual case.
+2. **A fake that ignores an argument the real callee acts on.** If the stub
+   takes `legs` and never reads them, no test in the file can be about legs.
+3. **No test names the branch.** There was no test called anything like
+   "covering wins over the fallback". A branch nobody has named is a branch
+   nobody has checked.
+
+**The general habit: for any function with more than one route, ask which route
+the default fixture takes, and make the answer the one production takes.** Then
+a test that wants the other route has to ask for it by name — which is also how
+the file ends up documenting that there are two.
+
+A second thing fell out of the same fix and is worth keeping: **the canned
+response fixture echoed back legs that had nothing to do with the request**, and
+that had gone unnoticed for the file's whole life because nothing compared the
+two. Adding the comparison broke every test at once. **A fake that can afford to
+be unfaithful is a fake nobody is checking against** — the unfaithfulness is not
+the bug, it is the symptom that a real property was going unasserted.
+
+---
+
+## 2026-08-27 — A guard that would refuse everything is an outage, and the venue's sentinels are where it comes from
+
+Three checks were drafted against fields a venue reports about itself:
+refuse when the leg count is outside `[size_min, size_max]`, and refuse when
+`is_all_yes` is false while the code posts all-YES. All three read as obviously
+correct.
+
+Then the committed capture was opened. Every collection the desk can actually
+use carries `size_min 2`, `size_max 0`, `is_all_yes False`. So `size_max = 0`
+is an **unbounded sentinel**, `is_all_yes = False` means **unrestricted** rather
+than yes-only, and two of the three guards would have refused *every single
+tap*. One survived.
+
+**The pattern: a field name describes what the field is for, not what its values
+mean, and zero/false are exactly where a wire protocol hides "no limit" and "no
+restriction".** Reading them as arithmetic is the default mistake, and it fails
+in the most confident-looking direction: the code refuses, refusal looks like
+safety, and the guard is indistinguishable from working until someone notices
+nothing has been priced in a week.
+
+**The check before writing any guard on venue data: what fraction of real
+traffic does this refuse?** Run it against the committed capture and count. A
+guard that refuses 0% is possibly decoration; a guard that refuses 100% is an
+outage; the interesting ones are in between, and you cannot tell which you wrote
+without looking at real values.
+
+And this is the same rule as CLAUDE.md's first: *a large apparent edge is a bug
+until proven otherwise*, pointed at guards instead of at edges. A check that
+fires far more than expected is a bug in the check before it is a discovery
+about the world.
+
+---
+
 ## 2026-08-27 — A test written against a re-implementation cannot fail for the reason it exists
 
 A predicate lived as a closure inside a long `main()`. To test it, the test
