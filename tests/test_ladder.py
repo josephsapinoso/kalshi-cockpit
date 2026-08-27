@@ -17,8 +17,11 @@ which the module docstring names as a bias, not a measurement.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from backend.core import ladder as ladder_mod
 from backend.core.ladder import (
     AGREEMENT_SPREAD_POINTS,
     CARD_SHAPES,
@@ -552,3 +555,92 @@ class TestJointMemo:
         }
         assert safe.joint is not longshot.joint
         assert safe.joint.conservative > longshot.joint.conservative
+
+
+class TestRecipesAreGatedToTheirMarkets:
+    """Widening the pool must not silently rewrite every card.
+
+    Prop rungs bracket the moneyline on both sides: `1+ hits` sits ~80%, above
+    almost every moneyline, and the top rung of a strikeouts ladder sits near
+    zero. `_best_per_game` takes each game's single leading leg on the
+    recipe's own sort key, so an ungated pool holding both does not produce a
+    *mixed* card -- it produces an all-prop card at whichever end the recipe
+    ranks from. These pin that admitting a market stays a per-card decision.
+    """
+
+    def test_every_registered_card_names_its_markets(self):
+        """No card may draw from `None` (= every market) by omission."""
+        for recipe in CARD_SHAPES:
+            assert recipe.markets is not None, (
+                f"{recipe.key} draws from every market in the pool; a new "
+                "market class would rewrite it with nothing saying so"
+            )
+
+    def test_props_in_the_pool_change_no_card(self):
+        """The gate's whole purpose, stated as an equality.
+
+        This is what lets the prop plumbing ship independently of the product
+        change: the pool grows, the cards do not move.
+        """
+        games = [leg(f"g{i}", p=0.80 - i * 0.05) for i in range(8)]
+        # Prop rungs at both ends: above every moneyline, and near zero.
+        props = [
+            leg("g0", p=0.97, market="batter_hits", point=0.5, ticker="P-g0-hits"),
+            leg("g1", p=0.95, market="batter_total_bases", point=0.5, ticker="P-g1-tb"),
+            leg("g2", p=0.002, market="pitcher_strikeouts", point=9.5, ticker="P-g2-k"),
+            leg("g3", p=0.004, market="batter_home_runs", point=3.5, ticker="P-g3-hr"),
+        ]
+        without = build(games)
+        with_props = build(games + props)
+
+        assert [c.key for c in without.cards] == [c.key for c in with_props.cards]
+        for a, b in zip(without.cards, with_props.cards):
+            assert [x.kalshi_market_ticker for x in a.legs] == [
+                x.kalshi_market_ticker for x in b.legs
+            ], f"card {a.key} moved when props entered the pool"
+
+    def test_an_ungated_longshot_would_take_the_dead_rung(self, monkeypatch):
+        """The guard is real because disabling it changes the answer.
+
+        Without this the previous test could pass for the wrong reason -- e.g.
+        the prop legs never reaching the pool at all. Here the gate is removed
+        from Longshot alone, and it immediately prefers a 0.2% prop rung over
+        the game's own moneyline. That is the card that renders a
+        hundred-million-dollar payout.
+        """
+        games = [leg(f"g{i}", p=0.80 - i * 0.05) for i in range(4)]
+        dead = leg("g2", p=0.002, market="pitcher_strikeouts", point=9.5,
+                   ticker="P-g2-k")
+        monkeypatch.setattr(
+            ladder_mod,
+            "CARD_SHAPES",
+            tuple(
+                replace(r, markets=None) if r.key == "longshot" else r
+                for r in CARD_SHAPES
+            ),
+        )
+        got = build(games + [dead])
+        longshot = card(got, "longshot")
+        assert "P-g2-k" in [x.kalshi_market_ticker for x in longshot.legs], (
+            "ungated, Longshot must reach for the dead rung -- if it does not, "
+            "this file is not testing what it claims to test"
+        )
+
+    def test_a_probability_floor_refuses_the_dead_rung(self, monkeypatch):
+        """`min_leg_probability` is the bound the fair side otherwise lacks."""
+        games = [leg(f"g{i}", p=0.80 - i * 0.05) for i in range(4)]
+        dead = leg("g2", p=0.002, market="pitcher_strikeouts", point=9.5,
+                   ticker="P-g2-k")
+        monkeypatch.setattr(
+            ladder_mod,
+            "CARD_SHAPES",
+            tuple(
+                replace(r, markets=None, min_leg_probability=0.05)
+                if r.key == "longshot"
+                else r
+                for r in CARD_SHAPES
+            ),
+        )
+        got = build(games + [dead])
+        longshot = card(got, "longshot")
+        assert "P-g2-k" not in [x.kalshi_market_ticker for x in longshot.legs]

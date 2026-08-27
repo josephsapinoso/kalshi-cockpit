@@ -17,6 +17,8 @@ import httpx
 import pytest
 
 from backend import parlays
+from backend.core.ladder import _best_per_game, build_ladder
+from backend.parlays import ladder_candidates
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db as store
@@ -102,6 +104,106 @@ def seed_game(
                 prob, oldest_book_age_ms,
             ),
         )
+
+
+def seed_prop(
+    conn,
+    *,
+    game: str,
+    player: str,
+    strike: float,
+    p: float,
+    market: str = "pitcher_strikeouts",
+    kalshi_player: str | None = None,
+    title: str | None = None,
+    book_point: float | None = None,
+    oldest_book_age_ms: int | None = 5_000,
+    commence_ms: int | None = None,
+) -> None:
+    """One linked MLB prop rung: a Kalshi ladder market and its consensus row.
+
+    The prop EVENT is its own Kalshi event and links separately, but it
+    inherits the GAME's `odds_event_id` -- that inheritance is what
+    `link_prop_event` produces in production, and it is the property the
+    one-leg-per-fixture guard depends on, so the fixture reproduces it rather
+    than inventing a fresh id.
+
+    `book_point` defaults to `strike` because they are one number by identity;
+    passing them apart is how a test asks whether anything derives one from
+    the other.
+    """
+    # **One prop event per game PER STATISTIC, holding every player** -- not
+    # one per player. Measured on `tests/fixtures/events_mlb_props_nested.json`:
+    # `KXMLBTB-26AUG151310CWSDET` carries 66 markets across 18 distinct
+    # players, and batters' total-base rungs cluster on 0.5/1.5/2.5, so one
+    # `link_id` covers many players sharing a line. Seeding an event per
+    # player instead would give each its own `link_id` and make the dedupe
+    # key look unnecessary -- the fixture has to reproduce the collision the
+    # key exists to prevent, or the test certifies nothing.
+    prop_event = f"KXMLB-{game}-{market}"
+    ticker = f"{prop_event}-{player[:6].upper().replace(' ', '')}-{strike}"
+    commence = commence_ms if commence_ms is not None else now_ms() + 3_600_000
+    point = strike if book_point is None else book_point
+    shown = kalshi_player or player
+    computed_ms = now_ms()
+
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events (event_ticker, title, "
+        "first_seen_ms, last_seen_ms) VALUES (?, ?, 0, 0)",
+        (prop_event, "Chicago WS vs Detroit: Strikeouts"),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, title, "
+        "player_name, market_type, strike, status, first_seen_ms, "
+        "last_seen_ms) VALUES (?, ?, ?, ?, 'prop', ?, 'active', 0, 0)",
+        (
+            ticker,
+            prop_event,
+            title or f"{shown}: {int(strike + 0.5)}+ strikeouts?",
+            shown,
+            strike,
+        ),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
+        "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+        "VALUES (?, ?, 'Pro Baseball', 'prop_fixture_segment', 0, 0)",
+        (prop_event, game),
+    )
+    link_id = conn.execute(
+        "SELECT id FROM event_links WHERE kalshi_event_ticker = ?",
+        (prop_event,),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO odds_snapshots (fetched_ms, sport_key, odds_event_id, "
+        "commence_ms, home_team, away_team, bookmaker, market, outcome_name, "
+        "outcome_description, outcome_point, price_decimal) "
+        "VALUES (?, 'baseball_mlb', ?, ?, 'Detroit', 'Chicago WS', 'pinnacle', "
+        "?, 'Over', ?, ?, 1.8)",
+        (computed_ms, game, commence, market, player, point),
+    )
+    for outcome, prob in (("Over", p), ("Under", 1 - p - 0.02)):
+        conn.execute(
+            "INSERT INTO fair_prices (computed_ms, link_id, market, "
+            "outcome_name, outcome_description, outcome_point, "
+            "p_multiplicative, p_additive, p_power, p_shin, "
+            "p_conservative, book_count, books_used, anchored_on_sharp, "
+            "oldest_book_age_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, '[]', 1, ?)",
+            (
+                computed_ms, link_id, market, outcome, player, point,
+                prob + 0.02, prob + 0.01, prob + 0.015, prob + 0.005,
+                prob, oldest_book_age_ms,
+            ),
+        )
+
+
+@pytest.fixture
+def conn(tmp_path):
+    """A bare initialised DB, for tests reading the pool rather than the API."""
+    c = store.init_db(tmp_path / "pool.db")
+    yield c
+    c.close()
 
 
 @pytest.fixture
@@ -355,3 +457,132 @@ class TestTheStakePresetsAreTheOperatorsOwnRange:
             served = [row["stake_cents"] for row in card["at_stakes"]]
             assert served == list(parlays.STAKE_PRESETS_CENTS)
             assert sum(row["is_default"] for row in card["at_stakes"]) == 1
+
+
+class TestPropLegsEnterThePool:
+    """MLB player-prop rungs as parlay candidates.
+
+    These read `ladder_candidates` (the pool) rather than `/api/parlays` (the
+    cards) on purpose: every registered recipe is gated to the two team
+    markets, so a prop reaches the pool and no card. That separation is the
+    design, not a gap -- see `TestRecipesAreGatedToTheirMarkets` in
+    `test_ladder.py` for why an ungated pool rewrites every card.
+    """
+
+    def test_two_players_at_one_rung_are_distinct_candidates(self, conn):
+        """The defect the `outcome_description` key exists to prevent.
+
+        Keyed on (link, market, outcome, point) alone -- the shape this had
+        before props entered -- two pitchers in one game quoted at the same
+        rung produce the identical key `(1, 'pitcher_strikeouts', 'Over', 5.5)`
+        and `setdefault` silently keeps whichever row arrived first. The card
+        would look entirely normal and be missing half the slate's players.
+        """
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
+        seed_prop(conn, game="g1", player="Tarik Skubal", strike=5.5, p=0.61)
+        conn.commit()
+
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        players = sorted(l.player for l in legs if l.player)
+        assert players == ["Anthony Kay", "Tarik Skubal"], players
+
+    def test_a_prop_leg_carries_no_team_and_kalshis_own_label(self, conn):
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        leg = next(l for l in legs if l.player)
+        assert leg.team is None, "a prop has no team and the player is not one"
+        assert leg.player == "Anthony Kay"
+        assert leg.label == "Anthony Kay: 6+ strikeouts", leg.label
+        assert leg.point == 5.5
+        assert leg.market == "pitcher_strikeouts"
+
+    def test_the_under_side_is_skipped_without_a_count(self, conn):
+        """Kalshi sells the rung as YES = Over; the Under is that market's NO.
+
+        Skipped the way the +S spread side is -- structurally not a candidate,
+        so counting it would inflate every refusal tally on every pass.
+        """
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert len([l for l in legs if l.player]) == 1
+        assert "prop_no_kalshi_rung" not in excluded, excluded
+
+    def test_an_accented_player_joins_through_the_shared_fold(self, conn):
+        """Kalshi spells him with accents, the books do not.
+
+        `norm` is imported from `kalshi.props`, not reimplemented, so this
+        inherits the fold rather than needing a second copy of it.
+        """
+        seed_prop(
+            conn, game="g1", player="Jose Ramirez", strike=1.5, p=0.44,
+            kalshi_player="Jos\u00e9 Ram\u00edrez",
+            market="batter_total_bases",
+            title="Jos\u00e9 Ram\u00edrez: 2+ total bases?",
+        )
+        conn.commit()
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        assert [l.player for l in legs if l.player] == ["Jos\u00e9 Ram\u00edrez"]
+
+    def test_the_strike_is_never_derived(self, conn):
+        """`floor_strike` and the book's point are one number, not two.
+
+        A rung published at 6.0 must not match a consensus computed at 5.5.
+        Any `+ 0.5` in the join would make this pass, and would be a second
+        definition of what a rung is.
+        """
+        seed_prop(
+            conn, game="g1", player="Anthony Kay", strike=6.0, p=0.55,
+            book_point=5.5,
+        )
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert not [l for l in legs if l.player]
+        assert excluded.get("prop_no_kalshi_rung") == 1, excluded
+
+    def test_a_prop_row_with_unmeasurable_age_is_refused(self, conn):
+        """ADR 0070 s2.6 reaches the prop path, and is not re-implemented.
+
+        A pre-v20 row has no `oldest_book_age_ms`; its live age cannot be
+        computed, and the leg is refused rather than aged zero.
+        """
+        seed_prop(
+            conn, game="g1", player="Anthony Kay", strike=5.5, p=0.55,
+            oldest_book_age_ms=None,
+        )
+        conn.commit()
+        legs, _ = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        # The pool carries it with an unmeasurable age; `build_ladder` is
+        # where that refuses. Asserted at the layer the guard lives on rather
+        # than the layer the row appears on -- a test that checked only the
+        # pool would pass even if the refusal were deleted.
+        leg = next(l for l in legs if l.player)
+        assert leg.odds_age_now_ms is None, "must be None, never aged zero"
+
+        ladder = build_ladder(legs, max_odds_age_ms=900_000, now_ms=now_ms())
+        assert ladder.excluded.get("age_unmeasurable") == 1, ladder.excluded
+
+    def test_a_prop_and_its_own_game_never_share_a_card(self, conn):
+        """The safety property the whole design rests on.
+
+        A prop event inherits its game's `odds_event_id` by construction, and
+        `_best_per_game` takes one leg per `odds_event_id` -- so a prop and its
+        own game's moneyline cannot both be selected, and `CorrelationRefused`
+        stays structurally unreachable rather than handled.
+        """
+        seed_game(conn, game="g1", team="Detroit", other="Chicago WS",
+                  computed_ms=now_ms())
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.99)
+        conn.commit()
+
+        legs, _ = ladder_candidates(conn, now_ms=now_ms(), max_odds_age_ms=900_000)
+        assert len({l.odds_event_id for l in legs}) == 1
+        chosen = _best_per_game(legs, prefer_spreads=False, longest_first=False)
+        assert len(chosen) == 1, [l.label for l in chosen]

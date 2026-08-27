@@ -40,6 +40,8 @@ from backend.core.parlay import ParlayQuote, value_parlay
 from backend.core.prices import format_price, format_probability
 from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
 from backend.kalshi.orderbook import OrderBook
+from backend.kalshi.props import norm
+from backend.odds.client import PROP_BASE_MARKETS
 from backend.kalshi.spreads import (
     parse_spread_subtitle,
     spread_book_point,
@@ -101,6 +103,33 @@ NOTES: dict[str, str] = {
 }
 
 
+def _prop_rungs(markets) -> dict[tuple[str, float], object]:
+    """`(normalised player, strike) -> Kalshi market`, for one prop event.
+
+    Built once per event rather than scanned per fair row: a single strikeouts
+    event carries dozens of rungs, and the team arms below are linear scans
+    that would multiply out against them.
+
+    **The key is the runner's own** (`runner.py:1469`) minus the market key,
+    which the event already fixes. `strike` is Kalshi's published
+    `floor_strike` and `point` is the book's line; they are the same number by
+    identity (`kalshi/props.py`), so nothing is converted on either side. Any
+    arithmetic here — a `+ 0.5` — would be a second definition of the rung.
+
+    `norm` is imported from `kalshi.props` rather than reimplemented so the
+    accent fold ("José Ramírez" against "Jose Ramirez") is inherited, not
+    written twice.
+    """
+    index: dict[tuple[str, float], object] = {}
+    for m in markets:
+        if m["market_type"] != "prop":
+            continue
+        if m["player_name"] is None or m["strike"] is None:
+            continue
+        index.setdefault((norm(m["player_name"]), float(m["strike"])), m)
+    return index
+
+
 def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
     """The consensus's LIVE age: time since devig plus its stalest input.
 
@@ -111,6 +140,18 @@ def _live_age_ms(row, *, now_ms: int) -> Optional[int]:
     if oldest is None:
         return None
     return (now_ms - row["computed_ms"]) + oldest
+
+
+#: The two team markets, and the five MLB prop keys a leg may come from.
+#:
+#: **These duplicate the literals in the ladder query on purpose.** That query
+#: has to stay a literal triple-quoted string -- `tests/test_ladder_query_is_
+#: indexed.py` extracts it by regex, and an f-string both breaks the extraction
+#: and risks losing the `market=?` index seek that keeps `/api/parlays` off a
+#: full scan of ~6.9M `fair_prices` rows. A drift test asserts the two agree
+#: rather than a shared constant being interpolated into the SQL.
+_TEAM_MARKETS: frozenset[str] = frozenset({"h2h", "spreads"})
+_PROP_MARKETS: frozenset[str] = frozenset(PROP_BASE_MARKETS)
 
 
 #: How far back `ladder_candidates` reads `fair_prices` at all.
@@ -152,6 +193,7 @@ def ladder_candidates(
     rows = conn.execute(
         """
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
+               f.outcome_description,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
                f.p_conservative, f.oldest_book_age_ms, f.link_id,
                f.market_width, f.book_count, f.books_used, f.anchored_on_sharp,
@@ -186,7 +228,9 @@ def ladder_candidates(
             WHERE odds_event_id IN (SELECT odds_event_id FROM event_links)
             GROUP BY odds_event_id
         ) o ON o.odds_event_id = l.odds_event_id
-        WHERE f.market IN ('h2h', 'spreads')
+        WHERE f.market IN ('h2h', 'spreads', 'pitcher_strikeouts',
+                          'batter_total_bases', 'batter_hits',
+                          'batter_home_runs', 'batter_rbis')
           AND f.computed_ms >= ?
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
         ORDER BY f.computed_ms DESC
@@ -202,14 +246,34 @@ def ladder_candidates(
     # Freshest row per identity. The rows arrive newest-first, so first wins.
     freshest: dict[tuple, object] = {}
     for row in rows:
-        key = (row["link_id"], row["market"], row["outcome_name"], row["outcome_point"])
+        # `outcome_description` is load-bearing and NULL on team markets.
+        # On a prop, `outcome_name` is only "Over"/"Under", so without the
+        # player two pitchers in one game quoted at the same rung collapse
+        # onto one key and `setdefault` silently keeps whichever arrived
+        # first. Same defect `odds_snapshots.outcome_description` exists to
+        # prevent one table upstream.
+        key = (
+            row["link_id"],
+            row["market"],
+            row["outcome_name"],
+            row["outcome_description"],
+            row["outcome_point"],
+        )
         freshest.setdefault(key, row)
 
     # The book's outcome names per link — what `resolve_outcome` matches
     # a Kalshi side against. Spread rows' outcomes are the same two teams,
     # so one list per link serves both market kinds.
+    #
+    # **Team markets only.** A prop row's `outcome_name` is the literal
+    # "Over"/"Under", which is not a team and must never be offered to the
+    # alias resolver -- the one function in this path whose whole contract is
+    # that it refuses to guess. Props match on player and strike instead and
+    # never consult this dict.
     outcomes_by_link: dict[int, list[str]] = {}
-    for (link_id, _market, outcome, _), _row in freshest.items():
+    for (link_id, market, outcome, _player, _point), _row in freshest.items():
+        if market not in _TEAM_MARKETS:
+            continue
         if outcome not in outcomes_by_link.setdefault(link_id, []):
             outcomes_by_link[link_id].append(outcome)
 
@@ -221,16 +285,21 @@ def ladder_candidates(
         if event_ticker in markets_by_event:
             continue
         markets_by_event[event_ticker] = conn.execute(
-            "SELECT ticker, yes_side_team, market_type, strike, status "
+            "SELECT ticker, title, yes_side_team, player_name, market_type, "
+            "strike, status "
             "FROM kalshi_markets WHERE event_ticker = ? "
-            "AND market_type IN ('moneyline', 'spread') "
-            "AND yes_side_team IS NOT NULL",
+            "AND ("
+            "  (market_type IN ('moneyline', 'spread') "
+            "   AND yes_side_team IS NOT NULL)"
+            "  OR (market_type = 'prop' AND player_name IS NOT NULL "
+            "      AND strike IS NOT NULL)"
+            ")",
             (event_ticker,),
         ).fetchall()
 
     alias_cache: dict[str, object] = {}
     candidates: list[CandidateLeg] = []
-    for (link_id, market, outcome, point), row in freshest.items():
+    for (link_id, market, outcome, player, point), row in freshest.items():
         # **`odds_snapshots.sport_key`, not `event_links.league`.** They are
         # different vocabularies for the same partition and only one of them
         # names an alias file.
@@ -269,7 +338,31 @@ def ladder_candidates(
         # `outcomes_by_link` as a pick.
         matched = None
         label = f"{outcome} to win"
-        if market == "spreads":
+        if market in _PROP_MARKETS:
+            # Kalshi sells the ladder rung as YES = Over (`runner.py:1524`).
+            # The Under is that market's NO, not a leg — skipped without a
+            # count, exactly as the +S spread side is below.
+            if outcome != "Over":
+                continue
+            if player is None or point is None:
+                count("prop_row_missing_player_or_line")
+                continue
+            matched = _prop_rungs(
+                markets_by_event.get(row["kalshi_event_ticker"], [])
+            ).get((norm(player), float(point)))
+            if matched is not None:
+                # Kalshi's own phrasing, for the reason the spread arm gives
+                # one branch down. `title` reads "Anthony Kay: 6+ strikeouts?"
+                # -- it names the statistic, which `yes_sub_title`
+                # ("Anthony Kay: 6+") does not, and a card that can mix five
+                # prop series cannot afford that ambiguity.
+                raw = (matched["title"] or "").strip()
+                if not raw:
+                    count("prop_title_unreadable")
+                    matched = None
+                else:
+                    label = raw.rstrip("?").strip()
+        elif market == "spreads":
             point_val = float(point) if point is not None else None
             if point_val is None or point_val >= 0:
                 continue
@@ -312,7 +405,8 @@ def ladder_candidates(
                     matched = m
                     break
         if matched is None:
-            count("no_kalshi_market")
+            count("prop_no_kalshi_rung" if market in _PROP_MARKETS
+                  else "no_kalshi_market")
             continue
         if (matched["status"] or "").lower() in _TERMINAL_STATUSES:
             count("market_closed")
@@ -333,8 +427,17 @@ def ladder_candidates(
                 league=league,
                 commence_ms=row["commence_ms"],
                 market=market,
-                team=outcome,
+                # A prop has no team, and the player never stands in for one.
+                team=None if market in _PROP_MARKETS else outcome,
                 point=point,
+                # **Kalshi's spelling, not the book's.** The two genuinely
+                # disagree on diacritics -- `norm` folds them so the join
+                # succeeds -- and what the card shows must be what Joe will
+                # read in the Kalshi app, the same reason `label` is Kalshi's
+                # title. `matched` is the Kalshi rung, so this is that name.
+                player=(
+                    matched["player_name"] if market in _PROP_MARKETS else None
+                ),
                 p_conservative=row["p_conservative"],
                 p_by_method={
                     "multiplicative": row["p_multiplicative"],
@@ -544,6 +647,9 @@ def _serialise_leg(leg: CandidateLeg, facts: Optional[dict] = None) -> dict:
         "event_ticker": leg.kalshi_event_ticker,
         "event_title": leg.event_title,
         "team": leg.team,
+        #: The player on a prop leg, `None` on a team market. Never a
+        #: substitute for `team`, which stays `None` on a prop.
+        "player": leg.player,
         "label": leg.label,
         "league": leg.league,
         "commence_ms": leg.commence_ms,
@@ -666,12 +772,26 @@ def leg_facts(conn, tickers: Sequence[str], *, now_ms: int) -> dict[str, dict]:
         checked            a `recommendations` row exists; its verdict stands
         not_on_this_path   a SPREAD leg. ADR 0070 keeps spread rows off the
                            recommendations path entirely ("Fair rows only, no
-                           recommendations", `runner.py`), so the checks did
-                           not run and never will on this row
-        absent             a moneyline the engine has not priced
+                           recommendations", `runner.py:1882-1884`), so the
+                           checks did not run and never will on this row
+        absent             a moneyline or PROP the engine has not priced
 
     Rendering `not_on_this_path` as a blank would read as "the checks passed",
     which is the flattering misreading of a measurement that never happened.
+
+    **A PROP leg is on the recommendations path, and spreads are the only
+    exception.** `_price_prop_event` builds a `Candidate` per side and pushes
+    it through `_priced_or_counted` (`runner.py:1554-1575`) exactly as the
+    moneyline path does, so on a prop `checked` and `absent` carry their
+    ordinary meanings. `absent` is common there and is not a defect: the far
+    rung of a ladder gets `dropped_no_kalshi_quote` when `is_valid_price`
+    refuses a 0/1000-tenth endpoint (`runner.py:1546-1548`).
+
+    So do NOT generalise the `market == "spreads"` test below to
+    `market != "h2h"`. That would stamp `not_on_this_path` on prop legs the
+    skeptic genuinely did check -- the same misreading as the blank, pointing
+    the other way: a measurement that *did* happen, reported as one that never
+    ran. `tests/test_parlay_leg_facts.py` pins both directions.
     """
     if not tickers:
         return {}

@@ -132,6 +132,45 @@ class TestTheSkepticIsThreeValued:
         assert out["skeptic"] == "checked"
         assert out["suppressed_reason"] == "stale_odds"
 
+    def test_a_prop_leg_says_absent_not_off_the_path(self):
+        """Props ARE on the recommendations path; spreads are the exception.
+
+        `_price_prop_event` pushes a `Candidate` per side through
+        `_priced_or_counted` (`runner.py:1554-1575`) exactly as the moneyline
+        path does, while the spread path `continue`s before it
+        (`runner.py:1882-1884`).
+
+        This guards the tempting generalisation: widening the rule below from
+        `market == "spreads"` to `market != "h2h"` would stamp
+        `not_on_this_path` on prop legs the skeptic genuinely did check. That
+        is the same flattering misreading as a blank, pointing the other way —
+        a measurement that happened, reported as one that never ran.
+        """
+        for market in (
+            "pitcher_strikeouts",
+            "batter_total_bases",
+            "batter_hits",
+            "batter_home_runs",
+            "batter_rbis",
+        ):
+            out = parlays._serialise_leg(
+                _leg(market=market, team=None, point=5.5, player="Anthony Kay")
+            )
+            assert out["skeptic"] == "absent", market
+
+    def test_a_priced_prop_leg_carries_the_verdict(self):
+        """The other direction: a real verdict on a prop must survive."""
+        facts = dict(parlays._NO_FACTS)
+        facts["skeptic"] = "checked"
+        facts["suppressed_reason"] = "too_few_books"
+        out = parlays._serialise_leg(
+            _leg(market="pitcher_strikeouts", team=None, point=5.5,
+                 player="Anthony Kay"),
+            facts,
+        )
+        assert out["skeptic"] == "checked"
+        assert out["suppressed_reason"] == "too_few_books"
+
     def test_a_priced_spread_leg_keeps_its_verdict(self):
         """`not_on_this_path` applies only when there is genuinely no row.
 
