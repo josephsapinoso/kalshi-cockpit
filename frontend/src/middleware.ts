@@ -49,6 +49,9 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/pass",
   "/parlay-lookup",
   "/desk-attention",
+  "/hedge-position",
+  "/hedge-resolve",
+  "/hedge-close",
 ]);
 
 export async function middleware(request: NextRequest) {

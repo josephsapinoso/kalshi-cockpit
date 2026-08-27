@@ -31,21 +31,35 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline, last green 2026-08-27: 4,623 passed / 10 xfailed in 22:08 —
-RE-RUN IT.**
-Do not inherit it — this line has been wrong in the same direction four times
-running (4,192 written when it was 4,200; 4,281 written before three lanes
-landed; 4,456 written the day it became 4,474). Re-run before you quote it.
+**Test baseline: 4,885 passed / 10 xfailed in 20:59**, measured 2026-08-27 at
+`1fecb54`. `c24309a` sits on top of it and changed only `tasks/lessons.md`,
+adding no tests, so the figure carries to `c24309a` — which is the one
+qualification this line has ever needed and the one it has never had.
 
-**The suite is now ~21-22 minutes**, up from 5-8, and the reason is worth
+**Two earlier runs this session are NOT this number and must not be quoted as
+it**: 4,842 at the merge before the lane-board work, and a third run that was
+killed mid-flight because two suites racing read as a hang. The line has been
+wrong in the same direction six times, always the same way — a number carried
+across a change to the thing it counts. If you change the test corpus, this
+paragraph is stale the moment you do.
+
+This line has now been wrong in the same direction six times (4,192 written
+when it was 4,200; 4,281 written before three lanes landed; 4,456 written when
+`88d179f` actually measured 4,524; 4,456 again the day it became 4,474; and
+both halves of this merge conflict, each correct about a tree that no longer
+exists). **The failure mode is always the same: a number carried across a
+change to the thing it counts.** The 6 skips are `load_fixture` skipping on a
+machine without the capture fixtures, not a regression.
+
+**The suite is now ~15-22 minutes**, up from 5-8, and the reason is worth
 knowing before you assume it hung: it grew with the record, and one test added
 2026-08-26 briefly took 71 seconds on its own by driving a 200,000-sample
 copula ~300 times to assert a dictionary length. That one was fixed by stubbing
 `_joint`. **If the suite gets slower again, look for a test doing real work to
 check a cheap property** — a test nobody will wait for is a test that stops
 being run. A slow run is not a hung one, and per the 2026-08-25 lesson, neither
-is a gap the length of an interval.
-
+is a gap the length of an interval. **Two suites racing each other reads as a
+hang**: verify by command line, not by a kill's exit code.
 **Two things to know before planning. CLAUDE.md is current on both:**
 
 1. **The signal test has NOT declared. The 2026-08-24 `NO SIGNAL` was
@@ -60,6 +74,56 @@ is a gap the length of an interval.
    first; price transparency as the job; a gap you may show on a row and
    never rank by; sharing means someone runs their own copy. Read it before
    planning anything, and do not re-derive the purpose.
+
+**TWO OTHER LANES ARE RUNNING. Check them before you plan anything**, because
+main is not the whole picture:
+
+    git worktree list
+
+They live under `~/.herdr/worktrees/kalshi_betting_tool/` and are Herdr's, not
+this session's — nothing here starts or stops them.
+
+**There is no longer a hand-maintained table here, and that is the fix.** The
+one that stood in this spot said `parlay-props` was "0 ahead, 1 behind, one
+uncommitted file"; within hours it was 0 ahead, **10** behind, with **15**
+dirty files, and `hedging-research` had merged and been removed. A hand-typed
+lane state asserts the present tense and starts rotting the second it is saved.
+Read the generated board instead:
+
+    .venv\Scripts\python.exe scripts/lane_board.py
+
+It reads every worktree and local branch at once — ahead/behind, uncommitted
+work, ADR and schema claims, and which files two trees are changing at
+overlapping *hunks* rather than merely in the same file. `tasks/LANES.md`
+carries the last written snapshot plus the **allocation ledger**: what a live
+lane has said it will take before it exists on disk, which is the one thing no
+measurement can produce.
+
+**They have collided with main three times in one day, and git said nothing
+about the ones that mattered.** From `hedging_research`'s own commit messages:
+*"the hedging ADR becomes 0077, because 0074 was taken twice and git said
+nothing"*, then *"becomes 0078 — 0077 collided too"*, then *"two lanes both
+claimed schema v23, and the hedge tables take v24"*. Each was caught by a human
+reading a merge.
+
+`tests/test_parallel_lanes_do_not_collide.py` fails on a duplicate ADR number,
+and `scripts/lane_board.py` now sees the other lanes *before* a merge —
+including their uncommitted work, which no test can reach, because a test only
+sees the tree it runs in.
+
+**But do not claim a number by reading either one.** `tasks/lessons.md:168-191`
+settled that: reading `main` first answers "what was free when I looked", and a
+lane that runs for hours races every other lane for the whole of it. Write the
+ADR as `docs/adr/DRAFT-<slug>.md` with **no ordinal** and take the number in
+the merge commit, after `git fetch`, as the last thing before the push. The
+guard refuses a `DRAFT-` file on `main`, which is what makes that unavoidable
+rather than merely encouraged. Full rule: `docs/adr/README.md`.
+
+**`docs/adr/0006-*` is NOT a collision.** `0006-in-play-evidence.md` is the
+companion to `0006-in-play-scope.md` and shares its number on purpose. The
+guard keys on what a document's H1 *claims to be*, not on its filename, for
+exactly this reason — and that exemption is pinned, because a guard whose first
+finding is a false one gets deleted.
 
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
@@ -78,7 +142,231 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-27 (latest) — the parlay push stops being a race and becomes a schedule
+## 2026-08-27 (latest) — two lanes can be seen at once, and the tool that saw them told a human to delete sixteen projects
+
+**State: 4,885 passed / 10 xfailed in 20:59 at `1fecb54`**, ruff clean,
+`origin/main` at `c24309a`. Joe's ask was "have the partner oversee the herder
+worktrees so no collisions happen, and weigh priority between the worktrees and
+NEXT.md."
+
+### What shipped
+
+`scripts/lane_board.py` — a read-only cross-worktree detector. It reads every
+worktree and local branch together: ahead/behind, uncommitted work, ADR and
+schema claims, and the collision surface. **It closes the gap
+`tests/test_parallel_lanes_do_not_collide.py` names in its own docstring** —
+that a test only sees the tree it runs in, so it fires when lanes MERGE and not
+when a collision is created.
+
+`docs/adr/README.md` — the ADR numbering convention, which until today lived
+only in a lessons entry, the box above, and two regexes. A lane that went
+straight to `docs/adr/` could not find the rule it was about to break, which is
+roughly how all three of 2026-08-27's collisions happened.
+
+**The ordinal race is closed by allocation, not by detection.** A lane writes
+`docs/adr/DRAFT-<slug>.md` with no ordinal; the number is taken in the merge
+commit after a fetch. The guard refuses a `DRAFT-` on `main`.
+`tasks/lessons.md:168-191` had already ruled that reading `main` first is not
+the fix, and a detector cannot change that — it shortens the window.
+
+`tasks/LANES.md` — generated below a marker, with a hand-written allocation
+ledger above it that survives regeneration. Replaces the hand-typed lane table
+that used to sit in the box above and was wrong within hours of being written.
+
+`scripts/drive_hedge.py` + `tests/test_drive_hedge.py` — rescued from the
+hedging lane's scratchpad before it was deleted. The only instrument that drives
+the hedge payload against a real Kalshi book, and it found the same-game defect
+the suite did not. The seam test pins every symbol it reaches for; it is never
+run in CI.
+
+### Three things it got wrong first, and all three matter more than what it got right
+
+1. **It compared files, not hunks.** The hand-measured surface that specified it
+   called `frontend/src/lib/api.ts` contested; the two edits are 1,780 lines
+   apart and merge clean. Caught by the partner before it was built.
+2. **It reported an inherited `SCHEMA_VERSION` as a claim.** A lane ten commits
+   behind holds main's old stamp without touching `db.py`. Provenance decides,
+   not value.
+3. **Run from a LANE it named sixteen of Joe's unrelated repositories as
+   directories to delete**, `kalshi_orderbook_monitor` among them — the
+   predecessor project CLAUDE.md tells every session to read. `root` was the
+   lane, so the integration checkout read as a peer worktree and the projects
+   folder became a search root. **Caught by the `parlay-props` lane running the
+   tool for its own reasons**, not by its author and not by its tests.
+
+Sixteen mutations run; the load-bearing one — "unreadable is never clean" —
+stayed green because the test reached the guard by a different road. Fixed. The
+DRAFT guard shipped with a hole of the same shape: it SKIPPED on an
+unestablished branch, and `actions/checkout` leaves a detached HEAD, so it would
+have skipped on every CI run there has ever been. It fails closed now.
+
+### The partner's ruling (2026-08-27), still standing
+
+**Not the lane split.** ADR 0003 §1's table predates the parlay desk —
+`backend/parlays.py` and `backend/core/ladder.py` are in no lane at all — so the
+lane crossed a partition that does not cover the files. Amended. A **type
+declaration is owned by its producer**, not by the frontend lane; enforcing §1
+literally there causes the harm §1 prevents. `.env.example`, `fly.live.toml` and
+`tasks/LANES.md` joined the integrator-only list.
+
+**Dropped this session, do not reopen without naming what overturns it:** all
+further prop-feed analysis (the measurement is done); ADR 0032 stays closed;
+combo purchase slice; per-sport credit reservation; `/api/slate` N+1;
+`odds_snapshots` retention; the stale 576/day figure in `docs/`; `ODDS_API_KEY`
+rotation; NCAAF's single sweep (one observation with no comparison is an
+anecdote).
+
+**The four verification debts do not compete with lane work.** ADR 0077's cold
+open, the 20:00Z `parlay_daily` card, the hedge watcher polling, and NCAAF share
+one blocker: each needs a human or a session awake at a specific UTC minute on
+live. They collapse into one opportunistic checklist the next time anyone has
+live open for another reason.
+
+### Open, and both are Joe's
+
+- **`parlay-props` is holding its commit on Joe**, not on the partner — 15 files,
+  4,635 green, zero commits. It put the question to him directly and declined to
+  let a peer ruling answer it, which is correct. Split reviewed and approved:
+  commit 1 is the `_alternate` kill (**including `tests/test_runner.py`**, whose
+  only change inverts the assertion requiring an `_alternate` key — the partner
+  had it in commit 2, from the filename rather than the hunk) and touches nothing
+  main has moved; commit 2 carries the whole conflict surface and wants a merge
+  first.
+- **Cross-game prop parlays are CONSTRUCTIBLE.** Read 2026-08-27 off
+  `GET /multivariate_event_collections` (no mint, no book, no order path): of
+  1,389 collections, 17 are cross-game and **3 carry all five MLB prop series,
+  35 prop legs each, `detail_missing = 0`**. Those three share an identical
+  2033-leg total and are almost certainly one pool under three tickers — **treat
+  it as one observation**. Every NFL/NBA/CB multi-game collection carries zero
+  prop legs, so this is MLB-and-cross-category on today's slate; the calendar
+  caveat in `backend/kalshi/combos.py` is untouched. **Eligibility is not
+  liquidity** — this says nothing about the 40/40 enter-only record, and the two
+  sentences must stay apart.
+
+  **The denominator was measured afterwards and it is 35.** `35 prop legs` was
+  first written up as *partial* coverage, and it is not: every open MLB prop
+  event on the slate is eligible. Set-compared per series against
+  `KXMVECROSSCATEGORY-R` rather than count-matched — same event tickers,
+  `open_but_not_eligible` and `eligible_but_not_open` both empty on all five
+  series, 7 games × 5 statistics. **This is n = 7 games at one instant and
+  neither "partial" nor "total" may be written as a property.** The honest
+  sentence is: *on the 2026-08-27 slate all 35 open prop events were eligible;
+  whether that holds structurally is unmeasured.* Only one of the three
+  collections was checked. A clean hypothesis with a clean test: the `-R`
+  suffix on all three suggests a **rolling** collection tracking the slate,
+  against the fixed `-W5`..`-W13` NFL ones that carry zero props — re-read on a
+  different slate size decides it. Not evidence yet.
+
+  Consequence for `parlays.py:947-968`: the lane's pre-tap check is still worth
+  building and **its reason changed**. Not "eligibility is partial so the
+  fallback fires often" but "eligibility is total today and the code must be
+  correct on the day it is not" — when `covering` is empty the prefix fallback
+  fires anyway and the tap posts a leg the chosen collection does not contain.
+  It fails at Kalshi rather than silently, but after a tap instead of before.
+
+## 2026-08-27 — a cold open buys odds on the pass it woke
+
+**Joe picked this off four options.** ADR 0077. State: **4,640 passed / 10
+xfailed in 19:54** (up 17 from 4,623 measured earlier the same session), ruff
+clean.
+
+### Three facts agreed, and none was wrong on its own
+
+1. **`last_sweeps` is scoped to the budget day** —
+   `last_sweep_by_sport(conn, since_ms=budget.day_start_ms(now_ms))`. Every
+   10:00Z roll leaves every sport unpaced.
+2. **`run_quote_pass` passed `allow_bootstrap=False`, hardcoded.** Correct
+   about the cadence: with no `last`, every pass wants every uncovered sport,
+   so a *failing* sport would retry every 15s until the credits were gone.
+3. **`pass_kind` returns `"quote"` inside `last_full_ms + 900s`** — where an
+   early wake lands by construction.
+
+Together: open the desk after the roll, the loop wakes in 5s, runs a quote
+pass, and **that pass can buy nothing**. Up to 900s of blank desk, while
+`window_status` — calling `desk_wants` with the default `allow_bootstrap=True`
+— says a sweep is due **now**.
+
+**MEASURED, NOT ARGUED. Budget day 20260827 rolled at 10:00:00Z; its first
+credit was spent at 10:13:56Z.** Fourteen minutes, read off `api_credits` on
+the live volume.
+
+### The fix
+
+`run_quote_pass` takes `allow_bootstrap`, **still defaulting to `False`**, and
+the loop raises it only for a pass that follows an early wake.
+`scheduler.one_shot_wake(state)` turns `LoopState.woken_early` — the total
+`run_forever` already keeps — into a per-pass answer.
+
+**An event, not a state, and that is the whole safety argument.**
+`is_attended` is true for the entire 300s TTL while a quote pass runs every
+15s. A wake is at most one per heartbeat. Consumed on read; seeded from the
+counter rather than zero; read rather than incremented, because `woken_early`
+can move more than once between passes and differencing leaves a backlog.
+
+**What actually bounds the spend, stated exactly because this is a spend
+path:** one *successful* sweep enters `last_sweeps` and paces the sport for
+the day, so the flag then changes no answer; while sweeps are *failing*
+(`_SERVED_SWEEP` needs `http_status < 400`) the one-shot caps retries at one
+per heartbeat instead of one per 15s pass.
+
+### A CLAIM I MADE AND THEN REFUTED BEFORE SHIPPING IT
+
+The first docstring said the mechanism was "bounded by the attention slice".
+**It is not.** `desk_wants`' bootstrap branch fires `trigger=ATTENTION`, which
+the slice caps — but `decide_sweeps` has a **second** bootstrap path (a sport
+with no stored fixtures at all), also gated on this flag, stamping
+`trigger=BOOTSTRAP`, and `attention_credits_spent_today` counts only
+`ATTENTION`. Corrected in the docstring and pinned by
+`TestTheSecondBootstrapPathIsGatedByTheSameFlag`.
+
+### NOT changed, and both deliberate
+
+- **`pass_kind` still returns `"quote"` after a wake.** Forcing a full pass was
+  the other candidate and is rejected: a full pass measured **86.4s** on live
+  this morning against a quote pass's few seconds, and it would run on every
+  cold open. The cheap pass was the right pass; it just was not allowed to buy.
+- **`window_status` still asks the optimistic question.** It cannot see
+  `Tempo.last_full_ms` — that lives in the loop process — so it cannot know
+  whether the next pass is full. What the fix buys is that *for a reader* the
+  promise comes true in seconds instead of 900s. Asserted by
+  `TestWhatIsStillNotGuaranteed` rather than claimed closed.
+
+**This is why the "wide test blast radius" this file warned about did not
+materialise.** `desk_wants` and `pass_kind` are untouched and the nine named
+assertions pinning them all pass unmodified.
+
+### PROCESS — two mutations GREEN again, and the same lesson in a new dress
+
+Eleven mutations red. Two green, and the **code moved rather than the tests
+kept**: the predicate began as a closure inside `run_loop.main`, so its tests
+re-implemented its four lines against a real `LoopState`. They passed — and
+stayed green while the *real* predicate had its consume removed and its
+watermark differenced by one.
+
+**A faithful re-implementation is a description, not a constraint.** Yesterday
+the failure was asserting a *ledger* instead of a behaviour; today it is
+asserting a *copy* instead of the original. `one_shot_wake` moved beside
+`LoopState`, where it belongs anyway since it reads a field that module owns,
+and both mutations bit. **The tell: the test file imported the state object but
+not the function under test.** Lesson written.
+
+### Open
+
+- **Live: not deployed at the time of writing this line.** Verify after deploy
+  by opening the desk shortly after a 10:00Z roll and reading `api_credits` for
+  a sweep inside a minute rather than at +14.
+- **The 20:00Z parlay card from the entry below is still unobserved.** First
+  real chance is tonight.
+- Unchanged: the combo purchase slice and its registered measurement; the
+  pragma change not re-measured on live; per-sport credit reservation
+  (Guard 1); `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day
+  figure outside CLAUDE.md.
+- **`odds_snapshots` and `fair_prices` still have no retention rule.** 1.91 GB
+  of a 5 GB volume, 712 MB free-listed. Dated risk.
+
+---
+
+## 2026-08-27 — the parlay push stops being a race and becomes a schedule
 
 **Joe picked this off the state read.** It is the item he had already decided on
 2026-08-26 and that was never built — *"the Discord trigger becomes a scheduled
@@ -502,6 +790,225 @@ that. Re-read the `caps` block rather than quoting this.
 - Per-sport credit reservation for a saturated Saturday: when the daily cap
   binds, EVERY sport stops. Guard 1 (record the refusal) unbuilt.
 - `ODDS_API_KEY` rotation; the cold-open wait; the scheduled parlay card.
+
+---
+
+## 2026-08-26 (hedging lane) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
+
+**Joe's ask, verbatim: "if I have a 6-leg parlay and one of them is not doing
+well, i'd like to have an alert surface to me with high confidence that I should
+hedge a bet right away… if there is any ai or ml that needs to be done, make it
+independent of consuming tokens."** His example is a baseball game: he holds
+Cincinnati, San Francisco lead by two in the bottom of the sixth, and he wants
+to know when to bet the Giants separately.
+
+Four choices were put to him and answered in his own words: **both** Kalshi
+combos and sportsbook slips; **LOCK pushes to the phone, DE-RISK stays a screen
+row**; **Kalshi is the only hedge venue priced**; and **build the vertical
+slice**. Recorded in **ADR 0078 — read it before touching any of this.**
+
+### The token constraint answers itself, and that is the headline
+
+**No model is needed, so none was built.** A hedge needs two things: how likely
+the endangered leg still is, and what the other side costs. **Kalshi's live
+in-play ask is both.** "San Francisco lead by two in the bottom of the sixth" is
+exactly *why* the Cincinnati contract sits at 20c — the score, the inning and
+the base state are already in the price, put there by people with more
+information than this repo can lawfully obtain. And unlike a fitted win
+probability, it is the number the hedge actually transacts at, so there is no
+translation step to be wrong in.
+
+- **No Anthropic call on any path.** Asserted over the source of all three
+  modules, on the code with docstrings stripped.
+- **No Odds API credit.** Kalshi is unmetered; `ODDS_ATTENTION_DAILY_CREDITS` is
+  untouched and the attention ceiling is unchanged.
+- **No MLBAM.** ADR 0035 §2 authorises two schedule endpoints and forbids
+  per-game timer polling in those words. Not needed, so not reopened.
+
+**And Kalshi has been keeping this data the whole time.** ADR 0006's evidence:
+game markets stay open through the game, "twenty of twenty games measured had a
+two-sided quote in every minute after the true start", and
+`store_quotes_from_discovery` applies no commence filter. `kalshi_quotes` has
+been accumulating in-play prices for the life of the project with nothing
+reading them.
+
+### What shipped
+
+- **`backend/core/hedge.py`** — the arithmetic, pure, no DB and no clock. The
+  equalising hedge (`n = W` contracts, both branches equal), the floor at every
+  reachable size, and **seven refusals that return a reason instead of a
+  number**: `no_ask`, `no_depth`, `stale_quote`, `market_closed`,
+  `crossed_book`, `unreadable_ticket`, `fee_unreadable`.
+- **`backend/hedge.py`** — the record, the live book and the words. Schema v23:
+  `parlay_positions` and `parlay_position_legs`, both pure new tables (no
+  `_MIGRATIONS` step needed, and a v22 database is shown gaining them in a test).
+- **Four routes** — `GET /api/hedge`, and three auth-gated writes. The screen at
+  `/hedge`, reached from `/bets` and from the alert's own link; **no new nav
+  slot**, the six-link budget is load-bearing at 390px.
+- **`backend/hedge_watch.py`** — its own asyncio task beside
+  `poll_portfolio_forever`, 60s while a watched game is running and 600s
+  otherwise. **Not on the quote pass**, and ADR 0072 Decision 5 is why: that
+  pass is budgeted 8s and already runs ~4.2s live, and the last thing added
+  there "because it is pure" cost 400ms a pass and would have degraded silently.
+- **`DiscordNotifier.hedge_lock` + `Alerter.hedge_locks`** — the first alert in
+  this product that names a dollar figure it stands behind, because the figure
+  is arithmetic rather than a forecast.
+
+### THREE THINGS THE PLAN HAD WRONG, and the build corrected all three
+
+1. **Rule 1 was pointed at the wrong quantity.** The plan proposed suppressing a
+   lock that is large relative to the stake. A $4.99 ticket returning $333.33
+   with one leg left locks about **$172 — 34x the stake, and entirely real**;
+   that rule fires hardest on exactly the case the feature exists for. What
+   catches a genuine bug is an invariant no real book can satisfy: both sides
+   quoting for a dollar or less together. **The absence of the lock-to-stake
+   rule is now asserted by a test**, so re-adding it goes red.
+2. **The affordability cap was passed as a contract count**, which the caller
+   cannot compute without the ask, and the ask is chosen inside. Reworking it to
+   a balance surfaced the question a count would have hidden: **an unread
+   balance is not a balance of zero.** `latest_balance_tenths` answers `None` on
+   any five-minute poll outage, and folding that into a cap of 0 would have
+   silenced the alert for as long as the mirror was behind — the repo's
+   "unreadable never resolves to zero" rule, pointed at a budget, where the
+   failure mode is *silence* rather than a fabricated edge.
+3. **The plan's "no hedge button" line was right for a reason it did not
+   state.** `MANUAL_ORDER_MAX_CONTRACTS = 1` with a 10-minute `COOLOFF_MS` means
+   a 30-contract hedge through the manual door would take five hours. The screen
+   gives the size and the price and deep-links Kalshi. **Raising that cap is
+   Joe's decision and wants its own ADR**; it deliberately does not ride along
+   inside a display feature.
+
+### MEASURED BY RUNNING IT, and it found a defect the suite did not
+
+The stack was driven against the venue's own book. It picked two legs of the
+**same MLB fixture** — Boston-to-win and Miami-to-win, a pair that cannot both
+happen — and **the desk priced them as independent and returned a joint
+probability.**
+
+`/parlays` takes one leg per fixture so `CorrelationRefused` is structurally
+unreachable there (ADR 0070 §2); **a ticket Joe already holds has no such
+property.** Same-game detection keys on `event_ticker`, the form takes a bare
+market ticker, and the two sides of one fixture have different *market* tickers
+— so they looked unrelated. The fixture is now derived from the ticker
+(`SERIES-EVENT-SIDE`, the same read `lib/kalshiLink.ts` makes) at record time
+and again on read, and a three-segment ticker is the only shape it will read: a
+wrong fixture key **merges two real games** and refuses a legitimate joint,
+which is worse than not knowing.
+
+Verified afterwards on the same live book: the pair now returns
+`chance_display: "--"` with `core/correlation.py`'s own refusal attached, and
+the per-leg prices still render.
+
+**And the arithmetic checked out on real data.** $5.00 to return $100.00, the
+derived NO ask at 80c, 100 contracts costing $81.12 including a $1.12 fee:
+
+    leg wins    $13.88
+    leg loses   $13.88
+
+**Equal to the cent**, which is the identity the whole feature rests on,
+arrived at from a real book rather than a fixture. Ratchet key
+`hedge_lock:1:2`.
+
+### Mutation
+
+**Forty-nine mutations observed red** across `core/hedge.py` (15), `hedge.py`
+(20) and the alert path (14). **Seven stayed GREEN on the first pass**, and the
+split is the lesson:
+
+- **Four were real holes**, each closed with a test rather than a weakened
+  assertion: the return-above-stake guard was unobservable through its reason
+  code alone (the odds floor catches the same input, so the test now asserts the
+  *sentence*); nothing distinguished `floor(W)` from `ceil(W)` as the equalising
+  size; nothing exercised a de-risk whose live legs had no readable price; and
+  nothing reached the read-side fixture derivation, which only a row written
+  by something other than `record_position` can exercise.
+- **One was a vacuous test.** The watcher's failure guard was tested against an
+  empty database, so `anything_in_progress` was False and the cycle body never
+  ran.
+- **Two were the harness patching the wrong function.** `parlay_cards` and
+  `hedge_locks` share the exact lines `if key is None:` / `continue`, and
+  `replace(old, new, 1)` takes the first. Both went red once anchored uniquely.
+
+### Verified
+
+**4,718 passed / 6 skipped / 10 xfailed**, ruff clean, `tsc` clean, `next build` green with `/hedge` and
+the three route handlers in the manifest.
+
+**The baseline was re-measured and `tasks/NEXT.md` was stale again, in the same
+direction: it said 4,456; the truth at `88d179f` was 4,524 passed / 6 skipped /
+10 xfailed.** Taken on a **detached worktree at the same commit**
+(`git worktree add --detach`), which is the fix for "never patch the tree under
+a running suite" — the measurement runs on files nobody is editing instead of
+serialising the two.
+
+### NOT built, and each is deliberate
+
+- **No in-app hedge order.** See correction 3 above.
+- **No hedge observation history.** The watcher holds its last read in memory and
+  writes nothing; a `hedge_observations` table would let the screen say "the lock
+  was $180 ten minutes ago", which is genuinely useful and is a separate slice.
+  Nothing about the evidence record changes until it exists.
+- **No pre-fill from `parlay_lookups`.** A combo bought off `/parlays` still has
+  to be typed in. Slice 4 in the plan; not reached.
+
+### VERIFIED ON LIVE, 2026-08-27, `6fc9e3c`
+
+Deployed and checked, in the order that makes each check mean something:
+
+- **Schema v24 applied to the volume.** `inspect_live_db.py db-sizes` shows
+  `parlay_positions`, `parlay_position_legs` and all three indexes on
+  `/data/cockpit.db`, **beside `parlay_card_candidates`** — which is the whole
+  point of the renumber: both lanes' tables coexist, where a shared v23 would
+  have given the volume one set or the other with no way to tell. `open_db`
+  refuses a version mismatch, so the API answering at all is independent proof
+  the stamp is 24.
+- **`/api/hedge` serves HTTP 200**, with an empty `positions` list (nothing is
+  recorded yet) and all four caveats verbatim. This needed
+  `fetch_live_route.py`'s allowlist to gain the path first: everything under
+  `/api/` 401s on the public surface **before routing**, so a `curl` from
+  outside cannot tell a route that exists from one that does not — both answer
+  401 — and this route reaches the venue for a live book, so the database
+  cannot be used to reconstruct it either.
+- **The watcher has not destabilised the recorder.** No `odds_sweep_log` gap
+  over 1200s, and the newest `loop_failures` row is 2026-08-26T16:42Z — about
+  23 hours before this deploy, and the derived-ask `ValueError` `main` has
+  since fixed. Nothing new.
+
+**What that last one does NOT establish is that the watcher is polling.** With
+zero recorded positions `anything_in_progress` is False and the correct
+behaviour is silence, which is indistinguishable from a task that never
+started. The check that separates them is the next one, and it needs a real
+ticket.
+
+### STILL OPEN — the check that needs a real ticket
+
+**Record a parlay Joe actually holds and watch it during a game.** That is the
+only thing that exercises the watcher's cycle, `resolve_from_venue` against a
+real settlement, and a hedge embed rendered from a live payload — the last of
+which is the check ADR 0072 insisted on for the parlay card and got right.
+
+Recording needs the live `APP_AUTH_TOKEN`, which this machine does not hold, so
+it is a tap on the phone rather than something a session can do.
+
+### Previously open and now closed
+
+**Nothing in this session has run on the deployed instance.** Schema v23 applies
+to the live volume on boot (the mechanism is verified against a v22 database in
+a test, not on the volume itself), the watcher has never run against a real
+in-play book, and no hedge embed has ever been rendered from a live payload —
+which is the check ADR 0072 insisted on for the parlay card and got right.
+
+**The honest first test is a real one:** record a ticket against two live MLB
+tickers, mark one leg won by hand, and read the lock figure against a hand
+calculation while the game is running.
+
+### Still open from before, untouched
+
+- **The scheduled parlay card plus two-build debounce.** Decided 2026-08-26,
+  not built.
+- **The cold-open wait** — a heartbeat can wait up to 900s to be acted on.
+- `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day figure
+  outside CLAUDE.md; no ADR for the attention TTL, floor horizon or credit slice.
 
 ---
 

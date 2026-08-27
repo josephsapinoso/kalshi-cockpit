@@ -37,7 +37,7 @@ from backend.core.ladder import (
     build_ladder,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
-from backend.core.prices import format_price, format_probability
+from backend.core.prices import format_dollars, format_price, format_probability
 from backend.kalshi.combos import ComboScope, fetch_collections, lookup_combo
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.props import norm
@@ -484,13 +484,21 @@ def _cost_per_contract(tenths: float) -> str:
 
 
 def _dollars(cents: float) -> str:
-    dollars = cents / 100.0
-    # Cents kept up to $1,000 — the cousin's slip reads "$333.33", and a
-    # payout rounded to "$333" beside a "$4.99" cost mixes two precisions
-    # in one sentence. Above that the cents are noise.
-    if dollars >= 1_000:
-        return f"${dollars:,.0f}"
-    return f"${dollars:,.2f}"
+    """Cents -> a dollar string, through the ONE dollar renderer.
+
+    The rule it used to state inline — cents kept up to $1,000, dropped above
+    it — now lives in `core.prices.format_dollars`, which the hedge surfaces
+    also render through. Same reason `_percent` was moved to
+    `format_probability` on 2026-08-24: two implementations of one rendering
+    rule drift, and the drift is invisible because each one is correct on its
+    own screen.
+
+    This takes cents and `format_dollars` takes tenths of a cent, which is the
+    only reason the wrapper survives at all: the parlay desk's stake presets
+    are cent-denominated (`STAKE_PRESETS_CENTS`) and converting the whole
+    surface is a change with no benefit attached.
+    """
+    return format_dollars(cents * 10.0)
 
 
 def _stake_row(stake_cents: int, joint: float) -> dict:

@@ -60,6 +60,18 @@ const SECONDARY = [
       "The stopped study's record of typed P(YES) numbers. The form is retired — the ticket asks instead.",
   },
   {
+    // ADR 0078. Here rather than in the nav: it is empty until Joe has
+    // recorded a ticket, and a nav slot is the six-link budget (ADR 0073).
+    // Here rather than only linked from /bets, because `/bets` is where he
+    // goes to READ what settled — a screen nobody can find is served and
+    // unlinked, which the reachability test correctly calls the one option
+    // that is not a decision.
+    href: "/hedge",
+    label: "Hedging",
+    blurb:
+      "Parlays you already hold, priced against what the other side costs on Kalshi right now. Says what a hedge locks in — never that you should take it.",
+  },
+  {
     // Demoted from the nav 2026-08-24 when the Parlay desk took its slot
     // (Joe's call: promote parlays, demote what is not day-to-day). This is
     // the engine's evidence base — every candidate row with its factors —

@@ -119,6 +119,68 @@ class TestFormatting:
         assert prices.format_price(tenths) == rendered
 
 
+class TestDollarFormatting:
+    """`format_dollars` — the one renderer for a money amount (ADR 0078).
+
+    It exists because the hedge surfaces report dollars, not per-contract
+    prices, and `parlays._dollars` was the only dollar renderer in the product
+    — private to that module, and about to be copied. `_dollars` now delegates
+    here, which is what makes this one renderer rather than two.
+    """
+
+    @pytest.mark.parametrize(
+        "tenths,expected",
+        [
+            (12_340, "$12.34"),
+            (5_000, "$5.00"),
+            (333_330, "$333.33"),
+            (4_990, "$4.99"),
+            (1, "$0.00"),
+            (0, "$0.00"),
+        ],
+    )
+    def test_ordinary_amounts(self, tenths, expected):
+        assert prices.format_dollars(tenths) == expected
+
+    def test_a_loss_puts_the_sign_outside_the_dollar_mark(self):
+        # `$-9.07` reads as a price in a currency nobody uses.
+        assert prices.format_dollars(-9_070) == "-$9.07"
+
+    @pytest.mark.parametrize("tenths", [-1, -3, -4, 0, 1, 4])
+    def test_a_sign_is_never_printed_in_front_of_a_zero(self, tenths):
+        # Reachable: a hedge that costs a fraction of a cent more than it can
+        # pay has a floor of a few negative tenths. `-$0.00` is not a way to
+        # write that — on a money screen a minus in front of a zero reads as a
+        # defect and cannot be told from one.
+        assert prices.format_dollars(tenths) == "$0.00"
+
+    def test_the_smallest_amount_that_keeps_its_sign_keeps_it(self):
+        assert prices.format_dollars(-5) == "-$0.01"
+        assert prices.format_dollars(5) == "$0.01"
+
+    def test_cents_are_dropped_above_a_thousand_on_both_signs(self):
+        assert prices.format_dollars(1_500_000) == "$1,500"
+        assert prices.format_dollars(-1_500_000) == "-$1,500"
+
+    def test_the_thousand_boundary_is_where_it_says_it_is(self):
+        assert prices.format_dollars(999_990) == "$999.99"
+        assert prices.format_dollars(1_000_000) == "$1,000"
+
+    def test_unreadable_renders_as_unreadable_and_never_as_zero(self):
+        # The module's whole rule, applied to the renderer: "--" and "$0.00"
+        # are different claims, and only one of them is true of a missing
+        # number.
+        assert prices.format_dollars(None) == "--"
+
+    def test_the_parlay_desk_renders_through_this_one(self):
+        from backend import parlays
+
+        # Same amount, both entry points, one string. A second implementation
+        # would be correct on its own screen and disagree with this one by a
+        # rounding step within a week.
+        assert parlays._dollars(33_333) == prices.format_dollars(333_330)
+
+
 class TestProbabilityBridge:
     """A contract's fair price in dollars is its probability.
 

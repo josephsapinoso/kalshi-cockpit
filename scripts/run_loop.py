@@ -109,6 +109,8 @@ from backend.odds.timing import (  # noqa: E402
     window_status,
 )
 from backend.parlays import build_ladder_payload  # noqa: E402
+from backend.hedge_watch import watch_hedges_forever  # noqa: E402
+from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     DEFAULT_FAST_INTERVAL_S,
@@ -117,6 +119,7 @@ from backend.scheduler import (  # noqa: E402
     LoopFailed,
     LoopState,
     Tempo,
+    one_shot_wake,
     quote_refresh_survives_interval,
     run_forever,
 )
@@ -496,6 +499,14 @@ async def main() -> int:
     )
     state = LoopState()
 
+    # True once per early wake: this pass exists because someone is here.
+    # `backend/scheduler.one_shot_wake` owns the reasoning -- in particular why
+    # it is an event and not `attention.is_attended`, and why it is consumed on
+    # read. It lives there rather than as a closure here because a closure in
+    # this script can only be tested by re-implementing it, and a
+    # re-implementation stays green under every mutation of the real thing.
+    follows_early_wake = one_shot_wake(state)
+
     discord_config = DiscordConfig.from_env()
     if discord_config is None:
         log.warning(
@@ -534,6 +545,34 @@ async def main() -> int:
         portfolio_task = asyncio.create_task(
             poll_portfolio_forever(args.db, kalshi),
             name="portfolio-poll",
+        )
+
+        # The hedge watcher (ADR 0078), on the same reasoning and the same
+        # shape: its own task, its own connection, its own cadence.
+        #
+        # NOT on the quote pass, and that is the load-bearing choice. That pass
+        # is budgeted 8s so a Kalshi quote stays inside its 30s limit and
+        # already runs ~4.2s live; ADR 0072 Decision 5 is the record of what
+        # happens when work is added there because it looked free. This cannot
+        # slow the recorder because it is not on the recorder's clock.
+        #
+        # It spends nothing metered -- one Kalshi orderbook read per watched
+        # ticker, and only while a watched game is actually in progress. It
+        # writes no `recommendations` row, so ADR 0006's evidence guard is
+        # untouched, and `gate.py` cannot see any table it uses (ADR 0078 §4).
+        hedge_quotes = LiveQuoteSource()
+        hedge_task = asyncio.create_task(
+            watch_hedges_forever(
+                args.db,
+                # A factory, because an `Alerter` binds a connection and the
+                # watcher owns the only one it may use -- the loop's own
+                # connection is used sequentially by its pass, and a concurrent
+                # task on that handle would interleave two transactions.
+                lambda watch_conn: Alerter(watch_conn, discord),
+                fetch_quote=hedge_quotes.fetch,
+                max_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
+            ),
+            name="hedge-watch",
         )
 
         def window_now():
@@ -789,9 +828,15 @@ async def main() -> int:
                 # It is paced by `refresh_interval_ms` inside `decide_sweeps`,
                 # not by this interval: the pass asks on every tick and is told
                 # "not yet" on all but one in forty. It is bounded above by the
-                # same `budget.refusal_reason` as every other call, and it
-                # cannot bootstrap -- see `run_quote_pass`, which owns both
-                # arguments.
+                # same `budget.refusal_reason` as every other call.
+                #
+                # **And it may now bootstrap, but only on the pass an early
+                # wake asked for.** `last_sweeps` is scoped to the budget day,
+                # so every 10:00Z roll leaves every sport unpaced and a quote
+                # pass used to drop all of them -- fourteen minutes of blank
+                # desk on 2026-08-27, measured, while `window_status` promised
+                # a sweep was due now. `follows_early_wake` is consumed on
+                # read; see it for why a one-shot and not `is_attended`.
                 counts = await run_quote_pass(
                     conn, kalshi, odds_client=odds, budget=budget,
                     config=odds_config,
@@ -809,6 +854,7 @@ async def main() -> int:
                     # times a day against the full pass's ~1, so it is the
                     # majority of the slates the kill switch is applied to.
                     day_start_hour=odds_config.budget_day_start_utc_hour,
+                    allow_bootstrap=follows_early_wake(),
                 )
 
             with counts_survive_a_late_failure(log, kind, counts):
@@ -843,6 +889,10 @@ async def main() -> int:
             portfolio_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await portfolio_task
+            hedge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await hedge_task
+            await hedge_quotes.aclose()
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()
             )

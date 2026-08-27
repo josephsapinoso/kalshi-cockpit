@@ -2185,7 +2185,8 @@ async def fetch_and_store_odds(
     every row suppressed as `stale_odds` with the games still an hour out. The
     threshold was never the problem; nothing re-bought.
 
-    `allow_bootstrap` is passed `False` by the quote cadence -- see
+    `allow_bootstrap` defaults to `False` on the quote cadence and is raised
+    only for a pass that follows an early wake -- see
     `decide_sweeps`, which owns the reason.
 
     `manual` is the taps this pass should serve, already filtered for age by
@@ -2847,6 +2848,7 @@ async def run_quote_pass(
     now: Optional[int] = None,
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
     manual: Sequence[ManualRefresh] = (),
+    allow_bootstrap: bool = False,
 ) -> PassCounts:
     """Re-read Kalshi and re-price against the odds already stored.
 
@@ -2864,9 +2866,52 @@ async def run_quote_pass(
     the 30s limit for the entire fifteen minutes the odds are good for, at a
     cost of zero credits.
 
-    What it deliberately does not do: fetch closing lines, run the digest, or
-    bootstrap a sport. `sweep_decision` says which of those applied rather than
-    being left blank.
+    What it deliberately does not do: fetch closing lines or run the digest.
+    `sweep_decision` says which of those applied rather than being left blank.
+
+    **It bootstraps a sport only when told to, and the default is still no.**
+    `allow_bootstrap` used to be hardcoded `False` here, which was right about
+    the cadence and wrong about the cold open. `last_sweeps` is scoped to the
+    **budget day** (`decide_sweeps` reads
+    `last_sweep_by_sport(conn, since_ms=budget.day_start_ms(now))`), so at
+    every day roll every sport goes back to having no pace -- and a quote pass
+    dropped all of them. Someone opening the desk at 10:05Z woke the loop
+    within 5s (`ArrivalWatch`), got a quote pass because `pass_kind` returns
+    `"quote"` inside `last_full_ms + 900s`, and that pass could buy nothing.
+    Meanwhile `window_status` calls `desk_wants` with the default
+    `allow_bootstrap=True` and told them a sweep was due now.
+
+    **Measured, not reasoned:** budget day 20260827 rolled at 10:00:00Z and its
+    first credit was spent at **10:13:56Z**. Fourteen minutes, waiting on a
+    full pass.
+
+    The caller decides, and `scripts/run_loop.py` passes a **one-shot**: true
+    only on a pass that follows an early wake, which is a new heartbeat or a
+    pending tap. That is the difference that makes this safe.
+
+    **The hazard the hardcoded `False` guarded is real and unchanged.** With no
+    `last`, every pass wants every uncovered sport, so on the 15s cadence a
+    *failing* sport would retry every 15s until the budget was gone -- failing,
+    because `_SERVED_SWEEP` requires `http_status < 400`, so an erroring sweep
+    never enters `last_sweeps` and never starts pacing itself.
+
+    Two bounds, and it is worth being exact because this is a spend path:
+
+    1. **One success ends it.** A bootstrap sweep is stamped `attention`,
+       `desk` or `bootstrap` -- never `manual` -- so `_SERVED_SWEEP` counts it
+       and `last_sweeps` paces the sport for the rest of the budget day. The
+       flag then changes no answer at all.
+    2. **While sweeps are failing, the one-shot caps the retry at one per
+       heartbeat** (~60s from the page) instead of one per 15s pass.
+
+    **It is NOT fully bounded by the attention slice, and an earlier draft of
+    this paragraph said it was.** `desk_wants`' bootstrap branch fires with
+    `trigger=ATTENTION` when attended, which the slice does cap. But
+    `decide_sweeps` has a *second* bootstrap path -- a sport with no stored
+    fixtures at all -- which is also gated on this flag and stamps
+    `trigger=BOOTSTRAP`, and `attention_credits_spent_today` counts only
+    `ATTENTION`. That path is bounded by (1) and (2) above and by the daily
+    budget, not by the slice.
 
     **It now carries the odds refresh, and the arithmetic is why.** This pass
     used to spend nothing at all, and the docstring said so proudly: "this does
@@ -2939,7 +2984,7 @@ async def run_quote_pass(
         sweeps, stored, decision = await fetch_and_store_odds(
             conn, odds_client, budget, events=events, config=config, now=stamp,
             max_odds_age_ms=suppression.max_odds_age_ms,
-            allow_bootstrap=False,
+            allow_bootstrap=allow_bootstrap,
             manual=manual,
         )
         counts.odds_sweeps = sweeps

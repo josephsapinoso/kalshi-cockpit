@@ -86,6 +86,18 @@ ALLOWED_PATHS = frozenset(
         # the lookup POST is deliberately NOT here -- this instrument is
         # GET-only by AST pin, and a lookup mints a market.
         "/api/parlays",
+        # The held-parlay screen (ADR 0078). Same three properties as
+        # `/api/parlays`: GET, no `require_auth`, no query keys. **The three
+        # hedge POSTs stay out** -- `/api/hedge/positions`,
+        # `/api/hedge/legs/{id}/resolve` and `.../close` all write, and this
+        # instrument cannot express a POST at all.
+        #
+        # It is here for the reason the module docstring gives: without it,
+        # every sentence about what the hedge screen shows on live would be a
+        # database reconstruction rather than a reading of the served payload.
+        # This route reaches the venue for a live book, so reconstructing it
+        # from the database is not even possible.
+        "/api/hedge",
     }
 )
 

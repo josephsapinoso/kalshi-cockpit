@@ -25,6 +25,47 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-27 — A test written against a re-implementation cannot fail for the reason it exists
+
+A predicate lived as a closure inside a long `main()`. To test it, the test
+file re-implemented its four lines against the real state object it reads. The
+tests passed, read well, and named the properties that mattered.
+
+Then the **real** predicate was mutated — its consume removed, and its
+watermark differenced by one instead of read. Both mutations were **GREEN**.
+Nothing in the test file touched the code under test.
+
+**The pattern: a copy of the logic is satisfied by the code as written and by
+every other implementation too, so it constrains none of them.** This is the
+same failure as *"a test written after the code describes it"* and as
+*"asserting the ledger instead of the behaviour"*, one step further out — and
+it is harder to see, because a re-implementation looks like a unit test rather
+than like a description. The test file even said out loud that it was a
+re-implementation, with a source pin beside it as compensation, and the source
+pin only checked the call site.
+
+**The fix is never a better copy. It is to move the code somewhere the test can
+reach it.** Here the predicate read a field on `LoopState`, so it belonged in
+`scheduler.py` beside it; the closure was the accident. Both mutations bit
+immediately afterwards.
+
+Two habits:
+
+1. **If testing something requires re-writing it, that is a design signal, not
+   a testing problem.** Untestable-in-place usually means the logic is sitting
+   in the wrong scope — inside a `main()`, inside a request handler, inside a
+   loop body.
+2. **A source-text pin is not a substitute for reaching the code.** It can say
+   *that* a function is called; it cannot say the function is right. When both
+   are needed, write both and say which does which — one of them will otherwise
+   be quietly load-bearing for a job it cannot do.
+
+The tell that would have caught it earlier: **the test file imports the state
+object but not the function under test.** If the import list does not contain
+the thing whose name is in the test class, ask what is actually being executed.
+
+---
+
 ## 2026-08-27 — A test that asserts the ledger is not a test of the behaviour the ledger records
 
 Two guards written the same hour passed on the first run and came back GREEN
@@ -72,6 +113,296 @@ docstring asserting "mutation observed red" was **inherited from an earlier
 version of the code** and was never re-checked when the code around it changed.
 A recorded mutation result ages exactly like any other measurement. Re-run the
 battery when the code under it moves; do not carry the sentence forward.
+
+---
+
+## 2026-08-27 — A relayed approval is information, not authority, and the word "settled" is where it goes wrong
+
+A lane put a question to Joe and refused to let a peer answer it. The peer
+asked Joe, got a yes, and relayed it as **"Joe says commit. You are clear."**
+The lane held anyway, and was right to.
+
+**The failure was not asking on someone's behalf — that was useful. It was one
+word doing work the message could not support.** The same relay phrased as
+*"I asked Joe and he said yes; go get it confirmed in your session"* carries
+everything true and claims nothing it cannot. "Settled" asserted a thing only
+the other party could verify.
+
+**Two properties make this worse than it looks.** A relayed approval is a
+*stronger* claim than the relayer's own ruling — "he said yes" outranks "I say
+yes" — and it is exactly as unverifiable from the receiving end. Strength and
+unverifiability moving together is the signature of a claim to distrust, not
+one to accept.
+
+And the direction matters: the relay arrived carrying the answer the receiver
+wanted. **A rule honoured only until the answer goes your way was never a
+rule** — which is the receiver's formulation, and the reason it held. The
+person relaying is the one least placed to notice this, because from their side
+the approval is real and the caution looks like doubt about their honesty.
+
+The general form: **when passing on someone else's authority, pass on the
+evidence and the route to verify it, never the conclusion alone.** Say who said
+it, where, and how to check. The receiver decides what it settles.
+
+## 2026-08-27 — A count with no denominator invites an adjective, and the adjective is the inference
+
+A read returned "35 prop legs". It was written up as **partial** coverage, and
+a code risk was designed around that word — a pre-tap check whose motivation
+was "eligibility is partial, so the fallback fires often". Nobody had measured
+what 35 was a fraction of.
+
+It was 35 of 35. Coverage was total on that slate, and the risk as stated did
+not exist.
+
+**The pattern: a bare count carries no adjective, so the reader supplies one,
+and the supplied adjective then gets built on as though it were measured.** The
+tell is that the number arrived alone. `35` is a measurement; "35, which is
+partial" is a measurement plus a guess wearing the measurement's authority.
+Two figures in `.env.example` went wrong in this exact shape, in the same
+direction, which is why the lane that produced the 35 refused to divide by an
+assumed slate size and asked for the denominator instead. That refusal is the
+behaviour to copy.
+
+**And when the denominator arrived it was 35 against 35 — which is the moment
+to spend more scrutiny, not less.** Two equal totals is a perfectly convincing
+coincidence. What turned it into a result was a per-series *set* comparison:
+same event tickers, `open_but_not_eligible` and `eligible_but_not_open` both
+empty. Same move as reading `detail_missing = 0` before trusting a zero.
+**Check the thing that would make the good answer fake, before reporting the
+good answer.**
+
+The correction did not license the opposite adjective either. n = 7 games at
+one instant is not "total" any more than 35 alone was "partial". The sentence
+that survives names its scope: *on this slate, all 35 open prop events were
+eligible; whether that holds structurally is unmeasured.* The code risk stayed
+on the backlog with its reason replaced rather than being deleted — the failure
+mode is real, it simply does not fire today.
+
+## 2026-08-27 — A reporting tool must be run from every seat it will be run from, and its findings must not be phrased as instructions
+
+A cross-worktree detector was written, tested and demonstrated from the
+integration checkout, where it was correct. Run from a **lane**, it named
+sixteen of Joe's unrelated repositories as leftover directories to delete —
+including the predecessor project `CLAUDE.md` tells every session to read. The
+cause was one line: it excluded "the tree I am running in" instead of "the
+integration tree", so from a lane the main checkout looked like an ordinary
+worktree and its parent — a general projects folder — became a search root.
+
+**Two patterns, and the second is the one that could have done damage.** The
+fixture half of this — why no test could have caught it — generalises further
+than this incident and has its own entry below, *The fixture asserted the bug
+away*, written from the lane that found it.
+
+**An instrument's answer can depend on where it is invoked from, and testing it
+from the author's own seat covers one case out of however many exist.** When a
+tool reads the *environment* rather than only its inputs, the layout in the
+fixture is part of the assertion — get it wrong and the tests agree with the
+bug.
+
+**A false positive phrased as an instruction is a destructive tool.** The
+finding ended "a human deletes it". A finding that ends in an imperative is
+acted on; one that ends in an observation is checked. Any output a person may
+act on without re-deriving it must say what was *observed* and what could not
+be established — here, "carrying no `.git` of its own… nothing can be
+established about its contents from here; check before removing it." The cost
+of the imperative is not a wasted minute, it is the deletion.
+
+**It was caught by a peer running the tool for its own reasons, not by its
+author or its tests.** That is what the oversight loop is for, and it worked in
+the direction it was not built for. Do not treat "I reviewed it" as covering
+"someone else ran it somewhere else".
+
+## 2026-08-27 — The fixture asserted the bug away
+
+Written from the `parlay_props` lane, which found both instances, and merged verbatim rather than paraphrased. It extends the layout half of the entry above to cardinality, which is the harder case.
+
+### The pattern
+
+**A fixture encodes assumptions about the world, and a test can only find bugs
+its fixture is capable of expressing.** When the fixture's shape is wrong, the
+test does not fail — it passes, and it passes *specifically on the case the
+guard exists to catch*. Green then means "my fixture cannot reach the defect",
+which is indistinguishable from "there is no defect".
+
+Two instances on one day, and the difference between them is the point.
+
+#### Layout — the collision detector
+
+`scripts/lane_board.py` told a human to delete sixteen unrelated projects,
+including the predecessor repo `CLAUDE.md` instructs every session to read.
+
+Run from the integration checkout it was correct. Run from a **lane**, the
+integration checkout read as a peer worktree and its parent — the whole
+projects folder — became a lane root. No test caught it because the fixture put
+lanes in the same parent directory as the checkout, which is not the deployed
+layout. The one condition that breaks the script could not occur in the
+fixture.
+
+Their formulation, which is the right one: *when a tool reads the environment
+rather than only its inputs, the layout in the fixture is part of the
+assertion.*
+
+#### Cardinality — the parlay prop dedupe
+
+`ladder_candidates` keyed its freshest-row map on
+`(link_id, market, outcome_name, outcome_point)`. On a prop, `outcome_name` is
+only `"Over"`/`"Under"`, so the player has to be in the key or players sharing
+a rung collapse and `setdefault` silently keeps whichever arrived first.
+
+The test written for exactly that defect **passed with the fix reverted.**
+
+The fixture seeded one Kalshi prop event per player, so each player got its own
+`event_links` row, its own `link_id`, and the four-tuple key was already unique.
+The real structure — counted off the committed
+`tests/fixtures/events_mlb_props_nested.json` — is one prop event per game **per
+statistic**, holding every player in it: `KXMLBTB-26AUG151310CWSDET` carries 66
+markets across **18 distinct players**, and batters' rungs cluster on
+0.5/1.5/2.5, so one `link_id` covers many players sharing a line.
+
+With the fixture corrected to that cardinality, reverting the fix drops a
+pitcher from the pool, which is what the test claimed to detect all along.
+
+### Why the second one generalises further
+
+The first is about **layout** — where things sit. The second is about
+**cardinality** — how many of X hang off one Y. Cardinality is harder to notice,
+because a one-to-one fixture reads as a simplification rather than as a claim,
+and it is worse when wrong, because one-to-one is the case in which most
+grouping, keying and dedupe bugs are invisible by construction.
+
+### What to do about it
+
+- **Mutation-test every guard, and treat a green mutant as a fixture bug
+  first.** Both of these surfaced only because the fix was reverted and the
+  test still passed. CLAUDE.md already requires this; neither would have been
+  found without it.
+- **When a fixture is one-to-one, say why in a comment, or make it many-to-one.**
+  If the real cardinality is unknown, that is the thing to go and measure — in
+  both cases above the answer was already committed in the repo.
+- **Prefer counting the real artefact to inventing a shape.** The 18-players
+  figure came from a captured payload already in `tests/fixtures/`. The fixture
+  had been wrong beside the evidence that corrected it.
+
+## 2026-08-27 — A detector's granularity is decided by its false-finding risk, not by what is easy to compute
+
+A cross-worktree collision detector was specified against a hand-measured
+"collision surface" of two files. At **file** level that is what it looked
+like. At **hunk** level one of the two was not a collision at all: the lane's
+edit was at line 685 and main's was an append at line 2467, 1,780 lines apart
+and semantically unrelated. That merge is clean, and a file-level detector
+would have opened its life by crying wolf on it.
+
+**The pattern: when you build something that reports problems, ask what its
+FIRST output on real data will be, and whether that output is true.** A guard
+whose first finding is false gets weakened or deleted — this repo already pins
+that reasoning in `tests/test_parallel_lanes_do_not_collide.py`'s `0006`
+companion exemption — and the cost of the coarser comparison is not "slightly
+noisier", it is the whole instrument.
+
+The same question caught a second one in the same file. A lane sitting ten
+commits behind holds main's **old** `SCHEMA_VERSION` without ever having
+touched `db.py`. Comparing *values* reports that as a collision; comparing
+*provenance* — did this tree change the file since the merge-base? — reports it
+as inherited, which is what it is. **Inherited is not claimed.** Any check on a
+global counter across branches has this failure mode, and the discriminator is
+always provenance rather than value.
+
+## 2026-08-27 — A test can pass for a reason you did not write, and only mutation finds out which
+
+Sixteen guards on a new instrument were mutation-tested. Fifteen went red.
+The one that stayed green was **the load-bearing one** — "an unreadable
+worktree is never reported as clean". Breaking the error return in
+`dirty_files` did not fail it, because the test deleted the worktree directory
+and a *different*, earlier check (`if not path.is_dir()`) caught that. The
+assertion was true, the behaviour was covered, and the line it was written to
+protect had no coverage at all.
+
+**The pattern: a green test tells you the assertion holds, not that it holds
+for the reason you intended.** Only mutating the specific line separates those,
+and the tests most worth mutating are the ones guarding the failure you would
+least like to have — because a plausible-looking test there is exactly what
+stops anyone writing a second one. The fix was a second case that reaches the
+same guard by another road: a worktree whose directory **exists** and whose
+`.git` pointer is corrupt.
+
+This is the sibling of the 2026-08-26 lesson that a mutation can lie by not
+landing. There the mutation missed the code; here it landed and the *test*
+missed the code. Both are answered by the same discipline — check what the
+mutation actually reached, not just that something went red.
+
+## 2026-08-27 — A schema version is a claim about the whole database, so a lane cannot allocate one
+
+Two branches were open at once. One added `parlay_card_candidates` and bumped
+`SCHEMA_VERSION` to 23. The other added `parlay_positions` and
+`parlay_position_legs` and bumped `SCHEMA_VERSION` to 23. Each was correct on
+its own, each shipped with the "a pure new table needs no migration step"
+reasoning intact, and each was verified against a v22 database.
+
+**The failure is silent, and that is what makes it worth a lesson.** A volume
+stamped v23 would carry one pair of tables or the other depending on which image
+booted it. `open_db` refuses on a version *mismatch* — and there is none. The
+stamp matches, so nothing looks wrong; what breaks is a query against a table
+that was never created, arriving as an error from somewhere else entirely.
+
+Merging caught it here only because both branches touched `db.py` on the same
+line. **Had one of them bumped the constant in a second place, or had the file
+been formatted so the two edits did not overlap, git would have merged them
+clean and produced a tree claiming v23 with four new tables and no record of
+which version introduced which.**
+
+**The pattern: any counter that names a global state cannot be incremented from
+a branch that can only see itself.** `SCHEMA_VERSION` is one. So is any
+migration ordinal, any "next ADR number", any fixture index. A lane picks a
+value that was free *when the lane started*, which is a different question from
+whether it is free now.
+
+Two things that would have caught it earlier, neither of which exists:
+
+- **A test that the version and the table set agree.** `SCHEMA_VERSION` is a
+  number; nothing asserts what schema it names. A checksum over
+  `sqlite_master` for a freshly built database, pinned per version, would go red
+  on any second allocation of the same number.
+- **Reading `main` before allocating.** `git show main:backend/store/db.py |
+  grep SCHEMA_VERSION` is three seconds and was not run at the start of the
+  lane, because the lane's own tree said 22 and that looked like the answer.
+
+**The ADR number collided too, in the same merge, and the first version of this
+lesson said it "got lucky".** It did not. Both lanes wrote a `docs/adr/0074-*.md`
+— "the desk draws four pictures" on one and "the desk watches what Joe holds" on
+the other — and git merged them **clean**, because they are different filenames
+that happen to share a prefix. Nothing conflicted, nothing was reported, and the
+tree carried two ADR 0074s with two dozen cross-references pointing at an
+ambiguous number. Renumbered to 0077 afterwards, by hand, across 24 files.
+
+That is the version of this failure with no safety net at all: the schema
+collision was caught only because both edits landed on the same LINE of
+`db.py`. **Filename-prefix allocation has no line to collide on.** A `ls
+docs/adr/ | tail` on `main`, not on the lane, is the whole check.
+
+**"Read `main` before taking one" is NOT the fix, and this lesson said it was
+for about an hour.** While the merge above was being tested, `main` gained
+another commit that took ADR **0077** — the number this lane had just renumbered
+*to*. Three collisions in one day, on two different counters, and the second
+renumber happened for the same reason as the first.
+
+Reading `main` at the start of a lane answers "what was free when I started",
+which is not the question. A lane that runs for hours is racing every other lane
+for the whole of it, and the check has a window exactly as long as the gap
+between looking and pushing.
+
+**The fix is to allocate at MERGE time, not at write time.** Concretely:
+
+- Write the ADR under a name that cannot collide — a slug with no ordinal — and
+  number it in the merge commit, after `git fetch`, as the last thing before the
+  push.
+- Or number it optimistically and treat `ls docs/adr/ | tail` + `git show
+  main:backend/store/db.py | grep SCHEMA_VERSION` as **part of the push**, not
+  part of the planning. Re-run them after every `git fetch`, however many times
+  that is.
+
+Three counters in this repo name global state and can each be allocated twice:
+`SCHEMA_VERSION`, the ADR ordinal, and any migration step number. **None of them
+is safe to hold across a test run.**
 
 ---
 
@@ -247,6 +578,140 @@ The stakes are not tidiness. A suite is a guard that only works while people
 run it, and every minute added raises the odds it gets skipped, backgrounded,
 or trusted from memory. **A test nobody waits for has the same value as a test
 that does not exist**, with the added cost of looking like coverage.
+
+---
+
+## 2026-08-26 — A guard that greps its own module must read the code, not the prose
+
+`test_the_watcher_spends_nothing_metered` asserts `"api_credits" not in source`
+over `backend/hedge_watch.py`. It failed on the module's own docstring, which
+explains — correctly, and usefully — that no `api_credits` row is written.
+
+Both obvious fixes are worse than the guard. Weakening the assertion removes the
+thing it was for. Deleting the sentence removes the explanation a reader needs
+and leaves the next person to rediscover why the module is written that way.
+
+**The pattern: a source-grep guard is asserting about *behaviour*, so it must
+read the tokens that produce behaviour.** Comments and string literals are
+exactly where the words it is searching for legitimately appear — and the better
+the module is documented, the more likely the guard is to fire on it. So the
+better-documented a codebase gets, the more this class of test punishes it.
+
+`conftest.python_code_without_prose` tokenizes and drops `COMMENT` and `STRING`.
+Tokenizing rather than regex, because a `#` inside a string and a triple-quote
+inside a comment both defeat the regex, and every identifier a guard needs to
+catch survives as a `NAME` token either way.
+
+Add a vacuity guard beside it (`assert "watch_hedges_forever" in code`): a
+stripper that ate the module would make every assertion pass.
+
+---
+
+## 2026-08-26 — A GREEN mutation is a claim about the harness before it is a claim about the test
+
+Four mutations survived a run over `notify/alerts.py` and `hedge_watch.py`. Read
+at face value, that is four holes in the tests. Checked by hand, **two of the
+four were the harness patching the wrong code**:
+
+- `Alerter.parlay_cards` and `Alerter.hedge_locks` both contain the exact lines
+  `if key is None:` / `continue`. `source.replace(old, new, 1)` takes the
+  **first** occurrence, so the mutation landed in the function nobody was
+  testing, the tests passed, and it read as a hole.
+- A second anchor was mangled by heredoc escaping and matched nothing, which the
+  harness reported as `ANCHOR MISSING` — the one failure mode it *does* name.
+
+The two genuine holes were real and worth the run. The false ones cost as long
+to chase as the real ones took to fix.
+
+**The pattern: a mutation that stays GREEN must be reproduced by hand before it
+is treated as a finding.** Apply it, run the one test that should have caught
+it, look at the diff. And when a codebase has two functions that legitimately
+share a line — which is normal for a policy module with several event types —
+anchor on the surrounding line that is unique, not on the line being changed.
+
+**And the third hole was a vacuous test, which the harness found correctly.**
+`test_a_failing_cycle_never_takes_the_loop_down` ran the watcher against an
+empty database, so `anything_in_progress` was False, the cycle body never ran,
+and the `try/except` under test was never entered. A loop guard tested on an
+idle system tests nothing. **Seed the condition that makes the body run**, and
+say so in the test, or the next reader deletes the seeding as noise.
+
+---
+
+## 2026-08-26 — Rule 1 has a scope, and it belongs on the input rather than on the result
+
+CLAUDE.md rule 1 is that a large apparent edge is a bug until proven otherwise.
+The plan for the hedge feature applied it the obvious way: suppress a lock that
+is large relative to the stake.
+
+That would have silenced the feature at its most useful. A $4.99 ticket
+returning $333.33 with one leg left, hedged at even money, locks about $172 —
+**34x the stake, and entirely real.** It is simply what hedging a longshot
+parlay looks like. A lock-to-stake rule fires hardest on exactly the cases the
+feature exists for.
+
+What catches a genuine bug is an invariant that **cannot be true of the input**:
+both sides of a book quoting for a dollar or less together is free money, which
+no real book offers, so it is bad data by construction.
+
+**The pattern: before writing a suppression, name the legitimate value it would
+silence.** If you can name one, the rule is keyed on the wrong quantity — move
+it from the result to a property of the input that no valid input can have. Rule
+1 is about *apparent* edges; a number that is large because the arithmetic says
+so is not an apparent edge, it is an answer.
+
+Pin the absence with a test. `TestRuleOneIsAppliedToTheBookAndNotToTheSizeOfTheLock`
+asserts a 34x lock is reported, so a future session that adds the suppression
+goes red and has to reopen the ADR rather than quietly re-deciding it.
+
+---
+
+## 2026-08-26 — An unknown budget must not resolve to zero, exactly as an unknown price must not
+
+The repo's oldest rule is that an unreadable price resolves to `None`, never
+`0`. It was written about prices and the same shape reaches anything a decision
+is bounded by.
+
+`latest_balance_tenths` answers `None` whenever the newest five-minute poll
+could not read the venue's figure — a routine outage, not an empty account.
+Folding that into an affordability cap of **0 contracts** would have made every
+hedge unaffordable and **silenced the alert for exactly as long as the mirror
+was behind**.
+
+The direction is what makes it dangerous. A price that wrongly reads zero
+manufactures an edge and gets caught by a suppression rule; a *budget* that
+wrongly reads zero produces silence, and silence is indistinguishable from
+"nothing is happening". Nothing fires, nothing is logged, and the feature looks
+like it is working.
+
+`affordable_contracts` returns `(count, known)` as a pair so a caller cannot
+take the number without the flag, falls back to what the order book allows, and
+the screen says the cap is not real.
+
+---
+
+## 2026-08-26 — Killing a background command's shell does not kill the process it started
+
+A full-suite run launched in the background was stopped by killing the PIDs the
+process table showed. It reported success, the task notification arrived, and
+the **actual pytest kept running** — detached from the shell that started it.
+
+The cost was not the wasted CPU. A second suite was then launched beside it,
+the two competed for a shared-core laptop, throughput fell to ~12 tests a
+minute, and the run projected out to six hours against a 14-minute history. That
+read as a hang in an unfamiliar worktree, and the next twenty minutes went into
+diagnosing a slow test file that was not slow.
+
+**The pattern: after killing a long-running background job, verify by the
+command line rather than by the exit code.** `wmic process where "name='python.exe'"
+get ProcessId,CommandLine` shows what is actually running and what it was
+invoked as, which is what separates "my job" from "the job I thought I killed".
+
+And the second half: **a full test run does not have to block editing.**
+`git worktree add --detach <path> <sha>` gives the baseline its own copy of the
+tree at the right commit, so the measurement is taken on files nobody is
+touching — which is the property the "never patch under a running suite" lesson
+actually needs, rather than serialising the two.
 
 ---
 

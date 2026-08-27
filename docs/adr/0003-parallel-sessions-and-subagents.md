@@ -31,6 +31,30 @@ have proven independent:
 
 A task that needs two lanes is one task, not two workers.
 
+> **Amended 2026-08-27, and the amendment is that the table went stale rather
+> than that it was violated.** A lane was found writing across `ingest`,
+> `frontend` and config at once, and the first reading was that it had broken
+> §1. It had not: `backend/parlays.py` and `backend/core/ladder.py` appear in
+> **no lane above at all**, because this table was written 2026-08-07 for a
+> codebase with no parlay desk. You cannot violate a partition that does not
+> cover the files. Add a row:
+>
+> | parlay desk | `backend/parlays.py`, `backend/core/{ladder,parlay}.py`, their tests |
+>
+> **And one row of the table does not bind where it appears to.** A TypeScript
+> type declaration is owned by **whoever owns its producer**, not by the
+> `frontend` lane. `frontend/src/lib/api.ts`'s types must change in the same
+> commit as the backend field that fills them; splitting that across two
+> workers produces a tree where the API returns a field and the type denies it
+> — which is the incoherence §1 exists to prevent, so enforcing §1 literally
+> there would cause the harm. Recorded in `docs/adr/README.md` too, because a
+> lane arrives at that directory before it arrives here.
+>
+> **The correct partition for that lane was at the commit boundary, not the
+> worker boundary**: a spend change (stop buying a feed) and a product change
+> (admit prop markets to cards) are two commits by one worker, not two workers
+> on one file's consumers.
+
 ### 2. Three files are integrator-only
 
 `tasks/NEXT.md`, `tasks/lessons.md`, `tasks/audit-2026-08-07.md`.
@@ -43,6 +67,15 @@ merge that resolves cleanly and reads as nonsense. **Workers write to
 `CLAUDE.md`, `backend/config.py` and `backend/store/schema.sql` are also
 integrator-only: they are read by everything, and a schema change under a
 worker's feet invalidates its tests silently.
+
+> **Added 2026-08-27: `.env.example`, `fly.live.toml` and `tasks/LANES.md`.**
+> Not because a lane conflicted on them — nothing had — but because
+> `.env.example` is the contract (CLAUDE.md, Conventions) and `fly.live.toml
+> [env]` is the *deployed live config*, so a lane editing either changes what
+> the running machine does without a deploy having been the thing that decided
+> it. `tasks/LANES.md` is generated in the integration worktree only; a lane
+> regenerating it recreates exactly the append-conflict this section exists to
+> prevent. The rule should exist before the edit that isn't harmless.
 
 ### 3. Use git worktrees for anything that edits code
 
@@ -83,6 +116,46 @@ These are not merge conflicts; they are real-world collisions no VCS will catch.
 A worker that needed a file outside its lane must say so rather than reaching for
 it. That report is the integrator's merge list, and it is the only signal that
 the partition was wrong.
+
+### 6. How to actually run a lane — added 2026-08-27
+
+§1–§5 say how work is *partitioned*. They say nothing about how a lane is run
+day to day, so every session re-derived it and 2026-08-27 spent most of a day
+paying for the gaps. Six rules, each sourced to something that went wrong:
+
+1. **Commit early, and often, not at the end.** Every guard in this repo reads
+   commits — the collision guard, CI, and `scripts/lane_board.py`. A lane
+   holding 712 uncommitted insertions is invisible to all of them, which is
+   different from unsafe: the files are on disk and survive a session ending.
+   The exposure is that nothing can *see* the work, so nothing can warn anyone
+   about it.
+2. **Keep a lane short.** All three of that day's collisions happened because a
+   lane ran for hours holding a claim on a counter. `tasks/lessons.md:168-191`:
+   a lane that runs for hours races every other lane for the whole of it.
+3. **Split at the decision boundary, not the worker boundary.** A lane carrying
+   two decisions is two *commits* by one worker, not two workers — splitting it
+   across workers puts both on the same file's consumers and manufactures a
+   collision that did not exist. Assign a commit to a decision by reading the
+   hunk, not the filename: `tests/test_runner.py` looked like test-suite work
+   and was in fact the spend change, because its only edit inverted one
+   assertion.
+4. **Close a lane the moment its branch merges.** A removed worktree leaves
+   directories behind that `git worktree prune` does not clean, and the next
+   session cannot tell them from a live lane. The board reports them; a human
+   deletes them.
+5. **One session is the integrator.** It owns §2's files, deploys, and the odds
+   budget. A lane with something for those files writes it to its own file and
+   hands it over — that is what §2 is for, and it works: a lesson written in a
+   lane and merged by the integrator cost nothing, while appending directly
+   would have manufactured a second conflict.
+6. **Two concurrent lanes is comfortable; be deliberate past that.** Collision
+   risk scales with *pairs*, so three lanes carry three times the surface of
+   two rather than one and a half.
+
+Before claiming an ADR number or a schema version, and again before pushing,
+run `scripts/lane_board.py`. It is the only thing that can see two lanes at
+once, and it reads uncommitted work — which no test can, because a test only
+ever sees the tree it runs in.
 
 ## Consequences
 
