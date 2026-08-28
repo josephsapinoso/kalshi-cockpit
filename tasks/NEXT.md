@@ -230,7 +230,131 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — PRE-REGISTRATION: how to read tomorrow's gap, decided before the data exists
+## 2026-08-28 (latest) — the pre-registered read was taken, and it was not a read
+
+**The instrument was not on the box during either gap it went looking at.** The
+read below is not a null result and must not be recorded as one; it is a read
+that could not have produced a result. The pre-registration above is amended in
+six places, all marked `AMENDMENT`, and the live window has been re-opened.
+
+Directed by the partner agent from the reading, per Joe's instruction to take
+the reading first and set direction from the verdict.
+
+### What was read
+
+Uptime first, as the pre-registration demanded, at 15:33Z:
+
+    /proc/uptime            2989.40 s = 49m 49s
+    machine 7812601a239428  started 2026-08-28T14:43:09Z   (the f1c2b5f deploy)
+    build.git_sha           f1c2b5f5c258...
+
+`pass-gaps --tail 400` — two gaps over 1200s, and **zero `PassDeadlineExceeded`
+rows anywhere in `loop_failures`**:
+
+    3,800,015 ms = 63m20s   began ~09:48:29Z   resumed 10:51:49.741Z
+    2,868,555 ms = 47m49s   began ~11:21:18Z   resumed 12:09:06.841Z
+
+`loop_failures` holds 15 rows: twelve are the 2026-08-26 `ValueError: ask 1000
+tenths`, three are 2026-08-28 `ZeroDivisionError`, passes 44/45/46, consecutive
+1/2/3, at 12:36:33 / 12:38:03 / 12:38:46Z.
+
+### The three ZeroDivisionError rows are the already-fixed outage
+
+Not a new incident, and worth pinning because a future `pass-gaps` read will hit
+them again. `tests/test_parlays_api.py:463` names "three consecutive failing
+passes" with that exact error; the fix is `5436fc8`, committed 12:51:16Z —
+thirteen minutes after the last of them. They sit **after** both gaps and
+overlap neither. `f1c2b5f` and everything since carry the fix.
+
+### Why the read is void
+
+`PassDeadlineExceeded` and `DEFAULT_PASS_DEADLINE_S` first exist in `8658da7`,
+committed **2026-08-28T13:59:16Z**, and reached live with the `f1c2b5f` deploy
+at **14:43:09Z**. Both gaps began at 09:48Z and 11:21Z — 4.2 and 2.6 hours
+before the code was written, ~5 and ~3.4 hours before it was on the box.
+
+**Zero rows against them is uninformative because no code capable of writing a
+row was running.** That is a scope condition on the population, **not a fifth
+cause**, and the amendment above files it as one deliberately: a cause explains
+a missing row inside a valid window, and adding this to the four-cause list
+would give a future session a fifth off-ramp from a zero that *is* informative
+— always in the flattering direction, toward the synchronous-blocking
+hypothesis the project already likes.
+
+**The uptime discriminator could not be run and had already been destroyed.**
+Its literal test — uptime shorter than time since the gap began — returns TRUE
+for both gaps and means nothing, because the restart was the planned 14:43Z
+deploy. The pre-registration said to take uptime first *because it is the only
+evidence a later reading destroys*; it was destroyed before the reading, by a
+deploy that happened after the pre-registration was written.
+
+**The clean window was 50 minutes** (14:43:09Z deploy to 15:33Z read) and
+contained no gap: largest inter-pass interval 677s (11m17s), 14:43:28 to
+14:54:45, below the 1200s floor. Against a base rate of 3-6 gaps/day that
+expects 0.1-0.2 gaps. Decision-table row 4 now carries a **>=12 h minimum** for
+exactly this reason. What those 50 minutes *do* establish is that `f1c2b5f`
+runs the loop at normal cadence and the deploy broke nothing — a deploy-sanity
+fact, not a gap fact.
+
+### The freeze was misread, and the correction is the reason a deploy shipped
+
+The pre-registration's "**No deploy**" was taken as a standing prohibition,
+which would freeze the repo indefinitely against a read that keeps not
+happening. The freeze exists to keep container uptime usable as the
+process-death discriminator, and **uptime is only destroyed for gaps that
+precede the last restart**. A deploy landing *before* the window opens costs
+the reading nothing. Restated in the amendment as **no deploy during the
+observation window**; a deploy inside the window voids it and the window
+restarts.
+
+### THE OBSERVATION WINDOW IS OPEN — stamped from the machine
+
+    deployed        aed09340c5e84b3f909046f4fae937039c02022f  (Actions, 1m29s)
+    verified        /api/health build.git_sha == local HEAD, exact
+    /proc/uptime    61.56 s read at 2026-08-28T15:46:00Z
+    WINDOW OPENS    2026-08-28T15:44:58Z
+
+**A gap is in the population only if it began after 2026-08-28T15:44:58Z.**
+Stamped from `/proc/uptime` rather than from the deploy log, because the
+omission of exactly this step is what produced the "~15:0xZ" error that made
+the previous window twenty minutes wrong.
+
+**Only one of the four shipped commits contains code.** `git diff --stat
+f1c2b5f..aed0934 -- backend frontend scripts` is `2b3baa3` alone —
+`backend/odds/timing.py`, `backend/api/routes.py`, `frontend/src/lib/api.ts`,
+`scripts/run_loop.py`. `d64be00`, `d904780` and `aed0934` are `tasks/NEXT.md`
+only.
+
+**The confounder, named now so it cannot be a post-hoc excuse tomorrow.**
+`2b3baa3` executes new per-pass code in `decide_sweeps`/`window_status`. It is
+pure computation — no new IO, and its six new fields are declared and unused
+until half two — so its predicted effect on the gap rate is **nil**. The base
+rate is 3-6 gaps/day over five days, established before any of these commits.
+**If tomorrow's rate departs materially from that, `2b3baa3` is the first
+suspect, not the last.**
+
+### Do not deploy again until the read
+
+The window is open and a deploy inside it voids it. Half two below is built on
+disk and ships with tomorrow's post-read deploy.
+
+### Ruled out, so nobody spends a minute on it
+
+**Ticket #10's WCAG failure is fixed and verified in the CSS live serves**
+(2026-08-28 04:23Z): `ManualTicket.tsx:563` is `bg-accent-fill`, and `#ef4444`
+appears once in the served stylesheet, as ink. It was the example of the "third
+queue" — a resolved ticket carrying a build — and it is closed.
+
+---
+
+## 2026-08-28 — PRE-REGISTRATION: how to read tomorrow's gap, decided before the data exists
+
+**AMENDED 2026-08-28 15:5xZ, after the read below was attempted and found not
+to be a read.** Six corrections are inline, each marked `AMENDMENT`. The one
+that matters: this document enumerated four causes of a missing failure row and
+never stated what made its observation window valid. The instrument was not on
+the box during either gap it went looking at. See the entry above for the
+reading and `tasks/lessons.md` for the pattern.
 
 **This is the session's output and it is the only thing here that expires.**
 Everything else on the Open list will be exactly as available in a week. The
@@ -248,8 +372,21 @@ to manage the session.
     flyctl ssh console -a kalshi-cockpit \
       -C "python /app/scripts/inspect_live_db.py pass-gaps --tail 400 --limit 40"
 
-**`--tail 400`, not the default.** `--tail 5` is what made sixteen gaps look
-like one for three sessions running. Take a container uptime reading in the
+**AMENDMENT — `--tail 400` is not a rule and a bigger number is not the fix.**
+`--tail 5` is what made sixteen gaps look like one for three sessions running,
+and the repair for that was to raise the number, which reproduces the same trap
+one order of magnitude out. **A row count inherits the loop's cadence as a
+hidden parameter**, and cadence here varies 60x between `DEFAULT_FAST_INTERVAL_S`
+= 15s and the 900s shut-window interval. Measured 2026-08-28: 86 sweep rows per
+hour while attended, so `--tail 400` reaches back **~4.7 hours** — not a night.
+(A session first wrote ~2.2 hours here; the arithmetic was wrong, the direction
+was not.)
+
+**So the read verifies its own reach, in the output, before it is believed:**
+the oldest `pass_ms` in the returned tail must be *older than* the window-open
+timestamp recorded below. If it is not, the tail did not cover the window —
+raise `--tail` and re-run. A tail that stops inside the window reports "no gap"
+for the region it never looked at, and does so silently. Take a container uptime reading in the
 same session, because one branch below needs it:
 
     flyctl ssh console -a kalshi-cockpit -C "cat /proc/uptime"
@@ -257,7 +394,13 @@ same session, because one branch below needs it:
 
 ### What was true when this was written
 
-Live `f1c2b5f`, deployed 2026-08-28 ~15:0xZ, healthy. **Nothing was deployed
+**AMENDMENT — the deploy was 2026-08-28T14:43:09Z, not "~15:0xZ"** (fly machine
+event, `7812601a239428`), and `d64be00` — this very entry — is timestamped
+14:55:24Z. It was written *after* the deploy it says nothing followed. The
+twenty-minute error is why the paragraph below reads as though the window had
+already been open for a while when it had not.
+
+Live `f1c2b5f`, deployed 2026-08-28T14:43:09Z, healthy. **Nothing was deployed
 after that** — deliberately. A deploy restarts the box and can manufacture a
 pass gap of its own, which would contaminate this reading as thoroughly as
 changing the machine's memory would. Joe's call was "spend nothing until the
@@ -266,6 +409,31 @@ Work committed and pushed tonight ships with tomorrow's deploy.
 
 So: any gap in the record between ~15:00Z 2026-08-28 and the read is a clean
 observation on the build carrying `DEFAULT_PASS_DEADLINE_S = 600`.
+
+**AMENDMENT — THE POPULATION CLAUSE, which this document never had and which is
+its actual defect.** Everything below enumerates causes of a missing failure row
+*inside* a valid window. Nothing above said what makes the window valid. It is
+this:
+
+> **A gap is in the population only if it BEGAN after the deadline build reached
+> live.** `PassDeadlineExceeded` and `DEFAULT_PASS_DEADLINE_S` first exist in
+> commit `8658da7`, committed 2026-08-28T13:59:16Z, and reached live with the
+> `f1c2b5f` deploy at **2026-08-28T14:43:09Z**. A gap beginning before that
+> instant is **out of scope — not evidence, not a data point, not a weak one**.
+> Its zero `PassDeadlineExceeded` rows say nothing about anything, because no
+> code capable of writing such a row was running.
+
+This is a scope condition, **not a fifth cause**, and it must never be filed as
+one. A cause explains a missing row inside a valid window; this decides whether
+the window is valid at all. Adding it to the list below would hand a future
+session a fifth off-ramp from a zero that *is* informative — the exact direction
+in which this project's errors have always run.
+
+**Applied to the two gaps that were actually read (2026-08-28):** a 63m20s gap
+beginning ~09:48:29Z and a 47m49s gap beginning ~11:21:18Z. Both began 4.2 and
+2.6 hours before `8658da7` was written and ~5 and ~3.4 hours before it was on
+the box. **Both are out of scope. Neither counts toward the synchronous-blocking
+hypothesis, in either direction.** Do not re-read them as evidence.
 
 ### The prediction, committed in advance
 
@@ -305,7 +473,20 @@ the sixteen historical gaps fall below that bar.
 | **A gap with ≥1 `PassDeadlineExceeded` row** | A hung await. The instrument worked. | Read the traceback in `flyctl logs` — it names the await. Fix that. Retention and the RAM bump both drop down the list. |
 | **A gap >25 min with NO failure row at all** | The deadline could not fire. Four causes, below — narrow before acting. | Do **not** jump to retention. Run the uptime discriminator first. |
 | **A gap ≤25 min with no failure row** | **Uninformative.** Expected under every hypothesis. | Read again the next day. Do not update on it. |
-| **No gap at all** | One clean night against a rate of 3–6/day. | Weak evidence. The base rate says a night with none is unusual but not rare; read again rather than declaring the problem gone. |
+| **No gap at all, over >=12 h of uninterrupted uptime** | One clean night against a rate of 3–6/day. | Weak evidence. The base rate says a night with none is unusual but not rare; read again rather than declaring the problem gone. |
+
+**AMENDMENT — row 4 now carries a minimum, and the reason is that the read on
+2026-08-28 tripped it.** That read had **50 minutes** of clean window (deploy
+14:43:09Z, read 15:33Z) and found no gap. Against the stated base rate of 3-6
+gaps/day, fifty minutes expects **0.1-0.2 gaps**: finding none is what you
+expect under every hypothesis including the worst one. Below 12 h of
+uninterrupted uptime the verdict is **"not taken"**, and the read is repeated.
+It is not "no gap", and it is not weak evidence — it is no evidence.
+
+**What a short clean window IS worth, stated so it is not over-claimed either:**
+those 50 minutes do establish that `f1c2b5f` runs the loop at normal cadence and
+the deploy broke nothing. That is a **deploy-sanity fact, not a gap fact**.
+Write it as that and no more.
 
 ### "No failure row" has FOUR explanations, not two
 
@@ -337,7 +518,17 @@ moment.
 
 Standing, from Joe's own decision plus the partner's addition:
 
-- **No deploy.** Any deploy restarts the box and can manufacture a gap.
+- **AMENDMENT — the rule is NO DEPLOY DURING THE OBSERVATION WINDOW, not "no
+  deploy".** As written this was read by a later session as a standing
+  prohibition, which would freeze the repo indefinitely against a read that
+  keeps not happening. The freeze exists for one reason: to keep container
+  uptime usable as the process-death discriminator (cause 2). **Uptime is only
+  destroyed for gaps that PRECEDE the last restart.** A deploy landing *before*
+  the window opens costs the reading nothing — at read time uptime either
+  equals time-since-deploy (no restart, cause 2 dead) or does not (restart,
+  cause 2 live), and both are readable. So: deploy, then stamp the window open
+  from `/proc/uptime`, then freeze until the read. A deploy *inside* the window
+  voids it and the window restarts.
 - **No RAM bump.** It is Joe's money and it would stop the gaps, destroying the
   reading that tells us whether stopping them that way was even the right fix.
 - **No retention work on `fair_prices` / `odds_snapshots`.** Same reason, plus
