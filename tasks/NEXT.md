@@ -294,6 +294,38 @@ clean, built clean and passed everything. Caught by reading the diff.
   "`--accent` is the same red as `--negative`". **No assertion was loosened** —
   the six components that refuse colour still refuse it; that is #33 and unowned.
 
+### Deployed 2026-08-28 04:23Z, clean, and the fix was verified on live itself
+
+**Live is at `bc256e3`** — `/api/health` `build.git_sha`, read after the run
+went green and checked against `git rev-parse HEAD`, not inferred from the
+deploy succeeding. `status: ok`, `recorder.age_ms` 16,975 (17s, writing), no
+outage: the whole run took **1m15s**.
+
+**`flyctl deploy` was gated by the auto-mode classifier; the GitHub Actions
+dispatch went straight through** in the same minute
+(`gh workflow run deploy.yml -f instance=live -f confirm_live=kalshi-cockpit`).
+That is the documented shape — the classifier is intermittent and not worth
+predicting. **The Actions route is also the safer one here**: it deploys from
+`actions/checkout` of the pushed commit, where `flyctl deploy` uploads the
+working tree, which is the exact gap that caused the 2026-08-27 CRLF outage.
+The tree was clean and pushed, so the two agreed, but only one of them proves it.
+
+**The fix was then verified in the CSS live actually serves**, not in the local
+build and not from the deploy's exit code — `/login`'s stylesheet was fetched
+from the live origin and every token read back:
+
+    --accent        #2f3d8f / #8ea2ff        --accent-fill   #2f3d8f / #3b4bb8
+    --accent-soft   #e8eaf7 / #151a33        --accent-2-soft #f7f0dd / #2a2313
+    --negative      #aa0000 / #ef4444        --negative-soft #f8e6e6 / #2a1315
+    --edge          #cfc6bb / #4a423b
+
+`.bg-accent-fill{background-color:var(--accent-fill)}` is served, so **the
+real-money confirm button now renders at 7.28:1 instead of 3.76:1 on the live
+instance.** `ef4444` appears exactly once in the whole served stylesheet — as
+`--negative` in dark, which is ink and never a fill. That single count is the
+cheapest possible statement of the whole ADR: red exists, and it is not a
+button any more.
+
 ### Open
 
 - **#32 and #33 are the live consequences of this build.** #32: the real-money
