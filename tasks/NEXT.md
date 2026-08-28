@@ -524,7 +524,16 @@ exists, with **0 rows** — the cold-cache state, which reads as *unknown* and
 filters nothing, so the parlay desk is unchanged until the first refresh
 lands. That is the designed cold start, not a fault.
 
-**Verify the writer actually fires.** It is gated on `kind == "full"` and runs
+**VERIFIED 2026-08-28 17:52Z — the writer fires.** `combo_eligible_events`
+holds **3,427 rows**, refreshed ~17:48Z, on the first full pass after the
+deploy. Top series: `KXATPSETWINNER` 163, `KXNFLGAME`/`KXNFLSPREAD`/
+`KXNFLTOTAL` 140 each, `KXWTASETWINNER` 116, `KXNFLFIRSTTD` 96. The union
+across all eligible collections (3,427) is larger than the 2,365 in
+`KXMVECROSSCATEGORY-R` alone, which is the expected shape. **Nothing below is
+outstanding**; the paragraph is kept because the check is the right one to
+repeat if the parlay desk ever goes unexpectedly thin.
+
+**How to verify the writer fires.** It is gated on `kind == "full"` and runs
 at most hourly, so the table should carry rows within ~15 minutes of the
 deploy. If it is still empty after an hour, the writer is not being reached —
 this repo has shipped four complete, tested modules that nothing called, and
