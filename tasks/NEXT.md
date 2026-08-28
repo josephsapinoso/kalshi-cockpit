@@ -294,10 +294,31 @@ the separation above in two commands.
 
 ### Open
 
-- **VERIFY THE FIX HELD.** Newest `loop_failures` at hand-off is id 15,
-  12:38:46Z, **before** the 12:51Z deploy — but that is only minutes of
-  evidence against a failure that was arriving every ~90 s. **Read
-  `pass-gaps` first thing** and confirm no id 16 with a ZeroDivisionError.
+- **VERIFY THE FIX HELD. What is established is narrower than it looks, and
+  one thing said mid-session was wrong.** The claim "no new failures in the
+  ten minutes since the deploy, against a pre-fix cadence of ~90 s" is
+  **misleading**: between the last failure (12:38:46Z) and the deploy
+  (12:51Z) **no pass ran at all** — the loop had stopped after three
+  consecutive failures, so there was nothing to fail. The clean interval was
+  not evidence.
+
+  **What IS established:** the first pass on the fixed build, `pass 1 ok` at
+  12:54:11Z, succeeded. **What is NOT:** sustained health — only that one
+  pass had completed at hand-off — and, more importantly, **whether the new
+  guard actually fired.** If the zero-probability leg aged out of the
+  24-hour window on its own, that pass would have succeeded on the OLD build
+  too, and production has not exercised the fix at all.
+
+  **The measurement that settles it is `fair_probability_not_positive`, and
+  it is currently unreachable.** It is not logged, and `/api/parlays` needs
+  auth. **Log the ladder's excluded tally on the pass summary line** — it is
+  a few characters beside the counts already there, and without it this
+  question cannot be answered from outside. Do that before concluding
+  anything about the fix.
+- **Recorder age was climbing at hand-off**: last write 12:52:33Z, age 621 s
+  at 13:02:55Z, with one pass since the deploy. Below the ~15 min full-pass
+  cadence and far below the heartbeat's 44 min, so **not** an alarm — but it
+  is the same reading that preceded incident B. Read it first.
 - **Incident B is unexplained.** See above.
 - **`fair_probability_not_positive`** — read the rate.
 - **Joe should reopen `/parlays`.** It loaded in 2-3 s before the crash
