@@ -34,6 +34,27 @@
 # better than nothing running off-box, which is what was there before; it is not
 # a pager.
 #
+# **"Roughly" was measured on 2026-08-28 and it is much worse than the word
+# suggests.** Scheduled runs actually delivered, counted from the Actions API
+# against the 96/day this cron asks for:
+#
+#     2026-08-24    67        2026-08-27     9
+#     2026-08-25    70        2026-08-28     4
+#     2026-08-26    46
+#
+# Median gap between runs 22.6 min, **maximum 245 min**, n = 199. The cadence
+# degraded by more than an order of magnitude across three days without
+# changing, failing, or saying anything -- the failure mode this file's own
+# opening paragraph warns about, in the file itself.
+#
+# What that costs: on 2026-08-28 the recorder was silent for 235 minutes across
+# five holes (21.5-63.3 min each,
+# `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`) and this
+# workflow ran four times all day. It caught one. **Do not read a quiet channel
+# as a healthy box** -- and do not raise the cron, because `*/15` is already
+# what is being ignored. Restoring coverage means a watchdog that does not
+# depend on GitHub's scheduler.
+#
 # Required repository secret: DISCORD_WEBHOOK_URL (already set -- the same one
 # `secrets.yml` pushes to Fly).
 
@@ -266,7 +287,12 @@ jobs:
               title: ("⚠ " + $t),
               description: ($d + "\n\nThis check runs on GitHub, outside Fly, because nothing inside a dead container can report that it is dead. Nothing on the Board should be trusted until this clears."),
               color: 11141120,
-              footer: {text: "Heartbeat · every 15 min · GitHub Actions"}
+              # **Not "every 15 min".** That is what the cron asks for; the
+              # scheduler delivered 4 runs on 2026-08-28 against 96 requested,
+              # median gap 22.6 min and max 245 min. A footer promising a
+              # cadence the alarm does not keep turns silence into evidence of
+              # health, which is the one thing this file exists to prevent.
+              footer: {text: "Heartbeat · GitHub Actions cron, best-effort (measured 4-70 runs/day, not 96)"}
             }]
           }')"
 

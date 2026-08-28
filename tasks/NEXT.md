@@ -39,12 +39,14 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,971 passed / 10 xfailed in 8:58**, measured 2026-08-28 on
-the tree committed as the pass-deadline change, with nothing edited after the
-run started. The **+12 over the previous 4,959 is fully accounted**: eight
-`TestAWedgedPassIsBoundedAndRecorded` guards in `tests/test_scheduler.py` and
-four `TestTheLadderReportsWhyItRefusedLegs` guards in
-`tests/test_pass_reporting.py`. That triple — the number, the tree it was taken
+**Test baseline: 4,972 passed / 10 xfailed in 7:14**, measured 2026-08-28 on
+the tree committed as the watchdog corrections, with nothing edited after the
+run started. The **+13 over the previous 4,959 is fully accounted**: eight
+`TestAWedgedPassIsBoundedAndRecorded` guards in `tests/test_scheduler.py`, four
+`TestTheLadderReportsWhyItRefusedLegs` guards in `tests/test_pass_reporting.py`,
+and one footer guard in `tests/test_heartbeat_threshold_arithmetic.py`. Both
+intermediate runs were collected on their own trees (4,971 at the deadline
+commit) rather than reasoned about. That triple — the number, the tree it was taken
 on, and the fact that nothing moved after — is the qualification this line has
 never carried, and its absence is the whole reason it kept being wrong.
 
@@ -363,20 +365,84 @@ above the call. The probe now reads the span from the gate to the push — which
 is the span the claim was always about — with three vacuity guards so it cannot
 pass over the wrong text.
 
+### And the watchdog that was supposed to catch them ran four times that day
+
+The entry below says the heartbeat "is worth trusting, and that is itself a
+result". **Two things in that reading are wrong.**
+
+**Its threshold is 30 minutes, not 44.** `age > 1800000` ms in
+`heartbeat.yml`. 44 was the observed age at the one firing, not the bar. Four
+of the sixteen gaps sit below 30 minutes and could never have alarmed.
+
+**And it does not run every 15 minutes.** Scheduled runs actually delivered,
+from the Actions API, against the 96/day `*/15 * * * *` asks for:
+
+    2026-08-24    67        2026-08-27     9
+    2026-08-25    70        2026-08-28     4
+    2026-08-26    46
+
+Median gap **22.6 min**, maximum **245 min**, n = 199. The cadence fell by more
+than an order of magnitude in three days with no change to the file, no failed
+run, and no signal — the exact failure mode the file's own opening paragraph
+warns about, happening to the file itself.
+
+The two compound: a 31-minute hole is over the bar for about one minute, so a
+poller has to look inside that minute. On 08-28 the recorder was silent for 235
+minutes across five holes and the watchdog looked four times. **It caught one.**
+That firing was accurate, which is why it was trusted; one in sixteen is the
+rate.
+
+Corrected in the workflow: the embed footer said "every 15 min", which turns a
+quiet channel into evidence of health. **Raising the cron is not the fix** —
+`*/15` is already what is being ignored. Restoring coverage means a watchdog
+that does not depend on GitHub's scheduler, and that is a decision, not a patch.
+
 ### Open
 
+**FIRST THING NEXT SESSION — the one read this session was built to enable.**
+Joe's call, 2026-08-28: do not spend money or start retention work until this
+has been read, because the deadline discriminates between the two remaining
+hypotheses and anything that stops the gaps also destroys the reading.
+
+    flyctl ssh console -a kalshi-cockpit       -C "python /app/scripts/inspect_live_db.py pass-gaps --tail 400 --limit 40"
+
+    a gap with a PassDeadlineExceeded row   a hung await. The traceback in
+                                            `flyctl logs` names it. Fix that.
+    a gap with NO failure row at all        the loop was blocked in synchronous
+                                            code. That points at the 1.91 GB
+                                            SQLite file, and retention becomes
+                                            the work.
+    no gap at all                           one night proves little; the rate
+                                            was 3-6 a day. Read again.
+
+**`--tail 400`, not the default.** `--tail 5` is what hid fifteen of these for
+three sessions.
+
 - **READ THE RATE.** Is `ladder_fair_probability_not_positive` non-zero on the
-  pass line? If it is and steady, something upstream returns 0.0 for markets
-  Kalshi is quoting and that is its own investigation. `flyctl logs` is lossy —
-  read timestamps, not counts.
+  pass line? **First two live readings, 2026-08-28 ~14:40Z: 20 and 254 excluded,
+  ALL of them `stale_consensus`, zero `fair_probability_not_positive`.** So the
+  ZeroDivision guard has still not been exercised by a real zero in production —
+  consistent with the bad leg ageing out of the 24-hour window on its own. Two
+  passes is not a rate; keep reading. `flyctl logs` is lossy — read timestamps,
+  not counts.
 - **CHECK FOR A `PassDeadlineExceeded` ROW** next time a gap appears — that
   reading is the whole point of the deadline, and **absence is a result, not a
   null** (see above).
-- **The 1.91 GB database is now a symptom, not just a chore.** 587 MB is
-  reclaimable by vacuum. Retention on `odds_snapshots` and `fair_prices` has
-  been carried forward for several sessions with no owner; it has one now.
-  A `VACUUM` on a 1.9 GB file on a 2 GB box is itself a long synchronous
-  operation — do not run it casually against live.
+- **The 1.91 GB database is now a symptom, not just a chore, and the reason is
+  in `backend/store/retention.py`'s own docstring.** It prunes `kalshi_quotes`
+  and `unmatched_items` and says of the rest: *"It does not bound the tables it
+  does not name. `odds_snapshots` was 33.6 MiB and growing slowly when this was
+  written; it is deliberately out of scope rather than forgotten."* It is now
+  **153.3 MB**, 4.6x that, and `fair_prices` — never named at all — is
+  **284.8 MB**. With their indexes the two unbounded tables are ~641 MB of the
+  1.91 GB; 587 MB more is freelist. Volume has room (4.9 G, 39% used), so a
+  `VACUUM` is feasible on disk — but it is a long synchronous operation on the
+  box that is already stalling, so do not run it casually against live, and
+  bounding the tables comes first. Needs an ADR and the same reader enumeration
+  the quotes rule got.
+- **The off-box watchdog is running at ~4% of its intended rate** (above). No
+  fix attempted beyond making the artifact stop claiming otherwise; the
+  replacement is a decision.
 - Not established: that the deadline fires correctly on live. It has never
   fired anywhere but in a test.
 - Carried forward: #35 (the panel promising a refused sweep);

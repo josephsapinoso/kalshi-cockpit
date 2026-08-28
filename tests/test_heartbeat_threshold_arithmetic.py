@@ -119,6 +119,36 @@ class TestTheStatedReasonMatchesTheDeployedSystem:
         source = WORKFLOW.read_text(encoding="utf-8")
         assert "It is alive and stuck, which is the state" not in source
 
+    def test_the_footer_does_not_promise_a_cadence_the_scheduler_ignores(self):
+        """Measured 2026-08-28 against the Actions API: this cron asks for 96
+        runs a day and delivered 67, 70, 46, **9** and **4** on 08-24 through
+        08-28. Median gap between runs 22.6 min, maximum 245 min, n = 199.
+
+        The footer said "every 15 min". On a channel whose whole purpose is
+        that silence means healthy, a stated cadence the alarm does not keep
+        converts its own absence into evidence — the failure this file's
+        opening paragraph warns about, happening to the file. It must state
+        that the cadence is best-effort, or state nothing.
+
+        Mutation observed red: restore `every 15 min` to the footer.
+        """
+        source = WORKFLOW.read_text(encoding="utf-8")
+        footer = [
+            line for line in source.splitlines()
+            if "footer:" in line and "text:" in line
+        ]
+        assert len(footer) == 1, f"expected one alarm footer, found {footer}"
+
+        assert "every 15 min" not in footer[0], (
+            "the alarm footer promises a fifteen-minute cadence GitHub's "
+            "scheduler does not deliver, so a quiet channel reads as a healthy "
+            "box"
+        )
+        assert "best-effort" in footer[0], (
+            "the footer must say the cadence is not guaranteed; saying nothing "
+            "at all leaves the reader with their own assumption"
+        )
+
     def test_it_still_says_the_recorder_has_stopped(self):
         """Vacuity guard: the two absences above must not be satisfied by the
         alarm having been deleted."""

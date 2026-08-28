@@ -112,6 +112,38 @@ a loop that stops for an hour and then resumes.
 in `NEXT.md` for several sessions. This is the first measurement that attaches a
 symptom to it.
 
+## The only off-box watchdog ran four times that day
+
+`.github/workflows/heartbeat.yml` is the dead-man's switch, and the previous
+session's entry called it "worth trusting, and that is itself a result". Two
+things in that reading are wrong, and both are measurable.
+
+**Its threshold is 30 minutes, not 44.** `age > 1800000` ms. The 44 minutes was
+the *observed* age at the one firing, not the bar. Four of the sixteen gaps are
+below 30 minutes and could never have alarmed.
+
+**And it does not run every 15 minutes.** Scheduled runs actually delivered,
+from the Actions API, against the 96/day `*/15 * * * *` asks for:
+
+    2026-08-24    67        2026-08-27     9
+    2026-08-25    70        2026-08-28     4
+    2026-08-26    46
+
+Median gap between runs **22.6 min**, maximum **245 min**, n = 199. The cadence
+fell by more than an order of magnitude in three days with no change to the
+file, no failed run, and no signal of any kind.
+
+The two compound. A gap only exceeds the 30-minute bar for the part of its
+length past 30 minutes, so a 31-minute hole is visible to a poller for about a
+minute. On 2026-08-28 the recorder was silent for 235 minutes across five holes
+and the watchdog looked four times. **It caught one.** That single true firing
+was accurate and is what made the previous session trust it; one hit out of
+sixteen is the rate.
+
+Corrected in the workflow itself: the embed footer said "every 15 min", which
+turns a quiet channel into evidence of health. Raising the cron is not the fix —
+`*/15` is already what is being ignored.
+
 ## What this does not establish
 
 - **Not the cause of any gap.** Wedge and restart are still both live, and the
