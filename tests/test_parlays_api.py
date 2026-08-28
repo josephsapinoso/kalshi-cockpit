@@ -459,6 +459,86 @@ class TestTheStakePresetsAreTheOperatorsOwnRange:
             assert sum(row["is_default"] for row in card["at_stakes"]) == 1
 
 
+class TestAZeroFairProbabilityNeverReachesArithmetic:
+    """The live outage of 2026-08-28, in two halves.
+
+    `/api/parlays` rendered "Backend unreachable" on the phone and the
+    scheduler logged three consecutive failing passes, all
+    `ZeroDivisionError: float division by zero` at
+    `_stake_row`'s `contracts = stake_cents / (joint * 100.0)`.
+
+    The joint is a PRODUCT over legs (`running *= leg.p_conservative`), so a
+    single leg quoted at 0.0 zeroes the whole card. And because
+    `build_ladder_payload` is called from `score_settle_and_alert` as well as
+    from the route, the same exception took out the tail of every pass with
+    it -- parlay cards, the daily digest and `log_gate_progress` all stopped.
+    **One unpriceable leg stopped the alerting half of the loop.**
+
+    Two guards, deliberately overlapping, because the second is the one the
+    outage argues for: the leg is refused upstream so no such card is ever
+    built, AND the division cannot happen even if one is. A shared helper
+    called from a loop that must not die does not get to trust its caller.
+
+    **What this does not establish:** why a devig returned 0.0 for a market
+    Kalshi was still quoting. That is upstream of the parlay desk and is not
+    diagnosed here -- the refusal is counted so the rate becomes visible
+    rather than silent.
+    """
+
+    def test_a_zero_probability_leg_is_refused_and_counted(self, conn):
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.0)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert [l for l in legs if l.player] == [], (
+            "a leg with no fair probability entered the pool; the joint is a "
+            "product, so it takes every card it touches to zero"
+        )
+        assert excluded.get("fair_probability_not_positive") == 1, excluded
+
+    def test_a_healthy_leg_beside_it_still_enters(self, conn):
+        """The refusal is per row, not per fixture.
+
+        Written because the cheap implementation -- bailing on the whole
+        event when one rung is unreadable -- would pass the test above and
+        silently empty the pool on a slate with one bad row in it.
+        """
+        seed_prop(conn, game="g1", player="Anthony Kay", strike=5.5, p=0.0)
+        seed_prop(conn, game="g1", player="Tarik Skubal", strike=5.5, p=0.61)
+        conn.commit()
+        legs, excluded = ladder_candidates(
+            conn, now_ms=now_ms(), max_odds_age_ms=900_000
+        )
+        assert [l.player for l in legs if l.player] == ["Tarik Skubal"]
+        assert excluded.get("fair_probability_not_positive") == 1, excluded
+
+    def test_the_stake_row_refuses_a_zero_joint_rather_than_dividing(self):
+        """The backstop, called directly.
+
+        This is the exact call that raised on live. It must not raise, and it
+        must not invent a contract count -- a fabricated payout on a card
+        nobody can price is CLAUDE.md rule 1's failure, not a rounding
+        nicety.
+        """
+        row = parlays._stake_row(500, 0.0)
+        assert row["contracts_display"] == "\u2014"
+        assert row["payout_display"] == "\u2014"
+        assert row["stake_display"] == "$5.00"
+
+    def test_a_negative_joint_is_refused_too(self):
+        """`<= 0`, not `== 0`. A negative probability is more broken than a
+        zero one and would otherwise render a negative payout."""
+        row = parlays._stake_row(500, -0.2)
+        assert row["contracts_display"] == "\u2014"
+
+    def test_an_ordinary_joint_still_computes(self):
+        """The guard must not swallow the normal path."""
+        row = parlays._stake_row(500, 0.25)
+        assert row["contracts_display"] != "\u2014"
+        assert row["payout_display"] != "\u2014"
+
+
 class TestPropLegsEnterThePool:
     """MLB player-prop rungs as parlay candidates.
 

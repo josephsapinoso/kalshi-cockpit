@@ -458,6 +458,26 @@ def ladder_candidates(
             count("market_closed")
             continue
 
+        # **A leg whose fair probability is not positive is a bug, not a long
+        # shot** -- CLAUDE.md rule 1, and its "unreadable resolves to None,
+        # never 0" convention pointed at a probability.
+        #
+        # The joint is a product (`running *= leg.p_conservative`), so ONE such
+        # leg zeroes the whole card, and `_stake_row` then divides a stake by
+        # it. That is not hypothetical: on 2026-08-28 it raised
+        # `ZeroDivisionError` on live, took `/api/parlays` down to "Backend
+        # unreachable", and -- because `build_ladder_payload` is called from
+        # `score_settle_and_alert` -- killed the tail of every scheduler pass
+        # with it: parlay cards, the daily digest and `log_gate_progress` all
+        # stopped running.
+        #
+        # Refused here rather than clamped, because a devig that returns 0.0
+        # for a market Kalshi is still quoting has not produced a small
+        # number; it has failed, and the count is what makes that visible.
+        if row["p_conservative"] is None or row["p_conservative"] <= 0.0:
+            count("fair_probability_not_positive")
+            continue
+
         title = row["event_title"] or (
             f"{row['away_team']} @ {row['home_team']}"
             if row["away_team"] and row["home_team"]
@@ -547,9 +567,38 @@ def _dollars(cents: float) -> str:
     return format_dollars(cents * 10.0)
 
 
+#: What a stake buys when the joint cannot be divided by. The app's existing
+#: idiom for "could not be computed" -- the ledger renders an uncomputable
+#: settlement the same way, and says in its own copy that it is "never counted
+#: as $0.00".
+_UNCOMPUTABLE = "\u2014"
+
+
 def _stake_row(stake_cents: int, joint: float) -> dict:
     """What a stake buys at FAIR value: `contracts = stake / fair_cost`,
-    each contract settling $1 — the venue's own combo mechanics."""
+    each contract settling $1 — the venue's own combo mechanics.
+
+    **The zero guard is a backstop, not the fix.** `ladder_candidates` refuses
+    a leg whose `p_conservative` is not positive, so a card reaching here with
+    `joint <= 0` should be impossible. It was not impossible on 2026-08-28:
+    this line raised `ZeroDivisionError` on live, and because the ladder is
+    built inside the scheduler pass as well as by the route, it took out the
+    page AND the tail of every pass.
+
+    So the guard stays even though the upstream refusal makes it unreachable,
+    for the reason the outage itself demonstrates: this function is called
+    from two places and one of them is a loop that must not die. It renders
+    the dash rather than a number, because a fabricated contract count on a
+    card nobody can price is the failure CLAUDE.md rule 1 names.
+    """
+    if joint <= 0:
+        return {
+            "stake_cents": stake_cents,
+            "stake_display": _dollars(stake_cents),
+            "contracts_display": _UNCOMPUTABLE,
+            "payout_display": _UNCOMPUTABLE,
+            "is_default": stake_cents == DEFAULT_STAKE_CENTS,
+        }
     contracts = stake_cents / (joint * 100.0)
     return {
         "stake_cents": stake_cents,
