@@ -99,8 +99,16 @@ class TestNeitherGrowingTableIsScanned:
         ), steps
 
     def test_fair_prices_is_searched_not_scanned(self, conn):
+        """`SCAN f USING INDEX ...` counts as a scan.
+
+        The pattern was a bare `SCAN f` until 2026-08-28, which would have
+        passed VACUOUSLY the moment SQLite chose to scan `f` through an index
+        rather than through the table -- exactly what the sibling test below
+        now observes when the index is dropped. A guard for "every row is
+        visited" must not be defeated by which index the visit goes through.
+        """
         steps = plan(conn, ladder_sql(), (0, 0))
-        assert not any(re.fullmatch(r"SCAN f", s) for s in steps), (
+        assert not any(re.fullmatch(r"SCAN f(?: USING .+)?", s) for s in steps), (
             f"every fair price ever computed is visited: {steps}"
         )
         assert any("market=?" in s and "computed_ms>?" in s for s in steps), steps
@@ -139,17 +147,107 @@ class TestTheRestrictionCannotChangeTheAnswer:
         )
 
 
+class TestTheLadderIsBoundedInSql:
+    """The route must not bring the whole window into the process.
+
+    `ladder_candidates` used to `fetchall()` every `fair_prices` row in a
+    rolling 24-hour window and dedupe in Python: **463,866 rows, ~557 MB on a
+    2 GB box already at ~1.03 GB at rest** (ticket #22, reproduced by two
+    agents independently). The route stalled past 30s healthy, repeated visits
+    OOM-killed uvicorn, and because `docker/entrypoint.sh` uses `wait -n`,
+    killing that child tore down the container and **restarted the recorder
+    too**. About 91 seconds of whole-site outage was observed while measuring
+    it. Joe hit it on his phone on 2026-08-28.
+
+    The Python dedup is still there, on purpose, as a safety net. That is what
+    makes these tests necessary: with the net in place the ROUTE stays correct
+    if the SQL bound is removed, so nothing else in the suite would go red --
+    it would just get slow again, silently, which is how it shipped the first
+    time.
+
+    **What these do not establish:** that `/api/parlays` is fast. They assert
+    the query returns one row per identity on a fixture holding duplicates.
+    Wall-clock belongs on the live box, and the ticket's numbers were taken
+    there.
+    """
+
+    def test_the_window_function_is_in_the_query(self):
+        sql = ladder_sql()
+        assert "ROW_NUMBER() OVER" in sql, (
+            "the ladder is unbounded again: every fair price in the window "
+            "will be materialised in Python"
+        )
+        assert "WHERE rn = 1" in sql
+
+    def test_the_partition_is_exactly_the_python_key(self):
+        """Five columns, and `outcome_description` is the one that matters.
+
+        It is NULL on team markets and load-bearing on props, where
+        `outcome_name` is only "Over"/"Under". Drop it from the partition and
+        two pitchers in one game quoted at the same rung collapse onto one
+        row -- a wrong leg offered for money, not a slow page.
+        """
+        sql = ladder_sql()
+        partition = sql[sql.index("PARTITION BY") : sql.index("ORDER BY f.computed_ms")]
+        for column in (
+            "f.link_id",
+            "f.market",
+            "f.outcome_name",
+            "f.outcome_description",
+            "f.outcome_point",
+        ):
+            assert column in partition, f"{column} left the partition: {partition}"
+
+    def test_duplicates_never_reach_python(self, conn):
+        """The behavioural half: three rows for one rung, one comes back."""
+        _seed_one_rung(conn, computed_ms_values=(1_000, 2_000, 3_000))
+        rows = conn.execute(ladder_sql(), (0, 0)).fetchall()
+        assert len(rows) == 1, (
+            f"the query returned {len(rows)} rows for one identity; the "
+            f"bound is not bounding"
+        )
+        assert rows[0]["computed_ms"] == 3_000, "the freshest row did not win"
+
+    def test_two_players_at_one_rung_stay_two_rows(self, conn):
+        """The partition's own trap, in behaviour rather than in text.
+
+        Same game, same market, same strike, both "Over" -- separated only by
+        `outcome_description`. If that column ever leaves the partition this
+        returns 1 and the screen offers one pitcher's price for the other's
+        bet.
+        """
+        _seed_one_rung(
+            conn,
+            computed_ms_values=(1_000,),
+            descriptions=("Pitcher A", "Pitcher B"),
+        )
+        rows = conn.execute(ladder_sql(), (0, 0)).fetchall()
+        assert len(rows) == 2, (
+            f"two players at one rung collapsed to {len(rows)} row(s)"
+        )
+
+
 class TestEachHalfIsLoadBearing:
     """Pinned so neither is removed as redundant later."""
 
     def test_without_the_fair_prices_index_it_scans_again(self):
+        """A full scan of `f`, however SQLite spells it.
+
+        This probed for the literal string `SCAN f` until 2026-08-28, and went
+        red when the query gained its `ROW_NUMBER()` bound: dropping the index
+        now yields `SCAN f USING INDEX idx_fair_link`, because the partition
+        leads with `link_id` and SQLite reaches for that index instead. Still a
+        full scan of every fair price, so the claim was intact and only the
+        spelling was wrong -- `SCAN <table> USING INDEX` is a scan, and the
+        word that separates it from a seek is SEARCH.
+        """
         c = db.init_db(os.path.join(tempfile.mkdtemp(), "half.db"))
         try:
             c.execute("DROP INDEX IF EXISTS idx_fair_market_computed")
             steps = plan(c, ladder_sql(), (0, 0))
         finally:
             c.close()
-        assert any(re.fullmatch(r"SCAN f", s) for s in steps), (
+        assert any(re.fullmatch(r"SCAN f(?: USING .+)?", s) for s in steps), (
             f"the fair_prices index changes no plan, so it is decoration "
             f"with a write cost: {steps}"
         )
@@ -235,3 +333,49 @@ class TestTheQueryNamesEveryMarketALegMayComeFrom:
         from backend.odds.client import PROP_BASE_MARKETS
 
         assert set(PROP_SERIES.values()) == set(PROP_BASE_MARKETS)
+
+
+def _seed_one_rung(
+    conn,
+    computed_ms_values=(1_000,),
+    descriptions=(None,),
+    market="pitcher_strikeouts",
+):
+    """One linked fixture, and a `fair_prices` row per (time, description).
+
+    Written against the columns the ladder query actually selects, so a schema
+    change that breaks the query breaks this too rather than silently seeding
+    rows the query cannot see. `commence_ms` is far in the future because the
+    query takes pre-game fixtures only (`o.commence_ms > ?`, passed `now`).
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO kalshi_events "
+        "(event_ticker, title, first_seen_ms, last_seen_ms) "
+        "VALUES ('KXTEST-1', 'Test Event', 1, 1)"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO event_links "
+        "(id, kalshi_event_ticker, odds_event_id, league, method, "
+        " commence_skew_ms, linked_ms) "
+        "VALUES (1, 'KXTEST-1', 'oe-1', 'baseball_mlb', 'test', 0, 1)"
+    )
+    conn.execute(
+        "INSERT INTO odds_snapshots "
+        "(fetched_ms, sport_key, odds_event_id, commence_ms, home_team, "
+        " away_team, bookmaker, market, outcome_name, price_decimal) "
+        "VALUES (1, 'baseball_mlb', 'oe-1', 9223372036854, 'H', 'A', "
+        "'pinnacle', ?, 'Over', 2.0)",
+        (market,),
+    )
+    for computed_ms in computed_ms_values:
+        for description in descriptions:
+            conn.execute(
+                "INSERT INTO fair_prices (computed_ms, link_id, market, "
+                "outcome_name, outcome_description, outcome_point, "
+                "p_multiplicative, p_additive, p_power, p_shin, "
+                "p_conservative, book_count, books_used, anchored_on_sharp) "
+                "VALUES (?, 1, ?, 'Over', ?, 5.5, 0.55, 0.54, 0.53, 0.56, "
+                "0.52, 3, '[]', 0)",
+                (computed_ms, market, description),
+            )
+    conn.commit()

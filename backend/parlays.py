@@ -194,6 +194,15 @@ def ladder_candidates(
     horizon_ms = max(_CANDIDATE_SCAN_FLOOR_MS, max_odds_age_ms or 0)
     rows = conn.execute(
         """
+        SELECT computed_ms, market, outcome_name, outcome_point,
+               outcome_description,
+               p_multiplicative, p_additive, p_power, p_shin,
+               p_conservative, oldest_book_age_ms, link_id,
+               market_width, book_count, books_used, anchored_on_sharp,
+               kalshi_event_ticker, odds_event_id,
+               commence_ms, home_team, away_team, sport_key,
+               event_title
+        FROM (
         SELECT f.computed_ms, f.market, f.outcome_name, f.outcome_point,
                f.outcome_description,
                f.p_multiplicative, f.p_additive, f.p_power, f.p_shin,
@@ -201,7 +210,35 @@ def ladder_candidates(
                f.market_width, f.book_count, f.books_used, f.anchored_on_sharp,
                l.kalshi_event_ticker, l.odds_event_id,
                o.commence_ms, o.home_team, o.away_team, o.sport_key,
-               e.title AS event_title
+               e.title AS event_title,
+               -- **The freshest row per identity, chosen in SQL.** This used
+               -- to be done in Python, below, after `fetchall()` had brought
+               -- the whole 24-hour window into the process: 463,866 rows and
+               -- ~557 MB on a 2 GB box that sits at ~1.03 GB at rest, for a
+               -- result the dedup then reduced to a few thousand. Repeated
+               -- visits OOM-killed uvicorn, and because `entrypoint.sh` uses
+               -- `wait -n`, killing that child tore down the container and
+               -- restarted the recorder too -- so opening one tab took the
+               -- whole site down. Measured at about 91 seconds of outage.
+               --
+               -- The partition is byte-for-byte the Python key, INCLUDING
+               -- `outcome_description`. That column is NULL on team markets
+               -- and load-bearing on props, where `outcome_name` is only
+               -- "Over"/"Under": without it two pitchers in one game quoted
+               -- at the same rung collapse onto one row. SQL `PARTITION BY`
+               -- groups NULLs together, which is what a Python dict key of
+               -- `None` does, so the two agree on exactly this point.
+               --
+               -- `f.rowid` breaks ties. The Python `setdefault` kept whichever
+               -- row SQLite happened to return first among equal
+               -- `computed_ms`, which was arbitrary but not random; this is
+               -- arbitrary and STABLE, so two calls a millisecond apart cannot
+               -- offer different legs for the same rung.
+               ROW_NUMBER() OVER (
+                   PARTITION BY f.link_id, f.market, f.outcome_name,
+                                f.outcome_description, f.outcome_point
+                   ORDER BY f.computed_ms DESC, f.rowid DESC
+               ) AS rn
         FROM fair_prices f
         JOIN event_links l ON l.id = f.link_id
         JOIN kalshi_events e ON e.event_ticker = l.kalshi_event_ticker
@@ -235,7 +272,9 @@ def ladder_candidates(
                           'batter_home_runs', 'batter_rbis')
           AND f.computed_ms >= ?
           AND o.commence_ms IS NOT NULL AND o.commence_ms > ?
-        ORDER BY f.computed_ms DESC
+        )
+        WHERE rn = 1
+        ORDER BY computed_ms DESC
         """,
         (now_ms - horizon_ms, now_ms),
     ).fetchall()
@@ -245,7 +284,12 @@ def ladder_candidates(
     def count(reason: str) -> None:
         excluded[reason] = excluded.get(reason, 0) + 1
 
-    # Freshest row per identity. The rows arrive newest-first, so first wins.
+    # Freshest row per identity. The SQL above now guarantees one row per
+    # identity already, so this loop drops nothing -- it is kept deliberately,
+    # as the belt to the query's braces. If the window function is ever
+    # removed or its partition edited, the route degrades to slow rather than
+    # to WRONG, and `TestTheLadderIsBoundedInSql` is what fails loudly.
+    # It also still builds the key tuple that every loop below unpacks.
     freshest: dict[tuple, object] = {}
     for row in rows:
         # `outcome_description` is load-bearing and NULL on team markets.
