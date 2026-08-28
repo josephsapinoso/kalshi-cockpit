@@ -226,7 +226,168 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — the unexplained gap was the sixteenth, and nothing on disk could have said so
+## 2026-08-28 (latest) — PRE-REGISTRATION: how to read tomorrow's gap, decided before the data exists
+
+**This is the session's output and it is the only thing here that expires.**
+Everything else on the Open list will be exactly as available in a week. The
+reading below happens once, against data that only exists overnight, and it
+will be taken by a session that does not have this one's context. The decision
+rule is therefore written **now**, before anyone has seen the answer — the same
+discipline `pre-registrar` exists to enforce, applied to a diagnosis instead of
+a measurement.
+
+Directed by the partner agent, 2026-08-28, after Joe stepped away and asked it
+to manage the session.
+
+### The read
+
+    flyctl ssh console -a kalshi-cockpit \
+      -C "python /app/scripts/inspect_live_db.py pass-gaps --tail 400 --limit 40"
+
+**`--tail 400`, not the default.** `--tail 5` is what made sixteen gaps look
+like one for three sessions running. Take a container uptime reading in the
+same session, because one branch below needs it:
+
+    flyctl ssh console -a kalshi-cockpit -C "cat /proc/uptime"
+    flyctl machine status 7812601a239428 -a kalshi-cockpit
+
+### What was true when this was written
+
+Live `f1c2b5f`, deployed 2026-08-28 ~15:0xZ, healthy. **Nothing was deployed
+after that** — deliberately. A deploy restarts the box and can manufacture a
+pass gap of its own, which would contaminate this reading as thoroughly as
+changing the machine's memory would. Joe's call was "spend nothing until the
+read"; the partner strengthened it to **nothing reaches live until the read**.
+Work committed and pushed tonight ships with tomorrow's deploy.
+
+So: any gap in the record between ~15:00Z 2026-08-28 and the read is a clean
+observation on the build carrying `DEFAULT_PASS_DEADLINE_S = 600`.
+
+### The prediction, committed in advance
+
+This is the part that makes the reading falsifiable, and **it corrects the
+number the session started with.** The first estimate was "a 47-minute gap
+should leave four to five `PassDeadlineExceeded` rows". That is wrong, because
+it assumed the loop retries immediately. It does not: `run_forever` falls
+through to `sleep_until(next_delay(current))` after a failure exactly as it
+does after a success (`backend/scheduler.py`, the `except` block returns to the
+bottom of the `while`). So one hung-await cycle costs **deadline + one
+cadence**, not deadline alone.
+
+Shut-window cadence is `slow_interval_s` = 900s ±15% jitter, and the sweep log
+either side of every 08-28 gap shows the 15-minute cadence, so the window was
+shut. With a 600s deadline that is a **25-minute cycle**. Rows expected, per
+observed gap length, if the cause is a hung await:
+
+    gap 21.5-24.4 min    0 rows
+    gap 27.2-47.8 min    1 row
+    gap 55.0-63.3 min    2 rows
+
+**The first line is the one that matters and it is why this is written down.**
+For a gap shorter than about 25 minutes, **zero `PassDeadlineExceeded` rows is
+the expected result even when the cause is exactly the hung await the deadline
+was built to catch.** Reading "no rows" as "therefore synchronous blocking"
+would be a false negative dressed as a finding — and it would confirm the
+hypothesis this session already favours, which is precisely when a wrong
+inference survives review.
+
+**So: zero rows is only informative on a gap longer than ~25 minutes.** Two of
+the sixteen historical gaps fall below that bar.
+
+### The decision table
+
+| what the read shows | verdict | what happens next |
+|---|---|---|
+| **A gap with ≥1 `PassDeadlineExceeded` row** | A hung await. The instrument worked. | Read the traceback in `flyctl logs` — it names the await. Fix that. Retention and the RAM bump both drop down the list. |
+| **A gap >25 min with NO failure row at all** | The deadline could not fire. Four causes, below — narrow before acting. | Do **not** jump to retention. Run the uptime discriminator first. |
+| **A gap ≤25 min with no failure row** | **Uninformative.** Expected under every hypothesis. | Read again the next day. Do not update on it. |
+| **No gap at all** | One clean night against a rate of 3–6/day. | Weak evidence. The base rate says a night with none is unusual but not rare; read again rather than declaring the problem gone. |
+
+### "No failure row" has FOUR explanations, not two
+
+The session's own write-up named two. The partner named a third. The
+arithmetic above adds a fourth. All four look identical in `loop_failures`, and
+**only one of them is the SQLite hypothesis this session already likes** —
+which is exactly why they are enumerated here rather than sorted out in the
+moment.
+
+1. **Synchronous blocking.** The documented blind spot: `asyncio.timeout`
+   cancels by throwing into an await, and a pass blocked in a long SQLite read
+   never yields. This is the hypothesis the 1.91 GB file supports.
+2. **Process death and restart.** Nothing alive to write a row.
+   **Discriminator: container uptime.** If uptime is shorter than the time
+   since the gap started, the container restarted and cause 2 is live. This
+   needs no new code and no deploy — `cat /proc/uptime` over ssh, taken in the
+   same session as the `pass-gaps` read. Take it *first*, because it is the
+   only one of the four that a later reading destroys.
+3. **The deadline fired and the `loop_failures` write itself blocked** on the
+   same IO that caused the hang. Indistinguishable from 1 in the table, and it
+   *also* points at the volume — so it does not change the next action, but it
+   does mean a row's absence is weaker evidence for 1 specifically than it
+   looks.
+4. **The gap was too short for the deadline to fire at all.** See the
+   prediction above. Ruled in or out by arithmetic alone, before anything else
+   is considered.
+
+### What is NOT to be done before that read
+
+Standing, from Joe's own decision plus the partner's addition:
+
+- **No deploy.** Any deploy restarts the box and can manufacture a gap.
+- **No RAM bump.** It is Joe's money and it would stop the gaps, destroying the
+  reading that tells us whether stopping them that way was even the right fix.
+- **No retention work on `fair_prices` / `odds_snapshots`.** Same reason, plus
+  it needs an ADR and a reader enumeration (15 and 17 readers, `gate.py` among
+  them) that no session should start at the end of an evening.
+- **No replacement watchdog.** It caught 1 of 16, which is damning, but
+  building a detector before the mechanism is known means designing for a cause
+  we cannot name. It is also GitHub delivering 4 of 96 scheduled runs, which
+  more YAML does not fix.
+
+### Lane 0, answered and closed: a gap does NOT make `/hedge` wrong
+
+Asked because it would have reframed the gaps from housekeeping to a live
+money-path defect: the measurement found `kalshi_quotes` is exactly zero inside
+every gap, and `/hedge` is the one surface where
+`MANUAL_ORDERS_ARE_DRY_RUNS = False`. If it read stored quotes, a silence during
+a running game would show a stale lock figure.
+
+**It does not read them.** `fetch_quote` is `LiveQuoteSource.fetch`
+(`scripts/run_loop.py:610,619`), which calls Kalshi REST at read time
+(`backend/kalshi/quotes.py:235-275`). `read_books` (`backend/hedge.py:862`)
+omits a ticker it cannot read — explicitly *absent*, never an empty book,
+"because an empty book is a real and different state". There is no fallback to
+`kalshi_quotes` on the hedge path at all.
+
+**The residual is absence, not wrongness**, and it is the session's theme once
+more: `hedge_watch` is a task in the same process, so during a container-wide
+silence no hedge lock push goes out for the duration. Joe is not told a wrong
+number; he is told nothing, and the screen does not say so.
+
+### In flight at hand-off
+
+Three lanes were running when this was written. Whatever they returned is
+recorded below this entry or in their commits; if a lane is missing, it did not
+finish, and nothing here depends on it.
+
+- **#35 half one** — make `next_call_ms` budget-aware, gated on a test pinning
+  `Tempo.interval_s()` invariant across all three slice states. The claim that
+  it is cadence-neutral rests on `backend/scheduler.py`'s
+  `max(fast, min(slow, until_s / (1 + JITTER)))` cap returning 900s on all
+  three paths. **That arithmetic was pattern-matched, not measured** — the lane
+  was told to pin it as a test and to report rather than work around it if it
+  does not hold.
+- **#35 half two** — three-state panel copy, drafted by `ui-designer` and
+  `retail-bettor` as a proposal on the ticket, not a build. Joe's constraints
+  are already recorded in the ticket body: not an alarm, `--accent-2` at most,
+  must not manufacture action.
+- `sweeps_remaining_today` (`timing.py:1134`) is computed from the whole day's
+  budget rather than the attention slice and is suspected of carrying the same
+  defect. Being checked by the first lane.
+
+---
+
+## 2026-08-28 — the unexplained gap was the sixteenth, and nothing on disk could have said so
 
 **State at start:** `main` = `ddbff1f`, clean, level with `origin/main`. Live
 `/api/health` `build.git_sha` = `5436fc89…` — the ZeroDivision fix, so live
