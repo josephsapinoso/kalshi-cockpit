@@ -317,9 +317,22 @@ a single day's attended hours is not.
 
 ### Open
 
-- **Joe should open the Parlays tab.** That is the outstanding verification
-  and nothing else can take it.
-- **`/api/parlays` wall-clock on live has not been measured** post-fix.
+- **VERIFIED by Joe on the phone, 2026-08-28: Parlays loads in 2-3 seconds.**
+  It was not opening at all before the bound. **Ticket #22 is closed** — the
+  harm it existed for (an OOM that took the container and the recorder with
+  it) no longer has a path.
+- **2-3 s is not fast, and it is almost certainly now the slowest route on
+  the instance** — every other one is sub-second. The residual is the shape
+  the plan already showed and indexing cannot remove: `AUTOMATIC PARTIAL
+  COVERING INDEX` over the subquery's output, which has no persistent index
+  by definition, plus two `USE TEMP B-TREE FOR ORDER BY` sorting a derived
+  join. **Sub-second means changing the query's shape or its window, not
+  adding an index.** No ticket yet; open one before touching it, because the
+  obvious move (add an index) is the one that is already ruled out.
+- **Two map tickets were resolved this session (#34 and #22) against the
+  one-per-session convention.** #22 because leaving the map's most urgent
+  ticket reading "opening it can take the site down" after that stopped being
+  true is worse than the deviation. Flagged rather than hidden.
 - **`sweeps_remaining_today` may have #35's defect too** — it is computed
   from the whole day's budget (`timing.py:1134`), not the attention slice.
   Unchecked.
