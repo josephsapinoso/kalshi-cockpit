@@ -50,6 +50,7 @@ NODE = shutil.which("node")
 _DRIVER = """
 import {
   readNextWindow,
+  anAutomaticBuyIsComing,
   isStaleOddsReason,
   slateIsUnpricedByTheClock,
 } from "./nextOddsWindow.ts";
@@ -57,9 +58,11 @@ const args = JSON.parse(process.argv[2]);
 const result =
   args.fn === "read"
     ? readNextWindow(args.facts)
-    : args.fn === "cold"
-      ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
-      : isStaleOddsReason(args.reason);
+    : args.fn === "coming"
+      ? anAutomaticBuyIsComing(args.facts)
+      : args.fn === "cold"
+        ? slateIsUnpricedByTheClock(args.rows, args.maxOddsAgeMs)
+        : isStaleOddsReason(args.reason);
 console.log(JSON.stringify(result === undefined ? null : result));
 """
 
@@ -86,6 +89,10 @@ def read(facts):
     return _run({"fn": "read", "facts": facts})
 
 
+def buy_is_coming(facts):
+    return _run({"fn": "coming", "facts": facts})
+
+
 def is_stale(reason):
     return _run({"fn": "stale", "reason": reason})
 
@@ -104,17 +111,25 @@ def facts(
     next_sweep_ms=None,
     sweeps_remaining_today=2,
     last_look_ms=None,
+    attention_slice_spent=None,
+    floor_next_buy_ms=None,
 ):
     """`last_look_ms=None` is the pre-stall default: unknown, never stopped.
 
     Every case written before 2026-08-25 relies on that -- the stall branch must
     not fire for a caller that never supplied the field.
+
+    `attention_slice_spent=None` is the same shape one layer on, and carries
+    the same obligation: every case written before 2026-08-28 relies on the
+    slice branch not firing for a caller that never supplied the field.
     """
     return {
         "now_ms": now_ms,
         "next_sweep_ms": next_sweep_ms,
         "sweeps_remaining_today": sweeps_remaining_today,
         "last_look_ms": last_look_ms,
+        "attention_slice_spent": attention_slice_spent,
+        "floor_next_buy_ms": floor_next_buy_ms,
     }
 
 
@@ -508,3 +523,233 @@ class TestTheColdScreenIsNarrowerThanUrgency:
         case still asserts the behaviour, which is what it was for.
         """
         assert cold([]) is False
+
+
+@requires_node
+class TestASpentSliceIsNotAQuietNight:
+    """The 04:38Z screen, and the branch that would have replaced its lie.
+
+    Half one made `next_sweep_ms` budget-aware, so past the attention slice it
+    publishes `null`. A null then fell through `budget_spent` -- whose test is
+    whole-day-derived and read ~123 sweeps remaining on exactly the night the
+    slice was gone -- into `nothing_to_schedule`, which asserts that no kickoff
+    is near enough. **That is false whenever a kickoff is inside the twelve-hour
+    horizon**, which is most evenings. One lie for another, and half one's own
+    commit flagged it as a deploy-safety hazard rather than shipping it.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - Nothing about `attention_slice_spent` or `floor_next_buy_ms` being right.
+      `test_sweep_timing.py` owns the planner that computes them; this trusts
+      the wire shape, the way every case above trusts `next_sweep_ms`.
+    - Nothing about whether 300 credits a day is the right ceiling. Explicitly
+      out of scope on ticket #35.
+    """
+
+    def test_a_spent_slice_no_longer_claims_no_kickoff_is_near(self):
+        """The exact false sentence, and it must not be reachable."""
+        reading = read(
+            facts(
+                now_ms=1_000_000,
+                next_sweep_ms=None,
+                sweeps_remaining_today=123,
+                attention_slice_spent=True,
+                floor_next_buy_ms=6_000_000,
+            )
+        )
+        assert reading["kind"] == "slice_spent"
+        assert "near enough" not in reading["sentence"]
+        assert reading["floor_resumes_ms"] == 6_000_000
+
+    def test_the_floor_resuming_and_the_floor_wanting_nothing_differ(self):
+        """Two nulls that mean different things, which is the whole reason
+        `floor_next_buy_ms` is a separate field from `next_desk_buy_ms`."""
+        resumes = read(
+            facts(attention_slice_spent=True, floor_next_buy_ms=6_000_000)
+        )
+        never = read(facts(attention_slice_spent=True, floor_next_buy_ms=None))
+        assert resumes["kind"] == never["kind"] == "slice_spent"
+        assert resumes["sentence"] != never["sentence"]
+        assert "once you stop looking" in resumes["sentence"]
+        assert "close enough" in never["sentence"]
+
+    def test_the_slice_sentence_never_tells_him_to_tap(self):
+        """ADR 0071 section 2.1 -- the desk does not manufacture action, and
+        both reviews on #35 rejected the ticket's own "tap, 150 credits are
+        sitting there". The panel withdraws a false reason to wait; it does
+        not supply a reason to spend."""
+        for floor in (None, 6_000_000):
+            sentence = read(
+                facts(attention_slice_spent=True, floor_next_buy_ms=floor)
+            )["sentence"]
+            assert "tap" not in sentence.lower()
+            assert "credit" not in sentence.lower()
+
+    def test_the_whole_day_being_spent_outranks_the_slice(self):
+        """If the day's 700 is gone the floor cannot buy either, so that is the
+        stronger true sentence and must win. Ordering, not preference."""
+        reading = read(
+            facts(
+                next_sweep_ms=None,
+                sweeps_remaining_today=0,
+                attention_slice_spent=True,
+                floor_next_buy_ms=6_000_000,
+            )
+        )
+        assert reading["kind"] == "budget_spent"
+
+    def test_a_servable_time_outranks_the_slice(self):
+        """The server applies the slice now, so a published time is one the
+        loop can serve. A spent slice with a time is the unattended case, and
+        the time is the answer."""
+        reading = read(
+            facts(
+                now_ms=1_000_000,
+                next_sweep_ms=4_600_000,
+                attention_slice_spent=True,
+            )
+        )
+        assert reading["kind"] == "scheduled"
+        assert reading["open_ms"] == 4_600_000
+
+    def test_a_stalled_loop_outranks_the_slice(self):
+        """A recorder that has stopped writing is a fault; a spent slice is
+        the design working. The fault is the sentence the reader needs, and
+        the 2026-08-25 incident is why order is asserted rather than assumed."""
+        reading = read(
+            facts(
+                now_ms=1_000_000,
+                last_look_ms=1_000_000 - 400_000,
+                attention_slice_spent=True,
+                floor_next_buy_ms=6_000_000,
+            )
+        )
+        assert reading["kind"] == "loop_stalled"
+
+    def test_a_caller_that_omits_the_field_reads_exactly_as_before(self):
+        """The backward-compatibility obligation, spelled as a case rather
+        than trusted. `undefined` is "this caller does not know", never "the
+        slice has credits" -- and every reading written before 2026-08-28
+        omits the key entirely."""
+        reading = read(
+            {
+                "now_ms": 1_000_000,
+                "next_sweep_ms": None,
+                "sweeps_remaining_today": 2,
+            }
+        )
+        assert reading["kind"] == "nothing_to_schedule"
+
+    def test_the_slice_sentence_smuggles_no_clock_time(self):
+        """Same rule the other wordy branches are held to: the module holds no
+        clock rendering, so a caller formats `floor_resumes_ms` through
+        DISPLAY_TIME_ZONE. A digit in the sentence would be a second, unzoned
+        clock."""
+        for floor in (None, 6_000_000):
+            sentence = read(
+                facts(attention_slice_spent=True, floor_next_buy_ms=floor)
+            )["sentence"]
+            assert not re.search(r"\d", sentence), sentence
+
+
+@requires_node
+class TestTheWatcherAsksWhetherABuyIsPossible:
+    """`RefreshWhenPriced` polled `/api/window` every ten seconds for five
+    minutes, for a sweep the loop had already refused, and would then have
+    reported a fault that did not exist. It watched `fixtures_fresh` rising --
+    the *evidence* of a buy -- and never asked whether a buy could happen.
+    """
+
+    def test_a_scheduled_or_due_buy_is_coming(self):
+        assert buy_is_coming(facts(now_ms=1_000_000, next_sweep_ms=4_600_000))
+        assert buy_is_coming(facts(now_ms=1_000_000, next_sweep_ms=900_000))
+
+    def test_a_spent_slice_is_not_a_coming_buy(self):
+        assert not buy_is_coming(
+            facts(attention_slice_spent=True, floor_next_buy_ms=6_000_000)
+        )
+
+    def test_a_stalled_loop_is_not_a_coming_buy(self):
+        """A buy that is wanted while nothing is running to serve it is not a
+        buy that is coming -- the distinction the 2026-08-25 incident bought."""
+        assert not buy_is_coming(
+            facts(
+                now_ms=1_000_000,
+                next_sweep_ms=900_000,
+                last_look_ms=1_000_000 - 400_000,
+            )
+        )
+
+    def test_an_unreadable_timetable_is_not_a_coming_buy(self):
+        """A question that could not be asked is not a yes."""
+        assert not buy_is_coming(None)
+
+    def test_the_watcher_gates_both_its_poll_and_its_promise(self):
+        """Source pin: the pure predicate being right proves nothing if the
+        component still sets an interval and still promises a price."""
+        src = (
+            REPO / "frontend" / "src" / "components" / "RefreshWhenPriced.tsx"
+        ).read_text(encoding="utf-8")
+        assert "automaticBuyIsComing" in src
+        # The early return must precede the interval, or the poll runs anyway.
+        gate = src.index("if (!automaticBuyIsComing) return;")
+        assert gate < src.index("setInterval(look, POLL_MS)")
+        # And the promise must not render in the state that cannot keep it.
+        assert "No new price is due to arrive on its own" in src
+
+    def test_both_callers_pass_the_predicate_rather_than_a_literal(self):
+        """A `true` hardcoded at either call site restores the whole defect."""
+        for path in (SLATE_PAGE, PARLAY_CARDS):
+            src = path.read_text(encoding="utf-8")
+            assert (
+                "automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}"
+                in src
+            ), path
+
+
+class TestThePanelStatesWhichOfThreeStatesItIsIn:
+    """Question 2 of #35. The panel rendered all three identically, and the
+    one it got wrong is the middle one."""
+
+    PANEL = (
+        REPO / "frontend" / "src" / "components" / "RefreshOddsPanel.tsx"
+    )
+
+    def test_the_false_promise_is_gone(self):
+        """The literal sentence Joe read at 04:38Z, in the same minute the loop
+        logged its refusal of that exact sweep."""
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert "The next scheduled sweep is" not in src
+
+    def test_all_three_states_are_drawn(self):
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert 'reading.kind === "slice_spent"' in src
+        assert 'reading.kind === "scheduled"' in src
+        assert 'reading.kind === "nothing_to_schedule"' in src
+
+    def test_the_status_line_precedes_the_credit_accounting(self):
+        """The reason the panel was rebuilt rather than reworded: the credit
+        paragraph put the first state-bearing sentence ~230px down the panel,
+        and on the night it mattered that sentence was the false one."""
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert src.index("Automatic buying is running") < src.index(
+            "Taps have reserved"
+        )
+
+    def test_only_the_refusal_state_is_ochre_and_it_has_no_fill(self):
+        """ADR 0081 section 3 -- every refusal is ochre -- against ADR 0071's
+        "a hard ceiling and the reason the design is safe". Ink, never ground:
+        a soft-ground block would be the loudest thing on the Games screen on
+        most visit-hours, for a system that is working correctly."""
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert "text-accent-2" in src
+        assert "bg-accent-2" not in src
+        assert "bg-accent-fill" not in src
+
+    def test_the_tap_control_is_not_conditioned_on_the_state(self):
+        """ADR 0071 section 2.1. A control that grows when the system goes
+        quiet is the desk saying "now would be a good time"; the button is the
+        same in all three states, so the fix can only ever remove a false
+        reason to wait."""
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert "reading" not in src.split("data.sports.map")[1]

@@ -38,6 +38,22 @@ import { fetchWindow } from "@/lib/api";
  * for. It says it has stopped rather than going quiet, because a silent
  * watcher and a broken one look identical.
  *
+ * **It checks whether a buy is POSSIBLE, not only whether freshness is
+ * rising, and until 2026-08-28 it did not.** On the 04:38Z screen this
+ * rendered *"this page will update itself when one lands"* and polled
+ * `/api/window` every ten seconds for five minutes for a sweep the loop had
+ * already refused — the attention slice was spent, so nothing was going to
+ * land — and would then have said *"No new prices arrived in five minutes"*,
+ * implying a fault where there was none. It watched the wrong number: a rising
+ * `fixtures_fresh` is the *evidence* of a buy, and whether a buy is coming at
+ * all is a different question, which `readNextWindow` answers. The caller
+ * passes that answer in.
+ *
+ * That gate is also what makes the give-up sentence true again. "No new prices
+ * arrived" now renders only in the state where prices were genuinely due, so it
+ * reports a real disappointment instead of manufacturing one out of a quiet
+ * night working exactly as designed. Ticket #35.
+ *
  * **Hidden tabs do not poll, and that is a correctness argument rather than a
  * courtesy.** `Nav.tsx` gates its heartbeat on `document.visibilityState`, so a
  * backgrounded tab is sending none — which means no sweep is coming for it, so
@@ -64,9 +80,23 @@ const GIVE_UP_MS = 300_000;
 
 export default function RefreshWhenPriced({
   renderedFresh,
+  automaticBuyIsComing,
 }: {
   /** `ActionableWindow.fixtures_fresh` as the server saw it for this render. */
   renderedFresh: number;
+  /**
+   * Whether the scheduler is going to buy a price without being asked —
+   * `anAutomaticBuyIsComing`, which is `readNextWindow` reading `due_now` or
+   * `scheduled`.
+   *
+   * **Not "are the prices stale".** Staleness is why this component is
+   * mounted at all; this is whether waiting for it to fix itself is a thing
+   * worth doing. Past the attention slice every sport is wanted on the
+   * ten-minute cadence and every one of them is refused, so while the page is
+   * open the honest answer is that nothing is coming — and the page should
+   * say so rather than poll for it.
+   */
+  automaticBuyIsComing: boolean;
 }) {
   const router = useRouter();
   const [stopped, setStopped] = useState(false);
@@ -77,6 +107,11 @@ export default function RefreshWhenPriced({
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
+    // Nothing is due, so there is nothing to watch for. Returning before the
+    // interval is set is the whole fix: a poller running when no buy can
+    // happen is a background request loop whose only possible outcome is the
+    // five-minute give-up message, on a night when nothing was wrong.
+    if (!automaticBuyIsComing) return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval>;
     const startedAt = Date.now();
@@ -126,7 +161,17 @@ export default function RefreshWhenPriced({
     };
     // `renderedFresh` restarts the watch after a refresh that did not produce
     // a card: the new baseline is the count the new render actually saw.
-  }, [renderedFresh, router, generation]);
+  }, [renderedFresh, router, generation, automaticBuyIsComing]);
+
+  if (!automaticBuyIsComing) {
+    return (
+      <p className="text-xs leading-snug text-muted" aria-live="polite">
+        No new price is due to arrive on its own, so this page is not watching
+        for one. It will not change by itself until you reload it or buy a
+        price above.
+      </p>
+    );
+  }
 
   return (
     <p className="text-xs leading-snug text-muted" aria-live="polite">

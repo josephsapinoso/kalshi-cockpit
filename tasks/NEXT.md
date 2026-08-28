@@ -338,6 +338,69 @@ suspect, not the last.**
 The window is open and a deploy inside it voids it. Half two below is built on
 disk and ships with tomorrow's post-read deploy.
 
+### #35 half two BUILT ON DISK, not deployed — the window is open
+
+The session's build work, from the `ui-designer`/`retail-bettor` proposal
+already on ticket #35. **It closes the live defect half one's own DEPLOY SAFETY
+note left open**, which was the reason to build it tonight rather than queue it.
+
+**The defect, and it was reachable on live.** Half one made `next_sweep_ms`
+budget-aware, so past the attention slice it publishes `null`. That null fell
+through `readNextWindow`'s `budget_spent` branch — whose test is whole-day
+derived and read ~123 sweeps remaining on exactly the night the slice was gone —
+into `nothing_to_schedule`: *"no upcoming kickoff is near enough."* **False
+whenever a kickoff is inside the twelve-hour horizon**, which is most evenings.
+One lie swapped for another. `WindowBanner.tsx:386` carried the same branch and
+the same falsehood on `/board`.
+
+What landed:
+
+- **`readNextWindow` gains a `slice_spent` reading**, ordered *after*
+  `budget_spent` (if the day's 700 is gone the floor cannot buy either, so that
+  is the stronger true sentence) and *before* `nothing_to_schedule`. It carries
+  `floor_resumes_ms` so the two nulls stay distinguishable: "the slow hourly buy
+  resumes once you stop looking" and "no stored fixture brings the floor round
+  either" are different sentences.
+- **`anAutomaticBuyIsComing` is exported rather than spelled at each call site.**
+  The whole shape of #35 was one predicate with two spellings that drifted, so
+  the second one is not written twice.
+- **`RefreshWhenPriced`'s fourth false promise is fixed**, folded in here rather
+  than ticketed separately because it is the same class, screen and minute. It
+  polled `/api/window` every 10s for five minutes for a sweep the loop had
+  refused, then would have reported a fault that did not exist. It now gates
+  both the poll and the promise on `anAutomaticBuyIsComing`. **That gate is also
+  what makes the give-up sentence true again** — "no new prices arrived" now
+  renders only where prices were genuinely due.
+- **The panel states which of three states it is in**, status line as the first
+  child, the ~430-character credit paragraph demoted below the buttons (a
+  caption, not a headline — ADR 0050's precedent, and the owner review reports
+  never having made a decision with those four numbers). `--accent-2` **ink**
+  on the slice-spent line only: no fill, no soft ground, because a soft-ground
+  block would be the loudest thing on the Games screen on most visit-hours for a
+  system that is working correctly.
+- **The tap control is byte-identical in all three states.** ADR 0071 §2.1 — the
+  panel's job when the desk goes quiet is to withdraw a false reason to wait,
+  never to supply a reason to spend. Both reviewers rejected the ticket's own
+  *"tap — 150 credits are sitting there"*, and a test asserts no slice-spent
+  sentence contains "tap" or "credit".
+
+**Five mutations, each observed red**, per the repo rule that a guard surviving
+its own deletion is decoration: the slice branch removed (the pre-fix code); the
+slice checked before the whole-day budget; `due_now` dropped from the coming-buy
+predicate; the watcher's poll gate removed; the panel's status line reworded so
+it no longer precedes the credits.
+
+**Not done, and deliberately:** `next build` is green and `tsc` is clean, but
+**eslint could not be run** — it is not installed in this tree and there is no
+`eslint.config.*`, which is pre-existing and not caused by this change. Do not
+record this tree as "lint clean".
+
+### Do not deploy this until the read
+
+Half two is committed and pushed and **must not ship before tomorrow's
+reading** — the observation window opened at 2026-08-28T15:44:58Z and a deploy
+inside it voids it. It ships with the post-read deploy.
+
 ### Ruled out, so nobody spends a minute on it
 
 **Ticket #10's WCAG failure is fixed and verified in the CSS live serves**

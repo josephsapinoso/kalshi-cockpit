@@ -25,6 +25,71 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-28 — A pre-registration must fix its scope conditions before it enumerates causes
+
+**The pattern.** When an **absence** is the finding — no rows, no alert, no
+error — the first question is not "which of these causes explains it". It is
+**"was the detector present, and did the query reach far enough to see it?"**
+A cause list answers what a missing row means *inside a valid window*; it says
+nothing about whether the window was valid, and a careful list of causes reads
+as rigour while quietly assuming the thing most likely to be wrong.
+
+So a pre-registration needs a **population clause** before its decision table:
+*which observations are in scope, and what makes them so.* Without one, a
+reading taken outside the population produces a verdict that looks like a
+result and is not one.
+
+**Where it bit.** A pre-registration for reading a scheduler gap enumerated
+four explanations for a missing `PassDeadlineExceeded` row — synchronous
+blocking, process death, the failure-write itself blocking, and the gap being
+too short for the deadline to fire. Careful, correct, and pointed at the wrong
+question. When the read was taken, both gaps in the window had begun **hours
+before the deadline code was written**, and ~5 hours before the deploy that put
+it on the box. Zero rows meant nothing: no code capable of writing a row was
+running.
+
+Two silent failures, both flattering:
+
+1. **The instrument was not deployed.** Nothing in the output says so — a
+   query against a table returns zero rows whether the feature is absent or
+   merely quiet.
+2. **The query's reach was set by a row count**, `--tail 400`, on a loop whose
+   cadence varies 60x between a 15s fast interval and a 900s shut-window one.
+   The window it covers is therefore a hidden variable, and a tail that stops
+   inside the observation period reports "no gap" for the region it never
+   looked at.
+
+Both failed toward the hypothesis the session already favoured — *no rows,
+therefore synchronous blocking* — which is the direction to expect and the
+reason to check.
+
+**What to do instead.**
+
+- **State the population before the causes.** "An observation counts only if it
+  began after <instrument> reached live at <timestamp>." Stamp that timestamp
+  **from the machine** (`/proc/uptime`), not from a deploy log or from memory:
+  the version of this that was written from memory was twenty minutes wrong.
+- **Never let a scope condition become an entry in the cause list.** It is a
+  fifth off-ramp from a zero that *is* informative, and once filed as a cause
+  it will be used as one.
+- **Make a query verify its own reach in its output** rather than trusting a
+  count. The oldest row returned must predate the window's start, checked and
+  re-run wider if not. Raising `--tail 5` to `--tail 400` fixed one instance of
+  this trap and reproduced it one order of magnitude out.
+- **Give a null result a minimum duration.** "No gap" over 50 minutes against a
+  base rate of 3-6/day expects 0.1-0.2 gaps: it is not weak evidence, it is no
+  evidence, and it should be recorded as *"not taken"* rather than as a
+  verdict.
+
+**And the freeze that protects a reading should name the window, not the
+activity.** "No deploy" was written for a window already open and was later read
+as a standing prohibition, which would freeze a repo indefinitely against a read
+that keeps not happening. The rule is **no deploy during the observation
+window**: container uptime is only destroyed for gaps that *precede* the last
+restart, so a deploy landing before the window opens costs the reading nothing.
+
+---
+
 ## 2026-08-28 — "Unexplained one-off" is a claim about frequency, and a default window is not a population
 
 **The pattern.** When a diagnostic tool has a `--tail` / `--limit` / `--since`

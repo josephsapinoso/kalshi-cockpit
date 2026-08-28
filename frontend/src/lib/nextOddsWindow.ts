@@ -12,11 +12,22 @@
  * tap), not a softer gate.
  *
  * **The facts come from `/api/window`, never re-planned here.** `next_sweep_ms`
- * is `window_status`'s `next_call_ms`, computed through `firing_for_slot` — the
- * same predicate the loop spends credits with ("one predicate, two callers",
- * backend/odds/timing.py). A next-window time derived any other way would
- * eventually disagree with the scheduler, and the screen is the side that gets
- * believed.
+ * is `window_status`'s `next_call_ms`. A next-window time derived any other way
+ * would eventually disagree with the scheduler, and the screen is the side that
+ * gets believed.
+ *
+ * **That field used to carry a guarantee it could not keep, and the retraction
+ * is why this module has a `slice_spent` branch.** The claim was that the page
+ * could not disagree with the loop, because both went through `firing_for_slot`.
+ * True of the slot schedule, false of the budget: the attention slice is checked
+ * *after* the desk predicate has said a call is wanted, so the field answered
+ * "is a call wanted?" while the screen rendered "is a call coming?". They agree
+ * on every night the slice has credits and diverge on the nights it does not,
+ * and on 2026-08-28 at 04:38Z the panel promised a sweep in the same minute the
+ * loop logged its refusal of that exact sweep. The server now applies the slice
+ * too, so a *time* in the field is servable — but `null` became ambiguous in
+ * the process, and reading it without `attention_slice_spent` beside it is what
+ * produces the next wrong sentence. Ticket #35.
  *
  * **Every branch is honest or it is words.** No scheduled window → a sentence
  * saying which of the two reasons holds (budget spent vs nothing to plan
@@ -63,8 +74,8 @@
  */
 export const LOOP_STALL_MS = 180_000;
 
-/** The four `/api/window` fields the reading needs; structurally satisfied
- *  by `ActionableWindow`. `null` for the whole object means the timetable
+/** The `/api/window` fields the reading needs; structurally satisfied by
+ *  `ActionableWindow`. `null` for the whole object means the timetable
  *  fetch failed — a different state from "no window is scheduled". */
 export type NextWindowFacts = {
   now_ms: number;
@@ -83,6 +94,26 @@ export type NextWindowFacts = {
    * (`tasks/lessons.md`).
    */
   last_look_ms?: number | null;
+  /**
+   * `window_status().attention_slice_spent`: the attention slice can no
+   * longer fund one more sweep.
+   *
+   * **Optional for the same reason `last_look_ms` is** — a caller that has
+   * not been updated omits it and gets exactly the reading it got before.
+   * `undefined` is "this caller does not know", never "the slice has
+   * credits", so the branch below cannot fire on an absent field.
+   */
+  attention_slice_spent?: boolean;
+  /**
+   * `window_status().floor_next_buy_ms`: when the hourly floor next wants a
+   * buy, computed as though nobody were looking.
+   *
+   * A **lookahead**, not a snapshot: a sport enters the floor's twelve-hour
+   * horizon at `kickoff - 12h`, so at 04:38Z against an 18:20Z kickoff this
+   * is ~06:20Z while the desk wants nothing at all. `null` means no stored
+   * fixture ever brings the floor round, which is a third state again.
+   */
+  floor_next_buy_ms?: number | null;
 };
 
 export type NextWindowReading =
@@ -98,6 +129,21 @@ export type NextWindowReading =
   | { kind: "scheduled"; open_ms: number; now_ms: number }
   /** No window remains because the day's odds budget is spent. */
   | { kind: "budget_spent"; sentence: string }
+  /**
+   * The day's credits remain but the **attention slice** is spent, so
+   * nothing is bought automatically while this page is open.
+   *
+   * `floor_resumes_ms` is when the hourly floor would buy once nobody is
+   * looking, or `null` when it wants nothing either. The caller formats it;
+   * `sentence` is complete and clock-free without it, so a caller that
+   * renders only the sentence is still telling the truth.
+   */
+  | {
+      kind: "slice_spent";
+      floor_resumes_ms: number | null;
+      now_ms: number;
+      sentence: string;
+    }
   /** Credits remain but no upcoming kickoff is near enough to plan a
    *  pre-game sweep for. */
   | { kind: "nothing_to_schedule"; sentence: string };
@@ -157,6 +203,43 @@ export function readNextWindow(
         "over.",
     };
   }
+  // **Before `nothing_to_schedule`, and this ordering is the fix.** Half one
+  // made `next_sweep_ms` budget-aware, so past the slice it is `null` — and a
+  // null used to fall through `budget_spent` (whose test is whole-day-derived
+  // and reads ~123 remaining on exactly the nights the slice is gone) into
+  // "no upcoming kickoff is near enough", which is **false whenever a kickoff
+  // is inside the twelve-hour horizon**. One lie replaced by another. Ticket
+  // #35; flagged as a deploy-safety hazard by half one's own commit.
+  //
+  // **After `budget_spent`, deliberately.** If the whole day's 700 is gone the
+  // floor cannot buy either, so that sentence is the stronger true one and
+  // must win. The slice branch describes the narrower state: the day can still
+  // afford sweeps, and only the attended-refresh allowance is exhausted.
+  if (facts.attention_slice_spent === true) {
+    const floorResumes = facts.floor_next_buy_ms ?? null;
+    return {
+      kind: "slice_spent",
+      floor_resumes_ms: floorResumes,
+      now_ms: facts.now_ms,
+      // **Never "a tap is the only path".** ADR 0071 §2.1 — the desk does
+      // not manufacture action. Both reviews on #35 rejected the ticket's own
+      // "tap, 150 credits are sitting there": a fresh price for a game half a
+      // day out is a fraction of a cent of EV on a one-contract stake, and the
+      // floor buys it for nothing. The panel's job here is to **withdraw a
+      // false reason to wait**, not to supply a reason to spend.
+      sentence:
+        floorResumes === null
+          ? "Today's automatic buying is done — the desk buys by itself " +
+            "until it reaches the day's allowance, and it has. Nothing " +
+            "further is bought automatically while this page is open, and " +
+            "no stored fixture is close enough for the slow hourly buy to " +
+            "want one either."
+          : "Today's automatic buying is done — the desk buys by itself " +
+            "until it reaches the day's allowance, and it has. Nothing " +
+            "further is bought automatically while this page is open; the " +
+            "slow hourly buy resumes once you stop looking.",
+    };
+  }
   return {
     kind: "nothing_to_schedule",
     sentence:
@@ -164,6 +247,29 @@ export function readNextWindow(
       "the planner to open a pre-game window for. A tap below is the only " +
       "path to a fresh read.",
   };
+}
+
+/**
+ * Is the scheduler going to buy a price without being asked?
+ *
+ * **Exported rather than spelled at each call site**, because there are two of
+ * them and the whole shape of ticket #35 was one predicate with two spellings
+ * that drifted apart. `RefreshWhenPriced` gates its poll on this: watching for
+ * a price nobody is going to buy produces a five-minute "no new prices
+ * arrived" on a night when nothing was wrong.
+ *
+ * **`due_now` counts and `loop_stalled` does not**, which is the ordering
+ * `readNextWindow` already establishes — a buy that is wanted while the
+ * recording loop has stopped writing is not a buy that is coming. `unknown`
+ * does not count either: a timetable that would not answer is not evidence a
+ * sweep is on its way, and the caller's fallback is to say so rather than to
+ * wait on it.
+ */
+export function anAutomaticBuyIsComing(
+  facts: NextWindowFacts | null,
+): boolean {
+  const kind = readNextWindow(facts).kind;
+  return kind === "due_now" || kind === "scheduled";
 }
 
 /**

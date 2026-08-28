@@ -7,6 +7,7 @@ import {
 import type { ActionableWindow, Refreshable } from "@/lib/api";
 import RefreshOddsButton from "@/components/RefreshOddsButton";
 import { leagueLabel } from "@/lib/leagueLabel";
+import { readNextWindow } from "@/lib/nextOddsWindow";
 
 /**
  * The way out of a slate that is grey because of a clock.
@@ -26,6 +27,37 @@ import { leagueLabel } from "@/lib/leagueLabel";
  * there — `actionable` has been 0 on this instance for every market type for
  * the life of the record. Every string below is written against that, the same
  * way `WindowSchedule` says *priceable* and never *bettable*.
+ *
+ * **The status line is the first thing in the panel, and the credit accounting
+ * is the last.** Until 2026-08-28 the order was reversed: a ~430-character
+ * paragraph about credit pools sat on top (8 lines at 390px, 11 at 320px), so
+ * the first state-bearing sentence began roughly 230px in - and on the 04:38Z
+ * screen that sentence was the false one, *"the next scheduled sweep is now"*,
+ * rendered in the same minute the loop refused that exact sweep. Nothing above
+ * it was news. The owner review reports never having made a decision with any
+ * of the four credit numbers, so they are a caption now and not a headline
+ * (ADR 0050's precedent: a caption, never a translation).
+ *
+ * **Three states, and the middle one is why this was rebuilt.** The panel used
+ * to render them identically. `readNextWindow` classifies - the same reading
+ * `StaleOddsExit` uses, so there is one spelling and not two, which is the rule
+ * half one applied on the backend and this is its other half.
+ *
+ * **The tap control is present and unchanged in all three states** - same size,
+ * position, label and caption. That is where ADR 0071 section 2.1 sits: the
+ * panel's job when the desk goes quiet is to **withdraw a false reason to
+ * wait**, not to supply a reason to spend. Adding "and 150 credits are sitting
+ * there" would push it past neutral the other way, and
+ * argument-from-unspent-allowance is the shape the reference apps use. A
+ * control that grows when the system goes quiet is the desk saying "now would
+ * be a good time."
+ *
+ * **Colour: `--accent-2` ink on the slice-spent line, and nothing else.** Every
+ * refusal in the app is ochre (ADR 0081 section 3) and this is a refusal, but a
+ * soft ground would make it the loudest thing on the Games screen on most
+ * visit-hours, and ADR 0071 calls the slice *"a hard ceiling and the reason the
+ * design is safe"*. Nothing is broken; a red banner would be a false alarm
+ * three nights in four.
  *
  * **Two prices, and the gap is why they are separate buttons.** Team lines are
  * one metered call for the whole slate. One fixture's player props are billed
@@ -67,34 +99,76 @@ export default async function RefreshOddsPanel({
     );
   }
 
+  const reading = readNextWindow(actionable);
+
   return (
     <section className="mt-6 rounded-xl border p-4">
       <h2 className="text-sm font-bold">Refresh the odds</h2>
-      <p className="mt-2 max-w-prose text-sm text-muted">
-        {data.note} Taps have reserved{" "}
-        <span className="font-semibold text-foreground">
-          {data.manual_credits_spent_today} of {data.manual_daily_credits}
-        </span>{" "}
-        credits set aside for them today, kept apart from the scheduled windows
-        — those are what build the record. The whole day has spent{" "}
-        {data.day_credits_spent} of {data.day_credits_budget}. The same button
-        waits {Math.round(data.cooldown_ms / 60000)} minutes between taps,
-        because the books&apos; own scrape is slower than that and a second
-        call would buy the same numbers at the same age.
-      </p>
-      {/* The alternative to spending, stated beside the spend buttons: the
-          planner may be about to buy these same lines anyway. Rendered only
-          when a sweep is actually scheduled — "no sweep is coming" is the
-          case where the button is the only path to a fresh price, and saying
-          nothing is the honest version of that. */}
-      {actionable !== null && actionable.next_sweep_ms !== null && (
+
+      {/* First child, deliberately. This is the only sentence in the panel a
+          reader needs before deciding whether to wait or to tap. */}
+      {reading.kind === "due_now" || reading.kind === "scheduled" ? (
+        <p className="mt-2 max-w-prose text-sm text-foreground">
+          <span aria-hidden="true">&#8635;</span> Automatic buying is running
+          {/* Narrowing for the type-checker, not a runtime guard, and the
+              difference matters to anyone tempted to delete it:
+              `readNextWindow(null)` returns `unknown`, so reaching this branch
+              already proves `actionable` is non-null -- but that implication
+              runs through a function TS does not follow. */}
+          {actionable !== null && (
+            <>
+              {" "}
+              — new prices land about every{" "}
+              {Math.round(actionable.refresh_interval_s / 60)} minutes while
+              this page is open
+            </>
+          )}
+          {reading.kind === "scheduled" && (
+            <>
+              . The next is{" "}
+              <span className="font-semibold">
+                {formatUntil(reading.open_ms - reading.now_ms)}
+              </span>{" "}
+              ({formatClock(reading.open_ms)}), out of the day&apos;s budget
+            </>
+          )}
+          .
+        </p>
+      ) : reading.kind === "slice_spent" ? (
+        <p className="mt-2 max-w-prose text-sm text-accent-2">
+          <span aria-hidden="true">&#9632;</span> Today&apos;s automatic buying
+          is done — the desk buys by itself until it reaches the day&apos;s
+          allowance, and it has. Nothing further is bought automatically{" "}
+          <span className="font-semibold">while this page is open</span>
+          {reading.floor_resumes_ms === null ? (
+            <>
+              , and no stored fixture is close enough for the slow hourly buy
+              to want one either
+            </>
+          ) : (
+            <>
+              ; the slow hourly buy resumes once you stop looking, from about{" "}
+              <span className="font-semibold">
+                {formatClock(reading.floor_resumes_ms)}
+              </span>
+            </>
+          )}
+          .
+        </p>
+      ) : reading.kind === "nothing_to_schedule" ||
+        reading.kind === "budget_spent" ? (
         <p className="mt-2 max-w-prose text-sm text-muted">
-          The next scheduled sweep is{" "}
-          <span className="font-semibold text-foreground">
-            {formatUntil(actionable.next_sweep_ms - actionable.now_ms)}
-          </span>{" "}
-          and buys these same team lines out of the day&apos;s budget. A tap
-          buys the same numbers sooner, out of the taps&apos; share.
+          <span aria-hidden="true">&#9675;</span>{" "}
+          {reading.kind === "budget_spent"
+            ? "No automatic buying is left today — the day's odds budget is spent, so nothing re-buys these lines before it rolls over."
+            : "No automatic buying is due — no kickoff is close enough yet for the planner to open a window for."}
+        </p>
+      ) : (
+        /* `unknown` and `loop_stalled`. Both are faults rather than quiet, so
+           the panel uses the reading's own words rather than inventing a
+           calmer sentence for a screen that has one. */
+        <p className="mt-2 max-w-prose text-sm text-accent-2">
+          {reading.sentence}
         </p>
       )}
 
@@ -142,7 +216,21 @@ export default async function RefreshOddsPanel({
         </div>
       ))}
 
-      <p className="mt-4 text-xs text-muted">
+      {/* Demoted from the top of the panel on 2026-08-28. A caption, not a
+          headline: whether *this* tap will be refused is answered by whether
+          the button is disabled and by the verbatim refusal it returns. */}
+      <p className="mt-4 max-w-prose text-xs text-muted">
+        {data.note} Taps have reserved {data.manual_credits_spent_today} of{" "}
+        {data.manual_daily_credits} credits set aside for them today, kept
+        apart from the scheduled windows — those are what build the record.
+        The whole day has spent {data.day_credits_spent} of{" "}
+        {data.day_credits_budget}. The same button waits{" "}
+        {Math.round(data.cooldown_ms / 60000)} minutes between taps, because
+        the books&apos; own scrape is slower than that and a second call would
+        buy the same numbers at the same age.
+      </p>
+
+      <p className="mt-2 text-xs text-muted">
         Kickoffs in {DISPLAY_TIME_ZONE}.
       </p>
     </section>

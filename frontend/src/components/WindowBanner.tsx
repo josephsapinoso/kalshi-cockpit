@@ -382,11 +382,22 @@ function explain(
     );
   }
   if (!w.is_open) {
+    // The middle branch used to be reached whenever `next_sweep_ms` was null
+    // and the day still had credits -- which, since `next_call_ms` became
+    // budget-aware, includes every night the attention slice is spent. It then
+    // asserted no kickoff is close enough while one may be well inside the
+    // horizon. Same defect as `readNextWindow`'s `nothing_to_schedule`, same
+    // ticket (#35), and the same order: the whole-day budget is the stronger
+    // claim and wins, then the slice, then the genuine quiet.
     const next =
       w.next_sweep_ms === null
         ? w.sweeps_remaining_today === 0
           ? "Today's odds budget is spent, so the next window is tomorrow."
-          : "No kickoff inside the horizon is close enough to be worth a sweep yet."
+          : w.attention_slice_spent
+            ? w.floor_next_buy_ms === null
+              ? "The day's automatic refresh allowance is spent, and no stored kickoff is close enough for the slow hourly buy to want one either."
+              : "The day's automatic refresh allowance is spent, so nothing re-buys these lines while this page is open; the slow hourly buy resumes once you stop looking."
+            : "No kickoff inside the horizon is close enough to be worth a sweep yet."
         : `The next sweep is aimed at ${w.next_sweep_reason ?? "the next cluster of kickoffs"}.`;
     return (
       `The books behind every row are past the ${Math.round(

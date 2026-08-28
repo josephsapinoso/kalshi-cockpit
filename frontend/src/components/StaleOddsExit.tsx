@@ -58,6 +58,15 @@ export default function StaleOddsExit({
             ({formatUntil(reading.open_ms - reading.now_ms)}), when the
             planner re-buys these lines out of the day&rsquo;s budget.
           </>
+        ) : reading.kind === "slice_spent" &&
+          reading.floor_resumes_ms !== null ? (
+          <>
+            {reading.sentence} That is about{" "}
+            <span className="font-semibold text-foreground">
+              {formatClock(reading.floor_resumes_ms)}
+            </span>
+            .
+          </>
         ) : (
           reading.sentence
         )}

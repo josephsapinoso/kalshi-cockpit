@@ -15,6 +15,7 @@ import type {
 } from "@/lib/api";
 import { glossSentence } from "@/lib/suppressionGloss";
 import {
+  anAutomaticBuyIsComing,
   isStaleOddsReason,
   slateIsUnpricedByTheClock,
 } from "@/lib/nextOddsWindow";
@@ -270,7 +271,10 @@ export default async function SlatePage() {
           data.staleness.max_odds_age_s * 1000,
         ) && (
           <div className="mt-8 max-w-[65ch]">
-            <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
+            <RefreshWhenPriced
+              renderedFresh={actionable.fixtures_fresh}
+              automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
+            />
           </div>
         )}
 

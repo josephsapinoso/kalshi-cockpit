@@ -14,6 +14,7 @@ import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
+import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 import StaleOddsExit from "@/components/StaleOddsExit";
 import Term from "@/components/Term";
 
@@ -514,7 +515,10 @@ function Freshness({
         the page for nothing.
       */}
       {actionable && (
-        <RefreshWhenPriced renderedFresh={actionable.fixtures_fresh} />
+        <RefreshWhenPriced
+          renderedFresh={actionable.fixtures_fresh}
+          automaticBuyIsComing={anAutomaticBuyIsComing(actionable)}
+        />
       )}
     </section>
   );
