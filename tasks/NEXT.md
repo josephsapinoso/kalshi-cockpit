@@ -395,6 +395,73 @@ it no longer precedes the credits.
 `eslint.config.*`, which is pre-existing and not caused by this change. Do not
 record this tree as "lint clean".
 
+### The parlay desk is scoped to tonight, and Kalshi's combo product is why it had to be
+
+Joe opened the parlay page to a slate of NCAA football and every "Price on
+Kalshi" tap returned HTTP 400 `invalid_parameters`. His reading was that the
+games are not on Kalshi. **They are** — the desk cannot build a leg without
+matching a real market, and Kalshi prices them individually. What it will not
+do is *combine* them.
+
+**Measured against the venue, 2026-08-28.** `KXMVECROSSCATEGORY-R`,
+`KXMVECROSSCATEGORY-SHARD1-R` and `KXMVESPORTSMULTIGAMEEXTENDED-R` carry the
+**same 2,365 legs**; 64 are NCAAF and **every one is inside two days**. The
+failing cards were dated a week out and covered 1 of 6, 1 of 6 and 1 of 3.
+**So retrying the next `_FALLBACK_COLLECTION_PREFIXES` entry fixes nothing** —
+that was the obvious fix and it was checked before it was written. The one
+NCAAF lookup that succeeded did so because its leg was tomorrow's game.
+
+`parlay_lookups` answers the question `schema.sql:1075-1082` posed and nobody
+had run: `collection_unverified = 1` is **3 lookups, 3 errors**;
+`= 0` is **9 lookups, 0 errors**.
+
+Two changes, both pushed, neither deployed:
+
+1. **`dbf2a7a` — the tap refuses before the POST**, naming the games Kalshi
+   will not combine. The guard asks whether a leg is in **any** collection
+   rather than in the chosen one, which is what keeps the 2026-08-23 capture
+   intact (it posted NFL legs a collection did not enumerate and Kalshi minted
+   them, so a catch-all's list understates what it takes). An empty union is a
+   failed read, not a venue that combines nothing.
+   **The status is `no_collection` in the table and `legs_not_combinable` on
+   the wire, deliberately**: that column has a CHECK constraint, so a new value
+   fires the guard and then crashes the INSERT — a 500, worse than the 400 it
+   replaces. A test caught that. SQLite cannot ALTER a CHECK, so widening it is
+   a table rebuild and that migration was not worth bundling into an
+   undeployed batch. The reason rides in `error`, which is unconstrained.
+
+2. **The ladder is scoped to tonight**, on Joe's rule in his own words: *"let's
+   keep the scope of the parlay page to the current day's games"* and *"I'd
+   want to see my parlays finish out by the time the evening games end."* A
+   parlay settles when its last leg does, so one Saturday leg makes a Friday
+   card live until Saturday.
+
+**The rollover is 4am local, not midnight, and that is the design call.** A
+22:30 kickoff is one of the evening games he means and it finishes near 01:30;
+a midnight bound would cut the card in half at exactly the hour he is most
+likely to be reading it. Nothing kicks off between 1am and 4am in any league
+this desk carries, so the rollover lands in a gap rather than through a slate.
+`DESK_TIME_ZONE` and the frontend's `DISPLAY_TIME_ZONE` are pinned equal by a
+test — two definitions of "today" in one process is how the looser one wins in
+silence, and this repo has paid for that once already in the odds budget.
+
+**Two consequences to expect rather than debug:** the page is near-empty late
+in the evening (nothing left can settle tonight; it refills after 4am), and it
+is thinner in general because most of what it used to show was days out.
+
+**A fixture defect found on the way, worth more than the feature.** Both
+`seed_game` helpers defaulted kickoff to `now + 1h`, which with the new bound
+**fails the entire suite if it runs between 3 and 4am** — green all day, red
+overnight. Both now clamp inside the desk day, and the bound is exercised with
+an injected clock instead. Look for this shape anywhere a fixture is relative
+to `now` and the code under test has a wall-clock boundary.
+
+Ten mutations observed red across the two changes. **Still not fixed:** the
+ladder no longer offers week-out games, but nothing checks combo eligibility
+itself — the two facts line up today and are independent. Eligibility needs
+persisting before the ladder can check it, because `GET /api/parlays` is sync
+and `build_ladder_payload` also runs inside the scheduler pass.
+
 ### Do not deploy this until the read
 
 Half two is committed and pushed and **must not ship before tomorrow's

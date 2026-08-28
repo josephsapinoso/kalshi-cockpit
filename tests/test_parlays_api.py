@@ -13,12 +13,14 @@ The quoted side of that comparison exists only via the lookup path.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
 from backend import parlays
 from backend.core.ladder import _best_per_game, build_ladder
-from backend.parlays import ladder_candidates
+from backend.parlays import end_of_desk_day_ms, ladder_candidates
 from backend.api.routes import create_app
 from backend.config import AppConfig
 from backend.store import db as store
@@ -54,7 +56,18 @@ def seed_game(
     ends so the alias-free resolver matches them."""
     event_ticker = f"KXMLBGAME-{game}"
     ticker = f"{event_ticker}-{team[:6].upper().replace(' ', '')}"
-    commence = commence_ms if commence_ms is not None else now_ms() + 3_600_000
+    # **Clamped inside the desk day, or this fixture makes the whole suite
+    # clock-fragile.** `ladder_candidates` now drops a leg kicking off after
+    # `end_of_desk_day_ms`, so a bare `now + 1h` default silently empties every
+    # ladder when the suite runs in the hour before the 4am rollover. The
+    # fixture means "a game in tonight's slate"; it now says so at every hour
+    # of the day. The bound itself is exercised deliberately, with an injected
+    # clock, by `TestTheDeskIsScopedToTonight`.
+    commence = (
+        commence_ms
+        if commence_ms is not None
+        else min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000)
+    )
 
     conn.execute(
         "INSERT OR IGNORE INTO kalshi_events (event_ticker, title, "
@@ -142,7 +155,18 @@ def seed_prop(
     # key exists to prevent, or the test certifies nothing.
     prop_event = f"KXMLB-{game}-{market}"
     ticker = f"{prop_event}-{player[:6].upper().replace(' ', '')}-{strike}"
-    commence = commence_ms if commence_ms is not None else now_ms() + 3_600_000
+    # **Clamped inside the desk day, or this fixture makes the whole suite
+    # clock-fragile.** `ladder_candidates` now drops a leg kicking off after
+    # `end_of_desk_day_ms`, so a bare `now + 1h` default silently empties every
+    # ladder when the suite runs in the hour before the 4am rollover. The
+    # fixture means "a game in tonight's slate"; it now says so at every hour
+    # of the day. The bound itself is exercised deliberately, with an injected
+    # clock, by `TestTheDeskIsScopedToTonight`.
+    commence = (
+        commence_ms
+        if commence_ms is not None
+        else min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000)
+    )
     point = strike if book_point is None else book_point
     shown = kalshi_player or player
     computed_ms = now_ms()
@@ -666,3 +690,122 @@ class TestPropLegsEnterThePool:
         assert len({l.odds_event_id for l in legs}) == 1
         chosen = _best_per_game(legs, prefer_spreads=False, longest_first=False)
         assert len(chosen) == 1, [l.label for l in chosen]
+
+
+class TestTheDeskIsScopedToTonight:
+    """Joe, 2026-08-28: "let's keep the scope of the parlay page to the
+    current day's games" and "I'd want to see my parlays finish out by the
+    time the evening games end."
+
+    A parlay settles when its LAST leg does, so one Saturday leg on a Friday
+    card means the whole ticket is live until Saturday. Scoping the ladder is
+    the only way that rule can hold, because the ladder is what picks legs.
+
+    Every case here injects `now_ms` rather than reading the clock. The
+    boundary is a wall-clock hour, so a test that used the real time would
+    exercise a different branch depending on when the suite ran -- and would
+    pass all day and fail at 3am.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - Nothing about Kalshi accepting the resulting card. The bound happens to
+      keep the desk inside what the venue combines (its collections carry only
+      the imminent slate) but that is a coincidence of two independent facts,
+      not a guarantee; `TestKalshiWillNotCombineEveryMarketItTrades` in
+      `test_parlay_lookup.py` owns the refusal that does not assume it.
+    - Nothing about the evening being a good time to bet, or these legs being
+      worth combining.
+    """
+
+    #: Friday 2026-08-28, 15:00 Pacific. Chosen because it is an ordinary
+    #: afternoon: the whole evening slate is still ahead and the rollover is
+    #: 13 hours out, so nothing here is riding on a boundary by accident.
+    FRIDAY_3PM_PT = 1787954400000
+
+    def test_the_rollover_is_4am_not_midnight(self):
+        """**The hour is the product decision, so it gets its own case.** A
+        22:30 kickoff is one of the evening games Joe means, and it finishes
+        near 01:30. Rolling at midnight would drop it from the card at exactly
+        the hour he is most likely to be looking at one.
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(parlays.DESK_TIME_ZONE)
+        cutoff = parlays.end_of_desk_day_ms(self.FRIDAY_3PM_PT)
+        local = datetime.fromtimestamp(cutoff / 1000, tz)
+        assert (local.hour, local.minute) == (4, 0)
+        assert local.date().isoformat() == "2026-08-29"
+
+    def test_after_midnight_is_still_the_same_slate(self):
+        """00:30 Saturday is Friday night, not Saturday. The cutoff must not
+        jump a whole day just because the calendar did -- that is the
+        discontinuity the 4am rollover exists to remove."""
+        half_past_midnight = self.FRIDAY_3PM_PT + int(9.5 * 3_600_000)
+        assert parlays.end_of_desk_day_ms(
+            half_past_midnight
+        ) == parlays.end_of_desk_day_ms(self.FRIDAY_3PM_PT)
+
+    def test_a_game_after_the_rollover_is_dropped_and_counted(self, tmp_path):
+        """The reported bug, reduced: a card whose legs are days out.
+
+        Counted rather than silently omitted, because a thin page has to be
+        able to say why it is thin -- this module refuses in words, never by
+        omission.
+        """
+        conn = store.init_db(tmp_path / "tonight.db")
+        now = self.FRIDAY_3PM_PT
+        tonight = now + 4 * 3_600_000
+        next_week = now + 7 * 24 * 3_600_000
+        seed_game(conn, game="tonight", team="Team A", other="Team B",
+                  p=0.7, computed_ms=now - 30_000, commence_ms=tonight)
+        seed_game(conn, game="sept", team="Team C", other="Team D",
+                  p=0.7, computed_ms=now - 30_000, commence_ms=next_week)
+        conn.commit()
+
+        legs, excluded = ladder_candidates(conn, now_ms=now)
+
+        assert {l.commence_ms for l in legs} == {tonight}
+        assert excluded.get("kickoff_after_tonight", 0) > 0
+
+    def test_the_last_game_of_the_night_survives(self, tmp_path):
+        """The case a midnight bound would break, asserted directly: a 22:30
+        kickoff is in tonight's slate and must stay on the card."""
+        conn = store.init_db(tmp_path / "late.db")
+        now = self.FRIDAY_3PM_PT
+        late = now + int(7.5 * 3_600_000)  # 22:30 Pacific
+        seed_game(conn, game="late", team="Team A", other="Team B",
+                  p=0.7, computed_ms=now - 30_000, commence_ms=late)
+        conn.commit()
+
+        legs, excluded = ladder_candidates(conn, now_ms=now)
+
+        # The count, not a literal list: how many sides of one game survive
+        # the OTHER filters is not this test's claim. Its claim is that the
+        # 22:30 kickoff is not the thing that removed them.
+        assert legs, "the last game of the night was dropped entirely"
+        assert {l.commence_ms for l in legs} == {late}
+        assert "kickoff_after_tonight" not in excluded
+
+    def test_the_two_clocks_are_the_same_clock(self):
+        """`DESK_TIME_ZONE` scopes the card; `DISPLAY_TIME_ZONE` captions it.
+        Two definitions of "today" in one process is how the looser one wins
+        in silence -- this repo has paid for that once already, in the odds
+        budget's day boundary."""
+        api_ts = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "lib" / "api.ts"
+        ).read_text(encoding="utf-8")
+        assert (
+            f'export const DISPLAY_TIME_ZONE = "{parlays.DESK_TIME_ZONE}"'
+            in api_ts
+        )
+
+    def test_the_screen_has_words_for_the_new_refusal(self):
+        """An unglossed reason code renders as a raw identifier on a money
+        screen. `ParlayCards` maps every code this function can emit."""
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "components" / "ParlayCards.tsx"
+        ).read_text(encoding="utf-8")
+        assert "kickoff_after_tonight:" in src

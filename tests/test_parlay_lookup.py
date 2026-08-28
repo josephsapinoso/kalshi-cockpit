@@ -26,6 +26,7 @@ import httpx
 import pytest
 
 import backend.parlays as parlays
+from backend.parlays import end_of_desk_day_ms
 from backend.kalshi.combos import echoed_legs
 from backend.api.routes import create_app
 from backend.config import AppConfig
@@ -82,7 +83,13 @@ def seed_game(conn, *, game, team, other, p, computed_ms):
         "commence_ms, home_team, away_team, bookmaker, market, outcome_name, "
         "price_decimal) VALUES (?, 'baseball_mlb', ?, ?, ?, ?, 'pinnacle', "
         "'h2h', ?, 1.6)",
-        (computed_ms, game, now_ms() + 3_600_000, team, other, team),
+        # Clamped inside the desk day; see the note in
+        # `test_parlays_api.py`'s `seed_game`. A bare `now + 1h`
+        # empties every ladder when the suite runs near the 4am
+        # rollover, which would be a clock-dependent suite.
+        (computed_ms, game,
+         min(now_ms() + 3_600_000, end_of_desk_day_ms(now_ms()) - 60_000),
+         team, other, team),
     )
     for outcome, prob in ((team, p), (other, 1 - p - 0.02)):
         conn.execute(

@@ -176,14 +176,72 @@ _PROP_MARKETS: frozenset[str] = frozenset(PROP_BASE_MARKETS)
 _CANDIDATE_SCAN_FLOOR_MS = 24 * 3_600_000
 
 
+#: The clock the desk is read on. **Must equal `DISPLAY_TIME_ZONE` in
+#: `frontend/src/lib/api.ts`**, and `test_parlays_api.py` pins the two
+#: together: a card scoped to "tonight" by one clock and captioned with the
+#: other is the "two definitions of today in one process" failure this repo
+#: has already paid for once, in the odds budget.
+DESK_TIME_ZONE = "America/Los_Angeles"
+
+
+#: When a sports day rolls over, local. **4am, not midnight**, and the hour is
+#: the whole point: a 22:30 kickoff belongs to tonight's slate and finishes
+#: around 01:30, so a midnight boundary would cut the card in half at exactly
+#: the hour Joe is most likely to be reading it. Nothing kicks off between 1am
+#: and 4am in any league this desk carries, so the rollover lands in a gap
+#: rather than through a slate. It is the same convention a book's "day" uses.
+DESK_DAY_ROLLOVER_HOUR = 4
+
+
+def end_of_desk_day_ms(now_ms: int) -> int:
+    """End of the current sports day, epoch ms — the parlay scope bound.
+
+    **Joe's rule, in his words: "I'd want to see my parlays finish out by the
+    time the evening games end."** So a card may only combine games that kick
+    off before tonight's slate is over. The bound is on KICKOFF, not on
+    settlement, and kickoff is the right end to measure: the last game of a
+    night finishes after midnight by definition, and bounding on settlement
+    would drop exactly the evening games he means to bet.
+
+    **A rollover bound rather than a fixed number of hours.** "Within 24 hours"
+    read at 9am Thursday reaches into Friday's slate, which is the thing being
+    removed; read at 11pm it reaches half of Saturday. The boundary a bettor
+    actually has is the end of the night, and the night ends at
+    `DESK_DAY_ROLLOVER_HOUR`.
+
+    So this returns the next 4am strictly after `now_ms`: read at 15:00 Friday
+    it is 04:00 Saturday, and read at 00:30 Saturday it is still 04:00 Saturday
+    -- the same slate, because 00:30 is Friday night.
+
+    Computed through `zoneinfo`, so DST is the library's problem rather than an
+    arithmetic assumption.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(DESK_TIME_ZONE)
+    local = datetime.fromtimestamp(now_ms / 1000, tz)
+    rollover = local.replace(
+        hour=DESK_DAY_ROLLOVER_HOUR, minute=0, second=0, microsecond=0
+    )
+    if rollover <= local:
+        rollover = (rollover + timedelta(days=1)).replace(
+            hour=DESK_DAY_ROLLOVER_HOUR, minute=0, second=0, microsecond=0
+        )
+    return int(rollover.timestamp() * 1000)
+
+
 def ladder_candidates(
     conn, *, now_ms: int, max_odds_age_ms: Optional[int] = None
 ) -> tuple[list[CandidateLeg], dict[str, int]]:
     """Every buyable YES side with a fresh-enough-to-consider consensus.
 
-    Pre-game only, by the sportsbook's clock (`MIN(odds_snapshots.commence_ms)`
-    per fixture — the scorer's own definition; Kalshi's `commence_ms` runs
-    three hours late and is never read here). Freshest `fair_prices` row per
+    Pre-game only AND tonight only, by the sportsbook's clock
+    (`MIN(odds_snapshots.commence_ms)` per fixture — the scorer's own
+    definition; Kalshi's `commence_ms` runs three hours late and is never read
+    here). The upper bound is `end_of_desk_day_ms`: a parlay settles when its
+    last leg does, and Joe's rule is that his finish out with the evening
+    games. Freshest `fair_prices` row per
     (link, market, outcome, point). Freshness itself is judged in
     `build_ladder`; this function only refuses what can never be a leg.
 
@@ -345,7 +403,28 @@ def ladder_candidates(
 
     alias_cache: dict[str, object] = {}
     candidates: list[CandidateLeg] = []
+    tonight_ms = end_of_desk_day_ms(now_ms)
+
     for (link_id, market, outcome, player, point), row in freshest.items():
+        # **Tonight only.** A parlay settles when its last leg does, so a card
+        # mixing tonight's game with one on Saturday cannot pay out until
+        # Saturday -- and Joe's rule is that his parlays finish out by the
+        # time the evening games end.
+        #
+        # It also happens to fix a venue problem, and the coincidence is worth
+        # naming so nobody "simplifies" this away later: Kalshi's combination
+        # collections only carry the imminent slate. Measured 2026-08-28, all
+        # three catch-alls enumerate the same 2,365 legs, of which 64 are NCAAF
+        # and every one is inside two days. Cards built a week out returned
+        # HTTP 400 `invalid_parameters` -- real markets, individually priceable,
+        # that the venue will not combine. This bound keeps the desk inside
+        # what Kalshi will actually price, without needing to ask it.
+        #
+        # Counted, never silently dropped: a thin page must be able to say why
+        # it is thin.
+        if row["commence_ms"] is not None and row["commence_ms"] > tonight_ms:
+            count("kickoff_after_tonight")
+            continue
         # **`odds_snapshots.sport_key`, not `event_links.league`.** They are
         # different vocabularies for the same partition and only one of them
         # names an alias file.
