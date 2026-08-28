@@ -29,7 +29,7 @@ export default function ConsensusPanel({ detail }: { detail: MarketDetail }) {
     typeof detail.fair_probability === "number" &&
     detail.fair_percent_display != null;
   return (
-    <section id="consensus" className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
+    <section id="consensus" className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6 xl:p-8">
       <h2 className="text-lg font-semibold xl:text-xl">The consensus</h2>
 
       {!hasFair ? (

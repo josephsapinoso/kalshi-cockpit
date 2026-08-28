@@ -51,7 +51,7 @@ export default async function GatePage() {
 
       <div
         className={`mb-10 rounded-2xl border p-6 ${
-          gate.open ? "border-positive/50" : "border-accent/50"
+          gate.open ? "border-positive/50" : "border-accent-2/60"
         } bg-card`}
       >
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
@@ -59,7 +59,7 @@ export default async function GatePage() {
         </div>
         <div
           className={`display mt-2 text-3xl ${
-            gate.open ? "text-positive" : "text-accent"
+            gate.open ? "text-positive" : "text-accent-2"
           }`}
         >
           {gate.open ? "Open" : "Locked"}
@@ -110,7 +110,7 @@ export default async function GatePage() {
               className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
                 condition.met
                   ? "bg-positive/15 text-positive"
-                  : "bg-accent-soft text-accent"
+                  : "bg-accent-2-soft text-accent-2"
               }`}
             >
               {condition.met ? "✓" : "—"}
@@ -132,7 +132,7 @@ export default async function GatePage() {
         ))}
       </ul>
 
-      <div className="mt-10 rounded-2xl border bg-card p-6">
+      <div className="mt-10 rounded-2xl border border-edge bg-card p-6">
         <h3 className="text-lg font-bold tracking-tight">
           Why 300, and not fifty
         </h3>

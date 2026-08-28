@@ -199,7 +199,7 @@ export default function Nav() {
         className={`${SHELL_WIDTH} flex items-center justify-between gap-2 px-4 py-4 sm:px-6 xl:px-8`}
       >
         <Link href="/" className="flex shrink-0 items-center gap-3">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-bold text-white">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-fill text-sm font-bold text-white">
             K
           </span>
           <span className="hidden text-sm font-semibold tracking-tight sm:inline">

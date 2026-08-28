@@ -372,7 +372,7 @@ export default function ManualTicket({
   return inline ? (
     <div className="mt-3 border-t pt-3">{body}</div>
   ) : (
-    <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+    <section className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6">
       {body}
     </section>
   );
@@ -560,7 +560,7 @@ function TicketBody({
       <button
         onClick={onConfirm}
         disabled={!canConfirm}
-        className="min-h-12 w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
+        className="min-h-12 w-full rounded-xl bg-accent-fill px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
       >
         {sending ? "Sending…" : `Confirm — buy ${contracts} ${side.toUpperCase()}`}
       </button>

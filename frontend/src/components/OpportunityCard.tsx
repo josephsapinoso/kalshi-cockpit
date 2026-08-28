@@ -59,7 +59,7 @@ export default function OpportunityCard({
 
   return (
     <article
-      className={`animate-in rounded-2xl border bg-card p-5 transition-all sm:p-6 ${
+      className={`animate-in rounded-2xl border border-edge bg-card p-5 transition-all sm:p-6 ${
         suppressed || expired
           ? "opacity-70"
           : "hover:-translate-y-1 hover:border-accent"
@@ -296,8 +296,8 @@ export default function OpportunityCard({
       )}
 
       {suppressed && rec.suppressed_reason && (
-        <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2">
-          <span className="font-mono text-xs text-accent">
+        <div className="mt-3 rounded-lg border border-accent-2/50 bg-accent-2-soft px-3 py-2">
+          <span className="font-mono text-xs text-accent-2">
             {rec.suppressed_reason}
           </span>
           {/* The sentence under the code, never in place of it — the code is

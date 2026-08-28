@@ -1403,7 +1403,7 @@ export function edgeTone(
  * the point is that the figure stops reading as a figure.
  */
 export const EDGE_TONE_CLASS: Record<EdgeTone, string> = {
-  suspect: "rounded bg-accent-soft px-1.5 py-0.5 font-extrabold text-negative",
+  suspect: "rounded bg-negative-soft px-1.5 py-0.5 font-extrabold text-negative",
   refused: "text-accent-2",
   positive: "text-positive",
   negative: "text-negative",
@@ -1413,9 +1413,14 @@ export const EDGE_TONE_CLASS: Record<EdgeTone, string> = {
  * A cue that survives the colour being invisible.
  *
  * Roughly one man in twelve cannot separate the two hues this palette uses for
- * good and bad, and `--negative` is the same red as `--accent` — so a rule
- * carried by colour alone is carried by nothing for those readers, and the
- * whole defect this tone exists to fix would render exactly as before.
+ * good and bad, so a rule carried by colour alone is carried by nothing for
+ * those readers and the whole defect this tone exists to fix would render
+ * exactly as before.
+ *
+ * This used to add "and `--negative` is the same red as `--accent`". ADR 0081
+ * separated them and the mark stays anyway: the second reason was never the
+ * load-bearing one, and a cue that survives the colour being invisible is not
+ * made unnecessary by the colour becoming clearer.
  */
 export const EDGE_TONE_MARK: Record<EdgeTone, string> = {
   suspect: "⚠ ",

@@ -488,7 +488,7 @@ function Row({
       />
 
       {row.suppressed_reason && (
-        <span className="w-full break-words font-mono text-xs text-accent xl:col-span-full">
+        <span className="w-full break-words font-mono text-xs text-accent-2 xl:col-span-full">
           {row.suppressed_reason}
         </span>
       )}
@@ -603,7 +603,7 @@ function RefusalSummary({
       <ul className="mt-3 space-y-2 border-l pl-4">
         {ordered.map(([reason, count]) => (
           <li key={reason}>
-            <span className="font-mono text-xs text-accent">{reason}</span>
+            <span className="font-mono text-xs text-accent-2">{reason}</span>
             <span className="tabular ml-2 text-xs text-muted">× {count}</span>
             {glossSentence(reason) && (
               <span className="block max-w-[65ch] text-xs leading-snug text-muted">
@@ -692,7 +692,7 @@ function QuoteAge({
   const stale = ageMs > maxMs;
   return (
     <span
-      className={`tabular text-xs ${stale ? "text-accent" : "text-muted"}`}
+      className={`tabular text-xs ${stale ? "text-negative" : "text-muted"}`}
     >
       <Term k="quote_age">quote</Term> {formatAge(ageMs)}
     </span>

@@ -43,7 +43,7 @@ export default function SignalStrip({
 
   if (!signal.available) {
     return (
-      <section className="rounded-2xl border bg-card px-5 py-3">
+      <section className="rounded-2xl border border-edge bg-card px-5 py-3">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted">
             Signal test
@@ -78,7 +78,7 @@ export default function SignalStrip({
   } = signal.population;
 
   return (
-    <section className="rounded-2xl border bg-card">
+    <section className="rounded-2xl border border-edge bg-card">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 pt-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted">
           Signal test

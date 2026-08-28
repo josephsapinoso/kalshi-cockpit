@@ -4,13 +4,19 @@
    Design system ported from josephsapinoso/personal-website.
    Tailwind v4 CSS-first: the theme lives here, there is no tailwind.config.
 
-   The eight base tokens, the .display class, .link-underline, the float-up
-   animation, the reduced-motion kill switch and the global border-color rule
-   are all carried over verbatim so the cockpit reads as part of the same site.
+   The .display class, .link-underline, the float-up animation, the
+   reduced-motion kill switch and the global border-color rule are all carried
+   over verbatim so the cockpit reads as part of the same site.
 
-   ONE deliberate addition: --positive and --negative. The source palette has
-   no semantic success/failure colours because a portfolio site does not need
-   them; a betting tool does. Everything else is unchanged.
+   The source palette has no semantic success/failure colours because a
+   portfolio site does not need them; a betting tool does. So --positive,
+   --negative and the warning ochre were added.
+
+   AND THE BRAND RED WAS GIVEN UP, 2026-08-28 (ADR 0081, ticket #10). The
+   ported --accent was #aa0000/#ef4444, the same hex as --negative, so the
+   inherited identity colour and "you lost money" were one token wearing three
+   jobs. --accent is now indigo. A palette borrowed from a portfolio brings its
+   assumptions with it, and a portfolio has no losses to paint.
 --------------------------------------------------------------------------- */
 
 :root {
@@ -22,15 +28,39 @@
   /* For borders that carry meaning (the desk's UNCHECKED dash): --border is
      1.30:1 against the card and invisible; this one is legible. */
   --border-strong: #a89c90;
-  --accent: #aa0000;
+  /* Panel boundaries only -- --border stays for row dividers. 1.69:1 on the
+     card: deliberately quiet. Joe was offered --border-strong (2.68:1) and a
+     deepened page ground and took the middle. Ticket #10. */
+  --edge: #cfc6bb;
+
+  /* Identity and commit-money. Indigo since 2026-08-28, ADR 0081 / ticket #10.
+     Two tokens because one cannot do both jobs: --accent is INK (9.61:1 on the
+     card) and --accent-fill is a GROUND under white (9.61:1). They are equal in
+     this theme and are NOT in dark, which is exactly the defect that shipped
+     when one token did both. */
+  --accent: #2f3d8f;
+  --accent-fill: #2f3d8f;
+  --accent-soft: #e8eaf7;
+
+  /* Warning and refusal. Every "do not trust this" message, and since ticket
+     #10 the REJECTED chip too -- a refused row is not a loss, nothing was
+     spent, and the edge number beside it was already ochre. */
   --accent-2: #7a5c14;
-  --accent-soft: #f8e6e6;
+  --accent-2-soft: #f7f0dd;
 
   /* Added for this project. Green is warm-tuned to sit with the cream/crimson
-     palette rather than fighting it. --negative reuses the accent red: a
-     losing number rendering in the brand colour reads naturally. */
+     palette rather than fighting it.
+
+     --negative is the red, and NOTHING ELSE MAY WEAR IT. This comment used to
+     say the opposite -- "--negative reuses the accent red: a losing number
+     rendering in the brand colour reads naturally" -- and that sentence is the
+     recorded cause of ticket #10: identity, commit-money and loss all painted
+     one hue, so the loudest thing on the Games screen was the row Joe must not
+     bet. Red is now rare on purpose. Making the refusal quieter was the wrong
+     fix; making red scarce is the right one. */
   --positive: #1a7f52;
   --negative: #aa0000;
+  --negative-soft: #f8e6e6;
 }
 
 /* Dark values, shared between "follow system" and "forced dark". */
@@ -42,11 +72,17 @@
     --card: #171412;
     --border: #2a2521;
     --border-strong: #6b6159;
-    --accent: #ef4444;
+    --edge: #4a423b;
+    /* --accent is too light to carry white text; --accent-fill is the darker
+       ground that can. White on #ef4444 measured 3.76:1 and shipped. */
+    --accent: #8ea2ff;
+    --accent-fill: #3b4bb8;
+    --accent-soft: #151a33;
     --accent-2: #cbb279;
-    --accent-soft: #2a1315;
+    --accent-2-soft: #2a2313;
     --positive: #4ade80;
     --negative: #ef4444;
+    --negative-soft: #2a1315;
   }
 }
 
@@ -57,11 +93,15 @@
   --card: #171412;
   --border: #2a2521;
   --border-strong: #6b6159;
-  --accent: #ef4444;
+  --edge: #4a423b;
+  --accent: #8ea2ff;
+  --accent-fill: #3b4bb8;
+  --accent-soft: #151a33;
   --accent-2: #cbb279;
-  --accent-soft: #2a1315;
+  --accent-2-soft: #2a2313;
   --positive: #4ade80;
   --negative: #ef4444;
+  --negative-soft: #2a1315;
 }
 
 @theme inline {
@@ -71,11 +111,15 @@
   --color-card: var(--card);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --color-edge: var(--edge);
   --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
   --color-accent-2: var(--accent-2);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-2-soft: var(--accent-2-soft);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -106,8 +150,10 @@ body {
   outline-offset: 2px;
 }
 
+/* --accent-fill, not --accent: this puts white on the token, and in dark mode
+   --accent is the light ink shade. */
 ::selection {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: #fff;
 }
 

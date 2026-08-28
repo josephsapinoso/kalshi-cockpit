@@ -29,7 +29,7 @@ import Term from "@/components/Term";
  *   renders whatever refusal it answers with, verbatim.
  *
  * Neutral treatment throughout (ADR 0061 §3): a refresh affordance is not a
- * warning and not money, so no `accent-2` and no `bg-accent` — the pill
+ * warning and not money, so no `accent-2` and no `bg-accent-fill` — the pill
  * shape is TonightStrip's, at the 44px control height.
  */
 export default function StaleOddsExit({

@@ -51,7 +51,7 @@ const CHIP: Record<SlateState, { label: string; className: string }> = {
     // Named, not implied. A dimmed row reads as a rendering accident; a word
     // reads as a decision, and the reason beside it says whose.
     label: "REJECTED",
-    className: "border-accent/50 bg-accent-soft text-accent",
+    className: "border-accent-2/50 bg-accent-2-soft text-accent-2",
   },
   "no-edge": {
     label: "NO EDGE",
@@ -143,7 +143,7 @@ export default function SlateRow({
             suspect
               ? "font-bold text-negative"
               : resolved === "rejected"
-                ? "text-accent"
+                ? "text-accent-2"
                 : "text-muted"
           }`}
         >

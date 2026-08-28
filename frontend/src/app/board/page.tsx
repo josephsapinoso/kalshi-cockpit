@@ -63,7 +63,7 @@ export default async function BoardPage({
   } catch {
     return (
       <Shell>
-        <div className="rounded-2xl border bg-card p-7">
+        <div className="rounded-2xl border border-edge bg-card p-7">
           <h2 className="text-xl font-bold tracking-tight">Backend unreachable</h2>
           <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
             Start it with{" "}
@@ -243,7 +243,7 @@ export default async function BoardPage({
         </p>
 
         {board.surfaced.length === 0 ? (
-          <div className="rounded-2xl border bg-card p-7">
+          <div className="rounded-2xl border border-edge bg-card p-7">
             {/* Two ways to have nothing to bet, and they mean opposite things
                 about whether the machinery is working. Printing the no-edge
                 explanation over an expired slate would report a quiet market

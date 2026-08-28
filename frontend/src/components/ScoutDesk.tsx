@@ -403,7 +403,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         className={
           again
             ? "rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-muted disabled:opacity-50"
-            : "rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            : "rounded-lg bg-accent-fill px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         }
       >
         {sending ? "Sending…" : label}
@@ -424,7 +424,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
 
   return (
     <>
-    <section id="scout" className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
+    <section id="scout" className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6 xl:p-8">
       <div className="mb-3 flex items-center gap-2">
         <CrewAvatar kind="scout" className="h-7 w-7 shrink-0" />
         <h2 className="text-lg font-semibold xl:text-xl">The scout desk</h2>
@@ -578,7 +578,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         empty would make "never sent" and "filed nothing" look alike. */}
     <section
       id="specialists"
-      className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8"
+      className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6 xl:p-8"
     >
       <h2 className="text-lg font-semibold xl:text-xl">
         The team specialists
@@ -625,7 +625,7 @@ export default function ScoutDesk({ ticker }: { ticker: string }) {
         winks at. Every absent state renders in words. */}
     <section
       id="willy"
-      className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8"
+      className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6 xl:p-8"
     >
       <div className="mb-1 flex items-center gap-2">
         <CrewAvatar kind="willy" className="h-7 w-7 shrink-0" />

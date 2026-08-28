@@ -145,9 +145,13 @@ class TestTheFigureTeachesTheSequence:
         assert "barFrac.toFixed" not in text
 
     def test_it_wears_no_colour(self):
-        """`--accent` is the same red as `--negative` in both themes. A
-        coloured margin bar would read as a verdict on a market priced the way
-        every book prices one."""
+        """A coloured margin bar would read as a verdict on a market priced
+        the way every book prices one.
+
+        This reason used to lean on `--accent` being the same red as
+        `--negative`; ADR 0081 separated them and the rule survives untouched,
+        because the objection was never to the hue. Whether this component may
+        now take colour is ticket #33 and is not decided here."""
         text = source()
         for token in ("--accent", "text-positive", "text-negative", "--negative",
                       "--positive"):

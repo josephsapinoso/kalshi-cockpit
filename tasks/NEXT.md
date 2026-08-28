@@ -39,11 +39,24 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,942 passed / 10 xfailed in 23:00**, measured 2026-08-27 on
-the tree committed as the ADR 0080 change, with `origin/main` at `e077010`
+**Test baseline: 4,950 passed / 10 xfailed in 7:29**, measured 2026-08-28 on
+the tree committed as the ADR 0081 palette change, `origin/main` at `2b58e01`
 immediately before the push. That triple — the number, the tree it was taken
 on, and the fact that nothing moved after — is the qualification this line has
-never carried, and its absence is the whole reason it has been wrong six times.
+never carried, and its absence is the whole reason it kept being wrong.
+
+**And it was wrong again, a seventh time, in the same direction.** The line
+here said **4,942** for the ADR 0080 tree. Collected on that exact tree it is
+**4,954 items = 4,944 passed + 10 xfailed** — two more than claimed. The delta
+into today's number is **+6 and fully accounted for**: the six assertions added
+to `tests/test_palette_contrast.py`, verified by collecting with and without
+the change (`4,954 → 4,960`). **Do not reconcile a baseline by reasoning about
+a delta; collect both trees.** That took twelve seconds and is the only method
+that has ever worked on this line.
+
+**7:29, not the 23:00 below.** Same machine, same suite, nothing removed. The
+paragraph below is right that a slow run is not a hung one; it should not be
+read as promising a *duration*. Time the run you are in.
 
 **Two runs this session are NOT this number and neither was reported as one.**
 One was started at session open and killed as void because the tree was edited
@@ -143,6 +156,47 @@ guard keys on what a document's H1 *claims to be*, not on its filename, for
 exactly this reason — and that exemption is pinned, because a guard whose first
 finding is a false one gets deleted.
 
+**THE UI WORK IS NOT IN THIS FILE. It is a decision map on GitHub, and until
+2026-08-27 nothing here said so.** `/wayfinder` charts one map issue with child
+tickets; ours is **#3 "Cockpit for the pilot"** on `josephsapinoso/kalshi-cockpit`,
+7 resolved and 23 open. Every screen question — what "Picks" opens, what each
+tab is for, the colour system, what the list filters by — lives there with its
+evidence, and a session that plans UI from this file alone **will re-derive
+decisions Joe has already made**. Read the map body first (it is the low-res
+index; the detail is in the closed tickets, fetched on demand):
+
+    gh issue view 3 --json body --jq .body
+    gh api repos/josephsapinoso/kalshi-cockpit/issues/3/sub_issues --paginate       --jq '.[] | select(.state=="open") | [.number,(.assignee.login // "-"),(.issue_dependencies_summary.blocked_by // 0),.title] | @tsv'
+
+The second command is the **frontier query**: open, unblocked (`0`), unassigned
+(`-`), first in map order wins. Conventions are in `docs/agents/issue-tracker.md`
+(committed 2026-08-28; it was untracked and one `git clean` from gone). Claim a
+ticket by assigning it to yourself BEFORE any work, and **resolve exactly one
+per session** (research tickets excepted). The map produces *decisions*, not
+builds: it is done when nothing is left to decide before someone builds it.
+
+**THIS FILE IS THE FRONT DOOR, NOT THE MAP — asked and answered by Joe,
+2026-08-28.** He asked directly whether a new session should start from
+`/wayfinder` or from here. It starts from **here**, always; the map is one of
+the queues this file points at. Two facts a session needs:
+
+- **A session cannot invoke `/wayfinder` at all.** Its `SKILL.md` sets
+  `disable-model-invocation: true` — Joe types it or it does not run. What a
+  session *can* do alone is read the map with the two `gh` commands above, and
+  that is what the paragraph above is for. Do not sit waiting to invoke it.
+- **There are THREE queues and this file used to name two.** The "Open" list at
+  the end of the latest entry is repo and infrastructure work. The map's open
+  tickets are *decisions to be made*. The third is **decided and not yet
+  built** — a closed ticket carrying a spec — and it belonged to nobody,
+  because the map's own rule is to produce decisions rather than builds. **A
+  resolved ticket with a build attached is a NEXT.md item.** That gap is not
+  theoretical: ticket #10 was resolved at 03:34Z on 2026-08-28 recording a WCAG
+  failure on the live real-money confirm button, and under the old reading no
+  queue owned it.
+
+So: read `git status`, then this file's Open list, then the frontier query —
+in that order. The frontier query is the third read, not the default lane.
+
 Read `CLAUDE.md`, then the latest entry below (it is the whole brief), then
 `tasks/lessons.md` top two. Re-verify state, never inherit it:
 
@@ -160,7 +214,209 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-27 (latest) — the alarm that watches for a silent death had been taught to fire every day, and the combo tests were all in the wrong branch
+## 2026-08-28 (latest) — the palette split shipped, and the guard watching it was measuring the wrong pair
+
+**State at start: `main` = `2b58e01`, clean**, `origin/main` level, live
+`/api/health` `build.git_sha` = `2b58e013…` — so **live carried all current
+code**. One lane on disk (`parlay-props` at `e90b154`, spent); the empty
+`hedging-research` shell was already gone. Joe said "read NEXT.md and start",
+then asked two questions mid-session about the `/wayfinder` workflow. Both are
+answered in the SESSION START box above.
+
+### What shipped — ADR 0081, Split A
+
+Ticket #10 was resolved at 03:34Z with a complete spec and Joe's own choice from
+a prototype, and **nothing had built it**. What it recorded was not only a design
+decision: **every filled control in the app rendered white text at 3.76:1 in dark
+mode against a 4.5:1 floor, on live** — including `ManualTicket.tsx:563`, the
+confirm button that spends real money.
+
+- `--accent` is **indigo** (`#2f3d8f` / `#8ea2ff`) and means identity and commit.
+  `--accent-fill` (`#2f3d8f` / `#3b4bb8`) is the ground under white, and it is a
+  **separate token on purpose**: the two are equal in light and unequal in dark,
+  and one token doing both jobs is exactly how the defect got in. Twelve filled
+  controls moved to it, plus `::selection`.
+- `--negative` keeps the red byte-for-byte and **nothing else wears it.** The old
+  red tint is not deleted, it is renamed `--negative-soft` to the role it was
+  actually serving (the suspect-edge chip, the alarm banner).
+- **Every refusal went ochre** — the REJECTED chip, suppression reasons on three
+  screens, the locked gate, unmet gate and ticket conditions, the skeptic's
+  refused checks — on a new `--accent-2-soft` tint. That settles a contradiction
+  nobody had noticed: the chip was red while the edge number beside it was
+  already ochre.
+- **`--edge`** on 35 card panels, at the quiet 1.69/1.86:1 Joe picked over the
+  strong option.
+- **`suspicious_edge` keeps loss-red and its ⚠ mark**, deliberately: rule 1 is
+  the one row where the loudest available signal is correct.
+
+**Every ratio in the ticket was recomputed from scratch rather than trusted, and
+all of them reproduced exactly** — including the 3.76:1.
+
+### The guard was good and it was measuring the wrong pair
+
+`tests/test_palette_contrast.py` was green throughout. It checked every token
+**as ink on a ground** and never **as a fill under white**. Those are different
+pairs, and a token necessarily fails one while passing the other, because the
+shade legible as ink on a dark card is a light shade and white does not sit on
+it. Four assertions added, **all four observed red on mutation**:
+
+1. white on every fill token clears 4.5:1 (mutation: restore `#ef4444`);
+2. `--accent != --negative`, and they stay ≥60 apart under deuteranope and
+   protanope simulation (mutation: collapse them — the second reports 0);
+3. every `:root` token has an `@theme inline` registration and no registration
+   points at a missing token. **An unregistered token is a Tailwind class that is
+   silently dropped** — no error, no build failure, the element just renders
+   with no colour, and four of five new tokens were new classes;
+4. `TestTheNeutralCountIsNotPaintedAsAVerdict` **rewritten, not deleted**. Its
+   premise was "`--accent` *is* `--negative`, so a Stat in it reads as a loss",
+   now false — a Stat may lawfully wear indigo. What survives is stronger: a
+   count is a fact, so **no Stat wears the loss colour**, whatever that colour is
+   this month.
+
+**And a near-miss no guard caught.** Applying `--edge` by rewriting
+`border bg-card` → `border-edge bg-card` **deletes every panel border**:
+`border` sets the width, `border-edge` sets only the colour. It typechecked
+clean, built clean and passed everything. Caught by reading the diff.
+
+### Verified
+
+- `npx tsc --noEmit` clean; `npx next build` green.
+- **The built CSS was read, not just the build's exit code.** `bg-accent-fill`,
+  `bg-accent-2-soft`, `bg-negative-soft` and `border-edge` each emit a rule
+  pointing at the right custom property in `.next/static/chunks/*.css`. A green
+  Tailwind build proves nothing about a class it did not recognise.
+- One test went red and was **repointed, not loosened**: `test_desktop_tier.py`'s
+  "only the first send wears the accent" probed the literal string `bg-accent `.
+  The rule is about *weight*, not hue; it now names the fill token. **ADR 0061 §3
+  was amended at its own heading** rather than silently contradicted, because its
+  "commit red" was placed there deliberately.
+- Stale premises repaired in five docstrings that explained a rule by saying
+  "`--accent` is the same red as `--negative`". **No assertion was loosened** —
+  the six components that refuse colour still refuse it; that is #33 and unowned.
+
+### Open
+
+- **#32 and #33 are the live consequences of this build.** #32: the real-money
+  warning strip (`ManualTicket.tsx:476`) was left on `--accent`, so it is now
+  indigo **by default rather than by decision** — the prototype drew it red and
+  that was an unreviewed call. #33: the six components are free and nobody has
+  said whether they take colour.
+- **Nobody has looked at this on a phone.** Every number is arithmetic on hex
+  values; Joe chose from a desktop-rendered prototype, and these screens are used
+  one-handed. **This is the first thing to do next**, and it needs Joe or a
+  browser session.
+- Carried forward unchanged: ADR 0079's prop tap needs one tap on Joe's phone
+  (look for the `/events/` row at **10** credits); `suppressed_last_24h` is still
+  0 and goes non-zero at the next scheduled `parlay_daily` card (read 0 at 03:52Z
+  with `undelivered_last_24h` still 5 — the five decay on their own, do NOT read
+  a lingering 5 as the fix having failed); B0 needs Joe's call; the combo purchase
+  slice; the pragma change not re-measured on live; `odds_snapshots` /
+  `fair_prices` still have no retention rule.
+- **`dd.status` is handled** — `*.status` is gitignored rather than deleted,
+  since nothing in this repo knows what writes it.
+- **`tasks/lessons.md` is at 81.9% of the ceiling.** The rule is split at 90%,
+  and the check goes *before* writing an entry, not after.
+
+---
+
+## 2026-08-27 — the map got three rulings and a colour, and this file learned the map exists
+
+**State at start: `main` = `2b58e01`**, clean apart from three pre-existing
+working-tree entries (`frontend/next-env.d.ts` modified, `dd.status` and
+`docs/agents/` untracked). **No code was written this session and none of those
+three is mine.** The only file in this repo that changed is this one.
+
+**The whole session ran on the GitHub decision map, not on the codebase.** Joe
+invoked `/wayfinder 3`. If that sentence means nothing to you, read the new
+paragraph in the SESSION START box above — **the omission it fixes is the
+finding of this session.** NEXT.md had no reference to map #3 anywhere in
+142KB, so a session obeying CLAUDE.md's read order would have planned UI work
+in complete ignorance of seven resolved decisions. That is this repo's named
+defect — *displayed and still missed* — pointed at its own handoff file.
+
+### Three calls Joe made on work resolved in his absence
+
+#8 and #9 were resolved by a prior session that flagged, in writing, which
+parts were the agent's judgement rather than Joe's words. Those were put back to
+him and are now ratified on the tickets and on the map:
+
+1. **The nav word "Picks" stays.** The ADR 0038 rename argument (a nav label is
+   the product's own voice; `beta = -0.141` says the tool has no picks) was put
+   to him with two alternatives and declined. No test pins any nav label, so it
+   stays reversible.
+2. **`/board`'s demotion to a Footer "Also served" entry is confirmed**, with
+   both in-page links struck. A footer entry is a link *plus a sentence*, on all
+   six routes, which satisfies his standing "explain them where they are"
+   preference better than a bare nav word did.
+3. **The page-top placement stands and #31 is not urgent.** He accepted that
+   the sentence answers "what is this tab for" one tap *after* he asks it,
+   because nothing is ever bet from the nav strip — six taps, once, against
+   losing the Gate link on every screen every night.
+
+### #10 resolved — the palette collision, and two defects found by recomputing
+
+`--accent` and `--negative` were byte-identical. Joe chose **Split A** from a
+prototype (real Games rows and Picks blocks, four schemes, both themes):
+`--accent` becomes indigo `#2f3d8f` / `#8ea2ff` with a separate
+`--accent-fill` `#3b4bb8`; `--negative` keeps the red and nothing else may wear
+it; REJECTED moves to the warning ochre; panels take a new `--edge` at
+1.69/1.86:1. Full reasoning and every ratio are on the ticket. Prototype:
+https://claude.ai/code/artifact/ddfe5cc4-c58c-43dd-b14e-c665050b81d4
+
+**Three corrections came out of recomputing rather than trusting the ticket's
+arithmetic, and the first is a live defect nobody has fixed:**
+
+1. **Every filled red button fails WCAG AA in dark mode, on live, right now.**
+   White on `#ef4444` is **3.76:1** against a 4.5:1 floor at 14px semibold —
+   `ManualTicket.tsx:563` (the real-money confirm), `TicketSheet.tsx`'s four,
+   `PriceOnKalshi.tsx:107`, `market/[ticker]/page.tsx:351`,
+   `login/page.tsx:66`, `Nav.tsx:202`. `tests/test_palette_contrast.py` missed
+   it because it checks tokens **as ink on a ground and never as a fill**.
+   Building Split A fixes it at 7.28:1; **until then it is shipped and
+   unguarded**, and it is the one thing on this list that is a bug rather than
+   a decision.
+2. **It was three roles on one token, not two.** Identity, commit-money and
+   loss/refusal. The middle one was put there deliberately by **ADR 0061 §3**,
+   so that ADR must be *amended* when this is built, not silently contradicted
+   — its actual rule is about weight (a filled control claims the page) and
+   survives in indigo.
+3. **The ticket's `1.04:1` was the wrong pair** — that is card-vs-page-
+   background; the border is `1.30:1` against the card, a figure
+   `globals.css:22-23` already states in its own comment. Both invisible, so
+   the conclusion held.
+
+`globals.css:29-31` — *"`--negative` reuses the accent red: a losing number
+rendering in the brand colour reads naturally"* — **is the recorded cause of
+the defect and must not survive the fix.**
+
+### Tracker state at end
+
+- **Closed:** #4, #5, #6, #7, #8, #9, #10. **Open:** 23. **No ticket is left
+  claimed-but-open**, so nothing is invisibly held by a dead session.
+- **Opened #32** (what colour the real-money warning strip wears now that red
+  is scarce — `ManualTicket.tsx:476` is byte-identical to today's REJECTED chip,
+  and the prototype's red was an unreviewed call) and **#33** (which of the six
+  components that refused colour in comments now take it — the actual payoff of
+  #10, and it pairs with #17, now blocked only by #16).
+- **#11 carries Joe's "yes" as a comment, not a resolution.** He wants his own
+  typed estimate read back to him. Three things that answer does *not* settle
+  are written on the ticket, and the one to put to him directly is the cost the
+  ticket itself names: *once he can see the score, it changes what he types.*
+  The ≥30-scored-bets floor is untouched by his yes.
+
+### Still open from this session
+
+- **`docs/agents/issue-tracker.md` is untracked.** `/wayfinder` reads it to find
+  the map and wire sub-issues. It works because it is on disk; it is one
+  `git clean` from gone. **Commit it.**
+- **`dd.status` is a stray in the repo root**, not gitignored, and shows up in
+  every `git status`.
+- **No test run this session** — nothing was built, so the 4,942 baseline above
+  is untouched and still qualified by the tree it was taken on.
+
+---
+
+## 2026-08-27 — the alarm that watches for a silent death had been taught to fire every day, and the combo tests were all in the wrong branch
 
 **State at start: `main` = `e077010`** (clean, nothing unpushed; a NEXT.md-only
 commit), **live `git_sha` = `9d34ef3`**, so live carried all current code. No
@@ -341,7 +597,8 @@ column and would 500 without it.
 
 **The first deploy attempt crash-looped the box.** `docker/entrypoint.sh`
 reached the image with CRLF endings, so the kernel looked for an interpreter
-named `bash`, the container exited **127 before any Python ran**, and Fly
+named `bash
+`, the container exited **127 before any Python ran**, and Fly
 gave up after ten restarts. **The migrations never started** — the failure is
 upstream of every application-level guard there is.
 

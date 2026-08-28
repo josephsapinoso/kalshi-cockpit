@@ -35,7 +35,7 @@ import Term from "@/components/Term";
  * - **The four caveat sentences render verbatim from the payload** — the
  *   fair-vs-quoted distinction, the enter-only warning, and the unverified
  *   fee are the server's claims, so the server's words carry them.
- * - **`bg-accent` appears exactly once per card** — the "Price on Kalshi"
+ * - **`bg-accent-fill` appears exactly once per card** — the "Price on Kalshi"
  *   button in `PriceOnKalshi.tsx`, the screen's one money-adjacent action.
  *   Nothing informational wears red.
  * - **A card that could not be built says why, in words**, in the same slot

@@ -59,7 +59,7 @@ export default function RefreshOddsButton({
    * button; the slate's stale-count exit passes the TonightStrip pill shape
    * instead. Both keep `min-h-11` — a real control gets a 44px target — and
    * both stay neutral ink: a refresh affordance is neither a warning
-   * (`accent-2`) nor money (`bg-accent`), ADR 0061 §3.
+   * (`accent-2`) nor money (`bg-accent-fill`), ADR 0061 §3.
    */
   buttonClassName?: string;
 }) {

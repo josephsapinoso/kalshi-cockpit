@@ -132,10 +132,12 @@ class TestTheChartRefusesToOverclaim:
         assert "independenceNote" in self._source()
 
     def test_it_wears_no_colour(self):
-        """`--accent` is the same red as `--negative` in both themes, and a
-        stat wearing it is already forbidden (`test_palette_contrast.py`). A
-        coloured series here would read as a verdict on a number that is not
-        one. Identity comes from position and shape."""
+        """A coloured series here would read as a verdict on a number that
+        is not one. Identity comes from position and shape.
+
+        This reason used to lean on `--accent` being the same red as
+        `--negative`; ADR 0081 separated them and the rule survives untouched.
+        Whether this chart may now take colour is ticket #33, unowned."""
         source = self._source()
         for token in ("--accent", "text-positive", "text-negative", "--negative"):
             assert token not in source, f"{token} reached the difficulty chart"

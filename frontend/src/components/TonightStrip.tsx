@@ -72,7 +72,7 @@ export default function TonightStrip({
   return (
     <div className="mt-4">
       {lockedUntil !== null ? (
-        <section className="rounded-2xl border bg-card p-4">
+        <section className="rounded-2xl border border-edge bg-card p-4">
           <div className="text-xs font-semibold uppercase tracking-widest text-muted">
             Not tonight — your call, earlier
           </div>

@@ -174,9 +174,12 @@ class TestARefusedRowIsNeverPaintedAsMoney:
         assert lines["suspect"] != lines["refused"]
 
     def test_the_tone_survives_the_colour_being_invisible(self):
-        """Roughly one man in twelve cannot separate these two hues, and
-        `--negative` is the same red as `--accent`. A rule carried by colour
-        alone is carried by nothing for those readers."""
+        """Roughly one man in twelve cannot separate these two hues. A rule
+        carried by colour alone is carried by nothing for those readers.
+
+        The second half of this reason -- "`--negative` is the same red as
+        `--accent`" -- was true until ADR 0081 and is not the reason the mark
+        exists."""
         marks = block(source(API_TS), "export const EDGE_TONE_MARK", "\n};")
         suspect = next(
             ln for ln in marks.splitlines() if ln.strip().startswith("suspect:")
@@ -208,7 +211,11 @@ class TestARefusedRowIsNeverPaintedAsMoney:
         `text-muted` on every row while the edge beside it was bright green."""
         row = source(SLATE_ROW)
         rejected = block(row, 'resolved === "rejected"', "}")
-        assert "text-muted" not in rejected or "text-accent" in row, (
+        # `text-accent-2`, the warning ochre, since ADR 0081 moved refusal
+        # off the brand red. The claim is that the reason is ESCALATED, not
+        # which token does it -- but naming the token exactly is what stops
+        # this passing on a substring of some future `text-accent-3`.
+        assert "text-muted" not in rejected or "text-accent-2" in row, (
             "the suppression reason still renders in the muted colour with no "
             "escalated branch beside it."
         )

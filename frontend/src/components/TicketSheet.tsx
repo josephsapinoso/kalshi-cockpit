@@ -496,7 +496,7 @@ export default function TicketSheet({
                 <button
                   type="button"
                   onClick={confirm}
-                  className="flex-1 rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white"
+                  className="flex-1 rounded-lg bg-accent-fill px-4 py-3 text-sm font-semibold text-white"
                 >
                   Try again
                 </button>
@@ -508,7 +508,7 @@ export default function TicketSheet({
                     setPhase("ticket");
                     setResult(null);
                   }}
-                  className="flex-1 rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white"
+                  className="flex-1 rounded-lg bg-accent-fill px-4 py-3 text-sm font-semibold text-white"
                 >
                   Back
                 </button>
@@ -518,7 +518,7 @@ export default function TicketSheet({
                 onClick={onClose}
                 className={`flex-1 rounded-lg px-4 py-3 text-sm font-semibold ${
                   secondaryAction(result) === null
-                    ? "bg-accent text-white"
+                    ? "bg-accent-fill text-white"
                     : "border"
                 }`}
               >
@@ -532,7 +532,7 @@ export default function TicketSheet({
                 onClick={confirm}
                 disabled={phase === "sending" || contracts < 1 || needsToken}
                 aria-busy={phase === "sending"}
-                className="w-full rounded-lg bg-accent px-4 py-3.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded-lg bg-accent-fill px-4 py-3.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {phase === "sending"
                   ? "Asking the server…"
@@ -635,7 +635,7 @@ function GateLocked({ detail }: { detail: LockedDetail }) {
                 className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
                   condition.met
                     ? "bg-positive/15 text-positive"
-                    : "bg-accent-soft text-accent"
+                    : "bg-accent-2-soft text-accent-2"
                 }`}
               >
                 {condition.met ? "✓" : "—"}
@@ -647,7 +647,7 @@ function GateLocked({ detail }: { detail: LockedDetail }) {
                   </span>
                   <span
                     className={`text-[0.65rem] font-bold uppercase tracking-widest ${
-                      condition.met ? "text-positive" : "text-accent"
+                      condition.met ? "text-positive" : "text-accent-2"
                     }`}
                   >
                     {condition.met ? "met" : "not met"}
@@ -882,7 +882,7 @@ function Placed({ order }: { order: OrderPlaced }) {
       )}
 
       {order.note && (
-        <p className="mt-5 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs leading-relaxed">
+        <p className="mt-5 rounded-lg border border-accent-2/50 bg-accent-2-soft px-3 py-2 text-xs leading-relaxed">
           {order.note}
         </p>
       )}
@@ -917,7 +917,7 @@ function Verdict({
       ? "text-positive"
       : tone === "dry"
         ? "text-accent-2"
-        : "text-accent";
+        : "text-accent-2";
   return (
     <div>
       {code && (
@@ -965,7 +965,7 @@ function Note({
     <p
       className={`mb-6 rounded-lg border px-3 py-2.5 text-xs leading-relaxed ${
         tone === "warn"
-          ? "border-accent/40 bg-accent-soft"
+          ? "border-accent-2/50 bg-accent-2-soft"
           : "text-muted"
       }`}
     >

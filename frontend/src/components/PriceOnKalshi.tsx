@@ -13,7 +13,8 @@ import Term from "@/components/Term";
  * The tap mints a real combination market on Kalshi — no money moves, it is
  * exactly what the app does when anyone taps legs — and prices it off the
  * minted market's ORDER BOOK, never the list row. The button says what the
- * tap does before it is tapped; `bg-accent` is lawful here and nowhere else
+ * tap does before it is tapped; `bg-accent-fill` is lawful here and nowhere
+ * else
  * on this screen (red = money-adjacent action).
  *
  * Every state renders in words: priced (quoted cost, contracts, payout,
@@ -104,7 +105,7 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
         <>
           <button
             onClick={tap}
-            className="rounded bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+            className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white"
           >
             Price on Kalshi
           </button>
@@ -122,7 +123,8 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
       )}
       {state.kind === "done" && <Result value={state.value} />}
       {retryable && (
-        // Not `bg-accent`: the red slot is the money-adjacent *first* tap.
+        // Not `bg-accent-fill`: the filled slot is the money-adjacent
+        // *first* tap.
         // A retry of a refusal is the same action, but the screen has
         // already said what it does, so it does not shout twice.
         <button

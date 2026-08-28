@@ -61,7 +61,7 @@ export default async function LedgerPage() {
         </p>
       </header>
 
-      <div className="mb-10 rounded-2xl border bg-card p-6">
+      <div className="mb-10 rounded-2xl border border-edge bg-card p-6">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-semibold uppercase tracking-widest text-muted">
             Independent games scored on <Term k="clv">CLV</Term>
@@ -72,7 +72,7 @@ export default async function LedgerPage() {
         </div>
         <div className="mt-3 h-2 overflow-hidden rounded-full border">
           <div
-            className="h-full bg-accent transition-all"
+            className="h-full bg-accent-fill transition-all"
             style={{ width: `${progress}%` }}
           />
         </div>

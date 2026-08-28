@@ -74,7 +74,7 @@ export default async function BetsPage() {
         </p>
       </header>
 
-      <div className="rounded-2xl border bg-card p-5">
+      <div className="rounded-2xl border border-edge bg-card p-5">
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
           <Term k="net">Net</Term>, over the whole mirrored record
         </div>

@@ -300,7 +300,7 @@ export default function MarketPage() {
       {detail && <ConsensusPanel detail={detail} />}
       {detail && <SkepticPanel detail={detail} />}
       {!detail && !detailLoading && (
-        <section className="mt-6 rounded-2xl border bg-card p-4 sm:p-6">
+        <section className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6">
           <p className="max-w-[65ch] text-sm text-muted">
             The consensus and skeptic panels have nothing to show — the
             recorder never priced this ticker, so there is no judged row to
@@ -333,7 +333,7 @@ export default function MarketPage() {
 
       <p className="mt-2 max-w-[65ch] font-mono text-xs text-muted">{ticker}</p>
 
-      <details className="mt-6 rounded-2xl border bg-card px-4 py-3 sm:px-6">
+      <details className="mt-6 rounded-2xl border border-edge bg-card px-4 py-3 sm:px-6">
         <summary className="cursor-pointer text-sm font-semibold">
           Price history
           <span className="ml-2 font-normal text-muted">
@@ -348,7 +348,7 @@ export default function MarketPage() {
                 key={r.key}
                 onClick={() => setRange(r.key)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase ${
-                  range === r.key ? "bg-accent text-white" : "border text-muted"
+                  range === r.key ? "bg-accent-fill text-white" : "border text-muted"
                 }`}
               >
                 {r.label}

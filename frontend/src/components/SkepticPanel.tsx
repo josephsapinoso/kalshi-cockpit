@@ -26,7 +26,7 @@ import { glossSuppression } from "@/lib/suppressionGloss";
 export default function SkepticPanel({ detail }: { detail: MarketDetail }) {
   const gauntlet: Gauntlet | undefined = detail.gauntlet;
   return (
-    <section id="skeptic" className="mt-6 rounded-2xl border bg-card p-4 sm:p-6 xl:p-8">
+    <section id="skeptic" className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6 xl:p-8">
       <h2 className="text-lg font-semibold xl:text-xl">The skeptic</h2>
       <p className="mt-1 max-w-[65ch] text-sm text-muted">
         Twelve mechanical checks — no model, no spend. A rule of this house:
@@ -70,7 +70,7 @@ function VerdictList({ gauntlet }: { gauntlet: Gauntlet }) {
         <ul className="space-y-2">
           {refused.map((check) => (
             <li key={check.code}>
-              <span className="font-mono text-xs font-semibold text-accent">
+              <span className="font-mono text-xs font-semibold text-accent-2">
                 ✕ {check.code}
               </span>
               <Caption code={check.code} />
@@ -80,7 +80,7 @@ function VerdictList({ gauntlet }: { gauntlet: Gauntlet }) {
       )}
       {gauntlet.sizing.map((code) => (
         <p key={code}>
-          <span className="font-mono text-xs font-semibold text-accent">
+          <span className="font-mono text-xs font-semibold text-accent-2">
             ✕ {code}
           </span>
           <Caption code={code} />
@@ -88,7 +88,7 @@ function VerdictList({ gauntlet }: { gauntlet: Gauntlet }) {
       ))}
       {gauntlet.unknown.map((code) => (
         <p key={code}>
-          <span className="font-mono text-xs font-semibold text-accent">
+          <span className="font-mono text-xs font-semibold text-accent-2">
             ✕ {code}
           </span>
           <span className="block max-w-[65ch] text-xs text-muted">

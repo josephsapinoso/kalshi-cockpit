@@ -88,7 +88,7 @@ export default function MarketSearch({
   }, [query, run]);
 
   return (
-    <details className="mt-6 rounded-2xl border bg-card px-4 py-3 sm:px-6">
+    <details className="mt-6 rounded-2xl border border-edge bg-card px-4 py-3 sm:px-6">
       <summary className="cursor-pointer text-sm font-semibold">
         {heading}
         <span className="ml-2 font-normal text-muted">

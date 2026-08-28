@@ -44,7 +44,22 @@ Consequences applied the same day: tiles at ~193px in one six-across row
 prose caps guarded by `PROSE_FILES`, the chart widening to ~900px when
 opened ("widen the data, never the prose").
 
-## 3. Red is for money, at every width
+## 3. A filled control is for money, at every width
+
+> **Amended 2026-08-28 by ADR 0081.** This section was titled *"Red is for
+> money, at every width"* and its body called `--accent` "the commit red".
+> Both are now false as descriptions: `--accent` is indigo, and red
+> (`--negative`) means loss and nothing else. **The rule is unchanged and was
+> never about the hue** — it is about *weight*: a filled control claims the
+> page. It survives in indigo exactly as written. The class name moved from
+> `bg-accent` to `bg-accent-fill`; the guard
+> `TestTheMarketScreenStaysOnItsInstruments` was repointed and its rule was
+> not loosened.
+>
+> This paragraph exists because the next session to read §3 will find a rule
+> stated in a colour that no longer does that job, and the obvious reading —
+> "this was reverted" — is wrong. §3 is one of the three roles ADR 0081
+> separates, and it is the one that was placed there deliberately.
 
 The desk's re-send button wore `bg-accent` (the commit red). At desktop
 scale it became one of the brightest things on the page — under a completed

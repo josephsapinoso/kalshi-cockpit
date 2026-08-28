@@ -131,3 +131,10 @@ cookiejar*
 # transient log captures
 live.log
 .playwright-mcp/
+
+# Exit-status scratch files. `dd.status` has sat in the repo root since at
+# least 2026-08-26 holding the two bytes `exit=1`, showing up in every
+# `git status` a session runs at its start. Ignored rather than deleted: it is
+# an artifact of one of Joe's own shell habits, and nothing in this repo knows
+# what writes it.
+*.status

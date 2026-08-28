@@ -73,14 +73,14 @@ const WILLY: CrewMember = {
   name: "Willy Balters",
   face: "willy",
   role: "reads the book distribution",
-  className: "border-border bg-card text-foreground",
+  className: "border-border border-edge bg-card text-foreground",
 };
 
 const SCOUT: CrewMember = {
   name: "The Scout",
   face: "scout",
   role: "injuries, lineups, weather, travel",
-  className: "border-border bg-card text-muted",
+  className: "border-border border-edge bg-card text-muted",
 };
 
 /**
@@ -201,7 +201,7 @@ export default function CrewBubble({ row }: { row: SlateRowData }) {
              push the document wider than the viewport — the failure
              `scripts/check_mobile.py` exists to catch, and the one the nav
              already produced once. */
-          className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,80vw)] rounded-lg border border-border bg-card p-3 text-left shadow-lg"
+          className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,80vw)] rounded-lg border border-border border-edge bg-card p-3 text-left shadow-lg"
         >
           {[
             { who: SKEPTIC, says: skepticLine(row) },

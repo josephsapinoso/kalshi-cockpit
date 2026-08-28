@@ -176,7 +176,7 @@ export default function FiveStepTest() {
       </p>
       <ol className="mt-6 space-y-5">
         {STEPS.map((step, index) => (
-          <li key={step.name} className="rounded-2xl border bg-card p-5">
+          <li key={step.name} className="rounded-2xl border border-edge bg-card p-5">
             <div className="flex items-baseline gap-3">
               <span className="font-mono text-sm font-semibold text-accent">
                 {index + 1}

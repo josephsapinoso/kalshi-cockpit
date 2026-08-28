@@ -80,7 +80,7 @@ export default function EstimatePage() {
       </header>
 
       {stop !== null && stop.study_state === "stopped_without_result" && (
-        <section className="mb-6 rounded-2xl border bg-card p-5">
+        <section className="mb-6 rounded-2xl border border-edge bg-card p-5">
           <div className="text-xs font-semibold uppercase tracking-widest text-muted">
             Study stopped
           </div>
@@ -115,7 +115,7 @@ export default function EstimatePage() {
           </h2>
           <ul className="mt-3 space-y-2">
             {recent.map((entry) => (
-              <li key={entry.id} className="rounded-xl border bg-card px-4 py-3">
+              <li key={entry.id} className="rounded-xl border border-edge bg-card px-4 py-3">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
                     {entry.ticker}

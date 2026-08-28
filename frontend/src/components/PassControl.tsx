@@ -19,7 +19,8 @@
  *   decision about tonight, not a verdict on the market. It blocks nothing:
  *   the ticket above still works, and so does the Kalshi app.
  * - **Visually secondary to everything money-red.** The quiet bordered pill
- *   (TonightStrip's), never `bg-accent` — red is money (ADR 0061 §3), and a
+ *   (TonightStrip's), never `bg-accent-fill` — a filled control claims the
+ *   page (ADR 0061 §3, as amended by ADR 0081), and a
  *   pass is the calm alternative, not a rival call to action.
  *
  * Idempotence is UI state, not a DB constraint: the table is append-only

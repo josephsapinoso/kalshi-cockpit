@@ -14,7 +14,7 @@
  */
 export default function HowToRead() {
   return (
-    <section className="mb-8 rounded-2xl border bg-card p-5 sm:p-6">
+    <section className="mb-8 rounded-2xl border border-edge bg-card p-5 sm:p-6">
       <h2 className="text-xs font-semibold uppercase tracking-widest text-muted">
         How to read this board
       </h2>

@@ -29,7 +29,7 @@ export default async function LoginPage({
       <form
         method="POST"
         action="/session"
-        className="rounded-2xl border bg-card p-6"
+        className="rounded-2xl border border-edge bg-card p-6"
       >
         <input type="hidden" name="next" value={next} />
 
@@ -63,7 +63,7 @@ export default async function LoginPage({
 
         <button
           type="submit"
-          className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+          className="mt-5 w-full rounded-lg bg-accent-fill px-4 py-2.5 text-sm font-semibold text-white"
         >
           Sign in
         </button>

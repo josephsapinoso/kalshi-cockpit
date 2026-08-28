@@ -25,6 +25,55 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-28 — A guard can check the right token in the wrong role, and stay green for months
+
+A palette test computed WCAG contrast on every colour token, per theme, and
+pinned the ratios so a future tweak would fail by arithmetic rather than by
+review. It was a good test. It was green the whole time a real-money confirm
+button rendered white text at **3.76:1** against a 4.5:1 floor, on the live
+instance, where money is spent.
+
+The test checked each token **as ink on a ground**. The button used it **as a
+fill under white**. Those are two different pairs of colours, and the token
+passed the first and failed the second — necessarily so, because the shade that
+is legible as ink on a dark card is a light shade, and white does not sit on a
+light shade. The two requirements pull in opposite directions, which is why one
+token could not satisfy both and why nothing in the file noticed.
+
+**The pattern: a token has as many contrast obligations as it has ROLES, and a
+guard that checks one role reports on one role.** Ink on card, ink on tint,
+white on fill, and a border against the surface beside it are four separate
+measurements of the same hex value. A file that computes three of them and is
+named for the colour reads like coverage of the colour.
+
+Two things make this hard to see from inside:
+
+1. **The passing check and the failing render share a variable name.** Grepping
+   for the token finds the test, the test asserts on the token, and the token is
+   the thing that is wrong. Every signal agrees and every signal is about the
+   other role.
+2. **The role lives at the call site, not in the palette.** `globals.css` cannot
+   say which tokens will be used as backgrounds; only a component can. So the
+   test has to carry a *list* that the palette does not contain, and a list is
+   the one thing that goes stale without failing.
+
+**The habit: before asserting on a design token, write down which roles it
+plays, then check that many pairs.** The fix here names the fills explicitly in
+the test file and says in its own docstring that a filled control built on some
+other token is uncovered until it is added — because a guard that cannot
+enumerate its own scope should say so rather than imply completeness.
+
+**And the near-miss in the same change, which no guard caught at all.** The new
+panel-edge token was applied by rewriting `border bg-card` to
+`border-edge bg-card` across 35 sites. In Tailwind, `border` sets the *width*
+and `border-edge` sets the *colour* — so that rewrite deleted every panel border
+in the app. It typechecked clean, built clean, and passed every test, because
+nothing in this repo asserts that a border is visible. It was caught by reading
+the diff. **A class that reads like a refinement of another class may be a
+replacement for it**, and the CSS framework will not say which.
+
+---
+
 ## 2026-08-27 — The deploy ships the working tree, so a correct repository proves nothing
 
 A deploy took live down for about four minutes. The cause was a carriage return

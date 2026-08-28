@@ -227,8 +227,15 @@ class TestTheMarketScreenStaysOnItsInstruments:
 
     The board stays six-across at every width where it is six-across today --
     one row of lamps is one glance, and a 3x2 fold makes it two. And the
-    re-send control must not wear the filled accent: a red button under a
+    re-send control must not wear the filled accent: a filled button under a
     completed board invites re-rolling the desk until it says something.
+
+    The rule is about WEIGHT, not hue, and 2026-08-28 proved that the hard
+    way. This test probed for the literal string `bg-accent ` and went red
+    when the token was renamed to `bg-accent-fill` (ADR 0081) -- the filled
+    control was still there, still alone, still correct. A guard that names a
+    colour is measuring the wrong thing; it now names the fill token, which is
+    what "claims the page" actually means.
     """
 
     def test_the_board_keeps_its_six_lamp_row(self):
@@ -240,7 +247,7 @@ class TestTheMarketScreenStaysOnItsInstruments:
 
     def test_only_the_first_send_wears_the_accent(self):
         text = (SRC / "components" / "ScoutDesk.tsx").read_text(encoding="utf-8")
-        assert text.count("bg-accent ") == 1, (
+        assert text.count("bg-accent-fill") == 1, (
             "more than one filled-accent control in the desk; re-sends are "
             "bordered secondaries so the brightest thing on the screen is "
             "never an invitation to re-roll a metered request"

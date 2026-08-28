@@ -91,7 +91,7 @@ export default function Hint({
       {open && (
         <span
           role="tooltip"
-          className="absolute bottom-full left-1/2 z-40 mb-2 block w-64 max-w-[80vw] -translate-x-1/2 rounded-xl border bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-foreground shadow-lg"
+          className="absolute bottom-full left-1/2 z-40 mb-2 block w-64 max-w-[80vw] -translate-x-1/2 rounded-xl border border-edge bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-foreground shadow-lg"
         >
           {hint}
         </span>

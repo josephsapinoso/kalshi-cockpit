@@ -25,7 +25,8 @@ import Term from "@/components/Term";
  *   (the fleet-convening identity). The rows below this block carry
  *   break-even; the two never share a block.
  * - **Nothing here is tappable into an order.** Each entry links to the
- *   game's own screen and nowhere else. No `bg-accent` (red = money), no
+ *   game's own screen and nowhere else. No `bg-accent-fill` (a filled
+ *   control is a claim that pressing it is the point of the page), no
  *   urgency ink, no count of how many picks "hit" — a favorites list must
  *   not become a chase surface.
  * - Games the server could not rank are counted in words — "no pick" and

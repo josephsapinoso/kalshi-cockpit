@@ -311,7 +311,7 @@ const TONE_TEXT: Record<Tone, string> = {
 const TONE_CHIP: Record<Tone, string> = {
   calm: "border-[color:var(--border)] text-muted",
   warn: "border-[color:var(--accent-2)] text-accent-2 font-bold",
-  alarm: "border-[color:var(--negative)] bg-accent-soft text-negative font-bold",
+  alarm: "border-[color:var(--negative)] bg-negative-soft text-negative font-bold",
 };
 
 /** The strip itself. Split out so all three states render the same shape. */

@@ -42,7 +42,7 @@ export default async function DashboardsPage() {
     return (
       <Shell>
         <Header />
-        <div className="rounded-2xl border bg-card p-6">
+        <div className="rounded-2xl border border-edge bg-card p-6">
           <p className="font-semibold">The warehouse has not been built.</p>
           <p className="mt-3 text-sm text-muted">
             This screen reads dbt marts over the Parquet lake, so it needs both
@@ -93,7 +93,7 @@ export default async function DashboardsPage() {
         </div>
       ) : null}
 
-      <div className="mb-8 rounded-2xl border bg-card p-6">
+      <div className="mb-8 rounded-2xl border border-edge bg-card p-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-muted">
           Read this first
         </p>
@@ -201,12 +201,12 @@ function PanelBlock({
       <p className="mt-2 max-w-2xl text-sm text-muted">{subtitle}</p>
 
       {!panel || panel.status === "unavailable" ? (
-        <div className="mt-4 rounded-2xl border bg-card p-6 text-sm text-muted">
+        <div className="mt-4 rounded-2xl border border-edge bg-card p-6 text-sm text-muted">
           Unavailable — not unknown to be empty, but genuinely unknown.{" "}
           {panel?.note}
         </div>
       ) : panel.status === "empty" ? (
-        <div className="mt-4 rounded-2xl border bg-card p-6 text-sm text-muted">
+        <div className="mt-4 rounded-2xl border border-edge bg-card p-6 text-sm text-muted">
           {emptyNote ?? panel.note}
         </div>
       ) : (

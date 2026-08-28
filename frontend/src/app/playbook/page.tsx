@@ -98,7 +98,7 @@ export default async function PlaybookPage() {
       </h2>
 
       {!playbook.historian_has_run ? (
-        <div className="mt-6 rounded-2xl border bg-card p-6">
+        <div className="mt-6 rounded-2xl border border-edge bg-card p-6">
           <div className="font-mono text-sm font-semibold">
             The Historian has never run
           </div>
@@ -132,7 +132,7 @@ function VersionCard({
   const changes = Object.entries(version.changed_from_previous);
 
   return (
-    <li className="rounded-2xl border bg-card p-6">
+    <li className="rounded-2xl border border-edge bg-card p-6">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="display text-2xl">v{version.version}</span>
         {version.is_current && (
@@ -218,7 +218,7 @@ function VersionCard({
 
 function LessonCard({ lesson }: { lesson: Lesson }) {
   return (
-    <li className="rounded-2xl border bg-card p-6">
+    <li className="rounded-2xl border border-edge bg-card p-6">
       <div className="flex flex-wrap items-baseline gap-x-3">
         <h3 className="text-lg font-bold tracking-tight">{lesson.title}</h3>
         {lesson.accepted_by_user === null && lesson.proposed_config_diff && (
