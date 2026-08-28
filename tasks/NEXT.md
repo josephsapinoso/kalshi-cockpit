@@ -39,7 +39,11 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,972 passed / 10 xfailed in 7:14**, measured 2026-08-28 on
+**Test baseline: 4,984 passed / 10 xfailed** on `2b3baa3` — see the #35 entry
+below for the delta. The line below was true of `f1c2b5f` and is kept because
+its reasoning is what keeps this number honest:
+
+**Superseded: 4,972 passed / 10 xfailed in 7:14**, measured 2026-08-28 on
 the tree committed as the watchdog corrections, with nothing edited after the
 run started. The **+13 over the previous 4,959 is fully accounted**: eight
 `TestAWedgedPassIsBoundedAndRecorded` guards in `tests/test_scheduler.py`, four
@@ -381,11 +385,17 @@ finish, and nothing here depends on it.
   `retail-bettor` as a proposal on the ticket, not a build. Joe's constraints
   are already recorded in the ticket body: not an alarm, `--accent-2` at most,
   must not manufacture action.
-- `sweeps_remaining_today` (`timing.py:1134`) is computed from the whole day's
-  budget rather than the attention slice and is suspected of carrying the same
-  defect. Being checked by the first lane. **The design review found it read
-  ~34 remaining (492 of 700 spent) on the night the slice allowed zero further
-  attention buys** — direct evidence for the defect, not yet a fix.
+- **`sweeps_remaining_today` does NOT carry the defect. Checked, refuted,
+  recorded in the code beside the field so nobody re-checks it.** Both this
+  file and ticket #35 asserted it probably did, on the strength of it reading
+  123 sweeps (492 of 700 spent) on a night the slice allowed zero further
+  attention buys. That is a **coverage gap, not a lie**: `next_call_ms` was a
+  *prediction* the loop then refused, while this is an arithmetic fact about a
+  pool — and it is the right pool, because a scheduled slot and a floor buy are
+  charged to the day's budget rather than to the slice, so narrowing it would
+  under-size `plan_sweep_slots` as well as the readout. It answers "what can
+  the day still afford"; the reader was asking "can the desk refresh while I
+  watch". The new `attention_*` fields answer the second question.
 
 ### Both design lanes returned, they contradicted each other, and the winner corrects this session's own plan
 
@@ -445,6 +455,54 @@ gets no floor rescue is read from the source, not observed. One `sweep-log`
 read on a night when the slice is spent and the desk is open settles it — if
 the refusal repeats every pass and no `DESK`-triggered `api_credits` row lands
 within the hour, it holds.
+
+### #35 half one SHIPPED — `2b3baa3`, pushed, NOT deployed
+
+`window_status` now applies the loop's own slice test through a shared
+`attention_slice_is_spent(...)` that `decide_sweeps` also calls, so there is one
+spelling rather than two. Past the slice the desk contributes **nothing** to
+`next_call_ms`. `desk_floor_next_want_ms(...)` is published as its own field and
+is a **lookahead** — a sport enters the floor's horizon at `kickoff − 12h`, so
+at 04:38Z it answers ~06:20Z where `desk_wants` answers nothing. Six new fields
+make the three sentences distinguishable: `next_desk_buy_ms` null with
+`floor_next_buy_ms` set means "resumes at T once you stop looking"; both null
+means nothing ever; `next_desk_buy_ms` set means it is coming. The *"the page
+cannot disagree with it"* guarantee is **replaced** with the narrower claim the
+code actually keeps.
+
+**Two corrections to what this session believed, both from the lane, both
+verified here:**
+
+1. **Cadence-neutrality holds for these three states but NOT by construction**,
+   and the arithmetic in the pre-registration above is looser than it looked:
+   `JITTER` is **0.15, not 0.05**, so `min(slow, until_s / (1 + JITTER))`
+   preserves 900s only past **1,035s**. All three states do return 900s, but a
+   nearer future `next_call_ms` legitimately shortens the sleep — the bound
+   doing its job, not a regression.
+   `test_the_neutrality_holds_only_beyond_the_jitter_boundary` pins it.
+2. **A defect recorded and deliberately not fixed:** the loop's own refusal
+   string says *"the hourly floor still runs"*, and while the desk is attended
+   it does not. Correcting the sentence is display; correcting the behaviour
+   would increase spend. That is a decision, not a patch.
+
+**DEPLOY SAFETY — read before shipping this tomorrow.** Half one makes
+`next_sweep_ms` nullable, and `readNextWindow` has not been touched. Traced:
+with the slice spent the null falls past `budget_spent` (its
+`sweeps_remaining_today <= 0` test does not fire at ~123) into
+`nothing_to_schedule` — *"no upcoming kickoff is near enough… A tap below is
+the only path to a fresh read."* **On the 04:38Z case that sentence is true**,
+both clauses. But it is reachable when it is false: slice spent, attended, no
+scheduled slot, and a kickoff **inside** twelve hours — then it claims no
+kickoff is near enough while one is. Half two must gate that branch on
+`attention_slice_spent` and `floor_next_buy_ms` before it speaks. Shipping half
+one alone is a net improvement and not a regression, but it is not the finished
+state.
+
+**Baseline moved: 4,984 passed / 10 xfailed** (4,994 items collected — verified
+here independently of the lane's report, and the two new classes re-run green).
++12 over 4,972, fully accounted: 8 in
+`TestThePanelDoesNotPublishASweepTheLoopHasRefused`, 4 in
+`TestTheLoopsCadenceIsUnchangedByTheSliceCheck`.
 
 ---
 
