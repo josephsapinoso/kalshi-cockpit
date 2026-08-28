@@ -114,6 +114,13 @@ export type NextWindowFacts = {
    * fixture ever brings the floor round, which is a third state again.
    */
   floor_next_buy_ms?: number | null;
+  /**
+   * `window_status().attention_slice_spent_at_ms`: when today's allowance ran
+   * out. Optional and `null`-tolerant for the same reason as the fields
+   * above — a caller that omits it gets a sentence with no time in it, which
+   * is complete on its own.
+   */
+  attention_slice_spent_at_ms?: number | null;
 };
 
 export type NextWindowReading =
@@ -141,6 +148,9 @@ export type NextWindowReading =
   | {
       kind: "slice_spent";
       floor_resumes_ms: number | null;
+      /** When the allowance ran out. The caller formats it; `sentence` never
+       *  contains it, so a caller that ignores it still reads correctly. */
+      spent_at_ms: number | null;
       now_ms: number;
       sentence: string;
     }
@@ -220,6 +230,7 @@ export function readNextWindow(
     return {
       kind: "slice_spent",
       floor_resumes_ms: floorResumes,
+      spent_at_ms: facts.attention_slice_spent_at_ms ?? null,
       now_ms: facts.now_ms,
       // **Never "a tap is the only path".** ADR 0071 §2.1 — the desk does
       // not manufacture action. Both reviews on #35 rejected the ticket's own

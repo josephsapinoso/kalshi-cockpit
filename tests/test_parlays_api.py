@@ -809,3 +809,160 @@ class TestTheDeskIsScopedToTonight:
             / "frontend" / "src" / "components" / "ParlayCards.tsx"
         ).read_text(encoding="utf-8")
         assert "kickoff_after_tonight:" in src
+
+
+class TestTheDeskKnowsWhatKalshiWillCombine:
+    """Kalshi trades far more games than it will combine, and the desk had no
+    way to know which.
+
+    Measured 2026-08-28: `KXMVECROSSCATEGORY-R`, `-SHARD1-R` and
+    `KXMVESPORTSMULTIGAMEEXTENDED-R` carry the SAME 2,365 legs. A card whose
+    legs are outside that list returns HTTP 400 `invalid_parameters` after the
+    tap -- real markets, individually priceable, that the venue will not
+    parlay.
+
+    The ladder cannot ask Kalshi: `GET /api/parlays` is sync and
+    `build_ladder_payload` also runs inside the scheduler pass, where a
+    paginated walk is the shape that killed the pass tail that morning. So the
+    walk happens on the loop's schedule and leaves its answer in
+    `combo_eligible_events`.
+
+    **The load-bearing property is what happens when the cache is COLD**, and
+    it gets three cases below, because getting it wrong empties the parlay desk
+    on every fresh volume and every deploy.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - Nothing about the walk itself; `fetch_collections` is `test_combos.py`'s.
+    - Nothing about Kalshi accepting a card whose legs ARE all eligible. The
+      enumerated list is known to understate what a catch-all accepts, which is
+      why `price_card_on_kalshi` still refuses on its own terms rather than
+      trusting this.
+    """
+
+    NOW = 1787954400000  # Friday 2026-08-28 15:00 PT, as elsewhere in this file
+
+    def _seeded(self, tmp_path, name="elig.db"):
+        conn = store.init_db(tmp_path / name)
+        seed_game(conn, game="g0", team="Team A", other="Team B",
+                  p=0.7, computed_ms=self.NOW - 30_000,
+                  commence_ms=self.NOW + 3_600_000)
+        conn.commit()
+        return conn
+
+    def test_a_cold_cache_filters_nothing(self, tmp_path):
+        """**The outage this guard could have caused.** An empty table is a
+        walk that has not happened, not a venue that combines nothing. If this
+        ever returns zero legs, every fresh deploy shows an empty parlay desk
+        until the first refresh lands."""
+        conn = self._seeded(tmp_path)
+        assert parlays.combo_eligible_events(conn, now_ms=self.NOW) is None
+        legs, excluded = ladder_candidates(conn, now_ms=self.NOW)
+        assert legs
+        assert "kalshi_will_not_combine" not in excluded
+
+    def test_a_stale_cache_filters_nothing(self, tmp_path):
+        """Older than the TTL is the same state as never written. A list from
+        yesterday describes yesterday's slate, and filtering today's games on
+        it would drop all of them."""
+        conn = self._seeded(tmp_path)
+        old = self.NOW - parlays.COMBO_ELIGIBILITY_TTL_MS - 1
+        parlays.store_combo_eligibility(conn, {"KXOTHER-1"}, now_ms=old)
+        assert parlays.combo_eligible_events(conn, now_ms=self.NOW) is None
+        legs, _ = ladder_candidates(conn, now_ms=self.NOW)
+        assert legs
+
+    def test_an_empty_refresh_is_never_written(self, tmp_path):
+        """A walk that returns nothing is indistinguishable from a walk that
+        failed, so it must not overwrite a good list with an empty one."""
+        conn = self._seeded(tmp_path)
+        parlays.store_combo_eligibility(conn, {"KXKEEP-1"}, now_ms=self.NOW)
+        assert parlays.store_combo_eligibility(conn, set(), now_ms=self.NOW) == 0
+        assert parlays.combo_eligible_events(
+            conn, now_ms=self.NOW
+        ) == {"KXKEEP-1"}
+
+    def test_a_fresh_cache_drops_what_kalshi_will_not_combine(self, tmp_path):
+        """The reported bug, reduced to one leg."""
+        conn = self._seeded(tmp_path)
+        parlays.store_combo_eligibility(
+            conn, {"KXSOMETHING-ELSE"}, now_ms=self.NOW
+        )
+        legs, excluded = ladder_candidates(conn, now_ms=self.NOW)
+        assert legs == []
+        assert excluded.get("kalshi_will_not_combine", 0) > 0
+
+    def test_a_fresh_cache_keeps_what_it_will(self, tmp_path):
+        """The other half, so the test above cannot pass by dropping
+        everything."""
+        conn = self._seeded(tmp_path)
+        ticker = conn.execute(
+            "SELECT kalshi_event_ticker FROM event_links LIMIT 1"
+        ).fetchone()["kalshi_event_ticker"]
+        parlays.store_combo_eligibility(conn, {ticker}, now_ms=self.NOW)
+        legs, excluded = ladder_candidates(conn, now_ms=self.NOW)
+        assert legs
+        assert "kalshi_will_not_combine" not in excluded
+
+    def test_the_refresh_is_due_when_cold_and_hourly_after(self, tmp_path):
+        """At most one walk an hour, inside a two-hour TTL, so a single failed
+        refresh never changes what the desk shows."""
+        conn = self._seeded(tmp_path)
+        assert parlays.combo_eligibility_is_due(conn, now_ms=self.NOW)
+        parlays.store_combo_eligibility(conn, {"KXA-1"}, now_ms=self.NOW)
+        assert not parlays.combo_eligibility_is_due(conn, now_ms=self.NOW)
+        assert not parlays.combo_eligibility_is_due(
+            conn, now_ms=self.NOW + parlays.COMBO_ELIGIBILITY_REFRESH_MS - 1
+        )
+        assert parlays.combo_eligibility_is_due(
+            conn, now_ms=self.NOW + parlays.COMBO_ELIGIBILITY_REFRESH_MS
+        )
+        assert (
+            parlays.COMBO_ELIGIBILITY_REFRESH_MS
+            < parlays.COMBO_ELIGIBILITY_TTL_MS
+        ), "one missed refresh must not expire the cache"
+
+    async def test_a_failing_walk_never_raises_into_the_pass(self, tmp_path):
+        """**The property that matters more than the feature.** This runs
+        inside `score_settle_and_alert`, and on 2026-08-28 one arithmetic bug
+        there stopped the daily digest, the parlay cards and
+        `log_gate_progress` together. A network walk is a likelier thing to
+        throw than that was."""
+        conn = self._seeded(tmp_path)
+
+        class Boom:
+            pass
+
+        async def explode(api, max_pages=25):
+            raise RuntimeError("the venue is down")
+
+        import backend.parlays as mod
+        original = mod.fetch_collections
+        mod.fetch_collections = explode
+        try:
+            got = await mod.refresh_combo_eligibility(
+                conn, Boom(), now_ms=self.NOW
+            )
+        finally:
+            mod.fetch_collections = original
+        assert got is None
+        # And the cache is untouched rather than emptied.
+        assert mod.combo_eligible_events(conn, now_ms=self.NOW) is None
+
+    def test_the_loop_bounds_the_walk_and_gates_it_on_full_passes(self):
+        """Source pin. The timeout and the `kind == "full"` gate are the two
+        things standing between a slow venue and a wedged pass, and neither is
+        visible from the function under test."""
+        src = (
+            Path(__file__).resolve().parents[1] / "scripts" / "run_loop.py"
+        ).read_text(encoding="utf-8")
+        assert 'if kind == "full" and combo_eligibility_is_due(' in src
+        gate = src.index("combo_eligibility_is_due(conn, now_ms=stamp)")
+        assert "asyncio.timeout(20)" in src[gate:gate + 600]
+
+    def test_the_screen_has_words_for_the_new_refusal(self):
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "components" / "ParlayCards.tsx"
+        ).read_text(encoding="utf-8")
+        assert "kalshi_will_not_combine:" in src

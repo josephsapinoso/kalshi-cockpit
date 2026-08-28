@@ -1030,6 +1030,33 @@ def attention_credits_spent_today(conn, *, since_ms: int) -> int:
     return int(row["spent"]) if row else 0
 
 
+def attention_slice_spent_at_ms(conn, *, since_ms: int) -> int | None:
+    """When the attention slice ran out today, or `None` if it has not.
+
+    The `called_ms` of the last attention-triggered call inside the budget day
+    — i.e. the one that took the pool to its ceiling. Joe asked for this by
+    name: the panel says *"the desk buys by itself until it reaches the day's
+    allowance"*, and the obvious next question is when that happened.
+
+    **Only meaningful once the slice is actually spent**, which the caller
+    checks. Read on a day with credits left this is simply the most recent
+    attention buy, which is a different fact and not the one the copy claims;
+    `window_status` therefore publishes it as `None` unless
+    `attention_slice_is_spent` agrees.
+
+    `None` rather than `0` when nothing has been bought — a real absence, and
+    the caller says so in words rather than rendering an epoch.
+    """
+    row = conn.execute(
+        "SELECT MAX(called_ms) AS at_ms FROM api_credits "
+        "WHERE called_ms >= ? AND trigger = ?",
+        (since_ms, ATTENTION),
+    ).fetchone()
+    if row is None or row["at_ms"] is None:
+        return None
+    return int(row["at_ms"])
+
+
 def last_sweep_by_sport(conn, *, since_ms: int) -> dict[str, int]:
     """`sport_key -> most recent served /odds call`, within the budget day."""
     rows = conn.execute(
@@ -1176,6 +1203,10 @@ class ActionableWindow:
     #: Credits spent today on attention-triggered sweeps -- `trigger =
     #: 'attention'` rows alone, which is the only spend the slice counts.
     attention_credits_spent: int = 0
+    #: When today's attention slice ran out, or `None` if it has not (and
+    #: `None` too when it is spent but nothing was ever bought under the
+    #: trigger, which is a degenerate state rather than a time).
+    attention_slice_spent_at_ms: Optional[int] = None
     #: The ceiling those credits are measured against (`OddsConfig`).
     attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS
     #: Whether the slice can no longer fund one more sweep at this
@@ -1269,6 +1300,7 @@ class ActionableWindow:
             "last_look_detail": self.last_look_detail,
             "first_window_open_ms": self.first_window_open_ms,
             "attention_credits_spent": self.attention_credits_spent,
+            "attention_slice_spent_at_ms": self.attention_slice_spent_at_ms,
             "attention_daily_credits": self.attention_daily_credits,
             "attention_slice_spent": self.attention_slice_spent,
             "desk_is_attended": self.desk_is_attended,
@@ -1443,6 +1475,15 @@ def window_status(
         last_look_outcome=look["outcome"] if look else None,
         last_look_detail=look["detail"] if look else None,
         attention_credits_spent=attention_spent,
+        # Only when the slice is actually spent: on a day with credits left
+        # this query answers "the most recent attention buy", which is a
+        # different sentence from "when the allowance ran out" and the screen
+        # would render it as the second.
+        attention_slice_spent_at_ms=(
+            attention_slice_spent_at_ms(conn, since_ms=start_ms)
+            if slice_spent
+            else None
+        ),
         attention_daily_credits=attention_daily_credits,
         attention_slice_spent=slice_spent,
         desk_is_attended=attended,

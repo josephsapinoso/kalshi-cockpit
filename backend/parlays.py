@@ -404,6 +404,11 @@ def ladder_candidates(
     alias_cache: dict[str, object] = {}
     candidates: list[CandidateLeg] = []
     tonight_ms = end_of_desk_day_ms(now_ms)
+    # `None` when the cache is cold or stale, and then nothing is filtered on
+    # it -- see `combo_eligible_events`. A parlay desk that hides every game
+    # because a background walk failed is worse than one that offers a card
+    # the venue then refuses in words.
+    eligible_events = combo_eligible_events(conn, now_ms=now_ms)
 
     for (link_id, market, outcome, player, point), row in freshest.items():
         # **Tonight only.** A parlay settles when its last leg does, so a card
@@ -424,6 +429,19 @@ def ladder_candidates(
         # it is thin.
         if row["commence_ms"] is not None and row["commence_ms"] > tonight_ms:
             count("kickoff_after_tonight")
+            continue
+        # **Kalshi trades far more games than it will combine.** Measured
+        # 2026-08-28: all three catch-all collections carry the same 2,365
+        # legs, and a card whose legs are outside that list comes back HTTP
+        # 400 `invalid_parameters` after the tap. The tonight bound above
+        # happens to keep the desk inside that window today, but the two are
+        # independent -- if Kalshi narrows its combo horizon, only this check
+        # notices.
+        if (
+            eligible_events is not None
+            and row["kalshi_event_ticker"] not in eligible_events
+        ):
+            count("kalshi_will_not_combine")
             continue
         # **`odds_snapshots.sport_key`, not `event_links.league`.** They are
         # different vocabularies for the same partition and only one of them
@@ -1190,6 +1208,104 @@ def _choose_collection(
         if matches:
             return _Chosen(matches[0], False)
     return None
+
+
+#: How stale the cached eligibility list may be before the ladder stops
+#: trusting it. Two hours is three misses of the hourly refresh -- loose
+#: enough that one failed walk does not change the screen, tight enough that a
+#: list from yesterday never does.
+COMBO_ELIGIBILITY_TTL_MS = 7_200_000
+
+
+def store_combo_eligibility(conn, event_tickers, *, now_ms: int) -> int:
+    """Replace the cached eligible-leg list. Returns how many were written.
+
+    **Refuses to write an empty list**, and that refusal is the whole safety
+    property: `fetch_collections` returning nothing is indistinguishable here
+    from a transient walk failure, and persisting it would tell the ladder that
+    Kalshi combines nothing -- emptying the parlay desk until the next refresh
+    happened to succeed. Same rule as `_collections`'s in-process cache, one
+    layer down. Unreadable resolves to a refusal to claim, never to a fact.
+    """
+    tickers = {t for t in event_tickers if t}
+    if not tickers:
+        return 0
+    conn.execute("DELETE FROM combo_eligible_events")
+    conn.executemany(
+        "INSERT INTO combo_eligible_events (event_ticker, refreshed_ms) "
+        "VALUES (?, ?)",
+        [(t, now_ms) for t in sorted(tickers)],
+    )
+    conn.commit()
+    return len(tickers)
+
+
+def combo_eligible_events(conn, *, now_ms: int) -> Optional[set[str]]:
+    """The cached eligible legs, or `None` when they cannot be trusted.
+
+    `None` means **unknown** -- never "empty". A caller must not filter on
+    `None`; it is the state where the desk shows everything and says nothing,
+    which is the honest behaviour when the cache is cold (a fresh volume, a
+    deploy, three failed refreshes in a row).
+    """
+    row = conn.execute(
+        "SELECT MAX(refreshed_ms) AS at_ms FROM combo_eligible_events"
+    ).fetchone()
+    if row is None or row["at_ms"] is None:
+        return None
+    if now_ms - int(row["at_ms"]) > COMBO_ELIGIBILITY_TTL_MS:
+        return None
+    return {
+        r["event_ticker"]
+        for r in conn.execute(
+            "SELECT event_ticker FROM combo_eligible_events"
+        ).fetchall()
+    }
+
+
+#: How often the loop re-walks Kalshi's collections. An hour against a
+#: `COMBO_ELIGIBILITY_TTL_MS` of two: the cache survives one missed refresh
+#: without changing what the desk shows, so a single failed walk is invisible
+#: rather than a visible wobble in the parlay page.
+COMBO_ELIGIBILITY_REFRESH_MS = 3_600_000
+
+
+def combo_eligibility_is_due(conn, *, now_ms: int) -> bool:
+    """Whether the cached list is old enough to be worth a walk.
+
+    Separate from `refresh_combo_eligibility` so the caller can decide without
+    paying for a client, and so the "at most hourly" rule is one predicate the
+    loop and its test both read rather than a comparison spelled inline.
+    """
+    row = conn.execute(
+        "SELECT MAX(refreshed_ms) AS at_ms FROM combo_eligible_events"
+    ).fetchone()
+    if row is None or row["at_ms"] is None:
+        return True
+    return now_ms - int(row["at_ms"]) >= COMBO_ELIGIBILITY_REFRESH_MS
+
+
+async def refresh_combo_eligibility(conn, api, *, now_ms: int) -> Optional[int]:
+    """Walk Kalshi's collections and cache which events it will combine.
+
+    Returns the number stored, or `None` if the walk failed or was refused.
+
+    **Every failure is swallowed, deliberately.** This runs inside the
+    scheduler pass, and the pass must not die for a cache refresh whose only
+    consequence is that a screen filters less. `2026-08-28` is the whole
+    argument: one unpriceable parlay leg raised `ZeroDivisionError` inside
+    `score_settle_and_alert` and stopped the daily digest, the parlay cards and
+    `log_gate_progress` with it. A network walk is a far likelier thing to
+    throw than an arithmetic bug.
+    """
+    try:
+        collections = await fetch_collections(api)
+    except Exception:  # noqa: BLE001 -- advisory cache; never breaks a pass
+        logger.warning("combo eligibility refresh failed", exc_info=True)
+        return None
+    return store_combo_eligibility(
+        conn, _combinable_events(collections), now_ms=now_ms
+    )
 
 
 def _combinable_events(collections) -> set[str]:

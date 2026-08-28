@@ -138,7 +138,19 @@ export default async function RefreshOddsPanel({
         <p className="mt-2 max-w-prose text-sm text-accent-2">
           <span aria-hidden="true">&#9632;</span> Today&apos;s automatic buying
           is done — the desk buys by itself until it reaches the day&apos;s
-          allowance, and it has. Nothing further is bought automatically{" "}
+          allowance, and it
+          {reading.spent_at_ms === null ? (
+            <> has</>
+          ) : (
+            <>
+              {" "}
+              did at{" "}
+              <span className="font-semibold">
+                {formatClock(reading.spent_at_ms)}
+              </span>
+            </>
+          )}
+          . Nothing further is bought automatically{" "}
           <span className="font-semibold">while this page is open</span>
           {reading.floor_resumes_ms === null ? (
             <>

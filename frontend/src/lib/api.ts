@@ -1043,6 +1043,15 @@ export type ActionableWindow = {
    */
   attention_credits_spent: number;
   attention_daily_credits: number;
+  /**
+   * When today's attention slice ran out, or `null` if it has not.
+   *
+   * The `called_ms` of the buy that took the pool to its ceiling. `null` is
+   * also the honest answer on a day the slice is spent with nothing ever
+   * bought under the trigger, so the copy must degrade to a sentence with no
+   * time in it rather than rendering an epoch.
+   */
+  attention_slice_spent_at_ms: number | null;
   /** Whether the slice can no longer fund one more sweep. */
   attention_slice_spent: boolean;
   /** Whether a heartbeat has landed inside the TTL — i.e. someone is looking. */

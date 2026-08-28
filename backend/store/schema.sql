@@ -1055,6 +1055,28 @@ CREATE INDEX IF NOT EXISTS idx_scout_briefings_ticker
 -- Money columns are integer tenths of a cent, per this file's convention.
 -- NULL means "not observed", never zero: an empty book has no derived ask, and
 -- the row says so by absence plus `status`.
+-- Which Kalshi events are legs in SOME multivariate collection -- i.e. which
+-- games the venue will actually combine, as opposed to merely trade.
+--
+-- **A cache of a remote fact, and the only reason it is a table.**
+-- `ladder_candidates` needs this to stop offering cards that cannot be priced,
+-- and it cannot ask Kalshi: `GET /api/parlays` is a sync route and the same
+-- builder runs inside the scheduler pass, where a 25-page paginated walk is
+-- the shape that killed the pass tail on 2026-08-28. So the walk happens on
+-- the loop's own schedule and leaves its answer here.
+--
+-- `refreshed_ms` is stamped on every row of a refresh, so `MAX(refreshed_ms)`
+-- is when the list was last known good. **The reader must treat a stale or
+-- empty table as "unknown", never as "nothing is combinable"** -- filtering on
+-- a cold cache would empty the parlay desk, which is an outage wearing a
+-- guard's clothes.
+CREATE TABLE IF NOT EXISTS combo_eligible_events (
+    event_ticker  TEXT PRIMARY KEY,
+    refreshed_ms  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_combo_eligible_refreshed
+    ON combo_eligible_events(refreshed_ms);
+
 CREATE TABLE IF NOT EXISTS parlay_lookups (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
     requested_ms             INTEGER NOT NULL,

@@ -746,6 +746,27 @@ class TestThePanelStatesWhichOfThreeStatesItIsIn:
         assert "bg-accent-2" not in src
         assert "bg-accent-fill" not in src
 
+    def test_the_slice_line_names_when_the_allowance_ran_out(self):
+        """Joe asked for this by name, 2026-08-28. The panel says the desk
+        buys "until it reaches the day's allowance"; the obvious next question
+        is when that happened, and the answer was on the wire unused.
+
+        The design lanes had flagged it as possibly reading like a reproach
+        for having been away. He overruled that. It renders as a fact beside
+        the resume time, not as a comment on his evening.
+        """
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert "reading.spent_at_ms" in src
+        assert "formatClock(reading.spent_at_ms)" in src
+
+    def test_the_slice_line_still_reads_without_a_time(self):
+        """`spent_at_ms` is null on a day the slice is spent with nothing
+        bought under the trigger -- degenerate, but reachable, and an epoch
+        rendered into that sentence would be worse than no time at all. The
+        null branch keeps the sentence grammatical."""
+        src = self.PANEL.read_text(encoding="utf-8")
+        assert "reading.spent_at_ms === null" in src
+
     def test_the_tap_control_is_not_conditioned_on_the_state(self):
         """ADR 0071 section 2.1. A control that grows when the system goes
         quiet is the desk saying "now would be a good time"; the button is the

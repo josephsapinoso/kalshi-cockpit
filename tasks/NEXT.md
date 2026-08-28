@@ -333,10 +333,12 @@ rate is 3-6 gaps/day over five days, established before any of these commits.
 **If tomorrow's rate departs materially from that, `2b3baa3` is the first
 suspect, not the last.**
 
-### Do not deploy again until the read
+### ~~Do not deploy again until the read~~
 
 The window is open and a deploy inside it voids it. Half two below is built on
 disk and ships with tomorrow's post-read deploy.
+
+**SUPERSEDED 2026-08-28 — Joe said "deploy now" and it shipped.** Kept rather than deleted because the *rule* is still right and applies to the next window: a deploy inside an observation window voids it. What changed is the instruction, not the reasoning.
 
 ### #35 half two BUILT ON DISK, not deployed — the window is open
 
@@ -462,11 +464,67 @@ itself — the two facts line up today and are independent. Eligibility needs
 persisting before the ladder can check it, because `GET /api/parlays` is sync
 and `build_ladder_payload` also runs inside the scheduler pass.
 
-### Do not deploy this until the read
+### The desk now knows what Kalshi will combine — schema v27
+
+The open item from the parlay work, closed. `ladder_candidates` filters on
+`combo_eligible_events`, a cached list of every event that is a leg in some
+multivariate collection.
+
+**It is a table because the ladder cannot ask the venue.** `GET /api/parlays`
+is sync and `build_ladder_payload` also runs inside the scheduler pass, where
+a 25-page paginated walk is the shape that killed the pass tail on 2026-08-28.
+So the loop walks on its own schedule and leaves the answer on disk.
+
+- **Writer:** `refresh_combo_eligibility`, called from the loop on `kind ==
+  "full"` passes only, at most hourly (`COMBO_ELIGIBILITY_REFRESH_MS`), inside
+  a 20-second `asyncio.timeout`, with **every exception swallowed**. The worst
+  case is a stale cache and less filtering — the same state as before it
+  existed. It must never be why a pass dies.
+- **Reader:** `combo_eligible_events` returns `None` — *unknown* — when the
+  table is cold or older than `COMBO_ELIGIBILITY_TTL_MS` (2h, so one missed
+  refresh is invisible). **A caller must never filter on `None`.**
+- **An empty walk is never written.** `fetch_collections` returning nothing is
+  indistinguishable from a failed walk, and persisting it would tell the ladder
+  Kalshi combines nothing.
+
+**The cold-cache branch is the load-bearing one and it has three tests.**
+Getting it backwards empties the parlay desk on every fresh volume and every
+deploy; the mutation that makes a cold cache filter everything turns 23 tests
+red, which is the right blast radius for that mistake.
+
+Dropped legs count as `kalshi_will_not_combine` and are glossed on screen.
+
+**This is now independent of the tonight bound**, which is the point: the two
+happened to line up on 2026-08-28 because Kalshi's collections carried only
+the imminent slate. If it narrows its combo horizon, this check notices and the
+date bound does not.
+
+### The slice-spent line names when the allowance ran out
+
+Joe's call, 2026-08-28, overruling the design lanes' worry that it would read
+as a reproach for having been away. `attention_slice_spent_at_ms` is new on
+`window_status` — the `called_ms` of the attention buy that took the pool to
+its ceiling — and is published as `null` unless the slice is actually spent,
+because on a day with credits left that query answers a different question
+("the most recent attention buy") that the copy would render as this one.
+`null` also degrades to a grammatical sentence with no time in it.
+
+### DEPLOYED — the observation window was ended deliberately
+
+Joe: *"deploy now."* This ends the window opened at 2026-08-28T15:44:58Z
+before any read was taken against it, so **the pre-registered gap reading has
+still not happened** and its population clause now starts from this deploy's
+container start instead. That is his call and it is recorded here rather than
+argued: the amended pre-registration above is unchanged and still applies, with
+a new window boundary to be stamped from `/proc/uptime` after this deploy.
+
+### ~~Do not deploy this until the read~~
 
 Half two is committed and pushed and **must not ship before tomorrow's
 reading** — the observation window opened at 2026-08-28T15:44:58Z and a deploy
 inside it voids it. It ships with the post-read deploy.
+
+**SUPERSEDED 2026-08-28 — Joe said "deploy now" and it shipped.** Kept rather than deleted because the *rule* is still right and applies to the next window: a deploy inside an observation window voids it. What changed is the instruction, not the reasoning.
 
 ### Ruled out, so nobody spends a minute on it
 

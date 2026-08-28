@@ -546,6 +546,7 @@ const EXCLUSION_WORDS: Record<string, string> = {
   no_kalshi_market: "sides with no matching Kalshi market",
   market_closed: "sides whose Kalshi market is already closed",
   kickoff_after_tonight: "games starting after tonight",
+  kalshi_will_not_combine: "games Kalshi trades but will not combine",
 };
 
 /** Pacific, matching the slate rows' kickoff column. */

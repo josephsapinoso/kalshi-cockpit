@@ -39,7 +39,7 @@ from ..core.prices import is_valid_price
 #: looks wrong. The hedge tables took v24 on merge; the lesson is that a
 #: version number is a claim about the WHOLE schema and a lane cannot allocate
 #: one alone.
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -647,8 +647,9 @@ _QUANTITIES_ARE_REAL_UNDO = (
 #: version from the first migration to `SCHEMA_VERSION` to be in exactly one of
 #: the two places.
 #:
-#: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24)
+#: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
+#:   v27 `combo_eligible_events`.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

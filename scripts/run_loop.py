@@ -108,7 +108,11 @@ from backend.odds.timing import (  # noqa: E402
     sweep_window_survives_interval,
     window_status,
 )
-from backend.parlays import build_ladder_payload  # noqa: E402
+from backend.parlays import (  # noqa: E402
+    build_ladder_payload,
+    combo_eligibility_is_due,
+    refresh_combo_eligibility,
+)
 from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
@@ -784,6 +788,32 @@ async def main() -> int:
             # consecutive-builds run would let a quiet slate satisfy the
             # debounce by doing nothing, which is the opposite of the property
             # being bought.
+            # **Refresh the combo-eligibility cache before the ladder reads
+            # it, on full passes only and at most hourly.**
+            #
+            # `ladder_candidates` filters on which events Kalshi will actually
+            # COMBINE, which is not the same set as the ones it trades -- a
+            # card outside that list returns HTTP 400 after the tap. It cannot
+            # ask the venue itself: `GET /api/parlays` is a sync route and this
+            # same builder runs here, in the pass.
+            #
+            # **Bounded twice, because this is a network walk inside the loop
+            # and that is the shape under investigation.** A 20-second timeout,
+            # and every exception swallowed inside
+            # `refresh_combo_eligibility` -- the worst case is that the cache
+            # goes stale and the desk filters less, which is the same state it
+            # was in before this existed. It must never be the reason a pass
+            # dies; on 2026-08-28 one arithmetic bug in the ladder stopped the
+            # digest, the parlay cards and `log_gate_progress` together.
+            if kind == "full" and combo_eligibility_is_due(conn, now_ms=stamp):
+                try:
+                    async with asyncio.timeout(20):
+                        await refresh_combo_eligibility(
+                            conn, kalshi, now_ms=stamp
+                        )
+                except (TimeoutError, asyncio.CancelledError):
+                    log.warning("combo eligibility refresh timed out")
+
             parlay = None
             # `None` until a ladder is actually built, so the pass line can
             # tell "refused nothing" from "did not run". See
