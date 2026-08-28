@@ -509,7 +509,30 @@ because on a day with credits left that query answers a different question
 ("the most recent attention buy") that the copy would render as this one.
 `null` also degrades to a grammatical sentence with no time in it.
 
-### DEPLOYED — the observation window was ended deliberately
+### DEPLOYED `06b5f71` — verified, and the window boundary is restamped
+
+    deployed     06b5f71d6a43f1bcd5f96755d7786a6d8033c544 (Actions, 1m20s)
+    verified     /api/health build.git_sha == local HEAD, exact
+    /proc/uptime 53.85 s read at 2026-08-28T17:48:49Z
+    WINDOW OPENS 2026-08-28T17:47:55Z
+
+**A gap is in the population only if it began after 2026-08-28T17:47:55Z.**
+Same rule as the amended pre-registration; only the boundary moved.
+
+**v27 applied and confirmed on the live volume**: `combo_eligible_events`
+exists, with **0 rows** — the cold-cache state, which reads as *unknown* and
+filters nothing, so the parlay desk is unchanged until the first refresh
+lands. That is the designed cold start, not a fault.
+
+**Verify the writer actually fires.** It is gated on `kind == "full"` and runs
+at most hourly, so the table should carry rows within ~15 minutes of the
+deploy. If it is still empty after an hour, the writer is not being reached —
+this repo has shipped four complete, tested modules that nothing called, and
+the check is one `sqlite3` read:
+
+    flyctl ssh console -a kalshi-cockpit -C "python -c \"import sqlite3; c=sqlite3.connect('file:/data/cockpit.db?mode=ro',uri=True); print(c.execute('SELECT COUNT(*), MAX(refreshed_ms) FROM combo_eligible_events').fetchone())\""
+
+### The observation window was ended deliberately
 
 Joe: *"deploy now."* This ends the window opened at 2026-08-28T15:44:58Z
 before any read was taken against it, so **the pre-registered gap reading has
