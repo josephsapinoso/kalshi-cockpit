@@ -39,12 +39,21 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,959 passed / 10 xfailed in 7:34**, measured 2026-08-28 on
-the tree committed as the ZeroDivision fix (`5436fc8`), `origin/main` level
-immediately before the push. The +5 over the parlay-bound tree is the five
-`TestAZeroFairProbabilityNeverReachesArithmetic` guards. That triple — the number, the tree it was taken
+**Test baseline: 4,971 passed / 10 xfailed in 8:58**, measured 2026-08-28 on
+the tree committed as the pass-deadline change, with nothing edited after the
+run started. The **+12 over the previous 4,959 is fully accounted**: eight
+`TestAWedgedPassIsBoundedAndRecorded` guards in `tests/test_scheduler.py` and
+four `TestTheLadderReportsWhyItRefusedLegs` guards in
+`tests/test_pass_reporting.py`. That triple — the number, the tree it was taken
 on, and the fact that nothing moved after — is the qualification this line has
 never carried, and its absence is the whole reason it kept being wrong.
+
+**4,959 on `5436fc8` was correct about that tree** and is superseded, not
+corrected. Two earlier runs this session are NOT this number: one read
+`1 failed, 4962 passed` — a real finding, a structural probe that read the 600
+characters after `alerter.parlay_cards(` and stopped seeing the staleness limit
+once the ladder payload was bound to a name — and one was killed deliberately
+because a fix landed under it.
 
 **And it was wrong again, a seventh time, in the same direction.** The line
 here said **4,942** for the ADR 0080 tree. Collected on that exact tree it is
@@ -215,7 +224,172 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — a leg priced at zero stopped the alerting half of the loop, and the heartbeat fired for a DIFFERENT reason
+## 2026-08-28 (latest) — the unexplained gap was the sixteenth, and nothing on disk could have said so
+
+**State at start:** `main` = `ddbff1f`, clean, level with `origin/main`. Live
+`/api/health` `build.git_sha` = `5436fc89…` — the ZeroDivision fix, so live
+carried all current *code* (the two commits after it are documentation). One
+lane on disk (`parlay-props` at `e90b154`, spent). Joe said "read NEXT.md and
+start".
+
+### The finding — the recorder has been off ~3.4 hours a day since 2026-08-26
+
+The entry below records a 47.8-minute gap as **Incident B, UNEXPLAINED and
+self-recovered**, and asks the next session to "read `pass-gaps` again and check
+whether a second gap has appeared". It had. Four more on the same day, and the
+same shape for three days:
+
+    2026-08-23     27.2 min   1 gap
+    2026-08-24      0         0
+    2026-08-25     44.6 min   1 gap
+    2026-08-26    204.9 min   6 gaps
+    2026-08-27    124.0 min   3 gaps
+    2026-08-28    234.9 min   5 gaps   (to 13:24Z)
+
+Sixteen holes, 21.5 to 63.3 minutes each. **`pass-gaps --tail 5` — the default —
+sees the last five rows and found none of them**; the whole history was one
+query away the entire time.
+
+**They are real silence, established on a second table rather than argued.**
+`kalshi_quotes.observed_ms` inside each of the five 08-28 gaps against the 30
+minutes either side:
+
+    gap        30 min before    inside    30 min after
+    31.6 min          41,951         0           7,476
+    31.0 min           6,506         0          10,043
+    61.1 min           4,190         0          11,679
+    63.3 min          19,169         0          14,948
+    47.8 min          14,948         0          14,518
+
+Zero inside, five for five, with thousands on both edges. The writer stopped; it
+did not slow down. **This is what refuses the obvious alternative** — that ADR
+0071 §2.6's hourly floor simply buys less often, so the sweep log is sparser.
+
+**And they are not failing passes.** `loop_failures` holds fifteen rows in its
+whole life; the only three on 08-28 are the ZeroDivisionErrors, *after* the last
+gap had closed.
+
+### What it is not — four candidates killed, one on a timeline
+
+- **Not the `/api/parlays` OOM (`7b185e8`).** It was the leading candidate.
+  `7b185e8` was committed 05:00:33Z and deployed shortly after; the 06:21, 09:48
+  and 11:21 gaps all start **after** it.
+- **Not a machine stop.** `auto_stop_machines = "off"`, `min_machines_running = 1`.
+- **Not swap thrash.** `SwapTotal: 0`.
+- **Not the deploys, except one.** The 03:52:58Z→04:23:59Z gap ends at the 04:23Z
+  `bc256e3` deploy. Nothing corresponds to the other four.
+
+**The standing lead is IO.** The database is **1.91 GB on a 2 GB box** with no
+swap and 587 MB reclaimable by vacuum (31% freelist). PSI over the 43 minutes
+since the last restart: `io full avg300 = 5.48`, 126.5 s of all-tasks-blocked IO
+in 2,618 s — 4.8% of wall-clock — against `cpu full` of 0. That is a lead and
+**not a finding**: 4.8% is not 60 minutes and the reading was taken outside a
+gap. `odds_snapshots` / `fair_prices` retention has been carried forward for
+several sessions; this is the first measurement that attaches a symptom to it.
+
+Full working: `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`.
+
+### What shipped — a pass now has a deadline
+
+`run_forever` awaited `do_pass()` for as long as it took, so a wedged pass wrote
+**nothing at all**: no row, no failure, no log line, indistinguishable in the
+record from a quiet slate. That is why the same silence was written up as a
+fresh one-off three sessions running.
+
+It now takes `pass_deadline_s`, defaulting to `DEFAULT_PASS_DEADLINE_S = 600`.
+Past it the pass is **cancelled** and raises `PassDeadlineExceeded`, which
+travels the existing path into a `loop_failures` row with the pass number and
+kind, plus a traceback naming the await it hung on.
+
+**600s sits between two populations that do not overlap, and both edges are
+measured**: live pass durations read off `pass N ok` the same day are 3.8–4.9 s
+(quote) and **43.0 s / 77.3 s** (full), against a shortest-ever silence of 21.5
+minutes. That is ~7.8× the longest healthy pass and under half the shortest
+wedge.
+
+**The blind spot is the point, and it is written into the constant.**
+`asyncio.timeout` cancels by throwing into an await. A pass blocked in a
+*synchronous* call — a long SQLite read against a 1.9 GB file — never yields and
+is not interruptible. So the next gap is informative either way:
+
+    a PassDeadlineExceeded row      a hung await, located
+    still no failure row at all     the process was down, OR it was blocked in
+                                    synchronous code
+
+The second is two states and separating them needs an instrument this record
+still does not have — but it is strictly narrower than what was available
+before, and it points at the SQLite file.
+
+**Two docstrings that stated the old reading were corrected rather than left**:
+`record_failure` in `run_loop.py` and `pass-gaps` in `inspect_live_db.py` both
+said "no rows across a gap mean the pass never came back to raise". That rule is
+what turned sixteen holes into sixteen dead ends.
+
+**One misattribution was closed before it could poison the table.** Since Python
+3.11 `asyncio.TimeoutError` *is* the builtin `TimeoutError`, so a pass whose own
+inner `wait_for` expires arrives at the handler looking exactly like a deadline
+breach. `deadline.expired()` is checked before relabelling, so `loop_failures`
+cannot report a wedge that never happened.
+
+Seven guards, each mutation-observed red. **The one that mattered was written
+last**: defaulting `pass_deadline_s` to `None` left every other test green,
+because each sets it explicitly, while live went quietly back to waiting
+forever. Production calls `run_forever` without naming the argument, so the
+signature default *is* the deployed value, and it is now asserted with
+`inspect.signature`.
+
+### Also shipped — the ladder's refusals are on the pass line
+
+The entry below asks for exactly this and says why: after the ZeroDivision fix,
+"did the new guard fire, or did the bad leg age out?" was unanswerable from
+outside the box, because `fair_probability_not_positive` existed only in
+`/api/parlays`' response and that needs auth.
+
+`pass N ok` now carries `ladder_excluded` (the total, **emitted even at zero**)
+and one `ladder_<reason>` key per non-zero refusal. Zero and absence are
+different: the ladder is only built on a pass that swept or a full pass, so a
+quote pass carries no `ladder_` keys at all and that must not read as a clean
+bill of health.
+
+Four guards, each mutation-observed red, including a structural one — the defect
+that shipped was `build_ladder_payload` called inline as an argument with its
+`excluded` dict discarded, so a correct count reached nothing.
+
+**One existing test went red and was repointed, not loosened.**
+`test_it_reads_the_same_staleness_limit_the_screen_does` read the 600 characters
+*after* `alerter.parlay_cards(`, which held the whole `build_ladder_payload(...)`
+call while it was written inline. Binding the payload to a name moved the limit
+above the call. The probe now reads the span from the gate to the push — which
+is the span the claim was always about — with three vacuity guards so it cannot
+pass over the wrong text.
+
+### Open
+
+- **READ THE RATE.** Is `ladder_fair_probability_not_positive` non-zero on the
+  pass line? If it is and steady, something upstream returns 0.0 for markets
+  Kalshi is quoting and that is its own investigation. `flyctl logs` is lossy —
+  read timestamps, not counts.
+- **CHECK FOR A `PassDeadlineExceeded` ROW** next time a gap appears — that
+  reading is the whole point of the deadline, and **absence is a result, not a
+  null** (see above).
+- **The 1.91 GB database is now a symptom, not just a chore.** 587 MB is
+  reclaimable by vacuum. Retention on `odds_snapshots` and `fair_prices` has
+  been carried forward for several sessions with no owner; it has one now.
+  A `VACUUM` on a 1.9 GB file on a 2 GB box is itself a long synchronous
+  operation — do not run it casually against live.
+- Not established: that the deadline fires correctly on live. It has never
+  fired anywhere but in a test.
+- Carried forward: #35 (the panel promising a refused sweep);
+  `sweeps_remaining_today` may have the same defect (`timing.py:1134`,
+  unchecked); #32 and #33; ADR 0079's prop tap; B0; the combo purchase slice;
+  Picks/Parlays/Gate/ticket sheet never reviewed on a phone;
+  `/api/parlays` at 2-3 s is the slowest route and indexing is already ruled out.
+- **`tasks/lessons.md` is at 84.4%** of the ceiling; split at 90%, and check
+  before writing.
+
+---
+
+## 2026-08-28 — a leg priced at zero stopped the alerting half of the loop, and the heartbeat fired for a DIFFERENT reason
 
 **Read this before trusting anything below about live.** Two live incidents
 happened within an hour and **they are not the same incident**. Conflating

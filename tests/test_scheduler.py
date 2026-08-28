@@ -9,6 +9,8 @@ hold the loop to the same standard.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import random
 import sqlite3
 
@@ -20,8 +22,10 @@ from backend.scheduler import (
     DEFAULT_WAKE_POLL_S,
     JITTER,
     MAX_CONSECUTIVE_FAILURES,
+    DEFAULT_PASS_DEADLINE_S,
     QUOTE_PASS_DURATION_BUDGET_S,
     LoopFailed,
+    PassDeadlineExceeded,
     LoopState,
     Tempo,
     next_delay,
@@ -618,3 +622,185 @@ class TestASleepingLoopCanBeWoken:
             sleep=_noop_sleep,
         )
         assert state.woken_early == 0
+
+
+class TestAWedgedPassIsBoundedAndRecorded:
+    """The hole a hung pass used to leave in the record.
+
+    A pass that raises leaves a `loop_failures` row and a traceback. A pass that
+    simply never returns left **nothing** -- no row, no failure, no log line --
+    which in the record is indistinguishable from a quiet slate. Measured on
+    live 2026-08-28: sixteen holes in the pass ledger between 08-23 and 08-28,
+    21.5 to 63.3 minutes, ~3.4 hours a day since 08-26, zero `kalshi_quotes`
+    rows inside them against thousands either side, and not one `loop_failures`
+    row for any of them. Three sessions running recorded the same shape as a
+    fresh one-off, because nothing on disk could say it had happened before.
+    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`.
+
+    What this does not establish
+    ----------------------------
+    That the deadline would have caught those sixteen. `asyncio.timeout`
+    cancels by throwing into an await; a pass blocked in a synchronous call --
+    a long SQLite read, a CPU-bound copula -- never yields and is not
+    interruptible. See `DEFAULT_PASS_DEADLINE_S`.
+    """
+
+    async def test_a_hung_pass_becomes_a_recorded_failure(self):
+        """Disable-check: pass `pass_deadline_s=None` and this hangs, which is
+        exactly the behaviour it exists to remove."""
+        seen: list[BaseException] = []
+
+        async def wedged():
+            await asyncio.sleep(3600)
+
+        state = await run_forever(
+            wedged,
+            interval_s=1,
+            max_passes=1,
+            sleep=_noop_sleep,
+            pass_deadline_s=0.01,
+            on_failure=lambda _state, exc: seen.append(exc),
+        )
+
+        assert state.passes_succeeded == 0
+        assert state.consecutive_failures == 1
+        assert len(seen) == 1
+        assert isinstance(seen[0], PassDeadlineExceeded)
+
+    async def test_the_recorded_reason_is_not_an_empty_string(self):
+        """`asyncio.timeout` raises a bare `TimeoutError` whose `str()` is
+        empty, and `last_error` -- which the failure row is built from -- is
+        `f"{type}: {exc}"`. A failure row reading `TimeoutError: ` is the
+        silence this mechanism exists to stop producing, wearing a name.
+
+        Mutation observed red: re-raise `timed_out` instead of
+        `PassDeadlineExceeded`.
+        """
+        async def wedged():
+            await asyncio.sleep(3600)
+
+        state = await run_forever(
+            wedged, interval_s=1, max_passes=1, sleep=_noop_sleep,
+            pass_deadline_s=0.01,
+        )
+
+        assert state.last_error is not None
+        assert state.last_error.startswith("PassDeadlineExceeded: ")
+        assert "deadline" in state.last_error
+        assert state.last_error.strip() != "PassDeadlineExceeded:"
+
+    async def test_the_hung_pass_is_cancelled_not_left_running(self):
+        """A pass holding a socket or the database must not still hold it while
+        the next pass runs beside it.
+
+        Mutation observed red: replace `asyncio.timeout` with a bare
+        `asyncio.wait_for(..., shield=True)`-style non-cancelling wait.
+        """
+        cancelled = asyncio.Event()
+
+        async def wedged():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        await run_forever(
+            wedged, interval_s=1, max_passes=1, sleep=_noop_sleep,
+            pass_deadline_s=0.01,
+        )
+
+        assert cancelled.is_set()
+
+    async def test_a_passs_own_timeout_is_not_relabelled_as_the_deadline(self):
+        """The misattribution that would poison the table this exists to fill.
+
+        Since 3.11 `asyncio.TimeoutError` **is** the builtin `TimeoutError`, so
+        a pass whose own inner `wait_for` expires -- an odds call, a Kalshi call
+        -- reaches the handler looking exactly like a deadline breach. Recording
+        that as "ran past its 600s deadline" would send a future session hunting
+        a wedge that never happened.
+
+        Mutation observed red: drop the `deadline.expired()` check.
+        """
+        seen: list[BaseException] = []
+
+        async def times_out_on_its_own():
+            async with asyncio.timeout(0.001):
+                await asyncio.sleep(3600)
+
+        state = await run_forever(
+            times_out_on_its_own,
+            interval_s=1,
+            max_passes=1,
+            sleep=_noop_sleep,
+            pass_deadline_s=30.0,
+            on_failure=lambda _state, exc: seen.append(exc),
+        )
+
+        assert state.consecutive_failures == 1
+        assert len(seen) == 1
+        assert not isinstance(seen[0], PassDeadlineExceeded), (
+            "a pass's own expired timeout was recorded as the loop's deadline"
+        )
+        assert isinstance(seen[0], TimeoutError)
+
+    async def test_a_healthy_pass_is_never_cut_short(self):
+        """The deadline must not fire on the population it is not aimed at.
+
+        The default sits between two populations that do not overlap: a live
+        pass runs in seconds, and the shortest silence ever observed is 21.5
+        minutes.
+        """
+        do_pass = Recorder(result=Counts(recommendations=3))
+        state = await run_forever(
+            do_pass, interval_s=1, max_passes=3, sleep=_noop_sleep,
+        )
+
+        assert state.passes_succeeded == 3
+        assert state.last_error is None
+
+    def test_the_deadline_is_on_unless_a_caller_switches_it_off(self):
+        """The mutation that survived everything else: default it to `None`.
+
+        Production calls `run_forever` without naming this argument, so the
+        signature default *is* the deployed value. With `None` there, every
+        test above still passes -- each one sets the deadline explicitly -- and
+        live silently goes back to waiting forever. A default is a deployed
+        decision, so it is asserted rather than trusted.
+        """
+        default = inspect.signature(run_forever).parameters[
+            "pass_deadline_s"
+        ].default
+
+        assert default is not None, (
+            "`run_forever` defaults to an unbounded await again; a wedged pass "
+            "on live will leave no row, no failure and no traceback"
+        )
+        assert default == DEFAULT_PASS_DEADLINE_S
+
+    def test_the_default_deadline_sits_between_the_two_populations(self):
+        """Both edges are measured, so both are asserted.
+
+        21.5 minutes is the shortest hole in the live pass ledger. 77.3s is the
+        longest full pass read off `pass N ok` on live 2026-08-28 (the others
+        were 43.0s, and quote passes 3.8-4.9s). A deadline above the first would
+        miss a real wedge; one near the second would fire on a healthy loop.
+        """
+        longest_healthy_pass_s = 77.3
+        shortest_observed_silence_s = 21.5 * 60
+
+        assert DEFAULT_PASS_DEADLINE_S < shortest_observed_silence_s
+        assert DEFAULT_PASS_DEADLINE_S > longest_healthy_pass_s * 5
+        assert DEFAULT_PASS_DEADLINE_S > QUOTE_PASS_DURATION_BUDGET_S
+
+    async def test_it_can_be_switched_off_for_a_caller_that_needs_to(self):
+        """`None` restores the unbounded await, so a test driving a slow pass
+        does not have to race a real clock."""
+        do_pass = Recorder(result=Counts(recommendations=1))
+        state = await run_forever(
+            do_pass, interval_s=1, max_passes=2, sleep=_noop_sleep,
+            pass_deadline_s=None,
+        )
+
+        assert state.passes_succeeded == 2

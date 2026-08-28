@@ -58,9 +58,58 @@ MAX_CONSECUTIVE_FAILURES = 5
 # Fraction of the interval to jitter by.
 JITTER = 0.15
 
+# How long one pass may take before the loop stops waiting for it.
+#
+# **This exists because a wedged pass wrote nothing at all.** A pass that raises
+# leaves a `loop_failures` row and a traceback; a pass that simply never returns
+# leaves silence, which is indistinguishable in the record from a quiet slate.
+# Measured on live 2026-08-28: sixteen holes in the pass ledger between 08-23
+# and 08-28, 21.5 to 63.3 minutes each, ~3.4 hours a day since 08-26, with
+# **zero** `kalshi_quotes` rows inside them and thousands either side, and no
+# `loop_failures` row for any of them. Three sessions in a row recorded the same
+# shape as a fresh, unexplained one-off, because nothing in the database could
+# tell them it had happened before.
+# `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`.
+#
+# 600s is chosen to sit in the gap between two populations that do not overlap,
+# and both edges are measured rather than assumed. Live pass durations read off
+# `pass N ok` on 2026-08-28: quote passes 3.8-4.9s, full passes **43.0s and
+# 77.3s**. The shortest silence ever observed is 21.5 minutes. So the deadline
+# is ~7.8x the longest healthy pass and under half the shortest wedge: it
+# cannot fire on a healthy pass, and it would have caught all sixteen.
+#
+# Firing is not a fix -- it converts an hour of silence into a recorded failure
+# with a traceback naming the await that hung, and, if it keeps firing,
+# `MAX_CONSECUTIVE_FAILURES` takes the process down and the platform restarts it
+# clean. Both are better than sitting quietly.
+#
+# **What it cannot catch, stated here because the leading hypothesis is exactly
+# this shape.** `asyncio.timeout` cancels by throwing into an await. A pass
+# blocked inside a *synchronous* call -- a long SQLite read against a 1.9 GB
+# file on a volume, a CPU-bound copula -- never yields, so the deadline does not
+# fire until that call returns on its own and the silence is over. So a gap that
+# recurs with no `PassDeadlineExceeded` row is evidence *for* a blocking
+# synchronous cause and against a hung await, which is a reading this record
+# does not currently have any way to take. Absence of the row is a result here,
+# not a null.
+DEFAULT_PASS_DEADLINE_S = 600.0
+
 
 class LoopFailed(RuntimeError):
     """Raised after too many consecutive failed passes. Ends the process."""
+
+
+class PassDeadlineExceeded(TimeoutError):
+    """A pass ran past `pass_deadline_s` and was cancelled.
+
+    A `TimeoutError` subclass so a caller that already handles timeouts is not
+    surprised, and a distinct type so `loop_failures.error` says which timeout
+    this was. `asyncio.timeout`'s own `TimeoutError` carries no message at all,
+    and `f"{type(exc).__name__}: {exc}"` -- what `LoopState.last_error` and
+    therefore the failure row are built from -- would have recorded the bare
+    string `"TimeoutError: "`. A failure row whose reason is empty is the thing
+    this whole mechanism exists to stop producing.
+    """
 
 
 @dataclass
@@ -479,6 +528,7 @@ async def run_forever(
     wake_when: Optional[Callable[[], bool]] = None,
     wake_poll_s: float = DEFAULT_WAKE_POLL_S,
     on_failure: Optional[Callable[[LoopState, BaseException], None]] = None,
+    pass_deadline_s: Optional[float] = DEFAULT_PASS_DEADLINE_S,
 ) -> LoopState:
     """Run `do_pass` on an interval until it fails too many times in a row.
 
@@ -510,6 +560,14 @@ async def run_forever(
     predicate. It runs on the path where something has already gone wrong, and a
     bookkeeping error that turned one failed pass into a dead loop would trade
     the record for the thing the record exists to protect.
+
+    `pass_deadline_s` bounds how long one pass may take. Past it the pass is
+    **cancelled** and the loop records a `PassDeadlineExceeded` failure like any
+    other, which is the whole point: until 2026-08-28 a pass that hung produced
+    no row, no failure and no traceback, so an hour of silence and a quiet slate
+    were the same thing in the record. See `DEFAULT_PASS_DEADLINE_S`. `None`
+    restores the old unbounded await, and is what a test that drives a
+    deliberately slow pass should pass rather than racing a real clock.
     """
     from .store.db import now_ms as default_now
 
@@ -519,7 +577,37 @@ async def run_forever(
     while max_passes is None or state.passes_attempted < max_passes:
         state.passes_attempted += 1
         try:
-            result = await do_pass()
+            if pass_deadline_s is None:
+                result = await do_pass()
+            else:
+                # `asyncio.timeout` cancels the pass rather than leaving it
+                # running behind the loop. A hung pass holds whatever it is
+                # hung on -- a socket, the database -- and starting a second
+                # one beside it would make the next pass compete with the
+                # corpse of the last.
+                try:
+                    async with asyncio.timeout(pass_deadline_s) as deadline:
+                        result = await do_pass()
+                except TimeoutError as timed_out:
+                    # **`deadline.expired()`, not the exception type.** Since
+                    # 3.11 `asyncio.TimeoutError` *is* the builtin
+                    # `TimeoutError`, so a pass whose own inner `wait_for` --
+                    # an odds call, a Kalshi call -- times out arrives here
+                    # looking exactly like a deadline breach. Relabelling that
+                    # as "ran past its 600s deadline" would put a false
+                    # diagnosis in `loop_failures`, which is the one table this
+                    # whole mechanism exists to make trustworthy.
+                    if not deadline.expired():
+                        raise
+                    # Re-raised as a named type carrying the deadline, because
+                    # the bare `TimeoutError` `asyncio.timeout` raises has an
+                    # empty `str()` and the failure row is built from it.
+                    raise PassDeadlineExceeded(
+                        f"pass {state.passes_attempted} ran past its "
+                        f"{pass_deadline_s:.0f}s deadline and was cancelled. "
+                        f"The traceback above names the await it was blocked "
+                        f"on."
+                    ) from timed_out
         except Exception as exc:                          # noqa: BLE001
             state.consecutive_failures += 1
             state.last_error = f"{type(exc).__name__}: {exc}"

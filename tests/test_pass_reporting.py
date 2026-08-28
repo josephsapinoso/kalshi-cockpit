@@ -236,3 +236,100 @@ class TestCountsSurviveALateFailure:
             "`counts_survive_a_late_failure`, so a pass that records and then "
             "dies reports a traceback and no counts"
         )
+
+
+class TestTheLadderReportsWhyItRefusedLegs:
+    """The measurement that says whether the 2026-08-28 guard ever fired.
+
+    A leg whose `p_conservative` is not positive zeroes a card's joint and,
+    on 2026-08-28, raised `ZeroDivisionError` inside `score_settle_and_alert`
+    on live -- killing the tail of every pass. The fix refuses such a leg and
+    counts it as `fair_probability_not_positive`.
+
+    That count existed only in `/api/parlays`' response, which needs auth, so
+    the question the fix raises -- *did the guard fire, or did the bad leg
+    simply age out?* -- was unanswerable from outside the container. These
+    guards put the tally on `pass N ok`, where `flyctl logs` can read it.
+
+    What this does not establish
+    ----------------------------
+    That the deployed loop emits these keys. It asserts what `CombinedPass`
+    reports and that `score_settle_and_alert` hands it the payload's tally;
+    the observation belongs in the live log.
+    """
+
+    def test_each_refusal_reason_reaches_the_pass_line(self):
+        """Disable-check: drop the `ladder_excluded` block and this goes red."""
+        merged = run_loop.CombinedPass(
+            PassCounts(),
+            kind="full",
+            seconds=1.0,
+            ladder_excluded={
+                "fair_probability_not_positive": 2,
+                "stale_consensus": 7,
+            },
+        ).as_dict()
+
+        assert merged["ladder_fair_probability_not_positive"] == 2
+        assert merged["ladder_stale_consensus"] == 7
+        assert merged["ladder_excluded"] == 9
+
+    def test_a_ladder_that_refused_nothing_still_says_so(self):
+        """Zero is a reading. Absence is not, and they must not look alike.
+
+        The ladder is built only on a pass that swept or a full pass, so a
+        quote pass carrying no `ladder_` keys is the common case. Without an
+        always-emitted total, "built and refused nothing" and "never ran" are
+        the same line -- the repo's "unreadable resolves to None, never 0"
+        convention, pointed at a log.
+        """
+        merged = run_loop.CombinedPass(
+            PassCounts(), kind="full", seconds=1.0, ladder_excluded={}
+        ).as_dict()
+
+        assert merged["ladder_excluded"] == 0
+
+    def test_a_pass_that_built_no_ladder_reports_no_tally(self):
+        merged = run_loop.CombinedPass(
+            PassCounts(), kind="quote", seconds=0.4
+        ).as_dict()
+
+        assert not any(k.startswith("ladder_") for k in merged), merged
+
+    def test_the_loop_actually_reads_the_payloads_excluded_tally(self):
+        """Structural, for the reason the sibling AST guard gives.
+
+        `score_settle_and_alert` lives inside `main` behind a live Kalshi
+        client and a shared odds budget, so no test drives it. The defect this
+        catches is the one that shipped: `build_ladder_payload` was called
+        inline as an argument and its `excluded` dict discarded, so a correct
+        count reached nothing.
+        """
+        tree = ast.parse(
+            (ROOT / "scripts" / "run_loop.py").read_text(encoding="utf-8")
+        )
+        func = next(
+            (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.AsyncFunctionDef)
+                and node.name == "score_settle_and_alert"
+            ),
+            None,
+        )
+        assert func is not None, (
+            "`score_settle_and_alert` is gone; this test is vacuous"
+        )
+        source = ast.unparse(func)
+
+        # `.get('excluded')` and not the bare word: `ladder_excluded=` below
+        # contains "excluded" as a substring, so the loose spelling would pass
+        # vacuously the moment the second assertion did.
+        assert "get('excluded')" in source, (
+            "`score_settle_and_alert` never reads the ladder payload's "
+            "`excluded` tally, so the refusal counts reach no log line"
+        )
+        assert "ladder_excluded=" in source, (
+            "the tally is read but never handed to `CombinedPass`, so it is "
+            "computed and thrown away -- the exact defect this guards"
+        )

@@ -25,6 +25,52 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-28 — "Unexplained one-off" is a claim about frequency, and a default window is not a population
+
+**The pattern.** When a diagnostic tool has a `--tail` / `--limit` / `--since`
+default, the number it prints is a statement about *that window*, not about the
+system. Writing "unexplained, self-recovered" after reading the default window
+asserts something the reading cannot support: that it happened once. Widening
+the window costs one flag and is the first thing to try, before any hypothesis
+about cause.
+
+**Where it bit.** `inspect_live_db.py pass-gaps` defaults to `--tail 5` — the
+last five rows of `odds_sweep_log`. Read that way on 2026-08-28 it printed
+`0 rows` for gaps. Read with `--tail 400` it printed **sixteen**, spanning
+2026-08-23 to 2026-08-28, 21.5 to 63.3 minutes each, about 3.4 hours of dead
+recorder a day since 08-26. Three sessions in a row had written the same
+silence up as a fresh, unexplained incident, each one correct about its own
+window and wrong about the system. The escalation — one gap a day, then six —
+was visible in one query the whole time.
+
+**Why it survives.** A default window flatters in the direction of calm: it
+shows the recent past, which is the part most likely to be healthy (you are
+usually looking *because* something just recovered). And "unexplained" reads as
+appropriate humility, so nobody challenges it — while it is actually the
+strongest possible claim about frequency, made from the weakest possible
+evidence.
+
+**How to apply.**
+
+- Before writing "one-off", "first time", "unexplained" or "self-recovered" about
+  anything, re-run the instrument with its window opened as wide as the record
+  goes, and report the per-day count. If the tool has no such flag, that is the
+  work.
+- Prefer a **rate** to an **event** in any handoff line. "47.8-minute gap,
+  unexplained" invites a hunt for one cause; "3.4 hours a day for three days,
+  escalating" names a different problem and a different urgency.
+- A silence that leaves **no row at all** is the one to instrument, not to
+  explain. Sixteen holes carried no `loop_failures` row because a wedged pass
+  raised nothing; the fix was a deadline that makes a wedge raise, not a better
+  guess at the cause. See [[unreadable-resolves-to-none]] — absence and zero are
+  different readings, and here absence was being read as "nothing to see".
+- Confirm a gap on a **second table** before believing it. `odds_sweep_log`
+  going quiet is consistent with a legitimately sparser sweep schedule;
+  `kalshi_quotes` also going to exactly zero, with thousands of rows either
+  side, is not.
+
+---
+
 ## 2026-08-28 — A helper called from a loop that must not die does not get to trust its caller
 
 A display function divided a stake by a probability. The probability was a

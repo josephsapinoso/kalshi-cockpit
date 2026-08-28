@@ -179,13 +179,17 @@ class CombinedPass:
 
     def __init__(self, recording, scoring=None, alerts=None, *, kind="full",
                  seconds=0.0, settlement=None, market_results=None,
-                 parlay=None):
+                 parlay=None, ladder_excluded=None):
         self.recording = recording
         self.scoring = scoring
         self.settlement = settlement
         self.market_results = market_results
         self.alerts = alerts
         self.parlay = parlay
+        # The ladder's own refusal tally, or `None` when no ladder was built
+        # this pass. `None` and `{}` are different states and are reported
+        # differently -- see `as_dict`.
+        self.ladder_excluded = ladder_excluded
         self.kind = kind
         self.seconds = seconds
 
@@ -224,6 +228,32 @@ class CombinedPass:
             merged.update({
                 f"parlay_{k.removeprefix('alerts_')}": v
                 for k, v in self.parlay.as_dict().items() if v
+            })
+        # **The ladder's refusals, on the line that is readable without auth.**
+        #
+        # `/api/parlays` already returns this dict, and on 2026-08-28 that was
+        # the only place it existed -- so after the `ZeroDivisionError` fix
+        # landed, the question "did the new guard ever fire, or did the
+        # zero-probability leg simply age out of the window?" could not be
+        # answered from outside the box at all. A count nothing logs is a count
+        # nobody can read.
+        #
+        # `ladder_excluded` is the total and is emitted even at zero, which is
+        # what separates "a ladder was built and refused nothing" from "no
+        # ladder was built this pass" -- the latter omits every key here. That
+        # distinction is the repo's "unreadable resolves to None, never 0"
+        # convention pointed at a log line: the ladder is only built on a pass
+        # that swept or a full pass, so absence is common and must not read as
+        # a clean bill of health.
+        #
+        # Per-reason keys are prefixed and filtered on truthiness like every
+        # other block above; the reason names come from `ladder_candidates` and
+        # `build_ladder`, so a new refusal reason appears here with no edit.
+        if self.ladder_excluded is not None:
+            merged["ladder_excluded"] = sum(self.ladder_excluded.values())
+            merged.update({
+                f"ladder_{reason}": n
+                for reason, n in self.ladder_excluded.items() if n
             })
         return merged
 
@@ -427,8 +457,25 @@ async def main() -> int:
         This is the instrument the 2026-08-25 diagnosis did not have. The
         recording gap that day was three missed passes and there was no way to
         tell failing from wedged, because the container had restarted and taken
-        both the counter and the logs with it. Rows here mean failing; no rows
-        across a gap mean the pass never came back to raise.
+        both the counter and the logs with it.
+
+        **The reading changed on 2026-08-28 and the old one is now wrong.** It
+        used to be "rows here mean failing; no rows across a gap mean the pass
+        never came back to raise", and on that rule sixteen holes in the live
+        pass ledger read as sixteen wedges nobody could go further with.
+        `run_forever` now bounds a pass with `DEFAULT_PASS_DEADLINE_S`, so a
+        wedge *does* come back to raise -- as `PassDeadlineExceeded`, with the
+        pass number and a traceback naming the await it hung on. The rule is
+        now:
+
+            PassDeadlineExceeded row   the pass hung on an await
+            any other failure row      the pass raised
+            NO row across a gap        the process was not running, OR it was
+                                       blocked in a synchronous call that the
+                                       deadline cannot interrupt
+
+        The third line is two states, not one, and separating them needs an
+        instrument this record still does not have.
         """
         db.record_loop_failure(
             conn,
@@ -730,13 +777,23 @@ async def main() -> int:
             # debounce by doing nothing, which is the opposite of the property
             # being bought.
             parlay = None
+            # `None` until a ladder is actually built, so the pass line can
+            # tell "refused nothing" from "did not run". See
+            # `CombinedPass.as_dict`.
+            ladder_excluded = None
             if alerter.enabled and (counts.odds_sweeps > 0 or kind == "full"):
+                # Bound rather than inlined: the payload's `excluded` tally is
+                # the only view of why legs were dropped, and until 2026-08-28
+                # it was discarded here and readable only through an
+                # authenticated `/api/parlays`.
+                ladder = build_ladder_payload(
+                    conn,
+                    now_ms=stamp,
+                    max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                )
+                ladder_excluded = dict(ladder.get("excluded") or {})
                 parlay = await alerter.parlay_cards(
-                    build_ladder_payload(
-                        conn,
-                        now_ms=stamp,
-                        max_odds_age_ms=staleness.max_odds_age_s * 1000,
-                    ),
+                    ladder,
                     now_ms=stamp,
                     day_start_ms=budget.day_start_ms(stamp),
                     card_hour_utc=parlay_card_hour,
@@ -781,7 +838,7 @@ async def main() -> int:
             return CombinedPass(
                 counts, scoring, alerts, kind=kind, seconds=elapsed,
                 settlement=settlement, market_results=market_results,
-                parlay=parlay,
+                parlay=parlay, ladder_excluded=ladder_excluded,
             )
 
         async def one_pass() -> CombinedPass:

@@ -1000,10 +1000,32 @@ class TestTheLoopAsksOnEveryPass:
 
     def test_it_reads_the_same_staleness_limit_the_screen_does(self):
         """A push built on a looser limit than `/api/parlays` would announce a
-        card the screen refuses to show."""
+        card the screen refuses to show.
+
+        **Repointed 2026-08-28, not loosened.** This read the 600 characters
+        *after* `alerter.parlay_cards(`, which held the whole
+        `build_ladder_payload(...)` call while it was written inline as that
+        call's first argument. Binding the payload to a name -- so the pass
+        line can report its `excluded` tally -- moved the limit above the call
+        and the probe stopped seeing it. The region now runs from the gate to
+        the push, which is the span the claim was always about: one pass, one
+        limit, feeding one notification.
+        """
         source = self._source()
-        block = source[source.index("alerter.parlay_cards("):][:600]
-        assert "max_odds_age_ms=staleness.max_odds_age_s * 1000" in block
+        call = source.index("alerter.parlay_cards(")
+        gate = source.rindex("if alerter.enabled", 0, call)
+        region = source[gate:call + 300]
+
+        # Vacuity guards. Each of the three anchors must be inside the region,
+        # or the assertion below is reading text that has nothing to do with
+        # the push.
+        assert "build_ladder_payload(" in region, (
+            "the ladder is no longer built inside the block that pushes it; "
+            "this probe is reading the wrong span"
+        )
+        assert "alerter.parlay_cards(" in region
+
+        assert "max_odds_age_ms=staleness.max_odds_age_s * 1000" in region
 
 
 class TestTheCardHourIsSpelledTheSameEverywhere:

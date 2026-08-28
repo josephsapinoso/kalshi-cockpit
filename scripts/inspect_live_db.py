@@ -1471,6 +1471,19 @@ def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
                                       pass, or the container went away
         failures with no gap          transient, absorbed, record intact
 
+    **The middle line was the whole reading until 2026-08-28, and it had
+    nowhere to go.** Sixteen holes between 08-23 and 08-28 -- 21.5 to 63.3
+    minutes, ~3.4 hours a day since 08-26 -- carried no failures at all, and
+    three sessions in a row wrote each one up as a fresh, unexplained one-off.
+    `run_forever` now bounds a pass with `DEFAULT_PASS_DEADLINE_S`, so from
+    2026-08-28 a hung *await* raises `PassDeadlineExceeded` and lands in the
+    failures half of this output. A gap that still carries no failure row is
+    therefore narrower evidence than it used to be, and more useful: the
+    process was not running, or it was blocked in a synchronous call the
+    deadline cannot interrupt -- a long SQLite read against a 1.9 GB file being
+    the standing candidate.
+    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`.
+
     The threshold defaults to 1,200,000 ms -- above the 1,035s ceiling on a
     healthy shut-window sleep (900s x 1.15), so an ordinary quiet night does
     not fill the output with its own cadence.
