@@ -383,7 +383,68 @@ finish, and nothing here depends on it.
   must not manufacture action.
 - `sweeps_remaining_today` (`timing.py:1134`) is computed from the whole day's
   budget rather than the attention slice and is suspected of carrying the same
-  defect. Being checked by the first lane.
+  defect. Being checked by the first lane. **The design review found it read
+  ~34 remaining (492 of 700 spent) on the night the slice allowed zero further
+  attention buys** — direct evidence for the defect, not yet a fix.
+
+### Both design lanes returned, they contradicted each other, and the winner corrects this session's own plan
+
+Posted in full to ticket #35. The part that must not be lost:
+
+**Attention REPLACES the hourly floor; it does not add to it.** `desk_wants`
+(`timing.py:499-575`) branches `if attended or windowed` → the 10-minute
+cadence for *every* sport with an upcoming fixture, no horizon check. The
+`else` branch is the floor: hourly, and only inside `DESK_FLOOR_HORIZON_MS`
+= 12h. `decide_sweeps` then sets `on_the_floor = not attended and not
+desk_is_open(...)`, so **attended makes the slice check apply and the sport is
+refused with `continue` — there is no fall-through to the hourly cadence.**
+`DEFAULT_ATTENTION_TTL_MS` is 300_000, so "unattended" begins five minutes
+after the last heartbeat.
+
+**Stated plainly, because it is close to perverse: once the slice is spent,
+keeping the page open suppresses buying that would otherwise happen. Closing
+the phone is what makes the floor resume.** That is ADR 0071 §2.6 working as
+built and changing it is a separate decision — but it invalidated the fix this
+session had already briefed to the backend lane (*"publish the floor's next
+want"*, which would publish a time the reader's own presence prevents — the
+same defect in a new field). Corrected mid-flight; the lane was told to trust
+the source over me if they disagree, because a second reader had already caught
+me on this exact point once today.
+
+**Question 1 of #35 is settled by a fact the ticket did not have: `next_sweep_ms`
+has FOUR readers, not one** — `RefreshOddsPanel`, `nextOddsWindow.ts` →
+`StaleOddsExit` (which asserts *service*, not schedule, and is therefore worse),
+`WindowBanner` twice on `/board`, and `windowChip.ts` (already safe). A
+copy-only fix leaves three of them lying, so the field becomes budget-aware and
+the *"the page cannot disagree with it"* guarantee ends up true or deleted.
+
+**Both reviewers rejected the ticket's own "tap — 150 credits are sitting
+there".** The correct action at 04:38 was **wait**: a fresh price for a game
+13.7 h out is a fraction of a cent of EV on a one-contract stake. The defect is
+that "quiet" and "broken" were indistinguishable and nothing said when quiet
+ended. The panel's job in the slice-spent state is to **withdraw a false reason
+to wait**, not to supply a reason to tap — argument-from-unspent-allowance is
+the shape ADR 0071 §2.1 forbids.
+
+**Two findings outside #35's scope, recorded so they are not lost:**
+
+- **A fourth false promise, unticketed.** `RefreshWhenPriced.tsx` said *"this
+  page will update itself when one lands"* while polling `/api/window` every
+  10s for five minutes for a sweep the loop had refused, then would have
+  claimed *"No new prices arrived in five minutes"* — implying a fault where
+  there was none, and burning phone battery. It checks whether freshness is
+  rising; it never checks whether a buy is possible. Same class, same screen,
+  same minute as #35. **Worth its own ticket.**
+- **The credit accounting probably does not belong on that panel.** Four
+  numbers (0 of 150 taps, 492 of 700, a 2-minute cooldown) that the owner
+  review reports never having made a decision with. ADR 0050's precedent: a
+  caption, never a translation.
+
+**Least certain, and cheap to settle:** that an attended pass past the slice
+gets no floor rescue is read from the source, not observed. One `sweep-log`
+read on a night when the slice is spent and the desk is open settles it — if
+the refusal repeats every pass and no `DESK`-triggered `api_credits` row lands
+within the hour, it holds.
 
 ---
 
