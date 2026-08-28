@@ -952,8 +952,21 @@ export type ActionableWindow = {
    * Since the rolling refresh a slot buys odds every `refresh_interval_s` for
    * as long as it is due, so a slot mid-window has an opening time in the past.
    * Publishing that would put a stale time on the one readout a human uses to
-   * decide when to look. The server computes this through the same predicate
-   * the loop fires on, so the page cannot disagree with it.
+   * decide when to look.
+   *
+   * **The comment here used to claim the page could not disagree with the
+   * loop, and on 2026-08-28 at 04:38Z it did** — the panel said "the next
+   * scheduled sweep is now" in the same minute the loop logged its refusal of
+   * that exact sweep. The guarantee was true of the slot schedule and false of
+   * the budget: the attention slice is checked *after* the desk predicate has
+   * said a call is wanted, so this field answered "is a call wanted?" and the
+   * screen rendered it as "is a call coming?". Ticket #35.
+   *
+   * What is true now: the server applies the slice as well, so a time here is
+   * one the loop can serve, and when the slice is spent the desk contributes
+   * nothing to it. That makes `null` ambiguous on its own — read
+   * `attention_slice_spent`, `next_desk_buy_ms` and `floor_next_buy_ms` beside
+   * it before writing a sentence about why nothing is coming.
    */
   next_sweep_ms: number | null;
   /** How often an open window re-buys its odds. Derived from `max_odds_age_s`. */
@@ -1006,6 +1019,47 @@ export type ActionableWindow = {
    * going stale, which is a different field and a louder tone.
    */
   first_window_open_ms: number | null;
+  /**
+   * Credits spent today on **attention-triggered** sweeps, and the ceiling
+   * they are measured against (`ODDS_ATTENTION_DAILY_CREDITS`, 300 of the
+   * day's 700 on live).
+   *
+   * A separate pool from `spent_today`/`daily_budget`. The odds feed follows
+   * attention over an hourly floor (ADR 0071 §2.6); this slice is what a page
+   * left open is allowed to spend, and the floor is deliberately not charged
+   * to it.
+   */
+  attention_credits_spent: number;
+  attention_daily_credits: number;
+  /** Whether the slice can no longer fund one more sweep. */
+  attention_slice_spent: boolean;
+  /** Whether a heartbeat has landed inside the TTL — i.e. someone is looking. */
+  desk_is_attended: boolean;
+  /**
+   * When the **desk trigger** will next actually buy, under the attention
+   * state holding right now. `null` means it will not.
+   *
+   * The awkward part, which the copy must not smooth over: **attention
+   * replaces the hourly floor rather than adding to it.** While someone is
+   * looking, every upcoming sport is wanted on the ten-minute cadence and
+   * every one of them is refused once the slice is spent — so past the slice,
+   * keeping the page open is what suppresses the buying, and closing it is
+   * what lets the floor resume. Never write a sentence here that promises a
+   * buy the reader's own presence is preventing.
+   */
+  next_desk_buy_ms: number | null;
+  /**
+   * When the **hourly floor** next wants a buy, computed as though nobody were
+   * looking and ignoring the slice.
+   *
+   * This is the "once you stop looking" answer, and it is a lookahead rather
+   * than a snapshot: a sport enters the floor's twelve-hour horizon at
+   * `kickoff - 12h`, so at 04:38Z with a 18:20Z kickoff this reads ~06:20Z
+   * while the desk wanted nothing at all. That is the sentence the 2026-08-28
+   * screen could not write. `null` means no stored fixture ever brings the
+   * floor round, which is a different state again.
+   */
+  floor_next_buy_ms: number | null;
   note: string;
 };
 

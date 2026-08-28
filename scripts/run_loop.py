@@ -651,6 +651,14 @@ async def main() -> int:
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 sweep_cost=odds_config.credits_per_sweep_per_sport,
                 desk_window=odds_config.desk_window_utc,
+                # **And `attention_daily_credits` was missing for the same
+                # reason `desk_window` was**, three days later and one layer
+                # in: `window_status` applied `desk_wants` and stopped, while
+                # this loop's own `decide_sweeps` refuses those wants once the
+                # slice is spent. `tempo.next_wake_ms` is set from
+                # `next_call_ms`, so the loop was pacing itself against a call
+                # it had already declined to make. Ticket #35.
+                attention_daily_credits=odds_config.attention_daily_credits,
             )
 
         async def score_settle_and_alert(kind, counts, stamp, started):

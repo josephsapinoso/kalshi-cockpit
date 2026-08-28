@@ -1640,6 +1640,10 @@ def create_app(
             max_odds_age_ms=staleness.max_odds_age_s * 1000,
             sweep_cost=odds.credits_per_sweep_per_sport,
             desk_window=odds.desk_window_utc,
+            # Threaded for the same reason `desk_window` is: the loop applies
+            # the attention slice after `desk_wants`, so without this the panel
+            # would publish a call the loop refuses. Ticket #35.
+            attention_daily_credits=odds.attention_daily_credits,
         ).to_dict()
 
     @app.get("/api/market/{ticker}")

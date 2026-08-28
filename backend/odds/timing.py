@@ -575,6 +575,84 @@ def desk_wants(
     return wants
 
 
+def desk_floor_next_want_ms(
+    fixtures: Mapping[str, Sequence[int]],
+    *,
+    now_ms: int,
+    last_sweeps: Mapping[str, int],
+    floor_interval_ms: int = DESK_FLOOR_INTERVAL_MS,
+    floor_horizon_ms: int = DESK_FLOOR_HORIZON_MS,
+    allow_bootstrap: bool = True,
+) -> Optional[int]:
+    """The next instant the **hourly floor** wants any sport, attention aside.
+
+    `desk_wants` answers "what does the desk want *at `now_ms`*", and leaves a
+    sport out entirely when nothing it plays is inside the floor's horizon.
+    That is the right answer for a trigger and an insufficient one for a screen
+    once the attention slice is spent. On 2026-08-28 at 04:38Z the slice was
+    exhausted, the next kickoff was ~13.7h out, and the sentence a reader
+    needed was *"nothing re-prices these until about 06:20Z, when the first
+    game comes inside twelve hours"*. `desk_wants` cannot produce it: the
+    horizon moves with `now_ms` and the function only ever evaluates one
+    instant, so it can say "not now" and cannot say "then".
+
+    This walks the horizon forwards instead. A sport becomes eligible at
+    `soonest_kickoff - floor_horizon_ms`; from that instant the floor's own
+    hourly cadence applies, measured from its last served sweep exactly as
+    `desk_wants` measures it.
+
+    `None` is "no stored fixture ever brings the floor round", never a
+    far-future sentinel: a caller merging this into a `min()` must be able to
+    leave it out, which is the same rule `desk_next_open_ms` states.
+
+    **It agrees with `desk_wants` at `now_ms`.** For a sport already inside the
+    horizon both give `max(now_ms, last + floor_interval_ms)`, and for an
+    unswept one both give `now_ms`. That is the one-predicate rule holding
+    across a lookahead, and a test pins it rather than this comment.
+
+    What it does not establish: that the loop will *serve* the call at that
+    instant. The floor is refused while the desk is attended and the slice is
+    spent -- see `desk_floor_resumes_ms`, which is the other half of the
+    answer.
+    """
+    soonest_want: Optional[int] = None
+    for sport_key, commences in fixtures.items():
+        if not commences:
+            continue
+        # In the past for a sport already inside the horizon, which the `max`
+        # collapses to `now_ms` -- the same value `desk_wants` uses there.
+        eligible_ms = max(now_ms, min(commences) - floor_horizon_ms)
+        last = last_sweeps.get(sport_key)
+        if last is None:
+            # `desk_wants`' bootstrap branch, with its own hazard note.
+            if not allow_bootstrap:
+                continue
+            want = eligible_ms
+        else:
+            want = max(eligible_ms, last + floor_interval_ms)
+        soonest_want = want if soonest_want is None else min(soonest_want, want)
+    return soonest_want
+
+
+def attention_slice_is_spent(
+    *, attention_spent: int, sweep_cost: int, attention_daily_credits: int
+) -> bool:
+    """Whether the slice can no longer fund one more sweep of `sweep_cost`.
+
+    The predicate `decide_sweeps` applies at `timing.py`'s attention check,
+    extracted so `window_status` cannot re-spell it. That is the same
+    one-predicate rule `firing_for_slot` and `desk_wants` state, and the budget
+    was the one part of the desk trigger it had never been applied to: the
+    screen published a wanted call as a coming call, and the two answers
+    diverged on exactly the nights the slice ran out. Ticket #35.
+
+    A fact about the budget alone. Whether it *binds* depends on where the loop
+    is standing -- `on_the_floor` sweeps are not charged to the slice and are
+    not refused by it.
+    """
+    return attention_spent + sweep_cost > attention_daily_credits
+
+
 def firing_for_slot(
     slot: SweepSlot,
     *,
@@ -1018,14 +1096,51 @@ class ActionableWindow:
     last_sweep_sport: Optional[str]
     next_slot: Optional[SweepSlot]
     slots_planned: tuple[SweepSlot, ...]
-    # When the next `/odds` call is actually wanted, which since the rolling
-    # refresh is no longer `next_slot.fire_from_ms`. A slot mid-window has a
-    # `fire_from_ms` in the past, and publishing that as "next sweep" would put
-    # a time on the page that has already been and gone -- the one readout a
-    # human uses to decide when to look. Computed through `firing_for_slot`, the
-    # same predicate the loop fires on, so the page cannot disagree with it.
+    # When the next `/odds` call can actually be served, which since the
+    # rolling refresh is no longer `next_slot.fire_from_ms`. A slot mid-window
+    # has a `fire_from_ms` in the past, and publishing that as "next sweep"
+    # would put a time on the page that has already been and gone -- the one
+    # readout a human uses to decide when to look.
+    #
+    # **This comment used to claim the page could not disagree with the loop,
+    # and it could.** The guarantee was stated for `firing_for_slot` and did
+    # not hold for the budget: the attention slice is checked in
+    # `decide_sweeps` *after* `desk_wants` has said a call is wanted, so this
+    # field answered "is a call wanted?" while the screen rendered it as "is a
+    # call coming?". They agree whenever the slice has credits and diverge when
+    # it does not. Joe read "the next scheduled sweep is now" on 2026-08-28 at
+    # 04:38Z in the same minute the loop logged its refusal of that exact
+    # sweep. Ticket #35.
+    #
+    # What is true now: every predicate the loop fires on is applied here as
+    # well -- `firing_for_slot` for the slot, `desk_wants` for the desk, and
+    # `attention_slice_is_spent` for the budget -- so a time in this field is
+    # one the loop can serve. When the slice is spent the desk contributes
+    # nothing to it rather than a time nobody will honour; `next_desk_buy_ms`
+    # and `floor_next_buy_ms` below say why, because "no automatic buy is
+    # coming" and "no buy is coming ever" are different sentences.
+    #
+    # Still not a promise, and no comment here should imply one: a tap, an
+    # outage or a fresh heartbeat all move it. The claim is narrower and
+    # checkable -- the page does not publish a call the loop has already
+    # refused.
     next_call_ms: Optional[int]
     refresh_interval_ms: int
+    # How many sweeps the **whole day's** remaining credits could fund, which
+    # is also what sizes `plan_sweep_slots`.
+    #
+    # **Checked against ticket #35's suspicion on 2026-08-28 and it does not
+    # carry that defect** -- recorded here so the next reader does not re-check
+    # it. `next_call_ms` was a *prediction* the loop then refused; this is an
+    # arithmetic fact about a pool, and it is the right pool: a scheduled slot
+    # and a floor buy are charged to the day's budget and not to the attention
+    # slice, so narrowing this to the slice would under-size the planner as
+    # well as the readout. On the night in question it read 123 sweeps (492 of
+    # 700 spent) while the attention slice allowed exactly zero more
+    # attention-triggered buys. That is a **coverage gap, not a lie**: the
+    # number answers "what can the day still afford", and the reader was asking
+    # "can the desk still refresh while I watch". The four `attention_*` fields
+    # below answer the second question; this one keeps answering the first.
     sweeps_remaining_today: int
     spent_today: int
     daily_budget: int
@@ -1047,6 +1162,61 @@ class ActionableWindow:
     # fact and the window is a kickoff fact, and asking the first to answer for
     # the second is what made the sweep banner fire every morning by arithmetic.
     first_window_open_ms: Optional[int] = None
+
+    # The attention slice, published so the refresh panel can tell three states
+    # apart that it used to render identically: attended with credits (wait, it
+    # is coming), slice spent (the automatic cadence is refused for as long as
+    # the page stays open), and nothing due at all. They rendered identically
+    # because `next_call_ms` alone cannot separate them -- which is how the
+    # panel came to promise a sweep the loop had refused in the same minute.
+    #
+    # Defaults exist for dataclass field ordering only. `window_status` always
+    # passes all six; nothing else builds this object except a key-set test.
+
+    #: Credits spent today on attention-triggered sweeps -- `trigger =
+    #: 'attention'` rows alone, which is the only spend the slice counts.
+    attention_credits_spent: int = 0
+    #: The ceiling those credits are measured against (`OddsConfig`).
+    attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS
+    #: Whether the slice can no longer fund one more sweep at this
+    #: `sweep_cost`. A fact about the budget, not about this instant: true
+    #: whether or not anyone is looking.
+    attention_slice_spent: bool = False
+    #: Whether a heartbeat has landed inside the TTL. Published because it is
+    #: the fact the whole cadence turns on, and without it neither field below
+    #: can be read: the same `None` means "refused because you are looking" and
+    #: "the desk wants nothing" depending on it.
+    desk_is_attended: bool = False
+
+    #: When the **desk trigger** will next actually buy, under the attention
+    #: state holding right now. `None` means it will not: either the desk wants
+    #: nothing, or -- the case this field exists for -- the slice is spent and
+    #: every want is refused.
+    #:
+    #: **Attention replaces the floor rather than adding to it**, and this is
+    #: the field that has to carry that or it gets smoothed over. `desk_wants`
+    #: branches on `attended or windowed` and gives *every* upcoming sport the
+    #: ten-minute cadence; `decide_sweeps` then refuses each one, because
+    #: `on_the_floor` is False whenever someone is looking. So past the slice,
+    #: keeping the page open suppresses buying that would otherwise happen, and
+    #: closing the phone is what makes the hourly floor resume. That is ADR
+    #: 0071 section 2.6's design and not a defect to fix here; what would be a
+    #: defect is a field that reads as promising a buy the reader's own
+    #: presence is preventing.
+    next_desk_buy_ms: Optional[int] = None
+    #: When the **hourly floor** next wants a buy, computed unattended and
+    #: ignoring the slice, which the floor is never charged to. This is the
+    #: "once you stop looking" answer and applies only then -- never merged
+    #: into `next_call_ms`, which is what the loop will serve as things stand.
+    #:
+    #: A lookahead, not `desk_wants`' instantaneous answer, and that is the
+    #: whole point. At 04:38Z on 2026-08-28 the next kickoff was ~13.7h out,
+    #: so `desk_wants` said the floor wanted nothing -- while the honest
+    #: sentence for the screen was "nothing re-prices these until about 06:20Z,
+    #: when the first game comes inside twelve hours". `None` here means no
+    #: stored fixture ever brings the floor round, which is a third sentence
+    #: again. See `desk_floor_next_want_ms`.
+    floor_next_buy_ms: Optional[int] = None
 
     @property
     def is_open(self) -> bool:
@@ -1098,6 +1268,12 @@ class ActionableWindow:
             "last_look_outcome": self.last_look_outcome,
             "last_look_detail": self.last_look_detail,
             "first_window_open_ms": self.first_window_open_ms,
+            "attention_credits_spent": self.attention_credits_spent,
+            "attention_daily_credits": self.attention_daily_credits,
+            "attention_slice_spent": self.attention_slice_spent,
+            "desk_is_attended": self.desk_is_attended,
+            "next_desk_buy_ms": self.next_desk_buy_ms,
+            "floor_next_buy_ms": self.floor_next_buy_ms,
             "note": (
                 "Open means odds are fresh enough for a pick to survive the "
                 "staleness check. It does not mean there is anything to bet -- "
@@ -1117,6 +1293,7 @@ def window_status(
     horizon_ms: int = DEFAULT_HORIZON_MS,
     desk_window: Optional[tuple[int, int]] = None,
     attention_ttl_ms: int = attention.DEFAULT_ATTENTION_TTL_MS,
+    attention_daily_credits: int = DEFAULT_ATTENTION_DAILY_CREDITS,
 ) -> ActionableWindow:
     """The window, and the next planned sweep, from stored state alone.
 
@@ -1129,6 +1306,12 @@ def window_status(
     reason as `firing_for_slot`: `next_call_ms` is the screen's "when does the
     next window open", and a desk buy the loop will make is a call this
     display must predict.
+
+    `attention_daily_credits` must be the same value for the same reason, and
+    it is the newer half of that rule. Until 2026-08-28 this function applied
+    `desk_wants` and stopped, while `decide_sweeps` applies the attention slice
+    *after* `desk_wants` has said a call is wanted -- so the screen answered
+    "is a call wanted?" and rendered it as "is a call coming?". Ticket #35.
     """
     state = budget.state(now_ms)
     remaining_sweeps = max(0, state.remaining_today // max(1, sweep_cost))
@@ -1172,26 +1355,59 @@ def window_status(
         else:
             next_call_ms = next_slot.fire_from_ms
 
+    attended = attention.is_attended(
+        conn, now_ms=now_ms, ttl_ms=attention_ttl_ms
+    )
+    # `decide_sweeps`' own two lines, in the same order, and they have to stay
+    # in this order: the slice binds everything that is *not* on the floor, so
+    # a windowed or attended pass is refused while an idle one is not.
+    on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
+    attention_spent = attention_credits_spent_today(conn, since_ms=start_ms)
+    slice_spent = attention_slice_is_spent(
+        attention_spent=attention_spent,
+        sweep_cost=sweep_cost,
+        attention_daily_credits=attention_daily_credits,
+    )
+    desk_next: Optional[int] = None
+    floor_next: Optional[int] = None
     if fixtures_by_sport:
-        # The same `desk_wants` the loop fires from -- one predicate, two
-        # callers. A screen that computed "next sweep" by its own reasoning
-        # would eventually disagree with the loop, and the screen is the one
-        # that gets believed.
-        wants = desk_wants(
-            fixtures_by_sport,
-            now_ms=now_ms,
-            attended=attention.is_attended(
-                conn, now_ms=now_ms, ttl_ms=attention_ttl_ms
-            ),
-            last_sweeps=served,
-            refresh_interval_ms=refresh_ms,
-            desk_window=desk_window,
+        # The floor's own timetable, computed unattended and without the slice,
+        # which the floor is never charged to. Published separately and never
+        # merged below: while someone is looking it is not what the loop will
+        # do, it is what the loop will do once they stop.
+        floor_next = desk_floor_next_want_ms(
+            fixtures_by_sport, now_ms=now_ms, last_sweeps=served
         )
-        # `None` when the desk wants nothing at all -- no sport is playing
-        # inside the floor's horizon and nobody is looking. That is a real
-        # state now, where under a clock window there was always a next hour,
-        # and the screen has to be able to say so rather than invent a time.
-        desk_next: Optional[int] = min(wants.values()) if wants else None
+        if slice_spent and not on_the_floor:
+            # **Refused, and there is no fall-through to the hourly cadence.**
+            # `desk_wants` branches on `attended or windowed` and gives every
+            # upcoming sport the ten-minute cadence; the slice check then
+            # `continue`s past each one. Publishing `desk_wants`' answer here
+            # anyway is the whole of ticket #35 -- the panel said "the next
+            # scheduled sweep is now" in the minute the loop logged its refusal
+            # of that exact sweep. Publishing the *floor's* time instead would
+            # be the same defect wearing a new field name, because the floor
+            # cannot fire either while the heartbeats keep landing.
+            desk_next = None
+        else:
+            # The same `desk_wants` the loop fires from -- one predicate, two
+            # callers. A screen that computed "next sweep" by its own reasoning
+            # would eventually disagree with the loop, and the screen is the
+            # one that gets believed.
+            wants = desk_wants(
+                fixtures_by_sport,
+                now_ms=now_ms,
+                attended=attended,
+                last_sweeps=served,
+                refresh_interval_ms=refresh_ms,
+                desk_window=desk_window,
+            )
+            # `None` when the desk wants nothing at all -- no sport is playing
+            # inside the floor's horizon and nobody is looking. That is a real
+            # state now, where under a clock window there was always a next
+            # hour, and the screen has to be able to say so rather than invent
+            # a time.
+            desk_next = min(wants.values()) if wants else None
         if desk_next is not None:
             next_call_ms = (
                 desk_next
@@ -1226,6 +1442,12 @@ def window_status(
         last_look_ms=int(look["pass_ms"]) if look else None,
         last_look_outcome=look["outcome"] if look else None,
         last_look_detail=look["detail"] if look else None,
+        attention_credits_spent=attention_spent,
+        attention_daily_credits=attention_daily_credits,
+        attention_slice_spent=slice_spent,
+        desk_is_attended=attended,
+        next_desk_buy_ms=desk_next,
+        floor_next_buy_ms=floor_next,
         first_window_open_ms=first_window_open_of_day(
             conn,
             day_start_ms=start_ms,
@@ -1699,7 +1921,11 @@ def decide_sweeps(
             # take the opening call props ride on.
             continue
         on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
-        if not on_the_floor and attention_spent + cost > attention_daily_credits:
+        if not on_the_floor and attention_slice_is_spent(
+            attention_spent=attention_spent,
+            sweep_cost=cost,
+            attention_daily_credits=attention_daily_credits,
+        ):
             refused_for_cost.append(
                 f"{sport_key} desk refresh cannot be served: the attention "
                 f"slice is {attention_daily_credits} credits a day and "
