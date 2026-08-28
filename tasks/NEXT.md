@@ -39,9 +39,10 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,950 passed / 10 xfailed in 7:29**, measured 2026-08-28 on
-the tree committed as the ADR 0081 palette change, `origin/main` at `2b58e01`
-immediately before the push. That triple — the number, the tree it was taken
+**Test baseline: 4,954 passed / 10 xfailed in 7:00**, measured 2026-08-28 on
+the tree committed as the parlay-bound change (`7b185e8`), `origin/main` level
+immediately before the push. The +4 over the palette tree is the four new
+`TestTheLadderIsBoundedInSql` guards, confirmed by collecting both trees. That triple — the number, the tree it was taken
 on, and the fact that nothing moved after — is the qualification this line has
 never carried, and its absence is the whole reason it kept being wrong.
 
@@ -214,7 +215,127 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — the palette split shipped, and the guard watching it was measuring the wrong pair
+## 2026-08-28 (latest) — one tab could take the site down, and the desk went quiet without saying so
+
+Second half of the palette session, and none of it was planned. **Joe was
+awake and sent ten phone screenshots of live**, which is the first time the
+UI has been reviewed on the device it is used on. Two live defects came out
+of that, one of them the ticket the map had already flagged as the worst
+thing on it.
+
+### THE ONE THAT MATTERS — `/api/parlays` could take the whole site down
+
+Joe: *"The parlay page isn't opening for me on the phone."* Ticket #22 had
+measured it and called it **the only ticket on the map where the status quo
+actively harms the running system**: `ladder_candidates` `fetchall()`d every
+`fair_prices` row in a rolling 24-hour window — **463,866 rows, ~557 MB on a
+2 GB box already at ~1.03 GB at rest** — and deduped in Python *afterwards*.
+Repeated visits OOM-killed uvicorn, and because `entrypoint.sh` uses
+`wait -n`, killing that child tore down the container and **restarted the
+recorder too**. ~91 s of whole-site outage was observed measuring it. **The
+blast radius was never one tab.**
+
+**Fixed at `7b185e8`, deployed, live.** The dedup is now `ROW_NUMBER()`
+partitioned on exactly the five columns the Python key used.
+`outcome_description` is in that list and is the one that matters: NULL on
+team markets, load-bearing on props where `outcome_name` is only
+"Over"/"Under", so dropping it collapses two pitchers at one rung onto one
+row — **a wrong leg offered for money, not a slow page**. SQL `PARTITION BY`
+groups NULLs the way a Python dict key of `None` does, so the two agree
+exactly there. `f.rowid` breaks ties, making the choice stable rather than
+merely arbitrary.
+
+**The Python dedup stays as a safety net, and that is why the new tests are
+necessary**: with the net in place, removing the SQL bound leaves the route
+*correct* and silently slow again — which is how it shipped the first time.
+Four guards, each mutation-observed red, each defect caught by both a text
+assertion and a behavioural one.
+
+**Two existing probes were too literal; both repointed, neither loosened.**
+`test_without_the_fair_prices_index_it_scans_again` matched the literal
+string `SCAN f`; the bound makes SQLite reach for `idx_fair_link`, so the
+degraded plan is `SCAN f USING INDEX idx_fair_link` — still every fair
+price. **The same pattern guarded the PRODUCTION plan, where it would have
+passed vacuously the moment a scan went through an index.** That hole is
+closed. Production plan unchanged where it counts: `SEARCH f USING INDEX
+idx_fair_market_computed (market=? AND computed_ms>?)`.
+
+**Not established: that `/api/parlays` is fast.** The guards assert one row
+per identity on a fixture holding duplicates. Wall-clock belongs on the live
+box behind auth and **has not been re-taken** — Joe opening the tab is the
+measurement.
+
+### THE SECOND — the desk stopped buying odds and told him the opposite
+
+The screenshots showed every row at **198-minute-old books**. Both automatic
+refresh paths were off, each correctly:
+
+- **attention slice spent** — 300 of 300, exhausted 20:46:30Z the previous
+  evening
+- **hourly floor idle** — its rule is a fixture inside twelve hours; the next
+  kickoff was ~13.7 h out
+
+Nothing was broken. ADR 0071 §2.6 did exactly what it was built to do. **But
+the refresh panel said *"The next scheduled sweep is now"* at 04:38Z while
+the loop, in the same minute, refused that exact sweep.** Verified in code,
+not inferred: `next_sweep_ms` is `next_call_ms`, computed from
+`firing_for_slot`, and the attention-slice check sits **after** it at
+`timing.py:1701-1708`. The field's own comment claims *"the page cannot
+disagree with it"* — true of the slot schedule, false of the budget.
+
+**And a tap would have worked**: 150 credits reserved for taps, **0 used**.
+The one action that would have fixed the screen was available and the screen
+was telling him not to bother. **Ticket #35.**
+
+### The attention slice now has a number, and CLAUDE.md asked for it
+
+CLAUDE.md said *"Do not quote a saving from this... every attended-hours
+figure is a guess"* and named the instrument. First reading with attention
+actually running (budget day 20260827):
+
+    attention          75 calls   300 credits   15:53Z-20:46Z   4.88 h
+    floor + schedule   48 calls   192 credits   10:13Z-01:42Z
+    taps                0 calls     0 credits   (150 reserved)
+    total             123 calls   492 of 700
+
+**The slice buys 4.9 hours of attention a day at 61 credits/hour** — three
+sports on ~10-minute cadences drawing on one slice, median gap 3.6 min, no
+gap over 20. CLAUDE.md updated; the burn rate is the part that generalises,
+a single day's attended hours is not.
+
+### Map tickets
+
+- **#34 opened and RESOLVED** — "is the ochre wash a defect or the true
+  state?" **The true state.** Both refresh paths correctly off, every row
+  genuinely stale and unbettable. `stale_odds` **stays ochre**; no repaint,
+  and the three candidate treatments are withdrawn. Closed pointing at #15:
+  the defect is showing 100 unbettable rows 14 hours out, not their colour.
+  Answered without spending the 4 credits the ticket budgeted, because the
+  live record answered it better.
+- **#35 opened** — the panel/loop contradiction above.
+- #32 and #33 still open and still unowned.
+
+### Open
+
+- **Joe should open the Parlays tab.** That is the outstanding verification
+  and nothing else can take it.
+- **`/api/parlays` wall-clock on live has not been measured** post-fix.
+- **`sweeps_remaining_today` may have #35's defect too** — it is computed
+  from the whole day's budget (`timing.py:1134`), not the attention slice.
+  Unchecked.
+- **The rest of the UI is still unreviewed on a phone.** Ten screenshots
+  covered Games and Your bets. Picks, Parlays, Gate and the ticket sheet
+  have never been seen on the device.
+- Carried forward: ADR 0079's prop tap needs one tap (`/events/` row at
+  **10**); `suppressed_last_24h` goes non-zero at the next `parlay_daily`
+  card; B0 needs Joe's call; the combo purchase slice; the pragma change not
+  re-measured on live; `odds_snapshots` / `fair_prices` retention.
+- **`tasks/lessons.md` is at 81.9%** of the ceiling; split at 90%, and check
+  before writing.
+
+---
+
+## 2026-08-28 — the palette split shipped, and the guard watching it was measuring the wrong pair
 
 **State at start: `main` = `2b58e01`, clean**, `origin/main` level, live
 `/api/health` `build.git_sha` = `2b58e013…` — so **live carried all current

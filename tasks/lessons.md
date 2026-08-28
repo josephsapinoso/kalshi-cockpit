@@ -25,6 +25,82 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-28 — Sharing a predicate guarantees agreement only about what the predicate decides
+
+A screen and the loop it describes were deliberately built on one shared
+function, and the field's comment said so in as many words: *"the same
+predicate the loop fires on, so the page cannot disagree with it."* The
+reasoning was sound and the implementation matched it.
+
+Then the page said "the next scheduled sweep is now" at the same minute the
+loop was logging "cannot be served". Both were reading the same predicate.
+The predicate answers *"is a call wanted?"*; the loop then applies a **second**
+condition the predicate knows nothing about — a budget — and the screen renders
+the first answer as though it were the second.
+
+**The pattern: a shared predicate makes two callers agree about the question it
+answers, and about nothing else.** Every condition the actor applies *after*
+consulting it is a place the display can diverge, and the divergence is
+invisible on every ordinary day, because the extra conditions are the rare
+ones. Here it agreed on every night the budget had credits left and disagreed
+only on the nights it did not — which are exactly the nights someone stares at
+the screen wondering why nothing is happening.
+
+Three things that make it hard to catch:
+
+1. **The guarantee is written down and it reads as a proof.** "Same predicate,
+   so they cannot disagree" is the kind of sentence that stops a reviewer,
+   because the mechanism it names is real. The gap is not in the mechanism; it
+   is in the scope of the claim.
+2. **The failing state is the one nobody develops in.** A budget is spent, a
+   quota is hit, a lock is held — the conditions that get bolted on later are
+   the ones you do not have locally.
+3. **It looks like a copy bug.** The first instinct is to reword the sentence.
+   But the field is what is wrong: any future caller reads it the same way, and
+   a reworded page leaves the next screen to make the identical mistake.
+
+**The habit: when a display and an actor share a predicate, list what the actor
+does BETWEEN calling it and acting.** Each item is either pushed into the shared
+predicate or made explicit in what the display promises. And a comment claiming
+two things cannot disagree must name the conditions under which that holds, or
+it is a guarantee about a subset wearing the words of a guarantee about
+everything.
+
+---
+
+## 2026-08-28 — A guard that matches a literal string certifies the string, not the property
+
+Twice in one day, in unrelated files, a green test was pinned to an exact string
+rather than to the thing the string happened to spell.
+
+One counted `"bg-accent "` to enforce "only one filled control on this screen".
+Renaming the token to `bg-accent-fill` took the count to zero: the rule was
+intact, the control was still there and still alone, and the test went red
+anyway. The other matched the query-plan step `"SCAN f"` to enforce "this must
+not read every row". A query change made SQLite scan the same table through a
+different index — `SCAN f USING INDEX idx_fair_link` — and the test went red
+while still describing a full scan.
+
+Both were repaired the same way, by asking what the assertion was *for*: a
+filled control is about **weight**, not about a hue, so the guard names the fill
+token; a full scan is `SCAN <table>` however SQLite spells the rest, so the
+pattern allows the suffix.
+
+**The part worth carrying is the third case, which was silent.** The same
+too-literal `SCAN f` pattern also guarded the *production* plan, as a negative:
+*assert no step matches `SCAN f`*. That one did not go red. It would have passed
+**vacuously** the first time the planner chose to scan through an index — a
+guard against "every row is visited", defeated by which index the visit goes
+through. A literal in a positive assertion fails loudly when it drifts. **The
+same literal in a negative assertion goes quiet**, and quiet is the direction
+that ships.
+
+**The habit: after fixing a probe that broke, grep for the same literal in the
+negations.** They were written by the same hand on the same afternoon and they
+have the same defect, but only one half announces it.
+
+---
+
 ## 2026-08-28 — A guard can check the right token in the wrong role, and stay green for months
 
 A palette test computed WCAG contrast on every colour token, per theme, and

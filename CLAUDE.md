@@ -179,12 +179,24 @@ live and still read, so a window can be pinned back on without a code change.
     attention, capped            <=300/day   ODDS_ATTENTION_DAILY_CREDITS
     worst case                   ~684/day    inside the 700 daily cap
 
-**Do not quote a saving from this.** Every "attended hours" figure is a guess
-about how long the page is actually open; the three rows above are bounds, not
-a measurement. The instrument is `api_credits` summed per budget-day **by
-trigger**, which separates attention (`'attention'`) from the floor and the
-schedule (both NULL) — `scripts/inspect_live_db.py credits-day --date …`. It
-was first read on 2026-08-25 with the floor alone running.
+**The three rows above are bounds. One of them is now a measurement.** The
+instrument is `api_credits` summed per budget-day **by trigger**, which
+separates attention (`'attention'`) from the floor and the schedule (both
+NULL) — `scripts/inspect_live_db.py credits-day --date …`. First read
+2026-08-25 with the floor alone running; **first read with attention actually
+running on 2026-08-28, budget day 20260827:**
+
+    attention          75 calls   300 credits   15:53Z-20:46Z   4.88 h
+    floor + schedule   48 calls   192 credits   10:13Z-01:42Z
+    taps                0 calls     0 credits   (150 reserved)
+    total             123 calls   492 of 700
+
+**The slice buys 4.9 hours of attention a day, at 61 credits/hour** — three
+sports each on a ~10-minute cadence, all drawing on one slice (median gap
+between calls 3.6 min, no gap over 20). That is the number the ceiling
+actually sets, and it was not written down anywhere before this. **An
+"attended hours" figure is still a guess about any particular day**; this is
+one observed day and the burn rate is the part that generalises.
 
 The attention slice is a **hard ceiling and the reason the design is safe**:
 its worst case is a tab left open and visible around the clock, which is double
@@ -192,6 +204,17 @@ the window it replaces. `Nav.tsx`'s `document.visibilityState` check is what
 should prevent that; the slice is what does. The hourly floor is deliberately
 not charged to it, so past the slice the slate stops re-buying every ten
 minutes and keeps buying every hour — a ceiling, not an off switch.
+
+**Know what the ceiling feels like from the outside, because it has now been
+felt.** The slice ran out at 20:46Z and Joe opened the desk at 04:38Z — 7.9
+hours into a silence the design intends — to books 198 minutes old, on a night
+when the floor was *also* correctly idle (its rule is a fixture inside twelve
+hours; the next kickoff was ~13.7 h out). Both paths off, both right. **The
+desk does not say so**, and the refresh panel said *"the next scheduled sweep
+is now"* while the loop was refusing that exact sweep, because `next_call_ms`
+is computed from `firing_for_slot` and the slice check sits after it
+(`timing.py:1701-1708`). Ticket #35. Do not read a stale slate as a broken
+recorder: check `sweep-log` for a refusal before diagnosing anything.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
