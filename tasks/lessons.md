@@ -25,6 +25,50 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-28 — A helper called from a loop that must not die does not get to trust its caller
+
+A display function divided a stake by a probability. The probability was a
+product across several legs, and one leg came back at exactly `0.0`, so the
+division raised. The page it served rendered "Backend unreachable".
+
+That much is an ordinary bug. What made it an outage is that **the same
+function was reachable from two callers with completely different failure
+budgets**: a web route, where an exception is one bad page, and the recording
+loop's per-pass tail, where an exception killed everything after it — the
+push notifications, the daily digest, and a progress log. A defect in a
+payout display stopped the alerting half of the system.
+
+Nobody chose that coupling. The payload builder was written for the route, and
+was later reused inside the pass because it produced exactly the object the
+notifier needed. Reuse was the right call. **The cost was invisible because the
+two call sites are in different files and neither one names the other's risk.**
+
+**The pattern: a function's tolerance for raising is a property of its
+CALLERS, not of itself, and it changes silently the day a second caller
+appears.** The second caller is normally the one with the strictest
+requirement, because loops and schedulers are exactly the things that reuse
+existing builders.
+
+The repair has two halves, and the redundant-looking one is the point:
+
+1. **Refuse the bad input upstream**, where the meaning is known — a fair
+   probability of zero is not a long shot, it is a failed devig, so the leg is
+   dropped and *counted* rather than clamped to something small. A count turns
+   an invisible condition into a rate.
+2. **Make the arithmetic unable to raise anyway**, even though (1) makes it
+   unreachable. This looks like belt-and-braces and is not: (1) is a claim
+   about today's inputs, and (2) is a claim about the loop surviving tomorrow's.
+   The guard renders the "could not be computed" dash the app already uses
+   elsewhere, because inventing a number for a thing nobody can price is the
+   failure the refusal existed to prevent.
+
+**The habit: when you reuse a builder inside a loop, go and read what it
+divides by, indexes into, and assumes non-empty.** Then ask which of those the
+loop can afford to raise on. Usually none, and the fix is cheap at that moment
+and expensive after the pager goes off.
+
+---
+
 ## 2026-08-28 — Sharing a predicate guarantees agreement only about what the predicate decides
 
 A screen and the loop it describes were deliberately built on one shared

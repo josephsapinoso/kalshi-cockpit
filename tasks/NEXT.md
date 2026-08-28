@@ -39,10 +39,10 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,954 passed / 10 xfailed in 7:00**, measured 2026-08-28 on
-the tree committed as the parlay-bound change (`7b185e8`), `origin/main` level
-immediately before the push. The +4 over the palette tree is the four new
-`TestTheLadderIsBoundedInSql` guards, confirmed by collecting both trees. That triple — the number, the tree it was taken
+**Test baseline: 4,959 passed / 10 xfailed in 7:34**, measured 2026-08-28 on
+the tree committed as the ZeroDivision fix (`5436fc8`), `origin/main` level
+immediately before the push. The +5 over the parlay-bound tree is the five
+`TestAZeroFairProbabilityNeverReachesArithmetic` guards. That triple — the number, the tree it was taken
 on, and the fact that nothing moved after — is the qualification this line has
 never carried, and its absence is the whole reason it kept being wrong.
 
@@ -215,7 +215,101 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — one tab could take the site down, and the desk went quiet without saying so
+## 2026-08-28 (latest) — a leg priced at zero stopped the alerting half of the loop, and the heartbeat fired for a DIFFERENT reason
+
+**Read this before trusting anything below about live.** Two live incidents
+happened within an hour and **they are not the same incident**. Conflating
+them is the obvious mistake and the evidence separates them cleanly.
+
+### Incident A — `ZeroDivisionError`, FIXED and deployed (`5436fc8`)
+
+Joe refreshed `/parlays` on his phone at ~12:37Z and got **"Backend
+unreachable."** The box was healthy the whole time — `/api/health` answered
+in 220 ms, `status: ok`, **no restart** (`machine_version` unchanged).
+
+```
+run_forever -> one_pass -> score_settle_and_alert -> build_ladder_payload
+  parlays.py:553   contracts = stake_cents / (joint * 100.0)
+  ZeroDivisionError: float division by zero
+```
+
+`loop_failures` ids 13-15: **three consecutive failing full passes**,
+12:36:33Z, 12:38:03Z, 12:38:46Z.
+
+**The joint is a product** (`running *= leg.p_conservative`), so **one** leg
+quoted at `p_conservative = 0.0` zeroes an entire card. And
+`build_ladder_payload` is called from `score_settle_and_alert` as well as
+from the route, so the same exception **took out the tail of every pass**:
+parlay cards, the daily digest and `log_gate_progress` all stopped. The
+blast radius of one unpriceable prop rung was the alerting loop.
+
+**Two overlapping guards, and the second is the one the outage argues for:**
+
+1. `ladder_candidates` refuses a leg whose `p_conservative` is not positive,
+   counted as **`fair_probability_not_positive`**. Refused, not clamped: a
+   devig returning 0.0 for a market Kalshi is still quoting has not produced
+   a small number, **it has failed** (CLAUDE.md rule 1).
+2. `_stake_row` will not divide by a non-positive joint even so, rendering
+   the em-dash the ledger already uses for "could not be computed". **A
+   helper called from a loop that must not die does not get to trust its
+   caller** — that is the whole lesson of this outage, and it is why the
+   redundant guard stays.
+
+Five tests, **both guards mutation-observed red independently**.
+
+**NOT diagnosed: why a devig returned 0.0 for a live market.** That is
+upstream of the parlay desk. The count is what will make its rate visible —
+**read `fair_probability_not_positive` out of `/api/parlays`' excluded tally
+next session.** If it is non-zero and steady, something upstream is
+producing zero probabilities and that is its own investigation.
+
+### Incident B — a 47.8-minute recorder gap, UNEXPLAINED and self-recovered
+
+**The Discord heartbeat fired at 12:05Z: "the recorder has stopped ... has
+not written a quote for 44 minutes."** ADR 0049's alarm, working, on a real
+event. Joe forwarded it.
+
+    gap 2,868,555 ms   resumed 2026-08-28T12:09:06.841Z   (started ~11:21Z)
+
+**It is a different event from Incident A and the record proves it.**
+`pass-gaps`' own rule: *"a gap WITH failures inside it was a failing loop; a
+gap with NONE never came back to raise."* **There are no `loop_failures`
+inside this gap** — the ZeroDivisionErrors begin at 12:36:33Z, twenty-seven
+minutes AFTER the gap had already closed. So this was a **wedge or a
+restart**, not a failing loop, and the ZeroDivision fix does not address it.
+
+**Do not write this off because live is healthy now.** It self-recovered,
+which is exactly the shape that gets normalised. What is known: no restart
+was observed in `machine_version` across it, and nothing raised. What is
+unknown: everything else. **Next session should read `pass-gaps` again and
+check whether a second gap has appeared.**
+
+### The heartbeat is worth trusting, and that is itself a result
+
+ADR 0049's alarm has now fired once falsely (the 2026-08-27 burn, fixed by
+`suppressed`) and once truly. **The true firing was accurate, arrived on the
+phone, and named the right next instruments in its own text** — read
+`/api/window is_open`, then `loop_failures`. Following it verbatim produced
+the separation above in two commands.
+
+### Open
+
+- **VERIFY THE FIX HELD.** Newest `loop_failures` at hand-off is id 15,
+  12:38:46Z, **before** the 12:51Z deploy — but that is only minutes of
+  evidence against a failure that was arriving every ~90 s. **Read
+  `pass-gaps` first thing** and confirm no id 16 with a ZeroDivisionError.
+- **Incident B is unexplained.** See above.
+- **`fair_probability_not_positive`** — read the rate.
+- **Joe should reopen `/parlays`.** It loaded in 2-3 s before the crash
+  began; that measurement predates the fix and has not been retaken.
+- Carried forward: 2-3 s is still slow and indexing will not fix it (see the
+  entry below); #35 (the panel promising a refused sweep); #32 and #33;
+  ADR 0079's prop tap; B0; the combo purchase slice; `odds_snapshots`
+  retention.
+
+---
+
+## 2026-08-28 — one tab could take the site down, and the desk went quiet without saying so
 
 Second half of the palette session, and none of it was planned. **Joe was
 awake and sent ten phone screenshots of live**, which is the first time the
