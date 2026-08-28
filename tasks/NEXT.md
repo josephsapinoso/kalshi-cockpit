@@ -301,10 +301,16 @@ clean, built clean and passed everything. Caught by reading the diff.
   indigo **by default rather than by decision** — the prototype drew it red and
   that was an unreviewed call. #33: the six components are free and nobody has
   said whether they take colour.
-- **Nobody has looked at this on a phone.** Every number is arithmetic on hex
-  values; Joe chose from a desktop-rendered prototype, and these screens are used
-  one-handed. **This is the first thing to do next**, and it needs Joe or a
-  browser session.
+- **One screen has been looked at, at 390px, in both themes — and it is the
+  least interesting one.** `/login` was rendered against `next dev` under
+  Playwright: the confirm button is legibly indigo (the 7.28:1 replacing
+  3.76:1), the card carries a visible `--edge`, the focus ring is indigo, and
+  the warning paragraph is still ochre. That is a real check and it is a narrow
+  one. **The screens that matter are unseen**: Games rows, Picks blocks, the
+  ticket sheet, the gate — every one needs the API behind a session cookie, so
+  the local dev server cannot reach them. Chrome's extension was not connected
+  this session; with it, live can be read directly. **This is the first thing to
+  do next.**
 - Carried forward unchanged: ADR 0079's prop tap needs one tap on Joe's phone
   (look for the `/events/` row at **10** credits); `suppressed_last_24h` is still
   0 and goes non-zero at the next scheduled `parlay_daily` card (read 0 at 03:52Z
