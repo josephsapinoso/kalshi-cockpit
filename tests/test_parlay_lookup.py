@@ -995,3 +995,157 @@ class TestTheRecordSaysWhetherTheCollectionWasVerified:
         assert len(calls) == 1, (
             "a leg problem must not be blamed on the collection list"
         )
+
+
+class TestKalshiWillNotCombineEveryMarketItTrades:
+    """Joe's 2026-08-28 report: a parlay page of NCAA football games, and
+    every tap answered
+
+        HTTP 400 ... {"error":{"code":"invalid_parameters"}}
+
+    The games were real Kalshi markets -- the desk cannot build a leg without
+    matching one -- and Kalshi priced them fine on their own. What it would
+    not do is COMBINE them. Measured against the venue the same day:
+    `KXMVECROSSCATEGORY-R`, `KXMVECROSSCATEGORY-SHARD1-R` and
+    `KXMVESPORTSMULTIGAMEEXTENDED-R` carry the **same 2,365 legs**, of which
+    64 are NCAAF and all 64 are inside two days. The failing cards were dated
+    a week out and covered 1 of 6, 1 of 6 and 1 of 3 legs.
+
+    So this is not a wrong-collection bug and retrying another catch-all fixes
+    nothing -- they enumerate the same legs. It is the desk offering cards the
+    venue cannot price, and only finding out after a tap.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - Nothing about the parlay LADDER, which still builds cards from any
+      matched Kalshi market and so still offers uncombinable ones. Fixing that
+      needs eligibility readable without a network call: `GET /api/parlays` is
+      sync and `build_ladder_payload` also runs inside the scheduler pass, so
+      a collections walk there is the shape that killed the pass tail on
+      2026-08-28. That needs persistence and its own change.
+    - Nothing about whether the combination, once accepted, is worth buying.
+      `yes_dollars` is empty on 40 of 40 books this repo has read.
+    """
+
+    async def test_a_leg_in_no_collection_is_refused_before_the_post(
+        self, build
+    ):
+        """The whole point: no HTTP call at all.
+
+        `lookup_error` is the instrument -- if the POST is reached the fake
+        raises and the status is `error`, so this cannot pass by accident.
+        """
+        app, _, path = build(
+            collections=[
+                FakeCollections(
+                    tickers=("KXNCAAFGAME-elsewhere",),
+                    collection_ticker="KXMVESPORTSMULTIGAMEEXTENDED-R",
+                )
+            ],
+            lookup_error=RuntimeError("the POST must not happen"),
+        )
+        legs = await _served_legs(app)
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "legs_not_combinable"
+        assert sorted(body["absent_event_tickers"]) == sorted(SEEDED_EVENTS)
+        assert "Nothing was created" in body["words"]
+
+    async def test_the_refusal_names_the_games_and_is_recorded(self, build):
+        """`invalid_parameters` tells the reader nothing they can act on;
+        which games cannot be parlayed is the fact they can."""
+        app, _, path = build(
+            collections=[
+                FakeCollections(
+                    tickers=(SEEDED_EVENTS[0],),
+                    collection_ticker="KXMVESPORTSMULTIGAMEEXTENDED-R",
+                )
+            ],
+            lookup_error=RuntimeError("the POST must not happen"),
+        )
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] == "legs_not_combinable"
+        # The covered one is not accused; the other two are named verbatim.
+        assert SEEDED_EVENTS[0] not in body["absent_event_tickers"]
+        for absent in body["absent_event_tickers"]:
+            assert absent in body["words"]
+        # `no_collection` in the table because that column has a CHECK
+        # constraint a new value would violate -- the INSERT would crash and
+        # the clean refusal would become a 500. The specific reason rides in
+        # `error`, which is unconstrained, so the record still separates this
+        # from a card no collection would take the shape of.
+        rows = _lookup_rows(path)
+        assert [r["status"] for r in rows] == ["no_collection"]
+        assert rows[0]["error"].startswith("legs_not_combinable: ")
+        for absent in body["absent_event_tickers"]:
+            assert absent in rows[0]["error"]
+
+    async def test_a_leg_in_SOME_collection_still_posts(self, build):
+        """**The 2026-08-23 capture is not overturned.** It posted NFL legs to
+        a collection that did not enumerate them and Kalshi minted the market
+        anyway, so a catch-all's leg list understates what it accepts. That is
+        why the guard asks whether a leg is in ANY collection rather than in
+        the chosen one -- "not in the one we picked" and "not in anything the
+        venue combines" are different claims and only the second is refusable.
+
+        Here no single collection covers all three legs, so the prefix
+        fallback picks one that is missing two of them -- and the tap must
+        still go through, because the union has them.
+        """
+        app, fake_api, _ = build(
+            collections=[
+                FakeCollections(
+                    tickers=(SEEDED_EVENTS[0],),
+                    collection_ticker="KXMVESPORTSMULTIGAMEEXTENDED-R",
+                ),
+                FakeCollections(
+                    tickers=SEEDED_EVENTS[1:],
+                    collection_ticker="KXMVECROSSCATEGORY-R",
+                ),
+            ],
+        )
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] != "legs_not_combinable"
+        assert fake_api.orderbook_calls, "the tap never reached the exchange"
+
+    async def test_an_unreadable_leg_list_refuses_nothing(self, build):
+        """`parse_collection` yields zero legs when the wire omits the detail
+        block -- `backend/kalshi/combos.py` records four whole collections
+        doing exactly that. An empty union is therefore a failed read, not a
+        venue that combines nothing, and refusing every card on it would be an
+        outage wearing a guard's clothes. Unreadable resolves to a refusal to
+        claim, never to a fact.
+        """
+        app, fake_api, _ = build(collections=[FakeCollections(tickers=())])
+        legs = await _served_legs(app)
+        body = (await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )).json()
+        assert body["status"] != "legs_not_combinable"
+        assert fake_api.orderbook_calls, "the tap never reached the exchange"
+
+    def test_every_non_priced_status_is_drawn_by_the_screen(self):
+        """A status the component does not name falls through to the priced
+        renderer and reads `value.quoted`, which only `priced` carries -- so
+        the failure mode is not a missing message, it is `undefined` rendered
+        into the price line.
+        """
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "components" / "PriceOnKalshi.tsx"
+        ).read_text(encoding="utf-8")
+        for status in ("no_collection", "book_empty", "legs_not_combinable"):
+            assert f'value.status === "{status}"' in src, status

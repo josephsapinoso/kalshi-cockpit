@@ -821,7 +821,19 @@ export type ParlayLookupResult =
       notes: { enter_only: string; fee: string };
     }
   | { status: "book_empty"; minted_market_ticker: string; words: string }
-  | { status: "no_collection"; words: string };
+  | { status: "no_collection"; words: string }
+  /**
+   * The legs are real Kalshi markets that Kalshi will not COMBINE — they
+   * appear in no combination collection. A different refusal from
+   * `no_collection`, which means no collection would take the card's shape at
+   * all; this one names the individual games, because "five of your six games
+   * cannot be parlayed here" is actionable and "invalid parameters" is not.
+   */
+  | {
+      status: "legs_not_combinable";
+      words: string;
+      absent_event_tickers: string[];
+    };
 
 /**
  * Price one card's combination on Kalshi (ADR 0070). Goes through the

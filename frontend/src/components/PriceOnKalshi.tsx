@@ -139,7 +139,14 @@ export default function PriceOnKalshi({ card }: { card: ParlayCardData }) {
 }
 
 function Result({ value }: { value: ParlayLookupResult }) {
-  if (value.status === "no_collection" || value.status === "book_empty") {
+  // Every non-priced status must be listed here. The fallthrough below reads
+  // `value.quoted`, which only `priced` has, so a status missing from this
+  // guard does not degrade -- it renders undefined into the price line.
+  if (
+    value.status === "no_collection" ||
+    value.status === "book_empty" ||
+    value.status === "legs_not_combinable"
+  ) {
     return <p className="text-sm text-muted">{value.words}</p>;
   }
   return (

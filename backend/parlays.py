@@ -1113,6 +1113,40 @@ def _choose_collection(
     return None
 
 
+def _combinable_events(collections) -> set[str]:
+    """Every event ticker that appears as a leg in ANY eligible collection.
+
+    **The union, deliberately, and it is a different question from
+    `_choose_collection`'s.** That one asks "does one collection carry all of
+    these legs" and falls back when the answer is no, because the 2026-08-23
+    capture showed a catch-all's enumerated list *understating* what it
+    accepts -- Kalshi minted NFL legs the chosen collection did not list. That
+    evidence is real and this does not overturn it.
+
+    What it distinguishes is the case that evidence does not cover: a leg that
+    appears in **no** collection at all. "Not in the one we picked" and "not in
+    anything Kalshi combines" are different claims, and only the second can be
+    refused without contradicting the capture.
+
+    Measured 2026-08-28, and it is why this exists: `KXMVECROSSCATEGORY-R`,
+    `KXMVECROSSCATEGORY-SHARD1-R` and `KXMVESPORTSMULTIGAMEEXTENDED-R` carry
+    the **same 2,365 legs**, of which 64 are NCAAF and every one of those is
+    inside two days. Three live taps on NCAAF cards dated a week out covered
+    1 of 6, 1 of 6 and 1 of 3 legs, and Kalshi answered HTTP 400
+    `invalid_parameters` to all three. Kalshi trades those games as singles
+    and will not combine them. `parlay_lookups` separates perfectly on
+    `collection_unverified`: 3 of 3 unverified taps errored, 0 of 9 verified
+    ones did.
+    """
+    return {
+        leg.event_ticker
+        for c in collections
+        if c.scope in (ComboScope.MULTI_GAME, ComboScope.CROSS_SPORT,
+                       ComboScope.CROSS_CATEGORY)
+        for leg in c.legs
+    }
+
+
 def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
                    collection_ticker=None, minted=None, no_bid_tenths=None,
                    ask_tenths=None, depth=None, fair_joint=None, hold=None,
@@ -1219,6 +1253,59 @@ async def price_card_on_kalshi(
                 "legs right now. Nothing was created."
             ),
         }
+
+    # **Refused before the POST, not after Kalshi says 400.** A leg in no
+    # collection's list is one the venue does not combine at all, which is a
+    # fact the screen can state in its own words instead of surfacing
+    # `{"error":{"code":"invalid_parameters"}}` at a reader who cannot act on
+    # it. Joe hit exactly this on 2026-08-28 with a card of Sep 3-5 NCAAF
+    # games: real Kalshi markets, priced fine as singles, absent from every
+    # combination collection.
+    #
+    # **Only when the union is non-empty.** `parse_collection` returns a
+    # collection with zero legs when the wire omits the detail block --
+    # `backend/kalshi/combos.py` records four whole collections doing that --
+    # so an empty union is a failed read, not a venue that combines nothing.
+    # Refusing every card on it would be an outage wearing a guard's clothes,
+    # and the repo's rule is that unreadable resolves to a refusal to claim,
+    # never to a fact.
+    combinable = _combinable_events(collections)
+    if combinable:
+        absent = sorted({event for event, _ in served} - combinable)
+        if absent:
+            # **`no_collection` in the table, `legs_not_combinable` on the
+            # wire, and the mismatch is deliberate.** `parlay_lookups` carries
+            # `CHECK (status IN ('priced','book_empty','no_collection',
+            # 'error'))`, so a new status here would fire the guard and then
+            # crash the INSERT -- turning a clean refusal into a 500, which is
+            # strictly worse than the HTTP 400 this replaces. SQLite cannot
+            # ALTER a CHECK, so widening it is a table rebuild; that is a
+            # migration and it is not worth bundling into an undeployed batch.
+            #
+            # The distinction is not lost: it goes in `error`, which is free
+            # text and unconstrained. `no_collection` is also honestly true of
+            # this row -- no collection accepts these legs -- it is simply
+            # less specific than what the screen is told.
+            _record_lookup(
+                conn, now_ms=now_ms, card_key=card_key,
+                stake_cents=stake_cents, legs=legs,
+                status="no_collection",
+                collection_ticker=collection.collection_ticker,
+                collection_unverified=unverified,
+                error="legs_not_combinable: " + ", ".join(absent),
+            )
+            n, total = len(absent), len(served)
+            return {
+                "status": "legs_not_combinable",
+                "words": (
+                    f"Kalshi will not combine {n} of these {total} games. It "
+                    "trades them on their own, but they are not in any of its "
+                    "combination collections, so this card cannot be priced "
+                    "as one bet. Nothing was created. "
+                    + ", ".join(absent)
+                ),
+                "absent_event_tickers": absent,
+            }
 
     try:
         response = await lookup_combo(
