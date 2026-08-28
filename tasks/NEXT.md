@@ -314,6 +314,13 @@ clean, built clean and passed everything. Caught by reading the diff.
   `fair_prices` still have no retention rule.
 - **`dd.status` is handled** — `*.status` is gitignored rather than deleted,
   since nothing in this repo knows what writes it.
+- **`frontend/next-env.d.ts` showing as modified is not a stray and is not
+  yours.** It has appeared dirty at the start of at least two sessions with no
+  explanation. `next dev` rewrites its two imports to `./.next/dev/types/…` and
+  `next build` rewrites them back to `./.next/types/…`, so the file records
+  which of the two ran last. **Never commit it** — whichever way it is pointing
+  is a fact about one machine's last command, not about the repo. `git checkout
+  -- frontend/next-env.d.ts` after any `next dev`.
 - **`tasks/lessons.md` is at 81.9% of the ceiling.** The rule is split at 90%,
   and the check goes *before* writing an entry, not after.
 
