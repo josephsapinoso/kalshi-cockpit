@@ -77,6 +77,15 @@ DEFAULT_COMMENCE_TOLERANCE_MS = 4 * 3600 * 1000
 # The measured shift above. Not applied anywhere -- it is asserted by
 # `TestKalshiOccurrenceDatetimeRunsLate` so that if Kalshi ever corrects it, the
 # test fails and this comment stops being true silently.
+#
+# **Do not reach for it to fix a wrong kickoff on a screen.** Ticket #26 was
+# exactly that bug -- `/api/slate` printed every start three hours late -- and
+# the fix was the join every other route already takes:
+# `MIN(odds_snapshots.commence_ms)` for the linked fixture. Applying this
+# constant would have been worse than the bug on the four MLB pairs of eighteen
+# that did *not* carry the offset, which would have been moved three hours off a
+# time that was already right, with no way for a reader to tell which four.
+# 14 of 18 is a warning that the shift is not universal, not a rounding error.
 OBSERVED_KALSHI_COMMENCE_OFFSET_MS = 3 * 3600 * 1000
 
 _PUNCT = re.compile(r"[^a-z0-9 ]+")

@@ -1251,9 +1251,38 @@ def create_app(
                 ).fetchone()["n"]
             )
             rows = conn.execute(
+                # **The kickoff is the sportsbook's clock, never Kalshi's.**
+                # Until 2026-08-29 this selected `e.commence_ms`, which stores
+                # `occurrence_datetime` raw -- about three hours late on game
+                # series (ADR 0006). Every row on this screen printed a 19:05
+                # first pitch as 22:05, while `/api/market/{ticker}` one tap
+                # away printed it correctly off the linked fixture, so the
+                # product disagreed with itself on the one field that answers
+                # "do I still have time to act". Ticket #26.
+                #
+                # The join is the same one `/api/market/{ticker}`,
+                # `/api/ledger` and `_resolve_scout_fixture` already take, and
+                # `MIN` per fixture is the scorer's own definition
+                # (`backend/scoring.py:markets_awaiting_scoring`) -- so the
+                # list, the detail screen and the clv machinery agree on when a
+                # game started. Not `OBSERVED_KALSHI_COMMENCE_OFFSET_MS`: the
+                # offset was 14 of 18 MLB pairs, so four fixtures in that
+                # measurement would have been corrected to the wrong minute,
+                # and a hardcoded shift becomes a silent lie the day Kalshi
+                # fixes the field.
+                #
+                # LEFT JOINed, so an unlinked row resolves to `None` and the
+                # column renders as `--:--` rather than a confident wrong time.
+                # The sort below reads this same value, so the printed order
+                # and the printed times cannot disagree.
+                #
+                # The subquery is restricted to linked fixtures for the reason
+                # `backend/parlays.py` records: the outer join discards
+                # everything else anyway, and without it SQLite groups the
+                # whole snapshot history on every page load.
                 "SELECT r.*, m.title AS market_title, m.yes_side_team, "
                 "       m.volume_24h, m.open_interest, "
-                "       e.title AS event_title, e.commence_ms, "
+                "       e.title AS event_title, o.commence_ms, "
                 "       f.p_multiplicative, f.p_additive, f.p_power, f.p_shin, "
                 "       f.p_conservative, "
                 "       f.market_width, f.book_count, f.books_used, "
@@ -1264,6 +1293,12 @@ def create_app(
                 "LEFT JOIN kalshi_events e ON e.event_ticker = m.event_ticker "
                 "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
                 "LEFT JOIN event_links l ON l.id = r.link_id "
+                "LEFT JOIN ( "
+                "    SELECT odds_event_id, MIN(commence_ms) AS commence_ms "
+                "    FROM odds_snapshots "
+                "    WHERE odds_event_id IN (SELECT odds_event_id FROM event_links) "
+                "    GROUP BY odds_event_id "
+                ") o ON o.odds_event_id = l.odds_event_id "
                 f"WHERE {_BASIS_SQL} >= ? "
                 f"ORDER BY r.suggested_contracts DESC, {_BASIS_SQL} DESC, r.id DESC "
                 "LIMIT ?",
@@ -1350,6 +1385,15 @@ def create_app(
         # `commence_ms` is nullable, so unknown kickoffs sort last rather than
         # first: a row with no kickoff is the least decidable thing here and
         # putting it at the top would give it the most attention.
+        #
+        # **This is the same value the row prints**, which is the whole reason
+        # the fix above had to be in the SELECT rather than at render time: a
+        # display corrected in the frontend while this sorted the raw Kalshi
+        # field would order rows against their own printed times. The offset is
+        # not a constant shift either -- 4 of the 18 MLB pairs measured for
+        # `OBSERVED_KALSHI_COMMENCE_OFFSET_MS` did not carry it -- so an
+        # uncorrected sort genuinely reorders a mixed slate rather than merely
+        # translating it.
         items.sort(
             key=lambda r: (
                 r["commence_ms"] is None,
