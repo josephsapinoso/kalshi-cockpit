@@ -25,6 +25,78 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-29 - One constant serving two purposes changes the thing you were not touching
+
+A registration's declaring floor was raised from 300 to 713 to make a verdict
+harder to reach. The function that fits the model took
+`tuning: int = MIN_CLUSTERS_TO_DECLARE` -- the same constant also parameterised
+the always-valid confidence boundary. Raising the floor would have silently
+re-tuned that boundary and **restated the widths of two intervals already
+published in the record**. A change made in the conservative direction would
+have quietly rewritten past results.
+
+**The pattern.** A constant with one name and two consumers is two decisions
+wearing one identifier. Changing it for the first consumer is a change to the
+second, made without argument, without an ADR, and usually without a failing
+test -- because both consumers still work, they just mean something different
+now.
+
+The check, and it is cheap: **before changing any constant, grep every
+reference and ask what each caller is using it FOR, not what it is called.**
+If two callers want it for different reasons, split it first and change it
+second. The split is the safe move even when the values agree today, because
+agreeing values are exactly what hides the coupling.
+
+The tell that this had happened: the fix was pinned by a test asserting the two
+numbers do NOT move together, and its evidence of correctness was that the
+previously published reproductions still returned their original figures. **If
+a "safe" change alters a number already in the record, it was not safe and the
+record is the thing that noticed.**
+
+## 2026-08-29 - A merge of two correct changes can contain a defect neither of them contains
+
+Two lanes landed independently. One added a field to a per-pass instrument's
+writer, saying which pass produced each memory reading. The other rewrote that
+instrument's reader with an explicit column list. Both were complete, both were
+tested, both were right.
+
+Merged, the reader silently dropped the writer's new field -- recreating by
+omission the precise misattribution that field had been added to prevent.
+Neither lane's tests could catch it, because neither lane contained both halves.
+
+**The pattern.** Parallel work is safe when changes are independent, and the
+dangerous case is not a textual conflict -- git reports those. It is two
+changes to *opposite ends of the same contract*: a writer and a reader, a
+producer and a consumer, an emitter and a schema. Git merges them cleanly
+because they touch different lines, and the contract breaks in the gap.
+
+What actually caught it was a guard of the form **"every key the writer emits
+is a column the reader renders"** -- a test that asserts the two ends agree
+rather than testing either end. Those tests feel redundant when one person
+writes both sides. They are the only thing standing up when two people do.
+
+So: when a change adds a field to one end of a contract, add or check the
+agreement test, not just the test for the new field. And at merge time, run the
+two lanes' test files TOGETHER before believing either.
+
+## 2026-08-29 - Read the output, not the exit status
+
+A test suite was run in the background as `pytest > file; echo "EXIT=$?"`. The
+harness reported exit code 0 and the run was declared green. It was not: 8
+failed, 5063 passed. The zero belonged to the trailing `echo`.
+
+**The pattern.** Any status a wrapper reports is a status about the wrapper.
+A compound command reports its LAST component; a background harness reports
+the shell; a CI step reports whatever it was configured to watch. None of them
+is a claim about the thing you care about.
+
+**Read the artifact.** `grep -E "^FAILED|passed|failed"` on the actual output
+costs one command and cannot be fooled by a pipeline. The general rule this
+sits under, which this repo already learned once for `flyctl logs`: a
+verification method that can report health while the underlying thing is broken
+is not a verification method, and the moment it is most likely to fool you is
+when its answer is the one you were expecting.
+
 ## 2026-08-29 - Search the measurements directory before commissioning a measurement
 
 A lane was sent to name a ~570MB step in the live container's memory curve. It

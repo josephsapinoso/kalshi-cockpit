@@ -127,12 +127,13 @@ itself and the pooled fit is carried without a verdict.
 
 **Three more things the audit established, and the third is the one to carry:**
 
-1. §A4's leave-one-group-out downgrade is **not implemented**
-   (`signal_test.py:237-245` verdicts on the pooled fit alone). Run by hand it
-   does not fire — max upper limit +0.0286.
-2. `sd(clv_tenths) = 30.15` crosses the power check's own amendment trigger
-   (*"if it comes in above 30 tenths this document must be amended to raise the
-   floor"*), and the amendment is unwritten.
+1. ~~§A4's leave-one-group-out downgrade is **not implemented**.~~ **Closed
+   2026-08-29** — `leave_one_group_out` executes in code, and `downgrades` is a
+   required argument rather than defaulting to empty, because a default would
+   have kept every caller working and left the guard as absent as it was.
+2. ~~`sd(clv_tenths) = 30.15` crosses the power check's own amendment trigger
+   and the amendment is unwritten.~~ **Written 2026-08-29 (Amendment 2). The
+   floor is now G = 713, and see below — it is worse than a bigger number.**
 3. **`G = 311` is 4.26 effective clusters.** Two games carry half the leverage
    on `beta`; one WNBA game carries 43.8%; WNBA is 95.6% of it.
    `too_few_books`/`no_market_width` rows are 13.5% of the record and **93.9%
@@ -146,16 +147,40 @@ itself and the pooled fit is carried without a verdict.
 eight defects and what would have to happen for a declaration to count.
 
 **UNRESOLVED is the formal verdict and may not be reported as "no signal."** The
-registration forbids declaring below G = 300 and **that look has still not been
-taken** — the 2026-08-24 screen did not take it, it declared on the wrong
-population.
+registration forbids declaring below **G = 713** — raised from 300 on
+2026-08-29 by Amendment 2, under the power check's own trigger — and **that
+look has still not been taken**. The 2026-08-24 screen did not take it; it
+declared on the wrong population, against a floor that had already been
+disqualified.
 
-**For planning, treat it as settled, and this is unchanged by the audit.**
-Every interval computed at either look lies entirely below the 0.40 threshold
-and both arms are negative. **Waiting for the remaining ~84 clusters is not
-work.** The recorder keeps running and the look happens on its own; no roadmap
-may depend on it. What may *not* be written is that the declaring look has
-happened.
+**For planning, treat it as settled, and Amendment 2 makes that stronger
+rather than weaker.** Every interval computed at either look lies entirely
+below the 0.40 threshold and both arms are negative.
+
+**The declaring look is not coming, and this sentence replaces one that said
+it would.** This paragraph used to read *"the recorder keeps running and the
+look happens on its own"*. That is false. Three things, in ascending order of
+how much they matter:
+
+- The gap is not ~84 clusters. Against the raised floor it is **497**.
+- **At G = 300 the design could never have resolved the 0.40 threshold it
+  tests.** Its MDE there is 0.6283 — the registration printed that cell itself
+  on 2026-08-09 and nobody read across the row.
+- **Nominal G may be the wrong unit entirely.** At the measured `G_eff` the
+  slope MDE is ~32, about eighty times the threshold. Holding the observed
+  concentration ratio fixed, `G_eff = 713` needs roughly **52,052 nominal
+  games** — about eleven years, against a stopping rule that ends 2027-02-15.
+  Raising a nominal floor does not repair a 4.26-effective-cluster design.
+
+So no roadmap may depend on the look, and no roadmap may *wait* for it either.
+The way out, if the question is ever worth reopening, is a successor
+registration with an `edge_tenths` exclusion fixed in advance — this one never
+contemplated a regressor running to −717.97 tenths. What may *not* be written
+is that the declaring look has happened.
+
+**`G_eff` is now a required field on every fit**, so a cluster count cannot be
+read without its effective count beside it. On the repo's own committed data
+that is **1.81 against a nominal 86, one game holding 72.7% of the leverage**.
 
 **It does not run for free, and this paragraph used to say it did.** Corrected
 2026-08-24 (ADR 0071 §1). "The recorder costs nothing" is true of the LLM
