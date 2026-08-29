@@ -495,6 +495,83 @@ class TestTheGuardsRefuse:
         assert "positions" in response.json()["detail"]
 
 
+class TestTheLivePositionsReadIsStamped:
+    """Step 10's live read lands in `poll_log` (2026-08-29).
+
+    The route already asked the venue for positions on every attempted bet
+    and threw the observation away, so the open-positions count claimed to
+    be older than the newest read actually taken. The stamp is honest by the
+    table's own definition -- the venue WAS asked -- and is written through
+    the poller's own `log_poll_attempt` under the same 'positions' endpoint
+    name, so there is one population and not two.
+
+    What the stamp does NOT establish, asserted here so it stays true: it is
+    pre-order (its row_count cannot include the bet being placed) and it
+    fires only on a tap -- it supplements `portfolio_poll.poll_positions`
+    and can never substitute for it, because a night with no bets writes
+    nothing here.
+    """
+
+    async def test_a_dry_run_bet_stamps_the_read_it_took(
+        self, tmp_path, records_only
+    ):
+        path = _base_db(tmp_path)
+        app = _app(path)
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 200, response.text
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT ok, row_count FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchall()
+        conn.close()
+        assert [(r["ok"], r["row_count"]) for r in rows] == [(1, 0)], (
+            "one successful stamp for the one live read the route took; "
+            "the stub held no positions, so the pre-order count is 0"
+        )
+
+    async def test_a_failed_read_is_stamped_as_a_failure(self, tmp_path):
+        """Matching the poller's convention: a failure that writes nothing
+        is invisible and reads like a quiet evening. The 503 the route
+        already returned is unchanged."""
+        quotes = StubQuotes(positions_error=QuoteUnavailable("no answer"))
+        path = _base_db(tmp_path)
+        app = _app(path, quotes=quotes)
+        response = await post(
+            app, "/api/manual-orders", json=_body(), headers=AUTH
+        )
+        assert response.status_code == 503
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT ok, row_count, error FROM poll_log "
+            "WHERE endpoint = 'positions'"
+        ).fetchone()
+        conn.close()
+        assert row is not None, "the venue was asked; the attempt must land"
+        assert row["ok"] == 0
+        assert row["row_count"] is None
+        assert "no answer" in row["error"]
+
+    async def test_a_refusal_before_the_read_stamps_nothing(self, tmp_path):
+        """The stamp means 'the venue was asked'. An order refused at an
+        earlier guard never asked, so a synthetic row here would be exactly
+        the fabrication `odds/sweeplog.py` refuses for `api_credits`."""
+        path = _base_db(tmp_path)
+        app = _app(path)
+        body = _body(max_price_tenths=100)  # under the 650 ask: step 7 refuses
+        response = await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        assert response.status_code == 422
+        conn = sqlite3.connect(path)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()[0]
+        conn.close()
+        assert count == 0
+
+
 class TestTheReserveIsAtomic:
     def test_the_exposure_cap_rolls_the_row_back(self, tmp_path):
         path = _base_db(tmp_path)

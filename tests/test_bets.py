@@ -467,15 +467,23 @@ class TestTonightRefusesBeforeItFlatters:
 
 
 class TestOpenPositionsRefuseBeforeTheyFlatter:
-    """`bets.open_positions` (slice B3, 2026-08-22): the count is the 12-hour
+    """`bets.open_positions` (slice B3, 2026-08-22): the count is the
     positions poll's `row_count`, counted and never parsed; the value is the
     venue's own `portfolio_value`, whose unit is pinned only at zero. Stale
     or unpinned refuses to None with the words served -- "nothing at risk"
     off a dead poller is the false negative in the flattering direction.
 
+    **The count's bound moved on 2026-08-29 and lost its own constant.**
+    `portfolio_poll.poll_positions` left the 12-hour mirror for the 5-minute
+    cadence, so `POSITIONS_STALE_AFTER_MS = 26h` -- which existed only to fit
+    the mirror -- is retired and the count is bounded by the same
+    `TONIGHT_STALE_AFTER_MS` (30 min, 6x cadence) the value, the tonight
+    strip and the daily-loss kill switch already use. One bound, shared,
+    rather than a fourth spelling of "recently".
+
     Mutation run, red and restored byte-identical (2026-08-22): the
-    `POSITIONS_STALE_AFTER_MS` bound removed from the count read -- the
-    stale-count test fails (a 27-hour-old count is served as current).
+    staleness bound removed from the count read -- the stale-count test
+    fails (a 27-hour-old count is served as current).
     """
 
     def _positions_poll(self, conn, *, polled_ms, row_count=3, ok=True):
@@ -497,24 +505,60 @@ class TestOpenPositionsRefuseBeforeTheyFlatter:
 
     def test_a_fresh_count_and_a_pinned_zero_value_are_served(self, tmp_path):
         conn = db.init_db(tmp_path / "p.db")
-        self._positions_poll(conn, polled_ms=NOW_MS - 3_600_000, row_count=3)
+        self._positions_poll(conn, polled_ms=NOW_MS - 240_000, row_count=3)
         self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
         block = bets.open_positions(conn, now_ms=NOW_MS)
         assert block["count"] == 3
-        assert block["count_as_of_ms"] == NOW_MS - 3_600_000
+        assert block["count_as_of_ms"] == NOW_MS - 240_000
         assert block["value_tenths"] == 0
         assert block["value_display"] == "$0.00"
         assert block["value_refusal"] is None
 
     def test_a_stale_count_refuses_and_keeps_its_as_of(self, tmp_path):
-        """27 hours is past the 26h bound (two 12h mirror cycles + grace):
-        the count refuses, the clock stays so the screen can say 'since'."""
+        """31 minutes is past the 30-minute bound: the count refuses, the
+        clock stays so the screen can say 'since'."""
         conn = db.init_db(tmp_path / "p.db")
-        stale = NOW_MS - bets.POSITIONS_STALE_AFTER_MS - 3_600_000
+        stale = NOW_MS - bets.TONIGHT_STALE_AFTER_MS - 60_000
         self._positions_poll(conn, polled_ms=stale, row_count=3)
         block = bets.open_positions(conn, now_ms=NOW_MS)
         assert block["count"] is None
         assert block["count_as_of_ms"] == stale
+
+    def test_an_hour_old_count_refuses_where_the_old_26h_bound_served_it(
+        self, tmp_path
+    ):
+        """**The bound is the point of this test, and 26 hours would pass
+        it.** `poll_positions` is on the 5-minute cadence since 2026-08-29,
+        so a count last read an hour ago means roughly twelve consecutive
+        polls did not land -- and Joe places real hand bets one at a time
+        (armed 2026-08-26), any of which the count would be missing. Under
+        the retired `POSITIONS_STALE_AFTER_MS = 26 * 3600 * 1000` this row is
+        comfortably fresh and "Open now: 3 positions" is rendered off it.
+
+        Pinned against the old constant's literal value rather than against a
+        name, because the name is gone: restoring a 26h bound must fail here,
+        not silently pass because the symbol no longer resolves.
+        """
+        conn = db.init_db(tmp_path / "p.db")
+        an_hour_ago = NOW_MS - 3_600_000
+        self._positions_poll(conn, polled_ms=an_hour_ago, row_count=3)
+
+        block = bets.open_positions(conn, now_ms=NOW_MS)
+
+        assert block["count"] is None, (
+            "an hour-old positions read is ~12 missed polls on the 5-minute "
+            "cadence; serving it as 'open now' is the false negative in the "
+            "flattering direction"
+        )
+        assert block["count_as_of_ms"] == an_hour_ago
+        assert NOW_MS - an_hour_ago < 26 * 3600 * 1000, (
+            "the old bound really would have served this row -- if this "
+            "assertion ever fails the test has stopped covering the change"
+        )
+        assert not hasattr(bets, "POSITIONS_STALE_AFTER_MS"), (
+            "the count shares TONIGHT_STALE_AFTER_MS; a fourth definition of "
+            "'recently' is how the loosest one wins in silence"
+        )
 
     def test_a_failed_poll_is_not_a_read(self, tmp_path):
         conn = db.init_db(tmp_path / "p.db")

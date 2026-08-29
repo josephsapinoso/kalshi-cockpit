@@ -275,7 +275,7 @@ def parse_portfolio_value_tenths(payload: dict) -> Optional[int]:
     return None
 
 
-def _log(
+def log_poll_attempt(
     conn: sqlite3.Connection,
     *,
     now_ms: int,
@@ -315,21 +315,7 @@ async def poll_portfolio(
     summary["fills"] = await poll_fills(conn, client, now_ms=now_ms)
 
     # -- positions: COUNTED, NOT PARSED. Shape never observed. ---------------
-    try:
-        rows = await client.positions()
-    except Exception as exc:  # noqa: BLE001
-        _log(conn, now_ms=now_ms, endpoint="positions", ok=False, error=repr(exc))
-        summary["positions"] = f"FAILED: {exc}"
-    else:
-        _log(conn, now_ms=now_ms, endpoint="positions", ok=True, row_count=len(rows))
-        summary["positions"] = {"seen": len(rows)}
-        if rows:
-            # The first observation of the shape. Capture before parsing.
-            logger.warning(
-                "positions returned %d rows -- the per-row shape has never "
-                "been captured; run scripts/capture_fills_fixture.py-style "
-                "capture before writing a parser", len(rows),
-            )
+    summary["positions"] = await poll_positions(conn, client, now_ms=now_ms)
 
     # -- balance: dollars string, never the cents integer --------------------
     summary["balance"] = await poll_balance(conn, client, now_ms=now_ms)
@@ -381,7 +367,10 @@ async def poll_settlements(
     try:
         rows = await client.settlements(limit=200)
     except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
-        _log(conn, now_ms=now_ms, endpoint="settlements", ok=False, error=repr(exc))
+        log_poll_attempt(
+            conn, now_ms=now_ms, endpoint="settlements", ok=False,
+            error=repr(exc),
+        )
         return f"FAILED: {exc}"
     written = refused = 0
     for row in rows:
@@ -404,7 +393,10 @@ async def poll_settlements(
             ),
         )
         written += cursor.rowcount
-    _log(conn, now_ms=now_ms, endpoint="settlements", ok=True, row_count=len(rows))
+    log_poll_attempt(
+        conn, now_ms=now_ms, endpoint="settlements", ok=True,
+        row_count=len(rows),
+    )
     return {"seen": len(rows), "new": written, "refused": refused}
 
 
@@ -423,9 +415,11 @@ async def poll_fills(
     purpose is to interrupt. **This is not an amendment to the registered
     cadence**: §7.6 sets a floor on the mirror's completeness, and polling
     an unmetered venue endpoint more often can only make the mirror more
-    complete. Positions and the matcher stay on their registered 12-hour
-    clock (settlements joined this cadence with ADR 0064 -- see
-    `poll_settlements`).
+    complete. **The matcher** stays on the registered 12-hour clock, and it
+    is now the only thing that does: settlements joined this cadence with
+    ADR 0064 (`poll_settlements`) and positions on 2026-08-29
+    (`poll_positions`). The matcher is the one of the four that writes a
+    registered variable, which is why it did not come with them.
 
     The caller commits; this function only writes, exactly as
     `poll_balance` does, so `poll_portfolio` can reuse it in its own
@@ -434,7 +428,9 @@ async def poll_fills(
     try:
         rows = await client.fills(limit=200)
     except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
-        _log(conn, now_ms=now_ms, endpoint="fills", ok=False, error=repr(exc))
+        log_poll_attempt(
+            conn, now_ms=now_ms, endpoint="fills", ok=False, error=repr(exc)
+        )
         return f"FAILED: {exc}"
     written = refused = 0
     for row in rows:
@@ -463,8 +459,71 @@ async def poll_fills(
             ),
         )
         written += cursor.rowcount
-    _log(conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows))
+    log_poll_attempt(
+        conn, now_ms=now_ms, endpoint="fills", ok=True, row_count=len(rows)
+    )
     return {"seen": len(rows), "new": written, "refused": refused}
+
+
+async def poll_positions(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+) -> Any:
+    """The positions count alone, so it can run on the 5-minute cadence too.
+
+    **Still COUNTED, NOT PARSED**, and moving the clock changes nothing about
+    that: the per-row shape has never been observed on this account, the count
+    lands in `poll_log.row_count`, and the first non-empty payload should be
+    captured before anyone writes a parser.
+
+    Extracted from `poll_portfolio` (2026-08-29) for the reason `poll_fills`
+    and `poll_settlements` were extracted before it: a consumer refuses on a
+    stale read, and on the 12-hour mirror alone the refusal is the wrong one.
+    `bets.open_positions` serves "Open now: N positions" from this endpoint's
+    newest successful `poll_log` row, and since 2026-08-26 Joe places real
+    hand bets through `/api/manual-orders` one contract at a time -- so a bet
+    he just placed did not move that count for up to twelve hours. It only
+    ever *looked* fresh because this instance's containers keep restarting
+    and `poll_portfolio_forever`'s first cycle is a full mirror; the freshness
+    was the boot clock, not the poller.
+
+    **This is not an amendment to the registered cadence, and the
+    registration draws the line itself.** A1 sets `fills`, `settlements` and
+    `positions` to 12 hours as a FLOOR on the mirror's completeness -- polling
+    an unmetered venue endpoint more often can only make the mirror more
+    complete -- and A7 separates an *operational clock* from an *analysis
+    clock*, granting the operational one a 5-minute cadence in those words.
+    A7's reason for keeping the two apart is an unbounded number of implicit
+    looks at a stopping arm, and it does not reach here: **no registered
+    statistic reads `positions`.** There is nothing in a count for an analysis
+    to look at. `MIRROR_INTERVAL_S` is untouched, and `run_match_pass` --
+    which does write a registered variable (`outcome_win`) -- stays on it.
+
+    The caller commits; this function only writes, exactly as `poll_balance`
+    does, so `poll_portfolio` can reuse it inside its own transaction.
+    """
+    try:
+        rows = await client.positions()
+    except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
+        log_poll_attempt(
+            conn, now_ms=now_ms, endpoint="positions", ok=False,
+            error=repr(exc),
+        )
+        return f"FAILED: {exc}"
+    log_poll_attempt(
+        conn, now_ms=now_ms, endpoint="positions", ok=True,
+        row_count=len(rows),
+    )
+    if rows:
+        # The first observation of the shape. Capture before parsing.
+        logger.warning(
+            "positions returned %d rows -- the per-row shape has never "
+            "been captured; run scripts/capture_fills_fixture.py-style "
+            "capture before writing a parser", len(rows),
+        )
+    return {"seen": len(rows)}
 
 
 async def poll_balance(
@@ -484,7 +543,9 @@ async def poll_balance(
     try:
         payload = await client.balance()
     except Exception as exc:  # noqa: BLE001 -- every failure must land in poll_log
-        _log(conn, now_ms=now_ms, endpoint="balance", ok=False, error=repr(exc))
+        log_poll_attempt(
+            conn, now_ms=now_ms, endpoint="balance", ok=False, error=repr(exc)
+        )
         return f"FAILED: {exc}"
     balance_tenths = parse_balance_tenths(payload)
     conn.execute(
@@ -493,7 +554,7 @@ async def poll_balance(
         "VALUES (?, ?, ?)",
         (now_ms, balance_tenths, parse_portfolio_value_tenths(payload)),
     )
-    _log(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
+    log_poll_attempt(conn, now_ms=now_ms, endpoint="balance", ok=True, row_count=1)
     _mark_study_start(conn, now_ms=now_ms, balance_tenths=balance_tenths)
     return {"balance_tenths": balance_tenths}
 
@@ -538,13 +599,22 @@ def _mark_study_start(
 
 # The registered cadence, §7.6 of the calibration registration as amended:
 # the full mirror every 12 hours, the balance every 5 minutes -- with fills
-# (2026-08-21 ruling) and settlements (ADR 0064) riding the 5-minute clock
-# because two consumers refuse on a stale read; §7.6 is a floor, and polling
-# an unmetered endpoint more often only raises completeness. Constants rather
-# than configuration, deliberately -- the cadence is REGISTERED, and a knob
-# invites the deployed value to drift from the protocol without anyone
-# deciding it. Changing these is amending the registration, and should read
-# like it.
+# (2026-08-21 ruling), settlements (ADR 0064) and positions (2026-08-29)
+# riding the 5-minute clock because their consumers refuse on a stale read;
+# §7.6 is a floor, and polling an unmetered endpoint more often only raises
+# completeness. Constants rather than configuration, deliberately -- the
+# cadence is REGISTERED, and a knob invites the deployed value to drift from
+# the protocol without anyone deciding it. Changing these is amending the
+# registration, and should read like it.
+#
+# **Two intervals, and there will not be a third.** Every endpoint that left
+# the mirror shares `BALANCE_INTERVAL_S` rather than naming its own
+# "recently" -- a fourth definition is how the loosest one wins in silence,
+# and `bets.TONIGHT_STALE_AFTER_MS` is the single staleness bound read
+# against all of them at 6x this cadence. What is still on `MIRROR_INTERVAL_S`
+# is `run_match_pass` alone, and it is there because it writes a registered
+# variable (`outcome_win`) -- the analysis clock of amendment A7, not an
+# oversight.
 MIRROR_INTERVAL_S = 12 * 3600
 BALANCE_INTERVAL_S = 300
 
@@ -612,10 +682,20 @@ async def poll_portfolio_forever(
                     settle_result = await poll_settlements(
                         conn, client, now_ms=now_ms
                     )
+                    # Positions ride it too (2026-08-29): the open-positions
+                    # count on the landing screen is this endpoint's newest
+                    # successful poll, and a hand bet placed at 8pm did not
+                    # appear on it until the next mirror -- see
+                    # `poll_positions` for why this is not an amendment
+                    # either, and why `run_match_pass` did not come with it.
+                    positions_result = await poll_positions(
+                        conn, client, now_ms=now_ms
+                    )
                     conn.commit()
                     logger.debug(
-                        "balance snapshot: %s; fills: %s; settlements: %s",
-                        result, fills_result, settle_result,
+                        "balance snapshot: %s; fills: %s; settlements: %s; "
+                        "positions: %s",
+                        result, fills_result, settle_result, positions_result,
                     )
             except asyncio.CancelledError:
                 raise

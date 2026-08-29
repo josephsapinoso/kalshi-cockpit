@@ -108,6 +108,7 @@ from ..odds.timing import (
     window_status,
 )
 from ..parlays import LookupRefused, build_ladder_payload, price_card_on_kalshi
+from ..portfolio_poll import log_poll_attempt
 from ..playbook import read_playbook
 from ..runner import book_quotes_for_event
 from ..settlement import open_position_dollars
@@ -4860,9 +4861,30 @@ def create_app(
         #     shape has never been observed (portfolio_poll counts, it does
         #     not parse), so the guard is deliberately blunt: any row naming
         #     this ticker — or any row too unreadable to name one — refuses.
+        #
+        #     **And the read is stamped, because it is a real one.**
+        #     `poll_log` means "the venue was asked and this is what it
+        #     said", and this asked the venue — so throwing the observation
+        #     away (which this route did until 2026-08-29) left the
+        #     open-positions count claiming to be older than the newest read
+        #     actually taken. What the stamp does NOT establish, and the
+        #     reason it supplements `portfolio_poll.poll_positions` and never
+        #     substitutes for it: it is taken BEFORE the order, so it does
+        #     not include the bet being placed, and it fires only when Joe
+        #     bets — a night with no taps leaves no row here at all. It is
+        #     also not derived from anything local; a synthetic row would
+        #     poison three registered tripwires and the daily-loss kill
+        #     switch, which `odds/sweeplog.py` refuses for the same reason.
+        positions_read_ms = db.now_ms()
         try:
             position_rows = await live_quotes().portfolio_positions()
         except (ConfigError, QuoteUnavailable) as exc:
+            await _stamp_positions_read(
+                app_config.db_path,
+                now_ms=positions_read_ms,
+                ok=False,
+                error=repr(exc),
+            )
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -4871,6 +4893,12 @@ def create_app(
                     f"{exc}. Kalshi nets — refusing rather than guessing."
                 ),
             ) from exc
+        await _stamp_positions_read(
+            app_config.db_path,
+            now_ms=positions_read_ms,
+            ok=True,
+            row_count=len(position_rows),
+        )
         for row in position_rows:
             row_ticker = row.get("ticker") if isinstance(row, dict) else None
             if row_ticker is None or row_ticker == ticker:
@@ -5282,6 +5310,65 @@ def _write_outcome(db_path, order_row_id: int, outcome) -> None:
         record_outcome(conn, order_row_id, outcome)
     finally:
         conn.close()
+
+
+async def _stamp_positions_read(
+    db_path,
+    *,
+    now_ms: int,
+    ok: bool,
+    row_count: Optional[int] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Record step 10's live positions read in `poll_log`, or say nothing.
+
+    The read is real -- `live_quotes().portfolio_positions()` asks the venue --
+    so `poll_log`'s own meaning ("the venue was asked and this is what it
+    said") is satisfied by it and by nothing local. It is written through the
+    same `log_poll_attempt` the poller uses, with the same endpoint name, so
+    `bets.open_positions` and the registration's gap tripwires read one
+    population and not two.
+
+    **What it does NOT establish**, restated here because a reader who finds
+    this row in the table will not have step 10's comment in front of them:
+
+    - It is taken **before** the order is sent, so its `row_count` cannot
+      include the bet being placed. A row stamped at 20:14 next to a fill at
+      20:14 is the count as it was a moment earlier, not after.
+    - It fires **only when Joe taps**. A night with no bets leaves no row
+      here, so this can never be the thing that keeps the count fresh -- it
+      supplements `portfolio_poll.poll_positions` and does not substitute for
+      it. If the poller stops, the count goes stale exactly as it should.
+    - Failures are stamped too, matching the poller's convention: a failure
+      that writes nothing is invisible and reads like a quiet evening.
+
+    **Never blocks the order.** The stamp is bookkeeping about a read that
+    already happened; losing it must not cost Joe a bet, so a write failure
+    is logged and swallowed. The order path's own refusals are unaffected --
+    this function is called after the read and never decides anything.
+    """
+    def _write() -> None:
+        conn = db.open_db(db_path)
+        try:
+            log_poll_attempt(
+                conn,
+                now_ms=now_ms,
+                endpoint="positions",
+                ok=ok,
+                row_count=row_count,
+                error=error,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    try:
+        await run_in_threadpool(_write)
+    except Exception:                                   # noqa: BLE001
+        logger.exception(
+            "the live positions read at %d could not be stamped in poll_log; "
+            "the order path is unaffected", now_ms,
+        )
 
 
 def _write_manual_intent(db_path, order, **kwargs) -> int:
