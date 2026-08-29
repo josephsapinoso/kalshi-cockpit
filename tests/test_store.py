@@ -613,6 +613,123 @@ class TestTheSuppressedColumnLandsOnAVolumeThatAlreadyExists:
         conn.close()
 
 
+class TestTheConsensusSnapshotLandsOnAVolumeThatAlreadyExists:
+    """v28 on a database that predates it -- the only case that matters.
+
+    `manual_orders` already holds hand bets on the live volume, and every one
+    of them was placed with no record of what the desk was showing. The
+    migration has to reach that table without touching those rows, and a
+    fresh fixture database cannot prove it: a FRESH one gets every column from
+    `CREATE TABLE` and passes whatever the migration does.
+    """
+
+    #: Spelled out rather than derived from `_MIGRATIONS[28]`, and that is the
+    #: whole difference between a test and a tautology: a list read from the
+    #: migration shrinks when the migration does, so deleting a column from the
+    #: step also deletes the expectation and the suite stays green. Written
+    #: here, a dropped step goes red.
+    NEW_COLUMNS = (
+        "consensus_fair_tenths",
+        "consensus_edge_tenths",
+        "consensus_book_count",
+        "consensus_anchored_on_sharp",
+        "consensus_computed_ms",
+        "consensus_fair_price_id",
+        "consensus_link_id",
+        "consensus_absent_reason",
+    )
+
+    def test_the_step_carries_every_column_this_class_names(self):
+        """Mutation observed red: delete any column from `_MIGRATIONS[28]`."""
+        migrated = {
+            column
+            for table, column, _ in db._MIGRATIONS[28].columns
+            if table == "manual_orders"
+        }
+        assert migrated == set(self.NEW_COLUMNS)
+
+    def _v27_manual_orders(self, tmp_path):
+        """A v27 volume: the columns dropped, the stamp wound back, and one
+        hand bet already in the table."""
+        path = tmp_path / "v27.db"
+        conn = db.init_db(path)
+        for column in self.NEW_COLUMNS:
+            conn.execute(f"ALTER TABLE manual_orders DROP COLUMN {column}")
+        conn.execute(
+            "INSERT INTO manual_orders (client_order_id, submitted_ms, ticker, "
+            "side, action, count, limit_price_tenths, max_price_tenths, "
+            "p_yes_bp, status, request_body_json, dry_run, kalshi_order_id) "
+            "VALUES ('placed-before-v28', 1700, 'KXMLBGAME-X', 'yes', 'buy', "
+            "2, 520, 700, 6234, 'filled', '{}', 0, 'venue-1')"
+        )
+        db._set_meta(conn, "schema_version", "27")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_it_migrates_and_the_existing_bet_keeps_its_data(self, tmp_path):
+        conn = db.init_db(self._v27_manual_orders(tmp_path))
+        try:
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+            columns = {
+                r[1] for r in conn.execute("PRAGMA table_info(manual_orders)")
+            }
+            assert set(self.NEW_COLUMNS) <= columns
+
+            row = conn.execute(
+                "SELECT * FROM manual_orders WHERE "
+                "client_order_id = 'placed-before-v28'"
+            ).fetchone()
+            assert row is not None, "the migration lost the hand-bet record"
+            assert row["p_yes_bp"] == 6234
+            assert row["limit_price_tenths"] == 520
+            assert row["status"] == "filled"
+            assert row["kalshi_order_id"] == "venue-1"
+        finally:
+            conn.close()
+
+    def test_the_old_row_is_null_and_is_not_backfilled_with_a_number(
+        self, tmp_path
+    ):
+        """The record must say it did not know.
+
+        Nothing observed a consensus for that bet, and re-deriving one from
+        `fair_prices` as it stands now would put a number into the row that no
+        clock ever produced -- indistinguishable, afterwards, from one taken
+        at the tap. That is the contamination the snapshot exists to prevent.
+        """
+        conn = db.init_db(self._v27_manual_orders(tmp_path))
+        try:
+            row = conn.execute(
+                "SELECT * FROM manual_orders WHERE "
+                "client_order_id = 'placed-before-v28'"
+            ).fetchone()
+            for column in self.NEW_COLUMNS:
+                assert row[column] is None, f"{column} was backfilled to {row[column]!r}"
+                assert row[column] != 0
+        finally:
+            conn.close()
+
+    def test_migrating_twice_leaves_it_alone(self, tmp_path):
+        """`ALTER TABLE ADD COLUMN` raises on a column that already exists, so
+        a step that is not idempotent bricks the one volume that cannot be
+        rebuilt. `entrypoint.sh` runs this on every boot."""
+        path = self._v27_manual_orders(tmp_path)
+        db.init_db(path).close()
+        conn = db.init_db(path)
+        try:
+            assert db.migrate(conn) == [], "a second run tried to migrate again"
+            assert db.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
+        finally:
+            conn.close()
+
+    def test_a_v27_database_is_refused_until_it_is_migrated(self, tmp_path):
+        """The API opens read-only and cannot migrate, which is why the
+        entrypoint runs the migration before uvicorn starts."""
+        with pytest.raises(db.SchemaVersionMismatch):
+            db.open_db(self._v27_manual_orders(tmp_path))
+
+
 class TestPriceConstraints:
     """Prices are integer tenths in 0..1000. The database refuses anything else."""
 

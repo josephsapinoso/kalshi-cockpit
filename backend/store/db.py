@@ -39,7 +39,11 @@ from ..core.prices import is_valid_price
 #: looks wrong. The hedge tables took v24 on merge; the lesson is that a
 #: version number is a claim about the WHOLE schema and a lane cannot allocate
 #: one alone.
-SCHEMA_VERSION = 27
+#: v28 (2026-08-29) adds the consensus snapshot to `manual_orders` -- what the
+#: desk was showing at the instant of a hand bet, frozen rather than pointed
+#: at. A column step, because `manual_orders` already holds rows on the live
+#: volume and `schema.sql` alone would never reach them.
+SCHEMA_VERSION = 28
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -653,6 +657,36 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The consensus snapshot on `manual_orders` (ADR 0082). Eight nullable
+    # columns freezing what the desk was showing when Joe tapped: the devigged
+    # consensus fair value for the side he bought, the desk's edge, the
+    # provenance needed to interpret the fair value later, two dangling-by-
+    # design breadcrumbs, and the reason the snapshot is absent when it is.
+    #
+    # **No backfill, and that is the decision rather than the shortcut.** The
+    # values were never observed for the rows already on the volume, and a
+    # backfill would have to re-derive them from `fair_prices` as it stands
+    # *now* -- a different table, after retention, at a different instant.
+    # That number would be indistinguishable in the record from one taken at
+    # the tap, which is exactly the contamination the snapshot exists to
+    # prevent. Old rows stay NULL and the record says it did not know.
+    #
+    # **No CHECK constraints.** SQLite refuses `DROP COLUMN` on a column named
+    # by a CHECK, and the wind-back fixture in `tests/test_store.py` drops
+    # every migrated column to build its "old" database. A constraint here
+    # would make the migration untestable.
+    28: _Migration(
+        columns=(
+            ("manual_orders", "consensus_fair_tenths", "INTEGER"),
+            ("manual_orders", "consensus_edge_tenths", "INTEGER"),
+            ("manual_orders", "consensus_book_count", "INTEGER"),
+            ("manual_orders", "consensus_anchored_on_sharp", "INTEGER"),
+            ("manual_orders", "consensus_computed_ms", "INTEGER"),
+            ("manual_orders", "consensus_fair_price_id", "INTEGER"),
+            ("manual_orders", "consensus_link_id", "INTEGER"),
+            ("manual_orders", "consensus_absent_reason", "TEXT"),
+        ),
+    ),
     # `parlay_lookups.collection_unverified` -- whether the collection was
     # chosen by the prefix fallback rather than by coverage. Its own version
     # rather than riding along with v25 because it is an unrelated decision and

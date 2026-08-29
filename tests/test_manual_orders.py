@@ -114,6 +114,105 @@ def _base_db(tmp_path, *, balance_tenths=50000, name="manual.db"):
     return path
 
 
+#: The eight snapshot columns v28 adds, named once so a test cannot assert
+#: "the columns are NULL" while silently checking six of them.
+SNAPSHOT_COLUMNS = (
+    "consensus_fair_tenths",
+    "consensus_edge_tenths",
+    "consensus_book_count",
+    "consensus_anchored_on_sharp",
+    "consensus_computed_ms",
+    "consensus_fair_price_id",
+    "consensus_link_id",
+)
+
+
+def _seed_consensus(
+    path,
+    *,
+    ticker=TICKER,
+    side="yes",
+    fair_probability=0.551,
+    edge_tenths=-18.4,
+    book_count=7,
+    anchored_on_sharp=1,
+    computed_ms=1_700_000_000_000,
+    created_ms=1_700_000_001_000,
+):
+    """A priced row for `(ticker, side)`, the way the runner writes one.
+
+    The whole chain, because `PRAGMA foreign_keys = ON`: series -> event ->
+    market, and event -> link -> fair price. A shortcut here would test a
+    lookup against a shape the database cannot hold.
+
+    Returns `(fair_price_id, link_id)` so a test can assert the breadcrumbs
+    point at the rows that were actually read, rather than at any integer.
+    """
+    conn = db.open_db(path)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO strategy_configs (version, created_ms, "
+            "effective_from_ms, config_json, rationale, approved_by_user) "
+            "VALUES (1, 0, 0, '{}', '', 1)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_series (series_ticker, league, "
+            "has_game_markets, first_seen_ms, last_seen_ms) "
+            "VALUES ('KXMLBGAME', 'mlb', 1, 0, 0)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_events (event_ticker, series_ticker, "
+            "title, category, first_seen_ms, last_seen_ms) "
+            "VALUES ('E1', 'KXMLBGAME', 'A at B', 'Sports', 0, 0)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO kalshi_markets (ticker, event_ticker, "
+            "series_ticker, first_seen_ms, last_seen_ms) VALUES (?, 'E1', "
+            "'KXMLBGAME', 0, 0)",
+            (ticker,),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO event_links (kalshi_event_ticker, "
+            "odds_event_id, league, method, commence_skew_ms, linked_ms) "
+            "VALUES ('E1', 'odds-1', 'mlb', 'exact_alias_pair', 0, 0)"
+        )
+        link = conn.execute(
+            "SELECT id FROM event_links WHERE kalshi_event_ticker = 'E1' "
+            "AND odds_event_id = 'odds-1'"
+        ).fetchone()["id"]
+        fair = conn.execute(
+            "INSERT INTO fair_prices (computed_ms, link_id, market, "
+            "outcome_name, p_conservative, book_count, books_used, "
+            "anchored_on_sharp) "
+            "VALUES (?, ?, 'h2h', 'A', ?, ?, '[]', ?)",
+            (computed_ms, link, fair_probability, book_count, anchored_on_sharp),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO recommendations (created_ms, strategy_config_version, "
+            "ticker, link_id, fair_price_id, side, entry_ask_tenths, "
+            "fair_probability, edge_tenths, fee_predicted, ev_net_dollars, "
+            "kelly_fraction, suggested_contracts, kalshi_quote_age_ms, "
+            "odds_age_ms, reason_text) "
+            "VALUES (?, 1, ?, ?, ?, ?, 520, ?, ?, 0.1, 0.0, 0.0, 0, 0, 0, 'x')",
+            (created_ms, ticker, link, fair, side, fair_probability, edge_tenths),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return int(fair), int(link)
+
+
+def _manual_row(path):
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute(
+            "SELECT * FROM manual_orders ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
 ENABLED = ManualOrderConfig(enabled=True)
 
 
@@ -762,6 +861,288 @@ class TestTheManualMarketRead:
         body = response.json()
         assert body["reachable"] is False
         assert body["unreachable_reason"]
+
+
+class TestTheRowRecordsWhatTheDeskWasShowing:
+    """ADR 0082: the consensus, frozen at intent-write time, not pointed at.
+
+    Until v28 a hand bet recorded his typed estimate and nothing about what
+    the desk had on screen when he typed it, so the devigged consensus at the
+    moment of the bet was unrecoverable -- and, for a KXMVE combination,
+    unrecoverable in principle, since discovery drops that prefix and no
+    `kalshi_markets` row ever exists.
+    """
+
+    async def test_the_snapshot_is_the_value_the_desk_was_showing(
+        self, tmp_path, records_only
+    ):
+        """Mutation observed red: drop the snapshot arguments from
+        `_insert_intent`'s VALUES tuple."""
+        path = _base_db(tmp_path)
+        fair_id, link_id = _seed_consensus(
+            path, fair_probability=0.551, edge_tenths=-18.4, book_count=7,
+            anchored_on_sharp=1, computed_ms=1_700_000_000_000,
+        )
+        app = _app(path)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 200, response.text
+
+        row = _manual_row(path)
+        # 0.551 -> 551 tenths of a cent. Integer, on the same 0-1000 scale as
+        # `limit_price_tenths` -- never float dollars.
+        assert row["consensus_fair_tenths"] == 551
+        assert isinstance(row["consensus_fair_tenths"], int)
+        assert row["consensus_edge_tenths"] == -18
+        assert isinstance(row["consensus_edge_tenths"], int)
+        assert row["consensus_book_count"] == 7
+        assert row["consensus_anchored_on_sharp"] == 1
+        assert row["consensus_computed_ms"] == 1_700_000_000_000
+        assert row["consensus_fair_price_id"] == fair_id
+        assert row["consensus_link_id"] == link_id
+        assert row["consensus_absent_reason"] is None
+
+    async def test_the_ask_is_not_duplicated_because_limit_price_already_is_it(
+        self, tmp_path, records_only
+    ):
+        """`limit_price_tenths` IS the market ask at the tap.
+
+        `OrderRequest.fill_price_tenths` for our side, off the live quote,
+        snapped to the venue grid, and bounded by the typed ceiling because
+        check 7 refuses rather than re-prices. So no second ask column exists,
+        and this test is the reason the absence is deliberate rather than an
+        oversight. The stub book quotes a 550-tenth NO bid, so the YES ask is
+        its complement, 450.
+        """
+        path = _base_db(tmp_path)
+        app = _app(path)
+        assert (
+            await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        ).status_code == 200
+        row = _manual_row(path)
+        assert row["limit_price_tenths"] == 450
+        columns = row.keys()
+        assert not [c for c in columns if "ask" in c], (
+            "an ask column was added beside limit_price_tenths; that is one "
+            "fact under two names"
+        )
+
+    async def test_the_snapshot_follows_the_side_that_was_bought(
+        self, tmp_path, records_only
+    ):
+        """A NO bet must not borrow the YES row's fair value.
+
+        The YES row is seeded LAST and NEWEST on purpose: the ordering alone
+        would then pick it, so dropping the side filter changes the answer.
+        Seeded the other way round the test passes with the filter removed,
+        which is what the first version of it did.
+
+        Mutation observed red: drop `AND r.side = ?` from `_read_consensus`.
+        """
+        path = _base_db(tmp_path)
+        _seed_consensus(
+            path, side="no", fair_probability=0.402, created_ms=1_000
+        )
+        _seed_consensus(
+            path, side="yes", fair_probability=0.551, created_ms=2_000
+        )
+        app = _app(path)
+        body = _body(side="no", max_price_tenths=700)
+        assert (
+            await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        ).status_code == 200
+        assert _manual_row(path)["consensus_fair_tenths"] == 402
+
+    async def test_the_freshest_priced_row_wins(self, tmp_path, records_only):
+        """Mutation observed red: `ORDER BY r.created_ms ASC`."""
+        path = _base_db(tmp_path)
+        _seed_consensus(path, fair_probability=0.300, created_ms=1_000)
+        _seed_consensus(path, fair_probability=0.700, created_ms=2_000)
+        app = _app(path)
+        assert (
+            await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        ).status_code == 200
+        assert _manual_row(path)["consensus_fair_tenths"] == 700
+
+    async def test_an_unpriced_ticker_records_the_absence_not_a_zero(
+        self, tmp_path, records_only
+    ):
+        path = _base_db(tmp_path)
+        app = _app(path)
+        assert (
+            await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        ).status_code == 200
+        row = _manual_row(path)
+        for column in SNAPSHOT_COLUMNS:
+            assert row[column] is None, column
+        assert row["consensus_absent_reason"] == manual_store.ABSENT_NO_PRICED_ROW
+
+    def test_an_out_of_range_probability_is_refused_rather_than_clamped(self):
+        """`probability_to_tenths` clamps, so the bounds check is the guard.
+
+        Mutation observed red: `return probability_to_tenths(value)` with the
+        range test removed -- 1.5 then reads as 1000 tenths, a settled
+        outcome written down as a live consensus.
+        """
+        assert manual_store._fair_tenths(1.5) is None
+        assert manual_store._fair_tenths(-0.2) is None
+        assert manual_store._fair_tenths(float("nan")) is None
+        assert manual_store._fair_tenths(None) is None
+        assert manual_store._fair_tenths(0.551) == 551
+
+    def test_a_snapshot_cannot_be_a_hole_with_no_stated_cause(self):
+        """The invariant that makes every NULL in the table interpretable."""
+        with pytest.raises(ValueError):
+            manual_store.ConsensusSnapshot()
+        with pytest.raises(ValueError):
+            manual_store.ConsensusSnapshot(fair_tenths=551, absent_reason="x")
+
+
+class TestACombinationHasNoConsensusAndSaysSo:
+    """`KXMVE` has no devigged consensus and never can.
+
+    `kalshi/discovery.JUNK_PREFIX` drops the prefix, so no `kalshi_markets`
+    row exists, so no `recommendations` or `fair_prices` row can. Zero would
+    read as "the sportsbooks say this is worth nothing", which on a money row
+    is a lie rather than a gap.
+    """
+
+    async def test_every_snapshot_column_is_null_never_zero(
+        self, tmp_path, records_only
+    ):
+        """Mutation observed red: delete the `is_combo_ticker` branch from
+        `_read_consensus`."""
+        path = _base_db(tmp_path)
+        app = _app(path, quotes=StubQuotes(_payload(ticker=COMBO_TICKER)))
+        body = _body(
+            ticker=COMBO_TICKER, combo_acknowledged=True, max_price_tenths=700
+        )
+        response = await post(app, "/api/manual-orders", json=body, headers=AUTH)
+        assert response.status_code == 200, response.text
+
+        row = _manual_row(path)
+        for column in SNAPSHOT_COLUMNS:
+            assert row[column] is None, f"{column} is {row[column]!r}, not NULL"
+            assert row[column] != 0
+        assert row["consensus_absent_reason"] == manual_store.ABSENT_COMBO
+
+    def test_the_combo_branch_refuses_before_it_reads_anything(self):
+        """The NULLs above are over-determined, so this isolates the branch.
+
+        A combination has no `recommendations` row either -- the same
+        `JUNK_PREFIX` that stops it -- so the route-level test would still see
+        NULLs with the combo branch removed, and it does: deleting the branch
+        turns `combo_ticker` into `no_priced_row` and nothing else. This one
+        hands `_read_consensus` a connection that raises on any query, so a
+        combination that reached the database at all would go red.
+
+        Mutation observed red: delete the `is_combo_ticker` branch --
+        sqlite3.ProgrammingError instead of a snapshot.
+        """
+        class NeverQueried:
+            def execute(self, *args, **kwargs):
+                raise AssertionError(
+                    "a combination reached the database; there is nothing "
+                    "there for it to find"
+                )
+
+        snapshot = manual_store._read_consensus(
+            NeverQueried(), ticker=COMBO_TICKER, side="yes"
+        )
+        assert snapshot.absent_reason == manual_store.ABSENT_COMBO
+        assert snapshot.fair_tenths is None
+
+    def test_the_route_and_the_store_share_one_combo_predicate(self):
+        """Two spellings of one boundary is the failure this repo repeats.
+
+        Mutation observed red: put the prefix comparison back in
+        `routes._is_combo`; the bare literal reappears in the parse tree.
+
+        Read off the AST rather than the text, so the prefix may still be
+        NAMED in a comment or a docstring -- which it is, and should be -- but
+        may not be a value the module compares against.
+        """
+        source = (REPO / "backend" / "api" / "routes.py").read_text(
+            encoding="utf-8"
+        )
+        assert "manual_store.is_combo_ticker(ticker)" in source
+        literals = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Constant)
+            and node.value == manual_store.COMBO_PREFIX
+        ]
+        assert literals == [], (
+            "routes.py carries its own copy of the combination prefix; the "
+            "predicate lives in store/manual_orders.is_combo_ticker"
+        )
+
+
+class TestTheSnapshotCanNeverBlockABet:
+    """Additive recording. If the lookup breaks, the order still goes.
+
+    The order path's behaviour must be byte-for-byte what it was before the
+    snapshot existed, and this is the test that says so.
+    """
+
+    async def test_a_raising_lookup_still_places_the_order(
+        self, tmp_path, records_only, monkeypatch
+    ):
+        """Mutation observed red: remove the `except Exception` from
+        `consensus_snapshot` -- the POST becomes a 503 and no row is written.
+        """
+        def boom(conn, *, ticker, side):
+            raise RuntimeError("the consensus read fell over")
+
+        monkeypatch.setattr(manual_store, "_read_consensus", boom)
+        path = _base_db(tmp_path)
+        _seed_consensus(path)
+        app = _app(path)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "dry_run"
+
+        row = _manual_row(path)
+        for column in SNAPSHOT_COLUMNS:
+            assert row[column] is None, column
+        assert row["consensus_absent_reason"] == manual_store.ABSENT_LOOKUP_FAILED
+
+    async def test_a_teardown_is_not_relabelled_as_a_missing_fair_value(
+        self, tmp_path, records_only, monkeypatch
+    ):
+        """`BaseException` is deliberately not caught.
+
+        A `KeyboardInterrupt` is the process being torn down; recording it as
+        `lookup_failed` would hide a shutdown inside a data column.
+        """
+        def interrupted(conn, *, ticker, side):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(manual_store, "_read_consensus", interrupted)
+        conn = db.open_db(_base_db(tmp_path))
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                manual_store.consensus_snapshot(conn, ticker=TICKER, side="yes")
+        finally:
+            conn.close()
+
+    def test_the_lookup_runs_outside_the_write_lock(self):
+        """It must not lengthen the window the runner contends for.
+
+        Read off the source rather than timed: the snapshot line has to come
+        before `BEGIN IMMEDIATE`, and a timing assertion would be flaky where
+        an ordering assertion is exact.
+        """
+        source = (
+            REPO / "backend" / "store" / "manual_orders.py"
+        ).read_text(encoding="utf-8")
+        body = source[source.index("def reserve_manual_order"):]
+        assert body.index("consensus_snapshot(conn") < body.index("BEGIN IMMEDIATE")
+
+    def test_gate_py_still_never_reads_the_manual_table(self):
+        """The snapshot must not have opened a door into the interlock."""
+        source = (REPO / "backend" / "gate.py").read_text(encoding="utf-8")
+        assert "manual_orders" not in source
+        assert "consensus_fair_tenths" not in source
 
 
 class TestTheTicketAsksBeforeItShows:

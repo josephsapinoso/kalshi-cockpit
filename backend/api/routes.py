@@ -4328,8 +4328,15 @@ def create_app(
         the refusal, so those four cannot disagree about what a combo is.
         `JUNK_PREFIX` in discovery uses the same prefix and is why no combo
         ever reaches `recommendations`.
+
+        **Now five callers, and the fifth is why this delegates rather than
+        spelling the prefix out.** `manual_orders.consensus_snapshot` has to
+        answer the same question at intent-write time -- a combination has no
+        devigged consensus at all -- and a second `startswith("KXMVE")` in the
+        store would be two implementations of one boundary, which is the shape
+        this repo keeps getting caught by.
         """
-        return ticker.strip().upper().startswith("KXMVE")
+        return manual_store.is_combo_ticker(ticker)
 
     def _manual_worst_case_dollars(
         order: OrderRequest, *, combo: bool
