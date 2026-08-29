@@ -25,6 +25,30 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-29 — A cause list written as alternatives cannot file causes that happen in sequence
+
+The gap pre-registration enumerated four causes of a missing failure row and
+framed the read as picking one. The observed incident was two of them **in
+sequence**: a synchronous wedge the deadline machinery never got control of
+(cause 1), followed an hour later by a process death (cause 2), with the
+restart ending the gap. Filed as "which one is it", the read would have been
+wrong under either answer — and the discriminator (uptime) was designed to
+separate the causes, not to notice they had composed.
+
+The pattern: when pre-registering a diagnosis, ask whether the candidate
+causes are exclusive, and if they can compose, register what a composite
+would look like in the instruments. A mechanism with stages leaves a
+signature per stage; a cause list flattens them into one verdict slot. The
+cheap check is to write, for each PAIR of causes, one sentence on what the
+record shows if both are true — if any sentence is coherent, the decision
+table needs a row for it.
+
+Corollary from the same read: **a platform flag is scoped to the layer that
+sets it.** Fly's oom_killed=false refutes a host-level OOM kill and says
+nothing about the guest kernel's OOM killer, which kills one process inside
+the VM and presents exactly as "a child died". A refutation is only as wide
+as the observer's vantage.
+
 ## 2026-08-28 — A pre-registration must fix its scope conditions before it enumerates causes
 
 **The pattern.** When an **absence** is the finding — no rows, no alert, no

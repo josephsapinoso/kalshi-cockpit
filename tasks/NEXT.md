@@ -19,6 +19,12 @@ test guards the *file*, and what actually breaks first is the instruction at the
 top of it — a session that cannot read the whole file reads the head and
 silently believes it has the state. **Split at ~90%, not at 100%.**
 
+**Split again 2026-08-29, at 225,270 bytes — 86%, before writing anything.**
+The 2026-08-26 and 2026-08-25 entries (9 of them) moved to
+`archive/next-2026-08-29.md`, verbatim, leaving ~148KB here. This is the first
+split taken on the rule rather than on the alarm: `wc -c` was read before the
+session's entry existed, and the entries moved out before it was added.
+
 **Split again 2026-08-27, at 259,407 bytes — 98.9%, and that is a miss.** The
 2026-08-24 through 2026-08-20 entries (27 of them) moved to
 `archive/next-2026-08-27.md`, verbatim, leaving ~140KB here. The rule above says
@@ -230,7 +236,289 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-28 (latest) — the pre-registered read was taken, and it was not a read
+## 2026-08-29 (latest) — THE READ WAS TAKEN, and every gap turns out to be a container death
+
+**Third window, first read.** Taken 2026-08-29 ~17:16-17:25Z, in the
+pre-registered order, on a window that ran ~21 hours with no deploy
+(`/api/health` `git_sha`, `image_ref`, `machine_version`, `machine_id` all
+byte-identical to the 06b5f71 stamp). The result is decision-table row 2, and
+the discriminator did not just narrow the cause list — it reframed what a
+"pass gap" is.
+
+### The read, verbatim
+
+    /proc/uptime      8985.28 s   read ~17:17Z  ->  container boot ~14:47Z
+    pass-gaps --tail 800:
+      2,659,642 ms (44m20s)  began ~10:33:54Z  resumed 11:18:13.838Z
+      2,618,007 ms (43m38s)  began ~14:03:34Z  resumed 14:47:11.972Z
+    loop_failures     unchanged, 15 rows, ZERO PassDeadlineExceeded ever
+    machine events    exit_code=1, oom_killed=false, requested_stop=false
+                      at 14:46:52Z; restarts started 11:17:54Z and 14:46:53Z
+
+Both gaps began after the 17:47:55Z boundary with the deadline build running
+throughout. Both are >25 min, so zero rows is informative. Tail reach was not
+re-verified against the boundary this time because the same 800-row tail was
+verified yesterday at 12 hours' reach and the cadence has not changed.
+
+### The finding: both gaps END at a container restart
+
+Gap A resumed 19 seconds after the 11:17:54Z machine start; gap B resumed 19
+seconds after the 14:46:53Z start. `exit_code=1` is the entrypoint's
+`shutdown 1` — `wait -n` returned because a **child process died** — and
+`requested_stop=false` rules out a deploy or a stop. The "resumed" pass is not
+the loop recovering; it is a **fresh container's first pass**, cold-open buy
+and all.
+
+**And the cold-open signature generalises backwards.** All three of
+yesterday's out-of-scope gaps (resumed 10:51:49, 07:22:13, 12:09:06 on 08-28)
+have `api_credits` buys at the exact resume second — the same signature
+today's two proven restarts carry. Fly retains only ~5 machine events so the
+historical restarts cannot be confirmed from the platform, but the working
+model is now: **a "pass gap" is a wedge that ends in a process death and a
+platform restart, not a stall that clears.** The 2026-08-26 lesson that a
+LoopFailed exit left the machine STOPPED for hours is the same class seen
+before the exit-code fix made the restart automatic.
+
+### The refined timeline, and the constants in it
+
+The gap as measured UNDERSTATES the incident. Quote-pass cadence (15-20s)
+actually stops at **10:17:21Z / 13:47:20Z** — the measured gap starts at a
+single later row:
+
+    cadence stops          10:17:21       13:47:20
+    (~16.2 min silence, then ONE completed pass writes a 'skipped' row)
+    lone row               10:33:54       14:03:33
+    (~44 min silence, then a child dies)
+    container exit         ~11:17:53      14:46:52
+    cold-open resume       11:18:13       14:47:11
+
+    stall -> lone row      ~975 s         ~973 s
+    lone row -> death      ~2,640 s       ~2,599 s
+    stall -> death         60m33s         59m32s
+
+Three near-constants across two independent incidents. ~975s is close to the
+Linux TCP retransmission death (`tcp_retries2=15`, ~925s nominal) —
+**hypothesis, not finding**. The ~60-minute stall-to-death is the most
+suspicious constant and matches nothing named yet. Both stall onsets sit
+~14.7 min after an hourly floor buy (10:02:27, 13:32:42) — i.e. at the next
+full-pass boundary after the floor-buy pass.
+
+### What zero deadline rows now means
+
+Per the instrument's own registered interpretation (`scheduler.py:91`): a
+recurring gap with no `PassDeadlineExceeded` row is **evidence for a blocking
+synchronous cause and against a hung await**. Two in-scope gaps of 16 and 44
+minutes, deadline 600s, zero rows. The 44-min wedge is 4.4 deadlines deep.
+**`BUSY_TIMEOUT_MS = 5000`** (`store/db.py`) means a SQLite lock wait raises
+in 5s and cannot be the wedge. What blocks synchronously for 16-44 minutes on
+this box is unnamed.
+
+### The child is unnamed, and the RAM refutation has a hole
+
+`flyctl logs` reaches back only ~10 minutes; the entrypoint's "BACKEND exited
+/ CHAIN RUNNER exited / FRONTEND exited" line from 14:46:52Z is gone. The
+partner ruled the RAM bump refuted by `oom_killed=false` — **that flag is
+host-level and cannot see the guest kernel's OOM killer**, which kills a
+single process inside the VM, which is exactly "a child died, exit 1".
+Measured 2.5h after boot: 2GB total, no swap, **the chain runner at 714MB
+RSS** (biggest process, biggest OOM target), MemFree 109MB, page cache 677MB
+against a 1.91GB database, sustained IO pressure (full avg300 3.8%). `dmesg`
+is wiped by the reboot that ends every incident, so guest-OOM is undecidable
+retroactively. **Unresolved, not refuted.**
+
+### The instrument for next time — a deploy is allowed now
+
+The window is consumed by its own success; the freeze is over. What decides
+the next incident in one read, both trivially small:
+
+1. **The entrypoint persists its teardown line** — which child, exit status,
+   timestamp — to `/data/last_teardown.txt` before `shutdown 1`, plus the tail
+   of `dmesg` so a guest OOM kill is caught. Today it echoes to stdout that
+   evaporates in minutes.
+2. **The runner logs its own RSS per pass** (one `/proc/self/status` read) so
+   the growth curve to 714MB-and-beyond is on disk.
+
+Neither is a fix. Naming the child converts the next ~60-minute incident from
+a hypothesis menu into a diagnosis.
+
+### Partner rulings this session (directed in parallel, per Joe)
+
+- RAM bump: HOLDS (see the hole above — revisit only with guest-OOM evidence).
+- Retention: eligible but **do not start** until the child is named.
+- Watchdog rebuild: still dropped.
+- `ODDS_API_KEY` rotation: **put in front of Joe** — it is one message, it has
+  been open since a subagent read `.env`, and a secrets change restarts the
+  machine, which no longer costs a window.
+- The pattern for `lessons.md`: the pre-registration enumerated four causes
+  **as alternatives**, and the observed incident is two of them **in
+  sequence** (a wedge the deadline never got control of, then a process
+  death). A cause list written as "which one" cannot file that shape.
+
+### The live review — API yesterday, real screens today
+
+Chrome connected; reviewed authed as Joe. **The 390px pass was NOT taken**:
+`resize_window` moves the OS window but the renderer stays 1568px wide, so
+narrow-viewport review needs devtools emulation or a phone. Still open.
+
+- **/slate**: three-state refresh panel correct in the attending state —
+  status line first ("window open · fresh for Nm"), credit paragraph demoted
+  to a caption, tap buttons uniform. **Attention buying visibly followed my
+  open tab** (the panel said so and `api_credits` agrees) — the tab was closed
+  after review to stop the burn.
+- **/parlays**: six cards render, all scoped to tonight, joint chances with
+  method spans, multiply-down charts, honest enter-only copy. Yesterday's API
+  read plus today's screens closes the "nobody has looked" item for these
+  two pages.
+- **/board**: healthy — bettable 0 stated as normal, the signal strip
+  correctly says UNRESOLVED 276/300 ("not the same as no signal; 24 to go"),
+  and the look line carries a "gap 8m" chip.
+- **Quirk (small ticket)**: client-side navigation FROM the 404 page leaves
+  the 404 rendered while the URL changes (found via /picks then nav "Picks");
+  a hard load of /board is fine.
+- **Flag**: the slate's "Open now: 1 position · $0.00 at risk · as of
+  7:47 AM" stamp is the container boot time — 2.7h stale on a money line,
+  apparently refreshed only at boot. Worth one look at where that timestamp
+  comes from.
+
+---
+
+## 2026-08-28 — the read was attempted a second time, the window survived, and it is 8 minutes old
+
+**The window is INTACT and the read is STILL NOT TAKEN.** Not because anything
+went wrong this time — because the window opened 8 minutes before the reading
+and 8 minutes cannot contain a gap. Recorded in full so the next session does
+not re-run the same commands hoping for a different answer.
+
+### Uptime first, as the pre-registration demands
+
+    /proc/uptime    487.07 s   read 2026-08-28T17:55:5xZ   (`date -u` at 17:56:12Z)
+    implied boot    ~2026-08-28T17:47:5xZ
+    WINDOW OPENED    2026-08-28T17:47:55Z  (stamped last session from 53.85 s at 17:48:49Z)
+    /api/health      build.git_sha 06b5f71d6a43f1bcd5f96755d7786a6d8033c544
+    machine          7812601a239428
+
+**The two uptime reads agree on the same boot instant, so this is the same
+container and there has been no restart since the window opened.** That is the
+one thing this reading establishes, and it is worth having: the window is valid
+and the process-death discriminator is still available for any gap that begins
+from here.
+
+### `pass-gaps --tail 800 --limit 40` — three gaps, all out of scope
+
+    3,800,015 ms  resumed 2026-08-28T10:51:49.741Z   began ~09:48:29Z
+    3,664,369 ms  resumed 2026-08-28T07:22:13.852Z   began ~06:21:09Z   <- NEW
+    2,868,555 ms  resumed 2026-08-28T12:09:06.841Z   began ~11:21:18Z
+
+The 07:22Z gap is new only because the tail is deeper: `--tail 400` last session
+did not reach it. It is the same class as the other two and equally out of scope.
+
+**Tail reach verified, as the amended pre-registration requires** — the check
+nobody had performed before, and the reason the previous read could not know
+what it had missed:
+
+    MIN(pass_ms) 2026-08-28T05:48:48.252Z
+    MAX(pass_ms) 2026-08-28T17:56:32.112Z      800 rows
+
+The tail reaches 12 hours back, well before the 17:47:55Z boundary. It is not
+truncating.
+
+`loop_failures` is unchanged at 15 rows — twelve `ValueError: ask 1000 tenths`
+from 2026-08-26, three `ZeroDivisionError` from 2026-08-28 (passes 44/45/46,
+12:36–12:38Z, fixed by `5436fc8` thirteen minutes later). **Zero
+`PassDeadlineExceeded` rows**, and that zero is uninformative for the same
+reason as last time: no gap in the population.
+
+### Why this is not a null result either
+
+Every gap above began before 17:47:55Z, so by the pre-registration's own scope
+clause none of them is evidence — *"a gap that began before the boundary is out
+of scope: not evidence, not weak evidence."*
+
+**In-window observation is 8.6 minutes.** Against the established base rate of
+3–6 gaps/day that expects **0.02 gaps**. Zero is what a working system and a
+broken one both produce over 8.6 minutes. Decision-table row 4 carries a
+**>= 12 h minimum** for exactly this, so:
+
+    EARLIEST TAKEABLE READ   2026-08-29T05:47:55Z
+    CONDITION                nothing deploys before then
+
+**This is the third window and the read has been taken zero times.** Windows one
+and two were voided by deploys — the second by Joe's own *"deploy now."* The
+freeze is not a mistake anyone made; it is the cost of the instrument, and it is
+the thing to weigh, not to route around.
+
+### What was checked on live instead, and it is not a screen
+
+Joe's list named four things shipped in `06b5f71` that nobody has looked at. **A
+visual review was not possible: the Chrome extension is not connected** ("Browser
+extension is not connected"), and every page redirects — `/slate`, `/parlays`,
+`/board`, `/hedge` all return **307** to login. So what follows is API-level
+evidence that the code runs with the right values, not evidence that a screen
+reads well. **Do not record these as reviewed.**
+
+Read from inside the container against `127.0.0.1:8000` with the instance's own
+`APP_AUTH_TOKEN` from `os.environ`, so the live token never entered a transcript.
+The local `.env` token is **not** the live one — it returns 401 against
+`kalshi-cockpit.fly.dev`.
+
+**`/api/window` — the three-state panel's inputs are live and the state is
+"normal".**
+
+    attention_credits_spent      148 of 300
+    attention_slice_spent        false
+    attention_slice_spent_at_ms  null
+    desk_is_attended             false
+    next_desk_buy_ms / floor_next_buy_ms  equal (1787943083794)
+    spent_today                  208 of 700
+    last_look_outcome            "skipped"
+
+All six new fields are present and correctly typed. **The slice-spent state
+cannot be observed today until the slice is actually spent**, so the branch that
+half two was built to fix is still unobserved on live — only its inputs are.
+
+**`/api/parlays` — the tonight bound is doing real work.**
+
+    excluded: {"stale_consensus": 12, "kickoff_after_tonight": 228}
+    cards: safe(3) middle(4) lottery(6) longshot(3) agreed(3)
+           soon(0) — "needs 2 fresh games starting within three hours and the slate has 1"
+
+228 legs dropped for kicking off after tonight against 12 dropped as stale. The
+page is thinner by design and it says why, which is what the change promised.
+
+**The combo-eligibility cache is warm and dropped nothing.**
+
+    combo_eligible_events   3,427 rows, refreshed 2026-08-28T17:48:17Z
+    TTL 2 h, so `combo_eligible_events()` returns a set, not `None`
+
+`kalshi_will_not_combine` is **absent from `excluded`** — it is counted only when
+it fires, and it did not. Every game still standing after the tonight bound is in
+some collection. That is the expected shape, but note the observability gap:
+**a zero-count filter and a filter that never ran look identical on the wire.**
+Given this repo has shipped four complete, tested modules nothing called, that is
+worth a field rather than an inference.
+
+**The pre-POST refusal cannot be reached from the UI today, and that is
+structural, not a fault.** `price_card_on_kalshi` re-derives the card from
+`ladder_candidates` server-side, so a leg the eligibility filter has already
+dropped can never appear in a card that reaches the guard. The refusal now fires
+only when the cache is cold or stale (`None`, nothing filtered) or when the
+collection walk and the ladder disagree. It is a backstop, correctly, and
+**"nobody has looked at it" will stay true until one of those happens.** It was
+not exercised by hand: a lookup mints a real market on the exchange, and there is
+no leg available that would reach the guard rather than being filtered first.
+
+### Housekeeping done first, on the rule rather than on the alarm
+
+`tasks/NEXT.md` was **225,270 bytes — 86%** of the 262,144-byte ceiling. The
+2026-08-26 and 2026-08-25 entries (9 of them) moved verbatim to
+`archive/next-2026-08-29.md`, leaving **149,443 bytes (57%)**. `wc -c` was read
+**before** this entry was written, which is the part the previous two splits got
+wrong. The archive body was diffed against the pre-split file and is
+byte-identical; `tests/test_session_files_are_readable.py` passes.
+
+---
+
+## 2026-08-28 — the pre-registered read was taken, and it was not a read
 
 **The instrument was not on the box during either gap it went looking at.** The
 read below is not a null result and must not be recorded as one; it is a read
@@ -2336,1345 +2624,6 @@ the number Joe chose.
 
 ---
 
-## 2026-08-26 — three commits had no entry, and one of them raised the bet
-
-**Written at the start of the next session, because the state file was three
-commits behind the tree and the gap was on the armed money path.** `516fc68`,
-`976a244` and `8b9690e` all landed after the entry below was written, which
-still lists two of the things they fixed as *open*. Re-verified before writing
-any of this: working tree clean, nothing unpushed, live `git_sha` = `8b9690e`.
-
-### THE CORRECTION THAT MATTERS — the manual ceiling is money, not one contract
-
-**`MANUAL_ORDER_MAX_CONTRACTS = 1` is gone.** The entry below tells a fresh
-session that it stands and that raising it needs `fee_actual` to match
-`fee_predicted` on real fills. Both sentences are now false. **ADR 0075**
-(`516fc68`) replaced the count ceiling with a spend ceiling:
-
-    MANUAL_ORDER_MAX_SPEND_TENTHS = 3_000     the binding bound, $3.00
-    MANUAL_ORDER_MAX_CONTRACTS    = 500       structural
-    COMBO_MAX_CONTRACTS           = 250       structural, tighter
-
-Joe's words when asked what he stakes: *"I bet .25 cents to 2 or 3 bucks on
-parlays right now."* One contract of a combination near a cent is a bet of
-**$0.015** — the ceiling did not make his bet small, it made the door
-decorative, which is the state ADR 0073 §1 already caught this path in once.
-
-**It is a tighter-reasoned bound, not a loosened one**, and that is why it was
-allowed to override its own trigger. The combo fee is `k · C · P · (1 − P)` —
-proportional to **spend**, not to count. A one-contract cap bounded the
-fee-model error only through whatever the price happened to be: at 90c it
-bounded it forty times more loosely than at 2c. A spend cap bounds it directly.
-ADR 0075 writes down now, not after the fact, what would refute it — the first
-real fill whose `fee_actual` exceeds `fee_predicted` past the hedge's margin.
-**Re-read after five fills.**
-
-Also from that commit: the stake presets were **$1/$5/$10/$20 defaulting to
-$5** — three amounts Joe would never stake and a default above his ceiling, so
-every payout figure on the card was priced for someone else. Now
-**25c/50c/$1/$3, default $1**. The general lesson is on ADR 0070: *the number
-that prompted a feature is not evidence about the person who will use it.*
-
-**The two independent bounds both still apply and the tighter wins.**
-`_manual_cap_dollars` returns the figure **and which bound produced it** —
-"$3 cap" and "your balance only supports $0.54" are different problems with
-different remedies. Caps still derive from the observed balance (ADR 0045),
-never from a number anyone types, so the $3 only starts binding above a ~$30
-balance. **Re-read the `caps` block rather than quoting any figure here.**
-
-### The two performance commits closed two items the entry below lists as open
-
-- **`976a244`** — the recorder was scanning a growing table once per candidate.
-- **`8b9690e`** — `/api/parlays` still answered in **15s** on live after that,
-  so it was the route, not contention. `ladder_candidates` was doing
-  `SCAN odds_snapshots USING INDEX idx_odds_event` — every row, every call, on
-  a table with **no retention rule at all**. Two parts: the subquery restricted
-  to linked events (the outer query inner-joins on `l.odds_event_id`, so an
-  unlinked event could never survive — the group was building rows to throw
-  away), and one index `fair_prices(market, computed_ms DESC)`. Both scans
-  became seeks.
-
-  **A second index was written and deleted the same hour.**
-  `(odds_event_id, commence_ms)` looked necessary and **changed no plan** —
-  `idx_odds_event` already leads with `odds_event_id`, which is all an equality
-  needs. The claim "neither half works alone" was asserted before the
-  restriction-without-index combination had been measured, and the test written
-  to pin it is what refuted it. An index that changes no plan buys nothing and
-  costs write amplification on the highest-volume table in the system.
-
-**VERIFIED ON LIVE this session: `/api/parlays` is ~2s over an ssh control**,
-down from 15s. Coarse — ±1s resolution, two samples through
-`flyctl ssh` + `fetch_live_route.py` — but the fix is doing its work.
-
-### THE GATE THAT WAS OPEN — `8b9690e` shipped without a full suite
-
-Its own commit message says so: three runs killed at 3%, 31% and 21% with no
-traceback, *"a fresh session should run it clean before building on this."*
-
-**Run: `4,595 passed / 10 xfailed in 19:29`.** Clean. The gate is discharged
-and nothing was hiding in it. Note the drift the top of this file warns about
-for the fifth time running — the inherited baseline said **4,530**.
-
-### Read this session, worth carrying
-
-- **Odds credits, budget day 20260826: 2,936 used / 17,064 remaining** of the
-  20,000 tier. The attention-following feed (ADR 0071 §2.6) is holding.
-- **NCAAF has been swept once today**, 10:12:48Z, and not since — while MLB and
-  WNBA sweep every few minutes. The benign reading is that the hourly floor
-  only buys a sport with a fixture inside twelve hours and the college season
-  has not started. **It has not been confirmed**, and a sport that silently
-  never sweeps looks identical to a sport with no fixtures. One check, not an
-  assumption.
-- **The database is 1.91 GB on a 5 GB volume**, with 712 MB free-listed
-  (37% of the file, reclaimable only by `VACUUM`). `kalshi_quotes` retention is
-  holding and this is the designed steady state, not a leak. But
-  `odds_snapshots` (118 MB) and `fair_prices` (175 MB + 55 MB of indexes) have
-  **no retention rule and grow forever**, exactly as `store/retention.py:53-55`
-  says they deliberately do. A dated risk, not today's.
-
----
-
-## 2026-08-26 — the live box was OFF between visits, and five commits later the desk draws pictures
-
-**Read this first: the instance had been down more than it was up, and nothing
-said so.** Joe asked for five things — the site is slow, desk facts in the
-parlays, buy parlays as combos, add NFL and college football, and graphs. The
-first one was not a slowness problem.
-
-### THE HEADLINE — live was crash-looping and Fly was not restarting it
-
-Found while taking a first latency reading, not by reading code. No test was
-failing. Machine events for the day:
-
-    06:51:15Z started -> 07:51:02Z stopped   exit_code=0, requested_stop=false
-    08:03:07Z started -> 09:00:48Z stopped   exit_code=0, requested_stop=false
-
-~60 minutes up, then nothing until an HTTP request woke it, at **23-37s of cold
-start**. The recorder wrote nothing in between. Five links:
-
-1. `store/db.py::derive_yes_ask` returned `None` for a `None` bid and a NUMBER
-   for a `0` one. Kalshi reports an empty side as `0.0000`, which parses to a
-   real `0`, so the ABSENCE arrived as a legitimate value and `1000 - 0` came
-   back as a price.
-2. The team pricing path guarded on `ask is None` only.
-3. `core/ev.effective_price` refused correctly — **by raising** — and nothing
-   caught it, so ONE market failed the whole pass.
-4. Five failed passes raised `LoopFailed` and ended the process.
-5. `entrypoint.sh` tore down and **exited 0**. Fly's policy is on-failure:
-   *"machine exited with exit code 0, not restarting"*. `min_machines_running
-   = 1` does not govern a container that exited successfully.
-
-**Nothing alarmed because the heartbeat probes `/api/health`, and with
-`auto_start_machines = true` that probe STARTS the machine.** It had been
-keeping the instance alive every fifteen minutes and calling that health.
-
-**This was the THIRD patch of the same defect**, and the first two were at call
-sites: `runner.py`'s prop path (2026-08-15, whose comment predicted the team
-path was safe — that prediction is what failed) and `routes.py::_tradeable_ask`
-(2026-08-26). Fixed at the source this time.
-
-**VERIFIED: 79 minutes clean on `3248e65`, then 70 minutes clean on `5edb2c9`**,
-both past the 57.7 and 59.8-minute windows the box previously died in. Full
-passes complete again (157s, 74s, 86s). `dropped_no_kalshi_quote: 1`,
-`dropped_unpriceable: 0` — the source fix is doing the work and the containment
-wrapper is idle, which is what a seatbelt should look like.
-`docs/measurements/2026-08-26-live-was-off-between-visits.md`.
-
-### THE OTHER HEADLINE — the serving path had never been measured
-
-Every latency doc here is about the recording loop; uvicorn runs
-`--no-access-log`. Measured over the public surface with a session cookie:
-
-    /api/health 0.15s   /api/slate    5.94s -> 0.38s
-    /api/window 0.32s   /api/parlays  9.96s -> 2.32s
-    /api/board  0.18s   /api/signal   1.53s -> 0.11s
-
-**`/api/parlays` at 2.3s WARM crossed a stop-work trigger this file registered
-in advance** (*"the stated stop-work trigger was 1s on `/api/parlays`"*).
-**And it overturned this session's own plan**, which had ranked the
-`/api/slate` N+1 first from reading the code — warm, the slate is 0.38s.
-
-Fixed by hoisting the joint memo out of `build_ladder` into a bounded
-module-level cache: **345ms -> 2ms**. A memo, not the payload cache the trigger
-named — a payload cache must guess an expiry and would serve stale leg ages on
-the one screen whose job is saying how old its inputs are. `_joint_key` carries
-every field `_joint` reads and the copula is seeded, so nothing can go stale.
-Plus `cache_size` 16 MiB read / 4 MiB write and `temp_store = MEMORY`;
-`mmap_size` deliberately absent (it competes with the page cache, and this box
-has OOM-killed itself once).
-`docs/measurements/2026-08-26-serving-path-baseline.md`.
-
-### What else shipped, in order
-
-- **`5b9bf5f` — the parlay ladder never had its team aliases.**
-  `ladder_candidates` loaded them with `event_links.league`, which holds
-  Kalshi's competition string ("Pro Baseball"), while the files are named for
-  sport keys. `load_aliases` returns an EMPTY mapping for a missing file, so it
-  failed open and silent for the desk's whole life. **The shared fixture wrote
-  `league = 'baseball_mlb'`, encoding the same misconception as the code**, so
-  the two agreed and nothing caught it. Measured effect: of 13 entries across
-  both files, **0 require the alias** — real but inert on today's leagues, and
-  load-bearing for NCAAF.
-- **`5edb2c9` — college football team names**, derived from the wire by
-  `scripts/capture_ncaaf_names.py` (0 odds credits, checked off
-  `x-requests-last`). Six entries, each verified individually. **NFL needed
-  nothing**: every open `KXNFLGAME` today is `'Pro Football Preseason'`, already
-  excluded; the regular season arrives ~Sept 10 on the existing path.
-- **`46cce28` — an unmatched fixture says WHICH kind.** `refusal_kind` splits
-  `not_carried` from `name_unresolved`, because the reason string could not:
-  the window is four hours and dozens of college games start inside it, so
-  every out-of-scope fixture was landing in "no team-pair bijection" beside the
-  real spelling problems.
-- **`e43f551` — desk facts on every parlay leg.** Ask, book count, method
-  spread, quote age on a second line in fixed order; provenance behind one
-  per-card tap. **The skeptic is three-valued**: a spread leg has no
-  `recommendations` row by construction, so a blank would read as "the checks
-  passed" when they never ran.
-- **`88d179f` — the perf work above.**
-- **Four charts + ADR 0074.** Chance collapsing (`/parlays`), the fair-value
-  pipeline and the dispersion axis (`/market`), cumulative money (`/bets`).
-
-### THE NUMBERS THAT MATTER
-
-- **231 of 339 Kalshi NCAAF fixtures have no sportsbook counterpart at all.**
-  Kalshi lists FCS and Division II; the odds feed carries roughly FBS. Live now
-  reads `events_unmatched: 525 of 746`. That is SCOPE, not a naming bug, and
-  the new split is what makes the two distinguishable.
-- **`fair_prices.overround` was stored since the beginning and served by
-  nothing.** It is the number that makes devigging checkable rather than a word
-  taken on trust. Now on `/api/market/{ticker}`.
-
-### ADR 0074 — the ask returns to one axis, on one screen
-
-Joe was told marking Kalshi's ask on the dispersion chart partly reverses the
-2026-08-21 ruling and said *"yeah mark the ask, go ahead."* Restored on
-`/market/[ticker]` ONLY, as a neutral tick — no colour, no arrow, no
-cheap/expensive wording. The ruling's other two removals (the `used` mark, the
-never-stretch rule) stay on both surfaces. The landing row is unchanged.
-
-**No chart wears a colour, and that is a finding about this repo**: `--accent`
-is the same red as `--negative` in both themes, so a coloured series reads as a
-verdict. Every mark is an ink token; identity is position and shape.
-
-### PROCESS — six of my own tests were decoration, all caught by mutating
-
-Worth carrying because the pattern was consistent: **a test written after the
-code tends to describe it rather than constrain it.** Caught this session — a
-stub that returned the same answer for every key; an LRU test whose fixture
-could not distinguish evicting the oldest from the newest; a loop with a
-`continue` and no assertion; an assertion ending in `or True`; a guard that
-asserted the alias file "buys something" but not that a dropped entry costs
-anything.
-
-**And one mutation LIED.** It reported green after inserting into a
-`<details>` that lives inside the file's own docstring — the file changed, the
-string was present, and no code was touched. *"The test stayed green"* is never
-on its own a conclusion; confirm the mutation landed where you think.
-
-Also: **the suite caught two real defects in my work** — a bare
-`suppressed_reason` with no gloss (ADR 0050 requires both), and a process-wide
-cache that made every `_joint`-counting test order-dependent (fixed in
-`conftest.py`, following `forget_scope_warnings`' precedent).
-
-### FOR JOE — the one thing code cannot fix
-
-**Buying a parlay as a combo is blocked on money, not on code.**
-`max_position_dollars` is 10% of the observed Kalshi balance
-(`config.py:505-514`, ADR 0045), and the live mirror reads **$5.40** — the same
-figure ADR 0073 recorded *before* the deposit. So the per-bet cap is **$0.54**,
-and a $5 bet needs **at least $50 in the account**. Nothing in the code moves
-that. Re-read the `caps` block rather than quoting this.
-
-### Open
-
-- **The combo purchase slice is unstarted**, and its harder half is that a
-  minted combo's book is empty on both sides — the order path is IOC, so it
-  cancels. Registered measurement first (does a maker ever quote a fresh
-  combo?), then decide about a resting order. ADR 0063 §3 pins IOC.
-- **The pragma change is NOT re-measured on live**, and that re-read must be
-  split by whether a full pass is running.
-- The `/api/slate` N+1 and the unbounded `GROUP BY odds_snapshots` (five call
-  sites) are real and grow forever; they are simply not what a person waits on.
-- Per-sport credit reservation for a saturated Saturday: when the daily cap
-  binds, EVERY sport stops. Guard 1 (record the refusal) unbuilt.
-- `ODDS_API_KEY` rotation; the cold-open wait; the scheduled parlay card.
-
----
-
-## 2026-08-26 (hedging lane) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
-
-**Joe's ask, verbatim: "if I have a 6-leg parlay and one of them is not doing
-well, i'd like to have an alert surface to me with high confidence that I should
-hedge a bet right away… if there is any ai or ml that needs to be done, make it
-independent of consuming tokens."** His example is a baseball game: he holds
-Cincinnati, San Francisco lead by two in the bottom of the sixth, and he wants
-to know when to bet the Giants separately.
-
-Four choices were put to him and answered in his own words: **both** Kalshi
-combos and sportsbook slips; **LOCK pushes to the phone, DE-RISK stays a screen
-row**; **Kalshi is the only hedge venue priced**; and **build the vertical
-slice**. Recorded in **ADR 0078 — read it before touching any of this.**
-
-### The token constraint answers itself, and that is the headline
-
-**No model is needed, so none was built.** A hedge needs two things: how likely
-the endangered leg still is, and what the other side costs. **Kalshi's live
-in-play ask is both.** "San Francisco lead by two in the bottom of the sixth" is
-exactly *why* the Cincinnati contract sits at 20c — the score, the inning and
-the base state are already in the price, put there by people with more
-information than this repo can lawfully obtain. And unlike a fitted win
-probability, it is the number the hedge actually transacts at, so there is no
-translation step to be wrong in.
-
-- **No Anthropic call on any path.** Asserted over the source of all three
-  modules, on the code with docstrings stripped.
-- **No Odds API credit.** Kalshi is unmetered; `ODDS_ATTENTION_DAILY_CREDITS` is
-  untouched and the attention ceiling is unchanged.
-- **No MLBAM.** ADR 0035 §2 authorises two schedule endpoints and forbids
-  per-game timer polling in those words. Not needed, so not reopened.
-
-**And Kalshi has been keeping this data the whole time.** ADR 0006's evidence:
-game markets stay open through the game, "twenty of twenty games measured had a
-two-sided quote in every minute after the true start", and
-`store_quotes_from_discovery` applies no commence filter. `kalshi_quotes` has
-been accumulating in-play prices for the life of the project with nothing
-reading them.
-
-### What shipped
-
-- **`backend/core/hedge.py`** — the arithmetic, pure, no DB and no clock. The
-  equalising hedge (`n = W` contracts, both branches equal), the floor at every
-  reachable size, and **seven refusals that return a reason instead of a
-  number**: `no_ask`, `no_depth`, `stale_quote`, `market_closed`,
-  `crossed_book`, `unreadable_ticket`, `fee_unreadable`.
-- **`backend/hedge.py`** — the record, the live book and the words. Schema v23:
-  `parlay_positions` and `parlay_position_legs`, both pure new tables (no
-  `_MIGRATIONS` step needed, and a v22 database is shown gaining them in a test).
-- **Four routes** — `GET /api/hedge`, and three auth-gated writes. The screen at
-  `/hedge`, reached from `/bets` and from the alert's own link; **no new nav
-  slot**, the six-link budget is load-bearing at 390px.
-- **`backend/hedge_watch.py`** — its own asyncio task beside
-  `poll_portfolio_forever`, 60s while a watched game is running and 600s
-  otherwise. **Not on the quote pass**, and ADR 0072 Decision 5 is why: that
-  pass is budgeted 8s and already runs ~4.2s live, and the last thing added
-  there "because it is pure" cost 400ms a pass and would have degraded silently.
-- **`DiscordNotifier.hedge_lock` + `Alerter.hedge_locks`** — the first alert in
-  this product that names a dollar figure it stands behind, because the figure
-  is arithmetic rather than a forecast.
-
-### THREE THINGS THE PLAN HAD WRONG, and the build corrected all three
-
-1. **Rule 1 was pointed at the wrong quantity.** The plan proposed suppressing a
-   lock that is large relative to the stake. A $4.99 ticket returning $333.33
-   with one leg left locks about **$172 — 34x the stake, and entirely real**;
-   that rule fires hardest on exactly the case the feature exists for. What
-   catches a genuine bug is an invariant no real book can satisfy: both sides
-   quoting for a dollar or less together. **The absence of the lock-to-stake
-   rule is now asserted by a test**, so re-adding it goes red.
-2. **The affordability cap was passed as a contract count**, which the caller
-   cannot compute without the ask, and the ask is chosen inside. Reworking it to
-   a balance surfaced the question a count would have hidden: **an unread
-   balance is not a balance of zero.** `latest_balance_tenths` answers `None` on
-   any five-minute poll outage, and folding that into a cap of 0 would have
-   silenced the alert for as long as the mirror was behind — the repo's
-   "unreadable never resolves to zero" rule, pointed at a budget, where the
-   failure mode is *silence* rather than a fabricated edge.
-3. **The plan's "no hedge button" line was right for a reason it did not
-   state.** `MANUAL_ORDER_MAX_CONTRACTS = 1` with a 10-minute `COOLOFF_MS` means
-   a 30-contract hedge through the manual door would take five hours. The screen
-   gives the size and the price and deep-links Kalshi. **Raising that cap is
-   Joe's decision and wants its own ADR**; it deliberately does not ride along
-   inside a display feature.
-
-### MEASURED BY RUNNING IT, and it found a defect the suite did not
-
-The stack was driven against the venue's own book. It picked two legs of the
-**same MLB fixture** — Boston-to-win and Miami-to-win, a pair that cannot both
-happen — and **the desk priced them as independent and returned a joint
-probability.**
-
-`/parlays` takes one leg per fixture so `CorrelationRefused` is structurally
-unreachable there (ADR 0070 §2); **a ticket Joe already holds has no such
-property.** Same-game detection keys on `event_ticker`, the form takes a bare
-market ticker, and the two sides of one fixture have different *market* tickers
-— so they looked unrelated. The fixture is now derived from the ticker
-(`SERIES-EVENT-SIDE`, the same read `lib/kalshiLink.ts` makes) at record time
-and again on read, and a three-segment ticker is the only shape it will read: a
-wrong fixture key **merges two real games** and refuses a legitimate joint,
-which is worse than not knowing.
-
-Verified afterwards on the same live book: the pair now returns
-`chance_display: "--"` with `core/correlation.py`'s own refusal attached, and
-the per-leg prices still render.
-
-**And the arithmetic checked out on real data.** $5.00 to return $100.00, the
-derived NO ask at 80c, 100 contracts costing $81.12 including a $1.12 fee:
-
-    leg wins    $13.88
-    leg loses   $13.88
-
-**Equal to the cent**, which is the identity the whole feature rests on,
-arrived at from a real book rather than a fixture. Ratchet key
-`hedge_lock:1:2`.
-
-### Mutation
-
-**Forty-nine mutations observed red** across `core/hedge.py` (15), `hedge.py`
-(20) and the alert path (14). **Seven stayed GREEN on the first pass**, and the
-split is the lesson:
-
-- **Four were real holes**, each closed with a test rather than a weakened
-  assertion: the return-above-stake guard was unobservable through its reason
-  code alone (the odds floor catches the same input, so the test now asserts the
-  *sentence*); nothing distinguished `floor(W)` from `ceil(W)` as the equalising
-  size; nothing exercised a de-risk whose live legs had no readable price; and
-  nothing reached the read-side fixture derivation, which only a row written
-  by something other than `record_position` can exercise.
-- **One was a vacuous test.** The watcher's failure guard was tested against an
-  empty database, so `anything_in_progress` was False and the cycle body never
-  ran.
-- **Two were the harness patching the wrong function.** `parlay_cards` and
-  `hedge_locks` share the exact lines `if key is None:` / `continue`, and
-  `replace(old, new, 1)` takes the first. Both went red once anchored uniquely.
-
-### Verified
-
-**4,718 passed / 6 skipped / 10 xfailed**, ruff clean, `tsc` clean, `next build` green with `/hedge` and
-the three route handlers in the manifest.
-
-**The baseline was re-measured and `tasks/NEXT.md` was stale again, in the same
-direction: it said 4,456; the truth at `88d179f` was 4,524 passed / 6 skipped /
-10 xfailed.** Taken on a **detached worktree at the same commit**
-(`git worktree add --detach`), which is the fix for "never patch the tree under
-a running suite" — the measurement runs on files nobody is editing instead of
-serialising the two.
-
-### NOT built, and each is deliberate
-
-- **No in-app hedge order.** See correction 3 above.
-- **No hedge observation history.** The watcher holds its last read in memory and
-  writes nothing; a `hedge_observations` table would let the screen say "the lock
-  was $180 ten minutes ago", which is genuinely useful and is a separate slice.
-  Nothing about the evidence record changes until it exists.
-- **No pre-fill from `parlay_lookups`.** A combo bought off `/parlays` still has
-  to be typed in. Slice 4 in the plan; not reached.
-
-### VERIFIED ON LIVE, 2026-08-27, `6fc9e3c`
-
-Deployed and checked, in the order that makes each check mean something:
-
-- **Schema v24 applied to the volume.** `inspect_live_db.py db-sizes` shows
-  `parlay_positions`, `parlay_position_legs` and all three indexes on
-  `/data/cockpit.db`, **beside `parlay_card_candidates`** — which is the whole
-  point of the renumber: both lanes' tables coexist, where a shared v23 would
-  have given the volume one set or the other with no way to tell. `open_db`
-  refuses a version mismatch, so the API answering at all is independent proof
-  the stamp is 24.
-- **`/api/hedge` serves HTTP 200**, with an empty `positions` list (nothing is
-  recorded yet) and all four caveats verbatim. This needed
-  `fetch_live_route.py`'s allowlist to gain the path first: everything under
-  `/api/` 401s on the public surface **before routing**, so a `curl` from
-  outside cannot tell a route that exists from one that does not — both answer
-  401 — and this route reaches the venue for a live book, so the database
-  cannot be used to reconstruct it either.
-- **The watcher has not destabilised the recorder.** No `odds_sweep_log` gap
-  over 1200s, and the newest `loop_failures` row is 2026-08-26T16:42Z — about
-  23 hours before this deploy, and the derived-ask `ValueError` `main` has
-  since fixed. Nothing new.
-
-**What that last one does NOT establish is that the watcher is polling.** With
-zero recorded positions `anything_in_progress` is False and the correct
-behaviour is silence, which is indistinguishable from a task that never
-started. The check that separates them is the next one, and it needs a real
-ticket.
-
-### STILL OPEN — the check that needs a real ticket
-
-**Record a parlay Joe actually holds and watch it during a game.** That is the
-only thing that exercises the watcher's cycle, `resolve_from_venue` against a
-real settlement, and a hedge embed rendered from a live payload — the last of
-which is the check ADR 0072 insisted on for the parlay card and got right.
-
-Recording needs the live `APP_AUTH_TOKEN`, which this machine does not hold, so
-it is a tap on the phone rather than something a session can do.
-
-### Previously open and now closed
-
-**Nothing in this session has run on the deployed instance.** Schema v23 applies
-to the live volume on boot (the mechanism is verified against a v22 database in
-a test, not on the volume itself), the watcher has never run against a real
-in-play book, and no hedge embed has ever been rendered from a live payload —
-which is the check ADR 0072 insisted on for the parlay card and got right.
-
-**The honest first test is a real one:** record a ticket against two live MLB
-tickers, mark one leg won by hand, and read the lock figure against a hand
-calculation while the game is running.
-
-### Still open from before, untouched
-
-- **The scheduled parlay card plus two-build debounce.** Decided 2026-08-26,
-  not built.
-- **The cold-open wait** — a heartbeat can wait up to 900s to be acted on.
-- `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day figure
-  outside CLAUDE.md; no ADR for the attention TTL, floor horizon or credit slice.
-
----
-
-## 2026-08-26 — the buy control reaches every card, and the ticket renders on a real book for the first time
-
-**Joe's ask, verbatim: "I want to be able to buy picks for games, props and
-parlays directly from the cockpit."** Four choices were put to him and answered
-in his own words: build the surfaces **and** prepare the arming commit; **both**
-parlay doors (per-leg and a bounded combination); the control **inline on every
-card**; and a **ticker search** for markets the cockpit never surfaced. Recorded
-in **ADR 0073** — read it before touching any of this.
-
-**The honest headline is that most of it already existed and none of it was
-reachable.** ADR 0063 shipped the whole hand-bet door on 2026-08-22 — twelve
-server-side checks, a `manual_orders` table, a ticket with an anti-anchoring
-reveal — mounted on `/market/[ticker]` alone, with `MANUAL_ORDERS_ENABLED=false`
-in both fly tomls. Every response on live was **"blocked"**. `lessons.md` has
-the name for it: *a feature and the one path that invokes it are two
-deliverables, and only the second one ships.*
-
-**What shipped**
-
-- **The ticket mounts inline on every per-game surface** — Games rows, Picks
-  rows and cards, parlay legs, a priced combination, a search result — via two
-  new props on `ManualTicket` rather than a second component. On the Picks
-  cards it mounts **outside** `TicketTrigger`, which wraps a whole card in a
-  `<button>`; an input nested in a button swallows its own clicks, and that is
-  pinned.
-- **`GET /api/manual/search`**, delegating to `estimates.search_markets` —
-  whose SELECT carries **no quote column**, which is what lets a search screen
-  exist without breaking ADR 0065's mask. Closed `<details>` on the Games and
-  market screens; **no new nav slot** (the six-link budget is load-bearing at
-  390px). `searchEstimateMarkets`, dead since the estimate form retired, was
-  repointed rather than duplicated.
-- **Parlay legs are individually buyable**, behind a `<details>` whose summary
-  says — before it is opened — that **buying legs is not buying the parlay**.
-  Thirty-six controls in the open would be the chase surface ADR 0067 refuses.
-- **A combination is bounded rather than refused**: `combo_acknowledged` as a
-  required request field (default False, so a client that has never heard of
-  combos refuses them), one contract, and a hedged fee.
-- **Arming plumbing, without the flip.** `MANUAL_ORDER_MAX_CONTRACTS = 1`
-  server-side and served to the client; `MANUAL_ORDERS_ENABLED = "true"` on
-  live (ADR 0018: turning it on **moves no money**); and ADR 0018's *second*
-  barrier wired ahead of time — the manual `OrderPlacer` now receives the app's
-  shared REST client, built only when armed. Without it, flipping the constant
-  gives a 503 and not an order. **`MANUAL_ORDERS_ARE_DRY_RUNS` stays True.**
-
-**THREE THINGS THE RECORD HAD WRONG, and the first one is why the combination
-door could open at all.**
-
-1. **ADR 0007's combo-grid claim is not borne out.** It says combination
-   markets use `center_centi_edge_centi_cent`, which `snap_tenths` refuses — on
-   that reading a combo order was mechanically impossible before any policy
-   check. **43 combination markets in this repo's own fixtures are `deci_cent`
-   (15) or `linear_cent` (29); zero are centi-cent**, and six pulled off the
-   **live** venue this session are all `deci_cent`. The claim came from
-   Kalshi's published structure table, which lists a structure and does not say
-   who uses it. Addendum written on ADR 0007.
-2. **"No order has ever been placed by this project" was stale in five
-   places** — `backend/kalshi/orders.py` twice and three `.claude/agents/*.md`
-   persona files. Joe's C0 probe placed four real orders on 2026-08-23. The
-   sentence that survives is narrower: *the app's own order path* has never
-   sent one.
-3. **ADR 0018 cited `routes.py:1382` as "the only construction of
-   `OrderPlacer`".** It is `:3811`, and there are two. The AST test tracked
-   reality while the prose did not; the manual path's pin now asserts the
-   **count**.
-
-**VERIFIED ON LIVE, 2026-08-26 12:05Z, `git_sha b2f2d14`.** The manual door
-answers for the first time: `/api/manual/market/{ticker}` returns
-`reachable: true` where every response before this was `blocked`, with
-`dry_run: true`, `max_contracts: 1` and `authorised_contracts: 1` against a
-real book (16c ask, depth 200). `/api/manual/search?q=Los` returns 20 markets
-and they are **prop ladder rungs** (`KXMLBRBI-26AUG261607CLELAA-CLEJADELL7-1`,
-`-2`, `-3`) — exactly the class that had no way in before. Read with a session
-cookie minted from `.env`'s own token, since the routes sit behind the
-middleware and `scripts/fetch_live_route.py`'s allowlist does not carry them.
-
-**MEASURED BY RUNNING IT, and it found two defects tests did not.** The stack
-was driven end to end — seeded DB, uvicorn, `next start`, a browser — and the
-ticket reached its **ticket phase against a real Kalshi book for the first time
-in this project's life**: `KXNEXTNATOSECGEN-99-KIOH`, YES 16c / NO 91c, depth
-200, "your per-bet cap authorises 1 contract", contracts stepper locked at 1 in
-both directions, confirm disabled until the token is typed. A dry run then
-completed and wrote the row — `"count": "1.00"`, `"price": "0.1600"`,
-`side: bid`, `immediate_or_cancel`, `taker_at_cross` — and the cool-off engaged
-for 578s.
-
-- **An empty book is not "no ask" — it is a 0c ask, and the screen said so.**
-  Asks are derived (`yes_ask = 1000 - best_no_bid`), so a missing NO bid reads
-  as a resting bid of 100c and hands back **0c**. That is the shape of every
-  combination on the venue right now (`no_bid_dollars = 1.0000`, depth 0.0),
-  and the ticket rendered **"YES 0c"** — a free contract on the most illiquid
-  product Kalshi lists, which is CLAUDE.md rule 1 exactly. The order path was
-  already safe (the grid refuses 0); the screen was not. `_tradeable_ask` now
-  returns None off the tradeable range, on the read and on the POST.
-- **The demo database wrote a market status the venue never emits.**
-  `seed_demo` set `status = 'open'`; the wire says `active` (245 of 245 in
-  `events_sports_nested.json`) — `open` is the *event* query parameter, a
-  confusion `test_census_non_sports.py` already records once. Nothing noticed
-  because the one query filtering on it had no caller. The search returned
-  **zero markets for every query** on demo until this was fixed.
-
-**Also caught: a pin that went quiet.** `test_no_production_call_passes_the_constant_as_anything_else`
-matched `OrderPlacer(\s*dry_run=...)` on one line. The manual construction took
-a `rest=` argument and wrapped onto three, the regex stopped matching it, and
-the test **stayed green while covering one construction instead of two**. It
-now reads whole argument lists and asserts the count.
-
-**State.** 4,423 → **4,451 passed / 10 xfailed**, +28. Re-run before quoting it. Every new guard was
-mutated and observed red, including two that came back GREEN first time and
-were rewritten rather than kept: a combo-fee assertion on a display string
-rounded to cents (the two fee models differ by $0.0002 at one contract, which
-2dp erases), and the leg-buy disclaimer sliced over a whole component instead
-of its `<summary>`. ruff clean, tsc clean, `next build` green, 0px horizontal
-overflow at 390 and 1280.
-
-### ARMED, 2026-08-26 — the manual path sends real orders
-
-**Joe funded the account and said: "I already got money in kalshi. Flip it,
-commit and deploy."** `MANUAL_ORDERS_ARE_DRY_RUNS = False` shipped in its own
-commit. **`POST /api/manual-orders` now sends real immediate-or-cancel orders
-to the exchange**, one contract at a time, at his tap, with his own typed
-estimate and order token.
-
-**The engine path is untouched and stays dry.** `ORDERS_ARE_DRY_RUNS` is still
-True, `gate.py` still never reads `manual_orders`, and
-`test_the_manual_path_is_armed_and_the_engine_path_is_not` pins both halves —
-that test used to assert the manual constant was True and was **re-pointed, not
-weakened**, at the property that still has to hold.
-
-**Arming forced a guard that should have existed already, and it is the most
-important line in this entry.** `load_dotenv()` puts `.env` into `os.environ`
-for the whole suite, so `KalshiConfig.load()` inside a test returned **real
-signed credentials** on this machine. Harmless while nothing in production could
-ask for a live `OrderPlacer` during a test — which is exactly what arming
-changes. Without the fix, running `pytest` here would have **sent a real order
-to the exchange**. `conftest.py::no_live_kalshi_credentials` now removes
-`KALSHI_API_KEY` and `KALSHI_PRIVATE_KEY_PATH` for every test; the route answers
-503 and writes no row. Pinned, autouse-ness included, by
-`TestTheArmedPathCannotReachTheVenueFromATest`. **Do not remove it, and do not
-reach for `KALSHI_PUBLIC_READ_ONLY` in conftest as a tidier alternative** — a
-config object that succeeds is the opposite of what the fixture is for.
-
-The ticket now says **"This spends real money"** above the confirm, naming that
-the order goes at the live ask and that this tool cannot cancel one. It renders
-only while armed, so it cannot become wallpaper.
-
-**To disarm:** set the constant back to True, update that one pin, deploy. One
-line, revertible alone — which is why it landed on its own.
-
-**FOR JOE — what is yours now:**
-
-1. **Caps still come from the balance, never from a number you type**
-   (ADR 0045). Before the deposit they read `max_position_dollars` $0.54,
-   `max_exposure_dollars` $2.16. **Re-read them rather than quoting those** —
-   `/api/manual/market/{ticker}` serves the `caps` block, and a figure in prose
-   is a measurement with no timestamp.
-2. **Raising the 1-contract ceiling is the next decision, and it has a
-   trigger.** ADR 0063: raised *"only when observed `fee_actual` matches
-   `fee_predicted` on real fills"*. Your first real fills are what supply that;
-   until then `MANUAL_ORDER_MAX_CONTRACTS = 1` stands.
-
-**Open:** the per-row "Pass" affordance on the slate (still); the scheduled
-parlay card plus debounce from the entry below; a `GoodChancePicks` buy control
-was deliberately NOT added and ADR 0073 §3 says why.
-
----
-
-## 2026-08-26 — one parlay generator becomes six, and the notifier is deliberately left behind
-
-**Joe picked this off the ranked list in the entry below.** The finding it rests
-on is that entry's headline: the three cards were never three products.
-`build_ladder` ranked the pool by `(-p_conservative, commence_ms, ticker)`, took
-one leg per game, and cut the same ranking at 3, 4 and 6. `prefer_spreads` was
-the only structural difference in the entire ladder.
-
-`CARD_SHAPES` is now a tuple of **`Recipe`** — key, title, a one-line
-`what_it_is`, the leg bounds, and the four parameters that make a cut: rank
-direction, spread preference, kickoff horizon, method-agreement width.
-
-| key | title | shape | the cut |
-|---|---|---|---|
-| `safe` | Safe | 2–3 | unchanged |
-| `middle` | Middle | 4 | unchanged |
-| `lottery` | **Long ladder** | 6 | `prefer_spreads` — **title changed, key did not** |
-| `longshot` | Longshot | 2–3 | `longest_first` |
-| `soon` | Next 3 hours | 2–3 | `starts_within_ms = 3h` |
-| `agreed` | Agreed | 2–3 | all four devig methods inside 2 points |
-
-**`lottery`'s key is untouched on purpose.** `parlay_lookups` rows and the
-Discord dedupe history are keyed on it; renaming the key would make the record
-incomparable across a rename that buys nothing. Only the display title moved,
-because once Longshot exists "Lottery" is the wrong name for the six *likeliest*
-legs.
-
-**Three decisions were Joe's this session**, taken before any code: one grid of
-six cards each carrying a description (over a two-section split); the title
-rename; and — recorded but **not built** — the Discord trigger becomes **a
-scheduled daily card plus a two-build debounce**.
-
-### The notifier did NOT grow with the screen, and that is the load-bearing bit
-
-Six cards against `MAX_PARLAY_PUSHES_PER_DAY = 6` makes **one ladder the whole
-day's pushes**, where that constant's own comment calls six "two full ladders".
-And the entry below measured the existing three burning the ceiling in four
-minutes. So `PUSHED_CARD_KEYS = {safe, middle, lottery}` holds the phone exactly
-where it was; the new cuts are screen-only until the trigger changes shape.
-
-A screen-only card is **neither sent nor skipped** — counting it as skipped
-would inflate `alerts_deduped` with rows that were never deduped.
-
-### Measured, not predicted
-
-`build_ladder` over the same slate, three cuts against six, median of three,
-half the fixtures deliberately outside the 3-hour horizon so `soon` could not
-just reuse `safe`'s answer:
-
-    n=6    332 ms -> 480 ms
-    n=12   322 ms -> 473 ms
-    n=20   332 ms -> 463 ms
-
-**+43%, not the +100% the card count implies, and flat in slate size.** `_joint`
-runs a 200,000-sample copula five times per distinct leg set, and six cuts of one
-pool routinely select the *same* legs — so the joints are memoised on
-`_joint_key`, the full tuple of every field `_joint` reads. The stated stop-work
-trigger was 1s on `/api/parlays`; it was not reached, so no payload cache was
-built. The loop path is unchanged in shape: still gated on
-`counts.odds_sweeps > 0 or kind == "full"` against an 8s quote budget running
-~4.2s live.
-
-**The memo key is the whole selection, not the leading ticker**, and that
-distinction is now pinned by a test rather than by intent: two cuts routinely
-agree on the leaders and diverge below (Safe takes `[g0,g1,g2]`, Next 3 hours
-takes `[g0,g1,g3]` when `g2` kicks off late), and a key that stopped at the
-first ticker would serve one card's joint on the other.
-
-### Mutation
-
-**Seventeen mutations observed red.** One stayed GREEN on the first pass and it
-was a real hole: `memo = selected[0].kalshi_market_ticker` passed everything,
-because in every fixture then written the cards' *first* legs already differed.
-The fix was the divergent-slate test above, not a weakened assertion.
-
-### A process failure worth carrying
-
-The baseline test count was being re-measured — correctly, per the instruction
-at the top of this file — when I patched the tree **underneath the running
-suite**. The apply script had a `DRY_RUN` guard; the guard was itself installed
-by a `str.replace` that matched nothing and said nothing, so it silently was not
-there. Seven files were written mid-run and the measurement was void.
-
-Recovered without inheriting anything: the run was killed, the changes stashed,
-and the pre-change count taken as **4,400 tests collected** (consistent with the
-4,388 passed / 10 xfailed this file recorded). Lesson written.
-
-### Open, and unchanged from the entry below
-
-- **The scheduled card plus debounce.** Decided, not built. It is the trigger
-  Joe asked for and the reason the new cuts are screen-only.
-- **The cold-open wait** — a heartbeat can wait up to 900s to be acted on.
-  Precisely located across three files, wide test blast radius, wants its own
-  slice.
-- `ODDS_API_KEY` rotation; `docs/` still carrying the stale 576/day figure
-  outside CLAUDE.md; no ADR for the attention TTL, floor horizon or credit
-  slice.
-
-### One thing to watch on live
-
-On a thin or single-sport slate, `soon` and `agreed` will often select exactly
-the same legs as `safe` — three cards showing one card. That is *honest* (each
-says what it is, and "the methods agree on the leaders" is a real fact) and it
-shares one copula run, so it costs nothing. But it may read as three copies.
-Worth looking at once there is a real evening slate behind it before deciding
-whether it needs anything.
-
----
-
-## 2026-08-26 — the alarm stops guessing, and the desk's cards reach the phone
-
-**Shipped and verified on live at `b7e6f9f`.** Two commits, both deployed.
-State: **4,388 passed / 10 xfailed** (baseline 4,333 re-measured at session
-start, not inherited), ruff clean. **Schema v22** — `loop_failures`, applied to
-the live volume on boot without incident.
-
-### The 20:41Z heartbeat alarm was real, and its text was a guess
-
-Joe forwarded `⚠ The recorder has stopped`. Established read-only, before
-touching anything:
-
-- It fired **once** (heartbeat run 20:41:37Z) and cleared by 20:55Z. Live was
-  healthy on inspection: `recorder.age_ms` 5,897.
-- **Not a restart.** Fly releases bracket the window at 132 (19:01:40Z) and 133
-  (21:00:36Z), and the machine event log shows no start between.
-- **Not a designed sleep.** The recorder heartbeat is stamped on *every* pass
-  (`runner.py:2493`, inside `store_quotes_from_discovery`, which
-  `run_quote_pass` reaches via `run_kalshi_pass`), and the slow cadence is 900s
-  ±15%. **The widest gap a healthy shut-window loop can produce is
-  1,035s ≈ 17.3 min.**
-- `odds_sweep_log` carries a **2,678-second hole ending 20:51:02Z**. Every other
-  gap that day was a single jittered interval — 842, 950, 965, 999, 1,001s.
-
-So two or three passes never finished. **Which could not be established, and
-that is the finding.** `LoopState.consecutive_failures` and `last_error` live in
-memory; the container had restarted and its logs went with it. A run of failing
-passes and one wedged pass need different fixes and left identical evidence.
-
-**Built the instrument that separates them.**
-
-- **`loop_failures` (schema v22)**, written through a new `on_failure` hook on
-  `run_forever`. **Written on the failure path only**, and that asymmetry is the
-  whole design: rows inside a silence mean the loop was failing; no rows mean
-  nothing came back to raise. Logging successes too would make "no rows"
-  ambiguous again. A raising hook is swallowed and logged — it runs where
-  something has already gone wrong.
-- **`inspect_live_db.py pass-gaps`** computes the holes in SQLite (window
-  function, `--gap-ms` bound parameter) and prints `loop_failures` beside them.
-  Doing this today meant pulling 400 rows and diffing them locally, which is the
-  smuggle-the-code-in-with-the-question drift that file exists to replace.
-- **The alarm says what it measured.** It no longer asserts *"It is alive and
-  stuck"*; it names the three states it cannot distinguish and points at
-  `/api/window` `is_open` and `loop_failures`.
-- **Its threshold comment was wrong and is corrected.** It justified 30 minutes
-  as "two missed full passes" because "quote passes run far more often" —
-  untrue since ADR 0071 §2.6 made the odds feed follow attention, since the 15s
-  cadence only runs while the window is open. The number survives (30 min is
-  1.74× the 17.3-min ceiling); the reasoning did not.
-  `tests/test_heartbeat_threshold_arithmetic.py` now pins the *property* against
-  the real `JITTER`, so the next constant change fails a test rather than a
-  comment.
-
-**Still open, unchanged:** nothing times out a pass. `run_forever` still awaits
-`do_pass()` bare. This makes a wedge *legible after the fact*, not survivable.
-Leave it until `loop_failures` shows a gap with no rows in it — that is now a
-readable signal rather than a guess.
-
-### Parlay cards push to Discord — outbound only, Joe's call this session
-
-He asked for the webhook to carry parlay items and, if possible, to place Kalshi
-buys. **Asked, and he chose push-only with no order path.** Triggers he picked:
-a daily card, a slash command, and a material-change alert.
-
-**Shipped: the daily card and the material-change alert, which turn out to be
-one mechanism.** `DiscordNotifier.parlay_card` renders a card from the exact
-`_serialise_card` payload the screen uses — **no arithmetic anywhere in the
-path**, so the embed cannot drift from `/parlays` by a rounding step. The four
-`parlays.NOTES` caveats travel verbatim; two of them are the difference between
-a number and money. No edge, no ranking, no button (ADR 0038, ADR 0071 §2.5, and
-`discord.py`'s own docstring already ruled out tap-to-buy in a chat client).
-
-`notifications.UNIQUE (kind, key)` **is** the change detection — no timestamp
-comparison, no threshold, and it survives the restart an in-memory policy would
-not. Key is `card_key` + **sorted** leg tickers, already the canonical card
-identity (`price_card_on_kalshi`'s drift check, `parlay_lookups.selected_legs`).
-
-**Verified end-to-end on live, not just in tests.** The embed was first rendered
-from the real `/api/parlays` payload pulled off the box (three built cards, WNBA
-and MLB legs) — then after deploy, **three pushes landed at 22:41:43Z and
-`undelivered_last_24h` stayed 0**. Discord accepts the embed.
-
-**Two things the build found that the plan did not have.**
-
-1. **Dedupe is not a rate limit.** `MAX_PARLAY_PUSHES_PER_DAY = 6` bounds it;
-   undelivered pushes do not burn it, so one Discord outage cannot silence the
-   rest of the day. **The mechanism was measured after deploy and it is not the
-   one I first wrote here** — see the open item below.
-2. **The ladder is expensive and I called it free.** `build_ladder` runs a
-   **200,000-sample Monte-Carlo copula per card, five times over** (headline
-   plus one per devig method) — ~400ms for three cards on a laptop, against a
-   quote pass budgeted 8s that runs ~4.2s on live. The first commit put that on
-   every pass. **It would have degraded silently** —
-   `Tempo.observe_pass_duration` warns rather than fails. Now gated on
-   `counts.odds_sweeps > 0 or kind == "full"`: a sweep is the only thing that
-   changes a fair value, and between sweeps the ladder rebuilds byte-identically
-   so the cost bought a notification the dedupe then discarded.
-
-**One guard written, mutated, observed GREEN and deleted** — a
-`not_built_reason` check in `Alerter.parlay_cards` changed no answer, because an
-unbuilt card serialises with no legs and `parlay_key` already returns `None`.
-**And one test was vacuous when first written** (compared a slice spanning a
-newline against a single line, so it could never fail); it now reads the gate
-line, with a vacuity guard beside it. **Eleven mutations observed red** across
-the new guards.
-
-### NOT built, and both are deliberate
-
-- **The slash command.** Joe picked it, and it is **not an extension of the
-  above — it is a new subsystem.** There is no inbound Discord path today: no
-  route, no signature verification, no `nacl`, and `requirements.txt:30` pins
-  `discord.py~=2.4` which **nothing imports**. It needs a public HTTPS endpoint
-  (uvicorn binds loopback and is never published), Ed25519 verification of
-  `X-Signature-Ed25519` plus a crypto dependency, a Discord *application* rather
-  than a webhook — which undoes the four-taps-on-a-phone setup property
-  `discord.py:50-55` was built around — and a new auth lane at `middleware.ts`,
-  which today accepts only the `cockpit_session` cookie. **Wants its own ADR.**
-- **Kalshi buys from Discord.** Joe ruled it out this session when asked.
-  Recorded so it is not re-proposed as an obvious next step.
-
-### Discovery: more parlay approaches — there is ONE generator, not three
-
-Asked for, and this is the headline. `build_ladder` is:
-
-    CARD_SHAPES = (("safe",2,3), ("middle",4,4), ("lottery",6,6))
-    _sort_key   = (-p_conservative, commence_ms, kalshi_market_ticker)
-    _best_per_game(usable, prefer_spreads=(key == "lottery"))
-
-**Safe and Middle are prefixes of the same ranked pool** — Middle's four legs
-are Safe's three plus the next-most-likely game. `prefer_spreads` for Lottery
-(`ladder.py:238`) is the **only** structural difference in the entire ladder.
-Every card is "the most likely favourites available", cut at a different length.
-Candidates are `market IN ('h2h','spreads')` only — **no totals**
-(`parlays.py:148`) — and spread legs must be the favourite's cover.
-
-Ranked by value per unit of work:
-
-| # | Approach | Why |
-|---|---|---|
-| 1 | **Longshot card** | Invert `_sort_key`. A real second product from one parameter; not gap-ranking, so ADR 0071 §2.5 untouched. Makes "Lottery" mean its name. |
-| 2 | **Time-boxed** ("next 3 hours") | Filter on `commence_ms`. The most phone-useful cut: what can I still bet on. |
-| 3 | **Sport-pure** (all-MLB, all-WNBA) | Filter on `league`. Useful when watching one game. |
-| 4 | **Method-agreement** | Require all four devig methods within N points per leg. `by_method` is **already computed** (`ladder.py:163`) and thrown away. CLAUDE.md rule 2 as a product. **My pick.** |
-| 5 | **Totals legs** | Widen `parlays.py:148`. The only one that makes *existing* cards better rather than adding one. |
-| 6 | **Correlation-diverse** | Maximise cross-league to minimise rho (`classify` already returns the regime; 0.02 vs 0.05). |
-| 7 | **Same-game via measured rho** | `implied_correlation` (`correlation.py:253`) inverts an observed combo quote into a measured rho, Fréchet- and PSD-guarded — **fully written and called by nothing on the desk path.** The documented route past `ladder.py:20-22`'s refusal. Wants its own ADR. |
-| — | ~~Gap-ranked card~~ | **Forbidden, ADR 0071 §2.5.** Listed so it is not re-proposed. |
-
-**Recommended: take 1, 2 and 4 as one slice** — three parameters on an
-already-pure function, turning one generator into four genuinely different
-products. Then 5. Then 7 with an ADR.
-
-### OPEN AND NEEDS JOE — the cards churn far faster than the ceiling allows
-
-**Measured on live, not predicted.** The 6/day ceiling was spent in **four
-minutes**:
-
-    22:41:43Z  safe: LADATL-LAD | BOSMIA-BOS | MILNYM-MIL     (all MLB)
-    22:45:10Z  safe: CHICONN-CHI | PDXDAL-DAL | GSCONN-GS     (all WNBA)
-
-The entire card composition swapped sport, and all three rungs re-pushed. Both
-pushes were *correct* by the dedupe rule.
-
-**The cause is per-sport sweep freshness, not kickoffs.** `build_ladder` drops
-legs whose `odds_age_now_ms` exceeds 900s, and odds are swept **per sport on
-independent clocks**. A sport's legs enter the pool when it is swept and leave
-when they age out; ranking is by probability, so whichever sport is currently
-fresh takes the top slots. The 22:21Z payload carried
-`excluded: {"stale_consensus": 7}` — seven legs already dropped for age.
-
-So the feature works and then goes quiet for the day. **Not harmful** — the
-ceiling holds, Joe is not spammed — but the daily card he asked for is being
-spent on transient compositions in the first minutes after a deploy or a
-day-roll.
-
-**Three ways out; this is Joe's call:**
-
-1. **A real scheduled card** at a fixed time (his trigger #1, taken literally),
-   immune to churn by construction. Push one ladder a day and let the
-   material-change alert be a separate, tighter rule.
-2. **Debounce**: only push a composition that survives two consecutive builds,
-   so a sport flipping in and out never announces itself.
-3. **Require every leg fresh AND the card to beat the last pushed one on a
-   stated criterion** — closest to "material change", most work, and the
-   criterion must not be the consensus-vs-Kalshi gap (ADR 0071 §2.5).
-
-**Recommendation: 1 plus 2.** The scheduled card is what he actually asked for
-and the debounce makes the change alert trustworthy.
-
-### Still open from before, untouched
-
-The **cold-open wait** is real and now precisely located, and it was NOT worked
-this session (Joe redirected). The loop wakes within 5s of a heartbeat but the
-wake reaches the *loop* and not the *policy*: (1) `run_loop.py:644` →
-`scheduler.py:316-326`, an early wake lands inside `last_full_ms + 900s` so
-`pass_kind` returns `"quote"`; (2) `timing.py:570-571`, that quote pass runs
-`allow_bootstrap=False`, dropping any sport with no *served* sweep this budget
-day; (3) `scheduler.py:309-310`, `next_wake_ms` is already due so the loop takes
-the 900s branch. Meanwhile `window_status:1180-1189` calls `desk_wants`
-**without** `allow_bootstrap`, so the screen promises a sweep the quote pass
-cannot make — breaking the module's own "one predicate, two callers" rule at
-`desk_wants:513-517`. Wide test blast radius (nine named assertions in
-`test_scheduler.py` and `test_desk_follows_attention.py` pin the current
-behaviour on purpose). Deserves its own slice.
-
-Also still open and unchanged: `ODDS_API_KEY` rotation (security, tabled by
-Joe); `docs/` still carries the stale 576/day figure outside CLAUDE.md; no ADR
-records the attention TTL, floor horizon or credit slice.
-
----
-
-## 2026-08-25 — the desk was empty because the loop was ASLEEP, and nothing could wake it
-
-**Read the correction first.** The earlier version of this entry, and the
-commit message on `aa4a215`, said the recording loop had **wedged**. It had
-not. Every number reported was right and the mechanism was wrong, which is the
-combination that survives longest because the symptom keeps matching.
-
-- `pass 130 ok` is in the log at 16:49:33Z. **The pass returned.** A hang does
-  not log its own completion.
-- The gap to 17:05:07Z is **934s**, and `next_delay` jitters ±15% around the
-  900s slow interval — the band is [765, 1035]. 934 is 900 × 1.038.
-- `Tempo.interval_s` returns `slow_interval_s` when the window is shut. The
-  pass at 16:49:33 was the first to observe `fixtures_fresh = 0` (the last
-  sweep at 16:36:32 plus book age crossed `MAX_ODDS_AGE_S`), so it took the
-  slow cadence and slept.
-
-It was a **normal, designed sleep**. "The loop hung" was a story that fit the
-evidence I had looked at and not the evidence available.
-
-**The real defect, and it is a genuine one.** ADR 0071 §2.6 told the *feed* to
-follow attention. `decide_sweeps` asks `is_attended` every pass and has always
-done the right thing with the answer. But the cadence is chosen from what the
-*previous* pass observed, and attention is written by the **other process** —
-the API stamps `desk_attention` when a page heartbeats. A sleeping loop cannot
-see a table being written. So the feed followed attention and the loop that
-calls it did not: a heartbeat could wait up to fifteen minutes to be acted on,
-which is exactly the fifteen minutes the desk is blank and someone is staring
-at it. Joe opened the desk at ~16:58Z; the loop fired
-`baseball_mlb (attention)` at 17:05:08Z, the first second after its sleep ended.
-
-The tap path had the same hole. `run_quote_pass`'s docstring promises a tap is
-served within "at most one tick" — true of the 15s cadence, false of the 900s
-one, and a shut window is precisely when someone presses refresh.
-
-**FIXED — the sleep is interruptible.**
-
-- `backend/scheduler.py`: `sleep_until(delay, wake_when=…, sleep=…, poll_s=5)`
-  sleeps in chunks and ends early when the predicate fires. `wake_when=None`
-  sleeps once, exactly as before, so every existing caller and test is
-  untouched. A predicate that raises is swallowed and logged — the failure
-  direction is the old cadence, and ending a recording loop over "should this
-  sleep be shorter" trades a slow desk for a lost record. `LoopState.woken_early`
-  counts the wakes so a wake path that stops firing is distinguishable from
-  nobody opening the page.
-- `backend/odds/attention.py`: `ArrivalWatch`. **Not `is_attended`** — that is
-  a state, true for the whole 300s TTL, and a sleeping caller cannot act on a
-  state it is already in. This reports a *change*, once per heartbeat, and
-  consumes it. A page heartbeating every 60s therefore wakes the loop every
-  60s, which is the cadence a watched desk belongs on; and that state is
-  strictly cheaper than the one it converges to, because a wake leads to a
-  sweep, a sweep opens the window, and an open window is the 15s fast cadence.
-- `scripts/run_loop.py`: `wake_early()` = a new heartbeat, or a pending tap
-  (`ondemand.take` is a pure read and cannot consume one), handed to
-  `run_forever` as `wake_when`.
-
-Cost: an indexed `MAX(seen_ms)` every 5s, on a table `decide_sweeps` already
-reads every pass. No credits. Latency from opening the desk to the loop
-noticing goes from **up to 900s to under 5s**.
-
-Seven mutations observed red: predicate checked before the chunk, never
-returning early, no try/except, the watermark not advancing, the watch starting
-blind to history, the re-report guard removed, and the loop not passing the
-predicate at all. Plus a composition test over a real sqlite connection — a
-stamp landing on the third chunk ends the sleep at 15s instead of 900s, and a
-quiet desk still sleeps the full 900s.
-
-**STILL OPEN.**
-
-- **The 30-minute heartbeat threshold** (`.github/workflows/heartbeat.yml`).
-  Unchanged, and now clearly *not* what today was about — nothing had stopped.
-  Whether a genuinely stuck pass would be caught is still untested, because
-  nothing has ever been observed to hang: `run_forever` awaits `do_pass()` bare,
-  with no `asyncio.wait_for`. Leave it until something actually hangs; a timeout
-  that cancels mid-write is a real risk to buy against a hypothetical fault.
-- ~~A cold page still needs one manual refresh.~~ **Closed the same session.**
-  `components/RefreshWhenPriced.tsx` polls `/api/window` every 10s from inside
-  the `Freshness` block and calls `router.refresh()` when `fixtures_fresh`
-  rises above the count the server rendered with.
-
-  The trigger is deliberately **not** "a sweep happened": a sweep that
-  re-priced already-fresh fixtures changes no answer on this page, and
-  re-rendering for it is a flicker with nothing behind it. It is not a timer
-  either — a page that reloads on a schedule reloads while you are reading it.
-  It stops after 5 minutes, and `test_parlay_auto_refresh.py` pins that number
-  equal to `attention.DEFAULT_ATTENTION_TTL_MS` across the two languages: past
-  the window in which the heartbeat is still buying sweeps, waiting is not
-  waiting for anything. Hidden tabs do not poll, which is a correctness
-  argument rather than a courtesy — `Nav.tsx` gates the heartbeat the same way,
-  so a backgrounded tab is sending none and no sweep is coming for it.
-
-  Proved against a local stack, not just pinned: demo DB in the exact 09:58
-  shape (11 upcoming, 0 fresh, three unbuilt cards), prices made fresh in
-  SQLite while the page sat open, and the page came back with three cards and
-  `performance.getEntriesByType('navigation').length === 1` — re-rendered in
-  place, never reloaded. Seven mutations observed red.
-
-  **`/slate` has it too, on a deliberately different gate.** The desk's
-  `Freshness` block already fires only when a card failed for age, so the
-  watcher needed no extra condition there. The slate always renders its rows —
-  refused ones included, because it is a record — so it is never visually
-  empty, and `refreshIsUrgent` is `some`: one stale row on a working slate
-  satisfies it. Re-rendering under a reader mid-game on that basis would be the
-  screen moving for no reason they can see. So `slateIsUnpricedByTheClock` is
-  the gate: **every** row refused, and at least one refusal is the clock —
-  nothing usable, and a sweep is what would give it back. Rendered above the
-  refusal `<details>`, never inside it: a page that re-renders itself while the
-  only explanation is folded away moves for no stated reason.
-
-  It lives in `nextOddsWindow.ts` rather than beside `refreshIsUrgent`, and
-  that is not tidiness. It needs `isStaleOddsReason`, and **both** pure modules
-  state in their own docstrings that they are dependency-free so node can
-  execute them bare; importing across would quietly retract that from both, and
-  copying the split-and-compare would be the second implementation the
-  whole-code rule exists to prevent.
-
-  Also verified against a local stack: every slate row forced clock-refused,
-  the watcher rendered, then odds made fresh and the refusal lifted — page came
-  back usable with `navigation` entry count still 1.
-
-  **One guard was written, mutated, observed GREEN, and deleted.** An explicit
-  `rows.length === 0` check read like a guard and changed no answer — `every`
-  over an empty array is vacuously true and the `some` returns false on its
-  own. The behaviour is still asserted; the line was decoration and this repo's
-  rule is to remove it rather than keep it for looks.
-
-**SHIPPED EARLIER THE SAME DAY — the screen explains itself (`e4500f5`).**
-`readNextWindow` learns `last_look_ms` and a `loop_stalled` reading checked
-before `due_now`; `StaleOddsExit` extracted to its own component; `ParlayCards`
-renders a `Freshness` block when a card failed **and** sides were dropped for
-age; `Not built tonight` → `Not built right now`. Note that the `loop_stalled`
-sentence is still right and still worth having — it just would not have fired
-today, because `last_look_ms` was 12 minutes old, not the 3 the threshold wants.
-That is correct: nothing was broken.
-
-**Two operational notes worth keeping.**
-
-1. **`flyctl deploy` by hand reports `git_sha: null`.** The workflow passes
-   `-e GIT_SHA="${{ github.sha }}"` as a *runtime* machine variable
-   (`deploy.yml:119`), not a build arg, and it is not inherited by the next
-   deploy.
-2. **The browser caches `/parlays` hard.** A bare reload served pre-deploy text;
-   `?cb=1` served the new page. Verify a deploy with a cache-buster or
-   `/api/health`, never a plain refresh.
-
-## 2026-08-25 (later) — the odds feed stops watching the clock and starts watching whether anyone is there
-
-**Shipped and verified on live at `49f1f43`.** Three commits this session, all
-deployed: `5cf94be` (the signal declaration refused — entry below), `5e75da9`
-(a failed odds call stops presenting as fresh odds), `49f1f43` (this).
-**Schema v21.** State: 4,281 passed / 10 xfailed, ruff clean, tsc clean,
-`next build` green.
-
-**The bill, settled.** `ODDS_DESK_WINDOW_UTC` bought a sweep every ten minutes
-for twelve hours a day whether or not anyone had the site open — 576
-credits/day, and **1,152/day at four sports, past the whole 20,000 tier**.
-NCAAF and NFL made that due this week and `fly.live.toml` had already recorded
-it as a decision deferred to the day they landed. ADR 0071 §2.6 is the answer:
-
-    attended (a heartbeat inside 5 min)   the 10-minute refresh cadence
-    nobody looking                        hourly, per sport with a fixture
-                                          inside 12 hours
-
-`ODDS_DESK_WINDOW_UTC` is **unset on live and still read** — a window can be
-pinned back on without a code change. `ODDS_ATTENTION_DAILY_CREDITS = 300` is
-the hard ceiling on attended spend; **the floor is not charged to it**, which
-is what makes a low cap a ceiling rather than an off switch.
-
-**Observed on live, not inferred.** The pass at 15:11Z bought both sports on
-the floor and stored 2,120 quotes, with the sweep-log row reading *"nobody is
-looking; the hourly floor keeps the slate from going a whole day stale"*. The
-pass fourteen minutes earlier — the old build — reads *"the desk window
-(16:00Z-04:00Z) reopens at 16:00Z"* and held the credit. The change is visible
-one pass apart in the same table. `/api/window`'s `next_sweep_ms` was exactly
-`last_sweep + 3,600,000`, so the panel and the loop agree.
-
-**The attention path was exercised on live at 16:08Z and it works** — but read
-the caveat, because half of it is still untested.
-
-    15:11:06Z  floor buy, trigger NULL   "nobody is looking"
-    15:26/15:41/15:56  three passes HELD  (floor not due until 16:11)
-    16:03:43Z  one stamp lands
-    16:08:10Z  attention buy, trigger='attention', 430+ quotes
-               "someone has the desk open; re-buying so the slate is
-                priced while it is being read"
-
-The floor suppressed three consecutive passes and one heartbeat un-suppressed
-the next. Accounting separates cleanly: 8 credits floor (NULL) + 8 attention.
-
-**Two halves, proven separately, and the join between them is NOT proven.**
-
-- **The visibility guard works against a real browser.** A tab driven by Chrome
-  automation reports `visibilityState: "hidden"`, `Nav.tsx` sent nothing, and
-  no `/desk-attention` request was made. That is the load-bearing line verified
-  in the one way `tests/test_desk_heartbeat_is_visibility_gated.py`
-  structurally cannot — those assertions prove it is *written*, this proves
-  Chrome *honours* it.
-- **Everything downstream of a stamp works**: route → `desk_attention` →
-  `is_attended` → `desk_wants` → `decide_sweeps` → the `attention` trigger on
-  the credit row, and `/api/window`'s `next_sweep_ms` moving from
-  `last + 3,600,000` to exactly `now_ms` within a minute.
-
-**The join is closed too — Joe opened the site at ~16:28Z and the full cycle
-was observed.**
-
-    15:11Z  floor buy, trigger NULL     "nobody is looking"
-    16:08Z  attention buy               (a MANUAL fetch, bypassing the guard)
-    16:36Z  attention buy               JOE'S BROWSER, unaided
-    16:40Z  next_sweep_ms - last_sweep_ms == 3,600,000 exactly
-
-The 16:36Z row is the one that settles it: it carries `trigger = 'attention'`
-and the manual stamp had expired at 16:08:43Z, 28 minutes earlier, so only a
-real heartbeat from a visible tab can have produced it. The desk also read
-attended at 16:28, 16:29 and 16:32 — more than one 5-minute TTL apart, so at
-least two independent self-fired stamps rather than one lucky reading. Four
-minutes after he closed the tab, one TTL, it was back on the floor to the
-millisecond. Spend for the day: 24 credits, 8 floor and 16 attention.
-
-**A design gap this surfaced, and it is NOT a regression.** An attended desk
-gets *"the ten-minute cadence, actioned by whichever pass comes next"*. Quote
-passes run every 15s **only while the window is open**; once the odds age past
-`MAX_ODDS_AGE_S` the window shuts, the fast cadence stops, and only the 900s
-full pass can buy. So a cold open can wait a **full fifteen minutes** for the
-sweep its own heartbeat just asked for — which is the moment the feature exists
-to serve. The old fixed window had exactly the same property, so nothing got
-worse; but following attention was supposed to make the cold open fast, and
-this is the thing that stops it. Not fixed, deliberately: it is a scheduler
-change, it wants its own slice, and nothing about it is urgent while the floor
-keeps the record accruing.
-
-**Watch out for the diagnosis this cost, because it will look the same next
-time.** Between 16:22:41Z and 16:39:32Z the loop logged nothing and
-`recorder.age_ms` climbed to 12.6 minutes behind a green health check — the
-signature this repo has been burned by. It was **healthy idle**: the window had
-closed, so the loop was on the 900s cadence, and it woke on schedule. Before
-calling that an outage again, check `/api/window`'s `is_open` first. A closed
-window explains a quiet log completely, and `run_loop.py`'s own docstring says
-so.
-
-**Do not quote a saving.** Every "attended hours" figure is a guess. The
-instrument is `credits-day --date YYYYMMDD` read **by trigger** — attention is
-`'attention'`, the floor and the schedule are both NULL. Bounds only:
-~384/day idle at four sports, ≤300/day attention, ~684/day worst case inside
-the 700 cap. Read it in a few days.
-
-**Three things the build found that the plan did not have:**
-
-1. **The floor's first buy of a sport is unpaced.** The cadence is measured
-   from the last *served* sweep, so a sport with none makes every pass want
-   it — once per 15s quote pass until the budget is gone. `5e75da9` widened
-   that: a *failing* sport no longer moves the stamp either, so a 401 would
-   retry every 15s. The floor now respects `allow_bootstrap`, the rule the slot
-   planner already had.
-2. **The sub-ceiling needed a trigger label.** `DESK` firings stamp
-   `api_credits.trigger` NULL like every planner firing, so attention spend was
-   indistinguishable from a scheduled slot's. Attention buys now stamp
-   `'attention'` — still counted by `_SERVED_SWEEP` (it is not `'manual'`), and
-   it is what makes the saving measurable at all.
-3. **`5e75da9` moved a failure rather than removing it.** With `last_sweep_ms`
-   no longer advancing on a failed call, a `failed` look falls past
-   `sweepTone`'s `refused` clause and — before the first window of the day —
-   reaches `return "calm"`. The recorder would be dead and the strip quiet: the
-   17-hour shape with a new cause. `failed` now warns alongside `refused`.
-
-**The desk trigger had five sites, not the two the entry below records** — two
-hand-synced `if`s, a third spelling in `first_window_open_of_day`, a fourth in
-the refusal message, and `scripts/run_loop.py`, which passed no `desk_window`
-at all and so logged a cadence it did not follow. All now read `desk_is_open` /
-`desk_next_open_ms` / `desk_wants`, pinned by a reference count so a sixth
-spelling goes red.
-
-**Nine existing tests changed, and one of the changes was wrong first.** Six are
-the deliberate "held the credit → the floor buys it" inversion, dated. For the
-staleness-limit test I first moved a fixture beyond the floor horizon, which
-made it pass under *any* `max_odds_age_ms` — a decoration. Reverted; it asserts
-the trigger instead, and was checked red against the default limit.
-
-**Still open from Lane 1** (slices 6–7 of the written plan are done; this is
-what is not): nothing blocks, but `docs/` still carries the 576/day figure in
-places other than CLAUDE.md, and no ADR records the TTL, the floor horizon or
-the slice — ADR 0071 §2.6 states the direction, not the parameters.
-
----
-
-## 2026-08-25 — the declaring look is REFUSED, and §P4 turns out to have been an opt-in nobody opted into
-
-**This supersedes the entry below it.** That entry recorded a `NO SIGNAL`
-declaration off the live screen and told the next session to put it through a
-`measurement-skeptic` pass before writing it anywhere. The pass was run. **It
-failed the declaration**, on a defect neither the entry nor this session
-predicted, and found something larger underneath it.
-
-**Baseline re-measured at session start rather than inherited: 4,200 passed /
-10 xfailed** (the entry below says 4,192).
-
-**The reading reproduces exactly, off a fresh 2026-08-25 pull** (14,616 rows,
-6.1 MB, live `git_sha 1bdc33b`), and the auditor re-implemented the fit
-independently and got the same numbers. **The arithmetic was never the
-problem.**
-
-**D1, the decisive defect.** The record holds **four**
-`strategy_config_version`s — `{1: 359, 2: 56, 3: 1682, 4: 12519}`. §P4 and §7
-of the registration both say, in those words, that the primary then runs on the
-**modal version only** and *"`G` counts only those games"*. Run that way:
-
-    beta_hat -0.0756   se 0.0246   G = 216   [-0.1728, +0.0216]
-    UNRESOLVED — 84 clusters below the floor, not 11 over it
-
-The rule existed in code as `build_report(..., modal_config_only=False)` and
-**no production caller ever set it** — the "built but never called" pattern, one
-parameter wide. It was survivable while every look was interim (the 2026-08-16
-write-up states plainly that the rule "was **not** applied to the numbers
-above" and ran it as a sensitivity, which is permissible when nothing is being
-declared). It stopped being survivable the moment `G` crossed 300.
-
-**Fixed this session.** `build_report` applies §P4 itself, the parameter is
-gone, `report_from_connection` takes no options, `--modal-config-only` is
-retired, and the pooled fit is carried as `pooled_fit` — **never given a
-verdict**, but kept, because the interim look's published `-0.1412 / G = 199`
-must stay reproducible or the measurement record becomes unverifiable.
-`tests/test_clv_signal.py` now pins **both rows of that document's sensitivity
-table**; three guards mutation-verified red. `/api/signal`'s population block
-gained `modal_config_applied`, the modal version, the excluded row count and
-the version distribution, so a reader can no longer see `clusters` without
-knowing which population produced the verdict.
-
-**Seven more defects, all in the measurement doc.** §A4's leave-one-group-out
-downgrade is unimplemented (run by hand it does not fire — max upper +0.0286);
-§A4's mandatory leverage disclosure fires at **0.9392** and nothing computes it;
-the headline "largest contributor" line prints a row-count share of an
-unregistered cut; `sd(clv_tenths) = 30.15` crosses the power check's own
-amendment trigger and the amendment is unwritten; five registered §A9 outputs
-are absent; and `sigma_eps` raw-vs-residual (30.15 vs 29.76) **straddles that
-trigger**, so which one it means has to be settled by amendment, not by which
-line the harness prints.
-
-**The finding worth carrying past all of that: `G = 311` is 4.26 effective
-clusters.** Two games carry 50% of the leverage on `beta`, nine carry 90%, and
-one WNBA game carries **43.80%** alone. All twelve top-leverage clusters are
-WNBA moneyline; WNBA is 19.1% of rows and **95.6% of the leverage**. The rows
-doing the work are `too_few_books`/`no_market_width` — 13.5% of the record,
-**93.9% of the leverage** — and inside that group `edge_tenths` runs **−717.97
-to +372.60**, i.e. a consensus calling fair ≈ 8c against Kalshi's 82c off fewer
-than two books. `suspicious_edge` never fires on them because
-`edge_ceiling_tenths = 40.0` bounds the **positive** side only. **Rule 1 says
-those are bugs, not edges**, and `sd(edge)` is 40.98 with them and **10.90**
-without — so the apparent resolving power (MDE 0.078 against the registration's
-feared 0.42) is bought entirely from rows rule 1 refuses. The registration's
-power arithmetic was right all along.
-
-**Also refuted this session: my own pre-audit argument that §A4's downgrade was
-near-vacuous at G = 311.** It assumed removing a group costs `G` one cluster per
-group member. Removal only reduces `G` when it **empties** a cluster, and groups
-are non-exclusive — `too_few_books` spans 190 clusters and leaves `G = 271`.
-Seven of thirteen groups were testable. The test had to be run, not argued away.
-
-**What is NOT open.** Nothing operational changed: ADR 0038 closed the hunt on
-independent grounds, the gate's 300 counts *actionable games* (a different
-counter, untouched), and CLAUDE.md's "treat it as settled for planning" stands
-unedited. **The registered-look machinery (§A4 leverage/LOGO, the five §A9
-outputs, the `|edge| > 100` amendment) is the precondition for the NEXT
-declaring look and is deliberately not built** — it does not earn the critical
-path over the odds bill. It is listed in the measurement doc's closing section.
-
----
-
-
----
-
-
 ## Still open, as of 2026-08-17
 
 Short by design. The long-form reasoning behind each is in the archive entry
@@ -3718,6 +2667,22 @@ checklist.
 
 Every session entry ever written to this file, newest date first. Full text in
 the linked archive file, unchanged.
+
+### Split 2026-08-29 — [`archive/next-2026-08-29.md`](archive/next-2026-08-29.md)
+
+Filed by the date of the split. The 2026-08-26 and 2026-08-25 entries that were
+still in `NEXT.md` when it reached 86% of the readable-size ceiling. Taken at
+86% rather than 98.9%, on the rule the previous split wrote.
+
+- 2026-08-26 — three commits had no entry, and one of them raised the bet
+- 2026-08-26 — the live box was OFF between visits, and five commits later the desk draws pictures
+- 2026-08-26 (hedging lane) — the desk starts watching what Joe already holds, and a hedge turns out to need no model at all
+- 2026-08-26 — the buy control reaches every card, and the ticket renders on a real book for the first time
+- 2026-08-26 — one parlay generator becomes six, and the notifier is deliberately left behind
+- 2026-08-26 — the alarm stops guessing, and the desk's cards reach the phone
+- 2026-08-25 — the desk was empty because the loop was ASLEEP, and nothing could wake it
+- 2026-08-25 (later) — the odds feed stops watching the clock and starts watching whether anyone is there
+- 2026-08-25 — the declaring look is REFUSED, and §P4 turns out to have been an opt-in nobody opted into
 
 ### Split 2026-08-27 — [`archive/next-2026-08-27.md`](archive/next-2026-08-27.md)
 
