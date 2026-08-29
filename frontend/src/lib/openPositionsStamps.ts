@@ -29,7 +29,8 @@ import type { OpenPositionsBlock } from "@/lib/api";
 export type Stamp = { asOfMs: number; ageMs: number | null };
 
 /**
- * When the COUNT was read — `poll_log`'s newest successful 'positions' row.
+ * When the COUNT was read — `poll_log`'s newest successful 'positions' row
+ * (on the five-minute cadence since 2026-08-29, so this clock now moves).
  * Null when the record carries no successful positions poll at all, in which
  * case the screen must say "never read yet" and show no clock.
  */

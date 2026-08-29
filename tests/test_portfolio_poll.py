@@ -37,6 +37,7 @@ from backend.portfolio_poll import (
     parse_settlement,
     poll_portfolio,
     poll_portfolio_forever,
+    poll_positions,
 )
 from backend.store import db
 
@@ -392,6 +393,50 @@ class TestPollPortfolio:
         assert row["fee_predicted"] == pytest.approx(0.0070)
         assert row["fee_model_used"] == "model_a_deci"
 
+    async def test_positions_log_the_failure_as_well_as_the_success(
+        self, conn
+    ):
+        """`poll_positions` matches its three siblings on the seam that
+        matters: **a failed attempt leaves a row.**
+
+        `poll_log` is the registration's only evidence of which polls
+        happened, and every retention tripwire is a gap between successive
+        SUCCESSFUL rows. A failure that writes nothing is not neutral -- it
+        is invisible, and reads exactly like a quiet evening in which nothing
+        was bet. `bets.open_positions` filters on `ok = 1`, so the failure
+        row never serves a count; it exists so the gap can be attributed.
+        """
+        client = FakeClient(fail={"positions"})
+
+        result = await poll_positions(conn, client, now_ms=4_242)
+        conn.commit()
+
+        assert str(result).startswith("FAILED:")
+        row = conn.execute(
+            "SELECT polled_ms, ok, row_count, error FROM poll_log "
+            "WHERE endpoint = 'positions'"
+        ).fetchone()
+        assert row is not None, (
+            "a failed positions poll must leave a row -- silence is "
+            "indistinguishable from a night with no bets"
+        )
+        assert (row["polled_ms"], row["ok"], row["row_count"]) == (4_242, 0, None)
+        assert "boom positions" in row["error"]
+
+    async def test_positions_write_but_do_not_commit_like_their_siblings(
+        self, conn
+    ):
+        """The shape `poll_portfolio` depends on: the function writes inside
+        the caller's transaction and the CALLER commits, so a mirror pass is
+        one transaction and not four."""
+        await poll_positions(
+            conn, FakeClient(positions=[{"ticker": "A"}]), now_ms=7
+        )
+        conn.rollback()
+        assert conn.execute(
+            "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
+        ).fetchone()[0] == 0, "poll_positions must not commit on its own"
+
     async def test_positions_are_counted_never_parsed(self, conn):
         """The shape has never been observed; a parser would be imagined."""
         client = FakeClient(positions=[{"never": "observed"}])
@@ -440,18 +485,38 @@ class TestPollPortfolioForever:
         conn.close()
 
     async def test_the_balance_runs_every_cycle_and_the_mirror_waits_12h(
-        self, tmp_path
+        self, tmp_path, monkeypatch
     ):
-        """The full mirror (positions, the matcher) keeps the 12-hour clock;
-        balance, fills AND settlements run every cycle -- settlements joined
-        the fast cadence with ADR 0064, because the daily-loss kill switch
-        refuses on a mirror older than 30 minutes."""
+        """Every venue endpoint runs every cycle; the MIRROR still waits 12h.
+
+        Balance, fills, settlements and -- since 2026-08-29 -- positions all
+        ride the 5-minute clock, because each has a consumer that refuses on
+        a stale read. What stays on `MIRROR_INTERVAL_S` is `poll_portfolio`
+        itself, and the only thing inside it the fast branch does not also do
+        is `run_match_pass`, which writes a registered variable.
+
+        The mirror is counted by spying on `poll_portfolio` rather than by
+        counting 'positions' rows, because positions are no longer the
+        mirror's fingerprint -- a test that counted them would now go green
+        on a loop that had stopped mirroring altogether.
+        """
+        from backend import portfolio_poll as module
+
         path = tmp_path / "cockpit.db"
         db.init_db(path).close()
         # 5-minute steps; 145 cycles spans just over 12 hours, so the full
         # mirror should fire exactly twice: cycle 1 and the first cycle past
         # 12h.
         clock, sleep = self._clockwork(step_s=300)
+
+        real_mirror = module.poll_portfolio
+        mirrors = {"n": 0}
+
+        async def counting_mirror(conn, client, *, now_ms):
+            mirrors["n"] += 1
+            return await real_mirror(conn, client, now_ms=now_ms)
+
+        monkeypatch.setattr(module, "poll_portfolio", counting_mirror)
 
         await poll_portfolio_forever(
             path, FakeClient(), sleep=sleep, clock=clock, max_cycles=146,
@@ -464,7 +529,7 @@ class TestPollPortfolioForever:
         settlements = conn.execute(
             "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'settlements'"
         ).fetchone()[0]
-        mirrors = conn.execute(
+        positions = conn.execute(
             "SELECT COUNT(*) FROM poll_log WHERE endpoint = 'positions'"
         ).fetchone()[0]
         conn.close()
@@ -473,7 +538,15 @@ class TestPollPortfolioForever:
             "settlements ride the fast cadence (ADR 0064): the kill switch's "
             "producer refuses on a mirror older than 30 minutes"
         )
-        assert mirrors == 2, "cycle 1, then the first cycle past the 12h mark"
+        assert positions == 146, (
+            "positions ride the fast cadence too (2026-08-29): the "
+            "open-positions count refuses on a read older than 30 minutes, "
+            "and a hand bet placed at 8pm must not wait for the next mirror"
+        )
+        assert mirrors["n"] == 2, (
+            "cycle 1, then the first cycle past the 12h mark -- "
+            "MIRROR_INTERVAL_S is untouched, so run_match_pass stays on it"
+        )
 
     async def test_endpoint_failures_are_absorbed_and_logged_per_cycle(
         self, tmp_path
@@ -497,9 +570,25 @@ class TestPollPortfolioForever:
         ).fetchone()[0]
         conn.close()
         # Cycle 1 is a mirror (4 endpoints fail); cycles 2-3 are the fast
-        # cadence, which is balance AND fills (2026-08-21 ruling) AND
-        # settlements (ADR 0064) -- three failures each, so 4 + 3 + 3.
-        assert failures == 10, "every failed attempt left a row, and the loop ran on"
+        # cadence, which is now balance AND fills (2026-08-21 ruling) AND
+        # settlements (ADR 0064) AND positions (2026-08-29) -- four failures
+        # each, so 4 + 4 + 4.
+        assert failures == 12, "every failed attempt left a row, and the loop ran on"
+        conn = db.open_db(path, read_only=True)
+        by_endpoint = dict(
+            conn.execute(
+                "SELECT endpoint, COUNT(*) FROM poll_log WHERE ok = 0 "
+                "GROUP BY endpoint"
+            )
+        )
+        conn.close()
+        assert by_endpoint == {
+            "balance": 3, "fills": 3, "positions": 3, "settlements": 3,
+        }, (
+            "each endpoint failed once per cycle and each failure left its "
+            "own row -- a pooled 12 is also reached by one endpoint failing "
+            "twelve times while three write nothing at all"
+        )
 
     async def test_a_failure_that_escapes_the_poll_does_not_kill_the_loop(
         self, tmp_path, monkeypatch

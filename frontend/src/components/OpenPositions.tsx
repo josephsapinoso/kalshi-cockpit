@@ -14,8 +14,9 @@ import {
  * Honesty rules, all server-enforced and only rendered here:
  *
  * - **The count is counted, not parsed.** It is the number of position rows
- *   the venue returned to the 12-hour poll; the per-row shape has never been
- *   observed, so no claim is made about any single row.
+ *   the venue returned to the positions poll (the 5-minute cadence since
+ *   2026-08-29; the 12-hour mirror before that); the per-row shape has never
+ *   been observed, so no claim is made about any single row.
  * - **The value refuses more often than it reads.** The venue's own
  *   `portfolio_value` is pinned only at zero; a non-zero value arrives as a
  *   refusal with its reason in `value_refusal`, and those words render —
@@ -27,11 +28,13 @@ import {
  *   "· $0.00 at risk · as of 7:47 AM" off `count_as_of_ms` alone — the
  *   twelve-hour mirror's stamp, which on a container that never lives twelve
  *   hours is the boot time, and which therefore stopped moving until the next
- *   restart. The value is re-read every five minutes and now says so. The two
- *   reads are separated on the line rather than averaged into one stamp,
- *   because a stamp that covers two cadences is wrong for at least one of
- *   them. Ages come from the server, never from `Date.now()`: a clock
- *   invented at render time would be a second lie in the same place.
+ *   restart. Both reads now ride the five-minute cadence, and the reads stay
+ *   separated on the line rather than averaged into one stamp: a shared
+ *   cadence is not a shared read, and a positions poll that fails while the
+ *   balance succeeds leaves the two clocks hours apart — exactly what one
+ *   borrowed stamp would hide. Ages come from the server, never from
+ *   `Date.now()`: a clock invented at render time would be a second lie in
+ *   the same place.
  * - **No P&L, no mark-to-market, never summed with cash** — TonightStrip's
  *   unsigned rule. This is commitment, not performance.
  *

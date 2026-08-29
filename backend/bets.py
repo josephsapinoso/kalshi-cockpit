@@ -331,14 +331,22 @@ def tonight_activity(
     return payload
 
 
-# The staleness ceiling for the open-positions COUNT. Its producer is the
-# 12-hour mirror clock (`portfolio_poll.MIRROR_INTERVAL_S` -- positions are
-# polled only on the full mirror, NOT on the 5-minute balance cadence), so
-# `TONIGHT_STALE_AFTER_MS` must NOT be reused here: a 30-minute bound against
-# a 12-hour poller would refuse essentially always and the refusal would be
-# furniture. 26h = two mirror cycles plus two hours of grace -- one failed
-# mirror poll does not flap the screen; a second consecutive failure refuses.
-POSITIONS_STALE_AFTER_MS = 26 * 3600 * 1000
+# **The open-positions COUNT is on `TONIGHT_STALE_AFTER_MS` and has no
+# constant of its own.** It had one until 2026-08-29 --
+# `POSITIONS_STALE_AFTER_MS = 26h`, "two mirror cycles plus two hours of
+# grace" -- and the comment beside it was right about its own premise and
+# wrong about what to do: a 30-minute bound against a 12-hour poller would
+# indeed have refused essentially always, so the bound was widened to fit the
+# poller. The poller was the thing to fix. `portfolio_poll.poll_positions`
+# now rides the 5-minute cadence, so 30 minutes is the same 6x-cadence bound
+# `tonight_activity` and the daily-loss kill switch already use, and the
+# count's refusal stops being furniture in BOTH directions: a 26h ceiling on
+# a 5-minute poller would serve a count from yesterday evening as "open
+# now", which is the false negative in the flattering direction pointed at
+# what is at risk.
+#
+# One bound, shared, rather than a fourth spelling of "recently" -- ADR 0064's
+# rule, applied to the constant it was written about.
 
 
 def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
@@ -364,24 +372,26 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
       non-empty payload pins the unit. Whether it includes fees is equally
       unobserved; nothing here claims it.
 
-    Two staleness clocks because the two producers run on two cadences: the
-    count against `POSITIONS_STALE_AFTER_MS` (12h poller), the value against
-    `TONIGHT_STALE_AFTER_MS` (5-minute balance cadence). Stale refuses to
-    `None` with the `as_of` kept, so the reader renders "not read since
-    HH:MM" -- never 0, which would report "nothing at risk" off a dead
-    poller, the false negative in the flattering direction.
+    **One staleness bound, `TONIGHT_STALE_AFTER_MS`, because since
+    2026-08-29 both producers run on the same 5-minute cadence.**
+    `portfolio_poll.poll_positions` left the 12-hour mirror on that date, so
+    the count's own 26-hour ceiling retired with the clock that justified it.
+    Stale refuses to `None` with the `as_of` kept, so the reader renders "not
+    read since HH:MM" -- never 0, which would report "nothing at risk" off a
+    dead poller, the false negative in the flattering direction.
 
-    **Two clocks means two stamps, and one of them is nearly always the
-    container's boot time.** `positions` is polled only on the full mirror
-    (`portfolio_poll.poll_portfolio`), whose first cycle runs at process
-    start and whose next runs twelve hours later -- and this instance's
+    **Two producers still means two stamps, and that stays true after the
+    clocks converged.** The count comes from `poll_log`; the value from
+    `venue_balance_snapshots`. A shared cadence is not a shared read, and a
+    failed positions poll leaves the count's stamp behind while the balance's
+    moves on -- which is exactly the divergence a single stamp would hide.
+    Until 2026-08-29 the gap was far worse and worth recording: `positions`
+    was polled only on the full mirror, whose first cycle runs at process
+    start and whose next runs twelve hours later, and this instance's
     containers do not live twelve hours (see
-    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`). So
-    `count_as_of_ms` is an honest read time for the COUNT and is, in
-    practice, the boot clock; the VALUE is re-read every five minutes and
-    carries `value_as_of_ms`, minutes fresh. Stamping the value with the
-    count's clock -- which the screen did until 2026-08-29 -- puts a boot
-    time on a money figure.
+    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`) -- so
+    `count_as_of_ms` was in practice the container's boot clock, and the
+    screen stamped a money figure with it.
 
     `count_age_ms`/`value_age_ms` are each read's age against the SAME
     `now_ms` the staleness bounds use, so the reader never has to subtract a
@@ -421,7 +431,7 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
         payload["count_as_of_ms"] = count_row["polled_ms"]
         payload["count_age_ms"] = max(0, now_ms - count_row["polled_ms"])
         if (
-            now_ms - count_row["polled_ms"] <= POSITIONS_STALE_AFTER_MS
+            now_ms - count_row["polled_ms"] <= TONIGHT_STALE_AFTER_MS
             and count_row["row_count"] is not None
         ):
             payload["count"] = int(count_row["row_count"])
