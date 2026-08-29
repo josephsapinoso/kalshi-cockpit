@@ -341,6 +341,21 @@ the next incident in one read, both trivially small:
 Neither is a fix. Naming the child converts the next ~60-minute incident from
 a hypothesis menu into a diagnosis.
 
+**SHIPPED AND VERIFIED ON LIVE, same session.** `c9ca0cd`, deployed via
+Actions, `/api/health` `git_sha` == local HEAD exact. `record_teardown` in
+the entrypoint (all three death branches, before `shutdown 1`, appending to
+`/data/last_teardown.log` with the dmesg tail that decides the guest-OOM
+question) and `record_pass_rss` in `run_loop.py` (one line per pass at pass
+START, `/data/loop_rss.jsonl`, 2MB cap). Four mutations observed red,
+including the deleted-call-site one only a caller guard catches. First pass
+after boot wrote its line on the live volume: `rss_kb 130964` — **131MB fresh
+against 714MB at 2.5h yesterday, so the growth curve is already the lead
+suspect's fingerprint.** `last_teardown.log` does not exist yet, correctly:
+no death since the deploy. The next gap names its child on its own.
+
+Full suite on this tree: **5036 passed / 10 xfailed**, collected on `c9ca0cd`
+with nothing edited after the run started.
+
 ### Partner rulings this session (directed in parallel, per Joe)
 
 - RAM bump: HOLDS (see the hole above — revisit only with guest-OOM evidence).
