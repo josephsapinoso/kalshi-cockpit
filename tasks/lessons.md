@@ -25,6 +25,122 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-29 - Search the measurements directory before commissioning a measurement
+
+A lane was sent to name a ~570MB step in the live container's memory curve. It
+did good work and returned a precise answer. The answer was already in the
+repo: `docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md` had
+recorded it as a one-time boot-level allocation nine days earlier, in its
+title.
+
+**The pattern.** A repo that writes its findings down accumulates an asset that
+only pays if it is consulted, and the moment of highest risk is exactly when a
+fresh observation looks novel. A number arriving from an instrument feels like
+new evidence; the same number sitting in a dated file feels like history. They
+are the same fact.
+
+So: **before commissioning any measurement, grep `docs/measurements/` and
+`docs/adr/` for the quantity by name and by magnitude.** Both, because the
+earlier write-up may have used a different label - here the prior file said
+585MB where the new read said 570MB, and a name search alone would have missed
+it. Cost of the check: under a minute. Cost of skipping it here: a full lane,
+plus a wrong framing that nearly shipped in a commit message claiming a fix for
+container deaths it does not touch.
+
+The corollary is worse than the waste. **A re-derived number arrives without
+its original caveats.** The 2026-08-20 file had already established this was a
+level and not a leak; the re-derivation had to rediscover that, and in the
+interval a plausible, elegant, entirely wrong death-spiral theory was built on
+top of it and had to be separately demolished.
+
+## 2026-08-29 - A document that promises to amend itself needs an enforcer, and the un-amended state always flatters
+
+A pre-registration contained its own amendment trigger: *"if it comes in above
+30 tenths this document must be amended to raise the floor."* The quantity came
+in at 30.15. The amendment was not written, and nothing noticed, because
+nothing could - the trigger lived in prose and its subject lived in a
+measurement taken by different code on a different day.
+
+**The pattern.** A conditional obligation with no executor is a wish. Whenever
+a document says "if X then this document must be amended", ask immediately:
+**what fails when X happens and nobody amends?** If the answer is "nothing",
+the clause is decoration, and the failure mode is not random - it is always in
+the direction that leaves the easier threshold standing. Here the un-amended
+floor was 300 and the honest floor was 713, so every day the amendment went
+unwritten was a day the project could declare a verdict it had already
+disqualified itself from declaring.
+
+Two things follow:
+
+- **Pair every self-amendment clause with a test or a constant.** The floor was
+  `MIN_CLUSTERS_TO_DECLARE = 300` in code, unchanged, while the document that
+  set it had promised to move it. A number that governs a decision belongs in
+  one place, and the prose must not be the only copy.
+- **Check the trigger conditions of every registration at every look**, as a
+  standing step, not when someone remembers. The look that fires a trigger is
+  the look least motivated to notice it, because the trigger makes the result
+  harder to obtain.
+
+And the deeper one: **a design can fail its own power check in a cell it
+printed itself.** The registration's published table gave the resolving power
+at the floor it chose. Nobody read across the row. Before trusting any
+registered threshold, evaluate the design AT that threshold and confirm it can
+resolve the effect it is testing for.
+
+## 2026-08-29 - When mid-flight steering is unavailable, the brief is the only instrument, so it must grant permission to refuse
+
+Mid-task messaging to running agents was unavailable for a session. Two lanes
+were therefore launched on briefs that turned out to be wrong: one against a
+ticket that had shipped five days earlier, and one containing an instruction
+that would have reintroduced the very bug it was sent to fix.
+
+The second lane came back correct anyway, and the reason was one line in its
+brief telling it to **verify the diagnosis before changing anything, and to fix
+the real cause if it differed.** It did, it found the described defect already
+fixed, and it refused the instructed change with an argument. The first lane
+had the same clause and used it too.
+
+**The pattern.** A brief written by someone with stale context is the normal
+case, not the exception - the director's picture is always older than the
+code. So every brief should carry, as standing text:
+
+- **verify the stated cause before acting on it, and say so if it differs;**
+- **check whether the work is already done, in the code rather than in the
+  ticket;**
+- **refuse an instruction that would make things worse, and explain why.**
+
+Cheap to write, and it converts a wrong brief from wasted work into a
+correction. The alternative - relying on the ability to steer mid-flight - is a
+dependency on a channel that may not exist, and it fails silently: an obedient
+agent executing a stale brief produces confident, tested, merged, useless work.
+
+## 2026-08-29 - One predicate with two spellings, and the screen believing the wrong one
+
+A single false statement on the desk took three separate fixes to kill. The
+backend computed a "next scheduled sweep" time from a schedule slot while the
+budget check that would refuse that sweep sat after it; the frontend then
+rendered the resulting null as a different reason entirely; and the loop's own
+refusal string promised an hourly fallback that the same refusal had switched
+off - a string that was not a log line but travelled to an API field and
+printed on a screen.
+
+Each fix looked complete when it landed. Each left a surface still saying the
+false thing.
+
+**The pattern.** When one condition is evaluated in more than one place -
+"will a sweep happen" computed by a scheduler and separately narrated by a
+banner, an API field and a UI branch - the copies drift, and they drift toward
+whichever spelling was written first. Fixing the computation does not fix the
+narration.
+
+The check to run: **grep for every place that states the predicate in words,
+not just every place that computes it.** Refusal strings, banner text, empty
+states and log details are all claims about behaviour, and a log line that
+reaches an API response is user-facing regardless of what it was written as.
+Then ask what SHOULD be true after the fix and re-read every one of those
+surfaces against it - a reassurance that was accurate before a behaviour change
+becomes a lie after it, and nothing in a test suite notices.
+
 ## 2026-08-29 — A cause list written as alternatives cannot file causes that happen in sequence
 
 The gap pre-registration enumerated four causes of a missing failure row and
