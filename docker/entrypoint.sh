@@ -189,6 +189,40 @@ shutdown() {
 # The trap keeps the zero: a signal is somebody asking, not something breaking.
 trap 'shutdown 0' INT TERM
 
+# `record_teardown <which child died>` -- one durable record per death,
+# because stdout is not durable.
+#
+# The 2026-08-29 gap read established that every pass gap ends with a child
+# dying and this script naming it -- in a log stream that retains ~10 minutes,
+# so by the time anyone asked which child it was, the name was gone. Twice in
+# one day. The volume is the only place a fact survives the restart that
+# follows it, so the name, the memory headroom and the guest kernel's last
+# words go there.
+#
+# `dmesg` is what decides the guest-OOM question: Fly's `oom_killed` flag is
+# host-level and cannot see the guest kernel killing one process inside the
+# VM. If the kernel did it, the words "Out of memory" are in this tail. It may
+# print nothing as a non-root user under `kernel.dmesg_restrict`; recording
+# the headroom still stands on its own.
+#
+# Appended, never truncated on boot -- the record before a death is the point
+# -- and capped by dropping the oldest lines, because an uncapped diagnostic
+# file on the data volume is how the 2026-08-16 outage started. Everything is
+# best-effort: this runs on the way down, and a recording failure must not
+# change the exit code the platform's restart policy reads.
+record_teardown() {
+  log="${TEARDOWN_LOG:-$(dirname "${DB_PATH}")/last_teardown.log}"
+  {
+    echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ${1}"
+    grep -E '^(MemTotal|MemFree|MemAvailable)' /proc/meminfo 2>/dev/null
+    dmesg 2>/dev/null | tail -n 40
+  } >> "${log}" 2>/dev/null || true
+  if [ "$(wc -c < "${log}" 2>/dev/null || echo 0)" -gt 262144 ]; then
+    tail -n 500 "${log}" > "${log}.tmp" 2>/dev/null \
+      && mv "${log}.tmp" "${log}" 2>/dev/null || true
+  fi
+}
+
 echo "[entrypoint] starting backend on 127.0.0.1:8000"
 # `--timeout-keep-alive` must exceed the health check interval, and uvicorn's
 # default of 5s does not. Fly checks port 3000 every 15s on live and every 30s
@@ -297,14 +331,17 @@ wait -n || true
 
 if ! kill -0 "${backend_pid}" 2>/dev/null; then
   echo "[entrypoint] BACKEND exited -- every price is now stale. Restarting."
+  record_teardown "BACKEND exited"
 elif [ -n "${loop_pid}" ] && ! kill -0 "${loop_pid}" 2>/dev/null; then
   # The runner gives up only after MAX_CONSECUTIVE_FAILURES, so reaching here
   # means repeated failure, not a blip. Sitting on it would leave the cockpit
   # serving a record that has silently stopped growing -- which reads as a
   # quiet slate, not as a broken instance.
   echo "[entrypoint] CHAIN RUNNER exited -- the record has stopped growing. Restarting."
+  record_teardown "CHAIN RUNNER exited"
 else
   echo "[entrypoint] FRONTEND exited -- restarting container"
+  record_teardown "FRONTEND exited"
 fi
 # Non-zero, so Fly's on-failure restart policy actually fires. See `shutdown`.
 shutdown 1

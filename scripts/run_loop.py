@@ -69,6 +69,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import sys
@@ -135,6 +136,73 @@ from backend.market_results import run_market_result_pass  # noqa: E402
 from backend.scoring import run_scoring_pass  # noqa: E402
 from backend.settlement import run_settlement_pass  # noqa: E402
 from backend.store import db  # noqa: E402
+
+
+#: Cap on the per-pass RSS log, and the tail kept when it is hit. At the quote
+#: cadence (~15s, ~80 bytes/line) the file grows ~460KB/day, so 2MB is roughly
+#: four days of curve -- enough to bracket any incident at the observed one-to-
+#: two-a-day rate, small enough that the volume never notices it exists.
+RSS_LOG_CAP_BYTES = 2 * 1024 * 1024
+RSS_LOG_KEEP_LINES = 8_000
+
+
+def record_pass_rss(
+    path: Path, *, now_ms: int, kind: str, proc: Path = Path("/proc")
+) -> None:
+    """Append this process's RSS and the box's headroom, one line per pass.
+
+    The instrument for the 2026-08-29 finding: every pass gap ends with a child
+    process dying, the runner is the largest process on a 2GB no-swap box
+    (714MB RSS 2.5h after boot), and nothing records the growth curve between
+    boot and death. One JSON line per pass -- `{ms, kind, rss_kb,
+    available_kb}` -- sampled at pass START, so the last line before a wedge
+    shows the state the fatal pass began in rather than nothing at all.
+
+    On the data volume, not stdout: the log stream retains ~10 minutes and the
+    question is asked hours later. Capped by keeping the newest lines once the
+    file passes `RSS_LOG_CAP_BYTES` -- an uncapped diagnostic on the volume is
+    how the 2026-08-16 outage started.
+
+    Best-effort by rule, like `refresh_combo_eligibility`: every failure is
+    swallowed, because telemetry must never be why a pass dies. On a machine
+    with no `/proc` (Windows, macOS -- every dev box) the first read raises and
+    nothing is written, which is the correct amount of telemetry for a machine
+    whose memory nobody is diagnosing.
+
+    WHAT THIS DOES NOT ESTABLISH: which child the kernel kills, or why the
+    pass wedged -- only the memory trajectory leading in. The teardown record
+    in `docker/entrypoint.sh` carries the other half.
+    """
+    try:
+        rss_kb = None
+        for line in (proc / "self" / "status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                rss_kb = int(line.split()[1])
+                break
+        available_kb = None
+        for line in (proc / "meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                available_kb = int(line.split()[1])
+                break
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "ms": now_ms,
+                        "kind": kind,
+                        "rss_kb": rss_kb,
+                        "available_kb": available_kb,
+                    }
+                )
+                + "\n"
+            )
+        if path.stat().st_size > RSS_LOG_CAP_BYTES:
+            tail = path.read_text(encoding="utf-8").splitlines()[
+                -RSS_LOG_KEEP_LINES:
+            ]
+            path.write_text("\n".join(tail) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001 -- telemetry must never kill a pass
+        pass
 
 
 @contextlib.contextmanager
@@ -373,6 +441,11 @@ async def main() -> int:
         return 2
 
     conn = db.init_db(args.db)
+    # Beside the database rather than in it: one append per pass on the hot
+    # path, read only over ssh during a diagnosis, and never joined against
+    # anything -- a table would buy schema versioning for a file whose whole
+    # job is to survive the process that writes it.
+    rss_log = Path(args.db).resolve().parent / "loop_rss.jsonl"
     kalshi_config = KalshiConfig.load()
     odds_config = OddsConfig.load()
     risk = RiskConfig.load()
@@ -891,6 +964,10 @@ async def main() -> int:
             # `tempo` the failed pass may have already moved. Same one-element
             # -list idiom as `served_after`.
             in_flight_kind[0] = kind
+            # Before any work, so a pass that wedges still left its line: the
+            # last entry in the file is the memory state the fatal pass began
+            # in. Best-effort inside; a telemetry failure changes nothing.
+            record_pass_rss(rss_log, now_ms=stamp, kind=kind)
 
             if kind == "full":
                 counts = await run_once(
