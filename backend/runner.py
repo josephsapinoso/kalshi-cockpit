@@ -2692,6 +2692,41 @@ _FULL_WALK_QUOTE_PASSES = 0
 _LAST_WALK_DISCOVERED: Optional[int] = None
 
 
+def reset_walk_alarm() -> None:
+    """Forget the streak and the carried discovery count.
+
+    **Module level is the right home and this function is the price of it.**
+    The streak is "how many quote passes IN A ROW", and the carried count is
+    "what the walk before this one found" -- both are questions about the
+    sequence rather than about a pass, so the state has to outlive a call. The
+    obvious alternative, hanging it off an object with a lifetime, has no
+    object to hang it off: `run_kalshi_pass` is reached from two cadences that
+    share no instance, takes a `conn` and a client and nothing that lives
+    between passes, and threading a holder down from `run_loop.main` through
+    `run_quote_pass` and `run_ingest_pass` would buy nothing on live, where
+    there is exactly one loop and therefore exactly one sequence. Same call
+    `discovery._LAST_SUMMARY` and `_WARNED_SCOPES` already made.
+
+    **Not called by the loop.** Resetting per pass would be resetting the
+    quantity itself: a streak that forgets is always 1, and a carried count
+    that forgets is always `None`, which is the alarm's "just restarted"
+    reading manufactured on every pass.
+
+    It exists for tests, which share one process, so a test process is one
+    long sequence of passes and every test that runs a pass is a pass in it.
+    Left alone, whichever file pytest collected first would decide what the
+    next one reads -- `test_full_walk_alarm` covered itself with a local
+    fixture and the exposure simply moved to every other file that runs a
+    pass. An autouse fixture in the root `conftest.py` calls this between
+    tests; `TestTheStateIsProcessWideAndEveryCallerSharesIt` pins both the
+    persistence and the fresh start, so the reset documents the property
+    rather than hiding it.
+    """
+    global _FULL_WALK_QUOTE_PASSES, _LAST_WALK_DISCOVERED
+    _FULL_WALK_QUOTE_PASSES = 0
+    _LAST_WALK_DISCOVERED = None
+
+
 def priceable_series(conn, *, now: int) -> list[str]:
     """Series that recently carried a priceable event, for the narrowed walk.
 

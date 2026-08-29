@@ -25,6 +25,62 @@ A third rule, added 2026-08-17 for the reason the first lesson below records:
 
 ---
 
+## 2026-08-29 - A local autouse fixture over module state protects one file and exposes every other
+
+`run_kalshi_pass` acquired two module-level counters, and the lane that added
+them guarded its own tests with an autouse fixture inside
+`tests/test_full_walk_alarm.py`. That file was then the only one in the suite
+that could not be polluted. Six other files call a pass, `test_runner.py` hands
+`run_kalshi_pass` an empty series list and leaves the streak at 1 for
+everything collected after it, and a first pass in any later test read a
+`walk_prev_discovered` that another test had walked -- the integer that on live
+means "a walk has happened", produced in the one situation where the honest
+answer is `None`.
+
+**The pattern.** Process-wide state is a property of the module, so the reset
+belongs beside it and the fixture belongs in the root `conftest.py`, where it
+covers every file rather than the one whose author happened to think of it. A
+local fixture is not a smaller version of that; it is a guarantee for one file
+purchased by making the hazard invisible everywhere else -- and invisible in
+the direction that matters, because the protected file is the one whose tests
+would have named the problem.
+
+The repo already had the shape to copy: `reset_scope_warnings` and
+`_JOINT_CACHE` are both deliberately process-lived and both forgotten between
+tests from `conftest.py`, each with a docstring saying why the state outlives a
+call. A reset written that way documents the production property; one written
+as a local fixture hides it.
+
+**And a reset is not a substitute for asserting the property.** The persistence
+is what makes the streak mean anything, so it is now pinned by a test of its
+own -- two callers, one counter -- beside the test that pins the fresh start.
+Both go red when the fixture is deleted, which is the only evidence that either
+is a guard.
+
+---
+
+## 2026-08-29 - A red suite in a shared checkout may be a moving tree, not a defect
+
+Eight failures were reported against a merge of two lanes. Every one of them
+was an `inspect.getsource` assertion. The merge commit's own full suite was
+green -- 5,070 passed -- as was the current tip three merges later, and as were
+the eight tests under the third lane that was mid-merge in the working tree at
+the time. Nothing was wrong with the code.
+
+**The pattern.** A checkout that several lanes merge into is not a fixed input,
+and a 13-minute suite is a long window. Before diagnosing an integration
+failure, pin the tree: record the commit, confirm the working tree is clean,
+and re-run from a worktree at that commit. `git status` and `.git/MERGE_HEAD`
+are part of a bug report about a test run, in the same way the commit is.
+
+`inspect.getsource` assertions are the ones that notice first, because they
+read the file from disk at assert time while the module in memory was imported
+minutes earlier. That makes them an early warning about the tree rather than
+about the code, and worth reading that way when a whole cluster of them fails
+together and nothing else does.
+
+---
+
 ## 2026-08-29 - Search the measurements directory before commissioning a measurement
 
 A lane was sent to name a ~570MB step in the live container's memory curve. It
