@@ -364,9 +364,12 @@ class TestTheRoute:
             "open_positions": {
                 "count": None,
                 "count_as_of_ms": None,
+                # No read means no age. Never 0, which reads as "just now".
+                "count_age_ms": None,
                 "value_tenths": None,
                 "value_display": None,
                 "value_as_of_ms": None,
+                "value_age_ms": None,
                 "value_refusal": "never observed",
             },
             "lockout_until_ms": None,
@@ -550,8 +553,9 @@ class TestOpenPositionsRefuseBeforeTheyFlatter:
         self._snapshot(conn, observed_ms=NOW_MS - 60_000, value_tenths=0)
         block = bets.open_positions(conn, now_ms=NOW_MS)
         assert set(block) == {
-            "count", "count_as_of_ms", "value_tenths", "value_display",
-            "value_as_of_ms", "value_refusal",
+            "count", "count_as_of_ms", "count_age_ms", "value_tenths",
+            "value_display", "value_as_of_ms", "value_age_ms",
+            "value_refusal",
         }
         forbidden = {"total", "net", "pnl", "profit", "loss", "change",
                      "mark", "unrealised", "unrealized"}
