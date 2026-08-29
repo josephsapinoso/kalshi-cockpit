@@ -103,6 +103,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 # The live volume. `cockpit.db`, not `kalshi.db` -- the repo-root `kalshi.db`
@@ -1459,6 +1460,123 @@ def _q_notifications(conn: sqlite3.Connection, args) -> list[Section]:
     return [kinds, _derive_iso(tail, "sent_ms", "sent_iso")]
 
 
+#: Where `scripts/run_loop.py` appends one line per pass. Derived from `--db`
+#: rather than configured, because the writer derives it the same way: two
+#: settings for one path is how a reader comes to inspect a file nobody writes.
+WALK_LOG_NAME = "loop_walk.jsonl"
+
+
+def _q_walk_log(conn: sqlite3.Connection, args) -> list[Section]:
+    """Which catalogue walk each pass took, and every quote pass on the full one.
+
+    The read path for `run_loop.record_pass_walk`. **Not a table** -- this is
+    the one query here that reads a file beside the database, for the reason
+    the file exists: one append per pass on the hot path, never joined against
+    anything, and it has to survive the process that writes it.
+
+    The reading is the PAIR of `kind` and `scope`, and neither alone:
+
+        kind full  / scope full        the design -- something has to look at
+                                       the whole catalogue or a newly-listed
+                                       league is invisible forever
+        kind quote / scope narrowed    the design -- ADR 0053's ~5x saving
+        kind quote / scope full        the anomaly. `priceable_series` returned
+                                       nothing, so the ~22s cadence is walking
+                                       ~14,000 events. Nothing is broken enough
+                                       to raise and nothing on the screen says
+                                       so.
+
+    `prev_discovered` is what the walk before it recognised, and it is what
+    separates the two causes of an empty series list. A count that fell off a
+    cliff -- 510 to 0 between two passes -- is a scope-classification
+    regression. One that decayed over hours is a slate that emptied. They need
+    opposite responses and the aggregate cannot tell them apart, which is why
+    the number is stored per pass rather than summarised.
+
+    **A missing file reports itself, and does not report zero rows.** An absent
+    instrument and an instrument saying "no full walks" are the two readings
+    this whole script exists to keep apart, and an empty section says the
+    second in the voice of the first. So the absent case returns one row naming
+    the path instead -- visible in both renderers, and impossible to skim past.
+
+    What this does not establish
+    ----------------------------
+    - **Which league or rule stopped classifying.** The count is the alarm;
+      the `discovery:` summary line is the diagnosis.
+    - **Anything about a pass that died before its walk finished.** The line
+      is written after the walk, so a wedged pass leaves none -- `pass-gaps`
+      is the instrument for that half.
+    - **Anything before 2026-08-29**, when the writer landed. An older window
+      reads as a clean file whatever it did.
+    """
+    path = Path(args.db).resolve().parent / WALK_LOG_NAME
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [
+            Section(
+                title="walk-log: THE INSTRUMENT IS NOT THERE -- this is not 'no full walks'",
+                columns=("problem", "path", "writer"),
+                rows=[(str(exc), str(path), "scripts/run_loop.record_pass_walk")],
+                cap=args.limit,
+            )
+        ]
+
+    parsed: list[dict] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed.append(json.loads(line))
+        except json.JSONDecodeError:
+            # A torn last line is what an append-only log looks like mid-write.
+            # Counted by its absence rather than guessed at.
+            continue
+
+    columns = ("iso", "ms", "kind", "scope", "series", "events_seen", "prev_discovered")
+
+    def _row(entry: dict) -> tuple[Any, ...]:
+        ms = entry.get("ms")
+        return (
+            _iso(ms if isinstance(ms, int) else None),
+            ms,
+            entry.get("kind"),
+            entry.get("scope"),
+            entry.get("series"),
+            entry.get("events_seen"),
+            entry.get("prev_discovered"),
+        )
+
+    anomalies = [
+        e for e in parsed
+        if e.get("kind") == "quote" and e.get("scope") == "full"
+    ]
+    anomalies.reverse()
+    tail = list(reversed(parsed))[: max(0, args.tail)]
+
+    cap = args.limit
+    return [
+        Section(
+            title=(
+                f"walk-log: QUOTE passes that took the FULL walk, newest first "
+                f"({len(anomalies)} of {len(parsed)} lines in {path.name})"
+            ),
+            columns=columns,
+            rows=[_row(e) for e in anomalies[:cap]],
+            truncated=len(anomalies) > cap,
+            cap=cap,
+        ),
+        Section(
+            title=f"walk-log: last {args.tail} passes, newest first",
+            columns=columns,
+            rows=[_row(e) for e in tail[:cap]],
+            truncated=len(tail) > cap,
+            cap=cap,
+        ),
+    ]
+
+
 def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
     """Holes in the pass ledger, and every failure recorded near them.
 
@@ -2551,6 +2669,14 @@ QUERIES: dict[str, QueryDef] = {
         "row. A gap WITH failures inside it was a failing loop; a gap with NONE "
         "never came back to raise. The pair is the reading; neither half is.",
         _q_pass_gaps,
+    ),
+    "walk-log": QueryDef(
+        "Which catalogue walk each pass took, from loop_walk.jsonl beside the "
+        "db. First section is the anomaly: QUOTE passes that took the FULL "
+        "walk, i.e. priceable_series returned nothing and the ~22s cadence is "
+        "paginating ~14,000 events. `prev_discovered` falling off a cliff is a "
+        "classification regression; decaying is an emptying slate.",
+        _q_walk_log,
     ),
     "prune-frontier": QueryDef(
         "How far prune_quotes has got: MIN(COALESCE(confirmed_ms, "

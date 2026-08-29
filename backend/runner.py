@@ -342,6 +342,43 @@ class PassCounts:
     # because nothing moved and a pass that wrote nothing because the writer
     # broke produce the same silence otherwise.
     quote_rows_written: int = 0
+    # Which branch `run_kalshi_pass` took, as a FACT rather than a duration.
+    #
+    # "narrowed" is the per-series walk; "full" is the whole open catalogue.
+    # `leg_walk_ms` already separates them in practice -- ~2,700ms against
+    # ~28,000ms -- but a duration is evidence about a branch and not the branch
+    # itself, and the two come apart in exactly the case worth catching: a slow
+    # narrowed walk and a fast full walk both exist, and neither says which
+    # code ran. Recorded where the `if` is, so it cannot be wrong.
+    #
+    # Empty string means the field was never set, which is a pass that did not
+    # walk at all -- distinct from either branch, and not spelled "full".
+    walk_scope: str = ""
+    # `len(series_tickers)` as the caller passed it. Zero on a full pass, and
+    # zero is also the anomaly: `run_quote_pass` passing an EMPTY list means
+    # `priceable_series` found nothing inside `PRICEABLE_SERIES_WINDOW_MS`, and
+    # the documented response to that is to walk everything. `walk_scope`
+    # separates the two -- "full" with `walk_series 0` on a quote pass is the
+    # hazard; "full" with `walk_series 0` on a full pass is the design.
+    walk_series: int = 0
+    # Raw events the walk returned, BEFORE scope classification. The pair
+    # (`walk_events_seen`, `events_discovered`) is what tells a collapsed
+    # classifier from an empty catalogue: 14,010 seen and 0 discovered means
+    # the catalogue is full and nothing in it was recognised, which no
+    # "quiet night" can produce.
+    walk_events_seen: int = 0
+    # What the PREVIOUS walk discovered, carried across passes in module state.
+    #
+    # This is the "why was the list empty" half. An empty `series_tickers` says
+    # no event was seen in thirty minutes; it does not say whether discovery
+    # stopped recognising events (a classification regression -- the count
+    # falls off a cliff) or whether the slate genuinely emptied (it decays).
+    # One number cannot show a cliff, but one number PER PASS, appended, can.
+    #
+    # `None` -- never 0 -- until a second pass has run in this process, and
+    # after every restart. Unknown and zero are opposite readings here: zero is
+    # the alarm condition itself.
+    walk_prev_discovered: Optional[int] = None
     errors: list[str] = field(default_factory=list)
 
     # Always printed even when zero. "surfaced: 0" is the headline result of a
@@ -385,6 +422,14 @@ class PassCounts:
         "unmatched_pruned",
         "legacy_unmatched_pruned",
         "quote_rows_written",
+        # Reported on every pass, at every value, including `None`. The whole
+        # point of the field is that "full" is unremarkable on one cadence and
+        # an alarm on the other, so a reader has to be able to see it on both;
+        # and a missing key cannot be told from a pass that never walked.
+        "walk_scope",
+        "walk_series",
+        "walk_events_seen",
+        "walk_prev_discovered",
     )
 
     def as_dict(self) -> dict[str, Any]:
@@ -2622,6 +2667,30 @@ def store_quotes_from_discovery(
 #: took the box down on 2026-08-18.
 PRICEABLE_SERIES_WINDOW_MS = 2 * 900_000
 
+#: How many consecutive full-walk quote passes between repeats of the alarm
+#: below. The condition persists until someone acts on it, so warning once per
+#: pass would put ~160 identical lines an hour into a 100-line `flyctl logs`
+#: buffer and bury everything else -- and warning exactly once per process
+#: would put the only copy of it hours outside the ~10 minutes the log stream
+#: retains. Twenty quote passes is ~7 minutes, which is loud on the timescale
+#: of a diagnosis and quiet on the timescale of a pass.
+#:
+#: The first occurrence always warns; this paces the repeats.
+FULL_WALK_ALARM_REPEAT_PASSES = 20
+
+#: How many quote passes in a row have taken the full-catalogue walk, and what
+#: the previous walk discovered. Module state, like `_UNPRICEABLE_SEEN` and
+#: `discovery._LAST_SUMMARY`: both questions are about the sequence of passes
+#: rather than about any one of them, and the runner has no other place that
+#: outlives a pass and dies with the process.
+#:
+#: Both reset on restart, deliberately. `walk_prev_discovered` is `None` rather
+#: than `0` until a second pass has run, because "not observed yet" and "the
+#: last pass discovered nothing" are the two readings this instrument exists to
+#: tell apart.
+_FULL_WALK_QUOTE_PASSES = 0
+_LAST_WALK_DISCOVERED: Optional[int] = None
+
 
 def priceable_series(conn, *, now: int) -> list[str]:
     """Series that recently carried a priceable event, for the narrowed walk.
@@ -2693,7 +2762,53 @@ async def run_kalshi_pass(
     -- an empty set means "nothing known yet", i.e. a fresh volume, and the
     honest response there is to go and look rather than to fetch nothing and
     report a quiet slate.
+
+    **That last sentence is policy and is untouched here; what follows is the
+    alarm on it.** An empty list is reachable without a silence gap: if
+    `discover_from_events` returns zero priceable events for thirty continuous
+    minutes while the loop keeps running normally, nothing in `kalshi_events`
+    is inside `PRICEABLE_SERIES_WINDOW_MS` and this branch flips to the ~28s,
+    ~14,000-event walk on the ~22s cadence and STAYS there. No `pass_kind`
+    bound intervenes, because no pass was missed. A scope-classification
+    regression produces exactly that -- an empty desk AND a silent 10x walk --
+    and nothing else on the screen distinguishes it from an ordinary quiet
+    night. So the branch is recorded as a fact, and the one combination that
+    is anomalous -- a *quote* pass on the full walk -- warns.
+
+    `None` and `[]` are not the same input here even though they take the same
+    branch. `None` is the full pass asking for the full walk and is silent; an
+    empty sequence is a narrowed caller that had nothing to narrow with, and is
+    the alarm. That is why the caller passes the list through instead of
+    normalising it away.
     """
+    global _FULL_WALK_QUOTE_PASSES, _LAST_WALK_DISCOVERED
+
+    counts.walk_series = len(series_tickers) if series_tickers is not None else 0
+    counts.walk_scope = "narrowed" if series_tickers else "full"
+    counts.walk_prev_discovered = _LAST_WALK_DISCOVERED
+    if series_tickers is not None:
+        if series_tickers:
+            _FULL_WALK_QUOTE_PASSES = 0
+        else:
+            _FULL_WALK_QUOTE_PASSES += 1
+            if (
+                _FULL_WALK_QUOTE_PASSES == 1
+                or _FULL_WALK_QUOTE_PASSES % FULL_WALK_ALARM_REPEAT_PASSES == 0
+            ):
+                logger.warning(
+                    "FULL_WALK_ON_QUOTE_PASS: priceable_series returned nothing, "
+                    "so this quote pass is walking the whole open catalogue -- "
+                    "%d consecutive pass(es) now. The previous walk discovered "
+                    "%s priceable events. A number that fell off a cliff is a "
+                    "scope-classification regression; one that decayed is an "
+                    "empty slate. Nothing is being retried or worked around: "
+                    "the walk is ~10x the narrowed one and will continue until "
+                    "an event is discovered again.",
+                    _FULL_WALK_QUOTE_PASSES,
+                    "an unknown number of" if _LAST_WALK_DISCOVERED is None
+                    else _LAST_WALK_DISCOVERED,
+                )
+
     walk_started = time.perf_counter()
     if series_tickers:
         raw_events: list[dict] = []
@@ -2714,10 +2829,17 @@ async def run_kalshi_pass(
         ]
     parse_started = time.perf_counter()
     counts.leg_walk_ms = int((parse_started - walk_started) * 1000)
+    counts.walk_events_seen = len(raw_events)
 
     events = discover_from_events(
         raw_events, always_log_summary=log_discovery_summary
     )
+    # After discovery, so the *next* pass reads what this one recognised. Set
+    # from `events` rather than read back off `counts.events_discovered`, which
+    # is the same list but is accumulated with `+=` in the pricing leg -- a
+    # pass that dies before pricing would leave it at the previous value and
+    # this alarm would report a healthy count for a walk that found nothing.
+    _LAST_WALK_DISCOVERED = len(events)
     store_started = time.perf_counter()
     counts.leg_parse_ms = int((store_started - parse_started) * 1000)
 
