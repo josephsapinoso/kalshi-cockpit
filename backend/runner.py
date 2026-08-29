@@ -86,7 +86,7 @@ from .engine import (
     ensure_strategy_config,
     persist_if_changed,
 )
-from .kalshi.discovery import DiscoveredEvent, discover_from_events
+from .kalshi.discovery import DiscoveredEvent, discover_from_event_stream
 from .kalshi.props import (
     ALTERNATE_SUFFIX,
     MARKET_TYPE_PROP,
@@ -2809,30 +2809,66 @@ async def run_kalshi_pass(
                     else _LAST_WALK_DISCOVERED,
                 )
 
-    walk_started = time.perf_counter()
-    if series_tickers:
-        raw_events: list[dict] = []
-        for series in series_tickers:
-            raw_events.extend(
-                [
-                    e
-                    async for e in kalshi_client.events(
+    # `events()` is an async *generator* -- it paginates lazily -- and this
+    # classifies each event as it arrives rather than collecting the walk first.
+    #
+    # **The collected form was the runner's high-water mark.** It read
+    # `raw_events = [e async for e in kalshi_client.events(...)]`, which defeats
+    # the laziness and holds every page of the open catalogue at once: 11,160
+    # events carrying 96,326 nested markets, to keep ~510. Replayed at that
+    # scale on 2026-08-29 the list alone was **1,036MB RSS, falling to 24MB once
+    # dropped**, with `tracemalloc` reporting nothing retained -- a transient
+    # peak, on a 2GB no-swap box, that glibc does not hand back. Streaming holds
+    # one page.
+    #
+    # The events are not junk and cannot be thinned by a prefix test: `events()`
+    # already drops `KXMVE` at the wire, so what remains is real and deciding
+    # costs a `classify_series`. See `discover_from_event_stream`.
+    walk_seconds = 0.0
+    # Counted as events cross the wire rather than with `len()`, because
+    # there is no longer a list to measure. Same quantity as before: raw
+    # events off the walk, before `discover_from_event_stream` judges them.
+    walk_events_seen = 0
+
+    async def _charge_walk(source):
+        """Yield from `source`, charging only the awaits to the walk leg.
+
+        `leg_walk_ms` means "time in Kalshi HTTP" and `leg_parse_ms` means "time
+        classifying it" -- boundaries `test_quote_pass_gap` pins, and which a
+        single wall-clock span around a streaming loop would silently merge.
+        Timing each `__anext__` keeps both meanings under interleaving.
+        """
+        nonlocal walk_seconds, walk_events_seen
+        iterator = source.__aiter__()
+        while True:
+            started = time.perf_counter()
+            try:
+                event = await iterator.__anext__()
+            except StopAsyncIteration:
+                walk_seconds += time.perf_counter() - started
+                return
+            walk_seconds += time.perf_counter() - started
+            walk_events_seen += 1
+            yield event
+
+    async def _walk():
+        if series_tickers:
+            for series in series_tickers:
+                async for event in _charge_walk(
+                    kalshi_client.events(
                         with_nested_markets=True, series_ticker=series
                     )
-                ]
-            )
-    else:
-        # `events()` is an async *generator* -- it paginates lazily -- so it is
-        # consumed rather than awaited.
-        raw_events = [
-            e async for e in kalshi_client.events(with_nested_markets=True)
-        ]
-    parse_started = time.perf_counter()
-    counts.leg_walk_ms = int((parse_started - walk_started) * 1000)
-    counts.walk_events_seen = len(raw_events)
+                ):
+                    yield event
+        else:
+            async for event in _charge_walk(
+                kalshi_client.events(with_nested_markets=True)
+            ):
+                yield event
 
-    events = discover_from_events(
-        raw_events, always_log_summary=log_discovery_summary
+    pass_started = time.perf_counter()
+    events = await discover_from_event_stream(
+        _walk(), always_log_summary=log_discovery_summary
     )
     # After discovery, so the *next* pass reads what this one recognised. Set
     # from `events` rather than read back off `counts.events_discovered`, which
@@ -2841,7 +2877,12 @@ async def run_kalshi_pass(
     # this alarm would report a healthy count for a walk that found nothing.
     _LAST_WALK_DISCOVERED = len(events)
     store_started = time.perf_counter()
-    counts.leg_parse_ms = int((store_started - parse_started) * 1000)
+    counts.leg_walk_ms = int(walk_seconds * 1000)
+    counts.walk_events_seen = walk_events_seen
+    counts.leg_parse_ms = max(
+        0,
+        int((store_started - pass_started) * 1000) - counts.leg_walk_ms,
+    )
 
     upsert_discovered(conn, events, now=now)
     quotes_started = time.perf_counter()

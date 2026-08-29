@@ -154,16 +154,44 @@ WALK_LOG_KEEP_LINES = 8_000
 
 
 def record_pass_rss(
-    path: Path, *, now_ms: int, kind: str, proc: Path = Path("/proc")
+    path: Path,
+    *,
+    now_ms: int,
+    kind: str,
+    produced_by: Optional[str],
+    proc: Path = Path("/proc"),
 ) -> None:
     """Append this process's RSS and the box's headroom, one line per pass.
 
     The instrument for the 2026-08-29 finding: every pass gap ends with a child
     process dying, the runner is the largest process on a 2GB no-swap box
     (714MB RSS 2.5h after boot), and nothing records the growth curve between
-    boot and death. One JSON line per pass -- `{ms, kind, rss_kb,
+    boot and death. One JSON line per pass -- `{ms, kind, produced_by, rss_kb,
     available_kb}` -- sampled at pass START, so the last line before a wedge
     shows the state the fatal pass began in rather than nothing at all.
+
+    **`kind` and `rss_kb` describe different passes, and `produced_by` is what
+    says so.** The sample is taken before any work, so `kind` names the pass
+    about to run while the memory it reports is whatever the *previous* pass
+    left behind. On 2026-08-29 that cost a session a wrong attribution: a 570MB
+    step was read off a line whose `kind` was `"full"` and charged to a full
+    pass, when the step had been produced by the quote pass before it. It is
+    worse than a one-line offset, because `Tempo.pass_kind` returns `"full"`
+    for the first pass of every process unconditionally -- so the line right
+    after a boot is labelled `"full"` no matter what, which is precisely where
+    a restart makes the curve most interesting.
+
+    `produced_by` names the pass whose completion left this reading, and is
+    `None` on the first sample of a process, where nothing produced it. That
+    `None` is also the restart marker the file otherwise lacks: the log is
+    append-only across container lifetimes, so "the previous line" is not
+    reliably the previous *pass*, and a reader cannot recover this by looking
+    back one row.
+
+    Both fields are kept. `kind` is what the older rows carry and what a reader
+    written against them expects; the attribution question is answered by
+    `produced_by`, which is simply absent on anything written before
+    2026-08-29.
 
     On the data volume, not stdout: the log stream retains ~10 minutes and the
     question is asked hours later. Capped by keeping the newest lines once the
@@ -197,6 +225,7 @@ def record_pass_rss(
                     {
                         "ms": now_ms,
                         "kind": kind,
+                        "produced_by": produced_by,
                         "rss_kb": rss_kb,
                         "available_kb": available_kb,
                     }
@@ -1023,6 +1052,12 @@ async def main() -> int:
             stamp = db.now_ms()
             started = time.monotonic()
             kind = tempo.pass_kind(stamp)
+            # The kind of the pass that ran *before* this one, read before it
+            # is overwritten below. That is the pass whose completion left the
+            # RSS this one is about to sample -- succeeded or died, either way
+            # it is what produced the number. `None` on the first pass of the
+            # process, where nothing did.
+            produced_by = in_flight_kind[0]
             # Published for `record_failure` below, which runs outside this
             # frame and would otherwise have to re-derive the kind from a
             # `tempo` the failed pass may have already moved. Same one-element
@@ -1031,7 +1066,9 @@ async def main() -> int:
             # Before any work, so a pass that wedges still left its line: the
             # last entry in the file is the memory state the fatal pass began
             # in. Best-effort inside; a telemetry failure changes nothing.
-            record_pass_rss(rss_log, now_ms=stamp, kind=kind)
+            record_pass_rss(
+                rss_log, now_ms=stamp, kind=kind, produced_by=produced_by
+            )
 
             if kind == "full":
                 counts = await run_once(
