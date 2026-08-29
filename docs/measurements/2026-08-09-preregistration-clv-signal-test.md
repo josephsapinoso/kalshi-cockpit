@@ -515,7 +515,7 @@ primary runs on the modal version and `G` counts only those games.
 ## 8. What would falsify this, and what happens then
 
 **Falsified by:** `beta_hat` at or below zero, or an always-valid upper limit
-below 0.40, at `G >= 300`.
+below 0.40, at `G >= 300`. **[SUPERSEDED by Amendment 2 §B4 — now `G >= 713`]**
 
 **The negative result's destination, fixed now, before the result exists:**
 
@@ -709,7 +709,7 @@ including the one where the strategy works perfectly. Running it early would:
 
 **The registered action is: keep recording, take interim looks freely (the
 boundary permits it at zero cost), report `G`, `sigma_eps`, `sigma_x` and the
-half-spread coverage at each, and declare nothing until `G >= 300`.**
+half-spread coverage at each, and declare nothing until `G >= 300`.** **[SUPERSEDED by Amendment 2 §B4 — now `G >= 713`]**
 
 A measurement that cannot resolve the question is worse than none, because it
 returns a number anyway and the number gets quoted.
@@ -916,7 +916,7 @@ rule that every harness carries its own limits.
 | Horizon | `clv_horizon_hours = 0.0` only |
 | Bucket edges | Grid A `[10,200) [200,800) [800,990)`; Grid B = `validate.BUCKETS` verbatim. Both descriptive. |
 | Boundary | `gate.always_valid_multiplier(G, tuning=300, alpha=0.05)` |
-| Decision floor | `G >= 300` before any verdict |
+| Decision floor | `G >= 300` before any verdict **[SUPERSEDED by Amendment 2 §B4 — now `G >= 713`]** |
 | Stopping rule | §7 |
 | Result destination | `docs/measurements/2027-XX-XX-clv-signal-test-result.md`, written either way |
 | Verdict at registration | **UNDERPOWERED — wait, do not run** |
@@ -1160,13 +1160,13 @@ edges of the same estimate, in the same sentence.
 > `[beta_hat - m*se, beta_hat + m*se]`.
 >
 > **BUG, NOT SIGNAL.** Declared if and only if, at a look taken when
-> `G >= 300`, the always-valid **lower** limit exceeds 1.0:
+> `G >= 300` **[SUPERSEDED by Amendment 2 §B4 — now `G >= 713`]**, the always-valid **lower** limit exceeds 1.0:
 > `beta_hat - m*se > 1.0`. Only then has the record ruled out full pass-through
 > from below, which is the only evidential state in which "the engine
 > understates its own edge" is established rather than guessed. This is a defect
 > report and no edge is claimed.
 >
-> **SIGNAL.** Declared if and only if, at a look taken when `G >= 300`, the
+> **SIGNAL.** Declared if and only if, at a look taken when `G >= 300` **[SUPERSEDED by Amendment 2 §B4 — now `G >= 713`]**, the
 > always-valid **lower** limit exceeds zero — `beta_hat > m*se` — **and** the
 > BUG condition above does not hold, **and** the verdict survives §A4.
 >
