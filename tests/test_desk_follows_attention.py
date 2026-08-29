@@ -303,9 +303,30 @@ class TestTheAttentionSliceIsAHardCeiling:
         )
         assert [f.trigger for f in decision.fire] == [DESK]
 
-    def test_the_refusal_says_the_floor_still_runs(self, conn, budget):
-        """A refusal that reads as "the feed is off" would send someone to raise
-        the cap. Naming what survives is what makes the ceiling legible."""
+    def test_the_refusal_names_a_floor_that_can_actually_run(
+        self, conn, budget
+    ):
+        """A refusal that reads as "the feed is off" would send someone to
+        raise the cap, so naming what survives is what makes the ceiling
+        legible. **Naming a survivor that is also refused is worse than naming
+        none**, and until 2026-08-29 this sentence did exactly that: it said
+        *"the hourly floor still runs"* in the same pass in which the floor was
+        not going to run.
+
+        `desk_wants` branches on `attended or windowed` and hands every
+        upcoming sport the ten-minute cadence; the slice check then `continue`s
+        past each one. There is **no fall-through to the hourly cadence**, so
+        while someone is looking, attention replaces the floor rather than
+        adding to it. `detail` is not a log line only -- it reaches
+        `/api/window` as `last_look_detail` and `WindowBanner` prints it
+        verbatim on `/board` -- so this was ticket #35's own defect (a screen
+        promising a buy the loop had already declined), one surface further on.
+
+        The second half is what makes this a claim about the world rather than
+        about a string: the sentence says the buying resumes once nobody is
+        looking, and the loop is then asked, in the same state with the
+        heartbeat expired, whether it does.
+        """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
         self._spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
@@ -313,7 +334,46 @@ class TestTheAttentionSliceIsAHardCeiling:
             conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
             max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
-        assert "hourly floor still runs" in decision.detail
+        assert "attention slice" in decision.detail
+        assert "resumes once nobody is looking" in decision.detail
+        # The refuted sentence, asserted absent by its own words: a rewording
+        # that reintroduces the promise fails here rather than passing on a
+        # substring the new copy happens to share.
+        assert "still runs" not in decision.detail
+        # Nothing fired at all -- the floor did not quietly run behind the
+        # refusal, which is the fact the old sentence contradicted.
+        assert decision.fire == ()
+
+        # ...and it does resume. Same database, same spent slice, one TTL
+        # later with no further heartbeat: unattended, so the floor owns the
+        # sport and buys it.
+        later = NOW + attention.DEFAULT_ATTENTION_TTL_MS + 1
+        resumed = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=4, now_ms=later,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in resumed.fire] == [DESK]
+
+    def test_a_windowed_refusal_waits_on_the_window_not_on_a_watcher(
+        self, conn, budget
+    ):
+        """The same sentence with `ODDS_DESK_WINDOW_UTC` pinned back on, where
+        "once nobody is looking" would be the wrong condition: nobody *is*
+        looking, and the floor is still displaced -- by the clock window, until
+        it closes. `desk_is_open` is the second half of `on_the_floor`, and a
+        refusal that named only the watcher would send an operator hunting for
+        a phone that was never open.
+        """
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        # No heartbeat: unattended, and refused anyway because the window is up.
+        self._spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            desk_window=(12, 22),  # NOW is 18:00Z
+        )
+        assert decision.fire == ()
+        assert "resumes once the desk window closes" in decision.detail
 
 
 class TestTheScreenPredictsWhatTheLoopWillDo:
