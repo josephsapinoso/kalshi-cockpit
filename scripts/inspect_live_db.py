@@ -93,6 +93,13 @@ What this does not establish
   section G. `prop-rungs` handles the same tension the other way, by deferring
   every derived quantity to `scripts/analyze_prop_onesided.py`, and that
   remains the default for anything with a decision rule attached.
+- **The second exemption: `manual-orders-audit` prints one ratio**, the
+  largest ticker's share of the hand-bet rows. Same census argument -- an
+  exhaustive `COUNT(*)` over a fixed snapshot, no sample, no null, no standard
+  error -- and it is there because `CLAUDE.md`'s own measurement rules
+  *require* the largest contributor's share beside any aggregate. That query
+  is otherwise structure and counts only, and what it may never report is
+  written into its own docstring rather than left to this paragraph.
 """
 
 from __future__ import annotations
@@ -512,6 +519,122 @@ _SQL_ACTIONABLE_FAIR = (
     "LEFT JOIN fair_prices f ON f.id = r.fair_price_id "
     f"WHERE {_ACTIONABLE_PREDICATE} "
     "ORDER BY r.created_ms DESC, r.id DESC"
+)
+
+
+# ---------------------------------------------------------------------------
+# The hand-bet record: structure and counts, and deliberately nothing else.
+# ---------------------------------------------------------------------------
+#
+# **The firewall is in the SQL, not only in the docstring.** Not one string
+# below names `venue_settlements`, `settlements`, `closing_lines`, `fills` or
+# `clv_tenths`, and none of them selects `p_yes_bp`. That is asserted by
+# `tests/test_inspect_live_db.py`, because a prohibition that lives only in
+# prose is a prohibition the next edit does not see.
+#
+# The reason is `docs/measurements/2026-08-29-preregistration-operator-self-
+# assessment.md`, committed the same day as this query. It fixes, before any
+# result has been seen, which panels may carry a verdict and at what `G`. An
+# inspector that could print a win rate would let the rule be chosen after the
+# answer, which is the one failure the whole registration exists to prevent --
+# and its §0 records that the row count here was *deliberately* not obtained
+# while the file was being written, precisely so no floor could be tuned to it.
+#
+# The vocabulary of statuses is spelled out so an absent bucket reads as zero
+# rather than as unknown, and anything OUTSIDE the vocabulary is surfaced on
+# its own rows with `outside_vocabulary = 1`. `dry_run` is in the vocabulary
+# because the placer writes it by design on every unarmed rehearsal
+# (`kalshi/orders.STATUS_DRY_RUN`) -- flagging it as unmodelled would be a
+# false claim. `resting` is deliberately NOT: a manual order is always
+# immediate-or-cancel, so a resting status here would be genuinely anomalous
+# and deserves the flag.
+_MANUAL_STATUS_VOCABULARY = (
+    "VALUES ('filled'), ('partially_filled'), ('unfilled'), "
+    "('rejected'), ('unrecognised_response'), ('pending'), ('dry_run')"
+)
+
+# `LIKE 'KXMVE%'` rather than a join: `backend/kalshi/discovery.py` drops that
+# prefix as junk, so a combination has no `kalshi_markets` row to join to and
+# the ticker text is the only thing that classifies it. No underscore in the
+# pattern, so SQLite's single-character `_` wildcard cannot widen it.
+_MANUAL_COMBO_CLASS = (
+    "CASE WHEN UPPER(TRIM(ticker)) LIKE 'KXMVE%' "
+    "THEN 'combo (KXMVE)' ELSE 'single market' END"
+)
+
+_SQL_MANUAL_CENSUS = (
+    "SELECT COUNT(*) AS n_rows, "
+    "COALESCE(SUM(CASE WHEN dry_run = 0 THEN 1 ELSE 0 END), 0) AS real_orders, "
+    "COALESCE(SUM(CASE WHEN dry_run = 1 THEN 1 ELSE 0 END), 0) AS dry_runs, "
+    "COALESCE(SUM(CASE WHEN kalshi_order_id IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "  AS with_kalshi_order_id, "
+    "COUNT(DISTINCT ticker) AS distinct_tickers, "
+    "MIN(submitted_ms) AS first_submitted_ms, "
+    "MAX(submitted_ms) AS last_submitted_ms "
+    "FROM manual_orders"
+)
+
+_SQL_MANUAL_STATUS = (
+    f"WITH vocabulary(status) AS ({_MANUAL_STATUS_VOCABULARY}) "
+    "SELECT v.status AS status, 0 AS outside_vocabulary, "
+    "COUNT(m.id) AS n_rows, "
+    "COALESCE(SUM(CASE WHEN m.dry_run = 0 THEN 1 ELSE 0 END), 0) AS real_orders, "
+    "COALESCE(SUM(CASE WHEN m.kalshi_order_id IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "  AS with_kalshi_order_id "
+    "FROM vocabulary v LEFT JOIN manual_orders m ON m.status = v.status "
+    "GROUP BY v.status "
+    "UNION ALL "
+    "SELECT m.status, 1, COUNT(*), "
+    "COALESCE(SUM(CASE WHEN m.dry_run = 0 THEN 1 ELSE 0 END), 0), "
+    "COALESCE(SUM(CASE WHEN m.kalshi_order_id IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "FROM manual_orders m "
+    f"WHERE m.status NOT IN ({_MANUAL_STATUS_VOCABULARY}) "
+    "GROUP BY m.status "
+    "ORDER BY outside_vocabulary DESC, n_rows DESC, status"
+)
+
+_SQL_MANUAL_SNAPSHOT = (
+    f"SELECT {_MANUAL_COMBO_CLASS} AS ticker_class, COUNT(*) AS n_rows, "
+    "COALESCE(SUM(CASE WHEN consensus_fair_tenths IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "  AS fair_value_present, "
+    "COALESCE(SUM(CASE WHEN consensus_fair_tenths IS NULL THEN 1 ELSE 0 END), 0) "
+    "  AS fair_value_null, "
+    "COALESCE(SUM(CASE WHEN consensus_book_count IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "  AS with_book_count, "
+    "COALESCE(SUM(CASE WHEN consensus_anchored_on_sharp = 1 THEN 1 ELSE 0 END), 0) "
+    "  AS anchored_on_sharp, "
+    "COALESCE(SUM(CASE WHEN consensus_computed_ms IS NOT NULL THEN 1 ELSE 0 END), 0) "
+    "  AS with_computed_ms, "
+    "COALESCE(SUM(CASE WHEN consensus_fair_tenths IS NULL "
+    "                   AND consensus_absent_reason IS NULL THEN 1 ELSE 0 END), 0) "
+    "  AS null_and_unexplained "
+    "FROM manual_orders "
+    f"GROUP BY {_MANUAL_COMBO_CLASS} "
+    "ORDER BY ticker_class"
+)
+
+_SQL_MANUAL_ABSENT_REASONS = (
+    "SELECT COALESCE(consensus_absent_reason, '(none recorded -- pre-v28 row)') "
+    "  AS absent_reason, "
+    f"{_MANUAL_COMBO_CLASS} AS ticker_class, COUNT(*) AS n_rows "
+    "FROM manual_orders WHERE consensus_fair_tenths IS NULL "
+    f"GROUP BY absent_reason, {_MANUAL_COMBO_CLASS} "
+    "ORDER BY n_rows DESC, absent_reason"
+)
+
+_SQL_MANUAL_TICKERS = (
+    "SELECT ticker, COUNT(*) AS n_rows, "
+    "ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM manual_orders), 1) "
+    "  AS pct_of_rows, "
+    "MIN(submitted_ms) AS first_submitted_ms, "
+    "MAX(submitted_ms) AS last_submitted_ms "
+    "FROM manual_orders GROUP BY ticker ORDER BY n_rows DESC, ticker"
+)
+
+_SQL_MANUAL_CONTRACTS = (
+    'SELECT m."count" AS contracts, COUNT(*) AS n_rows, '
+    "COALESCE(SUM(CASE WHEN m.dry_run = 0 THEN 1 ELSE 0 END), 0) AS real_orders "
+    'FROM manual_orders m GROUP BY m."count" ORDER BY contracts'
 )
 
 
@@ -1803,6 +1926,145 @@ def _q_actionable_audit(conn: sqlite3.Connection, args) -> list[Section]:
     return [rows, provenance]
 
 
+def _q_manual_orders_audit(conn: sqlite3.Connection, args) -> list[Section]:
+    """The hand-bet record: how many, of what shape, and how much of it is
+    interpretable. **Structure and counts only.**
+
+    WHAT THIS MAY NEVER REPORT, AND WHY THE PROHIBITION IS IN THE CODE
+    -----------------------------------------------------------------
+    **No P&L, no profit, no win rate, no CLV, no settled outcome, and no typed
+    estimate.** Not a hedge and not a default -- a rule.
+    `docs/measurements/2026-08-29-preregistration-operator-self-assessment.md`
+    fixes, before any result has been seen, which panels on Joe's own record
+    may carry a verdict and at what `G`: win rate never (§2.2), P&L not for
+    thousands of bets (§2.1), CLV only descriptively (§6c), calibration only at
+    `G >= 300` (§6a). An inspector that could print any of those would let the
+    decision rule be chosen after the answer -- the single failure that whole
+    registration exists to prevent, on the highest-flattery-risk measurement
+    this project has attempted, because the subject is the operator and he
+    asked for it.
+
+    That file's §0 records that the row count below was **deliberately not
+    obtained** while it was being written, so that no floor in it could be
+    tuned to `n`. This query is what makes the count available afterwards, and
+    it is scoped so that obtaining it cannot also obtain the answer.
+
+    Nothing here joins `venue_settlements`, `settlements`, `closing_lines` or
+    `fills`, and nothing selects `p_yes_bp`. `tests/test_inspect_live_db.py`
+    asserts that over the SQL strings, because a prohibition that lives only
+    in a docstring is one the next edit does not see.
+
+    THE SECTIONS
+    ------------
+    - **A** the census: rows, real against dry-run, the `submitted_ms` range,
+      distinct tickers, and how many carry a `kalshi_order_id` -- a venue
+      acknowledgement, and the only structural evidence that a request reached
+      the exchange at all.
+    - **B** the status buckets, over a fixed vocabulary so an absent status
+      reads as zero rather than as unknown. A status outside the vocabulary
+      gets its own row with `outside_vocabulary = 1`; that is a finding, not a
+      formatting detail, since `unrecognised_response` already means the venue
+      answered in a shape this code did not model.
+    - **C** the consensus snapshot's coverage (ADR 0082), split by whether the
+      ticker is a `KXMVE` combination. A combination has NO devigged
+      consensus -- discovery drops the prefix, so no `kalshi_markets` row and
+      therefore no `fair_prices` row can ever exist for one -- so NULL there is
+      correct and NULL on a single market is a gap. `null_and_unexplained`
+      should be exactly the rows written before v28; a post-v28 row in that
+      column is a bug in the writer.
+    - **D** why the absent ones are absent, over
+      `store/manual_orders.ABSENT_*`. `lookup_failed` is the only value that
+      means the recorder broke; the rest are honest absences.
+    - **E** rows per ticker with the largest one's share, which is
+      `CLAUDE.md`'s standing requirement that a pooled count be printed beside
+      its largest contributor. At single-digit `n` one ticker can be most of
+      the record.
+    - **F** the distribution of `count` -- contracts per order.
+
+    WHAT THIS DOES NOT ESTABLISH
+    ----------------------------
+    - **Nothing about whether the bets were good.** By construction. See above.
+    - **Nothing about whether an order filled at the venue.** `status` is what
+      this process wrote after reading the response; `unrecognised_response`
+      means it could not tell, and a row that stayed `pending` means the
+      outcome write never landed, not that nothing went out.
+    - **Nothing about coverage of the snapshot going forward.** Section C is a
+      census of what is on disk now. Rows predating v28 have NULL in every
+      snapshot column and were never going to have anything else.
+    - **Nothing about the fair value being right.** `beta = -0.141`: agreement
+      with the devigged consensus is not evidence of correctness. C counts how
+      often the number exists, never whether it was good.
+    """
+    census = _derive_iso(
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_MANUAL_CENSUS,
+                (),
+                title="A. the hand-bet census (structure and counts only)",
+                cap=args.limit,
+            ),
+            "first_submitted_ms",
+            "first_submitted_iso",
+        ),
+        "last_submitted_ms",
+        "last_submitted_iso",
+    )
+    statuses = _fetch(
+        conn,
+        _SQL_MANUAL_STATUS,
+        (),
+        title=(
+            "B. status buckets over the fixed vocabulary. A zero is a real "
+            "zero; outside_vocabulary = 1 is a status this code did not model"
+        ),
+        cap=args.limit,
+    )
+    snapshot = _fetch(
+        conn,
+        _SQL_MANUAL_SNAPSHOT,
+        (),
+        title=(
+            "C. the consensus snapshot (ADR 0082) by ticker class. NULL on a "
+            "KXMVE combination is correct -- there is no consensus to record"
+        ),
+        cap=args.limit,
+    )
+    reasons = _fetch(
+        conn,
+        _SQL_MANUAL_ABSENT_REASONS,
+        (),
+        title=(
+            "D. why the snapshot is absent, where it is. lookup_failed is the "
+            "only value that means the recorder broke"
+        ),
+        cap=args.limit,
+    )
+    tickers = _derive_iso(
+        _derive_iso(
+            _fetch(
+                conn,
+                _SQL_MANUAL_TICKERS,
+                (),
+                title="E. rows per ticker, largest first, with its share",
+                cap=args.limit,
+            ),
+            "first_submitted_ms",
+            "first_submitted_iso",
+        ),
+        "last_submitted_ms",
+        "last_submitted_iso",
+    )
+    contracts = _fetch(
+        conn,
+        _SQL_MANUAL_CONTRACTS,
+        (),
+        title="F. contracts per order",
+        cap=args.limit,
+    )
+    return [census, statuses, snapshot, reasons, tickers, contracts]
+
+
 def _q_clv_coverage(conn: sqlite3.Connection, args) -> list[Section]:
     """Does CLV scoring reach every market type, what does it retry, and what
     does the gate count as one game?
@@ -2725,6 +2987,20 @@ QUERIES: dict[str, QueryDef] = {
         "readings, book_count, anchored_on_sharp, market_width). Prints rows "
         "and no verdict. Answers: did these clear a real bar, or land in a gap?",
         _q_actionable_audit,
+    ),
+    "manual-orders-audit": QueryDef(
+        "The hand-bet record (`manual_orders`), STRUCTURE AND COUNTS ONLY: "
+        "the census with its real/dry-run split and submitted_ms range, "
+        "status buckets over a fixed vocabulary, the ADR 0082 consensus "
+        "snapshot's coverage split by whether the ticker is a KXMVE "
+        "combination, why the absent ones are absent, rows per ticker with "
+        "the largest one's share, and contracts per order. Reports NO P&L, "
+        "profit, win rate, CLV, settled outcome or typed estimate -- the "
+        "2026-08-29 registration fixes which of those may ever carry a "
+        "verdict, and an inspector that leaked one would let the rule be "
+        "chosen after the answer. Answers: how big is the record, and how "
+        "much of it can be interpreted later?",
+        _q_manual_orders_audit,
     ),
     "clv-signal-pull": QueryDef(
         "The CLV signal test's registered §2 population (horizon 0.0), one row "

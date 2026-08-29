@@ -1504,6 +1504,72 @@ CREATE TABLE IF NOT EXISTS manual_orders (
     dry_run             INTEGER NOT NULL DEFAULT 1,
     idempotency_key     TEXT UNIQUE,
     response_body_json  TEXT,
+
+    -- ------------------------------------------------------------------
+    -- What the desk was showing when he tapped (v28, 2026-08-29).
+    -- ------------------------------------------------------------------
+    --
+    -- **A frozen COPY, deliberately not a foreign key.** `fair_prices` is
+    -- mutable and retention-eligible, so a `fair_price_id` on this row would
+    -- be a pointer at whatever that table holds when someone finally looks --
+    -- which is not a record of what was true when the money left. The two
+    -- id columns below are kept as breadcrumbs and are explicitly NOT the
+    -- record; the snapshot columns are.
+    --
+    -- **Every one is nullable and a NULL means "not known", never zero.** A
+    -- `KXMVE` combination has no devigged consensus at all -- discovery drops
+    -- the prefix as junk (`kalshi/discovery.JUNK_PREFIX`), so no
+    -- `kalshi_markets` row and no `recommendations` row can exist for one --
+    -- and `consensus_fair_tenths = 0` would read as "the sportsbooks say this
+    -- is worth nothing", which on a money row is a lie rather than a gap.
+    -- `consensus_absent_reason` says which absence it was.
+    --
+    -- Rows written before v28 carry NULL in all eight. Nothing backfills them:
+    -- the values were never observed and inventing them would put a number
+    -- into the record that no clock ever produced.
+    --
+    -- No CHECK constraints, and that is a migration property rather than an
+    -- oversight: SQLite refuses `ALTER TABLE ... DROP COLUMN` on a column
+    -- named by any CHECK, and `tests/test_store.py::_v1_database` winds the
+    -- schema back by dropping exactly these. A constraint here would make the
+    -- migration untestable, which is worse than the constraint is good.
+
+    -- The devigged sportsbook consensus fair value for the side BOUGHT, in
+    -- integer tenths of a cent on the same 0-1000 scale as
+    -- `limit_price_tenths`. `recommendations.fair_probability` (the
+    -- worst-of-four conservative devig for that outcome) through
+    -- `core.prices.probability_to_tenths`.
+    consensus_fair_tenths       INTEGER,
+    -- The desk's own fee-net edge for that row, signed, rounded to integer
+    -- tenths from `recommendations.edge_tenths` (REAL). A per-row fact and
+    -- never an ordering: ADR 0071 forbids ranking by it, and `beta = -0.141`
+    -- is why.
+    consensus_edge_tenths       INTEGER,
+    -- Provenance, so the fair value can be interpreted rather than trusted.
+    -- How many books the consensus was devigged from, and whether it was
+    -- anchored on the sharp set (`runner.SHARP_BOOKS`) -- an anchored
+    -- consensus selects at most three books, which is a thinner fair value,
+    -- not a better one.
+    consensus_book_count        INTEGER,
+    consensus_anchored_on_sharp INTEGER,        -- 0 | 1 | NULL
+    -- When the consensus itself was computed (`fair_prices.computed_ms`), NOT
+    -- when this row was written. `submitted_ms - consensus_computed_ms` is
+    -- how stale the evidence was at the tap, and there is no other way to
+    -- recover it once the source row is pruned.
+    consensus_computed_ms       INTEGER,
+    -- Non-authoritative breadcrumbs. Free to store because the lookup already
+    -- read them, and useful for reconciling against a `fair_prices` row that
+    -- still exists. A reader that needs the VALUE must use the columns above:
+    -- these two may dangle.
+    consensus_fair_price_id     INTEGER,
+    consensus_link_id           INTEGER,
+    -- Why the snapshot is absent, when it is. NULL exactly when
+    -- `consensus_fair_tenths` is present. See
+    -- `store/manual_orders.ABSENT_*` for the closed vocabulary -- a reason
+    -- that is recorded is a reason the audit can count, and "no consensus"
+    -- and "the lookup blew up" are different facts about the record.
+    consensus_absent_reason     TEXT,
+
     CHECK (side IN ('yes', 'no')),
     CHECK (action = 'buy'),
     CHECK (count > 0),

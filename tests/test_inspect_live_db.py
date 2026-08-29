@@ -58,6 +58,12 @@ from scripts.inspect_live_db import (
     _ACTIONABLE_PREDICATE,
     _SQL_ACTIONABLE_FAIR,
     _SQL_ACTIONABLE_ROWS,
+    _SQL_MANUAL_ABSENT_REASONS,
+    _SQL_MANUAL_CENSUS,
+    _SQL_MANUAL_CONTRACTS,
+    _SQL_MANUAL_SNAPSHOT,
+    _SQL_MANUAL_STATUS,
+    _SQL_MANUAL_TICKERS,
     Section,
     UnknownQuery,
     _QW_BAND_HI,
@@ -722,6 +728,148 @@ class TestEveryWhitelistedQueryRunsAgainstTheRealSchema:
     def test_every_query_has_a_description(self):
         for name, defn in QUERIES.items():
             assert defn.description.strip(), name
+
+
+class TestTheHandBetAuditCannotLeakAResult:
+    """`manual-orders-audit` reports structure and counts. Nothing else.
+
+    `docs/measurements/2026-08-29-preregistration-operator-self-assessment.md`
+    fixes, before any result was seen, which panels on Joe's own record may
+    carry a verdict and at what `G`. An inspector able to print a win rate, a
+    P&L or a CLV would let the decision rule be chosen after the answer -- the
+    one failure that registration exists to prevent, on the measurement it
+    calls the highest-flattery-risk this project has attempted.
+
+    So the prohibition is asserted over the SQL text rather than trusted to
+    the docstring: a docstring is not read by the next edit, and this is.
+
+    Mutation: add `venue_settlements` to any of the strings below, or select
+    `p_yes_bp` in `_SQL_MANUAL_CENSUS`.
+    """
+
+    #: Tables that hold, or lead directly to, an outcome.
+    FORBIDDEN_TABLES = (
+        "venue_settlements",
+        "settlements",
+        "closing_lines",
+        "fills",
+        "bet_estimates",
+    )
+    #: Columns that are a result, or his own private input to one.
+    FORBIDDEN_COLUMNS = (
+        "clv_tenths",
+        "clv_scored_ms",
+        "fee_cost_tenths",
+        "realised",
+        "pnl",
+        "p_yes_bp",
+    )
+
+    def _sql(self) -> dict[str, str]:
+        return {
+            "census": _SQL_MANUAL_CENSUS,
+            "status": _SQL_MANUAL_STATUS,
+            "snapshot": _SQL_MANUAL_SNAPSHOT,
+            "absent_reasons": _SQL_MANUAL_ABSENT_REASONS,
+            "tickers": _SQL_MANUAL_TICKERS,
+            "contracts": _SQL_MANUAL_CONTRACTS,
+        }
+
+    @pytest.mark.parametrize("forbidden", FORBIDDEN_TABLES)
+    def test_no_section_reaches_a_table_that_holds_an_outcome(self, forbidden):
+        for name, sql in self._sql().items():
+            assert forbidden not in sql.lower(), (
+                f"{name} names {forbidden}; the audit may report structure and "
+                f"counts only"
+            )
+
+    @pytest.mark.parametrize("forbidden", FORBIDDEN_COLUMNS)
+    def test_no_section_selects_a_result_or_a_typed_estimate(self, forbidden):
+        for name, sql in self._sql().items():
+            assert forbidden not in sql.lower(), (
+                f"{name} names {forbidden}; the audit may report structure and "
+                f"counts only"
+            )
+
+    def test_every_section_reads_manual_orders_and_nothing_else(self):
+        """The only table any of them may name.
+
+        Stronger than the deny-lists above and for a different reason: those
+        catch the tables we thought of, this catches the one we did not.
+        """
+        for name, sql in self._sql().items():
+            tables = set(re.findall(r"(?:from|join)\s+([a-z_]+)", sql.lower()))
+            # `vocabulary` is the fixed status list, a CTE with no storage.
+            assert tables <= {"manual_orders", "vocabulary"}, (
+                f"{name} reads {sorted(tables)}"
+            )
+
+    def test_the_docstring_states_the_prohibition_in_its_own_words(self):
+        from scripts.inspect_live_db import _q_manual_orders_audit
+
+        doc = (_q_manual_orders_audit.__doc__ or "").lower()
+        for phrase in ("p&l", "win rate", "clv", "settled outcome"):
+            assert phrase in doc, f"the docstring does not disclaim {phrase}"
+
+    def test_the_audit_counts_the_combo_split_and_prints_no_estimate(
+        self, empty_db, capsys
+    ):
+        """End to end on rows: a combo and a single market, one snapshot each.
+
+        The bet values here are deliberately distinctive (`p_yes_bp = 6234`) so
+        a section that leaked the typed estimate would show it.
+        """
+        conn = sqlite3.connect(empty_db)
+        conn.executescript(
+            """
+            INSERT INTO manual_orders (
+                client_order_id, submitted_ms, ticker, side, action, count,
+                limit_price_tenths, max_price_tenths, p_yes_bp, status,
+                request_body_json, dry_run, kalshi_order_id,
+                consensus_fair_tenths, consensus_edge_tenths,
+                consensus_book_count, consensus_anchored_on_sharp,
+                consensus_computed_ms
+            ) VALUES (
+                'single-1', 1000, 'KXMLBGAME-26AUG29-AAA', 'yes', 'buy', 2,
+                520, 700, 6234, 'filled', '{}', 0, 'venue-1',
+                551, -18, 7, 1, 900
+            );
+            INSERT INTO manual_orders (
+                client_order_id, submitted_ms, ticker, side, action, count,
+                limit_price_tenths, max_price_tenths, p_yes_bp, status,
+                request_body_json, dry_run, consensus_absent_reason
+            ) VALUES (
+                'combo-1', 2000, 'KXMVECROSS-1', 'yes', 'buy', 5,
+                12, 40, 6234, 'unfilled', '{}', 0, 'combo_ticker'
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        assert main(["manual-orders-audit", "--db", str(empty_db), "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+
+        census = _named(payload, "census")
+        assert dict(zip(census["columns"], census["rows"][0]))["n_rows"] == 2
+
+        snapshot = _named(payload, "consensus snapshot")
+        by_class = {
+            dict(zip(snapshot["columns"], row))["ticker_class"]:
+                dict(zip(snapshot["columns"], row))
+            for row in snapshot["rows"]
+        }
+        assert by_class["combo (KXMVE)"]["fair_value_null"] == 1
+        assert by_class["combo (KXMVE)"]["fair_value_present"] == 0
+        assert by_class["single market"]["fair_value_present"] == 1
+        # A NULL with no reason means a row the writer left unexplained. Both
+        # rows here are v28 rows, so it must be zero on both.
+        assert by_class["combo (KXMVE)"]["null_and_unexplained"] == 0
+        assert by_class["single market"]["null_and_unexplained"] == 0
+
+        assert "6234" not in json.dumps(payload), (
+            "the typed estimate reached the audit output"
+        )
 
 
 class TestTheScriptIsRunnable:
