@@ -236,7 +236,145 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-29 (latest) — THE READ WAS TAKEN, and every gap turns out to be a container death
+## 2026-08-29 (latest) — the signal test could never have answered its own question, and twelve lanes landed
+
+**Pushed `2d63da5..975385e`, 27 commits, suite 5186 passed / 0 failed, tree
+clean, origin clean. NOT DEPLOYED — live is still on `c9ca0cd`.**
+
+### Read this first if you read nothing else
+
+**The CLV signal test was structurally incapable of resolving, and the
+registration printed the proof itself on 2026-08-09.** At G = 300 the design's
+MDE against the 0.40 threshold it tests is **0.6283**. That cell sat in the
+published power table for months and nobody read across the row.
+
+Amendment 2 (commit `81f67b2`) raises the floor to **G = 713** by the
+registration's own formula — its trigger, *"if it comes in above 30 tenths this
+document must be amended to raise the floor"*, had fired at
+`sd(clv_tenths) = 30.15` and the amendment was never written. Reproduction is
+exact against the published level table at sigma = 20, so it is the same
+arithmetic, not a new one.
+
+**Worse than a bigger number: nominal G may be the wrong unit.** At the measured
+`G_eff = 4.26` the slope MDE is ~32, about eighty times the threshold. Holding
+the observed concentration fixed, `G_eff = 713` wants ~**52,052 nominal games**,
+about eleven years against a stopping rule ending 2027-02-15.
+
+**So the declaring look is not coming.** CLAUDE.md used to say *"the recorder
+keeps running and the look happens on its own"*. That sentence is gone. No
+roadmap may depend on the look and none may wait for it. The way out, if the
+question is ever worth reopening, is a successor registration with an
+`edge_tenths` exclusion fixed in advance — this one never contemplated a
+regressor running to minus 717.97 tenths.
+
+None of this softens the verdict on the premise. Every interval at both looks
+already sat entirely below 0.40 and both arms were negative.
+
+### The near-miss worth carrying
+
+`fit()` took `tuning: int = MIN_CLUSTERS_TO_DECLARE` — **one constant serving
+two purposes.** Raising the floor to 713 would have silently re-tuned the
+always-valid boundary and **restated the widths of the published 2026-08-16 and
+2026-08-25 intervals**. A change ordered to make declaring *harder* would have
+quietly rewritten two results already in the record. Split into
+`BOUNDARY_TUNING = 300`, pinned apart by a test; the old reproductions still
+return -0.1412 / G=199 and -0.0528 / G=86, which is the evidence it worked.
+
+The same shape appeared again in the same file. Section A4's *testability*
+threshold is also 300 and **deliberately stays there** — raising it leaves fewer
+groups testable and downgrades rarer, the flattering direction. A blanket
+300-to-713 substitution would have weakened the guard Amendment 2 had just
+switched on.
+
+### Joe asked for a performance-assessment system. Ruling: no dashboard.
+
+- **"Am I winning?" is unanswerable at any n, permanently.** He bets at varying
+  prices, so break-even runs 30.9% at 30c to 70.9% at 70c and a pooled win rate
+  **has no null hypothesis**. Net P&L does have one and needs ~3,854 bets,
+  ~10,000 given he looks daily — 3.5 to 27 years at his real rate.
+- **Calibration is the one verdict-bearing statistic**, floor G = 300 clusters,
+  one to three years out.
+- **The useful panels have no statistics in them** and work from bet one: fee
+  per dollar staked, cadence, session length, stake sequence, fill rate.
+- The record is **one 4096-byte page — single-digit rows, zero not excluded.**
+
+Registration committed as `18bb1fd`, written against genuinely virgin data:
+`p_yes_bp` is NOT NULL on every armed bet since 2026-08-26 and **had never been
+read by anything**.
+
+**What shipped instead of a screen:** schema v28 freezes the consensus fair
+value, book count, anchoring and clock into `manual_orders` at intent-write
+time. Snapshot, deliberately **not** a foreign key — `fair_prices` is 546MB,
+30% of the database, and **unnamed in `retention.py`**. Every bet placed before
+this landed is unanalysable forever. Plus `manual-orders-audit`, the first
+whitelisted query to touch that table, its firewall asserted over the SQL
+strings rather than left in prose.
+
+### The container deaths: theory killed, real lead found
+
+**The "wrong walk" death spiral does not exist.** For the 30-minute window to
+empty, the loop must be silent for more than 1800s, but `slow_interval_s` is
+900s, so the next pass after any such gap is *necessarily* a full pass, which
+refills `last_seen_ms` before returning. Entry condition unreachable.
+
+**The 570MB figure was already in the repo**, as
+`docs/measurements/2026-08-20-the-585mb-is-a-level-not-a-leak.md`, nine days
+before this session re-derived it. It is a one-time boot level plus a 25-106MB
+per-full-pass excursion, not 570MB every 15s. Compounding errors: cadence is
+~22.6s not 15s; full passes take 137.7s not 43-77s. The headline load figure
+was off by ~15x.
+
+**The real lead: a 220 MiB write-ahead log that has never reset**, ~55x
+SQLite's default. It is the only candidate explaining both storage legs blowing
+out while `leg_walk_ms` stays narrow. Caught live: at 19:44:20Z a sweep wrote
+2,210 rows to `odds_snapshots`; the next two quote passes took **200s and 176s**
+against a normal ~8s. The deadline has never fired — 0 rows in the 15
+`loop_failures` ever recorded — and `sqlite3.Connection.execute` never yields,
+so cancellation is ruled out. No ~60-minute constant exists in code.
+
+**Instrument shipped, intervention deliberately NOT.** `loop_rss.jsonl` now
+carries `wal_kb`, `db_kb`, `candidate_rows`, `candidate_ms`,
+`leg_price_link_ms`, `leg_store_quotes_ms`. **Do not checkpoint, VACUUM, index
+or delete until the series is read.** The discrimination: if
+`leg_store_quotes_ms` tracks `wal_kb` while `leg_price_link_ms` tracks
+`candidate_rows`, both mechanisms are real and additive; if both track `wal_kb`
+and `candidate_rows` is flat, the WAL is the whole story.
+
+### Also landed
+
+- **The desk stopped punishing attention.** Once the slice was spent, an open
+  page *suppressed* the hourly floor buy, and closing the tab was what let it
+  resume. Attention replaced the floor rather than adding to it.
+- **Kickoff clock**: slate rows were 180 minutes late against the detail
+  screen. Fixed by the join, not by `OBSERVED_KALSHI_COMMENCE_OFFSET_MS` — that
+  constant matched only 14 of 18 MLB pairs and stays applied to nothing.
+- **Four money-path falsehoods**, including `/gate` claiming hand bets "fire no
+  check" when twelve server-side checks have run since 2026-08-26, and
+  `tests/test_scope_sentences.py` **asserting the false sentence must stay**.
+- **Positions count off the 12-hour mirror** onto the shared 5-minute clock.
+  Not an amendment: A1 sets a completeness floor, A7 splits the operational
+  clock from the analysis clock. +288 Kalshi calls/day, rate-limited not billed.
+- **Full-walk alarm**: a quote pass taking the full walk is now loud. `None`
+  and `[]` take the same branch and are not the same input.
+- **RAM bump KILLED** — refuted, not deferred.
+- **Ticket #35 was already shipped** five days earlier.
+
+### Open, in priority order
+
+1. **Deploy.** Not done deliberately: a schema migration and the instrument
+   built to diagnose the WAL cannot ship to that box in one act. Needs a clean
+   tree and someone watching.
+2. **Read the WAL series** once deployed, then intervene.
+3. `ODDS_API_KEY` rotation — **needs Joe**, the only such item all session.
+4. `run_match_pass` has one production caller, inside the 12-hour mirror, and
+   writes `outcome_win`, a registered variable. Latent regression, own decision.
+5. `fair_prices` unbounded, 546MB, unnamed in `retention.py`.
+6. A refused hand bet writes nothing — the desk cannot count how often its own
+   brakes fired.
+7. `ADR 0065` section 3's `n >= 30` floor resolves only a 63-point calibration
+   bias. Safe as a display gate, catastrophic if mistaken for a verdict gate.
+
+## 2026-08-29 — THE READ WAS TAKEN, and every gap turns out to be a container death
 
 **Third window, first read.** Taken 2026-08-29 ~17:16-17:25Z, in the
 pre-registered order, on a window that ran ~21 hours with no deploy
