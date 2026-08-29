@@ -5125,6 +5125,11 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
       is a real answer and may not be presented as "no signal"; the payload
       carries `may_declare` so a renderer knows the difference without having to
       re-derive the floor.
+    - **`g_eff` travels inside `estimate`**, beside `n_clusters` and not in a
+      block of its own. Amendment 2 §B7 makes the effective cluster count a
+      mandatory reportable, and a key a renderer can skip is a key that gets
+      skipped: `G = 311` was 4.26 effective clusters on 2026-08-25, and the
+      screen that declared on it had no way to say so.
     """
     f = report.fit
     return {
@@ -5133,6 +5138,11 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
         "available": f is not None,
         "refusal": report.refusal,
         "verdict": report.verdict,
+        # §A4: what §6 alone returned, and the group that moved it. Both travel
+        # so a downgrade is legible as a downgrade rather than as an UNRESOLVED
+        # that looks like it came from the cluster floor.
+        "section6_verdict": report.section6_verdict,
+        "downgraded_by": report.downgraded_by,
         "may_declare": report.n_clusters >= report.clusters_to_declare,
         # Population before effect size. Always, and in this order.
         "population": {
@@ -5167,11 +5177,33 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
             "beta_hat": f.beta_hat,
             "se_cluster": f.se_cluster,
             "n_clusters": f.n_clusters,
+            # §B7's mandatory reportable, immediately after the count it
+            # qualifies. `null` means the regressor has no residual variance,
+            # which is not the same as zero and is not the same as `n_clusters`.
+            "g_eff": f.g_eff,
+            "largest_cluster_leverage_share": f.largest_cluster_leverage_share,
             "n_rows": f.n_rows,
             "interval_lower": f.lower,
             "interval_upper": f.upper,
             "multiplier": f.multiplier,
         },
+        # §A4's downgrade table. Descriptive: it can lower a verdict and can
+        # never raise one, and no row here is a finding.
+        "a4_groups": [
+            {
+                "name": g.name,
+                "rows": g.n_rows,
+                "clusters": g.n_clusters,
+                "leverage_share": g.leverage_share,
+                "clusters_remaining": g.clusters_remaining,
+                "testable": g.testable,
+                "beta_hat": g.beta_hat,
+                "interval_upper": g.upper,
+                "refusal": g.refusal,
+                "one_group_result": g.one_group_result,
+            }
+            for g in report.a4_groups
+        ],
         # §A4: the per-group view can downgrade a verdict and can never create
         # one. `market_type` is not a registered cut; it is here because the
         # repo rule requires the parts beside any aggregate, and this pooled
@@ -5192,9 +5224,13 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
         ),
         "note": (
             "beta is tenths of realised closing-line value per tenth of claimed "
-            "edge. UNRESOLVED below 300 clusters is a real answer and is NOT "
-            "'no signal'. The cluster key is COALESCE(event_ticker, ticker), "
-            "which is not the gate's ADR 0029 key; the two differ materially."
+            "edge. UNRESOLVED below 713 clusters is a real answer and is NOT "
+            "'no signal' -- Amendment 2 section B4 raised that floor from 300 "
+            "on 2026-08-29 after the power check's own sigma trigger fired. "
+            "g_eff is the effective cluster count and is a REPORTABLE, never a "
+            "threshold: G = 311 was 4.26 effective clusters. The cluster key is "
+            "COALESCE(event_ticker, ticker), which is not the gate's ADR 0029 "
+            "key; the two differ materially."
         ),
     }
 

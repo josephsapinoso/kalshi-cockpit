@@ -1121,10 +1121,19 @@ export type Signal = {
   /**
    * The registered string, never a paraphrase. `UNRESOLVED` is a real answer
    * and **may not be rendered as "no signal"** -- the registration forbids
-   * declaring below 300 clusters. `REFUSED` is different again: it means no
+   * declaring below 713 clusters (Amendment 2 section B4, which raised the
+   * floor from 300 on 2026-08-29). `REFUSED` is different again: it means no
    * look happened at all.
    */
   verdict: "SIGNAL" | "BUG, NOT SIGNAL" | "NO SIGNAL" | "UNRESOLVED" | "REFUSED";
+  /**
+   * What section 6 returned on the pooled fit alone, before section A4's
+   * leave-one-group-out downgrade. When it differs from `verdict`, a
+   * pre-registered group's removal flipped the claim and the parts disagree.
+   */
+  section6_verdict: string;
+  /** The group that caused the downgrade, named in A4's own words. */
+  downgraded_by: string | null;
   /** Whether the cluster floor permits a declaring verdict at all. */
   may_declare: boolean;
   population: {
@@ -1160,11 +1169,43 @@ export type Signal = {
     beta_hat: number;
     se_cluster: number;
     n_clusters: number;
+    /**
+     * Effective clusters -- Kish's count over the per-cluster leverage on
+     * `beta`. **A reportable, never a threshold** (Amendment 2 section B7). It
+     * sits inside `estimate` so a screen cannot render `n_clusters` without it:
+     * on 2026-08-25 `G = 311` was **4.26** effective clusters, one WNBA game
+     * carrying 43.8% of the leverage alone, and the screen that declared
+     * NO SIGNAL on that count had no way to say so.
+     *
+     * `null` means the regressor has no residual variance -- not zero, and not
+     * `n_clusters`.
+     */
+    g_eff: number | null;
+    /** The biggest single game's share of the leverage. `null` if unreadable. */
+    largest_cluster_leverage_share: number | null;
     n_rows: number;
     interval_lower: number;
     interval_upper: number;
     multiplier: number;
   } | null;
+  /**
+   * Section A4's leave-one-group-out table. Descriptive: it can turn SIGNAL or
+   * NO SIGNAL into UNRESOLVED and can never raise a verdict, and no row here is
+   * a finding. `one_group_result` marks an untestable group carrying more than
+   * half the leverage, which A4 requires the write-up to state in those words.
+   */
+  a4_groups: {
+    name: string;
+    rows: number;
+    clusters: number;
+    leverage_share: number | null;
+    clusters_remaining: number;
+    testable: boolean;
+    beta_hat: number | null;
+    interval_upper: number | null;
+    refusal: string | null;
+    one_group_result: boolean;
+  }[];
   /**
    * Diagnostic only. The per-group view can downgrade a verdict and can never
    * create one, and `market_type` is not a registered cut -- it is here because

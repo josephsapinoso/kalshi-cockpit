@@ -15,9 +15,11 @@ import Hint from "@/components/Hint";
  * has already been wrong about at least once:
  *
  * 1. **`UNRESOLVED` may not be rendered as "no signal".** The registration
- *    forbids declaring below 300 clusters and that look has not been taken.
- *    CLAUDE.md's "for planning, treat it as settled" is an instruction about
- *    roadmaps, not a verdict, and this strip is not a roadmap.
+ *    forbids declaring below 713 clusters — Amendment 2 section B4 raised that
+ *    floor from 300 on 2026-08-29, after the power check's own noise trigger
+ *    fired — and that look has not been taken. CLAUDE.md's "for planning, treat
+ *    it as settled" is an instruction about roadmaps, not a verdict, and this
+ *    strip is not a roadmap.
  * 2. **`beta_hat` never appears without `se_cluster`, `G` and the interval.**
  *    The API makes that structurally hard — there is no top-level `beta_hat`
  *    to read — and this component does not undo it.
@@ -25,6 +27,12 @@ import Hint from "@/components/Hint";
  *    `G = 199` it is larger than the estimate, which is the entire content of
  *    UNRESOLVED: the test cannot yet resolve what it measured. Leading with
  *    `-0.14` invites reading a precision that is not there.
+ * 4. **The cluster count never appears without its effective count.** Amendment
+ *    2 section B7 makes `G_eff` a mandatory reportable: at `G = 311` it was
+ *    **4.26**, two games carrying half the leverage on beta and one WNBA game
+ *    carrying 43.8% alone. This screen printed "NO SIGNAL — 311 of 300 games"
+ *    on 2026-08-24 with nothing beside the 311 saying what it was worth. It is
+ *    a reportable and not a threshold: nothing here compares it to anything.
  *
  * It is deliberately quiet. This is context for the cards, not a card.
  */
@@ -84,8 +92,14 @@ export default function SignalStrip({
           Signal test
         </span>
         <span className="font-mono text-sm font-semibold">{signal.verdict}</span>
+        {/*
+          The nominal count and its effective count, in one span, so no
+          truncation or reflow can leave the first without the second. A `G`
+          shown alone is the 2026-08-24 failure exactly.
+        */}
         <span className="tabular text-sm text-muted">
           {clusters} of {clusters_to_declare} games
+          <span className="text-muted"> · {fmtEff(e.g_eff)} effective</span>
         </span>
         <span className="ml-auto tabular text-xs text-muted">
           measured {formatAge(now - signal.computed_ms)}
@@ -159,7 +173,44 @@ export default function SignalStrip({
           title="Always-valid, so it holds however many times it is looked at."
         />
         <Stat label="rows" value={rows.toLocaleString()} title="Recommendations in the registered population." />
+        {/*
+          The leverage concentration, printed rather than linked. The repo rule
+          is that the largest contributor's share goes beside the aggregate, and
+          the audit found the harness printing a row-count share of a group the
+          registration does not even list — 91.4% where the leverage share was
+          97.8%.
+        */}
+        <Stat
+          label="top game leverage"
+          value={
+            e.largest_cluster_leverage_share === null
+              ? "—"
+              : `${(e.largest_cluster_leverage_share * 100).toFixed(1)}%`
+          }
+          title="The single biggest game's share of the weight on beta. One WNBA game carried 43.8% of it on 2026-08-25."
+        />
       </dl>
+
+      {/*
+        Section A4's downgrade, when it fires. It can only ever lower a verdict,
+        so this line always explains why the screen is saying LESS than the
+        pooled fit alone would have said.
+      */}
+      {signal.downgraded_by !== null && (
+        <p className="max-w-[65ch] px-5 pb-3 text-sm leading-relaxed text-muted">
+          Section 6 alone returned{" "}
+          <strong className="font-semibold text-foreground">
+            {signal.section6_verdict}
+          </strong>
+          . It was downgraded to {signal.verdict} because removing the
+          pre-registered group{" "}
+          <code className="rounded bg-accent-soft px-1 py-0.5 font-mono text-xs text-accent">
+            {signal.downgraded_by}
+          </code>{" "}
+          did not leave the claim standing. The parts disagree, so the pooled
+          number is not a finding.
+        </p>
+      )}
 
       {/*
         A pooled number is not a finding until the parts agree. These two do not
@@ -191,6 +242,17 @@ export default function SignalStrip({
 /** Signed, four places. The sign is the whole story and must never be dropped. */
 function fmt(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(4)}`;
+}
+
+/**
+ * The effective cluster count, to two places, never rounded to the nominal one.
+ *
+ * `null` renders as an em dash rather than as the cluster count or as zero:
+ * unreadable resolves to nothing, and printing `G` here would restore exactly
+ * the impression this figure exists to remove.
+ */
+function fmtEff(n: number | null): string {
+  return n === null ? "—" : n.toFixed(2);
 }
 
 function Stat({

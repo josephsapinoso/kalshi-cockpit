@@ -37,10 +37,27 @@ always-valid interval  [-0.3342, +0.0517]
 VERDICT   UNRESOLVED   (the registered floor is G = 300)
 ```
 
+**The floor above is the one that stood on 2026-08-16 and it has since been
+raised to `G = 713`** — Amendment 2 §B4 of the registration, 2026-08-29. The
+power check carried its own trigger (*"if [per-game CLV noise] comes in above 30
+tenths this document must be amended to raise the floor"*); it came in at
+**31.6915** tenths, and the power check's own formula and its own target then
+give 713. The verdict of that look is **unchanged** — it was UNRESOLVED and it
+remains UNRESOLVED. The floor is a **ratchet**: a later look measuring less
+noise does not lower it.
+
 **UNRESOLVED is the formal verdict and is not reported here as "no signal"** —
-the registration forbids declaring below `G = 300`, and that look has not been
+the registration forbids declaring below `G = 713`, and that look has not been
 taken. For planning it is settled: `beta` would have to rise **8.3 standard
 errors** for the outcome to be anything else.
+
+**And 713 nominal games may not be 713 games' worth of evidence.** At the
+2026-08-25 look `G = 311` was **4.26** effective clusters by inverse Herfindahl
+on leverage — two games carrying half the weight on `beta`, one WNBA game
+carrying 43.8% alone. The effective count is now printed beside every `G` this
+repo produces. It is a reportable and deliberately **not** a threshold:
+restating the floor in it after seeing that it is small would be choosing an
+estimator from the answer.
 
 ---
 
@@ -205,9 +222,14 @@ green, it's decoration.
 
 ## What this does not establish
 
-- **The `G = 300` look has not been taken.** The formal verdict is UNRESOLVED.
-  The recorder keeps running because it costs nothing; no conclusion above
-  depends on it.
+- **The declaring look has not been taken**, and its floor moved further away
+  on 2026-08-29: `G = 713`, not 300 (Amendment 2 §B4). The formal verdict is
+  UNRESOLVED. The recorder keeps running because it costs nothing; no
+  conclusion above depends on it.
+- **Nominal `G` may be the wrong unit and no floor written in it fixes that.**
+  `G = 311` was 4.26 effective clusters. The number is reported beside every
+  count; it is not a threshold, and making it one after the fact would be the
+  flattering move.
 - **"No edge" is scoped to this instance's reach.** Five quadrants were closed;
   a sixth may exist. Reopening requires naming which row it overturns, and with
   what measurement.

@@ -22,7 +22,7 @@ could only be produced by a human running a script on a laptop against a dump
 taken over `flyctl ssh`. The product therefore stated a conclusion whose
 measured worth it stated nowhere. Lifting the extraction here lets
 `GET /api/signal` serve the same number the harness prints, from the same code,
-so the screen and the record **cannot** disagree -- and so the `G = 300` look
+so the screen and the record **cannot** disagree -- and so the `G = 713` look
 arrives on its own rather than by anyone remembering to take it.
 
 **That is a deliberate reversal of a quarantine, recorded in ADR 0039.**
@@ -39,8 +39,17 @@ What this module does not establish
   a call into a registered estimator. A disagreement between this file and
   `docs/measurements/2026-08-09-preregistration-clv-signal-test.md` is a bug
   here.
-- **Nothing at `G < 300`.** `SignalReport.verdict` is `UNRESOLVED` below the
-  floor. That is a real answer and may not be reported as "no signal".
+- **Nothing at `G < 713`.** `SignalReport.verdict` is `UNRESOLVED` below the
+  floor, which Amendment 2 §B4 raised from 300 on 2026-08-29 after the power
+  check's own `sigma` trigger fired. That is a real answer and may not be
+  reported as "no signal".
+- **Nothing about whether 713 nominal clusters are 713 clusters' worth of
+  evidence.** `SignalReport.g_eff` reports the effective count and §B7 refuses
+  to make it a threshold: at `G = 311` it was `4.26`. The report carries the
+  number so a reader cannot miss it; it does not act on it.
+- **No group result is a finding.** `a4_groups` is §A4's downgrade table. It
+  can turn SIGNAL or NO SIGNAL into UNRESOLVED and can never raise a verdict,
+  and §6's multiplicity arithmetic is unchanged by its presence.
 - **Nothing about a database it was not pointed at.** A demo instance whose
   seeded rows carry no `event_ticker` and no quotes produces a refusal, not a
   small number, and callers must render the refusal rather than the shape.
@@ -60,11 +69,14 @@ from typing import Any, Mapping, Optional, Sequence
 from .signal_test import (
     MIN_CLUSTERS_TO_DECLARE,
     MIN_HALF_SPREAD_COVERAGE,
+    RATCHET_SIGMA_TENTHS,
     Fit,
+    LeaveOneGroupOut,
     Observation,
     SignalTestRefused,
     coverage,
     fit,
+    leave_one_group_out,
     verdict,
 )
 
@@ -162,6 +174,113 @@ SQL_CLV_SIGNAL_PULL = (
 #: `beta` runs positive. The harness prints the sentence itself rather than
 #: trusting an author to remember it.
 A82_MISMATCH_DISCLOSURE_THRESHOLD = 0.05
+
+# ---------------------------------------------------------------------------
+# §A4's pre-registered groups. Transcribed, not chosen.
+# ---------------------------------------------------------------------------
+#
+# > **The pre-registered groups.** Fixed here, and no others may be introduced
+# > after the data is read:
+# >
+# > - `suppressed_reason IS NULL` (unsuppressed)
+# > - each retained code from §A2 present anywhere in the composite:
+# >   `no_depth`, `insufficient_depth`, `too_few_books` (with `no_market_width`,
+# >   which always co-occurs), `wide_market`, `edge_within_method_noise`,
+# >   `suspicious_edge`, `sizing:refused`, `skeptic_*`
+# > - the three Grid A price buckets
+#
+# **Thirteen groups, and `too_few_books` / `no_market_width` are listed
+# separately.** §A4's parenthetical says they always co-occur, which makes the
+# two masks identical on any record where that holds -- so listing them apart
+# costs nothing when it is true and *reports the discrepancy* when it is not.
+# It also reproduces the audit's own count of thirteen
+# (`docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md` §D5), so
+# a future reader comparing this table against that one is comparing like with
+# like. More groups can only ever make a downgrade more likely, never less.
+A4_SUPPRESSION_CODES = (
+    "no_depth",
+    "insufficient_depth",
+    "too_few_books",
+    "no_market_width",
+    "wide_market",
+    "edge_within_method_noise",
+    "suspicious_edge",
+    "sizing:refused",
+)
+
+#: The `skeptic_*` family, matched on the prefix because §A4 registers it with
+#: a wildcard and the vocabulary is open -- a new `skeptic_` code must land in
+#: this group without an edit here.
+A4_SKEPTIC_PREFIX = "skeptic_"
+
+#: §4's Grid A, verbatim: three buckets on `entry_ask_tenths`, half-open, and
+#: derived from the fee model rather than chosen from the data. Bucketing is on
+#: the derived ask -- the price actually paid -- never a mid.
+GRID_A_BUCKETS = ((10, 200), (200, 800), (800, 990))
+
+
+def _carries_code(suppressed_reason: Optional[str], code: str) -> bool:
+    """Is `code` present anywhere in the comma-joined composite?
+
+    The delimited test, mirroring `SQL_CLV_SIGNAL_PULL`'s `instr` predicate for
+    the same two reasons: `suppressed_reason` is a composite of *every* check
+    that failed, so a bare equality misses `'stale_odds,wide_market'`; and a
+    substring test without the wrapping commas would silently fold a future
+    `too_few_books_upstream` into `too_few_books`.
+    """
+    if not suppressed_reason:
+        return False
+    return f",{code}," in f",{suppressed_reason},"
+
+
+def a4_groups(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, list[bool]]]:
+    """§A4's thirteen groups as `(name, membership mask)`, aligned to `rows`.
+
+    **Non-exclusive by design**: a composite row belongs to every group whose
+    code it carries, so the masks overlap and the shares do not sum to one.
+
+    Membership is decided here rather than in `signal_test` because it reads
+    `suppressed_reason` and `entry_ask_tenths` -- columns an `Observation`
+    deliberately does not carry, because the fit has no business seeing them.
+
+    A row whose `entry_ask_tenths` is unreadable belongs to no price bucket
+    rather than to a default one. §S1 bounds the pull to `[10, 989]`, so this
+    should be vacuous; if it ever is not, the row is excluded from the bucket
+    masks and stays in the population, which is the conservative reading.
+    """
+    groups: list[tuple[str, list[bool]]] = [
+        ("unsuppressed", [not r.get("suppressed_reason") for r in rows])
+    ]
+    for code in A4_SUPPRESSION_CODES:
+        groups.append(
+            (code, [_carries_code(r.get("suppressed_reason"), code) for r in rows])
+        )
+    groups.append(
+        (
+            f"{A4_SKEPTIC_PREFIX}*",
+            [
+                any(
+                    token.startswith(A4_SKEPTIC_PREFIX)
+                    for token in str(r.get("suppressed_reason") or "").split(",")
+                )
+                for r in rows
+            ],
+        )
+    )
+    for low, high in GRID_A_BUCKETS:
+        groups.append(
+            (
+                f"gridA[{low},{high})",
+                [
+                    r.get("entry_ask_tenths") is not None
+                    and low <= r["entry_ask_tenths"] < high
+                    for r in rows
+                ],
+            )
+        )
+    return groups
 
 
 def pull_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -324,6 +443,20 @@ class SignalReport:
     verdict: str
     clusters_to_declare: int
 
+    # §A4's leave-one-group-out downgrade, computed rather than assumed.
+    # `section6_verdict` is what §6 alone returned and `downgraded_by` names the
+    # group that moved it, in §A4's own words. When the two strings differ, the
+    # parts disagreed and the pooled number is not a finding.
+    section6_verdict: str
+    downgraded_by: Optional[str]
+    a4_groups: tuple[LeaveOneGroupOut, ...]
+
+    # §B6(5)'s ratchet check: `sd(clv_tenths)` on the modal population against
+    # the value the current floor was computed at. Carried as a fact, not acted
+    # on -- raising the floor again is an amendment to the registration, never
+    # an edit to this code.
+    ratchet_sigma_tenths: float
+
     # 6. diagnostic only
     by_market_type: tuple[GroupView, ...]
 
@@ -339,6 +472,47 @@ class SignalReport:
     def clusters_remaining(self) -> int:
         """How many more clusters before a declaring look is permitted."""
         return max(0, self.clusters_to_declare - self.n_clusters)
+
+    @property
+    def g_eff(self) -> Optional[float]:
+        """The effective cluster count beside the nominal one. `None` if no fit.
+
+        §B7 makes this a **mandatory reportable and refuses to make it a
+        threshold**: at `G = 311` nominal it was `4.26`, and restating the floor
+        in it after seeing that would be choosing an estimator from the answer.
+        It is here so that no screen and no write-up can print `G` alone.
+        """
+        return None if self.fit is None else self.fit.g_eff
+
+    @property
+    def largest_cluster_leverage_share(self) -> Optional[float]:
+        """The biggest single game's share of the leverage on `beta`."""
+        return (
+            None if self.fit is None
+            else self.fit.largest_cluster_leverage_share
+        )
+
+    @property
+    def sigma_exceeds_ratchet(self) -> Optional[bool]:
+        """§B6(5): does `sd(clv_tenths)` exceed the value 713 was computed at?
+
+        `True` obliges a **further dated amendment raising the floor again**,
+        written before the next look declares anything. `None` when there is no
+        fit to read it off; never `False` by default, because a look that did
+        not measure the trigger has not checked it.
+        """
+        if self.sd_clv is None:
+            return None
+        return self.sd_clv > self.ratchet_sigma_tenths
+
+    @property
+    def one_group_results(self) -> tuple[LeaveOneGroupOut, ...]:
+        """Untestable groups carrying more than half the leverage.
+
+        §A4: for each of these the write-up **must state, in those words**, that
+        *the pooled result is one group's result*.
+        """
+        return tuple(g for g in self.a4_groups if g.one_group_result)
 
 
 def build_report(
@@ -448,6 +622,7 @@ def build_report(
         pooled_fit=pooled,
         disclosure_required=mismatch_fraction > A82_MISMATCH_DISCLOSURE_THRESHOLD,
         clusters_to_declare=MIN_CLUSTERS_TO_DECLARE,
+        ratchet_sigma_tenths=RATCHET_SIGMA_TENTHS,
     )
 
     def refused(reason: str) -> SignalReport:
@@ -460,9 +635,12 @@ def build_report(
             implied_spurious_slope=None,
             fit=None,
             # A refused run has no verdict, and "UNRESOLVED" is a verdict --
-            # it is the answer at G < 300, which is a *completed* look. Saying
+            # it is the answer at G < 713, which is a *completed* look. Saying
             # it here would report a took-place look that did not.
             verdict="REFUSED",
+            section6_verdict="REFUSED",
+            downgraded_by=None,
+            a4_groups=(),
             by_market_type=(),
             **common,
         )
@@ -502,6 +680,15 @@ def build_report(
                 GroupView(name, len(group), share, gf.n_clusters, gf.beta_hat, None)
             )
 
+    # §A4's leave-one-group-out downgrade, run on the same population the
+    # verdict is taken on. It is computed unconditionally rather than only when
+    # `f.n_clusters` clears the floor, for two reasons: the leverage shares are
+    # *"Reported beside `beta_hat`, always"* and do not wait for a declaration;
+    # and a branch that runs only on the look that matters is a branch nobody
+    # has ever seen run.
+    a4 = tuple(leave_one_group_out(obs, a4_groups(rows)))
+    decided = verdict(f, a4)
+
     return SignalReport(
         p1_passed=True,
         refusal=None,
@@ -510,7 +697,10 @@ def build_report(
         sd_clv=sd_clv,
         implied_spurious_slope=spurious,
         fit=f,
-        verdict=verdict(f),
+        verdict=decided.verdict,
+        section6_verdict=decided.section6_verdict,
+        downgraded_by=decided.downgraded_by,
+        a4_groups=a4,
         by_market_type=tuple(groups),
         **common,
     )
