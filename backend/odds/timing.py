@@ -1967,10 +1967,34 @@ def decide_sweeps(
             sweep_cost=cost,
             attention_daily_credits=attention_daily_credits,
         ):
+            # **The tail names a floor that can actually run, and until
+            # 2026-08-29 it did not.** It said "the hourly floor still runs",
+            # which is false in the only state that reaches this line: the
+            # refusal happens because `on_the_floor` is False, and `desk_wants`
+            # has already given every upcoming sport the ten-minute cadence on
+            # that same branch, so there is nothing hourly left to fall through
+            # to. Attention *replaces* the floor rather than adding to it (ADR
+            # 0071 section 2.6), so past the slice the buying resumes when the
+            # displacing condition lifts and not before.
+            #
+            # This is display copy with a log's punctuation: `detail` reaches
+            # `/api/window` as `last_look_detail` and `WindowBanner` prints it
+            # verbatim on `/board`. Naming a survivor that is also refused is
+            # ticket #35's own defect -- a screen promising a buy the loop had
+            # already declined -- one surface further on. The condition is
+            # named rather than a time: `window_status` publishes
+            # `floor_next_buy_ms` for the screen that wants a clock, and a
+            # second time computed here would be the third spelling of one
+            # predicate.
             refused_for_cost.append(
                 f"{sport_key} desk refresh cannot be served: the attention "
                 f"slice is {attention_daily_credits} credits a day and "
-                f"{attention_spent} are spent; the hourly floor still runs"
+                f"{attention_spent} are spent; the slow hourly buy resumes "
+                + (
+                    "once nobody is looking"
+                    if attended
+                    else "once the desk window closes"
+                )
             )
             continue
         if cost > credits_left:

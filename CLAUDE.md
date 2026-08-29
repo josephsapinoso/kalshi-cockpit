@@ -205,16 +205,36 @@ should prevent that; the slice is what does. The hourly floor is deliberately
 not charged to it, so past the slice the slate stops re-buying every ten
 minutes and keeps buying every hour — a ceiling, not an off switch.
 
+**With one condition this sentence left out, and it is close to perverse.**
+Attention *replaces* the floor rather than adding to it: `desk_wants` branches
+on `attended or windowed` and hands every upcoming sport the ten-minute
+cadence, and the slice check then refuses each one — there is no fall-through
+to the hourly cadence. So past the slice, **keeping the page open is what
+suppresses the buying and closing it is what lets the floor resume** (five
+minutes later, at `DEFAULT_ATTENTION_TTL_MS`). The floor is what stops the day
+going dark; it is not what keeps the screen fresh while you watch it.
+
 **Know what the ceiling feels like from the outside, because it has now been
 felt.** The slice ran out at 20:46Z and Joe opened the desk at 04:38Z — 7.9
 hours into a silence the design intends — to books 198 minutes old, on a night
 when the floor was *also* correctly idle (its rule is a fixture inside twelve
 hours; the next kickoff was ~13.7 h out). Both paths off, both right. **The
-desk does not say so**, and the refresh panel said *"the next scheduled sweep
+desk did not say so**, and the refresh panel said *"the next scheduled sweep
 is now"* while the loop was refusing that exact sweep, because `next_call_ms`
-is computed from `firing_for_slot` and the slice check sits after it
-(`timing.py:1701-1708`). Ticket #35. Do not read a stale slate as a broken
-recorder: check `sweep-log` for a refusal before diagnosing anything.
+was computed from `firing_for_slot` and the slice check sat after it. Ticket
+#35. Do not read a stale slate as a broken recorder: check `sweep-log` for a
+refusal before diagnosing anything.
+
+**It says so now, and the fix took three passes at one lie.** `window_status`
+applies the slice itself, so past it the desk contributes nothing to
+`next_call_ms` (2026-08-28); `readNextWindow` gained a `slice_spent` reading so
+the resulting null is not rendered as *"no kickoff is near enough"*
+(2026-08-28); and the loop's own refusal string stopped promising *"the hourly
+floor still runs"* in the pass where the floor was displaced by the very
+attention that caused the refusal (2026-08-29) — that string is not a log line
+only, it reaches `/api/window` as `last_look_detail` and `WindowBanner` prints
+it on `/board`. The shape all three share: **one predicate with two spellings,
+and the screen believing the wrong one.**
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —
