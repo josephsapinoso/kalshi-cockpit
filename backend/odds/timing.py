@@ -536,6 +536,14 @@ def desk_wants(
     3. **The floor.** Otherwise, hourly, and only for a sport with a fixture
        inside `floor_horizon_ms`.
 
+    **Branch 1 answers "what would an attended pass like", not "what will be
+    bought".** `decide_sweeps` asks this function twice -- once as the caller
+    spelled it, and once with `attended=False` and no window -- because the
+    attention slice can refuse the first answer, and since 2026-08-29 the
+    second is what the pass falls back to rather than skipping the sport.
+    Nothing about that fall-through lives here: this stays a function of
+    fixtures and clocks, and has never known about the budget.
+
     `attended` is passed in rather than read here, so this stays a pure function
     of facts. Its source is `odds/attention.is_attended`, and the separation is
     what lets the tests state a whole world in arguments.
@@ -611,9 +619,13 @@ def desk_floor_next_want_ms(
     across a lookahead, and a test pins it rather than this comment.
 
     What it does not establish: that the loop will *serve* the call at that
-    instant. The floor is refused while the desk is attended and the slice is
-    spent -- see `desk_floor_resumes_ms`, which is the other half of the
-    answer.
+    instant -- the day's own `credits_left` is what decides that, and it is not
+    consulted here. **It used to establish considerably less**: until
+    2026-08-29 the floor was displaced entirely while the desk was attended and
+    the slice was spent, so this lookahead described a timetable the loop would
+    honour only once the watcher went away. `decide_sweeps` now falls through
+    to the floor's own cadence in that state, so the answer here no longer
+    waits on anybody.
     """
     soonest_want: Optional[int] = None
     for sport_key, commences in fixtures.items():
@@ -1219,26 +1231,25 @@ class ActionableWindow:
     #: "the desk wants nothing" depending on it.
     desk_is_attended: bool = False
 
-    #: When the **desk trigger** will next actually buy, under the attention
-    #: state holding right now. `None` means it will not: either the desk wants
-    #: nothing, or -- the case this field exists for -- the slice is spent and
-    #: every want is refused.
+    #: When the **desk trigger** will next actually buy, at the cadence holding
+    #: right now. `None` means it wants nothing at all -- no sport is inside
+    #: the floor's horizon.
     #:
-    #: **Attention replaces the floor rather than adding to it**, and this is
-    #: the field that has to carry that or it gets smoothed over. `desk_wants`
-    #: branches on `attended or windowed` and gives *every* upcoming sport the
-    #: ten-minute cadence; `decide_sweeps` then refuses each one, because
-    #: `on_the_floor` is False whenever someone is looking. So past the slice,
-    #: keeping the page open suppresses buying that would otherwise happen, and
-    #: closing the phone is what makes the hourly floor resume. That is ADR
-    #: 0071 section 2.6's design and not a defect to fix here; what would be a
-    #: defect is a field that reads as promising a buy the reader's own
-    #: presence is preventing.
+    #: **This field carried the perversity for a day and no longer does.** Its
+    #: note used to say attention *replaces* the floor rather than adding to
+    #: it: `desk_wants` branches on `attended or windowed`, gives every
+    #: upcoming sport the ten-minute cadence, and `decide_sweeps` refused each
+    #: one with no fall-through -- so past the slice, keeping the page open
+    #: suppressed buying that would otherwise have happened and closing the
+    #: phone is what let the floor resume. Fixed 2026-08-29: the sport is
+    #: demoted to the floor's cadence instead of skipped, so this reads an
+    #: hourly time where it read `None`. What would still be a defect is the
+    #: *ten-minute* answer appearing here past the slice -- a buy the loop has
+    #: already refused, which is ticket #35 exactly.
     next_desk_buy_ms: Optional[int] = None
-    #: When the **hourly floor** next wants a buy, computed unattended and
-    #: ignoring the slice, which the floor is never charged to. This is the
-    #: "once you stop looking" answer and applies only then -- never merged
-    #: into `next_call_ms`, which is what the loop will serve as things stand.
+    #: When the **hourly floor** next wants a buy, ignoring the slice the floor
+    #: is never charged to. Not merged into `next_call_ms`, which carries
+    #: `next_desk_buy_ms` -- the floor's answer *at this instant* -- instead.
     #:
     #: A lookahead, not `desk_wants`' instantaneous answer, and that is the
     #: whole point. At 04:38Z on 2026-08-28 the next kickoff was ~13.7h out,
@@ -1344,6 +1355,14 @@ def window_status(
     `desk_wants` and stopped, while `decide_sweeps` applies the attention slice
     *after* `desk_wants` has said a call is wanted -- so the screen answered
     "is a call wanted?" and rendered it as "is a call coming?". Ticket #35.
+
+    **What a spent slice means changed on 2026-08-29 and this function changed
+    with it.** It used to mean the desk bought nothing at all while anyone was
+    looking; it now means the desk drops to the hourly floor. `next_call_ms`
+    therefore carries a floor buy again where it published `None` for a day --
+    and the copy that reads these fields had to change in the same commit,
+    because "resumes once you stop looking" is exactly the sentence this makes
+    false.
     """
     state = budget.state(now_ms)
     remaining_sweeps = max(0, state.remaining_today // max(1, sweep_cost))
@@ -1390,10 +1409,13 @@ def window_status(
     attended = attention.is_attended(
         conn, now_ms=now_ms, ttl_ms=attention_ttl_ms
     )
-    # `decide_sweeps`' own two lines, in the same order, and they have to stay
-    # in this order: the slice binds everything that is *not* on the floor, so
-    # a windowed or attended pass is refused while an idle one is not.
-    on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
+    # `decide_sweeps`' own predicate, on the same arguments. The slice binds
+    # the ten-minute cadence and nothing else -- an idle pass was never
+    # refused by it, and since 2026-08-29 an *attended* pass past it is not
+    # refused either, it is demoted to the hourly one. So there is no
+    # `on_the_floor` term left here: `slice_spent` alone decides which of the
+    # two cadences the desk is on, and on an idle pass it makes no difference
+    # because the arguments below already describe the floor.
     attention_spent = attention_credits_spent_today(conn, since_ms=start_ms)
     slice_spent = attention_slice_is_spent(
         attention_spent=attention_spent,
@@ -1403,43 +1425,43 @@ def window_status(
     desk_next: Optional[int] = None
     floor_next: Optional[int] = None
     if fixtures_by_sport:
-        # The floor's own timetable, computed unattended and without the slice,
-        # which the floor is never charged to. Published separately and never
-        # merged below: while someone is looking it is not what the loop will
-        # do, it is what the loop will do once they stop.
+        # The floor's own timetable as a **lookahead**, walked forward past the
+        # horizon so the screen can say "nothing re-prices these until 06:20Z"
+        # rather than only "not now". Published separately from `desk_next`,
+        # which answers at `now_ms` alone.
         floor_next = desk_floor_next_want_ms(
             fixtures_by_sport, now_ms=now_ms, last_sweeps=served
         )
-        if slice_spent and not on_the_floor:
-            # **Refused, and there is no fall-through to the hourly cadence.**
-            # `desk_wants` branches on `attended or windowed` and gives every
-            # upcoming sport the ten-minute cadence; the slice check then
-            # `continue`s past each one. Publishing `desk_wants`' answer here
-            # anyway is the whole of ticket #35 -- the panel said "the next
-            # scheduled sweep is now" in the minute the loop logged its refusal
-            # of that exact sweep. Publishing the *floor's* time instead would
-            # be the same defect wearing a new field name, because the floor
-            # cannot fire either while the heartbeats keep landing.
-            desk_next = None
-        else:
-            # The same `desk_wants` the loop fires from -- one predicate, two
-            # callers. A screen that computed "next sweep" by its own reasoning
-            # would eventually disagree with the loop, and the screen is the
-            # one that gets believed.
-            wants = desk_wants(
-                fixtures_by_sport,
-                now_ms=now_ms,
-                attended=attended,
-                last_sweeps=served,
-                refresh_interval_ms=refresh_ms,
-                desk_window=desk_window,
-            )
-            # `None` when the desk wants nothing at all -- no sport is playing
-            # inside the floor's horizon and nobody is looking. That is a real
-            # state now, where under a clock window there was always a next
-            # hour, and the screen has to be able to say so rather than invent
-            # a time.
-            desk_next = min(wants.values()) if wants else None
+        # The same `desk_wants` the loop fires from -- one predicate, two
+        # callers. A screen that computed "next sweep" by its own reasoning
+        # would eventually disagree with the loop, and the screen is the one
+        # that gets believed.
+        #
+        # **The slice is applied by choosing the arguments, not by discarding
+        # the answer**, and that is the 2026-08-29 change. Until then a spent
+        # slice forced `desk_next = None` here, because the loop genuinely
+        # bought nothing: `desk_wants` branched on `attended or windowed`, gave
+        # every sport the ten-minute cadence, and the slice check `continue`d
+        # past each one with no fall-through. The loop now falls through to the
+        # floor's cadence instead of skipping the sport, so the honest
+        # prediction is the floor's time -- and it is obtained by asking this
+        # function the question the loop asks it, rather than by publishing a
+        # second field's value under this one's name.
+        wants = desk_wants(
+            fixtures_by_sport,
+            now_ms=now_ms,
+            attended=attended and not slice_spent,
+            last_sweeps=served,
+            refresh_interval_ms=refresh_ms,
+            desk_window=None if slice_spent else desk_window,
+        )
+        # `None` when the desk wants nothing at all -- no sport is playing
+        # inside the floor's horizon. That is a real state, where under a clock
+        # window there was always a next hour, and the screen has to be able to
+        # say so rather than invent a time. `floor_next` is what fills it in:
+        # a time later today, or `None` again for "no stored fixture ever
+        # brings the floor round".
+        desk_next = min(wants.values()) if wants else None
         if desk_next is not None:
             next_call_ms = (
                 desk_next
@@ -1705,6 +1727,13 @@ def decide_sweeps(
     - **Charged from the same `credits_left` as everything else**, refused by
       name when short. A second spend path beside the planner is the shape of
       every credit accident in this file's history.
+    - **The attention slice demotes a sport, it does not skip one.** Past
+      `attention_daily_credits` the attended (or windowed) ten-minute cadence
+      is refused and the sport falls through to the hourly floor's own
+      timetable, stamped `DESK` so it is neither charged to the slice nor
+      refused by it. Until 2026-08-29 the refusal was a `continue`, which made
+      **keeping the page open the thing that suppressed the buying** -- see
+      `floor_wants` below for why the budget is unmoved by the repair.
     """
     state = budget.state(now_ms)
     remaining = max(0, state.remaining_today // max(1, cost))
@@ -1930,7 +1959,42 @@ def decide_sweeps(
         desk_window=desk_window,
         allow_bootstrap=allow_bootstrap,
     )
-    # The attention slice, spent before the loop so a refusal can name it.
+    # **The same question asked again with nobody looking**, which is the
+    # fall-through added 2026-08-29 and the repair of a perversity.
+    #
+    # Until then the slice check below ended in `continue`. `desk_wants`
+    # branches on `attended or windowed` and hands every upcoming sport the
+    # ten-minute cadence, the slice refused each one, and **there was nothing
+    # hourly left to fall through to**. So past the slice, keeping the page
+    # open is what suppressed the buying, and closing it is what let the floor
+    # resume -- five minutes later, at `DEFAULT_ATTENTION_TTL_MS`. Looking at
+    # the desk made it staler than not looking at it, at the one moment a bet
+    # is about to be placed.
+    #
+    # Attention now *adds to* the floor rather than replacing it, and **the
+    # budget does not move** -- which is arithmetic rather than good intent.
+    # The floor's cadence is measured from `last_sweep_by_sport`, which counts
+    # attention buys too, so a sport can take at most one floor-paced buy an
+    # hour however many attended buys preceded it. Four sports x 24 x `cost` is
+    # the ~384/day `fly.live.toml` publishes as the idle floor; the slice is
+    # its own <=300; 684 of the 700 daily cap, which is the worst case that
+    # file already writes down. This raises actual spend *towards* a published
+    # bound and cannot pass it, and `credits_left` below is the hard stop
+    # either way.
+    #
+    # `desk_window=None` rather than the caller's value, deliberately: this is
+    # the timetable for a pass that has just been refused the attended
+    # cadence, and an open clock window would hand it straight back.
+    floor_wants = desk_wants(
+        fixtures,
+        now_ms=now_ms,
+        attended=False,
+        last_sweeps=last_sweeps,
+        refresh_interval_ms=refresh_ms,
+        desk_window=None,
+        allow_bootstrap=allow_bootstrap,
+    )
+    # The attention slice, read before the loop so a refusal can name it.
     #
     # **This is the belt to `document.visibilityState`'s braces.** A tab left
     # open and visible for 24h is 1,152 credits/day at two sports and 2,304 at
@@ -1941,19 +2005,17 @@ def decide_sweeps(
     # can lose without a cluster going dark, and if it binds routinely the
     # answer is a change of design, not a bigger slice.
     #
-    # The floor is deliberately NOT charged to it. Past the slice the slate
-    # stops re-buying every ten minutes and keeps its hourly floor, so it never
-    # goes fully dark -- which is the property that makes a hard cap safe to
-    # set low.
+    # The floor is deliberately NOT charged to it and is never refused by it.
+    # Past the slice the slate stops re-buying every ten minutes and keeps its
+    # hourly floor -- whether or not anyone is looking -- so it never goes
+    # fully dark, which is the property that makes a hard cap safe to set low.
     attention_spent = attention_credits_spent_today(
         conn, since_ms=budget.day_start_ms(now_ms)
     )
+    on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
     for sport_key in sorted(fixtures):
         if len(firing) >= remaining:
             break
-        wanted_at = wants.get(sport_key)
-        if wanted_at is None or wanted_at > now_ms:
-            continue
         if any(f.sport_key == sport_key for f in (*manual_firing, *firing)):
             continue
         if any(s.sport_key == sport_key and s.is_due(now_ms) for s in slots):
@@ -1961,41 +2023,54 @@ def decide_sweeps(
             # Firing here as well would double-buy the same cadence and could
             # take the opening call props ride on.
             continue
-        on_the_floor = not attended and not desk_is_open(desk_window, now_ms)
-        if not on_the_floor and attention_slice_is_spent(
+        # Which of the two timetables governs this sport on this pass. Asked
+        # per sport rather than once, because `attention_spent` moves inside
+        # the loop: the sport that empties the slice is served at the attended
+        # cadence and the next one down the list drops to the floor in the
+        # same pass.
+        #
+        # **A windowed pass falls through on the same terms as an attended
+        # one.** The perversity is identical under a pinned
+        # `ODDS_DESK_WINDOW_UTC` -- past the slice, opening the window bought
+        # *less* than leaving it shut -- and the floor's hourly pacing bounds
+        # the fall-through the same way whichever condition displaced it, so
+        # there is no budget reason to treat them differently and no honest
+        # reading on which one deserves a stale slate more than the other.
+        via_floor = on_the_floor or attention_slice_is_spent(
             attention_spent=attention_spent,
             sweep_cost=cost,
             attention_daily_credits=attention_daily_credits,
-        ):
-            # **The tail names a floor that can actually run, and until
-            # 2026-08-29 it did not.** It said "the hourly floor still runs",
-            # which is false in the only state that reaches this line: the
-            # refusal happens because `on_the_floor` is False, and `desk_wants`
-            # has already given every upcoming sport the ten-minute cadence on
-            # that same branch, so there is nothing hourly left to fall through
-            # to. Attention *replaces* the floor rather than adding to it (ADR
-            # 0071 section 2.6), so past the slice the buying resumes when the
-            # displacing condition lifts and not before.
-            #
-            # This is display copy with a log's punctuation: `detail` reaches
-            # `/api/window` as `last_look_detail` and `WindowBanner` prints it
-            # verbatim on `/board`. Naming a survivor that is also refused is
-            # ticket #35's own defect -- a screen promising a buy the loop had
-            # already declined -- one surface further on. The condition is
-            # named rather than a time: `window_status` publishes
-            # `floor_next_buy_ms` for the screen that wants a clock, and a
-            # second time computed here would be the third spelling of one
-            # predicate.
-            refused_for_cost.append(
-                f"{sport_key} desk refresh cannot be served: the attention "
-                f"slice is {attention_daily_credits} credits a day and "
-                f"{attention_spent} are spent; the slow hourly buy resumes "
-                + (
-                    "once nobody is looking"
-                    if attended
-                    else "once the desk window closes"
-                )
-            )
+        )
+        wanted_at = (floor_wants if via_floor else wants).get(sport_key)
+        if wanted_at is None or wanted_at > now_ms:
+            if via_floor and not on_the_floor:
+                attended_at = wants.get(sport_key)
+                if attended_at is not None and attended_at <= now_ms:
+                    # Said only when the attended cadence would have bought
+                    # now *and* the floor is not buying this pass, so the line
+                    # lands on the rhythm the reader has lost rather than on
+                    # every pass -- and never beside a sweep that fired, which
+                    # would be ticket #35's screen-versus-loop contradiction
+                    # in reverse. Display copy with a log's punctuation:
+                    # `detail` reaches `/api/window` as `last_look_detail` and
+                    # `WindowBanner` prints it verbatim on `/board`.
+                    #
+                    # **The tail names what survives, and it has now been
+                    # wrong in both directions.** It promised "the hourly
+                    # floor still runs" while the floor was displaced (refuted
+                    # 2026-08-29 morning), and was then corrected to "resumes
+                    # once nobody is looking", which the fall-through refutes
+                    # in turn by making the floor run regardless. Nothing has
+                    # to lift now, so the sentence names no condition -- and
+                    # that is also why it no longer forks on attended-versus-
+                    # windowed: there were two spellings because there were
+                    # two conditions to lift, and there are none.
+                    refused_for_cost.append(
+                        f"{sport_key} desk refresh cannot be served: the "
+                        f"attention slice is {attention_daily_credits} "
+                        f"credits a day and {attention_spent} are spent; the "
+                        f"hourly floor carries it from here, looking or not"
+                    )
             continue
         if cost > credits_left:
             refused_for_cost.append(
@@ -2004,18 +2079,24 @@ def decide_sweeps(
             )
             continue
         credits_left -= cost
-        if not on_the_floor:
+        if not via_floor:
             attention_spent += cost
         firing.append(
             FiringSweep(
                 sport_key=sport_key,
                 # `ATTENTION` reaches `api_credits.trigger`; `DESK` stays NULL.
-                # Only the slice needs counting, and only these rows are in it.
-                trigger=ATTENTION if not on_the_floor and attended else DESK,
+                # Only the slice needs counting, and only these rows are in
+                # it -- so a fall-through buy is `DESK`, which is what keeps
+                # the floor off the slice it was refused by.
+                trigger=ATTENTION if not via_floor and attended else DESK,
                 cost=cost,
                 detail=(
-                    "someone has the desk open; re-buying so the slate is "
-                    "priced while it is being read"
+                    "the attended refresh allowance is spent, so the hourly "
+                    "floor keeps the slate priced; looking at the desk no "
+                    "longer holds it back"
+                    if via_floor and not on_the_floor
+                    else "someone has the desk open; re-buying so the slate "
+                    "is priced while it is being read"
                     if attended
                     else (
                         f"desk window "

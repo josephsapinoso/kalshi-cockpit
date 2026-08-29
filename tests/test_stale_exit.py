@@ -561,16 +561,28 @@ class TestASpentSliceIsNotAQuietNight:
         assert "near enough" not in reading["sentence"]
         assert reading["floor_resumes_ms"] == 6_000_000
 
-    def test_the_floor_resuming_and_the_floor_wanting_nothing_differ(self):
+    def test_the_floor_running_and_the_floor_wanting_nothing_differ(self):
         """Two nulls that mean different things, which is the whole reason
-        `floor_next_buy_ms` is a separate field from `next_desk_buy_ms`."""
-        resumes = read(
+        `floor_next_buy_ms` is a separate field from `next_desk_buy_ms`.
+
+        **And the copy for the first of them stopped telling him to go away.**
+        Until 2026-08-29 this asserted *"once you stop looking"* was in the
+        sentence, and that was right while attention replaced the floor: past
+        the slice, having the page open switched the buying off and closing it
+        switched the floor back on at `DEFAULT_ATTENTION_TTL_MS`. The loop now
+        falls through to the floor while the page is open, so the phrase is
+        asserted **absent** — a reassurance that outlives its condition is
+        worse than the silence it was written to explain, because a reader who
+        acts on it closes a screen he wanted open and buys nothing by it.
+        """
+        runs = read(
             facts(attention_slice_spent=True, floor_next_buy_ms=6_000_000)
         )
         never = read(facts(attention_slice_spent=True, floor_next_buy_ms=None))
-        assert resumes["kind"] == never["kind"] == "slice_spent"
-        assert resumes["sentence"] != never["sentence"]
-        assert "once you stop looking" in resumes["sentence"]
+        assert runs["kind"] == never["kind"] == "slice_spent"
+        assert runs["sentence"] != never["sentence"]
+        assert "whether or not you are looking" in runs["sentence"]
+        assert "stop looking" not in runs["sentence"]
         assert "close enough" in never["sentence"]
 
     def test_the_slice_sentence_never_tells_him_to_tap(self):
@@ -726,6 +738,38 @@ class TestThePanelStatesWhichOfThreeStatesItIsIn:
         assert 'reading.kind === "slice_spent"' in src
         assert 'reading.kind === "scheduled"' in src
         assert 'reading.kind === "nothing_to_schedule"' in src
+
+    def test_no_screen_still_tells_him_that_closing_the_page_buys_more(self):
+        """**The reassurance that outlived its condition**, pinned absent on
+        every surface that carried it.
+
+        *"The slow hourly buy resumes once you stop looking"* was true for one
+        day. `desk_wants` branched on `attended or windowed` and gave every
+        upcoming sport the ten-minute cadence, the attention slice refused each
+        one, and there was no fall-through -- so past the slice, keeping the
+        page open genuinely was what suppressed the buying, and closing it let
+        the floor resume five minutes later at `DEFAULT_ATTENTION_TTL_MS`. The
+        loop falls through to the floor's cadence now (2026-08-29), so the
+        sentence would send a reader away from a screen he wanted open to buy
+        nothing he was not already getting.
+
+        Three surfaces, because the phrase was on three and this repo's own
+        record of ticket #35 is three passes at one lie. Asserted on the
+        rendered wording rather than the phrase alone: the comments in these
+        files quote *"Once you stop looking"* deliberately, and a pin that
+        forbade the history would push the reason for the change out of the
+        files that changed.
+
+        Mutation observed red: restore any one of the three sentences.
+        """
+        for path in (
+            self.PANEL,
+            REPO / "frontend" / "src" / "components" / "WindowBanner.tsx",
+            REPO / "frontend" / "src" / "lib" / "nextOddsWindow.ts",
+        ):
+            src = path.read_text(encoding="utf-8")
+            assert "resumes once you stop looking" not in src, path
+            assert "buy resumes once" not in src, path
 
     def test_the_status_line_precedes_the_credit_accounting(self):
         """The reason the panel was rebuilt rather than reworded: the credit

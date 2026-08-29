@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.odds import attention
+from backend.odds import attention, ondemand
 from backend.odds.budget import CreditBudget
 from backend.odds.timing import (
     ATTENTION,
@@ -51,6 +51,7 @@ from backend.odds.timing import (
     DESK,
     DESK_FLOOR_HORIZON_MS,
     DESK_FLOOR_INTERVAL_MS,
+    _DAY_MS,
     attention_credits_spent_today,
     decide_sweeps,
     desk_floor_next_want_ms,
@@ -117,6 +118,28 @@ def spend_the_slice(conn, *, credits, at_ms=SPENT_AT):
             "cost, trigger) VALUES (?, ?, ?, ?, ?)",
             (at_ms - i * MIN, f"/sports/{SPORT}/odds", SPORT, 4, ATTENTION),
         )
+    conn.commit()
+
+
+def pace_the_sport(conn, *, at_ms, sport_key=SPORT):
+    """One served sweep with `trigger` NULL -- a floor or planner buy.
+
+    **What separates the two cadences in a test, and the reason several of
+    these fixtures have one.** Both cadences are measured from
+    `last_sweep_by_sport`, so a sport with no served sweep at all is wanted
+    *now* by either of them (`desk_wants`' bootstrap branch) and an assertion
+    written over that state cannot tell ten minutes from an hour. A sweep ten
+    minutes back is inside the floor's hour and exactly on the attended
+    cadence, which is the one arrangement where the two answers differ.
+
+    NULL `trigger` on purpose: `attention_credits_spent_today` filters on
+    `'attention'`, so this paces the sport without also moving the slice.
+    """
+    conn.execute(
+        "INSERT INTO api_credits (called_ms, endpoint, sport_key, cost) "
+        "VALUES (?, ?, ?, ?)",
+        (at_ms, f"/sports/{sport_key}/odds", sport_key, 4),
+    )
     conn.commit()
 
 
@@ -274,9 +297,18 @@ class TestTheAttentionSliceIsAHardCeiling:
         self, conn, budget
     ):
         """Mutation observed red: remove the `attention_spent + cost >` guard —
-        a tab left open buys all day at the ten-minute cadence."""
+        a tab left open buys all day at the ten-minute cadence.
+
+        `pace_the_sport` at ten minutes is what makes that mutation visible
+        since the fall-through landed (2026-08-29): the sport is exactly due on
+        the attended cadence and fifty minutes early on the floor's, so a
+        working slice fires nothing and a defeated one fires immediately.
+        Without it both cadences want the sport now and the assertion cannot
+        tell them apart.
+        """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
         self._spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
         decision = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
@@ -303,77 +335,313 @@ class TestTheAttentionSliceIsAHardCeiling:
         )
         assert [f.trigger for f in decision.fire] == [DESK]
 
-    def test_the_refusal_names_a_floor_that_can_actually_run(
+    def test_the_refusal_names_a_floor_that_is_already_running(
         self, conn, budget
     ):
         """A refusal that reads as "the feed is off" would send someone to
         raise the cap, so naming what survives is what makes the ceiling
-        legible. **Naming a survivor that is also refused is worse than naming
-        none**, and until 2026-08-29 this sentence did exactly that: it said
-        *"the hourly floor still runs"* in the same pass in which the floor was
-        not going to run.
+        legible. **This sentence has now been wrong in both directions, which
+        is why it is asserted by its own words twice over.**
 
-        `desk_wants` branches on `attended or windowed` and hands every
-        upcoming sport the ten-minute cadence; the slice check then `continue`s
-        past each one. There is **no fall-through to the hourly cadence**, so
-        while someone is looking, attention replaces the floor rather than
-        adding to it. `detail` is not a log line only -- it reaches
-        `/api/window` as `last_look_detail` and `WindowBanner` prints it
-        verbatim on `/board` -- so this was ticket #35's own defect (a screen
-        promising a buy the loop had already declined), one surface further on.
+        It said *"the hourly floor still runs"* while the floor was displaced
+        by the very attention that caused the refusal. That was corrected on
+        the morning of 2026-08-29 to *"resumes once nobody is looking"* -- a
+        condition that had to lift -- and the fall-through landed the same day
+        and refuted that too: nothing has to lift, the floor runs while the
+        page is open.
+
+        `detail` is not a log line only. It reaches `/api/window` as
+        `last_look_detail` and `WindowBanner` prints it verbatim on `/board`,
+        so a stale reassurance here is a sentence on a screen someone is
+        deciding a bet from.
 
         The second half is what makes this a claim about the world rather than
-        about a string: the sentence says the buying resumes once nobody is
-        looking, and the loop is then asked, in the same state with the
-        heartbeat expired, whether it does.
+        about a string: the sentence says the floor carries the sport from
+        here, and the loop is then asked -- same database, same spent slice,
+        same heartbeat still live -- whether it does.
         """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
+        # Fifty minutes short of the floor's hour, so this pass refuses and
+        # says so without anything firing behind the sentence.
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
         self._spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
         decision = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
             max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
         assert "attention slice" in decision.detail
-        assert "resumes once nobody is looking" in decision.detail
-        # The refuted sentence, asserted absent by its own words: a rewording
-        # that reintroduces the promise fails here rather than passing on a
-        # substring the new copy happens to share.
+        assert "the hourly floor carries it from here" in decision.detail
+        # Both refuted sentences, asserted absent by their own words: a
+        # rewording that reintroduces either promise fails here rather than
+        # passing on a substring the new copy happens to share.
         assert "still runs" not in decision.detail
-        # Nothing fired at all -- the floor did not quietly run behind the
-        # refusal, which is the fact the old sentence contradicted.
+        assert "resumes once" not in decision.detail
         assert decision.fire == ()
 
-        # ...and it does resume. Same database, same spent slice, one TTL
-        # later with no further heartbeat: unattended, so the floor owns the
-        # sport and buys it.
-        later = NOW + attention.DEFAULT_ATTENTION_TTL_MS + 1
-        resumed = decide_sweeps(
+        # ...and it carries it. Same database, same spent slice, the heartbeat
+        # deliberately re-stamped so the desk is still attended: fifty minutes
+        # on, the floor's hour is up and it buys.
+        later = NOW + 50 * MIN
+        attention.stamp(conn, now_ms=later)
+        carried = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=4, now_ms=later,
             max_odds_age_ms=MAX_ODDS_AGE_MS,
         )
-        assert [f.trigger for f in resumed.fire] == [DESK]
+        assert [f.trigger for f in carried.fire] == [DESK]
 
-    def test_a_windowed_refusal_waits_on_the_window_not_on_a_watcher(
+    def test_a_windowed_refusal_falls_through_on_the_same_terms(
         self, conn, budget
     ):
-        """The same sentence with `ODDS_DESK_WINDOW_UTC` pinned back on, where
-        "once nobody is looking" would be the wrong condition: nobody *is*
-        looking, and the floor is still displaced -- by the clock window, until
-        it closes. `desk_is_open` is the second half of `on_the_floor`, and a
-        refusal that named only the watcher would send an operator hunting for
-        a phone that was never open.
+        """The same state with `ODDS_DESK_WINDOW_UTC` pinned back on, and the
+        decision recorded rather than left to be re-derived: **a windowed pass
+        falls through exactly as an attended one does.**
+
+        The reason is that the perversity is identical under a window. Past the
+        slice, a pinned window bought *less* than no window at all -- opening
+        the desk's clock was what switched the floor off. And the budget
+        argument is indifferent to which condition displaced the floor: the
+        fall-through is paced by `DESK_FLOOR_INTERVAL_MS` off the same
+        `last_sweep_by_sport` either way, so it is bounded at one buy per sport
+        per hour whichever branch of `desk_wants` was refused.
+
+        The previous version of this test pinned the opposite -- a refusal
+        naming *"once the desk window closes"* as the condition to wait for.
+        There is no condition to wait for now, which is why that sentence is
+        asserted absent.
         """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
-        # No heartbeat: unattended, and refused anyway because the window is up.
+        # No heartbeat: unattended, and the window is what displaces the floor.
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
         self._spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
-        decision = decide_sweeps(
+        refused = decide_sweeps(
             conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
             max_odds_age_ms=MAX_ODDS_AGE_MS,
             desk_window=(12, 22),  # NOW is 18:00Z
         )
+        assert refused.fire == ()
+        assert "the hourly floor carries it from here" in refused.detail
+        assert "desk window closes" not in refused.detail
+
+        # Fifty minutes on, still inside the pinned window, still nobody
+        # looking: the floor's hour is up and it buys anyway.
+        later = NOW + 50 * MIN
+        carried = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=4, now_ms=later,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+            desk_window=(12, 22),
+        )
+        assert [f.trigger for f in carried.fire] == [DESK]
+
+
+class TestAttentionAddsToTheFloorRatherThanReplacingIt:
+    """**Looking at the desk must not make it staler than not looking at it.**
+
+    Until 2026-08-29 it did. `desk_wants` branches on `attended or windowed`
+    and hands every upcoming sport the ten-minute cadence; the slice check
+    refused each one with `continue`, and there was no fall-through, so past
+    the slice **keeping the page open suppressed the buying and closing it let
+    the floor resume** five minutes later at `DEFAULT_ATTENTION_TTL_MS`. The
+    moment Joe is staring at the screen is the moment he is about to bet, and
+    that is the moment the design was switching the feed off.
+
+    WHAT THESE ESTABLISH
+    --------------------
+    - A sport with a fixture inside the floor's horizon still gets its hourly
+      buy while the page is open and the slice is spent.
+    - The fall-through is the *floor's* cadence and not a rebate on the slice:
+      spent means spent, and the ten minutes do not come back.
+    - The worst-case day is unmoved, because the floor's own pacing bounds it.
+
+    WHAT THEY DO NOT ESTABLISH
+    --------------------------
+    - Nothing about whether 300/day is the right slice, or 700/day the right
+      cap. Both are `fly.live.toml`'s decisions and neither moves here.
+    - Nothing about the schedule or the prop tail, which draw on the same 700
+      and are outside every figure below. `credits_left` is what actually
+      stops the day, and it is unchanged.
+    - Nothing about a browser. Whether `Nav.tsx` stops stamping in a
+      background tab is not decidable from Python.
+    """
+
+    def test_a_spent_slice_with_the_page_open_still_gets_the_hourly_floor_buy(
+        self, conn, budget
+    ):
+        """**The claim, in one assertion.** Someone has the desk open, the
+        slice is gone, and a fixture is six hours out -- well inside
+        `DESK_FLOOR_HORIZON_MS`. The sport's last served sweep is an hour and a
+        minute back, so the floor's hour is up.
+
+        On main this fires nothing: `desk_wants` gives the sport the attended
+        cadence, the slice refuses it, and the `continue` skips the sport with
+        no floor left to fall to.
+
+        `DESK` and not `ATTENTION` is half the claim -- the trigger is what
+        keeps the buy off `api_credits.trigger = 'attention'`, so a
+        fall-through neither spends the slice it was just refused by nor is
+        counted into the next pass's refusal.
+        """
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - HOUR - MIN)
+        spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
+
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
+        assert [f.trigger for f in decision.fire] == [DESK]
+        assert decision.fire[0].sport_key == SPORT
+        assert "hourly floor" in decision.fire[0].detail
+        # No refusal line beside a served sweep. A pass that both fires the
+        # sport and reports it "cannot be served" is ticket #35's
+        # screen-versus-loop contradiction in reverse, on the same surface.
+        assert "cannot be served" not in decision.detail
+
+    def test_the_fall_through_is_hourly_and_never_the_attended_cadence(
+        self, conn, budget
+    ):
+        """**Spent means spent.** The guard against buying the slice back: a
+        fall-through that used `refresh_interval_ms` would hand the tab its ten
+        minutes again under a different trigger, and stamp them `DESK` so
+        nothing counted them. That is the 2,304/day worst case the slice exists
+        to prevent, wearing the floor's name.
+
+        Same state as the test above at three instants off one served sweep.
+        Ten and fifty-nine minutes on, the floor is not due and nothing fires;
+        at sixty-one it does. A fall-through on the attended cadence fires at
+        all three.
+        """
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
+        served_at = NOW - 10 * MIN
+        pace_the_sport(conn, at_ms=served_at)
+
+        def fires_at(offset_ms):
+            at = served_at + offset_ms
+            # Re-stamped each time: the desk stays attended throughout, so
+            # nothing here is the unattended floor path in disguise.
+            attention.stamp(conn, now_ms=at)
+            return [
+                f.trigger
+                for f in decide_sweeps(
+                    conn, in_scope={}, budget=budget, cost=4, now_ms=at,
+                    max_odds_age_ms=MAX_ODDS_AGE_MS,
+                ).fire
+            ]
+
+        assert fires_at(10 * MIN) == [], "the attended cadence, refused"
+        assert fires_at(59 * MIN) == [], "still inside the floor's hour"
+        assert fires_at(61 * MIN) == [DESK], "the floor's hour, and it buys"
+
+    def test_the_fall_through_is_not_charged_to_the_spent_slice(
+        self, conn, budget
+    ):
+        """The other half of "spent means spent", read off the counter rather
+        than off the trigger constant.
+
+        A fall-through buy must leave `attention_credits_spent_today` where it
+        found it. If it did not, the slice would run backwards on itself --
+        every floor buy pushing the counter further past a ceiling it is
+        already past, which is harmless today and would silently become a cap
+        on the floor the moment anyone made the refusal depend on the overage.
+        """
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - HOUR - MIN)
+        spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
+        start = NOW - 12 * HOUR
+
+        before = attention_credits_spent_today(conn, since_ms=start)
+        fired = decide_sweeps(
+            conn, in_scope={}, budget=budget, cost=4, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        ).fire[0]
+        # The trigger is what the runner stamps on the `api_credits` row, so
+        # replaying it is what proves the counter would not move.
+        conn.execute(
+            "INSERT INTO api_credits (called_ms, endpoint, sport_key, cost, "
+            "trigger) VALUES (?, ?, ?, ?, ?)",
+            (
+                NOW, f"/sports/{SPORT}/odds", SPORT, fired.cost,
+                None if fired.trigger == DESK else fired.trigger,
+            ),
+        )
+        conn.commit()
+        assert attention_credits_spent_today(conn, since_ms=start) == before
+
+    def test_the_worst_case_day_with_the_fall_through_stays_inside_the_cap(
+        self,
+    ):
+        """**The budget argument, computed from the constants rather than
+        quoted from the deploy file.**
+
+        The fall-through raises actual spend towards a bound that is already
+        published and cannot pass it, and the reason is arithmetic:
+
+        - The floor's cadence is measured from `last_sweep_by_sport`, which
+          counts attention buys too, so a sport takes **at most one
+          floor-paced buy an hour** however many attended buys preceded it.
+          At `DESK_FLOOR_INTERVAL_MS` that is 24 a day per sport.
+        - The slice is its own ceiling: `attention_slice_is_spent` refuses once
+          `spent + cost > attention_daily_credits`, so attention-triggered
+          spend is **at most `attention_daily_credits`**, and a fall-through
+          buy is stamped `DESK` and adds nothing to it.
+
+        Four sports is the maximum `fly.live.toml` plans for (NCAAF and NFL
+        entering scope beside MLB and WNBA), and the deployed sweep is 4
+        credits (`h2h,spreads` x `us,eu`). The two bounds are additive and
+        independent, which is what makes the sum a genuine ceiling.
+
+        **What this does not count**, deliberately: the slot planner and the
+        prop tail, which draw on the same 700 and are outside the published
+        table too. They are bounded by `credits_left`, which refuses any desk
+        buy the day cannot afford -- so 700 is enforced by construction
+        whatever this arithmetic says.
+
+        Mutation observed red: charge the floor at `refresh_interval_ms`
+        instead (24 -> 144 buys a sport) and the worst case is 2,604.
+        """
+        sports = 4
+        sweep = 4  # sweep_cost(["h2h", "spreads"], ["us", "eu"])
+        daily_cap = 700  # ODDS_DAILY_CREDIT_BUDGET on live
+        slice_cap = DEFAULT_ATTENTION_DAILY_CREDITS  # 300, and live agrees
+
+        floor_buys_per_sport = _DAY_MS // DESK_FLOOR_INTERVAL_MS
+        assert floor_buys_per_sport == 24
+
+        floor_ceiling = floor_buys_per_sport * sports * sweep
+        assert floor_ceiling == 384, "fly.live.toml's idle-floor row"
+        assert slice_cap == 300, "fly.live.toml's attention row"
+
+        worst_case = floor_ceiling + slice_cap
+        assert worst_case == 684, "fly.live.toml's worst-case row"
+        assert worst_case <= daily_cap
+        # The tap reserve is a sub-ceiling *inside* the 700 rather than a
+        # carve-out from it (`ondemand.DEFAULT_MANUAL_DAILY_CREDITS`), so it is
+        # not subtracted here -- but the day cannot fund both in full, and
+        # `credits_left` is what refuses the loser.
+        assert worst_case + ondemand.DEFAULT_MANUAL_DAILY_CREDITS > daily_cap
+
+    def test_the_day_cap_still_refuses_a_fall_through_it_cannot_afford(
+        self, conn
+    ):
+        """`credits_left` is the hard stop, and the fall-through goes through
+        it like every other spend path. A second route that skipped it is the
+        shape of every credit accident in `timing.py`'s history.
+        """
+        add_fixture(conn, commence_ms=NOW + 6 * HOUR)
+        attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - HOUR - MIN)
+        spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
+        # A day whose whole budget is the 300 already spent on attention.
+        broke = CreditBudget(conn, daily_budget=DEFAULT_ATTENTION_DAILY_CREDITS)
+        decision = decide_sweeps(
+            conn, in_scope={}, budget=broke, cost=4, now_ms=NOW,
+            max_odds_age_ms=MAX_ODDS_AGE_MS,
+        )
         assert decision.fire == ()
-        assert "resumes once the desk window closes" in decision.detail
+        assert "credits" in decision.detail
 
 
 class TestTheScreenPredictsWhatTheLoopWillDo:
@@ -554,16 +822,26 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
     the panel *says* in each state. These pin the facts it renders from.
     """
 
-    def test_a_spent_slice_takes_the_desk_out_of_the_next_call(
+    def test_a_spent_slice_takes_the_attended_cadence_out_of_the_next_call(
         self, conn, budget
     ):
-        """Mutation observed red: drop the `slice_spent and not on_the_floor`
-        branch in `window_status` so `desk_wants` always speaks --
-        `next_desk_buy_ms` comes back as `NOW` and `next_call_ms` with it,
-        which is the published contradiction restored exactly.
+        """The published contradiction, and the *shape* of the fix rather than
+        its first draft.
+
+        On 2026-08-28 this asserted `next_desk_buy_ms is None`, because past
+        the slice the loop bought nothing at all while anyone was looking. The
+        loop now falls through to the hourly floor, so `None` would be the same
+        defect inverted -- a screen saying nothing is coming while the loop
+        buys. What must never come back is the *ten-minute* answer.
+
+        Mutation observed red: drop `and not slice_spent` from the `attended`
+        argument in `window_status` so `desk_wants` takes the attended branch
+        again -- the field reads `NOW` where the floor puts it fifty minutes
+        out, and the panel is back to promising a sweep the loop has refused.
         """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
         spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
         status = window_status(
             conn, budget=budget, now_ms=NOW,
@@ -571,12 +849,10 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
         )
         assert status.attention_slice_spent is True
         assert status.desk_is_attended is True
-        assert status.next_desk_buy_ms is None
-        # The slot planner is untouched by the slice and still owns its own
-        # window, so the merged answer is exactly the slot's -- the only way to
-        # say "the desk contributed nothing" without reaching inside.
-        assert status.next_slot is not None
-        assert status.next_call_ms == status.next_slot.fire_from_ms
+        # The floor's hour off the same served sweep, not the attended ten
+        # minutes -- which would be `NOW`, and is the answer this must refuse.
+        assert status.next_desk_buy_ms == NOW - 10 * MIN + DESK_FLOOR_INTERVAL_MS
+        assert status.next_desk_buy_ms > NOW
 
     def test_the_screen_and_the_loop_give_the_same_answer_either_way(
         self, conn, budget
@@ -584,11 +860,17 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
         """The invariant the ticket is about, asserted against the loop itself
         rather than against a remembered value.
 
-        Mutation observed red: same branch removed -- the spent half then has
-        `decide_sweeps` firing nothing while `window_status` publishes `NOW`.
+        Mutation observed red: drop `and not slice_spent` from `window_status`
+        -- the spent half then has `decide_sweeps` refusing while
+        `window_status` publishes `NOW`.
+
+        `pace_the_sport` is what gives the two cadences different answers here;
+        without it the floor and the attended cadence both want the sport now
+        and the two halves agree for the wrong reason.
         """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
 
         def desk_firings():
             decision = decide_sweeps(
@@ -607,10 +889,15 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
         assert [f.trigger for f in desk_firings()] == [ATTENTION]
         assert panel().next_desk_buy_ms == NOW
 
-        # Past the slice: the loop refuses and the panel must stop promising.
+        # Past the slice: the loop refuses this pass and drops to the floor's
+        # hour, and the panel must publish that hour rather than the ten
+        # minutes it just lost -- or `None`, which would be the same
+        # disagreement pointing the other way.
         spend_the_slice(conn, credits=DEFAULT_ATTENTION_DAILY_CREDITS)
         assert desk_firings() == []
-        assert panel().next_desk_buy_ms is None
+        assert panel().next_desk_buy_ms == (
+            NOW - 10 * MIN + DESK_FLOOR_INTERVAL_MS
+        )
 
     def test_the_slice_is_not_applied_where_the_loop_does_not_apply_it(
         self, conn, budget
@@ -748,10 +1035,12 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
 
         Mutation observed red: ignore the parameter and use
         `DEFAULT_ATTENTION_DAILY_CREDITS` -- 40 credits of spend is then well
-        inside the 300 default and the desk is reported as buying now.
+        inside the 300 default, the desk is reported on the attended cadence,
+        and the field reads `NOW` instead of the floor's hour.
         """
         add_fixture(conn, commence_ms=NOW + 6 * HOUR)
         attention.stamp(conn, now_ms=NOW)
+        pace_the_sport(conn, at_ms=NOW - 10 * MIN)
         spend_the_slice(conn, credits=40)
         status = window_status(
             conn, budget=budget, now_ms=NOW,
@@ -760,7 +1049,7 @@ class TestThePanelDoesNotPublishASweepTheLoopHasRefused:
         )
         assert status.attention_daily_credits == 40
         assert status.attention_slice_spent is True
-        assert status.next_desk_buy_ms is None
+        assert status.next_desk_buy_ms == NOW - 10 * MIN + DESK_FLOOR_INTERVAL_MS
 
 
 class TestTheLoopsCadenceIsUnchangedByTheSliceCheck:
