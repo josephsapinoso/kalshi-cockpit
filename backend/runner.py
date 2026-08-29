@@ -311,6 +311,32 @@ class PassCounts:
     leg_price_link_ms: int = 0
     leg_price_judge_ms: int = 0
     leg_price_persist_ms: int = 0
+    # **The size of the scan `leg_price_link_ms` is mostly made of, and how
+    # long it took.** `_match_candidates` was already timed inside
+    # `link_discovered_events` and reported only through a `link slow` WARNING
+    # above 8s, so the ordinary state -- the one a time series is built out of
+    # -- was never recorded anywhere, and the row count it returns was not
+    # recorded at all.
+    #
+    # That count is what separates two explanations of the same symptom. The
+    # 2026-08-29 storage blow-out has `leg_price_link_ms` at 18.7-32.2s beside
+    # `leg_store_quotes_ms` at 13-17s while the HTTP walk stayed at ~2.7s, and
+    # the two candidate mechanisms are (a) a 220 MiB WAL making every write
+    # slow and (b) this `SELECT DISTINCT` scanning a growing `odds_snapshots`
+    # -- `sport_key` is in no index, so the plan is a range scan on
+    # `idx_odds_commence` plus a temp B-tree. If the scan is the cost, this
+    # number moves with the leg. If it is flat while the leg swings, the query
+    # is an artifact and the storage layer is the whole story.
+    #
+    # `candidate_rows` is the SUM over the distinct sports queried this pass,
+    # which is the population the leg actually paid for -- the per-sport
+    # results are cached, so one sport queried twice is one scan.
+    #
+    # Reported even at zero, for the reason every leg above is: a pass that
+    # queried nothing and a pass whose instrumentation is not wired look
+    # identical otherwise.
+    candidate_rows: int = 0
+    leg_price_candidates_ms: int = 0
     # Rows retention removed this pass. Reported even at zero, because a
     # prune that has stopped finding anything and a prune that has stopped
     # running produce the same silence, and the tables that had no bound at
@@ -381,6 +407,8 @@ class PassCounts:
         "leg_price_link_ms",
         "leg_price_judge_ms",
         "leg_price_persist_ms",
+        "candidate_rows",
+        "leg_price_candidates_ms",
         "quotes_pruned",
         "unmatched_pruned",
         "legacy_unmatched_pruned",
@@ -1145,6 +1173,7 @@ def link_discovered_events(
     now: int,
     alias_cache: Optional[dict[str, TeamAliases]] = None,
     unmatched_by_sport: Optional[dict] = None,
+    candidate_stats: Optional[dict] = None,
 ) -> dict[str, tuple[int, Optional[int]]]:
     """Link each discovered event to a sportsbook fixture.
 
@@ -1152,6 +1181,14 @@ def link_discovered_events(
     resolved. Everything else goes to `unmatched_items` with a reason, because
     a matcher that silently drops what it cannot resolve looks identical to one
     with nothing to do.
+
+    `candidate_stats`, when given, is FILLED IN with `{"rows": int, "ms":
+    int, "calls": int}` -- the size and cost of the `_match_candidates` scan
+    this pass paid for, summed across the sports it queried. Those two numbers
+    already existed here and went nowhere but a WARNING above
+    `LINK_SLOW_REPORT_MS`, so the ordinary pass -- the one a per-pass time
+    series is made of -- recorded neither. See `PassCounts.candidate_rows`
+    for what the pair is being used to separate.
 
     `unmatched_by_sport`, when given, is FILLED IN with
     `{sport_key: {refusal_kind: count}}` -- the split that turns a pooled
@@ -1305,6 +1342,16 @@ def link_discovered_events(
                 )
 
     total_ms = (time.perf_counter() - link_started) * 1000
+    if candidate_stats is not None:
+        # The row count is the sum over the CACHED results, not over the
+        # calls: one sport queried once and read four hundred times paid for
+        # one scan, and counting the reads would report a population the pass
+        # never scanned.
+        candidate_stats["rows"] = sum(
+            len(rows) for rows in candidate_cache.values()
+        )
+        candidate_stats["ms"] = int(candidates_ms)
+        candidate_stats["calls"] = candidate_calls
     if total_ms >= LINK_SLOW_REPORT_MS:
         logger.warning(
             "link slow: %dms total; candidates %dms over %d calls, "
@@ -1832,14 +1879,18 @@ def run_pricing_pass(
 
     alias_cache: dict[str, TeamAliases] = {}
     link_started = time.perf_counter()
+    candidate_stats: dict[str, int] = {}
     linked = link_discovered_events(
         conn,
         events,
         now=stamp,
         alias_cache=alias_cache,
         unmatched_by_sport=counts.unmatched_by_sport,
+        candidate_stats=candidate_stats,
     )
     link_ms = int((time.perf_counter() - link_started) * 1000)
+    counts.candidate_rows = candidate_stats.get("rows", 0)
+    counts.leg_price_candidates_ms = candidate_stats.get("ms", 0)
     judge_started = time.perf_counter()
     counts.events_discovered += len(events)
     counts.events_linked += len(linked)

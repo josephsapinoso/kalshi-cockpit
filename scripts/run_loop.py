@@ -146,8 +146,37 @@ RSS_LOG_CAP_BYTES = 2 * 1024 * 1024
 RSS_LOG_KEEP_LINES = 8_000
 
 
+def file_kb(path: Path) -> Optional[int]:
+    """A file's size in KiB, or `None` when it could not be read.
+
+    **`None`, never `0`.** A zero here would read as "the WAL is empty", which
+    is the exact opposite of the finding this instrument exists to chase --
+    `/data/cockpit.db-wal` was 230,765,352 bytes on 2026-08-29. An absent or
+    unreadable file is an unknown, and the repo's standing rule is that an
+    unknown refuses rather than substitutes. See `tasks/lessons.md`.
+
+    A file that exists and is genuinely smaller than 1 KiB does report `0`,
+    and that is correct: it is a measurement, not an absence.
+
+    **A stat, and nothing else.** No DB handle, no query, no `PRAGMA`, no
+    lock. This runs at the top of every pass on a ~22s cadence against a
+    1.9 GB database, and an instrument that took a read lock to measure a
+    contended WAL would be changing the thing it is measuring.
+    """
+    try:
+        return os.stat(path).st_size // 1024
+    except OSError:
+        return None
+
+
 def record_pass_rss(
-    path: Path, *, now_ms: int, kind: str, proc: Path = Path("/proc")
+    path: Path,
+    *,
+    now_ms: int,
+    kind: str,
+    proc: Path = Path("/proc"),
+    db_path: Optional[Path] = None,
+    counts=None,
 ) -> None:
     """Append this process's RSS and the box's headroom, one line per pass.
 
@@ -169,9 +198,53 @@ def record_pass_rss(
     nothing is written, which is the correct amount of telemetry for a machine
     whose memory nobody is diagnosing.
 
+    **Four more fields since 2026-08-29, and they are one experiment.** The
+    storage legs blew out together -- `leg_price_link_ms` 18.7-32.2s,
+    `leg_store_quotes_ms` 13-17s -- while the HTTP walk stayed at ~2.7s, and
+    two mechanisms fit that equally well:
+
+        the WAL      230,765,352 bytes and never reset. `journal_mode = WAL`,
+                     `synchronous = NORMAL`, nothing in the repo ever calls
+                     `wal_checkpoint`, and a passive autocheckpoint cannot
+                     RESET the log while any reader holds an older snapshot --
+                     the API opens a connection per request and a health check
+                     hits it every 15s.
+        the scan     `_match_candidates` is a `SELECT DISTINCT` over
+                     `odds_snapshots` with `sport_key` in no index, so it
+                     range-scans `idx_odds_commence` into a temp B-tree over a
+                     table that grows ~900 rows a sweep.
+
+    `wal_kb` and `db_kb` measure the first, `candidate_rows` and
+    `candidate_ms` the second, and the four sit on one line per pass so the
+    discrimination is a correlation rather than a repro:
+
+        store_quotes tracks wal_kb, link tracks candidate_rows
+                                    both mechanisms are real and additive
+        both track wal_kb, candidate_rows flat
+                                    the query is an artifact and the WAL is
+                                    the whole story
+
+    `db_kb` is carried so WAL growth reads as a FRACTION of the database
+    rather than as an absolute -- 220 MiB means one thing against 1.9 GB and
+    another against 50 MB, and a future instance will not have today's figure
+    to hand.
+
+    **The pass counts describe the PREVIOUS pass, and the RSS already did.**
+    This is sampled before any work, so everything on the line is the state
+    the pass is beginning in -- which for the leg timings means the pass that
+    just finished. That is the consistent reading rather than a defect: the
+    WAL at the top of pass N is the WAL pass N-1 wrote into, so the legs and
+    the storage figures beside them describe the same interval. `counts` is
+    `None` on the first pass after a restart and the four fields are then
+    `None` too, which is the honest answer rather than a fabricated zero.
+
     WHAT THIS DOES NOT ESTABLISH: which child the kernel kills, or why the
     pass wedged -- only the memory trajectory leading in. The teardown record
-    in `docker/entrypoint.sh` carries the other half.
+    in `docker/entrypoint.sh` carries the other half. It does not establish
+    CAUSATION between any pair of fields either: two quantities that both grow
+    with the age of a process correlate with each other whatever is driving
+    the legs, so a FLAT `candidate_rows` under a swinging leg is the
+    informative case and a matching pair is not by itself a finding.
     """
     try:
         rss_kb = None
@@ -184,6 +257,10 @@ def record_pass_rss(
             if line.startswith("MemAvailable:"):
                 available_kb = int(line.split()[1])
                 break
+        # `None` when there is no database path to stat, which is the same
+        # unknown a missing file is -- and never `0`. A stat each, no handle.
+        wal_kb = file_kb(Path(str(db_path) + "-wal")) if db_path else None
+        db_kb = file_kb(Path(db_path)) if db_path else None
         with open(path, "a", encoding="utf-8") as handle:
             handle.write(
                 json.dumps(
@@ -192,6 +269,22 @@ def record_pass_rss(
                         "kind": kind,
                         "rss_kb": rss_kb,
                         "available_kb": available_kb,
+                        "wal_kb": wal_kb,
+                        "db_kb": db_kb,
+                        # `getattr` rather than an attribute access, so a
+                        # `counts` of `None` -- the first pass after a restart
+                        # -- yields `None` per field instead of raising and
+                        # losing the whole line to the swallow below.
+                        "candidate_rows": getattr(counts, "candidate_rows", None),
+                        "candidate_ms": getattr(
+                            counts, "leg_price_candidates_ms", None
+                        ),
+                        "leg_price_link_ms": getattr(
+                            counts, "leg_price_link_ms", None
+                        ),
+                        "leg_store_quotes_ms": getattr(
+                            counts, "leg_store_quotes_ms", None
+                        ),
                     }
                 )
                 + "\n"
@@ -480,6 +573,17 @@ async def main() -> int:
     # real state (the loop raised setting the pass up) and the column is
     # nullable to say so rather than guessing "full".
     in_flight_kind: list[Optional[str]] = [None]
+
+    # The counts the PREVIOUS pass finished with, so the per-pass line can
+    # carry its storage legs beside the WAL size measured at the top of this
+    # one. `None` until a pass completes its recording half -- which is the
+    # first pass after every restart, and is reported as `None` rather than as
+    # zero for the reason `record_pass_rss` gives.
+    #
+    # Same one-element-list idiom as `served_after` and `in_flight_kind`: a
+    # closure cannot rebind an enclosing name, and a `nonlocal` in a function
+    # this long is harder to find than the brackets are.
+    last_counts: list = [None]
 
     # What may cut a sleep short. See `scheduler.sleep_until` for why a sleep
     # needs cutting short at all.
@@ -967,7 +1071,16 @@ async def main() -> int:
             # Before any work, so a pass that wedges still left its line: the
             # last entry in the file is the memory state the fatal pass began
             # in. Best-effort inside; a telemetry failure changes nothing.
-            record_pass_rss(rss_log, now_ms=stamp, kind=kind)
+            record_pass_rss(
+                rss_log,
+                now_ms=stamp,
+                kind=kind,
+                # Stat'd, never opened. `db.init_db` already holds the handle
+                # this process uses; a second one taken to measure a contended
+                # WAL would be changing what it measures.
+                db_path=Path(args.db).resolve(),
+                counts=last_counts[0],
+            )
 
             if kind == "full":
                 counts = await run_once(
@@ -1028,6 +1141,12 @@ async def main() -> int:
                     day_start_hour=odds_config.budget_day_start_utc_hour,
                     allow_bootstrap=follows_early_wake(),
                 )
+
+            # Published before the second half, so a pass that dies in scoring
+            # still hands its storage legs to the next line. The alternative --
+            # publishing after `score_settle_and_alert` -- loses exactly the
+            # passes a diagnosis most wants.
+            last_counts[0] = counts
 
             with counts_survive_a_late_failure(log, kind, counts):
                 return await score_settle_and_alert(kind, counts, stamp, started)

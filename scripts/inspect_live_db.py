@@ -103,6 +103,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 # The live volume. `cockpit.db`, not `kalshi.db` -- the repo-root `kalshi.db`
@@ -1459,6 +1460,122 @@ def _q_notifications(conn: sqlite3.Connection, args) -> list[Section]:
     return [kinds, _derive_iso(tail, "sent_ms", "sent_iso")]
 
 
+#: Columns of `loop_rss.jsonl`, in the order they are rendered.
+#:
+#: Read with `.get(name)`, so a row written before a field existed reports
+#: `None` for it rather than failing the whole read. That is not politeness:
+#: the file is append-only and capped by tail, so on the day a field is added
+#: the newest ~8,000 lines are a MIXTURE of shapes, and a reader that refuses
+#: the old shape refuses the history the new field is being compared against.
+#:
+#: `None` and `0` are different answers here and the whole instrument turns on
+#: it -- `wal_kb: null` is "not measured", `wal_kb: 0` is "the WAL is empty".
+_LOOP_RSS_COLUMNS = (
+    "ms",
+    "kind",
+    "rss_kb",
+    "available_kb",
+    "wal_kb",
+    "db_kb",
+    "candidate_rows",
+    "candidate_ms",
+    "leg_price_link_ms",
+    "leg_store_quotes_ms",
+)
+
+
+def loop_rss_path(db_path: str) -> Path:
+    """Where `scripts/run_loop.py` writes its per-pass line.
+
+    One expression, shared, because the writer derives the same path from
+    `args.db` and a reader that computed its own would go quietly blank the
+    day either moved.
+    """
+    return Path(db_path).resolve().parent / "loop_rss.jsonl"
+
+
+def _q_loop_rss(conn: sqlite3.Connection, args) -> list[Section]:
+    """The per-pass memory and storage line, newest first.
+
+    Not a table -- `loop_rss.jsonl` sits BESIDE the database on the data
+    volume, for the reason `run_loop.py` gives: its job is to survive the
+    process that writes it. `conn` is unused and is accepted so this reads
+    like every other query here.
+
+    The line carries two experiments at once and they are read differently:
+
+        rss_kb, available_kb        the memory trajectory into a container
+                                    death (2026-08-29)
+        wal_kb, db_kb               the WAL that was 220 MiB against a 1.9 GB
+                                    database and never reset
+        candidate_rows, candidate_ms
+                                    the `_match_candidates` scan the link leg
+                                    is mostly made of
+        leg_price_link_ms, leg_store_quotes_ms
+                                    the two legs that blew out together while
+                                    the HTTP walk stayed flat
+
+    The discrimination the last three groups exist for: if the store leg
+    tracks `wal_kb` while the link leg tracks `candidate_rows`, both
+    mechanisms are real and additive; if BOTH legs track `wal_kb` while
+    `candidate_rows` is flat, the query is an artifact and the storage layer
+    is the whole story.
+
+    **The four pass counts describe the PREVIOUS pass.** The line is written
+    before any work, so everything on it is the state the pass began in.
+    `record_pass_rss` owns that reasoning.
+
+    What this does not establish
+    ----------------------------
+    - **Causation, from any pair of columns.** Two quantities that both grow
+      with the age of a process correlate whatever is driving the legs. The
+      informative case is a FLAT `candidate_rows` under a swinging leg.
+    - **Anything before the field existed.** A `null` is "this row predates
+      the column", not "the file was missing" -- the two are indistinguishable
+      here and only `ms` separates them.
+    - **That the record is complete.** The file is capped at
+      `RSS_LOG_CAP_BYTES` by keeping the newest lines, and a container restart
+      does not mark itself. Read it beside `pass-gaps`.
+    """
+    path = loop_rss_path(args.db)
+    effective = max(0, min(args.tail, args.limit))
+    rows: list[tuple[Any, ...]] = []
+    malformed = 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        # Absent is a state, not an error: no pass has run on this volume, or
+        # the loop is on a box with no `/proc` and never writes. Reported as
+        # `0 rows`, which the renderer gives its own words.
+        lines = []
+    for line in reversed(lines):
+        if len(rows) >= effective + 1:
+            break
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            malformed += 1
+            continue
+        if not isinstance(record, dict):
+            malformed += 1
+            continue
+        rows.append(tuple(record.get(name) for name in _LOOP_RSS_COLUMNS))
+    truncated = len(rows) > effective and effective == args.limit
+    section = Section(
+        title=(
+            f"loop_rss.jsonl: last {effective} passes, newest first "
+            f"({path}, {malformed} unparseable line(s) skipped)"
+        ),
+        columns=_LOOP_RSS_COLUMNS,
+        rows=rows[:effective],
+        truncated=truncated,
+        cap=args.limit,
+    )
+    return [_derive_iso(section, "ms", "iso")]
+
+
 def _q_pass_gaps(conn: sqlite3.Connection, args) -> list[Section]:
     """Holes in the pass ledger, and every failure recorded near them.
 
@@ -2544,6 +2661,14 @@ QUERIES: dict[str, QueryDef] = {
         "rows (-n, default 5) with their dedupe keys. /api/health publishes a "
         "TOTAL only, which cannot say which kind moved.",
         _q_notifications,
+    ),
+    "loop-rss": QueryDef(
+        "loop_rss.jsonl beside the database: the last N per-pass lines (-n, "
+        "default 5 -- pass a few hundred), newest first. RSS and headroom, "
+        "then wal_kb/db_kb and candidate_rows/candidate_ms beside "
+        "leg_price_link_ms/leg_store_quotes_ms. A null is 'this row predates "
+        "the column', never 'the WAL is empty'.",
+        _q_loop_rss,
     ),
     "pass-gaps": QueryDef(
         "Holes over --gap-ms (default 1200000) in the last N odds_sweep_log "
