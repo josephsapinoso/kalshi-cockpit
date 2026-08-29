@@ -15,10 +15,22 @@ WHAT THIS MODULE DOES NOT ESTABLISH
 - Nothing about whether an order SHOULD go: the route runs the checks
   (lockout, daily loss, caps, depth, price ceiling); this records and
   bounds.
-- Nothing about the venue's response shape: `MANUAL_ORDERS_ARE_DRY_RUNS`
-  stays True until the C0 probe has observed a real create-order response
-  (ADR 0063's blocking prerequisite P2) and Joe arms the path by code
-  change.
+- Nothing about the venue's response shape. This module records and bounds
+  an order; it does not model what comes back.
+
+**`MANUAL_ORDERS_ARE_DRY_RUNS` IS FALSE.** Armed 2026-08-26 by code change
+(ADR 0073), after ADR 0063's blocking prerequisite P2 was discharged -- the
+C0 probe observed a real create-order response on 2026-08-23
+(`tests/fixtures/create_order_responses.json`). Until 2026-08-29 the four
+lines above said the constant "stays True", fifty lines up from the
+assignment that sets it False; the value was right and the paragraph
+introducing the module was three days stale, which is the reading order a
+newcomer actually takes. What still bounds a real order is enumerated at
+the assignment itself, below.
+
+The engine path is untouched and stays dry: `store/orders.py`'s
+`ORDERS_ARE_DRY_RUNS` is still True, `gate.py` still never reads this
+table, and nothing here moves the live-trading interlock's populations.
 """
 
 from __future__ import annotations

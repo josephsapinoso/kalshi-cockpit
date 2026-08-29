@@ -15,26 +15,40 @@ import type { Chip } from "@/lib/windowChip";
 // and the Gate is the screen that says whether money can move. So adding one
 // means removing one.
 //
-// Rejections took Builder's slot. Builder prices sportsbook parlays: it cannot
-// change a bet on this venue, and for a beginner it can change one in the wrong
-// direction. Rejections answers "which check is refusing everything", which on
-// a board showing 0 actionable of ~200 is the only question there is. The page
-// is still served at `/builder` for anyone who wants it.
+// **`/builder` AND `/rejections` NO LONGER EXIST. Corrected 2026-08-29.**
+// This comment said in four separate places that they were "still served",
+// and `frontend/src/app/` has held no `builder/` or `rejections/` directory
+// since they were deleted (Footer.tsx's own list records both deletions:
+// `/builder` deleted, `/rejections` folded into the Slate as a disclosure).
+// A nav comment is where the next session goes to learn what the app has, so
+// the error propagated into a written brief before anyone opened the folder.
+// The history below is kept, in the past tense it always belonged in; what
+// is deleted is described as deleted. `/dashboards` DOES still exist and is
+// still served -- it is the only one of the three the phrase was ever true
+// of, which is exactly why the sentence survived so long.
+//
+// Rejections took Builder's slot. Builder priced sportsbook parlays: it could
+// not change a bet on this venue, and for a beginner it could change one in
+// the wrong direction. Rejections answered "which check is refusing
+// everything", which on a board showing 0 actionable of ~200 is the only
+// question there is. `/builder` was later deleted outright.
 //
 // **Slate then took Rejections' slot, 2026-08-15, and the trade is the same
-// shape.** Rejections aggregates the suppression codes across the slate; Slate
+// shape.** Rejections aggregated the suppression codes across the slate; Slate
 // shows every row with its own reason attached, beside the factors the record
 // already holds and had never rendered. The aggregate is a strict summary of
 // what the per-row screen now shows, so keeping both would spend a link on a
-// projection of the other. `/rejections` is still served, exactly as
-// `/builder` is, and its counts are still the fastest read when one rule is
-// refusing everything.
+// projection of the other. `/rejections` was deleted in the 2026-08-22 review
+// and its counts now render as a disclosure at the foot of the Slate, off the
+// same rows -- which is what makes the two views incapable of disagreeing.
 // **Log then took Data's slot, 2026-08-18, same trade again.** The calibration
 // study (registration 2026-08-17) makes logging an estimate the one action
 // performed before every hand bet, on a phone, on a clock -- the flow is
 // budgeted at twelve seconds and a link that must be hunted for blows the
 // budget. Data renders dbt marts that are read weekly at most, and
-// `/dashboards` is still served, exactly as `/builder` and `/rejections` are.
+// `/dashboards` is still served (it is exempt in
+// `tests/test_every_screen_is_reachable.py`, reached by typing the URL after
+// a dbt build).
 //
 // **The Slate became the landing screen and the words became plain,
 // 2026-08-20** (fleet convening, docs/reviews/2026-08-20-fleet-convening.md).
@@ -51,8 +65,10 @@ import type { Chip } from "@/lib/windowChip";
 // a nav slot opening a form that feeds a stopped study is quiet
 // misdirection, and the twelve-second budget that earned the slot died
 // with the study. `/estimate` is still served -- the page renders the
-// terminal state at the top -- exactly as `/builder`, `/rejections` and
-// `/dashboards` are.
+// terminal state at the top -- and is reached from the footer, exactly as
+// `/dashboards` is reached by URL. (This sentence used to add `/builder` and
+// `/rejections` to that list; both are deleted -- see the correction at the
+// top of this comment.)
 // **Scout takes the open sixth slot, 2026-08-21** (betting-desk item 6:
 // metered first, promoted in the same change -- the desk arrives in the nav
 // already wearing its meter). It is the one feature Joe asked for by shape

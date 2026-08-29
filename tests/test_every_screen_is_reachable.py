@@ -7,11 +7,15 @@ route *works*: visit the URL and the page renders perfectly, so nothing looks
 broken. What is missing is the only thing that matters — a way to arrive.
 
 **It was real, and it was hidden by a comment that read like a decision.**
-`Nav.tsx` spends six links deliberately, and its own text says twice that
-`/builder` and `/rejections` are "still served for anyone who wants it". They
+`Nav.tsx` spends six links deliberately, and its own text said twice that
+`/builder` and `/rejections` were "still served for anyone who wants it". They
 were: with no inbound link anywhere in the application. The trade-off was
 recorded honestly and the escape hatch it promised was never built. On a tool
 operated from a phone, "type the URL" is not a route a real person takes.
+
+Both pages were later deleted, and `Nav.tsx` went on claiming they were served
+until 2026-08-29 -- the same sentence outliving the wiring twice, first as a
+promise with no link and then as a claim with no page.
 
 So the rule is not "every screen is in the nav" — the nav is a budget, and a
 seventh link pushes the Gate off the row at 390px. The rule is that every

@@ -75,28 +75,65 @@ export default async function GatePage() {
           a daily-loss kill switch fed by the venue&rsquo;s settled record,
           refused when stale.
         </p>
-        {/* The scope sentence, rewritten per ADR 0064 §3: each cap names its
-            channel, and the daily-loss switch names its new source. The old
-            blanket sentence ("they do not see, and cannot stop, bets you
-            place yourself") stopped being accurate the day the switch was
-            rewired to `venue_settlements` -- hand losses DO count against
-            the line now; what has not changed is that the only act any cap
-            can stop is this tool's own next order. Scope sentences that
-            outlive their wiring are how the last hole stayed open (the
-            switch read an empty table for two months while this screen
-            advertised it), so tests/test_scope_sentences.py pins these
-            words to the wiring. */}
+        {/* The scope sentences, and they have been wrong in BOTH directions.
+            ADR 0064 §3 fixed the first: each cap names its channel, and the
+            daily-loss switch names its new source, because the old blanket
+            sentence ("they do not see, and cannot stop, bets you place
+            yourself") stopped being accurate the day the switch was rewired
+            to `venue_settlements`.
+
+            The second was live from 2026-08-26 to 2026-08-29 and was worse,
+            because a test was pinning it. This screen said "the only act any
+            of these caps can stop is this tool's next order: a bet you place
+            yourself in the Kalshi app fires no check before it happens", and
+            called this tool's channel "one that has never carried one". Both
+            halves went stale the day `MANUAL_ORDERS_ARE_DRY_RUNS` was set to
+            False (ADR 0073): the Buy button on a market page sends a REAL
+            immediate-or-cancel order, and the route runs a dozen server-side
+            refusals before it leaves (backend/api/routes.py, the numbered
+            list on `place_manual_order`).
+
+            THE DISTINCTION THAT MUST SURVIVE EVERY REWRITE OF THIS COPY:
+            arming the Buy button did not arm the engine, and the 300-game
+            count on this page never covered hand bets and never will.
+            `gate.py` does not read `manual_orders` -- that separation is the
+            whole reason ADR 0063 built a second table and a second constant.
+            So the true sentence is not "the gate now covers hand bets"; it
+            is "hand bets are guarded by something else, named here".
+
+            Scope sentences that outlive their wiring are how the last hole
+            stayed open, so tests/test_scope_sentences.py pins these words to
+            the wiring -- pointed, since 2026-08-29, at what is true. */}
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Each cap has a channel. The per-bet, position and{" "}
-          <Term k="exposure">exposure</Term> caps bind orders placed through
-          this tool — a channel that has never carried one. The daily-loss
-          switch draws its number from the venue&rsquo;s settled record —
-          every bet however placed, hand bets included, refused when the
-          mirror is stale — so your hand losses count against the line. But
-          the only act any of these caps can stop is this tool&rsquo;s next
-          order: a bet you place yourself in the Kalshi app fires no check
-          before it happens, and the record sees it only after the venue
-          settles it.
+          Each cap has a channel, and which door you use decides what can stop
+          you. The per-bet, position and{" "}
+          <Term k="exposure">exposure</Term> caps bind every order this tool
+          sends, and two things here can send one. The automated engine never
+          has: it is still in dry run — it writes down the order it would have
+          placed and sends nothing — and the 300-game count below is the
+          interlock holding it there.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          The Buy button on a market page is the other, and since 26 August
+          2026 it sends real orders — one contract at a time, at your tap.
+          The 300-game count does not cover it, by design: this gate never
+          looks at your hand bets, so arming that button did not arm the
+          engine. What guards it instead is a dozen checks the server runs
+          before the order leaves, none of them waivable from the phone — the
+          desk lockout, the ten-minute cool-off after your last order, the
+          daily-loss switch, the caps above (all derived from the balance the
+          venue reports, never a number you type), a refusal if the ask has
+          moved above the price you agreed to, a check that enough contracts
+          are really resting at that ask, and a refusal if you already hold
+          this market. Any one of them stops the order.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          The daily-loss switch draws its number from the venue&rsquo;s
+          settled record — every bet however placed, hand bets included,
+          refused when the mirror is stale — so your hand losses count
+          against the line. What nothing here can stop is the third door: a
+          bet you place yourself in the Kalshi app fires no check before it
+          happens, and the record sees it only after the venue settles it.
         </p>
       </div>
 

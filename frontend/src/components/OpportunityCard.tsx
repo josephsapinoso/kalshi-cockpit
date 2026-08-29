@@ -301,8 +301,10 @@ export default function OpportunityCard({
             {rec.suppressed_reason}
           </span>
           {/* The sentence under the code, never in place of it — the code is
-              the engine's own name for the rule and is what `/rejections`
-              groups by. Absent when this build does not know the code, which
+              the engine's own name for the rule, and is what the Slate's own
+              suppression-count disclosure groups by (`/rejections` was
+              deleted 2026-08-22 and folded there). Absent when this build
+              does not know the code, which
               means the server is running a rule the frontend predates and
               inventing wording would hide that. */}
           {glossSentence(rec.suppressed_reason) && (
