@@ -145,6 +145,13 @@ from backend.store import db  # noqa: E402
 RSS_LOG_CAP_BYTES = 2 * 1024 * 1024
 RSS_LOG_KEEP_LINES = 8_000
 
+#: The same cap on the per-pass walk log. Its lines are ~110 bytes against the
+#: RSS log's ~80, so 2MB is roughly three days at the quote cadence -- long
+#: enough that the day a classification regression started is still in the file
+#: when someone notices the desk is empty, which is the whole reason it exists.
+WALK_LOG_CAP_BYTES = 2 * 1024 * 1024
+WALK_LOG_KEEP_LINES = 8_000
+
 
 def record_pass_rss(
     path: Path, *, now_ms: int, kind: str, proc: Path = Path("/proc")
@@ -199,6 +206,58 @@ def record_pass_rss(
         if path.stat().st_size > RSS_LOG_CAP_BYTES:
             tail = path.read_text(encoding="utf-8").splitlines()[
                 -RSS_LOG_KEEP_LINES:
+            ]
+            path.write_text("\n".join(tail) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001 -- telemetry must never kill a pass
+        pass
+
+
+def record_pass_walk(path: Path, *, now_ms: int, kind: str, counts) -> None:
+    """Append which catalogue walk this pass took, one line per pass.
+
+    The durable half of the full-walk alarm in `runner.run_kalshi_pass`. The
+    warning is loud and the pass line carries `walk_scope` on every pass, but
+    both go to stdout, the log stream retains ~10 minutes, and the question --
+    "when did the quote passes start walking everything, and what did discovery
+    find just before they did?" -- is asked hours later. One JSON line per
+    pass, on the data volume, is what can answer it.
+
+    `{ms, kind, scope, series, events_seen, prev_discovered}`. `kind` is the
+    loop's own pass kind and `scope` is the branch the walk took, and the pair
+    is the whole point: `kind full / scope full` is the design, `kind quote /
+    scope narrowed` is the design, and `kind quote / scope full` is the anomaly
+    -- no single field says that. `prev_discovered` is `null`, never 0, until a
+    second pass has run in the process.
+
+    Beside the database rather than in it, for the reason `loop_rss.jsonl` is:
+    one append per pass on the hot path, read over ssh during a diagnosis,
+    never joined against anything. Capped the same way and swallowing the same
+    way -- telemetry must never be why a pass dies.
+
+    WHAT THIS DOES NOT ESTABLISH: *why* discovery stopped recognising events.
+    It records that the count fell and how far, which separates a cliff (a
+    scope-classification regression) from a decay (an emptying slate); which
+    league or which rule stopped classifying is a question for the
+    `discovery:` summary line, not this file.
+    """
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "ms": now_ms,
+                        "kind": kind,
+                        "scope": counts.walk_scope,
+                        "series": counts.walk_series,
+                        "events_seen": counts.walk_events_seen,
+                        "prev_discovered": counts.walk_prev_discovered,
+                    }
+                )
+                + "\n"
+            )
+        if path.stat().st_size > WALK_LOG_CAP_BYTES:
+            tail = path.read_text(encoding="utf-8").splitlines()[
+                -WALK_LOG_KEEP_LINES:
             ]
             path.write_text("\n".join(tail) + "\n", encoding="utf-8")
     except Exception:  # noqa: BLE001 -- telemetry must never kill a pass
@@ -446,6 +505,11 @@ async def main() -> int:
     # anything -- a table would buy schema versioning for a file whose whole
     # job is to survive the process that writes it.
     rss_log = Path(args.db).resolve().parent / "loop_rss.jsonl"
+    # Its own file rather than a second line in `loop_rss.jsonl`: that one is
+    # written at pass START and is read as one line per pass, and appending a
+    # second, differently-shaped line per pass would break every reader that
+    # counts them.
+    walk_log = Path(args.db).resolve().parent / "loop_walk.jsonl"
     kalshi_config = KalshiConfig.load()
     odds_config = OddsConfig.load()
     risk = RiskConfig.load()
@@ -1028,6 +1092,10 @@ async def main() -> int:
                     day_start_hour=odds_config.budget_day_start_utc_hour,
                     allow_bootstrap=follows_early_wake(),
                 )
+
+            # After the walk, before scoring: the branch is settled by now and
+            # the second half of the pass can still die. Best-effort inside.
+            record_pass_walk(walk_log, now_ms=stamp, kind=kind, counts=counts)
 
             with counts_survive_a_late_failure(log, kind, counts):
                 return await score_settle_and_alert(kind, counts, stamp, started)
