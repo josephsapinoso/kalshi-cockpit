@@ -395,8 +395,13 @@ function explain(
           ? "Today's odds budget is spent, so the next window is tomorrow."
           : w.attention_slice_spent
             ? w.floor_next_buy_ms === null
-              ? "The day's automatic refresh allowance is spent, and no stored kickoff is close enough for the slow hourly buy to want one either."
-              : "The day's automatic refresh allowance is spent, so nothing re-buys these lines while this page is open; the slow hourly buy resumes once you stop looking."
+              ? "The day's fast refresh allowance is spent, and no stored kickoff is close enough for the slow hourly buy to want one either."
+              : // "Resumes once you stop looking" until 2026-08-29, when the
+                // loop stopped skipping an attended sport past the slice and
+                // started demoting it to the floor instead. Closing the page
+                // buys nothing now, so telling a reader to is worse than the
+                // silence it was written to explain.
+                "The day's fast refresh allowance is spent, so these lines re-price on the slow hourly floor rather than every few minutes — looking at this page no longer holds it back."
             : "No kickoff inside the horizon is close enough to be worth a sweep yet."
         : `The next sweep is aimed at ${w.next_sweep_reason ?? "the next cluster of kickoffs"}.`;
     return (

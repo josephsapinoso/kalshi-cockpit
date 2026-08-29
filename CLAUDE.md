@@ -205,14 +205,28 @@ should prevent that; the slice is what does. The hourly floor is deliberately
 not charged to it, so past the slice the slate stops re-buying every ten
 minutes and keeps buying every hour — a ceiling, not an off switch.
 
-**With one condition this sentence left out, and it is close to perverse.**
-Attention *replaces* the floor rather than adding to it: `desk_wants` branches
-on `attended or windowed` and hands every upcoming sport the ten-minute
-cadence, and the slice check then refuses each one — there is no fall-through
-to the hourly cadence. So past the slice, **keeping the page open is what
-suppresses the buying and closing it is what lets the floor resume** (five
-minutes later, at `DEFAULT_ATTENTION_TTL_MS`). The floor is what stops the day
-going dark; it is not what keeps the screen fresh while you watch it.
+**That sentence left a condition out for one day, and it was close to
+perverse. Fixed 2026-08-29; the record of the defect stays, because the shape
+recurs.** Attention *replaced* the floor rather than adding to it: `desk_wants`
+branches on `attended or windowed` and hands every upcoming sport the
+ten-minute cadence, the slice check refused each one, and the refusal was a
+`continue` with **no fall-through to the hourly cadence**. So past the slice,
+**keeping the page open was what suppressed the buying, and closing it was what
+let the floor resume** — five minutes later, at `DEFAULT_ATTENTION_TTL_MS`.
+Looking at the desk made it staler than not looking at it, at the one moment
+Joe is about to bet.
+
+A sport that is attended-but-slice-spent now falls through to the floor's own
+timetable instead of being skipped, stamped `DESK` so it is neither charged to
+the slice nor refused by it. A windowed sport falls through on identical terms,
+for identical reasons. **The three published bounds above do not move**, and
+that is arithmetic rather than intent: the floor's cadence is measured from
+`last_sweep_by_sport`, which counts attention buys too, so a sport takes at
+most one floor-paced buy an hour however many attended buys preceded it. The
+~384 and the ≤300 are separately capped and additive, and 684 was always the
+sum. **What changes is that actual spend now reaches towards a bound already
+written down** — the deployed code delivered *less* than that table claimed,
+and the gap was a stale slate rather than a saving.
 
 **Know what the ceiling feels like from the outside, because it has now been
 felt.** The slice ran out at 20:46Z and Joe opened the desk at 04:38Z — 7.9
@@ -225,16 +239,28 @@ was computed from `firing_for_slot` and the slice check sat after it. Ticket
 #35. Do not read a stale slate as a broken recorder: check `sweep-log` for a
 refusal before diagnosing anything.
 
-**It says so now, and the fix took three passes at one lie.** `window_status`
-applies the slice itself, so past it the desk contributes nothing to
+**It says so now, and the fix took three passes at one lie before the fourth
+pass removed what the lie was about.** `window_status` applies the slice
+itself, so past it the desk stopped contributing the ten-minute answer to
 `next_call_ms` (2026-08-28); `readNextWindow` gained a `slice_spent` reading so
 the resulting null is not rendered as *"no kickoff is near enough"*
 (2026-08-28); and the loop's own refusal string stopped promising *"the hourly
 floor still runs"* in the pass where the floor was displaced by the very
-attention that caused the refusal (2026-08-29) — that string is not a log line
-only, it reaches `/api/window` as `last_look_detail` and `WindowBanner` prints
-it on `/board`. The shape all three share: **one predicate with two spellings,
-and the screen believing the wrong one.**
+attention that caused the refusal (2026-08-29 morning) — that string is not a
+log line only, it reaches `/api/window` as `last_look_detail` and
+`WindowBanner` prints it on `/board`. The shape all three share: **one
+predicate with two spellings, and the screen believing the wrong one.**
+
+The fall-through then made the floor run in that state, so the sentence those
+three passes converged on — *"the slow hourly buy resumes once you stop
+looking"* — became a **reassurance that had outlived its condition**, which is
+worse than the silence it was written to explain: a reader who acts on it
+closes a screen he wanted open and buys nothing by it. All three surfaces were
+corrected in the same commit, and `test_no_screen_still_tells_him_that_closing
+_the_page_buys_more` pins the phrase absent on every one of them. **The lesson
+is the ordering, not the string**: copy that names a condition to wait for is
+falsified by fixing the condition, so the fix and the copy ship together or the
+screen lies in the interval.
 
 **The gate stays exactly where it is.** It is the live-trading interlock, it is
 never lowered or bypassed, and "the gate will open" is not a step in any plan —

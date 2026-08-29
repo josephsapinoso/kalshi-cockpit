@@ -1057,28 +1057,36 @@ export type ActionableWindow = {
   /** Whether a heartbeat has landed inside the TTL — i.e. someone is looking. */
   desk_is_attended: boolean;
   /**
-   * When the **desk trigger** will next actually buy, under the attention
-   * state holding right now. `null` means it will not.
+   * When the **desk trigger** will next actually buy, at the cadence holding
+   * right now. `null` means it wants nothing at all.
    *
-   * The awkward part, which the copy must not smooth over: **attention
-   * replaces the hourly floor rather than adding to it.** While someone is
-   * looking, every upcoming sport is wanted on the ten-minute cadence and
-   * every one of them is refused once the slice is spent — so past the slice,
-   * keeping the page open is what suppresses the buying, and closing it is
-   * what lets the floor resume. Never write a sentence here that promises a
-   * buy the reader's own presence is preventing.
+   * **The awkward part was retired on 2026-08-29 and the retraction is worth
+   * more than the fact.** This comment used to say attention *replaces* the
+   * hourly floor rather than adding to it — every upcoming sport wanted on the
+   * ten-minute cadence, every one refused once the slice was spent, no
+   * fall-through — so past the slice, keeping the page open was what
+   * suppressed the buying and closing it was what let the floor resume. The
+   * loop now demotes the sport to the floor's own cadence instead of skipping
+   * it, so this field carries an hourly time in the state where it used to
+   * carry `null`. What must never appear here again is the *ten-minute*
+   * answer while the slice is spent: that is the ticket #35 defect, a screen
+   * promising a buy the loop has already refused.
    */
   next_desk_buy_ms: number | null;
   /**
-   * When the **hourly floor** next wants a buy, computed as though nobody were
-   * looking and ignoring the slice.
+   * When the **hourly floor** next wants a buy, ignoring the slice the floor
+   * is never charged to.
    *
-   * This is the "once you stop looking" answer, and it is a lookahead rather
-   * than a snapshot: a sport enters the floor's twelve-hour horizon at
-   * `kickoff - 12h`, so at 04:38Z with a 18:20Z kickoff this reads ~06:20Z
-   * while the desk wanted nothing at all. That is the sentence the 2026-08-28
-   * screen could not write. `null` means no stored fixture ever brings the
-   * floor round, which is a different state again.
+   * A **lookahead** rather than a snapshot, which is what makes it a separate
+   * field from `next_desk_buy_ms`: a sport enters the floor's twelve-hour
+   * horizon at `kickoff - 12h`, so at 04:38Z with an 18:20Z kickoff this reads
+   * ~06:20Z while the desk wants nothing at all. That is the sentence the
+   * 2026-08-28 screen could not write. `null` means no stored fixture ever
+   * brings the floor round, which is a different state again.
+   *
+   * It used to be the "once you stop looking" answer and is not any more —
+   * the floor runs while the page is open. Copy that reads this field must
+   * not make going away a condition of it.
    */
   floor_next_buy_ms: number | null;
   note: string;

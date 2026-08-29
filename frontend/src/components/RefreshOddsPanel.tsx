@@ -115,14 +115,34 @@ export default async function RefreshOddsPanel({
               `readNextWindow(null)` returns `unknown`, so reaching this branch
               already proves `actionable` is non-null -- but that implication
               runs through a function TS does not follow. */}
-          {actionable !== null && (
-            <>
-              {" "}
-              — new prices land about every{" "}
-              {Math.round(actionable.refresh_interval_s / 60)} minutes while
-              this page is open
-            </>
-          )}
+          {actionable !== null &&
+            /* **The cadence clause forks on the slice, and 2026-08-29 is why
+               it has to.** Before the fall-through, a spent slice meant the
+               desk bought nothing while the page was open, so this branch was
+               unreachable in that state and could state the fast cadence
+               unconditionally. The loop now demotes the sport to the hourly
+               floor instead of skipping it, so a time appears here again --
+               and "every ten minutes while this page is open" would be the
+               one part of the sentence that is false. The time itself is
+               exact either way; only the rate needed the qualifier.
+               `attention_slice_spent` is read straight off the payload rather
+               than re-derived, which is what `WindowBanner` does with the
+               same field. */
+            (actionable.attention_slice_spent ? (
+              <>
+                {" "}
+                — today&apos;s fast refresh allowance is spent, so new prices
+                now land about hourly rather than every{" "}
+                {Math.round(actionable.refresh_interval_s / 60)} minutes
+              </>
+            ) : (
+              <>
+                {" "}
+                — new prices land about every{" "}
+                {Math.round(actionable.refresh_interval_s / 60)} minutes while
+                this page is open
+              </>
+            ))}
           {reading.kind === "scheduled" && (
             <>
               . The next is{" "}
@@ -135,10 +155,19 @@ export default async function RefreshOddsPanel({
           .
         </p>
       ) : reading.kind === "slice_spent" ? (
+        /* **"Once you stop looking" is gone from this block, and the deletion
+           is the point of the 2026-08-29 change reaching a screen.** The
+           sentence was true while attention replaced the floor: past the
+           slice, having this page open switched the buying off and closing it
+           switched the floor back on. The loop now falls through to the floor
+           while the page is open, so that clause would be a reassurance that
+           had outlived its condition — and a reader who acted on it would
+           close a screen they wanted open, to buy nothing they were not
+           already getting. */
         <p className="mt-2 max-w-prose text-sm text-accent-2">
-          <span aria-hidden="true">&#9632;</span> Today&apos;s automatic buying
-          is done — the desk buys by itself until it reaches the day&apos;s
-          allowance, and it
+          <span aria-hidden="true">&#9632;</span> Today&apos;s fast refreshing
+          is done — the desk re-prices every few minutes while you watch, until
+          it reaches the day&apos;s allowance, and it
           {reading.spent_at_ms === null ? (
             <> has</>
           ) : (
@@ -150,16 +179,19 @@ export default async function RefreshOddsPanel({
               </span>
             </>
           )}
-          . Nothing further is bought automatically{" "}
-          <span className="font-semibold">while this page is open</span>
+          .{" "}
           {reading.floor_resumes_ms === null ? (
             <>
-              , and no stored fixture is close enough for the slow hourly buy
-              to want one either
+              It keeps buying on the{" "}
+              <span className="font-semibold">slow hourly floor</span> from
+              here, but no stored fixture is close enough for that to want one
+              yet
             </>
           ) : (
             <>
-              ; the slow hourly buy resumes once you stop looking, from about{" "}
+              The <span className="font-semibold">slow hourly buy</span>{" "}
+              carries the slate from here, whether or not you are looking —
+              next about{" "}
               <span className="font-semibold">
                 {formatClock(reading.floor_resumes_ms)}
               </span>

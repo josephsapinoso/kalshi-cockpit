@@ -137,13 +137,23 @@ export type NextWindowReading =
   /** No window remains because the day's odds budget is spent. */
   | { kind: "budget_spent"; sentence: string }
   /**
-   * The day's credits remain but the **attention slice** is spent, so
-   * nothing is bought automatically while this page is open.
+   * The day's credits remain but the **attention slice** is spent, so the
+   * ten-minute refresh that runs while this page is open has stopped and the
+   * slow hourly floor is what re-prices the slate from here.
    *
-   * `floor_resumes_ms` is when the hourly floor would buy once nobody is
-   * looking, or `null` when it wants nothing either. The caller formats it;
-   * `sentence` is complete and clock-free without it, so a caller that
-   * renders only the sentence is still telling the truth.
+   * **The reading survived a change of meaning on 2026-08-29 and the field
+   * name did not keep up.** Until then a spent slice meant nothing was bought
+   * at all while anyone was looking -- attention *replaced* the floor, so
+   * keeping the page open was what suppressed the buying. The loop now falls
+   * through to the floor's own cadence instead of skipping the sport, so this
+   * state is "slower", not "off", and `floor_resumes_ms` is a lookahead to the
+   * floor's next buy rather than a promise contingent on going away. The name
+   * is kept because it is the field it reads (`floor_next_buy_ms`); the copy
+   * is what had to change.
+   *
+   * `floor_resumes_ms` is `null` when the floor wants nothing either. The
+   * caller formats it; `sentence` is complete and clock-free without it, so a
+   * caller that renders only the sentence is still telling the truth.
    */
   | {
       kind: "slice_spent";
@@ -238,17 +248,25 @@ export function readNextWindow(
       // day out is a fraction of a cent of EV on a one-contract stake, and the
       // floor buys it for nothing. The panel's job here is to **withdraw a
       // false reason to wait**, not to supply a reason to spend.
+      //
+      // **"Once you stop looking" is gone, and that phrasing was the whole
+      // reason to touch this branch.** It was true while attention replaced
+      // the floor: past the slice, having the page open switched the buying
+      // off, and closing it switched the floor back on five minutes later.
+      // The loop now falls through to the floor while the page is open
+      // (2026-08-29), so the sentence would be a reassurance that had outlived
+      // its condition — worse than the bug, because a reader who acts on it
+      // closes a screen they wanted open.
       sentence:
         floorResumes === null
-          ? "Today's automatic buying is done — the desk buys by itself " +
-            "until it reaches the day's allowance, and it has. Nothing " +
-            "further is bought automatically while this page is open, and " +
-            "no stored fixture is close enough for the slow hourly buy to " +
-            "want one either."
-          : "Today's automatic buying is done — the desk buys by itself " +
-            "until it reaches the day's allowance, and it has. Nothing " +
-            "further is bought automatically while this page is open; the " +
-            "slow hourly buy resumes once you stop looking.",
+          ? "Today's fast refreshing is done — the desk re-prices every few " +
+            "minutes while you watch, until it reaches the day's allowance, " +
+            "and it has. It keeps buying on the slow hourly floor from here, " +
+            "but no stored fixture is close enough for that to want one yet."
+          : "Today's fast refreshing is done — the desk re-prices every few " +
+            "minutes while you watch, until it reaches the day's allowance, " +
+            "and it has. The slow hourly buy carries the slate from here, " +
+            "whether or not you are looking.",
     };
   }
   return {
