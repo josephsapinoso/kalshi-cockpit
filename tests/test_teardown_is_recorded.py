@@ -193,8 +193,20 @@ class TestTheRssCurveIsOnDisk:
     def test_one_line_per_pass_with_rss_and_headroom(self, tmp_path):
         log = tmp_path / "loop_rss.jsonl"
         proc = _fake_proc(tmp_path)
-        record_pass_rss(log, now_ms=1_788_000_000_000, kind="quote", proc=proc)
-        record_pass_rss(log, now_ms=1_788_000_015_000, kind="full", proc=proc)
+        record_pass_rss(
+            log,
+            now_ms=1_788_000_000_000,
+            kind="quote",
+            produced_by=None,
+            proc=proc,
+        )
+        record_pass_rss(
+            log,
+            now_ms=1_788_000_015_000,
+            kind="full",
+            produced_by="quote",
+            proc=proc,
+        )
         rows = [
             json.loads(line)
             for line in log.read_text(encoding="utf-8").splitlines()
@@ -203,16 +215,52 @@ class TestTheRssCurveIsOnDisk:
             {
                 "ms": 1_788_000_000_000,
                 "kind": "quote",
+                "produced_by": None,
                 "rss_kb": 714000,
                 "available_kb": 666000,
             },
             {
                 "ms": 1_788_000_015_000,
                 "kind": "full",
+                "produced_by": "quote",
                 "rss_kb": 714000,
                 "available_kb": 666000,
             },
         ]
+
+    def test_the_reading_names_the_pass_that_produced_it(self, tmp_path):
+        """`kind` and `rss_kb` describe different passes, and this is the field
+        that separates them.
+
+        The sample is taken before any work, so `kind` is the pass about to run
+        while the memory is what the pass before it left. On 2026-08-29 a 570MB
+        step was charged to the wrong pass type off exactly this confusion, and
+        `Tempo.pass_kind` labelling the first pass of every process `"full"`
+        unconditionally makes the line after a boot the worst case.
+        """
+        log = tmp_path / "loop_rss.jsonl"
+        proc = _fake_proc(tmp_path)
+        record_pass_rss(
+            log, now_ms=1, kind="full", produced_by=None, proc=proc
+        )
+        record_pass_rss(
+            log, now_ms=2, kind="quote", produced_by="full", proc=proc
+        )
+        rows = [
+            json.loads(line)
+            for line in log.read_text(encoding="utf-8").splitlines()
+        ]
+
+        # A boot line: nothing before it produced this reading, and that None
+        # is also the restart marker the append-only file otherwise lacks.
+        assert rows[0]["produced_by"] is None
+        assert rows[0]["kind"] == "full"
+
+        # The step between the two rows belongs to the full pass that ran
+        # between them -- readable off the second row alone, without inferring
+        # anything from the row above it.
+        assert rows[1]["produced_by"] == "full"
+        assert rows[1]["kind"] == "quote"
 
     def test_a_machine_with_no_proc_writes_nothing_and_raises_nothing(
         self, tmp_path
@@ -221,7 +269,11 @@ class TestTheRssCurveIsOnDisk:
         also the guard that telemetry can never kill a pass."""
         log = tmp_path / "loop_rss.jsonl"
         record_pass_rss(
-            log, now_ms=1, kind="quote", proc=tmp_path / "no-such-proc"
+            log,
+            now_ms=1,
+            kind="quote",
+            produced_by="full",
+            proc=tmp_path / "no-such-proc",
         )
         assert not log.exists()
 
@@ -233,6 +285,7 @@ class TestTheRssCurveIsOnDisk:
             tmp_path,  # a directory: open() for append fails
             now_ms=1,
             kind="quote",
+            produced_by="full",
             proc=proc,
         )
 
@@ -243,7 +296,9 @@ class TestTheRssCurveIsOnDisk:
         proc = _fake_proc(tmp_path)
         filler = json.dumps({"ms": 0, "kind": "quote", "rss_kb": 1}) + "\n"
         log.write_text(filler * (RSS_LOG_CAP_BYTES // len(filler) + 10))
-        record_pass_rss(log, now_ms=99, kind="full", proc=proc)
+        record_pass_rss(
+            log, now_ms=99, kind="full", produced_by="quote", proc=proc
+        )
         lines = log.read_text(encoding="utf-8").splitlines()
         assert len(lines) <= RSS_LOG_KEEP_LINES
         assert json.loads(lines[-1])["ms"] == 99

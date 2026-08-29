@@ -29,7 +29,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, AsyncIterable, Iterable, Optional
 
 from ..core.prices import dollars_to_tenths, parse_quantity
 from .grid import PriceGrid, read_price_grid
@@ -866,6 +866,123 @@ def _warn_about_new_unclassified_leagues() -> None:
     )
 
 
+class _Pass:
+    """One discovery pass, as state that never holds the events it has seen.
+
+    Split out of `discover_from_events` so the same per-event body can be
+    driven by a list *or* by the `/events` paginator itself, with exactly one
+    copy of the classification. Two drivers over two copies of this loop is how
+    a rejection counter drifts between the sync and the streaming path, and the
+    counters here are on a log line the record reads.
+
+    **Nothing accumulates per event except the priceable result.** Every
+    observation this pass makes of a *rejected* event is an aggregate --
+    `rejected` is four ints, `_UNKNOWN_SCOPES_THIS_PASS` and
+    `_UNKNOWN_LEAGUES_THIS_PASS` are keyed on (series, scope) and league rather
+    than on the event, and `_WARNED_NO_COMMENCE` is keyed on the series. That
+    is what makes the streaming driver equivalent rather than merely cheaper:
+    the numbers are computed as the events go past and the dicts are released.
+    """
+
+    __slots__ = ("discovered", "rejected")
+
+    def __init__(self) -> None:
+        # The *counts* are per-pass; the warnings are per-process. Only these
+        # are cleared. See `_WARNED_SCOPES` and `_WARNED_LEAGUES`.
+        _UNKNOWN_SCOPES_THIS_PASS.clear()
+        _UNKNOWN_LEAGUES_THIS_PASS.clear()
+        self.discovered: list[DiscoveredEvent] = []
+        self.rejected: dict[str, int] = {
+            "not_game_level": 0,
+            "league_out_of_scope": 0,
+            "no_commence_time": 0,
+            "no_markets": 0,
+        }
+
+    def consider(self, event: dict) -> None:
+        """Classify one raw event, keeping only what is priceable."""
+        if (event.get("event_ticker") or "").startswith(JUNK_PREFIX):
+            return
+
+        info = classify_series(event)
+        if not info.is_game_level:
+            self.rejected["not_game_level"] += 1
+            return
+        if info.sport_key is None or info.market_type is None:
+            self.rejected["league_out_of_scope"] += 1
+            return
+
+        commence_ms = event_commence_ms(event)
+        if commence_ms is None:
+            self.rejected["no_commence_time"] += 1
+            # Once per series per process, not once per event. Every event in a
+            # series shares whatever data-entry gap caused this, so the undeduped
+            # form is a flood waiting for the day Kalshi omits the field across a
+            # league -- the same shape as the scope warning, one branch away.
+            # `no_commence_time` on the `discovery:` line carries the count.
+            if info.series_ticker not in _WARNED_NO_COMMENCE:
+                _WARNED_NO_COMMENCE.add(info.series_ticker)
+                logger.warning(
+                    "%s is game-level but carries no occurrence_datetime; cannot "
+                    "be matched against a sportsbook fixture. Named once per "
+                    "series; see no_commence_time on the discovery summary line "
+                    "for the per-pass count. First seen on %s.",
+                    info.series_ticker, event.get("event_ticker"),
+                )
+            return
+
+        markets = build_markets(event, info.market_type)
+        if not markets:
+            self.rejected["no_markets"] += 1
+            return
+
+        self.discovered.append(
+            DiscoveredEvent(
+                event_ticker=event.get("event_ticker") or "",
+                series_ticker=info.series_ticker,
+                league=info.league or "",
+                sport_key=info.sport_key,
+                market_type=info.market_type,
+                title=event.get("title") or "",
+                commence_ms=commence_ms,
+                markets=markets,
+            )
+        )
+
+    def finish(self, *, always_log_summary: bool) -> list[DiscoveredEvent]:
+        _warn_about_new_unknown_scopes()
+        _warn_about_new_unclassified_leagues()
+
+        # `unknown_scopes` and `unknown_leagues` are printed unconditionally,
+        # including at zero, and that is the point of them: they are what
+        # replaces a per-pass warning stream, so a pass that says nothing about
+        # an unknown value must be distinguishable from a pass that found none.
+        # A dropped zero would put the reader back where the warnings left them
+        # -- unable to tell silence from absence.
+        #
+        # This line is emitted *after* the warnings above for the same reason
+        # those warnings are now one line each: on 2026-08-09 this summary was
+        # itself lost from the live log stream, sitting immediately behind a
+        # 962-line burst. A line whose job is to be readable must not be queued
+        # behind a flood.
+        global _LAST_SUMMARY
+        summary = (
+            len(self.discovered),
+            len(_UNKNOWN_SCOPES_THIS_PASS),
+            len(_UNKNOWN_LEAGUES_THIS_PASS),
+            ", ".join(f"{k}={v}" for k, v in self.rejected.items() if v)
+            or "none",
+        )
+        if always_log_summary or summary != _LAST_SUMMARY:
+            _LAST_SUMMARY = summary
+            logger.info(
+                "discovery: %d priceable events; unknown_scopes=%d; "
+                "unknown_leagues=%d; rejected %s",
+                *summary,
+            )
+        return self.discovered
+
+
 def discover_from_events(
     events: Iterable[dict], *, always_log_summary: bool = True
 ) -> list[DiscoveredEvent]:
@@ -882,97 +999,54 @@ def discover_from_events(
     It defaults to True so every existing caller -- `run_chain.py`, the tests --
     keeps the behaviour it had. A default that quietened output would silence
     the one-shot scripts, where every pass is the only pass.
+
+    **Takes a materialised sequence, and on the live catalogue that is the
+    expensive way to call it.** `discover_from_event_stream` is the same pass
+    over the paginator itself; see its docstring for what the list costs.
     """
-    # The *counts* are per-pass; the warnings are per-process. Only these are
-    # cleared. See `_WARNED_SCOPES` and `_WARNED_LEAGUES`.
-    _UNKNOWN_SCOPES_THIS_PASS.clear()
-    _UNKNOWN_LEAGUES_THIS_PASS.clear()
-    discovered: list[DiscoveredEvent] = []
-    rejected: dict[str, int] = {
-        "not_game_level": 0,
-        "league_out_of_scope": 0,
-        "no_commence_time": 0,
-        "no_markets": 0,
-    }
-
+    pass_ = _Pass()
     for event in events:
-        if (event.get("event_ticker") or "").startswith(JUNK_PREFIX):
-            continue
+        pass_.consider(event)
+    return pass_.finish(always_log_summary=always_log_summary)
 
-        info = classify_series(event)
-        if not info.is_game_level:
-            rejected["not_game_level"] += 1
-            continue
-        if info.sport_key is None or info.market_type is None:
-            rejected["league_out_of_scope"] += 1
-            continue
 
-        commence_ms = event_commence_ms(event)
-        if commence_ms is None:
-            rejected["no_commence_time"] += 1
-            # Once per series per process, not once per event. Every event in a
-            # series shares whatever data-entry gap caused this, so the undeduped
-            # form is a flood waiting for the day Kalshi omits the field across a
-            # league -- the same shape as the scope warning, one branch away.
-            # `no_commence_time` on the `discovery:` line carries the count.
-            if info.series_ticker not in _WARNED_NO_COMMENCE:
-                _WARNED_NO_COMMENCE.add(info.series_ticker)
-                logger.warning(
-                    "%s is game-level but carries no occurrence_datetime; cannot "
-                    "be matched against a sportsbook fixture. Named once per "
-                    "series; see no_commence_time on the discovery summary line "
-                    "for the per-pass count. First seen on %s.",
-                    info.series_ticker, event.get("event_ticker"),
-                )
-            continue
+async def discover_from_event_stream(
+    events: AsyncIterable[dict], *, always_log_summary: bool = True
+) -> list[DiscoveredEvent]:
+    """`discover_from_events` over the `/events` paginator, one page at a time.
 
-        markets = build_markets(event, info.market_type)
-        if not markets:
-            rejected["no_markets"] += 1
-            continue
+    Identical output to `discover_from_events` on the same events, in the same
+    order -- it is the same `_Pass`, driven by `async for` instead of `for`.
+    What differs is the high-water mark, and on the full walk that is the whole
+    point.
 
-        discovered.append(
-            DiscoveredEvent(
-                event_ticker=event.get("event_ticker") or "",
-                series_ticker=info.series_ticker,
-                league=info.league or "",
-                sport_key=info.sport_key,
-                market_type=info.market_type,
-                title=event.get("title") or "",
-                commence_ms=commence_ms,
-                markets=markets,
-            )
-        )
+    `KalshiRestClient.events()` is a lazy paginator, and
 
-    _warn_about_new_unknown_scopes()
-    _warn_about_new_unclassified_leagues()
+        raw_events = [e async for e in kalshi_client.events(...)]
 
-    # `unknown_scopes` and `unknown_leagues` are printed unconditionally,
-    # including at zero, and that is the point of them: they are what replaces a
-    # per-pass warning stream, so a pass that says nothing about an unknown value
-    # must be distinguishable from a pass that found none. A dropped zero would
-    # put the reader back where the warnings left them -- unable to tell silence
-    # from absence.
-    #
-    # This line is emitted *after* the warnings above for the same reason those
-    # warnings are now one line each: on 2026-08-09 this summary was itself lost
-    # from the live log stream, sitting immediately behind a 962-line burst. A
-    # line whose job is to be readable must not be queued behind a flood.
-    global _LAST_SUMMARY
-    summary = (
-        len(discovered),
-        len(_UNKNOWN_SCOPES_THIS_PASS),
-        len(_UNKNOWN_LEAGUES_THIS_PASS),
-        ", ".join(f"{k}={v}" for k, v in rejected.items() if v) or "none",
-    )
-    if always_log_summary or summary != _LAST_SUMMARY:
-        _LAST_SUMMARY = summary
-        logger.info(
-            "discovery: %d priceable events; unknown_scopes=%d; "
-            "unknown_leagues=%d; rejected %s",
-            *summary,
-        )
-    return discovered
+    defeated the laziness: it held every page of the open catalogue at once.
+    Measured 2026-08-29 by replaying `tests/fixtures/events_sports_nested.json`
+    at live scale (393 copies, 96,285 nested markets, against the 96,326 the
+    live walk carries): **RSS 1,036MB with the list held, 24MB after dropping
+    it**, and `tracemalloc` reporting nothing retained -- a transient peak that
+    glibc never hands back, on a 2GB no-swap box.
+
+    **The events are not junk, and that matters for where the fix goes.**
+    `events()` already drops `KXMVE` at the wire (`rest.py`), so the 11,160
+    events the full walk yields are all real; ~510 are priceable and the rest
+    are rejected here for `not_game_level` or `league_out_of_scope`. There is
+    therefore no cheap prefix test that could thin the list before it is built
+    -- deciding costs a `classify_series` -- which is why the fix is to stop
+    building it rather than to filter it.
+
+    Streaming holds one page (200 events) plus the priceable results, and every
+    rejected event is released as soon as it has been counted. See `_Pass` for
+    why counting is all that ever happens to one.
+    """
+    pass_ = _Pass()
+    async for event in events:
+        pass_.consider(event)
+    return pass_.finish(always_log_summary=always_log_summary)
 
 
 def coverage_by_league(events: list[DiscoveredEvent]) -> dict[str, dict]:
