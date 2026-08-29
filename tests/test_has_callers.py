@@ -564,6 +564,15 @@ MUST_BE_SUPPLIED = [
     ),
     (
         "link_discovered_events",
+        "candidate_stats",
+        "`candidate_rows` and `candidate_ms` read null on every pass, and the "
+        "`_match_candidates` scan -- which was 97.5% of a slow link leg when "
+        "it was last measured -- stays the one quantity in the pass that "
+        "nothing records, so the 220 MiB WAL and the growing scan cannot be "
+        "told apart",
+    ),
+    (
+        "link_discovered_events",
         "unmatched_by_sport",
         "the per-sport unmatched split reads empty on every pass, and "
         "`events_unmatched: 525 of 746` stays the only number -- which cannot "

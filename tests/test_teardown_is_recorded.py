@@ -211,21 +211,37 @@ class TestTheRssCurveIsOnDisk:
             json.loads(line)
             for line in log.read_text(encoding="utf-8").splitlines()
         ]
+        # The six storage fields are asserted in
+        # `tests/test_pass_storage_telemetry.py`. Here they are only required
+        # to be PRESENT and null, because this call supplies neither a
+        # database path nor a previous pass's counts -- `None` and not `0`,
+        # since a zero would read as "the WAL is empty", the opposite of the
+        # 2026-08-29 finding.
+        blank = {
+            "wal_kb": None,
+            "db_kb": None,
+            "candidate_rows": None,
+            "candidate_ms": None,
+            "leg_price_link_ms": None,
+            "leg_store_quotes_ms": None,
+        }
         assert rows == [
-            {
-                "ms": 1_788_000_000_000,
-                "kind": "quote",
-                "produced_by": None,
-                "rss_kb": 714000,
-                "available_kb": 666000,
-            },
-            {
-                "ms": 1_788_000_015_000,
-                "kind": "full",
-                "produced_by": "quote",
-                "rss_kb": 714000,
-                "available_kb": 666000,
-            },
+            dict(
+                ms=1_788_000_000_000,
+                kind="quote",
+                produced_by=None,
+                rss_kb=714000,
+                available_kb=666000,
+                **blank,
+            ),
+            dict(
+                ms=1_788_000_015_000,
+                kind="full",
+                produced_by="quote",
+                rss_kb=714000,
+                available_kb=666000,
+                **blank,
+            ),
         ]
 
     def test_the_reading_names_the_pass_that_produced_it(self, tmp_path):
