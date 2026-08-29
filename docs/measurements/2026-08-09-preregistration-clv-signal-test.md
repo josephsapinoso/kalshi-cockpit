@@ -1687,3 +1687,380 @@ explained in the interim look's 2026-08-17 annotation.
 
 Full write-up: `docs/measurements/2026-08-16-clv-signal-test-interim-look.md`,
 annotation dated 2026-08-17.
+
+---
+
+# Amendment 2 — 2026-08-29 — the power check's sigma trigger fired, and the floor is raised
+
+**Status: this is an amendment. It changes rules.** It changes exactly one
+number in §6 and §7 — the declaring floor — and adds reportables to §A9.
+Everything else in this document and in Amendment 1 governs unchanged.
+
+**It changes no past verdict.** The 2026-08-16 interim look and the 2026-08-25
+audited look were both **UNRESOLVED** and both remain **UNRESOLVED**. Nothing
+here re-reads them, and nothing here may be cited as converting either.
+
+**It is written before the next look**, as §7 requires: *"the amendment is
+written into this file with its date and reason **before** the next look ... An
+amendment made after a look and not recorded voids the registration."* The
+trigger fired at the 2026-08-25 look and this amendment was not written for four
+days; that gap is recorded here rather than smoothed over. No look was taken in
+the interval.
+
+## B1. The trigger, quoted exactly
+
+The power check's level-test section closes with this instruction, transcribed
+verbatim from the section headed *"The same arithmetic for the level test,
+against the real headroom"* (line breaks as in the original):
+
+> At the central `sigma = 20` tenths, **`G = 350`** is needed to resolve an
+> effect the size of the entire fee advantage. The gate asks for 300. So the
+> gate is calibrated to about the right order and is, if anything, slightly
+> optimistic — and if per-game CLV noise turns out to be 3c rather than 2c, the
+> honest floor is **656 games**, more than double what the gate requires.
+> `sigma` is therefore a **reportable quantity at every interim look**, and if
+> it comes in above 30 tenths this document must be amended to raise the floor.
+
+Amendment 1 §A5.2 restates it, and the restatement is also binding:
+
+> `sigma_eps`, `sigma_x` and their ratio remain **reportable at every interim
+> look**, and the existing instruction stands: if per-game CLV noise comes in
+> above 30 tenths, this document is amended to raise the floor.
+
+Neither sentence is conditional on anything else. Neither offers a branch in
+which the floor stays where it is. The instruction is *"must be amended to raise
+the floor"*, and the only free parameter it leaves is **by how much**.
+
+## B2. It fired
+
+Measured at the 2026-08-25 look and recorded in
+`docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md` §D6 and §D8:
+
+| quantity | pooled (all config versions) | **modal version only (§P4/§7 primary)** |
+|---|---:|---:|
+| `sd(clv_tenths)` — per-game CLV noise | **30.1481** | **31.6915** |
+| `sigma_eps` — residual SD of `clv_tenths` | 29.7637 | not reported |
+
+Both readings of the *level* quantity are above 30. The trigger fired.
+
+It may have fired earlier and gone unseen: the 2026-08-16 interim look reports
+none of `sigma_eps`, `sigma_x` or `sd(half_spread)`, which §A9 item 2 requires at
+every look. Whether the trigger was already live at `G = 199` is not recoverable
+from that write-up.
+
+## B3. Which `sigma` — settling §D8, in the direction that raises the floor
+
+§D8 of the audit correctly refuses to settle this and hands it here: the power
+check's *slope* setup defines `sigma_eps` as the **residual** SD of
+`clv_tenths` (29.7637), while the harness prints the **raw** SD (30.1481), and
+the two straddle 30.
+
+**Settled: the trigger's `sigma` is the raw per-game SD of `clv_tenths`.** Three
+reasons, and none of them is a preference:
+
+1. **The sentence is attached to the level test, not the slope test.** It closes
+   the paragraph under the table headed *"Smallest resolvable mean CLV, in
+   tenths"*, whose column header is `sigma = 20t` and whose estimator is §5's
+   *mean of game-clustered `clv_tenths`*. That estimator has no regression and
+   therefore no residual; its standard error is built from the raw dispersion of
+   the clustered outcome. The residual SD is the *slope* section's `sigma_eps`
+   and is a different quantity in a different formula.
+2. **Amendment 1 §A5.2 names it in plain words** — *"per-game CLV noise"*, not
+   "residual noise".
+3. **It is the larger number**, so a reader who thinks (1) and (2) are arguable
+   still lands on the floor that is harder to reach. Where the reading is
+   genuinely ambiguous the tie goes against the project.
+
+**And the ambiguity does not survive the arithmetic anyway.** At
+`sigma = 29.7637` — the residual reading, the smallest of the three candidates —
+the floor recomputed below is **643 games**. Every candidate value of `sigma`
+puts the floor past 600. There is no reading of §D8 under which 300 survives.
+
+## B4. The recomputed floor — same formula, same target, arithmetic shown
+
+**The formula is the power check's own**, unchanged, with no term added, removed
+or re-picked:
+
+```
+MDE_level(G) = always_valid_multiplier(G, tuning=300, alpha=0.05) * sigma / sqrt(G)
+```
+
+`always_valid_multiplier` is `backend/gate.py:133`, the Robbins normal-mixture
+boundary. **`tuning` stays at 300 and is not touched** — see §B6(4) for why.
+
+**The target is the power check's own**: `3.8` tenths, the fee headroom the
+registration was written against. It is *not* re-picked to the 6.3 tenths
+CLAUDE.md now carries after ADR 0028 retired the fee hedge. A larger target
+would lower the floor, which is the flattering direction, and the registration
+fixed 3.8 before any data existed. **3.8 stands.**
+
+**Verification that this is the same formula the registration ran.** It
+reproduces the registration's published level table exactly at `sigma = 20`:
+
+```
+G           20     40    100    300   1000
+published  44.0   22.8   10.0    4.2    2.0
+recomputed 44.0   22.8   10.0    4.2    2.0
+```
+
+**Solving `MDE_level(G) = 3.8` for `G`:**
+
+| `sigma` (tenths) | source | **`G` needed** | `MDE` at that `G` | `MDE` at `G = 300` |
+|---|---|---:|---:|---:|
+| 20 | registered ASSUMED | 349 (published: 350) | 3.797 | 4.222 |
+| 29.7637 | residual SD, pooled | 643 | 3.797 | 6.283 |
+| 30.0 | the trigger's own worked example | 651 (published: 656) | 3.799 | 6.333 |
+| **30.1481** | **`sd(clv_tenths)`, pooled** | **656** | **3.800** | **6.364** |
+| **31.6915** | **`sd(clv_tenths)`, modal only** | **713** | **3.798** | **6.690** |
+
+Worked, for the pooled figure:
+
+```
+always_valid_multiplier(656, tuning=300, alpha=0.05) = 3.2281
+3.2281 * 30.1481 / sqrt(656) = 97.32 / 25.612 = 3.7997  <= 3.8   OK
+at G = 655 the same expression gives 3.8025 > 3.8                 NOT OK
+```
+
+and for the modal figure:
+
+```
+always_valid_multiplier(713, tuning=300, alpha=0.05) = 3.2002
+3.2002 * 31.6915 / sqrt(713) = 101.42 / 26.702 = 3.7982 <= 3.8   OK
+```
+
+**A reproduction discrepancy, recorded because recording it runs against us.**
+The registration's `G`-needed row prints 142 / 350 / 656 / 1070 at
+`sigma = 10 / 20 / 30 / 40`; the exact solve gives 140 / 349 / 651 / 1066. All
+four published values are 1–5 games *larger* than the exact solve, i.e. the
+original search was slightly conservative in every cell. The discrepancy is not
+adjudicated here and does not need to be: **the exact solve at the measured
+`sigma = 30.1481` and the registration's own published cell at `sigma = 30` are
+the same number, 656.** The registration pre-named its own amended floor. This
+amendment is arithmetic the registration had already done.
+
+### The floor, fixed
+
+> **The declaring floor of §6 and §7 is raised from `G = 300` to `G = 713`.**
+
+`713` and not `656` because §7 and §P4 make the **modal `strategy_config_version`
+population** the primary — *"the primary runs on the modal version and `G` counts
+only those games"* — and `sd(clv_tenths)` on that population is `31.6915`. The
+floor is computed on the population the declaration is made on. 656 is the
+pooled figure and the pooled fit carries no verdict.
+
+**The floor is a ratchet, not a recomputation.** It is fixed once, here, at 713.
+It is **not** re-derived at each look, because a floor recomputed from whatever
+`sigma` a look happens to measure is a threshold chosen after the data — the
+exact freedom this registration exists to remove. Specifically:
+
+- If a later look measures `sigma` **below** 31.6915, the floor **does not
+  fall**. 713 stands.
+- If a later look measures `sigma` **above** 31.6915, the floor is **raised
+  again** by this same formula, in a further dated amendment, written before that
+  look declares anything.
+
+## B5. What this does to the slope test and to the 0.40 threshold
+
+The trigger is written against the level test, but `sigma_eps` enters the slope
+test too and the floor is a single number serving both. The consequence must be
+stated or the amendment is half-done.
+
+The slope MDE is `always_valid_multiplier(G, tuning=300) * (sigma_eps/sigma_x) /
+sqrt(G)`. The registration ASSUMED `sigma_eps / sigma_x = 2` and read
+`MDE = 0.42` at `G = 300`, from which §6's NO-SIGNAL threshold of **0.40** was
+set.
+
+At the measured `sigma_eps = 29.7637` against the registration's assumed
+`sigma_x = 10`, the ratio is **2.976** — between the registration's own `= 3`
+column and its `= 2` column, and the `= 3` column already prints the answer:
+**`MDE = 0.63` at `G = 300`.** The recomputed value at ratio 2.976 is **0.6283**.
+
+**So at `G = 300` the design cannot resolve 0.40, the threshold NO SIGNAL is
+tested against.** A NO SIGNAL declared there would be *"we looked with an
+instrument too blunt to see it"* — the precise failure §A5.2 set the threshold
+to prevent.
+
+`sigma_x` is taken as the registered `10`, **not** the `40.98` the 2026-08-25 run
+measured. The audit established that 40.98 is manufactured by rows with broken
+fair values (`edge_tenths` from −717.97 to +372.60; `sd(edge)` is 107.8 inside
+`too_few_books` and 10.90 outside it) and that CLAUDE.md rule 1 classifies those
+as bugs until proven otherwise. Using 40.98 gives a ratio of 0.74 and an MDE of
+0.078, which would *lower* the floor. That is the flattering direction and it is
+refused. The clean measured `sigma_x = 10.90` gives ratio 2.73 and a slope floor
+of 516; the registered 10 gives 2.976 and a slope floor of **591**.
+
+```
+solve  always_valid_multiplier(G, tuning=300) * 2.9764 / sqrt(G) = 0.40
+G = 591:  3.2671 * 2.9764 / sqrt(591) = 9.724 / 24.310 = 0.4000
+```
+
+**591 < 713, so the level-test floor binds and no separate slope floor is
+needed.** At `G = 713` the slope MDE is **0.357**, below the 0.40 threshold, and
+**0.40 therefore stands unchanged.** The threshold is not moved; the floor is
+moved until the threshold is again something the design can see. That is the
+direction §A5.2 requires — the failure mode of a bad noise assumption must be
+*permanent UNRESOLVED, never a false kill*.
+
+## B6. What now governs
+
+1. **§6, all four clauses**: every occurrence of `G >= 300` as the declaring
+   floor now reads **`G >= 713`**. SIGNAL, BUG and NO SIGNAL may be declared only
+   at a look with `G >= 713` on the modal-version population. Every look with
+   `G < 713` is **UNRESOLVED** and may report point estimates and intervals only.
+2. **§6's sentence** *"The 300 floor is not a significance threshold — the
+   boundary handles that — it is the point below which the test cannot resolve
+   any plausible value of `beta`"* is unchanged in meaning and now reads **713**.
+   The reason it moved is that the noise came in larger than assumed, which is
+   the one input that sentence is a function of.
+3. **§7 stopping condition 3** now reads: *"the decision rule in §6 returns
+   SIGNAL, BUG or NO SIGNAL at a look with `G >= 713`."* Conditions 1
+   (`G = 1000`) and 2 (**2027-02-15**) are **unchanged**, and 713 is still below
+   1000, so the stopping rule remains internally consistent.
+4. **`always_valid_multiplier(G, tuning=300, alpha=0.05)` is UNCHANGED.**
+   `tuning` is the boundary's mixture parameter, not the floor; it sets where the
+   bound is most efficient and it appears in every interval this registration has
+   ever published. Re-tuning it to 713 would silently restate the width of the
+   2026-08-16 and 2026-08-25 intervals, which this amendment forbids. The
+   boundary is valid at every `n` regardless of tuning; the only cost of leaving
+   it at 300 is a slightly wider interval near 713, which is again the safe
+   direction.
+5. **§A9 gains two reportables.** At every look, alongside `sigma_eps`,
+   `sigma_x` and `sd(half_spread)`, report **(i) `sd(clv_tenths)` on the
+   modal-version population**, stating explicitly whether it exceeds 31.6915 —
+   the ratchet check of §B4; and **(ii) the effective cluster count `G_eff`**
+   (inverse Herfindahl on leverage) together with the largest single cluster's
+   leverage share, per §B7. A look that does not print both lines has not
+   checked the floor it is declaring against.
+6. **This does not touch the gate.** `backend/gate.py`'s live-trading interlock
+   counts 300 *actionable games* and is a different number, in a different
+   document, for a different decision. It **stays exactly where it is**. Nothing
+   in this amendment lowers, raises or bypasses it.
+
+## B7. Nominal `G` may be the wrong unit, and raising the nominal floor does not fix that
+
+**This is the more serious of the two open problems, and it is not softened.**
+
+The 2026-08-25 audit measured, by inverse Herfindahl on leverage, that
+**`G = 311` nominal is `4.26` effective clusters**: 2 games carry 50% of the
+leverage on `beta`, 9 carry 90%, and one game — `KXWNBAGAME-26AUG24GSMIN` —
+carries **43.80% alone**. WNBA is 45 of 311 clusters and **95.6% of the
+leverage**.
+
+The power check's formula assumes `G` equally-weighted independent clusters;
+`sqrt(G)` is the right denominator only under that assumption. When leverage is
+concentrated, the estimator's variance behaves like `sigma / sqrt(G_eff)`, and
+`G_eff` is what the formula is actually a function of. **On the slope test the
+observed `G_eff` is 4.26, at which the multiplier is 21.4 and the slope MDE is
+about 32 — roughly eighty times the 0.40 threshold, and thirty times `beta = 1`,
+the ceiling of plausibility.**
+
+**Raising the nominal floor does not fix this, and saying otherwise would be the
+flattering error.** Holding the observed concentration ratio
+(`4.26 / 311 = 1.37%`) fixed:
+
+```
+nominal G required for G_eff = 300  ->  300 * 311 / 4.26  =  21,901 games
+nominal G required for G_eff = 713  ->  713 * 311 / 4.26  =  52,052 games
+```
+
+At the pooled accrual rate observed between the two looks
+(`(311 − 199) / 9 days = 12.4 clusters/day`), 52,052 clusters is **about eleven
+years**, against a stopping rule that ends on **2027-02-15**. **If effective
+clusters are the right unit, the declaring look on `beta` is unreachable under
+this registration, and no floor written in nominal `G` makes it reachable.**
+
+**Three things this section deliberately does not do.**
+
+- **It does not change the unit.** Restating the floor in `G_eff` would be a new
+  estimator with a new null, chosen after seeing that `G_eff` is small. That is
+  the forbidden move and it is not made here. `G_eff` becomes a **mandatory
+  reportable** (§B6(5)) so that a future declaration cannot be made without the
+  number printed beside it. It does not become a threshold.
+- **It does not drop the high-leverage rows.** The audit is explicit that
+  *"dropping high-leverage clusters is not a registered cut"*, and it is right.
+  The concentration comes from `too_few_books` / `no_market_width` rows whose
+  fair values are broken — a consensus fair of about 8c against an 82c ask, off
+  fewer than two books — and CLAUDE.md rule 1 says those are bugs, not edges.
+  Excluding them now, after seeing that they carry the leverage, would be
+  choosing the population from the answer.
+- **It does not claim the level test is equally afflicted.** `G_eff = 4.26` is
+  leverage on the **slope**, driven by the `edge_tenths` tail. The level test —
+  §5's mean of game-clustered `clv_tenths` — has no regressor, and its cluster
+  weights are not leverage in that sense. **Its effective-cluster count has never
+  been measured.** Until it is (§B6(5)), the reachability of the *level* floor
+  at `G = 713` is **unestablished, not established**. Assuming it is fine because
+  it is a different statistic is exactly the assumption this document exists to
+  refuse.
+
+**The honest bottom line, stated because it is the deliverable.** The floor is
+raised to 713 and 713 is reachable in nominal terms — roughly 32 days of pooled
+accrual from the 2026-08-25 look, or 497 further modal-version clusters from
+`G = 216`, well inside the 2027-02-15 stop **provided no config bump restarts
+the modal population**. But reaching 713 nominal does **not** by itself make the
+slope declaration meaningful, because the quantity that governs the slope's
+resolving power is not the quantity the floor is written in. **The route out is
+not a larger floor; it is a successor registration that fixes an `edge_tenths`
+exclusion in advance** — this registration never contemplated a regressor running
+to −717.97 tenths, and Amendment 1 §A2.2 added a price bound but no edge bound.
+Until such a registration exists and accrues its own record from the moment of
+registration, a `G = 713` declaration on `beta` should be read as a statement
+about roughly four WNBA games.
+
+## B8. Two defects deliberately left open, named here so they are not lost
+
+Neither is fixed by this amendment. Both are recorded so that a future session
+cannot reach the floor and believe the instrument is whole.
+
+- **(a) §A4's leave-one-group-out downgrade is not implemented.**
+  `verdict()` at `backend/analysis/signal_test.py:237-245` returns NO SIGNAL from
+  the pooled fit alone; no registered group is computed and no leave-one-group-out
+  recomputation exists. The 2026-08-25 auditor implemented it by hand and ran it:
+  it does not fire (seven of thirteen groups testable, largest upper limit
+  `+0.0286`). **So it has never changed an answer, and by this repo's own rule —
+  a guard that has never fired is decoration — it is not known to work.** No
+  declaration at `G >= 713` may be made until §A4 executes in code.
+- **(b) The effective-cluster problem of §B7**, left unresolved by design.
+  `G_eff` becomes a reportable, not a threshold, and the reason it cannot become
+  a threshold here is that doing so would be a post-hoc estimator change.
+
+## B9. What this amendment does not change, stated so the absence is deliberate
+
+- **No past verdict.** 2026-08-16 (`beta_hat = −0.1412`, `G = 199`) and
+  2026-08-25 (`beta_hat = −0.0756`, `G = 216` modal) were **UNRESOLVED** and
+  remain so. The 2026-08-24 screen that displayed `NO SIGNAL, 311 of 300 games`
+  was refused before this amendment and is refused by it twice over: wrong
+  population, and now also below the floor.
+- **No threshold.** 0.40 stands (§B5). `alpha = 0.05` stands. `tuning = 300`
+  stands.
+- **No population, no exclusion, no cut, no bucket edge, no cluster key.**
+  §§1–5 are untouched.
+- **Not the stopping date.** 2027-02-15 stands, and §B7 measures the amended
+  floor against it rather than moving it.
+- **Not the gate.** See §B6(6).
+- **No code.** `backend/analysis/signal_test.py` is not edited by this
+  amendment. The 713 constant, the §A4 branch and the new reportables are a
+  separate lane — **ticket: raise `MIN_CLUSTERS_TO_DECLARE` from 300 to 713 at
+  `backend/analysis/signal_test.py:72` (and the `G < 300` sentence in its module
+  docstring, line 43), implement §A4's leave-one-group-out
+  downgrade, and print `sd(clv_tenths)` (modal), `G_eff` and the largest
+  cluster's leverage share on the headline line.** Until that lands the harness
+  will keep declaring at 300, and **where the harness and this document disagree,
+  this document governs.**
+
+## B10. Registration record for this amendment
+
+```
+amendment          2
+date               2026-08-29
+trigger            power check, level-test section: sigma above 30 tenths
+observed           sd(clv_tenths) = 30.1481 pooled / 31.6915 modal (2026-08-25)
+formula            always_valid_multiplier(G, tuning=300, alpha=0.05) * sigma / sqrt(G) = 3.8
+floor was          G >= 300
+floor is           G >= 713   (modal-version population, per §P4 and §7)
+threshold          0.40  UNCHANGED
+tuning             300   UNCHANGED
+past verdicts      UNCHANGED (UNRESOLVED, both looks)
+open defects       A4 unimplemented; G_eff = 4.26 at nominal G = 311
+sources            docs/measurements/2026-08-25-clv-signal-declaring-look-refused.md
+                   docs/measurements/2026-08-16-clv-signal-test-interim-look.md
+```
