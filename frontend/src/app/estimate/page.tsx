@@ -7,9 +7,25 @@
  * Joe stopped the study on 2026-08-20 (Amendment 2, stopped without result),
  * and for two days this page kept a working form feeding a stopped study —
  * quiet misdirection with a banner on top. What retires the form for good is
- * that the typed P(YES) finally has a real home: the manual ticket asks for
- * it BEFORE revealing the price (ADR 0065), where `bet_clv` gives it a
- * consumer. This page keeps what was already typed:
+ * that the typed P(YES) moved to where the bet is: the manual ticket asks for
+ * it BEFORE revealing the price (ADR 0065) and the route refuses without it,
+ * so every hand bet placed through the portal carries the number that was in
+ * Joe's head first.
+ *
+ * **IT IS RECORDED. NOTHING READS IT BACK.** This comment said until
+ * 2026-08-29 that the ticket is "where `bet_clv` gives it a consumer", and
+ * that was never true: `bet_clv` (backend/bets.py:120) scores
+ * `entry_price_tenths` against the closing mid and does not touch
+ * `p_yes_bp`. Grep the tree -- `p_yes_bp` is written into `manual_orders`
+ * and there is no SELECT on the column anywhere, only the idempotency
+ * replay's `SELECT *`, which drops it. So the honest claim is about
+ * CAPTURE, not consumption: the estimate is now taken under the conditions
+ * that would make it worth scoring later -- typed blind, beside the order
+ * it belongs to, on the bets that actually happen -- and no code scores it
+ * today. Do not write a consumer back into this comment before one exists
+ * in the tree; a registration that has not been accepted is not a consumer.
+ *
+ * This page keeps what was already typed:
  *
  * - **The entries are write-once and stay readable.** The revision path
  *   ("Mistyped?") remains — flagging is the record's only repair mechanism,

@@ -78,8 +78,10 @@ export default function TonightStrip({
           </div>
           <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
             You said not tonight. The slate stays visible — this note opens
-            again at {clock(lockedUntil)}. It cannot stop a bet placed in the
-            Kalshi app: nothing fires before a hand bet, and the venue&rsquo;s
+            again at {clock(lockedUntil)}. It does stop this tool&rsquo;s own
+            Buy button: the server refuses that order while the lockout
+            holds. It cannot stop a bet placed in the Kalshi app — nothing
+            here fires before a bet placed there, and the venue&rsquo;s
             settled record shows it only afterwards. It is here because the
             you that wrote it was thinking clearly.
           </p>

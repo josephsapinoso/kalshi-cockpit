@@ -5,22 +5,25 @@
  * docstring refused a translation on the grounds that "translating them here
  * would give the same rule two names". That argument is correct and is kept:
  * the code is still rendered, verbatim, in the same monospace it always was.
- * It is what `/api/suppression` counts, what `/rejections` groups by, and what
- * a miscalibrated rule shows up as — a reader who sees `suspicious_edge` on a
- * row and `suspicious_edge` at the top of the Rejections screen is looking at
- * one name for one rule, and that is worth more than brevity.
+ * It is what `/api/suppression` counts, what the Slate's suppression-count
+ * disclosure groups by, and what a miscalibrated rule shows up as — a reader
+ * who sees `suspicious_edge` on a row and `suspicious_edge` in the count
+ * beneath it is looking at one name for one rule, and that is worth more than
+ * brevity.
  *
  * What was never true is that the code alone tells a beginner anything. It
  * names the rule; it does not say what happened. So the gloss is **additive**:
  * code first, sentence after. Two names would be a replacement. This is a
  * label and a caption.
  *
- * **The sentences are short on purpose, and are not the ones on `/rejections`.**
- * That screen is a diagnostic read at a desk and its explanations run to a
- * paragraph each, with the counts and the citations that make them checkable.
- * This one renders on a row on a phone, beside an edge and a price, where a
- * paragraph would push the numbers off the screen. Where the two disagree in
- * detail, `/rejections` is the fuller statement — this is the headline.
+ * **The sentences are short on purpose.** They were never the ones on the old
+ * `/rejections` screen (deleted 2026-08-22, folded into the Slate as a
+ * suppression-count disclosure): that screen was a diagnostic read at a desk
+ * and its explanations ran to a paragraph each, with the counts and the
+ * citations that made them checkable. These render on a row on a phone,
+ * beside an edge and a price, where a paragraph would push the numbers off
+ * the screen. The fuller statement for any code is
+ * `backend/core/suppression.py` itself — this is the headline.
  *
  * **Every code in `backend/core/suppression.py` must have an entry**, and
  * `tests/test_suppression_gloss.py` pins the two vocabularies in both

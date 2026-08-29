@@ -498,8 +498,10 @@ function Row({
       )}
 
       {/* Plain English under the code, never instead of it. The code above is
-          the engine's own name for the rule and is what `/rejections` groups
-          by; this is a caption on it, for a reader who has not memorised
+          the engine's own name for the rule and is what the suppression-count
+          disclosure at the foot of this screen groups by (`/rejections` was
+          deleted 2026-08-22 and folded there); this is a caption on it, for
+          a reader who has not memorised
           twelve identifiers. Absent when the server sent a code this build
           does not know — see `frontend/src/lib/suppressionGloss.ts`. */}
       {glossSentence(row.suppressed_reason) && (

@@ -4,6 +4,10 @@ import { SHELL_WIDTH } from "@/lib/shell";
 /**
  * The screens the nav budget could not afford, and what each is for.
  *
+ * **READ THE COMMENT BELOW THIS DOCSTRING FIRST.** The two pages named here
+ * were both DELETED in the 2026-08-22 review; this docstring describes the
+ * footer as it was built and is kept for the reasoning, not the inventory.
+ *
  * **This is not a nav overflow menu and must not become one.** `Nav.tsx` opens
  * by stating that six links is a budget rather than a coincidence: a seventh
  * pushes the Gate — the screen that says whether money can move — off the row
@@ -17,8 +21,9 @@ import { SHELL_WIDTH } from "@/lib/shell";
  *   still the fastest read when a single rule is refusing everything.
  *
  * **What this fixes is a smaller and more embarrassing thing.** That comment
- * says twice that the pages are "still served for anyone who wants it", and
- * until now there was **no inbound link anywhere in the application** — not in
+ * said twice that the pages were "still served for anyone who wants it" (it
+ * went on saying it after both were deleted, and was corrected 2026-08-29),
+ * and until then there was **no inbound link anywhere in the application** — not in
  * the nav, not contextually, not here. The escape hatch it named did not
  * exist. This tool is operated from a phone, where "type the URL" is not a
  * route a real person takes, so a served page with no link is unreachable in
@@ -52,7 +57,11 @@ const SECONDARY = [
   {
     // The stopped study's record (Amendment 2, stopped without result).
     // The FORM retired 2026-08-22 (ADR 0065): a typed P(YES) becomes the
-    // manual ticket's first field, where it has a consumer (bet_clv).
+    // manual ticket's first field, asked before the price is revealed and
+    // required by the route. It is RECORDED there, not consumed -- this
+    // comment claimed "where it has a consumer (bet_clv)" until 2026-08-29
+    // and that was never true: nothing in the tree SELECTs `p_yes_bp`, and
+    // `bet_clv` scores entry price against the closing mid without it.
     // This page keeps the entries already logged and their revision flags.
     href: "/estimate",
     label: "Estimates",
