@@ -896,6 +896,13 @@ function Width({ width }: { width: number | null | undefined }) {
  * 24-hour, unlike `formatClock`, because this sits in a dense table where a
  * fixed-width column is worth more than an am/pm that a kickoff list does not
  * need.
+ *
+ * **`ms` is the sportsbook's start, not Kalshi's.** Until 2026-08-29 the route
+ * behind this column selected `kalshi_events.commence_ms` -- `occurrence_
+ * datetime` raw, about three hours late on game series -- so this table printed
+ * a 19:05 first pitch as 22:05 while `/market/[ticker]` printed it correctly.
+ * Nothing is corrected here: `--:--` means the row has no linked fixture and
+ * therefore no trustworthy kickoff, which is a blank on purpose. Ticket #26.
  */
 function kickoff(ms: number | null): string {
   if (ms === null) return "--:--";
