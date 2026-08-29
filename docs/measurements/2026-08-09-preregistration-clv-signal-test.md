@@ -404,7 +404,19 @@ about 1.8x the effect size.
 > the time and is classified BUG. The NO SIGNAL and UNRESOLVED clauses stand,
 > subject to §A4's downgrade rule.
 
-> **SIGNAL.** Declared if and only if, at a look taken when `G >= 300`,
+> **[SUPERSEDED by Amendment 2 section B4 — text retained.]** **Every `G >= 300`
+> and `G < 300` in the clauses below is now `G >= 713` and `G < 713`**, and each
+> occurrence is marked in place. The floor moved because the power check's own
+> `sigma` trigger fired: `sd(clv_tenths)` came in at 31.6915 tenths on the modal
+> population, against an assumed 20, and the power check's own formula and its
+> own 3.8-tenth target then give 713. **The 0.40 threshold is UNCHANGED** (§B5),
+> and so is `tuning=300` — it is the Robbins mixture parameter, not the floor,
+> and re-tuning it would silently restate every interval this registration has
+> published (§B6(4)). The floor is a **ratchet**: it does not fall if a later
+> look measures a smaller `sigma`.
+
+> **SIGNAL.** Declared if and only if, at a look taken when `G >= 300`
+> **[SUPERSEDED by Amendment 2 section B4 — now `G >= 713`]**,
 > `beta_hat > always_valid_multiplier(G, tuning=300, alpha=0.05) * se_cluster(beta_hat)`
 > **and** `beta_hat <= 1.0`.
 >
@@ -412,18 +424,24 @@ about 1.8x the effect size.
 > `beta_hat > 1.0`. The engine cannot understate its own edge; this is a defect
 > report and no edge is claimed.
 >
-> **NO SIGNAL.** Declared if and only if, at a look taken when `G >= 300`, the
+> **NO SIGNAL.** Declared if and only if, at a look taken when `G >= 300`
+> **[SUPERSEDED by Amendment 2 section B4 — now `G >= 713`]**, the
 > boundary is not cleared **and** the upper limit of the always-valid interval,
 > `beta_hat + always_valid_multiplier(G, tuning=300, alpha=0.05) * se_cluster(beta_hat)`,
 > is **below 0.40**.
 >
 > **UNRESOLVED.** Declared in every other case, including every look taken when
-> `G < 300`. "Unresolved" is a real answer and is not "no signal".
+> `G < 300` **[SUPERSEDED by Amendment 2 section B4 — now `G < 713`]**.
+> "Unresolved" is a real answer and is not "no signal".
 >
-> A look taken when `G < 300` may report point estimates and intervals. **It may
-> not declare SIGNAL, BUG or NO SIGNAL.** The 300 floor is not a significance
+> A look taken when `G < 300` **[SUPERSEDED by Amendment 2 section B4 — now
+> `G < 713`]** may report point estimates and intervals. **It may
+> not declare SIGNAL, BUG or NO SIGNAL.** The 300 floor **[SUPERSEDED by
+> Amendment 2 section B4 — now the 713 floor]** is not a significance
 > threshold — the boundary handles that — it is the point below which the test
-> cannot resolve any plausible value of `beta` (power check, below).
+> cannot resolve any plausible value of `beta` (power check, below). **§B6(2):
+> that sentence is unchanged in meaning. It moved because the noise came in
+> larger than assumed, which is the one input it is a function of.**
 >
 > `beta_hat` is the pooled, game-clustered, half-spread-controlled slope on the
 > §2 population at `clv_horizon_hours = 0.0`. No bucket result, no subgroup, no
@@ -466,7 +484,16 @@ Data collection ends at whichever of these comes **first**:
 2. **2027-02-15**, after the NFL and NBA seasons overlap — a calendar date, not
    a state of the data; or
 3. the decision rule in §6 returns SIGNAL, BUG or NO SIGNAL at a look with
-   `G >= 300`.
+   `G >= 300` **[SUPERSEDED by Amendment 2 section B4 — now `G >= 713`]**.
+
+> **[SUPERSEDED by Amendment 2 section B4 — text retained.]** Condition 3's
+> floor is **713**, on the modal-`strategy_config_version` population §P4 and §7
+> make the primary. Conditions 1 (`G = 1000`) and 2 (**2027-02-15**) are
+> **unchanged**, and 713 is still below 1000, so the stopping rule stays
+> internally consistent (§B6(3)). §B7 measures 713 against the 2027-02-15 stop
+> and finds it reachable in nominal terms — but records, in the same breath,
+> that nominal `G` may be the wrong unit: `G = 311` was **4.26** effective
+> clusters, and no floor written in nominal `G` fixes that.
 
 **Interim looks are permitted without penalty and without limit**, which is the
 entire purpose of the always-valid boundary — that is what it is bought with the
