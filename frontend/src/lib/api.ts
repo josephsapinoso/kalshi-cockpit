@@ -1376,6 +1376,18 @@ export type TonightActivity = {
  *   whose unit is pinned only at zero — any non-zero value refuses with
  *   its reason in `value_refusal`, server-rendered words.
  *
+ * **The two stamps are not interchangeable.** `count_as_of_ms` is the
+ * mirror's clock, and because the mirror's first cycle runs at process
+ * start and no container here lives twelve hours, it is in practice the
+ * container's boot time. `value_as_of_ms` is minutes fresh. Each figure is
+ * stamped with its own read (`lib/openPositionsStamps.ts`) — until
+ * 2026-08-29 the dollars-at-risk figure wore the count's boot clock.
+ *
+ * `*_age_ms` is each read's age against the same server `now_ms` the
+ * staleness bounds use, so the screen never subtracts a server millisecond
+ * from a browser one. Optional: a deployed backend one version behind omits
+ * them, and the clock alone still renders.
+ *
  * NO live P&L, no mark-to-market, never summed with cash (TonightStrip's
  * unsigned rule). Optional because a deployed backend one version behind
  * omits the key entirely.
@@ -1383,9 +1395,11 @@ export type TonightActivity = {
 export type OpenPositionsBlock = {
   count: number | null;
   count_as_of_ms: number | null;
+  count_age_ms?: number | null;
   value_tenths: number | null;
   value_display: string | null;
   value_as_of_ms: number | null;
+  value_age_ms?: number | null;
   value_refusal: string | null;
 };
 

@@ -371,6 +371,23 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     HH:MM" -- never 0, which would report "nothing at risk" off a dead
     poller, the false negative in the flattering direction.
 
+    **Two clocks means two stamps, and one of them is nearly always the
+    container's boot time.** `positions` is polled only on the full mirror
+    (`portfolio_poll.poll_portfolio`), whose first cycle runs at process
+    start and whose next runs twelve hours later -- and this instance's
+    containers do not live twelve hours (see
+    `docs/measurements/2026-08-28-recorder-silence-is-chronic.md`). So
+    `count_as_of_ms` is an honest read time for the COUNT and is, in
+    practice, the boot clock; the VALUE is re-read every five minutes and
+    carries `value_as_of_ms`, minutes fresh. Stamping the value with the
+    count's clock -- which the screen did until 2026-08-29 -- puts a boot
+    time on a money figure.
+
+    `count_age_ms`/`value_age_ms` are each read's age against the SAME
+    `now_ms` the staleness bounds use, so the reader never has to subtract a
+    server millisecond from a browser one. `None` where the matching `as_of`
+    is `None`: an unread figure has no age, and 0 would say "just read".
+
     **NO live P&L, no mark-to-market, and never summed with cash** --
     TonightStrip's unsigned rule. The refusal words are rendered server-side
     (`value_refusal`), matching the display-string convention.
@@ -378,9 +395,11 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     payload: dict = {
         "count": None,
         "count_as_of_ms": None,
+        "count_age_ms": None,
         "value_tenths": None,
         "value_display": None,
         "value_as_of_ms": None,
+        "value_age_ms": None,
         "value_refusal": None,
     }
     try:
@@ -400,6 +419,7 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
 
     if count_row is not None:
         payload["count_as_of_ms"] = count_row["polled_ms"]
+        payload["count_age_ms"] = max(0, now_ms - count_row["polled_ms"])
         if (
             now_ms - count_row["polled_ms"] <= POSITIONS_STALE_AFTER_MS
             and count_row["row_count"] is not None
@@ -408,6 +428,7 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
 
     if value_row is not None:
         payload["value_as_of_ms"] = value_row["observed_ms"]
+        payload["value_age_ms"] = max(0, now_ms - value_row["observed_ms"])
         if now_ms - value_row["observed_ms"] > TONIGHT_STALE_AFTER_MS:
             payload["value_refusal"] = "not read in the last 30 minutes"
         elif value_row["portfolio_value_tenths"] is None:
