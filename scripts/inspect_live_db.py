@@ -1028,6 +1028,66 @@ def _q_parlay_lookups_tail(conn: sqlite3.Connection, args) -> list[Section]:
     return [_derive_iso(tail, "requested_ms", "requested_iso")]
 
 
+# ---------------------------------------------------------------------------
+# The resting bids the desk has placed (ADR 0084).
+# ---------------------------------------------------------------------------
+#
+# **The only order shape in this database that can still be working.** Every
+# other real order this project has sent was immediate-or-cancel: filled or
+# dead, and finished by the time its row was written. A combination has no
+# resting YES bid on any book this repo has read, so the desk becomes the offer
+# and that offer outlives the request.
+#
+# `cancel_after_ms` is the load-bearing column and the reason this query
+# exists. It is the earliest leg's kickoff, and `backend/bid_watch.py`
+# withdraws the bid when it passes. A NULL there means the bid will NEVER be
+# withdrawn automatically -- the screen promises it will be, so a null is a
+# broken promise rather than a missing convenience.
+#
+# No P&L, no outcome, no verdict: prices and clocks only.
+_SQL_COMBO_BIDS_TAIL = (
+    "SELECT id, placed_ms, card_key, ticker, status, exchange_index, "
+    "       count, limit_price_tenths, "
+    "       (count * limit_price_tenths) AS committed_tenths, "
+    "       cancel_after_ms, "
+    "       CASE WHEN cancel_after_ms IS NULL THEN 'NEVER -- no deadline' "
+    "            ELSE 'set' END AS auto_cancel, "
+    "       kalshi_order_id, dry_run, cancelled_ms, cancel_reduced_by, "
+    "       cancel_reason, error_text "
+    "FROM combo_orders ORDER BY id DESC"
+)
+
+
+def _q_combo_bids_tail(conn: sqlite3.Connection, args) -> list[Section]:
+    """The last N resting bids, newest first, with their auto-cancel deadlines.
+
+    What this does not establish
+    ----------------------------
+    - **Not whether a bid is still resting AT THE VENUE.** This is the desk's
+      record. A bid filled, cancelled or expired on Kalshi since it was written
+      shows here as whatever the desk last learned. `/portfolio/orders` is the
+      authority; this is what the desk believes.
+    - **Not that the deadline was enforced.** `auto_cancel = set` means a
+      deadline exists, not that a loop read it. `cancelled_ms` with
+      `cancel_reason` naming the first leg is the evidence that it ran.
+    - **Nothing about profit.** A resting bid has no outcome and this query
+      reports none.
+    """
+    tail = _fetch(
+        conn, _SQL_COMBO_BIDS_TAIL, (),
+        title=f"combo_orders: last {args.tail} bids, newest first",
+        cap=min(args.tail, args.limit),
+        requested=args.tail,
+    )
+    for col, iso in (
+        ("placed_ms", "placed_iso"),
+        ("cancel_after_ms", "cancel_after_iso"),
+        ("cancelled_ms", "cancelled_iso"),
+    ):
+        tail = _derive_iso(tail, col, iso)
+    return [tail]
+
+
 def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
     """Stored bytes per table and index, largest first.
 
@@ -3423,6 +3483,14 @@ QUERIES: dict[str, QueryDef] = {
         "a given combination market exists on the exchange. No P&L, no "
         "outcome, no verdict.",
         _q_parlay_lookups_tail,
+    ),
+    "combo-bids-tail": QueryDef(
+        "The last N resting bids the desk placed on a combination (-n, "
+        "default 5), newest first: price, contracts, what is committed, the "
+        "exchange shard, and the AUTO-CANCEL DEADLINE. A NULL deadline means "
+        "the bid will never be withdrawn automatically, which the screen "
+        "promises it will be. No P&L, no outcome, no verdict.",
+        _q_combo_bids_tail,
     ),
     "db-sizes": QueryDef(
         "Where the bytes went: file-level page counts with the amount a VACUUM "
