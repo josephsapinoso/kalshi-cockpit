@@ -57,6 +57,14 @@ TOKEN_HANDLERS = (
     "hedge-position",
     "hedge-resolve",
     "hedge-close",
+    # ADR 0084 -- the resting bid on a combination. **`parlay-bid` is the only
+    # handler in this list that SPENDS**: the others mint, record or read, and
+    # this one leaves a real good-till-cancelled order on the exchange.
+    # `parlay-bid-cancel` is its opposite and is kept separate on purpose --
+    # the one that must never fail quietly is the cancel, and sharing a code
+    # path with the one that commits money is how that happens.
+    "parlay-bid",
+    "parlay-bid-cancel",
 )
 
 

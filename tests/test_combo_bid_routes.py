@@ -63,13 +63,23 @@ LIVE_BALANCE = {
 
 MINTED = "KXMVECROSSCATEGORY-SHARD1-TEST"
 
+#: What the MINT response carries -- the shape of
+#: `tests/fixtures/combo_lookup_response.json`, which describes the market it
+#: just created. `deci_cent` bands are what make a sub-penny bid expressible.
+MINTED_MARKET = {
+    "ticker": MINTED,
+    "exchange_index": 1,
+    "price_level_structure": "deci_cent",
+    "price_ranges": [{"start": "0.0000", "end": "1.0000", "step": "0.0010"}],
+}
+
 
 class FakeApi:
     """The exchange surface the bid path touches, with its shard behaviour."""
 
     def __init__(self, *, balance=None, exchange_index=1, create=None):
         self._balance = balance if balance is not None else LIVE_BALANCE
-        self._exchange_index = exchange_index
+        self.shard = exchange_index
         self._create = create or {
             "order_id": "ord-1",
             "fill_count": "0.00",
@@ -82,20 +92,16 @@ class FakeApi:
         return CAPTURED_EMPTY_BOOK
 
     async def get(self, path, **params):
-        return {
-            "market": {
-                "ticker": MINTED,
-                "exchange_index": self._exchange_index,
-                "price_level_structure": "deci_cent",
-                # The combination the probe placed a bid on reported a
-                # `deci_cent` grid, which is what makes a 0.5c bid expressible
-                # at all. `parse_price_grid` refuses a payload without bands
-                # rather than assuming whole cents, so the fake carries them.
-                "price_ranges": [
-                    {"start": "0.0000", "end": "1.0000", "step": "0.0010"}
-                ],
-            }
-        }
+        """**404s a freshly minted combination, exactly as the venue does.**
+
+        This is the live 2026-08-30 failure: `GET /markets/{ticker}` returns
+        404 `not_found` for a combination minted seconds earlier, while the
+        orderbook endpoint answers for the same ticker immediately. The bid
+        path must never depend on this call.
+        """
+        from backend.kalshi.rest import KalshiAPIError
+
+        raise KalshiAPIError(404, f"https://example.invalid{path}", "not found")
 
     async def balance(self, *, exchange_index=None):
         return self._balance
@@ -139,7 +145,10 @@ def build(tmp_path, monkeypatch):
         monkeypatch.setattr(parlays, "fetch_collections", fake_fetch)
 
         async def fake_lookup(api_, collection, legs, **kw):
-            return {"market_ticker": MINTED}
+            return {
+                "market_ticker": MINTED,
+                "market": {**MINTED_MARKET, "exchange_index": fake.shard},
+            }
 
         monkeypatch.setattr(parlays, "lookup_combo", fake_lookup)
         monkeypatch.setattr(
@@ -418,4 +427,45 @@ class TestTheSwitch:
         )).json()
         assert body["status"] == "dry_run"
         assert "Nothing" in body["words"]
+        assert api.created == []
+
+
+class TestTheCatalogueIsNotOnThePath:
+    """The 500 Joe hit on 2026-08-30, and why it cannot come back.
+
+    The bid path re-read `GET /markets/{ticker}` for the price grid and the
+    exchange shard. That endpoint returns 404 `not_found` for a combination
+    minted seconds earlier -- the catalogue lags the mint, while the orderbook
+    endpoint answers for the same ticker immediately, which is exactly why the
+    lookup path never noticed and the probe never hit it (it used a market
+    minted ninety minutes earlier).
+
+    `FakeApi.get` now raises 404 for every catalogue read, so any future
+    version that reaches for it fails this whole file rather than one test.
+    """
+
+    async def test_a_bid_is_placed_without_reading_the_catalogue(self, build):
+        app, api, _ = build()
+        response = await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "resting"
+
+    async def test_a_mint_that_describes_nothing_refuses_in_words(self, build):
+        """Refusing beats guessing: the grid decides which prices the venue
+        accepts and the shard decides whether the bid can ever be cancelled."""
+        app, api, _ = build()
+        import backend.parlays as parlays
+
+        async def blind_lookup(api_, collection, legs, **kw):
+            return {"market_ticker": MINTED}
+
+        # No `market` block at all -- the shape an older venue build sent.
+        object.__setattr__(parlays, "lookup_combo", blind_lookup)
+        response = await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )
+        assert response.status_code == 502
+        assert "did not describe it" in response.json()["detail"]
         assert api.created == []

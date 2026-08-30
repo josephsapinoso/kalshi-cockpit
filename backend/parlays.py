@@ -1516,6 +1516,32 @@ def resolve_requested_legs(
     return selected
 
 
+def _minted_market_facts(response) -> Optional[dict]:
+    """The three fields a bid needs from the mint response, and nothing else.
+
+    **Narrow rather than verbatim, for two reasons.** The venue's market object
+    carries an `event_ticker`, and `test_the_caveats_travel_with_the_price`
+    walks every key in this payload asserting none begins with "ev" -- the ADR
+    0046 guard against a fee-net EV field appearing near a combination price.
+    It is a false positive on the word "event" and the guard is still right.
+
+    The second reason survives the first: this payload reaches a browser, and
+    forwarding a venue object whole means every field Kalshi adds later ships
+    to the client without anyone deciding it should.
+
+    `None` when the mint described nothing -- the caller refuses rather than
+    guessing a grid or a shard.
+    """
+    market = response.get("market") if isinstance(response, dict) else None
+    if not isinstance(market, dict):
+        return None
+    return {
+        "price_ranges": market.get("price_ranges"),
+        "price_level_structure": market.get("price_level_structure"),
+        "exchange_index": market.get("exchange_index"),
+    }
+
+
 async def price_card_on_kalshi(
     conn,
     *,
@@ -1764,6 +1790,22 @@ async def price_card_on_kalshi(
         return {
             "status": "book_empty",
             "minted_market_ticker": minted,
+            # **Carried on THIS branch above all others.** An empty book is
+            # the expected first answer on a freshly minted combination, so
+            # this is the path a bid actually travels -- and it is where the
+            # 404 race bit on 2026-08-30. See the note on the `priced` return.
+            "minted_market": _minted_market_facts(response),
+            # The legs' clocks, for the same auto-cancel deadline the priced
+            # branch supplies. Without them a bid placed off an empty book
+            # would carry no deadline and never be withdrawn at kickoff.
+            "legs": [
+                {
+                    "market_ticker": leg.kalshi_market_ticker,
+                    "commence_ms": leg.commence_ms,
+                }
+                for leg in selected
+            ],
+            "fair": {"conservative": joint.conservative},
             "words": (
                 "Kalshi created the market, but nothing is resting in its "
                 "book -- no one is offering to sell this combination, so "
@@ -1842,6 +1884,20 @@ async def price_card_on_kalshi(
             }
             for leg in selected
         ],
+        # **The venue's own market object from the MINT response, verbatim.**
+        #
+        # Carried because the alternative was a race that cost a 500 in front
+        # of Joe on 2026-08-30: the bid path re-read `GET /markets/{ticker}`
+        # for the price grid and the exchange shard, and that endpoint returns
+        # 404 `not_found` for a combination minted seconds earlier -- the
+        # catalogue lags the mint, even though the orderbook endpoint answers
+        # for the same ticker immediately (this function has just used it).
+        #
+        # The mint response already carries `price_ranges`,
+        # `price_level_structure` and `exchange_index`, so the second read was
+        # redundant as well as racy. Passing it through means the bid is
+        # priced and routed from the same payload that created the market.
+        "minted_market": _minted_market_facts(response),
         "hold_display": f"{valuation.hold * 100:.1f}%",
         "verdict": valuation.verdict,
         "notes": {

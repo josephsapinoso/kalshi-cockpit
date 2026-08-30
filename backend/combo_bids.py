@@ -93,25 +93,47 @@ async def place_resting_bid(
 
     # -- the market: its price grid and, decisively, its exchange shard -------
     #
+    # **Taken from the MINT response, not re-read.** The first version of this
+    # called `GET /markets/{ticker}` here and it produced a 500 in front of Joe
+    # on 2026-08-30: that endpoint returns 404 `not_found` for a combination
+    # minted seconds earlier. The catalogue lags the mint -- while the
+    # orderbook endpoint answers for the same ticker immediately, which is why
+    # the lookup path never noticed. The mint response already carries
+    # `price_ranges`, `price_level_structure` and `exchange_index`, so the
+    # second read was redundant as well as racy.
+    #
     # **The shard is read, never assumed to be `EXCHANGE_INDEX_COMBOS`.** That
     # constant is what the combinations shard was on 2026-08-30; Kalshi moved
     # baseball to a new shard six days before that and calls `exchange_index`
     # on the market "the authoritative source of truth". A desk that hardcoded
     # the shard would cancel into the wrong one the day it moves, and a cancel
-    # that cannot find its order is the failure this whole path exists to
-    # avoid.
-    market_payload = await api.get(f"/markets/{ticker}")
-    market = market_payload.get("market")
+    # that cannot find its order is the failure this path exists to avoid.
+    market = priced.get("minted_market")
     if not isinstance(market, dict):
+        # A lookup that minted a market without describing it. Refusing is the
+        # only honest move: the grid decides which prices the venue accepts and
+        # the shard decides whether the bid can ever be cancelled, and guessing
+        # either is how an order rests forever at a price nobody can hit.
         raise ComboOrderRefused(
             502,
-            f"Kalshi created the combination ({ticker}) but its market record "
-            f"could not be read, so neither its price grid nor the exchange "
-            f"shard it trades on is known. Nothing was sent.",
+            f"Kalshi created the combination ({ticker}) but did not describe "
+            f"it, so neither its price grid nor the exchange shard it trades "
+            f"on is known. Nothing was sent -- try again in a moment.",
         )
-    grid = parse_price_grid(
-        market.get("price_ranges"), structure=market.get("price_level_structure")
-    )
+    try:
+        grid = parse_price_grid(
+            market.get("price_ranges"),
+            structure=market.get("price_level_structure"),
+        )
+    except Exception as exc:                                     # noqa: BLE001
+        # `GridUnavailable` is not an internal error, it is the venue changing
+        # a field name. Refusing in words beats a 500 on the screen.
+        raise ComboOrderRefused(
+            502,
+            f"the combination's price grid could not be read ({exc}), so the "
+            f"desk does not know which prices Kalshi will accept. Nothing was "
+            f"sent.",
+        ) from exc
     exchange_index = market.get("exchange_index")
     if not isinstance(exchange_index, int):
         raise ComboOrderRefused(
