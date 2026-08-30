@@ -303,8 +303,14 @@ if ! command -v flyctl >/dev/null 2>&1; then
   say "Set it from the dashboard instead — the phone works fine for this:"
   open_url "https://fly.io/apps/$APP/secrets"
   step "New secret → name ODDS_API_KEY → paste the key → Save."
+  warn "SAVING ONLY STAGES IT. The machine does not restart and the loop"
+  warn "keeps using the OLD key indefinitely, while every check passes."
+  step "Then click the button named: Deploy secrets. That applies the"
+  step "staged value AND restarts the machine. Saving alone does not."
+  note "Confirmed live 2026-08-17: after a dashboard save the secret read"
+  note "Staged, new digest, old key still in the running process."
   SKIPPED+=("Fly secret ODDS_API_KEY on $APP (flyctl not installed)")
-  pause "Press Enter once that is saved."
+  pause "Press Enter once you have clicked Deploy secrets."
 elif confirm "Set ODDS_API_KEY on $APP now?"; then
   # `secrets import` reads KEY=VALUE from stdin, so the key never appears as a
   # command-line argument.
@@ -320,13 +326,27 @@ else
 fi
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
-stage "Confirm the key is live"
-say "Re-reading the quota, so the last thing you see is measured, not assumed."
+stage "Confirm the key is live ON THE BOX, not just valid"
+say "Two questions, and only the second one is the rotation."
+note "This first call goes from THIS machine. It proves the key works."
+note "It cannot tell you what the live loop is using."
 
 if probe_key "$ODDS_API_KEY"; then
   printf '  %s✓ %s credits remaining this period%s\n' "$GREEN" "${REMAINING:-unknown}" "$RESET"
 else
   warn "the verification call failed on the second attempt."
+fi
+
+say ""
+say "Now the check that can actually fail:"
+if command -v flyctl >/dev/null 2>&1; then
+  flyctl secrets list --app "$APP" 2>/dev/null | grep -E "ODDS_API_KEY" || warn "could not read the secret list; check it by hand."
+  say ""
+  warn "The status must read Deployed. If it reads Staged, the loop is"
+  warn "still on the OLD key and nothing has been rotated."
+  step "Fix a Staged secret with: flyctl secrets deploy -a $APP"
+else
+  step "On the dashboard ODDS_API_KEY must show Deployed, not Staged."
 fi
 
 say ""
