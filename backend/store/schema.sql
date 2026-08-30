@@ -247,6 +247,70 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
 -- index that changes no plan always is.
 CREATE INDEX IF NOT EXISTS idx_odds_event ON odds_snapshots(odds_event_id, market, fetched_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_odds_commence ON odds_snapshots(commence_ms);
+-- **And here is the index that DOES change the plan -- ADR 0086, schema v31.**
+-- Read the refusal above first; this is not an exception to it, it is the same
+-- test applied to a different candidate and coming out the other way.
+--
+-- `runner.MATCH_CANDIDATE_SQL` is
+--
+--     SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team
+--     FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?
+--
+-- and `sport_key` appears in neither index above, so SQLite seeks
+-- `idx_odds_commence` to the 24-hour floor and scans EVERY sport's rows
+-- forward from there -- a range with no upper bound, because the predicate
+-- deliberately keeps every future fixture -- fetching each row from the table
+-- to test `sport_key`, then feeding the survivors through a temp B-tree for
+-- the DISTINCT. On live 2026-08-30 that reached 27.7s; the pass took 104s, the
+-- API's read connections starved behind it, and the Fly health check on port
+-- 3000 failed at 22:06:03Z. `/api/market`, `/api/window` and `/api/scout` all
+-- returned socket-hang-up in the same minute, which read from the outside as
+-- "the scout desk returned 500".
+--
+-- **The covering form, not the narrow one, and the plans say why:**
+--
+--     baseline   SEARCH ... USING INDEX idx_odds_commence (commence_ms>?)
+--                USE TEMP B-TREE FOR DISTINCT
+--     narrow     SEARCH ... USING INDEX ... (sport_key=? AND commence_ms>?)
+--                USE TEMP B-TREE FOR DISTINCT
+--     covering   SEARCH ... USING COVERING INDEX (sport_key=? AND commence_ms>?)
+--
+-- `(sport_key, commence_ms)` alone restricts the seek and leaves both remaining
+-- costs standing: a table fetch per surviving row for the three projected
+-- columns, and the sort. Carrying those three columns removes both, and the
+-- DISTINCT becomes a walk in index order rather than a temp B-tree. **A plan
+-- without `USE TEMP B-TREE` is a different algorithm, not a faster one** --
+-- that is the property bought here, and it is the one that does not degrade as
+-- the table grows.
+--
+-- The cost is real, measured, and named rather than waved at. On 1.5M
+-- synthetic rows of this shape: the scan goes 394ms -> 0ms warm, the index is
+-- 52.8 MB (20% of the indexless file), and a 900-row sweep's inserts go from
+-- 3ms to 7ms at n=15. **The write roughly doubles and stays trivial**; the
+-- read stops existing. On live the index will be LARGER than 52.8 MB, because
+-- synthetic team names are short and uniform where real ones are not --
+-- `idx_odds_event` there is 136 MB against a 244 MB table, and this carries
+-- more string bytes than that does. Read the real figure with `db-sizes`.
+-- `docs/measurements/2026-08-30-the-candidate-scan-index.md`.
+--
+-- **The `[[vm]]` comment in `fly.live.toml` is the objection to answer, and it
+-- is answered rather than ignored:** "a larger index eats a larger cache" on a
+-- box that has OOM-killed itself. True, and this index makes the cache
+-- pressure of THIS query go down, not up. Today the pass drags ~520,000 table
+-- rows through the page cache every time it looks; after this it walks a
+-- contiguous index range and touches the table not at all. Resident bytes up,
+-- page traffic per pass down by orders of magnitude.
+--
+-- **It makes a growing scan cheaper; it does not make it bounded.**
+-- `odds_snapshots` still has no retention rule (`store/retention.py` says so in
+-- its own "what this does NOT do"), so this changes the constant and leaves the
+-- growth term alone.
+--
+-- The column list must stay in step with `runner.MATCH_CANDIDATE_SQL`: a column
+-- added there and not here silently demotes the plan. Pinned by
+-- `tests/test_candidate_scan_plan.py`.
+CREATE INDEX IF NOT EXISTS idx_odds_sport_commence
+    ON odds_snapshots(sport_key, commence_ms, odds_event_id, home_team, away_team);
 
 -- Credit accounting. The free tier is 500/month and cost = markets x regions,
 -- so an unmetered poll loop drains the month in a day. Every call is recorded

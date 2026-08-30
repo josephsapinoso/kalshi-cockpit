@@ -629,4 +629,21 @@ primary_region = "ord"
   path = "/api/health"
   interval = "15s"
   timeout = "5s"
-  grace_period = "40s"
+  # **120s, raised from 40s on 2026-08-30 (ADR 0086), and the reason is a
+  # one-off that will not stay one-off.** `docker/entrypoint.sh` runs
+  # `scripts/migrate_db.py` BEFORE uvicorn binds this port, so every second a
+  # migration takes is a second before the first health check can pass. Schema
+  # v31 builds a covering index over `odds_snapshots`, which is 244 MB across
+  # 59,665 pages on this volume -- a full table read plus a sort, on a
+  # shared-cpu-1x box with 2 GB. It took 3.0s on 266 MB of synthetic rows on a
+  # developer laptop; nobody has timed it here, and 40s was not a margin, it
+  # was a guess that happened to hold while migrations only added columns.
+  #
+  # A longer grace period does not hide a dead boot. `set -e` in the entrypoint
+  # aborts the container on a failed migration, and Fly notices an exited
+  # machine without waiting for a health check at all -- so what this delays is
+  # only the verdict on a machine that is still working.
+  #
+  # Raise it again rather than trimming a migration to fit: the constraint that
+  # matters is that the volume holding the record cannot be recreated.
+  grace_period = "120s"

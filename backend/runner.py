@@ -1033,13 +1033,30 @@ def quote_age_ms(quote, *, now: int) -> int:
 # ---------------------------------------------------------------------------
 
 
+#: The candidate scan, as a named constant so there is exactly one copy.
+#:
+#: Lifted out of `_match_candidates` on 2026-08-30 (ADR 0086) because two
+#: readers outside the runner need the *statement the runner executes*, not a
+#: transcription of it: `scripts/measure_odds_scan_index.py`, which times it,
+#: and `tests/test_candidate_scan_plan.py`, which asserts its query plan. A
+#: plan measured for SQL nobody runs reads as evidence and is worse than none
+#: -- the same reason `_SQL_PARLAY_CANDIDATES` is pinned byte-identical to
+#: `parlays.CANDIDATE_SQL` by a test.
+#:
+#: **The column list is the index's column list.** `idx_odds_sport_commence`
+#: covers this statement only while the two agree, so adding a column here
+#: silently demotes the plan from `USING COVERING INDEX` back to a table fetch
+#: per row plus a temp B-tree for the DISTINCT. The plan guard is what catches
+#: that; it is not decoration.
+MATCH_CANDIDATE_SQL = (
+    "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
+    "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?"
+)
+
+
 def _match_candidates(conn, sport_key: str, *, since_ms: int) -> list[MatchCandidate]:
     """Distinct sportsbook fixtures seen for a sport, as link candidates."""
-    rows = conn.execute(
-        "SELECT DISTINCT odds_event_id, commence_ms, home_team, away_team "
-        "FROM odds_snapshots WHERE sport_key = ? AND commence_ms >= ?",
-        (sport_key, since_ms),
-    ).fetchall()
+    rows = conn.execute(MATCH_CANDIDATE_SQL, (sport_key, since_ms)).fetchall()
     return [
         MatchCandidate(
             odds_event_id=r["odds_event_id"],

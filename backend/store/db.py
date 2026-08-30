@@ -48,7 +48,7 @@ from ..core.prices import is_valid_price
 #: in the merge window per the v23 lesson above.
 #: v30 (2026-08-30) adds `combo_orders` -- the resting bids the desk places on
 #: a combination market (ADR 0084). Also a pure new table, so also tableless.
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -663,6 +663,35 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The covering index on the candidate scan -- ADR 0086. The reasoning, the
+    # three query plans and the size cost live beside the statement in
+    # `schema.sql`; what belongs here is only why a step is needed at all.
+    #
+    # **`schema.sql` cannot reach an existing volume for this one.**
+    # `executescript` runs it on every open, and `CREATE INDEX IF NOT EXISTS`
+    # would in fact create the index there too -- so this step looks redundant
+    # and is not. Without a version bump nothing *checks*: `scripts/migrate_db.py`
+    # verifies at boot, by name, that every index a step declares is actually
+    # present, and it can only check the steps it is told about. A migration
+    # that reports success while having done nothing is the failure this repo
+    # keeps finding, and the declared `indexes` tuple is what makes it visible.
+    #
+    # No `columns`, so the generic wind-back (drop the declared indexes, drop
+    # the declared columns) is the whole undo and `undo_statements` stays empty.
+    #
+    # **Building it is not free on the live volume.** `odds_snapshots` is
+    # 244 MB across 59,665 pages there, so the CREATE INDEX is a full read of
+    # the table plus a sort, taken once at boot before uvicorn starts -- which
+    # is exactly where a slow one-off belongs, because `migrate_db.py` runs
+    # ahead of the API rather than under it.
+    31: _Migration(
+        statements=(
+            "CREATE INDEX IF NOT EXISTS idx_odds_sport_commence "
+            "ON odds_snapshots"
+            "(sport_key, commence_ms, odds_event_id, home_team, away_team)",
+        ),
+        indexes=("idx_odds_sport_commence",),
+    ),
     # The consensus snapshot on `manual_orders` (ADR 0082). Eight nullable
     # columns freezing what the desk was showing when Joe tapped: the devigged
     # consensus fair value for the side he bought, the desk's edge, the
