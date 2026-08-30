@@ -1015,3 +1015,62 @@ class TestTheScanIsNeverTighterThanTheFreshnessRule:
         from backend.parlays import _CANDIDATE_SCAN_FLOOR_MULTIPLE
 
         assert _CANDIDATE_SCAN_FLOOR_MULTIPLE > 1
+
+
+class TestThePriceToBeatIsServedAndIsBreakEven:
+    """The card's headline number for a bet placed somewhere else (ADR 0085).
+
+    **Why this exists.** 61 of 61 open combinations on Kalshi carried no quoted
+    ask on 2026-08-30, 0 had any liquidity, and 1 had ever traded. The desk
+    prices a parlay far more reliably than it can buy one, so the number that
+    travels is the price a sportsbook must offer to match the consensus.
+
+    **What this establishes.** That the conversion is right in both directions
+    around even money; that an unrepresentable probability refuses rather than
+    clamping; and that the figure is served rendered, like every other money
+    string on this desk.
+
+    **What it does not establish.** That the odds are attainable, that a
+    sportsbook will offer them, or that the parlay is worth betting. It is
+    break-even: at exactly this price the bet is fair and its expected profit
+    is zero.
+    """
+
+    def test_a_longshot_converts_to_plus_money(self):
+        from backend.parlays import american_odds
+
+        # The live card on 2026-08-30: 20.1% joint across three legs.
+        assert american_odds(0.201) == 398
+
+    def test_a_favourite_converts_to_minus_money(self):
+        from backend.parlays import american_odds
+
+        assert american_odds(0.666) == -199
+
+    def test_even_money_is_plus_one_hundred(self):
+        from backend.parlays import american_odds
+
+        assert american_odds(0.5) == 100
+
+    def test_a_certainty_has_no_odds_and_refuses(self):
+        """`None`, never a clamped number.
+
+        A probability of 0 or 1 has no odds. Rendering one anyway would put a
+        figure on the card that no book could ever quote.
+        """
+        from backend.parlays import american_odds
+
+        assert american_odds(0.0) is None
+        assert american_odds(1.0) is None
+        assert american_odds(1.5) is None
+
+    async def test_the_card_serves_it_rendered_with_its_sign(self, build):
+        app = build(_fresh_slate)
+        body = (await get(app, "/api/parlays")).json()
+        built = [c for c in body["cards"] if c["joint"]]
+        assert built, "the fixture built no card"
+        for card in built:
+            shown = card["joint"]["price_to_beat_display"]
+            assert shown is not None
+            assert shown[0] in "+-", "American odds carry their sign"
+            assert shown[1:].isdigit()

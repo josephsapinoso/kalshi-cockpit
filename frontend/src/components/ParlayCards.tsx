@@ -120,7 +120,43 @@ function Card({ card }: { card: ParlayCardData }) {
         </p>
       ) : (
         <>
-          <p className="mt-1 text-xs text-muted">
+          {/*
+            **The headline number for a bet placed somewhere else** (ADR
+            0085). 61 of 61 open combinations on Kalshi carried no quoted ask
+            on 2026-08-30 and this project has never observed one that could
+            be bought, so the desk prices this parlay far more reliably than
+            it can buy it. A sportsbook quotes American odds; leaving the
+            conversion to mental arithmetic at the moment of a bet is the
+            failure this block exists to prevent.
+
+            It is a FAIR price, and the words say so in the same breath: get
+            exactly it and the bet wins nothing on average. The jargon term for
+            that is banned on this screen by ADR 0046 and by a test in
+            `tests/test_parlay_leg_facts.py` — which this comment cannot even
+            name without failing it. Plain language says the same thing and is
+            what Joe asked for anyway. ADR 0071 §2.5 bars ranking by a gap;
+            stating a fair price on one row is the transparency the desk is
+            for.
+          */}
+          {card.joint?.price_to_beat_display && (
+            <div className="mt-3 rounded border border-border p-2">
+              <p className="text-xs uppercase tracking-wide text-muted">
+                What a sportsbook must pay to match this
+              </p>
+              <p className="text-2xl font-semibold tabular">
+                {card.joint.price_to_beat_display}
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-muted">
+                This is what the books&rsquo; consensus says the parlay is
+                worth. Get exactly this price and the bet is fair — it wins you
+                nothing on average, so you need <strong>better</strong> than
+                it. Kalshi itself almost never has anyone selling this
+                combination, so this is the number to take to wherever you can
+                actually place the bet.
+              </p>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-muted">
             <Term k="joint_chance">joint chance</Term> that every{" "}
             <Term k="leg">leg</Term> hits
             {card.joint?.method_range_display && (
@@ -170,14 +206,26 @@ function Card({ card }: { card: ParlayCardData }) {
             </p>
           )}
           <Stakes card={card} />
-          <PriceOnKalshi card={card} />
           {/*
-            Below the price read, above the leg-by-leg buys. The order is the
-            argument: see what Kalshi charges, then decide what YOU will pay,
-            then -- only if the combination is not what you wanted -- buy the
-            legs separately, which is a different bet.
+            **Demoted behind a reveal, not removed** (ADR 0085). The buy path
+            works and is measured; what changed is that 61 of 61 open
+            combinations had no seller, so leading with it promised an action
+            the venue does not supply. It stays because one combination has
+            traded, so the counterparty is rare rather than impossible.
+
+            The summary states the odds of it being useful before it is
+            opened, so nobody taps through expecting a purchase.
           */}
-          <RestingBid card={card} />
+          <details className="mt-3 border-t border-border pt-3">
+            <summary className="cursor-pointer text-sm font-semibold">
+              Try to buy it on Kalshi
+              <span className="ml-1 font-normal text-muted">
+                — usually nobody is selling
+              </span>
+            </summary>
+            <PriceOnKalshi card={card} />
+            <RestingBid card={card} />
+          </details>
           <LegBuys card={card} />
         </>
       )}

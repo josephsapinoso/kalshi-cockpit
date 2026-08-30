@@ -755,6 +755,13 @@ export type ParlayCardJoint = {
   /** The raw joint, 0-1. The bid field's reference price comes from this. */
   conservative: number;
   method_range_display: string | null;
+  /**
+   * The break-even price in American odds — what a sportsbook must offer to
+   * match the consensus (ADR 0085). `null` when the joint is not a
+   * probability. Break-even, not a target: at exactly this number the bet is
+   * fair and its expected profit is zero.
+   */
+  price_to_beat_display: string | null;
   fair_cost_display: string;
   correlation_note: string;
 };

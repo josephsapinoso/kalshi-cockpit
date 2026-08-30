@@ -242,9 +242,181 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
+## 2026-08-30 (latest) — the desk placed its first real order, and the venue has no one to fill it
+
+**Live is on `ab3447f`. `main` is ahead by the reshaped parlay card, ADR 0085
+and the liquidity census — written, tested, NOT deployed.** Joe stopped the
+session deliberately at this point; the next one ships them.
+
+### What Joe hit, in the order he hit it
+
+He could not price a parlay: every "Price on Kalshi" tap was refused *"the
+slate has moved since this card was served"*, and refreshing restarted the
+same race. Three separate defects were under that one symptom, and a fourth
+turned up while fixing them.
+
+**1. The WAL had no checkpoint caller.** Nothing in this repo had ever called
+`wal_checkpoint`. Caught live 17:21-17:53Z: 16.6 -> 99.5 MB in 25 minutes,
+monotone, pass cadence stretching 20s -> 2.6 min, `candidate_ms` 0.46s ->
+36.6s, `/api/health` at 3.4s. A machine restart was the only thing that had
+ever reset it (28 KB after, health 0.37s). Fixed: `store.db.checkpoint_wal`
+plus `journal_size_limit = 0`, called once per pass from
+`run_loop.maybe_checkpoint` — PASSIVE below 32 MiB, TRUNCATE above — with
+`wal_ckpt_{mode,busy,log_frames,moved_frames,error}` on every `loop_rss` line.
+`docs/measurements/2026-08-30-the-wal-episode-caught-live-and-what-it-does-
+not-show.md`.
+
+**VERIFIED WORKING and it settled a two-day-old question.** Live passes now
+read `PASSIVE, busy 0` with the log oscillating at 1-4 MB. Because the WAL is
+provably flat while `candidate_ms` still swings eightfold, **the WAL is not
+the cause of the slowness** — the discrimination the 2026-08-29 read could not
+run, because back then nothing ever checkpointed and both regressors were
+constant.
+
+**2. `/api/parlays` took over 30 seconds.** `parlay-candidates-timing` (new,
+in `inspect_live_db.py`, times the statement the route runs via a
+byte-identical copy pinned by a test) said why: **541,222 `fair_prices` rows
+read, joined, sorted through a temp B-tree, to keep 350.** The scan floor was a
+flat 24 hours while `build_ladder` discards anything older than 15 minutes. Now
+a MULTIPLE of `max_odds_age_ms` (8x = 2 hours), so there is still one staleness
+quantity and "the scan can never be tighter than the freshness rule" holds by
+construction. **Measured after: 796.8 ms, 85,518 rows — 32x.** Route is
+~0.6-1.8s warm, ~23s on the first call after a restart (cold page cache on a
+2 GB db, not the query).
+
+Eight, not four: at 4x `test_a_stale_consensus_is_refused_and_counted` went
+red, because a row that just went stale must still ENTER the scan or
+`excluded['stale_consensus']` reads 0 and an empty ladder says "0 fresh games"
+with nothing explaining where they went.
+
+**3. The parlay tap asked the wrong question.** `price_card_on_kalshi` rebuilt
+the ladder and refused unless the desk would still *compose* the same card —
+but the ladder re-ranks off the freshest consensus on every request, so one
+quote pass between render and tap was enough, and the refusal told him to
+refresh, which restarted the race. On the degraded box the window was shorter
+than the time it takes to read a card. `resolve_requested_legs` now asks the
+per-leg question instead — is each leg he tapped still one the desk would
+serve — bounded because a lookup mints a real market: every leg in the current
+candidate pool, one leg per fixture, count inside the card's recipe.
+
+### The buy path (ADR 0084) — built, armed, and it works
+
+Joe: *"I want to be able to select a combo straight from the cockpit… and have
+the transaction be done directly through the cockpit."* The existing buy
+control could not: it renders only when a price came back and sends an IOC at
+the live ask, and a combination has no live ask.
+
+Probed first (`scripts/probe_resting_combo_order.py`, under a cent): **a
+combination DOES accept a resting GTC bid** — 201, `remaining_count 1.00`,
+status `resting`, cancelled with `reduced_by 1.00`, nothing filled.
+
+Three mechanics discovered, each now pinned by a test:
+
+- **Kalshi shards its matching engines and collateral does not follow an order
+  across them.** *"Programmatic traders must preallocate collateral on a given
+  exchange shard before order placement."* A 2c bid was refused
+  `insufficient_balance` against a $21.41 account whose combinations shard held
+  $0.0100. Shard map: 0 = everything else incl. WNBA, 1 = Exotics/Combos,
+  2 = Crypto, 3 = Sports (tennis + baseball only, moved 2026-08-24).
+- **The cancel carries its shard as a QUERY parameter.** Without it, 404
+  `not_found` for an order the list showed as `resting` that same second.
+- **The query string stays OUT of the signature** (401 otherwise). The
+  production client already did this; a test now pins it.
+
+Then the first real bid 500'd in front of him: the path re-read
+`GET /markets/{ticker}`, which **404s for a combination minted seconds
+earlier** — the catalogue lags the mint while the orderbook endpoint answers
+immediately, which is why the lookup path never noticed and the probe (using a
+90-minute-old market) never hit it. The mint response already carries
+`price_ranges`, `price_level_structure` and `exchange_index`; it is used now,
+and `FakeApi.get` raises 404 on every catalogue read so a reintroduction fails
+the whole file.
+
+**Armed on his word** ("the exchange is done. arm the switch"), after verifying
+shard 1 read $21.4100. `COMBO_ORDERS_ARE_DRY_RUNS = False` in a commit of its
+own; three tests assert the armed state, that `ORDERS_ARE_DRY_RUNS` is still
+True, and that `gate.py` cannot read `combo_orders`.
+
+**His order rests right now:** 9 contracts at 20.1c, $1.81, shard 1,
+`auto_cancel set 2026-08-30T23:00:00Z`, kalshi order
+`01a05491-b3b0-727b-887c-e2313855b65a`. `combo-bids-tail` reports it.
+
+### The finding that reframes the product — ADR 0085
+
+Joe went looking for the order under **Positions** and found nothing, correctly:
+a resting order is not a position. Then: *"is it possible to explore instead
+existing parlays in Kalshi that are good potential… and buy them directly?"*
+
+Measured before building it (`docs/measurements/2026-08-30-combination-
+liquidity-census.md`): **61 open combination markets, 0 with a quoted ask, 0
+with any liquidity, 1 that has ever traded (45 contracts), 0 of 6 books
+non-empty.** The list rows show `no_bid_dollars = 1.0000` — the boundary, not
+an offer; it derives to a YES ask of $0.00. Every field is correctly named, and
+`measure_combo_book_presence.py` independently selected 0 eligible rows from
+the same 61.
+
+So ADR 0012 §5's "enter-only" understates it: combinations are **unquoted** —
+usually no entry either. **A browse-and-buy board would be an empty screen.**
+
+**ADR 0085: the parlay desk prices a bet it cannot place.** The card now leads
+with the break-even price in American odds — *"What a sportsbook must pay to
+match this: +398"* — with the words saying it is break-even and he needs better
+than it. The Kalshi buy path is demoted behind a reveal labelled *"usually
+nobody is selling"*, not removed: it works, and one combination has traded.
+
+### A copy defect worth remembering
+
+He read *"an offer standing, not a bet placed"* as having SOLD something —
+in market language an offer is the sell side. He was buying. The words now lead
+with BUY, state what winning pays ($1.00 a contract, so the payout is the
+contract count in dollars), and say **Orders, not Positions** — which is
+exactly where he looked. Five tests pin the wording, with no carve-out for the
+file they guard.
+
+### OPEN — pick up here
+
+1. **The covering index on `odds_snapshots`, MEASURED AND READY.**
+   `_match_candidates` (`runner.py:1036`) is
+   `SELECT DISTINCT … WHERE sport_key = ? AND commence_ms >= ?` and
+   **`sport_key` is in no index**, so it range-scans `idx_odds_commence` across
+   every sport into a temp B-tree, over a table with ~1.5M rows, ~900 added per
+   sweep, and **no retention rule at all**. It hit 27.7s at 22:07Z, the pass
+   took 104s, the API's read connections starved, the **Fly health check on
+   port 3000 failed at 22:06:03**, and `/api/market`, `/api/window` and
+   `/api/scout` all returned socket-hang-up in the same minute — which Joe saw
+   as "the scout desk returned 500". Not a Scout bug.
+   Measured on 1.5M synthetic rows of the real shape:
+   `none 442ms → narrow (sport_key, commence_ms) 303ms → covering
+   (sport_key, commence_ms, odds_event_id, home_team, away_team) 62ms` — **7x,
+   and only the covering form is worth having.** Needs a migration step (an
+   index does not reach an existing db through `schema.sql`) and a note on
+   write amplification, which this repo has refused an index over before.
+2. **Scout on the parlay legs**, with human prose and instrument-panel visuals.
+   Joe's design ruling, in his words: the Scout **gates eligibility and flags**
+   — a leg with a scratched starter or a red flag gets dropped or warned — and
+   **never moves the price**. He accepted this over letting it adjust the fair
+   value. The Scout desk already works and produces exactly the sports content
+   he asked for (verified on `KXWNBAGAME-26AUG30GSPDX-GS`: FIBA World Cup
+   absences, an unresolved neck contusion, and an honest "the Portland scout
+   filed nothing"). He also asked for real graphs, not just the leg-decay line:
+   *"remember this is a cockpit."*
+3. **`user_not_found` on shard 3.** Creating an order on a baseball market
+   fails with *"Exchange user not found"* even with explicit routing and even
+   though `/portfolio/balance?exchange_index=3` reads fine. Undocumented —
+   the research agent found no REST error catalogue at all. Hypothesis (not
+   established): a user record materialises on a shard at the first transfer
+   into it. Falsifying test is cheap: move a few cents to shard 3 and re-post.
+   **Blocks every baseball hand bet regardless of funding.**
+4. **Joe's shard allocation is all-in on combos** — shard 0 is down to $0.0020,
+   so WNBA and every other shard-0 market has nothing behind it, and shard 3 is
+   $0. Worth telling him before he tries a single-market hand bet.
+5. **Combo maker fee: Kalshi's 2026-08-22 changelog says the multiplier is
+   0.5, not the standard 0.25.** Unreconciled with `core/fees.py`. Relevant to
+   ADR 0046, which already holds the combination fee model unverified.
+
 ---
 
-## 2026-08-30 (latest) — the WAL read was taken, it could not run, and the memory level halved
+## 2026-08-30 — the WAL read was taken, it could not run, and the memory level halved
 
 **Docs only — no code or test file changed. Live is on `91a66f1`, `main` is
 five commits ahead of it. `tasks/NEXT.md` was 188,912 bytes (72%) and

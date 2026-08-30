@@ -682,6 +682,39 @@ def _percent(p: float) -> str:
     return format_probability(p)
 
 
+def american_odds(probability: float) -> Optional[int]:
+    """A probability as American odds, or `None` if it cannot be one.
+
+    **The number Joe needs where the bet can actually be placed.** A
+    combination on Kalshi is priced in cents on a $1 contract; a sportsbook
+    quotes American odds. The desk's whole remaining job on a parlay is to say
+    what it is worth, and saying it in cents to someone about to be quoted
+    "+450" leaves the comparison to mental arithmetic at the worst moment.
+
+    This is BREAK-EVEN, not a target. At exactly these odds the bet is fair
+    against the consensus and its expected profit is zero -- and a sportsbook's
+    margin means a real quote is usually worse. The caller renders it with
+    words that say so; a bare number here would read as a recommendation, which
+    ADR 0071 section 2.5 forbids the desk from making.
+
+    `None` outside `(0, 1)`: a probability of 0 or 1 has no odds, and the
+    repo's rule is that an unrepresentable value refuses rather than clamps.
+    """
+    if not 0.0 < probability < 1.0:
+        return None
+    if probability > 0.5:
+        # The favourite side: what you must stake to win 100.
+        return -int(round(100.0 * probability / (1.0 - probability)))
+    return int(round(100.0 * (1.0 - probability) / probability))
+
+
+def _american_display(probability: float) -> Optional[str]:
+    odds = american_odds(probability)
+    if odds is None:
+        return None
+    return f"+{odds}" if odds > 0 else str(odds)
+
+
 def _cost_per_contract(tenths: float) -> str:
     """`15` -> `"1.5c per $1 contract"`, through the ONE price renderer.
 
@@ -972,6 +1005,16 @@ def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
                 else None
             ),
             "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
+            # **The price to demand where the bet can actually be placed**
+            # (ADR 0085). 61 of 61 open combinations on Kalshi carried no
+            # quoted ask on 2026-08-30, so the desk prices this parlay far
+            # more reliably than it can buy it -- and a sportsbook quotes
+            # American odds, not cents on a $1 contract.
+            #
+            # Break-even, and the words beside it say so. At exactly this
+            # price the bet is fair against the consensus and its expected
+            # profit is zero.
+            "price_to_beat_display": _american_display(joint.conservative),
             # For the chart: the plain product at each prefix. The headline
             # above is the correlation-adjusted joint, and `correlation_note`
             # states the gap between them.
