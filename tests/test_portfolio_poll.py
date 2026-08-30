@@ -445,6 +445,63 @@ class TestPollPortfolio:
 
         assert summary["positions"] == {"seen": 1}
 
+    async def test_a_mirror_pass_carries_the_matchers_own_summary(self, conn):
+        """The wiring guard on `run_match_pass`'s only production call.
+
+        The matcher writes `outcome_win`, a registered variable, and reaches
+        production through exactly one line -- the mirror branch of
+        `poll_portfolio`. Before this test, stubbing `run_match_pass` to an
+        async no-op left every portfolio-poll test green: the wiring was
+        unguarded. So this asserts the mirror summary carries the *matcher's
+        own* summary shape, not merely that the key exists -- a no-op stub
+        puts `None` there and goes red.
+
+        Verified red by that exact mutation on 2026-08-29: `run_match_pass`
+        redefined as an async no-op made this fail while the rest of the
+        file stayed green.
+        """
+        summary = await poll_portfolio(conn, FakeClient(), now_ms=1)
+
+        match = summary["match"]
+        assert isinstance(match, dict), (
+            f"the mirror did not run the real matcher: {match!r}"
+        )
+        assert {
+            "ensure", "first_seen_upgraded", "match", "positions", "outcomes",
+        } <= set(match), match
+
+    async def test_a_matcher_failure_lands_in_poll_log(self, conn, monkeypatch):
+        """The matcher joins its siblings on the seam that matters.
+
+        Every endpoint's failure leaves a `poll_log` row; until 2026-08-29 a
+        matcher failure left only a log line, and `flyctl logs` is lossy --
+        a matcher throwing on every mirror for a week read exactly like a
+        healthy one. The rollback before the read is the durability check:
+        the failure row must be committed, not riding an open transaction
+        that the next crash discards.
+        """
+        from backend import estimate_match
+
+        async def exploding(conn, source, *, now_ms):
+            raise RuntimeError("boom matcher")
+
+        monkeypatch.setattr(estimate_match, "run_match_pass", exploding)
+
+        summary = await poll_portfolio(conn, FakeClient(), now_ms=4_243)
+
+        assert summary["match"] == "FAILED: boom matcher"
+        conn.rollback()
+        row = conn.execute(
+            "SELECT polled_ms, ok, row_count, error FROM poll_log "
+            "WHERE endpoint = 'match'"
+        ).fetchone()
+        assert row is not None, (
+            "a failed match pass must leave a committed row -- a log line "
+            "alone is invisible once flyctl drops it"
+        )
+        assert (row["polled_ms"], row["ok"], row["row_count"]) == (4_243, 0, None)
+        assert "boom matcher" in row["error"]
+
 
 class TestPollPortfolioForever:
     """The long-running task the chain runner starts beside itself.
@@ -624,6 +681,44 @@ class TestPollPortfolioForever:
         )
 
         assert calls["n"] == 3, "the loop kept attempting after each escape"
+
+    async def test_the_matcher_runs_on_the_mirror_and_never_on_the_fast_cycle(
+        self, tmp_path, monkeypatch
+    ):
+        """`summary["match"]` exists on a mirror cycle and nowhere else.
+
+        The matcher writes `outcome_win`, a registered variable, which is why
+        it alone stays on `MIRROR_INTERVAL_S` -- amendment A7's analysis
+        clock -- while fills, settlements and positions all moved to the fast
+        cadence. Both directions have to be pinned: a matcher that stops
+        running on the mirror silently freezes the registered record, and a
+        matcher that starts running on the fast cadence is an unbounded
+        number of implicit looks at a stopping arm. Three cycles at 300s:
+        cycle 1 is the only mirror, so the real matcher must run exactly once.
+        """
+        from backend import estimate_match
+
+        path = tmp_path / "cockpit.db"
+        db.init_db(path).close()
+        clock, sleep = self._clockwork(step_s=300)
+        calls = {"n": 0}
+        real = estimate_match.run_match_pass
+
+        async def counting(conn, source, *, now_ms):
+            calls["n"] += 1
+            return await real(conn, source, now_ms=now_ms)
+
+        monkeypatch.setattr(estimate_match, "run_match_pass", counting)
+
+        await poll_portfolio_forever(
+            path, FakeClient(), sleep=sleep, clock=clock, max_cycles=3,
+        )
+
+        assert calls["n"] == 1, (
+            "cycle 1 is the only mirror in fifteen minutes; the matcher must "
+            "run there and must not ride the fast cadence -- that would be "
+            "re-reading a registered variable on an operational clock"
+        )
 
 
 # ---------------------------------------------------------------------------

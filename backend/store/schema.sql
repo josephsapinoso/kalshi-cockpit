@@ -1387,7 +1387,7 @@ CREATE INDEX IF NOT EXISTS idx_bet_estimate_looks_time
 CREATE TABLE IF NOT EXISTS poll_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     polled_ms   INTEGER NOT NULL,
-    endpoint    TEXT NOT NULL,      -- settlements | fills | positions | balance
+    endpoint    TEXT NOT NULL,      -- settlements | fills | positions | balance | match (failures only)
     ok          INTEGER NOT NULL,
     -- NULL on failure, never 0: "the call raised" and "the venue returned an
     -- empty list" are different states, and an empty list is a legitimate one.
