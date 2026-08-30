@@ -1726,6 +1726,15 @@ _LOOP_RSS_COLUMNS = (
     "candidate_ms",
     "leg_price_link_ms",
     "leg_store_quotes_ms",
+    # The checkpoint the PREVIOUS pass attempted, on the same terms as the
+    # leg timings above. `wal_ckpt_busy = 1` beside a `wal_kb` that keeps
+    # climbing is a reader holding the log open; `0` beside the same climb
+    # says the readers are innocent and sends the diagnosis elsewhere.
+    "wal_ckpt_mode",
+    "wal_ckpt_busy",
+    "wal_ckpt_log_frames",
+    "wal_ckpt_moved_frames",
+    "wal_ckpt_error",
 )
 
 

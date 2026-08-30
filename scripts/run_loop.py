@@ -178,6 +178,47 @@ def file_kb(path: Path) -> Optional[int]:
         return None
 
 
+def maybe_checkpoint(conn, *, db_path, truncate_above_kib=None):
+    """Checkpoint the WAL once, asking for TRUNCATE only when it is large.
+
+    **This is the first caller of `wal_checkpoint` this repo has ever had**,
+    and it exists because of what that absence did. `journal_mode = WAL` with
+    `synchronous = NORMAL` leaves checkpointing to the automatic PASSIVE one
+    the writer attempts on commit, and a PASSIVE checkpoint gives up silently
+    against any reader holding an older snapshot -- while this instance opens
+    a read-only connection per API request and health-checks every 15s. Inside
+    an episode the log therefore only grew: 32 -> 66 -> 99.5 MB in five
+    minutes on 2026-08-30, with `candidate_ms` going 0.46s -> 36.6s beside it,
+    and a machine restart was the only thing that had ever reset it.
+
+    **Two modes, because they cost differently.** PASSIVE never blocks anyone
+    and is the right thing to attempt every pass. TRUNCATE waits for readers
+    and then hands the disk back, which is what actually ends an episode -- so
+    it is asked for only above `WAL_TRUNCATE_ABOVE_KIB`, where the log is
+    already past anything a healthy window produces.
+
+    Best-effort, and the failure path is the point rather than an edge case: a
+    busy checkpoint returns a result saying so, which is the measurement.
+    `None` only when the WAL could not be stat'd at all -- an unknown refuses
+    rather than picking a mode on a guessed size.
+
+    WHAT THIS DOES NOT ESTABLISH: that a checkpoint is what the loop needed.
+    It bounds the file and it records whether readers block it; whether the
+    query slowdown tracks the WAL is a separate question, and the fields this
+    writes are what would answer it.
+    """
+    limit = (
+        db.WAL_TRUNCATE_ABOVE_KIB if truncate_above_kib is None
+        else truncate_above_kib
+    )
+    wal_kb = file_kb(Path(str(db_path) + "-wal"))
+    if wal_kb is None:
+        return None
+    return db.checkpoint_wal(
+        conn, mode="TRUNCATE" if wal_kb > limit else "PASSIVE"
+    )
+
+
 def record_pass_rss(
     path: Path,
     *,
@@ -187,6 +228,7 @@ def record_pass_rss(
     proc: Path = Path("/proc"),
     db_path: Optional[Path] = None,
     counts=None,
+    checkpoint=None,
 ) -> None:
     """Append this process's RSS and the box's headroom, one line per pass.
 
@@ -319,6 +361,30 @@ def record_pass_rss(
                         "leg_store_quotes_ms": getattr(
                             counts, "leg_store_quotes_ms", None
                         ),
+                        # The checkpoint the PREVIOUS pass attempted, on the
+                        # same terms as `leg_*_ms` above: it ran after that
+                        # line was written, so this is where its result can
+                        # first appear. `None` throughout means no attempt was
+                        # made -- the first pass of a process, or a build
+                        # before 2026-08-30 -- and is never "it did nothing".
+                        #
+                        # `wal_ckpt_busy` is the field the whole change exists
+                        # to read. A `1` beside a growing `wal_kb` convicts
+                        # the reader-overlap hypothesis that has been
+                        # unfalsifiable since 2026-08-29; a `0` beside a
+                        # growing `wal_kb` refutes it and sends the diagnosis
+                        # somewhere else.
+                        "wal_ckpt_mode": getattr(checkpoint, "mode", None),
+                        "wal_ckpt_busy": (
+                            None if checkpoint is None else int(checkpoint.busy)
+                        ),
+                        "wal_ckpt_log_frames": getattr(
+                            checkpoint, "log_frames", None
+                        ),
+                        "wal_ckpt_moved_frames": getattr(
+                            checkpoint, "moved_frames", None
+                        ),
+                        "wal_ckpt_error": getattr(checkpoint, "error", None),
                     }
                 )
                 + "\n"
@@ -684,6 +750,11 @@ async def main() -> int:
     # closure cannot rebind an enclosing name, and a `nonlocal` in a function
     # this long is harder to find than the brackets are.
     last_counts: list = [None]
+
+    # The checkpoint the previous pass attempted, carried for the same reason
+    # and on the same terms as `last_counts`: it runs after that pass's line
+    # is written, so the next line is the first place its result can appear.
+    last_checkpoint: list = [None]
 
     # What may cut a sleep short. See `scheduler.sleep_until` for why a sleep
     # needs cutting short at all.
@@ -1202,7 +1273,17 @@ async def main() -> int:
                 # WAL would be changing what it measures.
                 db_path=Path(args.db).resolve(),
                 counts=last_counts[0],
+                checkpoint=last_checkpoint[0],
             )
+
+            # **After the line, before the work.** After, so a pass that
+            # wedges inside the checkpoint still left the memory state it
+            # began in -- the property `record_pass_rss` exists for. Before,
+            # because this is the one moment in the pass when the writer holds
+            # nothing, and a checkpoint competing with the pass's own inserts
+            # is a checkpoint that will report busy for a reason that is not
+            # the one being measured.
+            last_checkpoint[0] = maybe_checkpoint(conn, db_path=Path(args.db))
 
             if kind == "full":
                 counts = await run_once(

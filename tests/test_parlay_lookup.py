@@ -1,7 +1,10 @@
 """`POST /api/parlays/lookup` — "Price on Kalshi" (ADR 0070, Slice C).
 
-What these tests establish: the endpoint is auth-gated; a drifted card is
-refused before anything touches the exchange; the minted market's ticker is
+What these tests establish: the endpoint is auth-gated; the legs the client
+echoes are re-checked ONE AT A TIME against the current candidate pool and a
+leg the desk would not serve is refused before anything touches the exchange
+(the 2026-08-30 change: the old rule demanded the whole card still be the one
+the ladder would compose, which one quote pass was enough to break); the minted market's ticker is
 read from the CAPTURED lookup response shape (`market_ticker` top-level,
 `tests/fixtures/combo_lookup_response.json`, taken live 2026-08-23 — the
 first lookup this repo ever spent); the quoted cost is derived from the
@@ -345,7 +348,12 @@ class TestRefusals:
         )
         assert response.status_code in (401, 403)
 
-    async def test_a_drifted_card_is_refused_before_the_exchange(self, build):
+    async def test_a_leg_the_desk_never_served_is_refused_by_name(self, build):
+        """A lookup MINTS a market, so an unknown ticker may not reach Kalshi.
+
+        The bound that replaced set-equality: not "would the desk pick these
+        six", but "is each of these one the desk would serve at all".
+        """
         app, fake_api, path = build()
         response = await post(
             app, "/api/parlays/lookup",
@@ -356,9 +364,109 @@ class TestRefusals:
             headers=HEADERS,
         )
         assert response.status_code == 409
-        assert "slate has moved" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "KXMLBGAME-x-A" in detail and "KXMLBGAME-y-B" in detail
+        assert "no longer on the desk's slate" in detail
         assert fake_api.orderbook_calls == []
         assert _lookup_rows(path) == []
+
+    async def test_the_refusal_never_tells_him_to_refresh_and_try_again(
+        self, build
+    ):
+        """The sentence this replaces sent Joe into a loop on 2026-08-30.
+
+        "Refresh the page and look again" was advice that could not work: the
+        ladder re-ranks on every request, so refreshing restarted the same
+        race. A refusal may name what is wrong with a leg; it may not promise
+        that reloading fixes it. Same shape as the copy correction in
+        CLAUDE.md -- a screen that names a condition to wait for is lying
+        whenever the condition is not the cause.
+        """
+        app, _, _ = build()
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": [
+                {"event_ticker": "KXMLBGAME-x", "market_ticker": "KXMLBGAME-x-A"},
+                {"event_ticker": "KXMLBGAME-y", "market_ticker": "KXMLBGAME-y-B"},
+            ]},
+            headers=HEADERS,
+        )
+        detail = response.json()["detail"].lower()
+        assert "slate has moved" not in detail
+        assert "look again before pricing" not in detail
+
+    async def test_the_legs_are_priced_even_when_the_desk_would_rerank_them(
+        self, build
+    ):
+        """The bug itself: a quote pass between the render and the tap.
+
+        The served card is the two likeliest games. A fresher `fair_prices`
+        row then makes a THIRD game the likeliest, so the ladder would now
+        compose a different Safe card -- which is exactly what the old
+        set-equality check refused. The legs the reader tapped are all still
+        pre-game, fresh and priced, so they price.
+        """
+        app, fake_api, path = build()
+        legs = await _served_legs(app)
+
+        conn = store.connect(path)
+        seed_game(conn, game="game-2", team="Team Alpha2", other="Team Beta2",
+                  p=0.95, computed_ms=now_ms())
+        conn.commit()
+        conn.close()
+
+        reranked = await _served_legs(app)
+        assert reranked != legs, "the fixture did not actually move the slate"
+
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] in ("priced", "book_empty")
+        # The legs recorded are the ones tapped, not the ones the desk would
+        # pick now -- an audit row naming a different combination than the one
+        # minted would be worse than no row.
+        recorded = json.loads(_lookup_rows(path)[0]["selected_legs"])
+        assert sorted(l["market_ticker"] for l in recorded) == sorted(
+            l["market_ticker"] for l in legs
+        )
+
+    async def test_a_stale_leg_is_refused_and_the_words_say_which(self, build):
+        """Freshness is still enforced -- per leg, and said out loud."""
+        app, fake_api, path = build()
+        legs = await _served_legs(app)
+
+        conn = store.connect(path)
+        # Push every consensus row back beyond the freshness window.
+        conn.execute(
+            "UPDATE fair_prices SET computed_ms = ?, oldest_book_age_ms = ?",
+            (now_ms() - 86_400_000, 86_400_000),
+        )
+        conn.commit()
+        conn.close()
+
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 409
+        assert fake_api.orderbook_calls == []
+
+    async def test_a_card_may_not_be_used_to_mint_more_legs_than_it_holds(
+        self, build
+    ):
+        app, fake_api, _ = build()
+        legs = await _served_legs(app) + [
+            {"event_ticker": "KXMLBGAME-z", "market_ticker": "KXMLBGAME-z-C"},
+        ]
+        response = await post(
+            app, "/api/parlays/lookup",
+            {"card_key": "safe", "legs": legs}, headers=HEADERS,
+        )
+        assert response.status_code == 409
+        assert "takes 2-3 legs" in response.json()["detail"]
+        assert fake_api.orderbook_calls == []
 
     async def test_no_collection_is_words_and_a_row(self, build):
         app, _, path = build(collections=[])

@@ -170,7 +170,7 @@ class TestTheCacheIsBounded:
             ),
         )
         for batch in range(ladder._JOINT_CACHE_MAX + 40):
-            ladder._cached_joint([_leg(0, p=0.70 - batch * 0.0001)])
+            ladder.joint_for([_leg(0, p=0.70 - batch * 0.0001)])
 
         assert len(ladder._JOINT_CACHE) <= ladder._JOINT_CACHE_MAX, (
             f"cache holds {len(ladder._JOINT_CACHE)} entries against a stated "
@@ -204,17 +204,17 @@ class TestTheCacheIsBounded:
         hot = [_leg(0, p=0.9)]
         hot_key = ladder._joint_key(hot)
 
-        ladder._cached_joint(hot)                       # oldest entry
+        ladder.joint_for(hot)                       # oldest entry
         for batch in range(ladder._JOINT_CACHE_MAX - 1):
-            ladder._cached_joint([_leg(0, p=0.70 - batch * 0.0001)])
+            ladder.joint_for([_leg(0, p=0.70 - batch * 0.0001)])
         assert len(ladder._JOINT_CACHE) == ladder._JOINT_CACHE_MAX
         assert next(iter(ladder._JOINT_CACHE)) == hot_key, (
             "fixture wrong: the hot key is not the oldest, so this cannot "
             "distinguish LRU from insertion order"
         )
 
-        ladder._cached_joint(hot)                       # the touch under test
-        ladder._cached_joint([_leg(0, p=0.123)])        # one over the ceiling
+        ladder.joint_for(hot)                       # the touch under test
+        ladder.joint_for([_leg(0, p=0.123)])        # one over the ceiling
 
         assert hot_key in ladder._JOINT_CACHE, (
             "the key that was just asked for was evicted — a hit is not "

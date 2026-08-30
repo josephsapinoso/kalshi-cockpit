@@ -20,13 +20,18 @@ import Term from "@/components/Term";
  * Every state renders in words: priced (quoted cost, contracts, payout,
  * hold, the server's verdict verbatim), an empty book (the captured reality
  * of a fresh combo — an honest refusal, not a price), no collection, and a
- * refusal (409 when the slate drifted). Nothing is retried silently.
+ * refusal (409 naming the leg that cannot be priced, and why). Nothing is
+ * retried silently.
  *
  * **Every non-final state offers a way back.** An empty book is the
  * *expected* first answer on a fresh combo and its own words say "try again
  * shortly" — so a second tap has to be reachable without reloading the page.
- * Same for a refusal: a 409 means the slate drifted, and the honest next
- * move is a refresh, which the words name. A priced answer is final and
+ * Same for a refusal, and its words changed on 2026-08-30: a 409 used to say
+ * the slate had moved and to refresh, which was advice that could not work —
+ * the ladder re-ranks on every request, so reloading restarted the same race
+ * Joe was already losing. It now names the leg that is no longer buyable, and
+ * the retry re-sends the same legs because those are still the card he
+ * tapped. A priced answer is final and
  * carries no retry: re-asking a question already answered is how a screen
  * invites tapping for a better number.
  *

@@ -31,10 +31,15 @@ from typing import NamedTuple, Optional, Sequence
 
 from backend.core.correlation import Leg
 from backend.core.ladder import (
+    CARD_SHAPES,
     Card,
     CandidateLeg,
     Ladder,
+    UNUSABLE_REASONS,
     build_ladder,
+    joint_for,
+    unusable_reason,
+    usable_legs,
 )
 from backend.core.parlay import ParlayQuote, value_parlay
 from backend.core.prices import format_dollars, format_price, format_probability
@@ -1366,6 +1371,105 @@ def _record_lookup(conn, *, now_ms, card_key, stake_cents, legs, status,
     conn.commit()
 
 
+def resolve_requested_legs(
+    candidates: Sequence[CandidateLeg],
+    *,
+    card_key: str,
+    requested_legs: Sequence[tuple[str, str]],
+    max_odds_age_ms: int,
+) -> list[CandidateLeg]:
+    """The legs the reader tapped, checked one at a time, or a refusal.
+
+    **This replaces a set-equality check, and the reason is a bug Joe hit on
+    2026-08-30.** The old rule was `served == requested`: the ladder was
+    rebuilt at tap time and the card's legs had to be byte-identical to the
+    ones the page had rendered. But the ladder re-derives its ranking from the
+    freshest consensus on every request, so a quote pass landing between the
+    render and the tap swapped a marginal leg and the tap was refused --
+    telling him to refresh, which started the same race again. On a degraded
+    box, where the page took ~15s to render and passes ran ~40s, the window in
+    which a card was still "the same card" was shorter than the time it takes
+    to read it, and the button could not be used at all.
+
+    **The legs the client echoes ARE the card the reader tapped.** What has to
+    be true is not that the desk would still pick them -- it is that each one
+    is still a leg the desk would serve: on the slate, pre-game, fresh, and
+    carrying a usable probability. That is a per-leg question and this asks
+    it per leg.
+
+    Bounded on purpose, because a lookup MINTS A REAL MARKET on the exchange:
+
+    - every requested leg must be in the current usable candidate pool, so a
+      client cannot name an arbitrary ticker and have it created;
+    - at most one leg per fixture, which is the ladder's own guard and the
+      reason `CorrelationRefused` is unreachable (a same-game parlay needs a
+      correlation this repo has not measured, ADR 0012 section 5);
+    - the count must fit the named card's recipe, so "safe" cannot be used to
+      mint a nine-leg combination.
+
+    Refuses in words naming the leg and the reason, never "the slate moved".
+    """
+    requested = list(dict.fromkeys(requested_legs))
+    if not requested:
+        raise LookupRefused(400, "no legs were sent to price.")
+
+    recipe = next((r for r in CARD_SHAPES if r.key == card_key), None)
+    if recipe is None:
+        raise LookupRefused(404, f"no card named {card_key!r}")
+    if not recipe.min_legs <= len(requested) <= recipe.max_legs:
+        raise LookupRefused(
+            409,
+            f"the {recipe.title} card takes {recipe.min_legs}-"
+            f"{recipe.max_legs} legs and {len(requested)} were sent. Nothing "
+            "was created.",
+        )
+
+    by_key = {
+        (leg.kalshi_event_ticker, leg.kalshi_market_ticker): leg
+        for leg in candidates
+    }
+    selected: list[CandidateLeg] = []
+    refusals: list[str] = []
+    for event_ticker, market_ticker in requested:
+        leg = by_key.get((event_ticker, market_ticker))
+        if leg is None:
+            # Absent from the pool entirely. `ladder_candidates` is pre-game
+            # and tonight-only, so the overwhelmingly likely reason is that
+            # the game has started -- but "likely" is not "measured", and the
+            # sentence says what is known rather than guessing which.
+            refusals.append(
+                f"{market_ticker} is no longer on the desk's slate (its game "
+                "has started, or it is past tonight's last game)"
+            )
+            continue
+        reason = unusable_reason(leg, max_odds_age_ms=max_odds_age_ms)
+        if reason is not None:
+            refusals.append(
+                f"{market_ticker}: {UNUSABLE_REASONS[reason]}"
+            )
+            continue
+        selected.append(leg)
+
+    if refusals:
+        raise LookupRefused(
+            409,
+            "these legs cannot be priced right now, so nothing was created: "
+            + "; ".join(refusals)
+            + ". Reload the desk to see what it is offering instead.",
+        )
+
+    fixtures = {leg.odds_event_id for leg in selected}
+    if len(fixtures) != len(selected):
+        raise LookupRefused(
+            409,
+            "two of these legs are on the same game. The desk does not price "
+            "same-game combinations: their correlation is not measured, and "
+            "multiplying them as independent would overstate the chance. "
+            "Nothing was created.",
+        )
+    return selected
+
+
 async def price_card_on_kalshi(
     conn,
     *,
@@ -1378,9 +1482,13 @@ async def price_card_on_kalshi(
 ) -> dict:
     """Mint (or find) the card's combo on Kalshi and price it off its book.
 
-    The card is re-derived server-side and must match what the client saw --
-    a lookup mints a real market, so it must price the card the user tapped,
-    not whatever the slate has drifted to. The quoted cost comes from the
+    **The legs the client echoes are what gets priced**, each one re-checked
+    server-side against the current candidate pool (`resolve_requested_legs`).
+    A lookup mints a real market, so it must price the card the user tapped --
+    and until 2026-08-30 this function read that requirement backwards: it
+    rebuilt the ladder and refused unless the desk would still *select* the
+    same legs, which a single quote pass landing mid-tap was enough to break.
+    The quoted cost comes from the
     minted market's ORDER BOOK (derived YES ask = 1000 - best resting NO
     bid), never the `/markets` list row (ADR 0012, E2/E3: leg echo, list-vs-
     book skew to 30.5c). An empty book is an honest refusal, not a price --
@@ -1393,27 +1501,19 @@ async def price_card_on_kalshi(
     candidates, _ = ladder_candidates(
         conn, now_ms=now_ms, max_odds_age_ms=max_odds_age_ms
     )
-    ladder = build_ladder(
-        candidates, max_odds_age_ms=max_odds_age_ms, now_ms=now_ms
+    # **The ladder is deliberately NOT rebuilt here.** It was, and rebuilding
+    # it was the defect: a card the desk cannot compose *this second* is not a
+    # reason to refuse legs that are each still buyable, and the "Next 3
+    # hours" cut alone turns that into a refusal every time an hour passes.
+    # It also cost a 200,000-sample copula per card on a path that needs one
+    # joint -- `joint_for(selected)` computes exactly the one being priced.
+    selected = resolve_requested_legs(
+        candidates,
+        card_key=card_key,
+        requested_legs=requested_legs,
+        max_odds_age_ms=max_odds_age_ms,
     )
-    card = next((c for c in ladder.cards if c.key == card_key), None)
-    if card is None:
-        raise LookupRefused(404, f"no card named {card_key!r}")
-    if card.not_built_reason is not None:
-        raise LookupRefused(
-            409, f"the {card.title} card is not built right now: "
-                 f"{card.not_built_reason}"
-        )
-
-    served = {(l.kalshi_event_ticker, l.kalshi_market_ticker) for l in card.legs}
-    requested = set(requested_legs)
-    if served != requested:
-        raise LookupRefused(
-            409,
-            "the slate has moved since this card was served -- its legs are "
-            "no longer the ones you saw. Refresh the page and look again "
-            "before pricing.",
-        )
+    served = {(l.kalshi_event_ticker, l.kalshi_market_ticker) for l in selected}
 
     # `sorted`, not `list`: `served` is a set, so its iteration order varies
     # by hash seed across processes. That order is what goes on the wire to
@@ -1595,8 +1695,12 @@ async def price_card_on_kalshi(
             "and can be looked at in the Kalshi app.",
         ) from exc
 
-    joint = card.joint
-    assert joint is not None
+    # **Over the legs being priced, not over the card as the ladder would
+    # build it now.** Those were the same set until 2026-08-30 because the
+    # lookup refused whenever they differed; now that a reader's own legs are
+    # priced, a joint taken from `card.joint` would be a fair value for a
+    # different combination than the one Kalshi just minted.
+    joint = joint_for(selected)
     # The derived-ask identity, through the ONE implementation. `1000 -
     # best_no_bid` was written out by hand here; `OrderBook.best_yes_ask` is
     # the same arithmetic via `complement`, and the venue's most-repeated
@@ -1637,7 +1741,7 @@ async def price_card_on_kalshi(
                     league=l.league,
                     commence_ms=l.commence_ms,
                 )
-                for l in card.legs
+                for l in selected
             ),
             offered_decimal=1000.0 / ask_tenths,
         )

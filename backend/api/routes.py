@@ -352,9 +352,15 @@ class ParlayLookupLeg(BaseModel):
 
 
 class ParlayLookupRequest(BaseModel):
-    """One "Price on Kalshi" tap (ADR 0070). The legs are echoed back so the
-    server can refuse a card the slate has drifted away from -- a lookup
-    mints a real market and must price the card the user actually saw."""
+    """One "Price on Kalshi" tap (ADR 0070).
+
+    The legs are echoed back because they ARE the card the user saw, and a
+    lookup mints a real market: the server re-checks each one against the
+    current candidate pool (`resolve_requested_legs`) and prices the set the
+    reader tapped. It does NOT require that the desk would still compose the
+    same card -- that rule shipped until 2026-08-30 and made the button
+    unusable whenever a quote pass landed between the render and the tap.
+    """
 
     card_key: str
     stake_cents: int = Field(default=500, gt=0, le=100_000)

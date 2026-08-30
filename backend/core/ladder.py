@@ -386,8 +386,14 @@ _JOINT_CACHE_MAX = 256
 _JOINT_CACHE: "OrderedDict[tuple, JointEstimate]" = OrderedDict()
 
 
-def _cached_joint(selected: Sequence[CandidateLeg]) -> JointEstimate:
-    """The copula for these legs, computed at most once per distinct leg set."""
+def joint_for(selected: Sequence[CandidateLeg]) -> JointEstimate:
+    """The copula for these legs, computed at most once per distinct leg set.
+
+    Public because the lookup path prices the legs the reader tapped, which
+    are not always the legs the ladder would select at that instant, and a
+    fair value computed over a different set than the one being priced is the
+    defect the whole per-leg change exists to remove.
+    """
     key = _joint_key(selected)
     hit = _JOINT_CACHE.get(key)
     if hit is not None:
@@ -520,6 +526,62 @@ def _pool_for(
     )
 
 
+#: Why a candidate is not a leg, in the words the reasons are counted under.
+#: The lookup path turns these into a sentence about one named leg, so the
+#: keys are shared rather than spelled twice.
+UNUSABLE_REASONS = {
+    "age_unmeasurable": "its consensus has no measurable age",
+    "stale_consensus": "its sportsbook consensus has gone stale",
+    "not_a_probability": "its devigged price is not a usable probability",
+}
+
+
+def usable_legs(
+    candidates: Sequence[CandidateLeg], *, max_odds_age_ms: int
+) -> tuple[list[CandidateLeg], dict[str, int]]:
+    """The candidates a card may draw on, and a census of what was dropped.
+
+    Split out of `build_ladder` so the lookup path can ask the SAME question
+    about ONE leg. Before that it could only ask "are the six legs you were
+    served still the six legs I would pick now", which is a different and much
+    stricter question: the ladder re-derives its ranking from the freshest
+    consensus on every request, so a quote pass landing between the page
+    render and the tap changed the answer and refused a card whose legs were
+    all still perfectly buyable.
+
+    Returns the pool in candidate order. Ranking, the cuts and the
+    one-leg-per-game guard stay in `_pool_for`, which is a recipe's business
+    and not a leg's.
+    """
+    excluded: dict[str, int] = {}
+    usable: list[CandidateLeg] = []
+    for leg in candidates:
+        reason = unusable_reason(leg, max_odds_age_ms=max_odds_age_ms)
+        if reason is None:
+            usable.append(leg)
+        else:
+            excluded[reason] = excluded.get(reason, 0) + 1
+    return usable, excluded
+
+
+def unusable_reason(
+    leg: CandidateLeg, *, max_odds_age_ms: int
+) -> Optional[str]:
+    """Why this leg cannot be used, or `None` when it can.
+
+    One predicate, one spelling. The cost of two spellings is on the record:
+    a screen that believed the wrong one told Joe that closing the page would
+    buy him fresher books (`CLAUDE.md`).
+    """
+    if leg.odds_age_now_ms is None:
+        return "age_unmeasurable"
+    if not _fresh(leg, max_odds_age_ms):
+        return "stale_consensus"
+    if not 0.0 < leg.p_conservative < 1.0:
+        return "not_a_probability"
+    return None
+
+
 def build_ladder(
     candidates: Sequence[CandidateLeg],
     *,
@@ -536,18 +598,7 @@ def build_ladder(
     Passed in rather than read, so two calls over the same inputs build the
     same cards — the property the whole module is written around.
     """
-    excluded: dict[str, int] = {}
-
-    usable: list[CandidateLeg] = []
-    for leg in candidates:
-        if leg.odds_age_now_ms is None:
-            excluded["age_unmeasurable"] = excluded.get("age_unmeasurable", 0) + 1
-        elif not _fresh(leg, max_odds_age_ms):
-            excluded["stale_consensus"] = excluded.get("stale_consensus", 0) + 1
-        elif not 0.0 < leg.p_conservative < 1.0:
-            excluded["not_a_probability"] = excluded.get("not_a_probability", 0) + 1
-        else:
-            usable.append(leg)
+    usable, excluded = usable_legs(candidates, max_odds_age_ms=max_odds_age_ms)
 
     # `_joint` runs a 200,000-sample copula five times (the headline plus one
     # per devig method), and six recipes over one pool routinely select the
@@ -577,7 +628,7 @@ def build_ladder(
             )
             continue
         selected = tuple(pool[:recipe.max_legs])
-        joint = _cached_joint(selected)
+        joint = joint_for(selected)
         cards.append(
             Card(
                 key=recipe.key,

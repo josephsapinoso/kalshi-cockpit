@@ -1155,7 +1155,104 @@ def connect(
     if not read_only:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
+        # **Without this a successful checkpoint frees no disk.** SQLite
+        # reuses a checkpointed WAL in place rather than shrinking it, so the
+        # file stays at its high-water mark for the life of the process --
+        # which is what `wal_kb` was reading as a plateau. With the limit set,
+        # a checkpoint that reaches the end of the log truncates the file back
+        # to it.
+        #
+        # Zero, not a cap: the log is allowed to grow to whatever one burst
+        # needs and is then handed back. A non-zero limit would keep the
+        # difference reserved, which is the behaviour being removed.
+        conn.execute("PRAGMA journal_size_limit = 0")
     return conn
+
+
+#: Above this, `checkpoint_wal` asks for TRUNCATE rather than PASSIVE.
+#:
+#: 32 MiB because the live box's own history names it: three hours of ordinary
+#: recording plateaus at ~18 MB (`docs/measurements/2026-08-30-the-wal-curve-
+#: is-flat-and-the-rss-level-halved.md`), and the two episodes that hurt went
+#: to 99 MB and 220 MB. A threshold under the plateau would ask for the
+#: blocking mode on every pass of a healthy loop; one over 100 MB would not
+#: fire until the damage was done.
+WAL_TRUNCATE_ABOVE_KIB = 32 * 1024
+
+
+@dataclass(frozen=True)
+class CheckpointResult:
+    """What one `wal_checkpoint` actually did.
+
+    `busy` is the finding, not the error. A checkpoint cannot reset the log
+    while any reader holds an older snapshot, and this instance opens a
+    read-only connection per API request with a health check every 15s -- so
+    "a reader was in the way" is the hypothesis this field exists to test.
+    SQLite reports that as a `1` in the first column and copies what frames it
+    can regardless.
+    """
+
+    #: "PASSIVE" or "TRUNCATE" -- what was asked for.
+    mode: str
+    #: True when SQLite could not finish; frames may still have moved.
+    busy: bool
+    #: Frames in the WAL after the attempt.
+    #:
+    #: **A successful TRUNCATE reports 0 here and 0 moved**, measured on
+    #: SQLite 3.45.1 -- it zeroes both counters along with the file, so the
+    #: line for the checkpoint that did the most work is indistinguishable by
+    #: these two fields from one that did nothing. `busy` is what separates
+    #: them, and it is why the mode is recorded beside them.
+    log_frames: Optional[int]
+    #: Frames written back into the database file.
+    moved_frames: Optional[int]
+    #: The exception text, when the call raised. `None` on every normal path.
+    error: Optional[str] = None
+
+
+def checkpoint_wal(
+    conn: sqlite3.Connection, *, mode: str = "PASSIVE"
+) -> CheckpointResult:
+    """Run one WAL checkpoint and report what it managed.
+
+    **Nothing in this repo called `wal_checkpoint` before 2026-08-30**, which
+    is why the log grew monotonically inside an episode and only a restart
+    ever reset it: the automatic checkpoint the writer attempts on commit is
+    PASSIVE, and a PASSIVE checkpoint that meets a reader gives up quietly
+    with no record that it did.
+
+    Best-effort by construction. Every failure resolves to a `CheckpointResult`
+    carrying the reason, never to an exception and never to a fabricated zero
+    -- a checkpoint is housekeeping, and housekeeping may not be able to kill
+    the recorder. The caller's job is to write the result down, not to act on
+    it.
+    """
+    if mode not in ("PASSIVE", "FULL", "RESTART", "TRUNCATE"):
+        raise ValueError(f"not a checkpoint mode: {mode!r}")
+    try:
+        row = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+    except sqlite3.Error as exc:                               # noqa: BLE001
+        return CheckpointResult(
+            mode=mode, busy=True, log_frames=None, moved_frames=None,
+            error=str(exc),
+        )
+    if row is None:
+        # Documented as impossible, carried anyway: a `None` here would
+        # otherwise index-error inside a best-effort call and take the pass
+        # down with it.
+        return CheckpointResult(
+            mode=mode, busy=True, log_frames=None, moved_frames=None,
+            error="wal_checkpoint returned no row",
+        )
+    busy, log_frames, moved_frames = (row[0], row[1], row[2])
+    return CheckpointResult(
+        mode=mode,
+        busy=bool(busy),
+        log_frames=None if log_frames is None or log_frames < 0 else int(log_frames),
+        moved_frames=(
+            None if moved_frames is None or moved_frames < 0 else int(moved_frames)
+        ),
+    )
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:

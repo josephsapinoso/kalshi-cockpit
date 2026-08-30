@@ -211,12 +211,15 @@ class TestTheRssCurveIsOnDisk:
             json.loads(line)
             for line in log.read_text(encoding="utf-8").splitlines()
         ]
-        # The six storage fields are asserted in
-        # `tests/test_pass_storage_telemetry.py`. Here they are only required
-        # to be PRESENT and null, because this call supplies neither a
-        # database path nor a previous pass's counts -- `None` and not `0`,
-        # since a zero would read as "the WAL is empty", the opposite of the
-        # 2026-08-29 finding.
+        # The storage fields are asserted in
+        # `tests/test_pass_storage_telemetry.py` and the checkpoint fields in
+        # `tests/test_wal_checkpoint.py`. Here they are only required to be
+        # PRESENT and null, because this call supplies neither a database
+        # path, nor a previous pass's counts, nor a checkpoint attempt --
+        # `None` and not `0`, since a zero would read as "the WAL is empty"
+        # (the opposite of the 2026-08-29 finding) or as "a checkpoint ran
+        # and was not blocked", which is the reading the 2026-08-30 change
+        # exists to make trustworthy.
         blank = {
             "wal_kb": None,
             "db_kb": None,
@@ -224,6 +227,11 @@ class TestTheRssCurveIsOnDisk:
             "candidate_ms": None,
             "leg_price_link_ms": None,
             "leg_store_quotes_ms": None,
+            "wal_ckpt_mode": None,
+            "wal_ckpt_busy": None,
+            "wal_ckpt_log_frames": None,
+            "wal_ckpt_moved_frames": None,
+            "wal_ckpt_error": None,
         }
         assert rows == [
             dict(
