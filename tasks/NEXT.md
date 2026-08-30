@@ -365,7 +365,17 @@ and `candidate_rows` is flat, the WAL is the whole story.
    built to diagnose the WAL cannot ship to that box in one act. Needs a clean
    tree and someone watching.
 2. **Read the WAL series** once deployed, then intervene.
-3. `ODDS_API_KEY` rotation — **needs Joe**, the only such item all session.
+3. ~~`ODDS_API_KEY` rotation~~ — **DONE 2026-08-30T01:44Z, verified.** Joe
+   rotated at the vendor (which kills the old key on regeneration) and ran
+   `scripts/setup_odds_key.sh`. Proof chain, because "it completed" is not a
+   result: the wizard probes before it writes and aborts on any non-200, so a
+   stored key that returned 200 cannot have been the revoked one; the machine
+   restarted at 01:44:43Z; and a real odds call at **01:45:03Z** bought
+   `baseball_mlb` for 4 credits with 15,528 remaining. `flyctl secrets list`
+   reads **Deployed**, not Staged. Live stayed on `c9ca0cd` — a secret change
+   restarts the current image and does not deploy.
+   **Note `/api/health` proves nothing here**: the API process never reads this
+   key (`load_without_credentials`), only the runner does.
 4. `run_match_pass` has one production caller, inside the 12-hour mirror, and
    writes `outcome_win`, a registered variable. Latent regression, own decision.
 5. `fair_prices` unbounded, 546MB, unnamed in `retention.py`.
