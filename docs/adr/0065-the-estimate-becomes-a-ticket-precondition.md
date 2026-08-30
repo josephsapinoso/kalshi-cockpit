@@ -53,3 +53,29 @@ it hosted moves with the lockout's new server-side wiring (ADR 0063).
   stopped study's log stays terminal, exactly as Amendment 2 left it.
 - No aggregate ("your estimates run 8 points hot") below n ≥ 30 with the
   per-group view beside it — the same floor `/bets` holds for CLV.
+
+**Amended 2026-08-29 — what kind of gate the 30 is, and in what units.**
+
+- **`n ≥ 30` is a display gate, never a verdict gate.** At n = 30 the design
+  can resolve only a calibration bias of roughly **26 points** under a plain
+  fixed-n test (2.8 × 0.5/√30) and **63.2 points** under the registered
+  always-valid boundary (2026-08-29 operator self-assessment registration
+  §6a: m = 150, α = 0.05, 80% power, conservative sd = 0.5) — an instrument
+  that can tell "betting the wrong side" from nothing, and no more. So at
+  n ≥ 30 the numbers may render; a *verdict* — "too tight", "runs hot",
+  "protective" — requires the same floor every mart holds,
+  `min_scored_recommendations` (300), or the registered floor of the
+  measurement that owns it.
+- **Units: `n` counts games/clusters, not settlement rows.** Rows inside one
+  game are correlated, so 30 rows from four games is n = 4, not n = 30 — the
+  same lesson `G_eff` carries on the signal test.
+- **Where the confusion already leaked:**
+  `warehouse/models/marts/mart_suppression_audit.sql` used a hardcoded 30 as
+  its *verdict* floor — pronouncing "this rule may be too tight" from 30
+  rejection rows — while its sibling marts held verdicts to 300. Fixed
+  2026-08-29; guarded by
+  `warehouse/tests/assert_suppression_audit_never_judges_below_the_floor.sql`
+  and `tests/test_marts.py::TestSuppressionAuditHoldsTheSharedVerdictFloor`.
+  Note the defect was latent only because `warehouse/` is not in the
+  Dockerfile (live returns 503 for the dashboards); it goes live the moment a
+  session runs `dbt build` locally and lifts a mart row into a document.

@@ -11,6 +11,15 @@
 --
 -- Reading it: `mean_clv_cents` well above zero on a rule with a real sample is
 -- evidence the rule is too tight. Near zero or negative is the rule working.
+--
+-- "A real sample" is the same floor every other mart holds:
+-- `min_scored_recommendations`. It was hardcoded at 30 here until 2026-08-29,
+-- so this mart judged rules on samples its siblings refused to speak about.
+-- ADR 0065 §3's `n >= 30` is a *display* floor, never a verdict floor: at
+-- n = 30 the design resolves only a 26-63-point calibration bias (2026-08-29
+-- registration §6a), an instrument that can tell "betting the wrong side"
+-- from nothing and no more. Below the floor the numbers still render, and the
+-- verdict column states the sample and stops.
 
 with scored as (
 
@@ -71,8 +80,10 @@ select
     end as stderr_cents,
 
     case
-        when r.n_rejected < 30
-            then 'too few rejections to judge (' || r.n_rejected || ')'
+        when r.n_rejected < {{ var('min_scored_recommendations') }}
+            then 'insufficient sample: ' || r.n_rejected || ' of '
+                 || {{ var('min_scored_recommendations') }}
+                 || ' — displayed, not judged'
         when r.sd_clv_cents is null
             then 'no variance estimate'
         when r.mean_clv_cents > 2 * (r.sd_clv_cents / sqrt(r.n_rejected))
