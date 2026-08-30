@@ -40,6 +40,72 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-30 - A test double that is kinder than the real object hides the bug it exists to catch
+
+`watch_bids_forever` passed `KalshiRestClient(cfg)` -- constructed, never
+entered -- to the function that cancels resting bids. The real client's
+`client` property raises `RuntimeError: used outside its context manager`
+before a request is built, so **every auto-cancel failed from the day the
+feature shipped**, and a real order sat past its deadline on live while the
+loop retried once a minute exactly on schedule.
+
+Five tests covered this behaviour and none could see it. Two reasons, and the
+second is the transferable one:
+
+1. Every test called `cancel_due_bids` directly, with a client someone else
+   had prepared. The defect lived one level up, in the step where the loop
+   builds the client -- the seam production runs and the only seam untested.
+2. `FakeApi` answered `cancel_order` whether or not it had been entered. It
+   modelled a client that **does not exist**, so the failure was invisible by
+   construction, not by oversight.
+
+The tempting reading is "test one level higher". That is right and it is not
+the general rule, because you cannot always reach the top. The general rule is
+about the double:
+
+**Pattern: a test double may be simpler than the object it replaces, and may
+never be more permissive. Wherever the real object refuses -- an unentered
+context manager, a closed connection, a missing credential -- the double
+refuses, with the same wording. A double that is kinder than production
+converts a whole class of wiring bugs into green tests.**
+
+The tell that this had happened: making `FakeApi` strict turned three existing
+tests red, all of which had been passing a client in a state production never
+produces. One of them, `test_the_row_stays_working_when_the_venue_refuses`, was
+passing **for the wrong reason** -- on the context-manager error rather than on
+the venue refusal it claims to test. A green test that asserts the right
+outcome via the wrong failure is worse than a red one, because it also reports
+coverage.
+
+Related, and now twice-instanced: the wiring guard for this feature asserts the
+*string* `"watch_bids_forever(args.db"` appears in `run_loop.py`. It does, and
+did throughout. A source grep can say a call exists; only running it says the
+call works.
+
+## 2026-08-30 - When two code paths can produce the same end state, an assertion on the state guards neither
+
+A migration was added to put a covering index on `odds_snapshots`, and the
+obvious test wound a database back to the previous version, called `init_db`,
+and asserted the index was present. **It passes with the migration step
+deleted** -- observed, not reasoned -- because `init_db` runs `migrate` and
+then `executescript(schema.sql)`, and the schema file carries the same
+`CREATE INDEX IF NOT EXISTS`. Two producers, one observable outcome; the test
+could not attribute it, so it guarded nothing.
+
+Calling `migrate` directly made it a real guard, red on exactly that mutation.
+
+**Pattern: before asserting an end state, ask what else could produce it. If
+anything else can, the assertion is about the state and not about the code you
+mean to test -- call that code directly, or assert something only it can
+produce. The mutation test is what reveals this and nothing else does: the
+first version of the test looked exactly as convincing as the second.**
+
+A corollary worth carrying: this is why "verify a guard by disabling it" has to
+disable *the specific thing*, not the feature. Deleting the index from both
+`schema.sql` and the migration turned five tests red and would have been read
+as proof the guard worked. Deleting only the migration step -- the actual claim
+-- was the mutation that exposed it.
+
 ## 2026-08-30 - Check the REGRESSOR moved before you read the outcome; a constant explains nothing
 
 The per-pass instrument was built to decide between two mechanisms by

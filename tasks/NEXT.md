@@ -242,7 +242,156 @@ nothing fires at 22:40Z and no session needs to be alive for it. **The H4 look s
 — BLOCKED ON INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer
 and do not re-run the channel diagnostic (A17.6/A17.11).
 
-## 2026-08-30 (latest) — the desk placed its first real order, and the venue has no one to fill it
+## 2026-08-30 (latest) — the deadline the screen promised had never once been kept
+
+**Live is on `07a89e2`. `main` is level with it and with `origin/main`.**
+Three deploys this session, each verified against `/api/health` `git_sha`
+rather than assumed: `99625ff` (last session's card work), `351f594` (the bid
+watcher), `07a89e2` (the covering index, schema v31).
+
+**Test baseline: 5,343 passed / 10 xfailed in 10:22** on the final tree, with
+nothing edited after the run started and the tree clean throughout. **Every
+step of the delta from the 5,243 that stood at session start was taken by
+collecting BOTH trees, never by reasoning about it** — the rule this line has
+been broken by seven times:
+
+    5,243  a31d12c   (inherited, correct about that tree)
+    5,332  99625ff   +89, the ten commits that were already committed
+    5,340  + index   +7 new guards, +1 `[31]` case the migration harness
+                      parametrises automatically -- found by diffing two
+                      `--collect-only` runs, not by arithmetic
+    5,343  + watcher +3 `TestTheWatcherDrivesARealCancel` guards
+
+### The thing to read first: a live money promise was never kept
+
+Joe's resting bid — 9 contracts at 20.1c, shard 1 — passed its 23:00:00Z
+auto-cancel and stayed `resting`. The watcher was not dead. It ran at
+23:00:16Z, 23:01:16Z and 23:02:16Z, once a minute exactly as designed, and
+raised the same thing every pass:
+
+    RuntimeError: KalshiRestClient used outside its context manager.
+
+`run_loop.py` passed `lambda: KalshiRestClient(cfg)` — constructed, never
+entered — so `cancel_order` raised before a request was built. **Every
+auto-cancel had failed since ADR 0084 shipped the feature.**
+
+**Fixed, deployed, and verified on the real order** — not on a test:
+
+    status             cancelled
+    cancelled_ms       2026-08-30T23:20:58.392Z
+    cancel_reduced_by  9.0        <- all nine still working, none filled
+    cancel_reason      the first leg has started
+
+Two things contained it, both design rather than luck: the failure path leaves
+the row working and **never** writes "cancelled" over a live order, so the
+table stayed honest throughout; and `/api/parlays/bids/{id}/cancel` was
+unaffected, because `combo_api()` passes an explicit `client=`. **The manual
+cancel always worked. Only the unattended one did not.**
+
+**Why five tests missed it, and this is the transferable part.** `FakeApi`
+answered `cancel_order` whether or not it had been entered — it modelled a
+client that does not exist, so the defect was invisible *by construction*.
+Making it as strict as the real client turned three existing tests red, all of
+which had been passing a client in a state production never produces, and one
+of which — `test_the_row_stays_working_when_the_venue_refuses` — was passing
+**for the wrong reason**, on the context-manager error rather than the venue
+refusal it claims to test. ADR 0087; lesson at the top of `tasks/lessons.md`.
+
+And the wiring guard asserts the *string* `"watch_bids_forever(args.db"`
+appears in `run_loop.py`. It does, and did throughout. **A source grep can say
+a call exists; only running it says the call works.** Second instance of a
+pattern already in this file, first one that cost a feature its whole function.
+
+### The covering index — ADR 0086, schema v31
+
+Open item 1 from the last entry, built and shipped. `_match_candidates` had
+`sport_key` in no index, so the plan seeked `idx_odds_commence` to the 24h
+floor and scanned every sport forward, then sorted through a temp B-tree. On
+live it reached 27.7s and failed the Fly health check at 22:06:03Z — which
+read from outside as "the scout desk returned 500".
+
+**The covering form, and the plans are the argument, not the stopwatch:**
+
+    baseline  SEARCH ... USING INDEX idx_odds_commence  | USE TEMP B-TREE
+    narrow    SEARCH ... USING INDEX (sport_key=? ...)  | USE TEMP B-TREE
+    covering  SEARCH ... USING COVERING INDEX (sport_key=? AND commence_ms>?)
+
+At 1.5M synthetic rows (520,160 past the floor, to keep 73 fixtures): read
+**394ms → 0ms** warm, sweep write **3ms → 7ms** per 900 rows at n=15, index
+52.8 MB. All three shapes return the same 73 fixtures, **compared as sets and
+not as counts**. Instrument committed: `scripts/measure_odds_scan_index.py`,
+which imports `runner.MATCH_CANDIDATE_SQL` rather than copying it.
+
+**This is not the index refused on 2026-08-26.** That one changed no plan, the
+refusal stands, and its own stated test — *does the plan change?* — is the one
+applied here.
+
+The grace period went 40s → 120s: `migrate_db.py` runs before uvicorn binds,
+and this builds an index over a 244 MB table on a 2 GB box.
+
+**The migration guard was written wrong first and the ADR says so.** Winding a
+database back to v30, calling `init_db` and asserting the index is present
+**passes with the v31 step deleted** — `init_db` runs `migrate` and then
+`executescript(schema.sql)`, which carries the same
+`CREATE INDEX IF NOT EXISTS`. Two producers, one observable state, so the
+assertion attributed nothing. Calling `migrate` directly made it real.
+
+### Closed without a code change: the combo maker fee
+
+Open item 5. Kalshi's 2026-08-22 changelog does put the combo maker multiplier
+at 0.5 against `MAKER_COEFFICIENT`'s implied 0.25 — and **it reaches nothing**:
+`parlays.py` is fee-free by ADR 0046 with the caveat travelling beside the
+number, `combo_orders.py` says in its own docstring that it does not price
+fees, and `analysis/joint_bound.py` — the only `maker=True` caller in the repo
+— has **no production caller**. Changing `MAKER_COEFFICIENT` would be wrong:
+0.0175 is the single-market coefficient and is correct there. A combo branch
+would need its own registered look, which ADR 0046's registration forbids
+fitting from existing data.
+
+### Also read this session
+
+`db-sizes` on live, for anyone sizing a change against the volume
+(2,072,317,952 bytes of 5 GB, 18.9 MB reclaimable):
+
+    fair_prices             529,326,080     kalshi_quotes      451,235,840
+    idx_quotes_ticker_time  398,708,736     odds_snapshots     244,387,840
+    idx_odds_event          136,421,376     idx_odds_commence   25,092,096
+
+**`flyctl ssh console -C` output is reliable here** — an earlier "it returns
+nothing" read was a 120s timeout on a `dbstat` query over a 2 GB database, not
+a lost stream. Give it 300s.
+
+### OPEN — pick up here
+
+1. **Read the real `idx_odds_sport_commence` size on live** with `db-sizes`,
+   and **time the index build**. The synthetic 52.8 MB *understates* it —
+   synthetic team names are short and uniform. `idx_odds_event` is 136 MB
+   against its 244 MB table with two TEXT columns; this has four. Bracket it
+   between those and write the real number into
+   `docs/measurements/2026-08-30-the-candidate-scan-index.md`, which has a
+   slot waiting.
+2. **`odds_snapshots` still has no retention rule.** ADR 0086 changed the
+   constant and left the growth term alone, and says so. `store/retention.py`
+   already names this table as deliberately out of scope. `fair_prices`
+   (529 MB) and `kalshi_quotes` (451 MB) are the two larger unretained btrees.
+3. **Scout on the parlay legs** — carried from the last entry, unstarted.
+   Joe's ruling in his words: the Scout **gates eligibility and flags** and
+   **never moves the price**. He also asked for real graphs: *"remember this
+   is a cockpit."*
+4. **`user_not_found` on shard 3** — carried, unstarted. Blocks every baseball
+   hand bet regardless of funding. Falsifying test is cheap: move a few cents
+   to shard 3 and re-post.
+5. **Joe's shard allocation** — carried. Shard 0 was down to $0.0020 and shard
+   3 to $0 before tonight's cancel returned $1.81 to shard 1. Worth telling him
+   before he tries a single-market hand bet.
+6. **A sweep for the ADR 0087 pattern elsewhere.** Nothing else was found doing
+   it — the only other `factory()` call sites (`agents/review.py`,
+   `notify/alerts.py`) build coroutines, not clients — but that was a grep, not
+   an audit. Any double for an object with a lifecycle deserves the same check.
+
+---
+
+## 2026-08-30 — the desk placed its first real order, and the venue has no one to fill it
 
 **Live is on `ab3447f`. `main` is ahead by the reshaped parlay card, ADR 0085
 and the liquidity census — written, tested, NOT deployed.** Joe stopped the
