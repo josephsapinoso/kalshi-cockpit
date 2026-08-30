@@ -214,6 +214,64 @@ class TestFreshness:
         )
 
 
+class TestSuppressionAuditHoldsTheSharedVerdictFloor:
+    """The suppression audit judges rules at the same floor as every other mart.
+
+    Until 2026-08-29 `mart_suppression_audit` pronounced its verdicts -- "may
+    be too tight", "looks protective" -- from `n_rejected >= 30`, a literal,
+    while its siblings held verdicts to `min_scored_recommendations` (300) via
+    the dbt var. ADR 0065 §3's `n >= 30` is a *display* floor: at n = 30 the
+    design resolves only a 26-63-point calibration bias (2026-08-29
+    registration §6a), so a verdict there describes the analyst's patience,
+    not the rule.
+
+    Source checks, deliberately (the pattern of
+    `TestTheDashboardCannotRenderAnUncensoredResult`): the demo lake has no
+    scored rows, so the mart is empty in CI and a data test alone is
+    vacuously green there. The failure mode is someone re-hardcoding a
+    smaller floor because the panel looks empty, and that is visible in the
+    source.
+    """
+
+    MART = (
+        Path(__file__).resolve().parents[1]
+        / "warehouse" / "models" / "marts" / "mart_suppression_audit.sql"
+    )
+    DBT_GUARD = (
+        Path(__file__).resolve().parents[1]
+        / "warehouse" / "tests"
+        / "assert_suppression_audit_never_judges_below_the_floor.sql"
+    )
+
+    def test_the_verdict_floor_is_the_shared_var(self):
+        source = self.MART.read_text(encoding="utf-8")
+        assert re.search(
+            r"n_rejected\s*<\s*\{\{\s*var\('min_scored_recommendations'\)\s*\}\}",
+            source,
+        ), (
+            "the verdict gate no longer reads min_scored_recommendations -- "
+            "this mart is back to judging rules on a sample its siblings "
+            "refuse to speak about"
+        )
+
+    def test_no_numeric_literal_gates_the_verdict(self):
+        """`n_rejected > 1` (the stderr guard) is fine -- that is arithmetic
+        validity, not judgement. A literal *floor* is spelled `< N`."""
+        source = self.MART.read_text(encoding="utf-8")
+        hardcoded = re.findall(r"n_rejected\s*<=?\s*\d+", source)
+        assert hardcoded == [], (
+            f"a literal floor gates the verdict again: {hardcoded}"
+        )
+
+    def test_the_dbt_guard_exists_and_refuses_a_sub_floor_verdict(self):
+        """`dbt build` stays green with the guard deleted, so its existence is
+        pinned here alongside the predicate that makes it a guard."""
+        assert self.DBT_GUARD.exists(), self.DBT_GUARD
+        guard = self.DBT_GUARD.read_text(encoding="utf-8")
+        assert "n_rejected < {{ var('min_scored_recommendations') }}" in guard
+        assert "not like 'insufficient sample%'" in guard
+
+
 class TestMartLogicIsCoveredSomewhere:
     """`pytest` does not run `warehouse/tests/*.sql`, so the headline test count
     excludes every measurement guard expressed in dbt.
