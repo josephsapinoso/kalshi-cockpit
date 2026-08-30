@@ -45,7 +45,15 @@ is STOPPED (2026-08-20, Amendment 2; the recorder machinery still runs). Joe is 
 asked to be educated: define every betting/stats term at first use, via
 `frontend/src/lib/glossary.ts` and `<Term>`.
 
-**Test baseline: 4,984 passed / 10 xfailed** on `2b3baa3` — see the #35 entry
+**Test baseline: 5,243 passed / 10 xfailed in 11:54** on `a31d12c`, collected
+2026-08-30 with **nothing edited after the run started** and the tree clean
+throughout. That qualification is the point: the same 5,243 was collected on
+the previous tree while `tasks/NEXT.md` was being edited under it, so this run
+is the first unqualified confirmation of the number. The change between the
+two trees was documentation only — no code or test file moved — which is why
+the count is identical rather than merely close.
+
+**Superseded: 4,984 passed / 10 xfailed** on `2b3baa3` — see the #35 entry
 below for the delta. The line below was true of `f1c2b5f` and is kept because
 its reasoning is what keeps this number honest:
 
