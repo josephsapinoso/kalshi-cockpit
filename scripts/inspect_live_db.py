@@ -942,7 +942,13 @@ def _q_parlay_candidates_timing(conn: sqlite3.Connection, args) -> list[Section]
       index is the answer; some scans are the cheapest available reading.
     """
     now_ms = int(time.time() * 1000)
-    floor_ms = now_ms - 24 * 3_600_000
+    # **The deployed window, not the historical one.** This was `now - 24h`
+    # when the query was written, which is what the route then used; the route
+    # now derives its floor as 8x `max_odds_age_ms` (2 hours at the deployed
+    # `MAX_ODDS_AGE_S`). An instrument left on the old width would keep
+    # reporting the cost of a scan nobody runs -- and would read as evidence
+    # that the fix did nothing.
+    floor_ms = now_ms - 2 * 3_600_000
     census = _fetch(
         conn, _SQL_PARLAY_ROW_CENSUS, {"floor": floor_ms},
         title="what the candidate scan reads over",
@@ -974,6 +980,52 @@ def _q_parlay_candidates_timing(conn: sqlite3.Connection, args) -> list[Section]
         cap=args.limit,
     )
     return [census, timings, plan]
+
+
+# ---------------------------------------------------------------------------
+# What the "Price on Kalshi" taps actually minted.
+# ---------------------------------------------------------------------------
+#
+# Every tap writes a `parlay_lookups` row whatever the outcome, and the
+# `minted_market_ticker` on it is the ONLY record that a combination market now
+# exists on the exchange -- nothing else in this repo stores one. That makes
+# this the lookup path's audit trail and the only way to name a real KXMVE
+# market from outside the venue.
+#
+# **Prices, not verdicts.** The row carries what the book said and what the
+# card's fair value was; it carries no P&L, no CLV and no outcome, and this
+# query adds none.
+_SQL_PARLAY_LOOKUPS_TAIL = (
+    "SELECT id, requested_ms, card_key, stake_cents, status, "
+    "       collection_ticker, minted_market_ticker, book_no_bid_tenths, "
+    "       derived_yes_ask_tenths, book_depth, fair_joint_conservative, "
+    "       hold, collection_unverified, error, selected_legs "
+    "FROM parlay_lookups ORDER BY id DESC"
+)
+
+
+def _q_parlay_lookups_tail(conn: sqlite3.Connection, args) -> list[Section]:
+    """The last N "Price on Kalshi" taps, newest first, with their tickers.
+
+    What this does not establish
+    ----------------------------
+    - **Not that a minted market still trades.** A ticker here was created at
+      `requested_ms`; whether it is open, settled or empty now is a question
+      for the venue, not for this table.
+    - **Nothing about whether a tap was a good idea.** `hold` is fee-free
+      arithmetic against a fair value the same row records, and ADR 0046 keeps
+      the combination fee model unverified. No row here is a verdict.
+    - **Not a complete census of markets this account created.** It records
+      what THIS instance minted through the desk. Anything built by hand in
+      the Kalshi app is absent by construction.
+    """
+    tail = _fetch(
+        conn, _SQL_PARLAY_LOOKUPS_TAIL, (),
+        title=f"parlay_lookups: last {args.tail} taps, newest first",
+        cap=min(args.tail, args.limit),
+        requested=args.tail,
+    )
+    return [_derive_iso(tail, "requested_ms", "requested_iso")]
 
 
 def _q_db_sizes(conn: sqlite3.Connection, args) -> list[Section]:
@@ -3363,6 +3415,14 @@ QUERIES: dict[str, QueryDef] = {
         "ladder's copulas cost under a second -- which half of this statement "
         "is it?",
         _q_parlay_candidates_timing,
+    ),
+    "parlay-lookups-tail": QueryDef(
+        "The last N \"Price on Kalshi\" taps (-n, default 5), newest first: "
+        "status, the collection, the MINTED market ticker, what its book said "
+        "and the card's fair value at the time. The only record anywhere that "
+        "a given combination market exists on the exchange. No P&L, no "
+        "outcome, no verdict.",
+        _q_parlay_lookups_tail,
     ),
     "db-sizes": QueryDef(
         "Where the bytes went: file-level page counts with the amount a VACUUM "

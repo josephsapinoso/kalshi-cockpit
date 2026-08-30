@@ -171,14 +171,45 @@ _PROP_MARKETS: frozenset[str] = frozenset(PROP_BASE_MARKETS)
 #: excludes anything whose game has started. So this floor changes no output,
 #: it only stops the scan reading the whole history to throw it away.
 #:
-#: **Deliberately far looser than the freshness rule** -- a day, against a
-#: staleness limit measured in minutes. A floor tight enough to be load-
-#: bearing would be a second staleness rule in a second place, and this repo
-#: has already been bitten by one quantity with two limits. If the deployed
-#: `max_odds_age_ms` ever exceeds this, the floor becomes the binding rule and
-#: legs vanish silently -- so the two are compared at call time and the wider
-#: of them wins.
-_CANDIDATE_SCAN_FLOOR_MS = 24 * 3_600_000
+#: **Derived from the freshness rule rather than set beside it, since
+#: 2026-08-30.** It was a flat 24 hours, chosen so the floor could never be a
+#: second staleness limit in a second place -- a real hazard this repo has
+#: paid for. The cost of that choice was measured on live and is not small:
+#:
+#:     fair_prices rows in the 24h window   541,222
+#:     rows the scan returns                    350
+#:     whole candidate scan               25,324.7 ms
+#:     the odds_snapshots GROUP BY beside it  451.5 ms
+#:
+#: `/api/parlays` took over 30s while `/api/board` took ~2s, and the plan
+#: (`inspect_live_db parlay-candidates-timing`) shows why: SQLite reads half a
+#: million rows through `idx_fair_market_computed`, joins each, sorts them all
+#: through a temp B-tree for the window function, and keeps 350.
+#:
+#: A MULTIPLE of `max_odds_age_ms` answers both concerns at once. There is
+#: still exactly one staleness quantity -- this is a function of it, not a
+#: rival to it -- and "the scan can never be tighter than the freshness rule"
+#: now holds by construction (4x >= 1x) instead of by a comparison somebody
+#: has to keep making.
+#:
+#: **Eight, not one, because the excluded census is load-bearing** -- and the
+#: number was chosen by a test rather than by taste. At exactly 1x a row that
+#: had just gone stale would never enter the scan at all, so `stale_consensus`
+#: would read 0 and an empty ladder would say "the slate has 0 fresh games"
+#: with nothing explaining where they went: a refusal naming a predicate it
+#: did not apply, which `tasks/lessons.md` records twice. 4x was tried first
+#: and `test_a_stale_consensus_is_refused_and_counted` went red -- it seeds a
+#: leg exactly one hour stale, which a one-hour window puts on the boundary.
+#: 8x is two hours at the deployed `MAX_ODDS_AGE_S`, so the census keeps an
+#: hour of headroom behind the case the suite actually pins.
+#:
+#: Still a 12x cut in what the scan reads: ~541,000 rows to ~45,000.
+_CANDIDATE_SCAN_FLOOR_MULTIPLE = 8
+
+#: The floor when the caller names no freshness rule at all. Two hours, which
+#: is what the multiple gives at the deployed `MAX_ODDS_AGE_S` of 900s --
+#: stated so a `None` caller cannot silently scan a single millisecond.
+_CANDIDATE_SCAN_MIN_MS = 2 * 3_600_000
 
 
 #: The clock the desk is read on. **Must equal `DISPLAY_TIME_ZONE` in
@@ -344,7 +375,10 @@ def ladder_candidates(
     the query can never be tighter than the freshness rule the caller will
     apply. Pass the same value you pass `build_ladder`.
     """
-    horizon_ms = max(_CANDIDATE_SCAN_FLOOR_MS, max_odds_age_ms or 0)
+    horizon_ms = max(
+        _CANDIDATE_SCAN_FLOOR_MULTIPLE * (max_odds_age_ms or 0),
+        _CANDIDATE_SCAN_MIN_MS,
+    )
     rows = conn.execute(
         CANDIDATE_SQL, (now_ms - horizon_ms, now_ms)
     ).fetchall()

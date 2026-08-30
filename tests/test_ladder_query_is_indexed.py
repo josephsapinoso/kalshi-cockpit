@@ -63,16 +63,19 @@ PARLAYS = Path(__file__).resolve().parents[1] / "backend" / "parlays.py"
 def ladder_sql() -> str:
     """The query as `ladder_candidates` actually issues it.
 
-    Extracted from the module rather than copied here: a hand-typed duplicate
-    is a second definition that drifts, and this test would then certify a
-    plan for a query nobody runs.
+    **Imported, not scraped, since 2026-08-30.** This used to regex the
+    triple-quoted literal out of `conn.execute(...)` in the module source.
+    That worked right up until the statement was lifted into `CANDIDATE_SQL`
+    so an instrument could time the real thing on live -- at which point the
+    regex matched nothing and thirteen tests failed with "could not find the
+    ladder query". That is the good failure: a scraper cannot certify a plan
+    for a statement it can no longer find. A hand-typed duplicate would have
+    been the bad one, so the constant is imported rather than re-extracted.
     """
-    src = PARLAYS.read_text(encoding="utf-8")
-    match = re.search(r'rows = conn\.execute\(\s*"""(.*?)"""', src, re.S)
-    assert match, "could not find the ladder query in backend/parlays.py"
-    sql = match.group(1)
-    assert "FROM fair_prices f" in sql, "extracted the wrong statement"
-    return sql
+    from backend.parlays import CANDIDATE_SQL
+
+    assert "FROM fair_prices f" in CANDIDATE_SQL, "the wrong statement"
+    return CANDIDATE_SQL
 
 
 def plan(conn, sql: str, params) -> list[str]:

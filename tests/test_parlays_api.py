@@ -966,3 +966,52 @@ class TestTheDeskKnowsWhatKalshiWillCombine:
             / "frontend" / "src" / "components" / "ParlayCards.tsx"
         ).read_text(encoding="utf-8")
         assert "kalshi_will_not_combine:" in src
+
+
+class TestTheScanIsNeverTighterThanTheFreshnessRule:
+    """The candidate scan's floor is derived from `max_odds_age_ms`, not set
+    beside it.
+
+    **Why this exists.** The floor was a flat 24 hours, and on live that meant
+    reading 541,222 `fair_prices` rows, joining each, sorting them all through
+    a temp B-tree, and keeping 350 -- 25.3 seconds, measured by
+    `inspect_live_db parlay-candidates-timing` on 2026-08-30, while
+    `/api/board` answered in ~2s.
+
+    Narrowing a scan is only safe while it stays wider than the rule that
+    discards rows downstream. That is what these assert: the relationship,
+    not the constant. A future session raising `MAX_ODDS_AGE_S` past two hours
+    must not silently start dropping legs the ladder would have accepted.
+
+    **What this does not establish:** that the scan is fast. It is a
+    relationship between two numbers; the wall time is a live reading.
+    """
+
+    def test_the_scan_window_always_covers_the_freshness_window(self):
+        from backend.parlays import (
+            _CANDIDATE_SCAN_FLOOR_MULTIPLE,
+            _CANDIDATE_SCAN_MIN_MS,
+        )
+
+        # Every plausible deployed value, including ones far past today's.
+        for max_age_ms in (0, 900_000, 3_600_000, 7_200_000, 86_400_000):
+            horizon = max(
+                _CANDIDATE_SCAN_FLOOR_MULTIPLE * max_age_ms,
+                _CANDIDATE_SCAN_MIN_MS,
+            )
+            assert horizon >= max_age_ms, (
+                f"a {max_age_ms}ms freshness rule would be scanned over only "
+                f"{horizon}ms -- legs the ladder accepts would never be read"
+            )
+
+    def test_the_multiple_leaves_room_to_count_what_went_stale(self):
+        """The scan must outlive the freshness rule, not merely match it.
+
+        At exactly 1x, a row that had just gone stale would never enter the
+        scan, `excluded['stale_consensus']` would read 0, and an empty ladder
+        would say "the slate has 0 fresh games" with nothing saying where they
+        went. That is a refusal naming a predicate it did not apply.
+        """
+        from backend.parlays import _CANDIDATE_SCAN_FLOOR_MULTIPLE
+
+        assert _CANDIDATE_SCAN_FLOOR_MULTIPLE > 1
