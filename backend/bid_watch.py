@@ -116,6 +116,26 @@ async def watch_bids_forever(
     a factory: this task owns the only connection it may use, and a Kalshi
     client built once at startup on a keyless instance would take the process
     down for a feature that instance does not expose.
+
+    **The factory returns an UNENTERED client and this loop is what enters it.**
+    That sentence is here because its absence cost the feature its whole point.
+    Until 2026-08-30 this line read `cancel_due_bids(conn, api_factory(), ...)`,
+    and `KalshiRestClient.client` raises `RuntimeError: used outside its
+    context manager` before any request is built -- so **every cancel this
+    watcher ever attempted failed**, from the day it shipped. Caught on live
+    with a real order resting past its deadline: the loop was running on time
+    (23:00:16Z, 23:01:16Z, 23:02:16Z, once a minute exactly as designed) and
+    raising the same exception on each pass.
+
+    Nothing lied about it, which is the one part that worked: the failure path
+    below leaves the row working and retries, so the table never claimed a
+    cancel that had not happened. The deadline was simply never enforced.
+
+    **The client is built only when there is something to cancel.** A keyless
+    instance would otherwise construct one every 60s forever for a feature it
+    does not expose, and log the failure every time. `due_for_cancel` is an
+    indexed read of a table with single-digit rows; the same `now_ms` is used
+    for the check and the work, so the two reads cannot disagree.
     """
     passes = 0
     while max_passes is None or passes < max_passes:
@@ -123,7 +143,10 @@ async def watch_bids_forever(
         conn = None
         try:
             conn = db.open_db(db_path)
-            await cancel_due_bids(conn, api_factory(), now_ms=db.now_ms())
+            now_ms = db.now_ms()
+            if due_for_cancel(conn, now_ms=now_ms):
+                async with api_factory() as api:
+                    await cancel_due_bids(conn, api, now_ms=now_ms)
         except Exception:                                        # noqa: BLE001
             # A watcher that dies stops withdrawing bids, silently, and the
             # only symptom is a fill nobody expected hours later.
