@@ -130,6 +130,36 @@ def forget_scope_warnings():
 
 
 @pytest.fixture(autouse=True)
+def forget_walk_alarm_state():
+    """The full-walk streak and the carried discovery count are process state.
+
+    That is deliberate and `runner.reset_walk_alarm` says why -- both are
+    questions about the SEQUENCE of quote passes, and the deployed process is
+    one loop and therefore one sequence. A test process is one sequence too,
+    which makes every test that runs a pass a pass in it: the streak a test
+    reads is the one the previous file left behind, and `walk_prev_discovered`
+    on a first pass is an integer from whichever test happened to walk before
+    it rather than the `None` a restart reports.
+
+    Exactly the hazard `forget_scope_warnings` above exists for, with
+    collection order as the hidden input. `test_full_walk_alarm.py` had a local
+    fixture for its own tests, which left the exposure on every OTHER file that
+    runs a pass -- `test_runner.py` alone hands `run_kalshi_pass` an empty
+    series list and leaves the streak at 1 for everything collected after it.
+
+    Verified by deleting this fixture: `test_full_walk_alarm.py` then fails
+    `test_a_sustained_run_re_announces_without_flooding` and
+    `test_the_first_walk_of_a_process_reports_an_unknown_count` when run after
+    `test_discovery_streams_the_walk.py`.
+    """
+    from backend.runner import reset_walk_alarm
+
+    reset_walk_alarm()
+    yield
+    reset_walk_alarm()
+
+
+@pytest.fixture(autouse=True)
 def forget_computed_joints():
     """The parlay copula cache is process-wide, so it is cross-test state.
 

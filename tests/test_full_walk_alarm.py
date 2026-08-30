@@ -66,18 +66,6 @@ def conn(tmp_path):
     c.close()
 
 
-@pytest.fixture(autouse=True)
-def fresh_walk_state(monkeypatch):
-    """The streak counter and the carried discovery count are module state.
-
-    Reset per test, deliberately by `monkeypatch` rather than by assignment, so
-    a test that fails part-way cannot leave the next one reading a streak it
-    did not create.
-    """
-    monkeypatch.setattr(runner, "_FULL_WALK_QUOTE_PASSES", 0)
-    monkeypatch.setattr(runner, "_LAST_WALK_DISCOVERED", None)
-
-
 def _warnings(caplog) -> list[str]:
     return [
         r.getMessage()
@@ -200,6 +188,81 @@ class TestTheNormalBranchesStaySilent:
             series_tickers=["KXMLBGAME"],
         )
         assert runner._FULL_WALK_QUOTE_PASSES == 0
+
+
+class TestTheStateIsProcessWideAndEveryCallerSharesIt:
+    """The streak and the carried count outlive a pass, on purpose, and that
+    is a property with a test-visible consequence.
+
+    Both questions -- "how many quote passes in a row" and "what did the last
+    walk find" -- are about the SEQUENCE of passes rather than about any one
+    of them, so the state has to outlive the call. The deployed process has
+    exactly one loop driving both cadences through the same two globals, which
+    is what makes the streak meaningful.
+
+    The consequence is that a test process is one such sequence too, and every
+    test that runs a pass is a pass in it. That is not papered over: it is
+    forgotten between tests by `forget_walk_alarm_state` in the root
+    `conftest.py`, for the reason `reset_walk_alarm` gives, and the two tests
+    here pin both halves -- the persistence within a process, and the fresh
+    start the fixture is responsible for.
+    """
+
+    async def test_the_streak_and_the_count_survive_between_calls(
+        self, conn, kalshi_events
+    ):
+        """A second caller, with its own client, continues the first one's run.
+
+        The two cadences call `run_kalshi_pass` from different places and both
+        must land on one counter, or the streak counts passes-since-this-caller
+        rather than passes-since-the-catalogue-walk-started.
+        """
+        first = FakeKalshi([_mlb_template(kalshi_events)])
+        await run_kalshi_pass(
+            conn, first, now=NOW, counts=PassCounts(), series_tickers=[]
+        )
+        assert runner._FULL_WALK_QUOTE_PASSES == 1
+
+        counts = PassCounts()
+        await run_kalshi_pass(
+            conn, FakeKalshi([_mlb_template(kalshi_events)]), now=NOW,
+            counts=counts, series_tickers=[],
+        )
+
+        assert runner._FULL_WALK_QUOTE_PASSES == 2, (
+            "the streak restarted for a second caller, so it counts passes "
+            "since this caller rather than since the full walk began"
+        )
+        assert counts.walk_prev_discovered is not None, (
+            "the second pass reported an unknown previous count, so the carried "
+            "figure does not survive the call that produced it"
+        )
+
+    async def test_the_first_walk_of_a_process_reports_an_unknown_count(
+        self, conn, kalshi_events
+    ):
+        """`None`, and the fixture is what makes that reachable more than once.
+
+        `walk_prev_discovered` is `None` exactly when nothing has walked yet,
+        which on live is the first pass after a restart -- the moment a reader
+        most needs "unknown" rather than a fabricated zero. Every earlier test
+        in this process has already walked, so without the reset this reads an
+        integer left behind by whichever file pytest happened to collect first.
+
+        Mutation observed red: drop `forget_walk_alarm_state` from
+        `conftest.py` and run this file after `test_discovery_streams_the_walk`.
+        """
+        counts = PassCounts()
+        await run_kalshi_pass(
+            conn, FakeKalshi([_mlb_template(kalshi_events)]), now=NOW,
+            counts=counts,
+        )
+
+        assert counts.walk_prev_discovered is None, (
+            "a first walk reported a previous discovery count, which can only "
+            "have come from another test -- on live that number is the one "
+            "thing a restart cannot know"
+        )
 
 
 class TestTheBranchIsAFactAndNotADuration:
