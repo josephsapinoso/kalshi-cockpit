@@ -40,6 +40,55 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-30 - Check the REGRESSOR moved before you read the outcome; a constant explains nothing
+
+The per-pass instrument was built to decide between two mechanisms by
+correlation: does the storage leg track `wal_kb` while the scan leg tracks
+`candidate_rows`, or do both track `wal_kb`? Read over 128 passes, `wal_kb`
+had **two values** (one of them the first pass) and `candidate_rows` had
+**one**, while `leg_store_quotes_ms` swung 62 to 2700 ms. Both proposed
+causes were pinned flat for the whole window.
+
+The trap is that the outcome variable looked wonderfully alive -- a 44-fold
+swing invites a story, and the two candidate stories were already written
+down. Reading in the registered order (regressor first) makes the window
+unusable in one line. Reading outcome-first makes it feel like a finding, and
+whichever mechanism the reader already believed would have collected the
+credit.
+
+**Pattern: before interpreting any correlational read, print the variance of
+every regressor. Zero variance means the window cannot run the design -- the
+verdict is "not tested", never "not the cause". This sits beside "read `n`
+before the effect size": same failure, one level up. `n` can be ample and the
+design still void.**
+
+A corollary about how the window got that way: it was taken overnight, when
+the slate was empty and no sweep had run for hours. **The window that is
+convenient to take is the one where nothing is happening**, which is exactly
+the window in which every driver is at rest.
+
+## 2026-08-30 - An instrument sampled at pass START repeats itself when a pass fails, and the repeat is the signal
+
+`record_pass_rss` samples at the top of each pass, so its leg timings
+describe the *previous* pass -- documented and deliberate. What nobody had
+read off it: when a pass fails without refreshing `counts`, the next line
+re-emits the previous pass's numbers verbatim. Three consecutive rows before
+a container death carried byte-identical `candidate_rows`, `candidate_ms`,
+`leg_price_link_ms` and `leg_store_quotes_ms`. Three independent millisecond
+timers do not agree exactly; that line is a *stale read*, not a stable system.
+
+So the wedge was legible in the record from its first repeated row, ~48
+minutes before the death -- while the established detector (`pass-gaps`)
+cannot fire until a gap has already elapsed, and `loop_failures` was empty
+because the failure path shared the poisoned connection.
+
+**Pattern: for any instrument that carries state it did not itself produce,
+work out what it emits when the producer fails. A repeated value is either a
+frozen system or a broken producer, and those are the two most different
+things it could mean. Decide which at design time and say so in the
+docstring, because the reader who meets it first will read "flat" as
+"healthy".**
+
 ## 2026-08-30 - When you change a cadence, re-read every predicate that compares against a timestamp it produces
 
 `_absence_provable` (`backend/estimate_match.py`) requires a successful

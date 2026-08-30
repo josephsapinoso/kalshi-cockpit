@@ -236,7 +236,117 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-30 (latest) — the positions payload was observed, a refusal became a record, and two lanes closed two backlog items
+## 2026-08-30 (latest) — the WAL read was taken, it could not run, and the memory level halved
+
+**Docs only — no code or test file changed. Live is on `91a66f1`, `main` is
+five commits ahead of it. `tasks/NEXT.md` was 188,912 bytes (72%) and
+`tasks/lessons.md` 218,194 (83%) read BEFORE writing, per the rule.**
+
+### Thread 1 is READ, and the answer is "the design could not run"
+
+`docs/measurements/2026-08-30-the-wal-curve-is-flat-and-the-rss-level-halved.md`,
+raw series committed beside it as `2026-08-30-loop-rss-samples.jsonl` (893
+rows, six boots). Window: the 04:03:30Z boot, **2.64 h, 128 passes, no
+death**. Nothing was checkpointed, VACUUMed, indexed or deleted.
+
+**Both registered regressors were constant, so neither row of the
+discrimination can be selected:**
+
+    wal_kb          two values in 128 rows: 4, then 18544 x127
+    db_kb           one value: 1865420
+    candidate_rows  one value: 162  (127 rows)
+    leg_store_quotes_ms  n=127  min 62  p50 79  p90 97  max 2700
+
+Verified independently of the instrument by `ls -la` twice, 45 s apart: both
+files **byte-identical in size while both mtimes advance**. That is the WAL
+being rewritten in place at a stable high-water mark — autocheckpointing
+working, not stalled. **Do not record this as "the WAL is exonerated."** It is
+untested. Two ways to get a window where `wal_kb` actually varies are in the
+measurement's last section; neither is a checkpoint.
+
+What *did* separate the storage leg was the kind of pass: `produced_by=full`
+p50 439 ms (n=9) against `quote` p50 79 ms (n=118). Nine is a thin cell and
+the direction is unsurprising; a lead, not a result.
+
+**The WAL does not grow with uptime here.** Three boots carry the field and
+the longest-running one has the smallest WAL (2.64 h → 18.1 MB; 1.60 h →
+31.3 MB; 0.29 h → 21.9 MB). The pre-deploy 220 MiB cannot be reached by
+extrapolating this rate — it is an episode, not this curve.
+
+**And the WAL was flat at 31.3 MB across the whole 48-minute wedge** that
+killed the 01:52Z boot. For that occurrence the wedge neither grew the WAL nor
+followed WAL growth.
+
+### Two questions that were open are now closed
+
+**Guest OOM: refuted, for both recorded deaths.** `/data/last_teardown.log`
+holds two records, both `CHAIN RUNNER exited` — 01:13:16Z with MemAvailable
+1,610,212 kB and 03:28:31Z with 1,096,868 kB. `record_teardown` runs
+`dmesg | tail -n 40` and in both records those 40 lines are still the *end of
+the kernel boot sequence*, so the ring buffer had acquired nothing since boot
+and no OOM kill was printed. The child is named, twice, and it is the chain
+runner — the poisoned-connection diagnosis, not a kernel kill. **The 2026-08-29
+"unresolved, not refuted" note on guest OOM can be closed.**
+
+**The RSS level halved, and the control is eight minutes wide.** The 01:44:29Z
+boot was a secrets restart of `c9ca0cd`; the 01:52:32Z boot was the `fe239d6`
+deploy. Same hour, same slate, eight minutes apart: **652 MB against 341 MB.**
+`0cfa849` ("the peak was the list, not the junk") is new in `fe239d6` and
+absent from `c9ca0cd`, verified by `merge-base --is-ancestor`. Three numbers
+agree: 2026-08-20 **named** the `raw_events` list as the suspect, `0cfa849`'s
+replay **predicted** 1,036 MB held vs 24 MB dropped, and this window
+**measured** ~650–745 MB → ~340 MB on the live box. It also reproduces
+"a level, not a leak" on a second instrument: 128 MB until the first full
+pass, then a step, then flat.
+
+### A wedge detector that costs nothing, found in the data
+
+The three rows before the 03:28:31Z death carry **byte-identical**
+`candidate_rows`, `candidate_ms`, `leg_price_link_ms` and
+`leg_store_quotes_ms`. The instrument samples at pass start, so a pass that
+fails without refreshing `counts` makes the next line re-emit the previous
+one. **A repeated line dates the wedge onset to the pass** — ~02:40:52Z, 48
+minutes before the death — where `pass-gaps` cannot fire until a gap has
+elapsed and `loop_failures` was empty because the failure path shared the
+poisoned connection. Not built; recorded as a lesson and available to whoever
+touches the watchdog.
+
+### Also observed, not acted on
+
+- Two attention-tagged sweeps fired overnight (05:14Z, 06:42Z). `/api/health`
+  does not stamp attention — only the authed `POST /api/desk/attention` does —
+  so this is a real client, not monitoring. Day total 456 of 700 credits, well
+  inside the cap. Noted so nobody re-derives it as a leak.
+- Two scan spikes with both regressors flat: 02:02:27Z `candidate_ms` 11202 /
+  `leg_price_link_ms` 14881, and 02:09:13Z 5451 / 7201, `wal_kb` 25.6 MB and
+  `candidate_rows` 163 on both. Write contention is the obvious third
+  candidate and this window does not test it.
+
+### Two lessons at the top of `tasks/lessons.md`
+
+(1) Check the regressor moved before reading the outcome — a constant explains
+nothing, and the convenient overnight window is the one where every driver is
+at rest. (2) An instrument sampled at pass start repeats itself when the
+producer fails, so "flat" and "broken" are the same line unless the docstring
+says which.
+
+### Open, carried forward
+
+1. **Thread 1 is no longer waiting on uptime — it is waiting on a window where
+   `wal_kb` varies.** Do not re-run it overnight; that is what made this one
+   void. Still: no checkpoint, no VACUUM.
+2. **Joe's question on the buy ticket is put and unanswered** — `manual_orders`
+   still zero rows. Nothing gets built for it until he answers.
+3. **Deploy decision is Joe's** — `main` is five commits ahead of live and
+   carries the check-10 positions fix and the refusal recorder (v29). A deploy
+   resets the WAL series, which item 1 no longer needs.
+4. Items 3, 4 and 7 of the previous entry stand: watch `loop_failures.jsonl`
+   after the next wedge; `fair_prices` 546 MB unbounded; `_absence_provable`
+   two-clock shape.
+
+---
+
+## 2026-08-30 — the positions payload was observed, a refusal became a record, and two lanes closed two backlog items
 
 **Committed on `main` through ADR 0083 (`a45d088`, `ffc50c1`, `977cc4d`,
 `21da67e` + the ADR/session-files commit). Suite: 5243 passed / 10 xfailed in 10:49,
