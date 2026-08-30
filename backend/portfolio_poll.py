@@ -337,6 +337,16 @@ async def poll_portfolio(
     except Exception as exc:  # noqa: BLE001 -- never blind the mirror
         logger.exception("estimate match pass failed: %s", exc)
         summary["match"] = f"FAILED: {exc}"
+        # Every sibling endpoint's failure lands in poll_log; until 2026-08-29
+        # this one landed only in a log line, and `flyctl logs` is lossy -- a
+        # matcher throwing on every mirror for a week was invisible. The
+        # commit is deliberate: this runs after the mirror's own commit above,
+        # and a failure row left riding an open transaction until the next
+        # fast cycle is a row a crash silently discards.
+        log_poll_attempt(
+            conn, now_ms=now_ms, endpoint="match", ok=False, error=repr(exc)
+        )
+        conn.commit()
     return summary
 
 

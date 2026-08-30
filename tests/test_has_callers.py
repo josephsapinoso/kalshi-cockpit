@@ -200,6 +200,15 @@ MUST_HAVE_CALLERS = [
         "loop writes",
     ),
     (
+        "run_match_pass",
+        "the matcher is the only writer of `outcome_win` -- a registered "
+        "variable -- and the last consumer left on the 12-hour mirror clock, "
+        "with exactly one production caller inside `poll_portfolio`. Unwired, "
+        "every bet estimate stays unmatched and unscored forever while the "
+        "mirror keeps reporting clean passes, because the matcher's absence "
+        "writes no failure row anywhere",
+    ),
+    (
         "fetch_props",
         "MLB player props are never bought, so the whole prop half of the "
         "pipeline -- discovery, the inherited link, the per-(player, line) "
