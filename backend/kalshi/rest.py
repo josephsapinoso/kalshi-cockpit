@@ -45,6 +45,38 @@ import httpx
 from ..config import KalshiConfig
 from .auth import KalshiAuth, signed_path
 
+# Kalshi's V2 order path. The legacy `/portfolio/orders` is deprecated, absent
+# from the current API reference, and cannot express a sub-cent price.
+ORDERS_PATH = "/portfolio/events/orders"
+
+#: Kalshi splits matching across **exchange shards**, and collateral does not
+#: follow an order across them: *"Programmatic traders must preallocate
+#: collateral on a given exchange shard before order placement"*
+#: (`docs.kalshi.com/getting_started/exchange_sharding`).
+#:
+#:     0  everything else, including WNBA
+#:     1  Exotics -- the KXMVE combinations this desk mints
+#:     2  Crypto
+#:     3  Sports, tennis and baseball ONLY, moved 2026-08-24 12:00 ET
+#:
+#: **Read it off the market, never inferred from the ticker.** The docs call
+#: `exchange_index` "the authoritative source of truth" and say ticker formats
+#: are unaffected by sharding -- so "sports" is not a shard, baseball is on 3
+#: while basketball is still on 0, and that split moves as Kalshi migrates.
+#:
+#: Measured on the live account 2026-08-30, and both halves matter: a 2c order
+#: on a shard-1 combination was refused `insufficient_balance` while $21.40 sat
+#: on shard 0, and the same order shape on a shard-3 baseball market was
+#: refused `user_not_found` -- a shard the account has never been funded into.
+EXCHANGE_INDEX_DEFAULT = 0
+EXCHANGE_INDEX_COMBOS = 1
+
+#: Sent as a query parameter, never in the body. The cancel endpoint auto-routes
+#: only when it can, and on 2026-08-30 a cancel without it returned 404
+#: `not_found` for an order that was demonstrably resting -- the same order
+#: cancelled with `?exchange_index=1` and returned `reduced_by 1.00`.
+EXCHANGE_INDEX_PARAM = "exchange_index"
+
 logger = logging.getLogger(__name__)
 
 # Smallest delay honoured from a `Retry-After` header. Zero is legal and
@@ -598,8 +630,50 @@ class KalshiRestClient:
 
     # -- portfolio ---------------------------------------------------------
 
-    async def balance(self) -> dict:
-        return await self.get("/portfolio/balance")
+    async def balance(self, *, exchange_index: Optional[int] = None) -> dict:
+        """The account balance, optionally for one exchange shard.
+
+        **The top-level `balance` is a different number depending on this
+        argument, and that is the whole point.** Kalshi splits matching across
+        shards and does not let collateral follow an order across them:
+        *"Programmatic traders must preallocate collateral on a given exchange
+        shard before order placement"*
+        (`docs.kalshi.com/getting_started/exchange_sharding`). Measured on the
+        live account 2026-08-30: no argument gave 21.4120, `exchange_index=1`
+        gave 0.0100, and a 2c order on a shard-1 combination was refused
+        `insufficient_balance` while $21.40 sat unusable on shard 0.
+
+        `balance_breakdown` comes back either way, so a caller that wants the
+        whole picture needs only one call -- but a caller deciding whether an
+        order can be paid for must read the shard the MARKET is on, never the
+        total.
+        """
+        return await self.get(
+            "/portfolio/balance", exchange_index=exchange_index
+        )
+
+    async def cancel_order(
+        self, order_id: str, *, exchange_index: Optional[int] = None
+    ) -> dict:
+        """Cancel one resting order. Returns the venue's `reduced_by` record.
+
+        **`exchange_index` is not optional in practice**, whatever the docs
+        say about auto-routing. Measured 2026-08-30 on a resting combination
+        order: `DELETE /portfolio/events/orders/{id}` returned 404 `not_found`
+        for an order the orders list showed as `resting` that same second; the
+        identical call with `?exchange_index=1` returned 200 and
+        `reduced_by 1.00`. The cancel endpoint has no ticker to auto-route
+        from, so without the shard it looks on shard 0 and finds nothing.
+
+        This is the repo's FIRST cancel path. Until now every real order was
+        immediate-or-cancel, so nothing ever needed taking back -- which is
+        also why a resting order could not be offered before this existed.
+        """
+        return await self.request(
+            "DELETE",
+            f"{ORDERS_PATH}/{order_id}",
+            params={EXCHANGE_INDEX_PARAM: exchange_index},
+        )
 
     async def positions(self) -> list[dict]:
         """Open market positions -- non-zero only, every page, rename-loud.

@@ -118,13 +118,20 @@ from typing import Any, Callable, Optional
 from ..core.fees import calculate_fee
 from ..core.prices import PRICE_MAX, complement, is_valid_price
 from .grid import DOWN, UP, GridUnavailable, PriceGrid
-from .rest import KalshiRestClient
+from .rest import (
+    EXCHANGE_INDEX_COMBOS,
+    EXCHANGE_INDEX_DEFAULT,
+    EXCHANGE_INDEX_PARAM,
+    ORDERS_PATH,
+    KalshiRestClient,
+)
 
 logger = logging.getLogger(__name__)
 
-# Kalshi's V2 order path. The legacy `/portfolio/orders` is deprecated, absent
-# from the current API reference, and cannot express a sub-cent price.
-ORDERS_PATH = "/portfolio/events/orders"
+# The V2 order path and the shard constants live in `rest.py`, which is the
+# layer that issues the requests -- and `orders` already imports it, so a
+# definition here would be the second copy rather than the first.
+
 
 # V2 quotes the YES leg only: `bid` buys YES, `ask` sells YES.
 BOOK_SIDE_BID = "bid"
