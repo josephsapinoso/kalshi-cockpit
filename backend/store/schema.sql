@@ -1578,6 +1578,63 @@ CREATE TABLE IF NOT EXISTS manual_orders (
 );
 
 -- ============================================================================
+-- Hand-bet refusals (v29, 2026-08-30)
+-- ============================================================================
+-- One row per HTTPException the manual-order route raised before the intent
+-- row existed. Until this table, all ~23 refusal branches wrote NOTHING --
+-- reservation happens at check 11, so every earlier refusal left zero trace
+-- and the desk could not say which of its own brakes fired on the first-ever
+-- attempted bet, or with what values. A log line is not a record: this
+-- instance's containers restart and `flyctl logs` is lossy (three instances
+-- of the same defect in three days -- refused hand bet, failed match pass,
+-- poisoned-connection failure -- see the DRAFT ADR merged with this table).
+--
+-- **Forensic, not analytic.** Append-only, no dashboard, no counter, no
+-- screen reads it yet; the population is refusals of Joe's own taps, which is
+-- single-digit rows. Deliberately not capped or pruned, same reasoning as
+-- `loop_failures` below.
+--
+-- **`gate.py` may never read this table** -- the identical boundary
+-- `manual_orders` and `parlay_positions` carry (ADR 0063, ADR 0078): a
+-- refusal must not move the live-trading interlock's counter. Pinned by the
+-- same source-assertion test that pins the other two.
+--
+-- A recording failure must never convert a 422 into a 500: the writer runs on
+-- a throwaway connection, falls back to a journal line beside the database
+-- (`manual_order_refusals.jsonl`, the `record_loop_failure_durably`
+-- precedent), and swallows its own errors. The refusal Joe sees is the
+-- refusal, whether or not it could be recorded.
+CREATE TABLE IF NOT EXISTS manual_order_refusals (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_ms          INTEGER NOT NULL,
+    -- Which of the route's numbered checks refused (0-11, the docstring's
+    -- numbering) and its stable name. The check pointer is maintained beside
+    -- the checks themselves, so a refusal raised mid-check is attributed to
+    -- the check that was running, not guessed from the message.
+    check_number        INTEGER NOT NULL,
+    check_name          TEXT NOT NULL,
+    http_status         INTEGER NOT NULL,
+    -- The exact string Joe was shown. The message IS the finding; nothing
+    -- reconstructs it later.
+    detail              TEXT NOT NULL,
+    -- What was being attempted. Nullable: a refusal can fire before the
+    -- ticker is normalised, and NULL means "not reached", never "unknown-ish
+    -- default".
+    ticker              TEXT,
+    side                TEXT,
+    requested_contracts INTEGER,
+    max_price_tenths    INTEGER,
+    idempotency_key     TEXT,
+    -- The live ask at refusal time, known only once check 7 has fetched the
+    -- quote. NULL before that -- never 0, which would read as a price.
+    ask_tenths          INTEGER,
+    CHECK (side IS NULL OR side IN ('yes', 'no'))
+);
+CREATE INDEX IF NOT EXISTS idx_manual_order_refusals_time
+    ON manual_order_refusals(created_ms DESC);
+
+
+-- ============================================================================
 -- Recording-loop pass failures
 -- ============================================================================
 -- One row per pass that raised, written by `scripts/run_loop.py` through the

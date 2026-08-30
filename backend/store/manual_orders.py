@@ -643,3 +643,95 @@ def replay_response(row: sqlite3.Row) -> Optional[dict[str, Any]]:
         return json.loads(raw)
     except (TypeError, ValueError):
         return None
+
+
+def record_refusal_durably(
+    db_path: Any,
+    *,
+    created_ms: int,
+    check_number: int,
+    check_name: str,
+    http_status: int,
+    detail: str,
+    ticker: Optional[str] = None,
+    side: Optional[str] = None,
+    requested_contracts: Optional[int] = None,
+    max_price_tenths: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+    ask_tenths: Optional[int] = None,
+) -> str:
+    """Record one refused hand bet so that NO failure mode can erase it.
+
+    Until 2026-08-30 all ~23 refusal branches on `/api/manual-orders` raised
+    and wrote nothing -- reservation happens at check 11, so every earlier
+    refusal left zero trace and the desk could not say which of its own
+    brakes fired on the first-ever attempted bet, or with what values. Third
+    instance of one pattern in three days (refused hand bet, failed match
+    pass, poisoned-connection failure): a failure path whose only record is
+    a log line, on an instance whose containers restart and whose `flyctl
+    logs` are lossy.
+
+    **A recording failure must never convert a 422 into a 500.** The refusal
+    Joe sees IS the refusal; this is forensics beside it. So: a THROWAWAY
+    connection (a refusal is one tap, not a hot path -- and the shared
+    runner connection is exactly what the poisoned-connection incident
+    proved can refuse writes), a journal-line fallback beside the database
+    (`record_loop_failure_durably`'s precedent -- an append no lock can
+    refuse), and nothing raised, ever.
+
+    Returns `"recorded"` or `"journal_only"`; callers log it and move on.
+    """
+    import json
+
+    row = {
+        "created_ms": created_ms,
+        "check_number": check_number,
+        "check_name": check_name,
+        "http_status": http_status,
+        "detail": detail,
+        "ticker": ticker,
+        "side": side,
+        "requested_contracts": requested_contracts,
+        "max_price_tenths": max_price_tenths,
+        "idempotency_key": idempotency_key,
+        "ask_tenths": ask_tenths,
+    }
+    try:
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        try:
+            conn.execute(
+                "INSERT INTO manual_order_refusals (created_ms, check_number,"
+                " check_name, http_status, detail, ticker, side,"
+                " requested_contracts, max_price_tenths, idempotency_key,"
+                " ask_tenths) VALUES (:created_ms, :check_number,"
+                " :check_name, :http_status, :detail, :ticker, :side,"
+                " :requested_contracts, :max_price_tenths, :idempotency_key,"
+                " :ask_tenths)",
+                row,
+            )
+            conn.commit()
+            return "recorded"
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 -- the fallback IS the handling
+        try:
+            from pathlib import Path
+
+            journal = Path(db_path).parent / "manual_order_refusals.jsonl"
+            with open(journal, "a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {**row, "db_refused_with": repr(exc)},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except Exception:  # noqa: BLE001 -- swallowing is the contract
+            logger.exception(
+                "manual-order refusal could not be recorded OR journalled"
+            )
+        else:
+            logger.warning(
+                "manual-order refusal journalled, not recorded: %r", exc
+            )
+        return "journal_only"

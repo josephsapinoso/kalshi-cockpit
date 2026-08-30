@@ -3012,6 +3012,35 @@ def _q_estimate_match_status(conn: sqlite3.Connection, args) -> list[Section]:
     return [positions, by_kind, noncombo, estimates]
 
 
+_SQL_MANUAL_ORDER_REFUSALS = (
+    "SELECT id, created_ms, check_number, check_name, http_status, detail,"
+    "       ticker, side, requested_contracts, max_price_tenths,"
+    "       idempotency_key, ask_tenths "
+    "FROM manual_order_refusals ORDER BY created_ms DESC"
+)
+
+
+def _q_manual_order_refusals(conn: sqlite3.Connection, args) -> list[Section]:
+    """Every refused hand bet, newest first (v29, 2026-08-30).
+
+    Emits rows and no verdict. The population is Joe's own refused taps --
+    single digits -- so the whole table prints. The `detail` column is the
+    exact string the ticket showed him, which is the finding; `check_name`
+    says which of the route's numbered brakes fired. An empty result on a
+    night he reports a refusal means the write was journalled instead:
+    read `/data/manual_order_refusals.jsonl` beside the database.
+    """
+    rows = _fetch(
+        conn,
+        _SQL_MANUAL_ORDER_REFUSALS,
+        (),
+        title="manual_order_refusals, newest first (empty = no brake has fired)",
+        cap=args.limit,
+    )
+    rows = _derive_iso(rows, "created_ms", "created_iso")
+    return [rows]
+
+
 @dataclass(frozen=True)
 class QueryDef:
     description: str
@@ -3196,6 +3225,13 @@ QUERIES: dict[str, QueryDef] = {
         "(pre-study included, for the P_j sum). Emits rows, no delta; "
         "pairing and residuals belong to the registered analyzer.",
         _q_h4_balance_spans,
+    ),
+    "manual-order-refusals": QueryDef(
+        "Every refused hand bet, newest first: which numbered check fired, "
+        "the exact detail shown, and the request values. Empty means no "
+        "brake has ever fired; a reported refusal missing here means the "
+        "write fell back to /data/manual_order_refusals.jsonl.",
+        _q_manual_order_refusals,
     ),
     "estimate-match-status": QueryDef(
         "Calibration §7.5 coverage: venue_settlements by estimate_match_status "

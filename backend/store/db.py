@@ -43,7 +43,10 @@ from ..core.prices import is_valid_price
 #: desk was showing at the instant of a hand bet, frozen rather than pointed
 #: at. A column step, because `manual_orders` already holds rows on the live
 #: volume and `schema.sql` alone would never reach them.
-SCHEMA_VERSION = 28
+#: v29 (2026-08-30) adds `manual_order_refusals` -- a pure new table, so no
+#: migration step; it joins `_TABLELESS_VERSIONS` below. Allocated on `main`
+#: in the merge window per the v23 lesson above.
+SCHEMA_VERSION = 29
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -652,8 +655,8 @@ _QUANTITIES_ARE_REAL_UNDO = (
 #: the two places.
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
-#:   v27 `combo_eligible_events`.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27)
+#:   v27 `combo_eligible_events`, v29 `manual_order_refusals`.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

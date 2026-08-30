@@ -1307,3 +1307,136 @@ class TestTheTicketAsksBeforeItShows:
         assert "token.trim().length > 0" in block, (
             "the confirm no longer requires the typed order token"
         )
+
+
+class TestARefusalIsARecord:
+    """v29 (2026-08-30): every pre-reservation refusal lands in
+    `manual_order_refusals`, durably.
+
+    Until then all ~23 refusal branches raised and wrote nothing --
+    reservation happens at check 11, so the desk could not say which of its
+    own brakes fired on an attempted bet, or with what values. Forensic, not
+    analytic: no screen reads the table, and `gate.py` never may (the
+    ADR 0063 boundary, pinned below beside the `manual_orders` pin).
+    """
+
+    @staticmethod
+    def _refusals(path):
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM manual_order_refusals ORDER BY id"
+        ).fetchall()
+        conn.close()
+        return rows
+
+    async def test_a_structural_refusal_writes_the_row_it_shows(self, tmp_path):
+        """Check 4, refused before any quote: the row carries the check's
+        number and name, the exact detail Joe saw, and NULL -- not 0 -- for
+        the ask no quote ever produced."""
+        path = _base_db(tmp_path)
+        app = _app(path)
+        response = await post(
+            app, "/api/manual-orders", json=_body(contracts=501), headers=AUTH,
+        )
+        assert response.status_code == 422
+        rows = self._refusals(path)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["check_number"] == 4
+        assert row["check_name"] == "structural_ceilings"
+        assert row["http_status"] == 422
+        assert row["detail"] == response.json()["detail"]
+        assert row["ticker"] == TICKER
+        assert row["side"] == "yes"
+        assert row["requested_contracts"] == 501
+        assert row["idempotency_key"] == "test-key-00000001"
+        assert row["ask_tenths"] is None
+
+    async def test_a_netting_refusal_carries_the_live_ask(self, tmp_path):
+        """Check 10 fires after the quote, so the row records what the
+        market was asking when the brake came on."""
+        path = _base_db(tmp_path)
+        quotes = StubQuotes(
+            positions=[{"ticker": TICKER, "position_fp": "22.88"}]
+        )
+        app = _app(path, quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        (row,) = self._refusals(path)
+        assert row["check_number"] == 10
+        assert row["check_name"] == "netting_guard"
+        # _payload(): no_bid 550 tenths -> derived YES ask 450 tenths.
+        assert row["ask_tenths"] == 450
+
+    async def test_a_completed_bet_writes_no_refusal_row(
+        self, tmp_path, records_only
+    ):
+        path = _base_db(tmp_path)
+        app = _app(path)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 200, response.text
+        assert self._refusals(path) == []
+
+    async def test_a_recording_failure_never_converts_the_422(
+        self, tmp_path, monkeypatch
+    ):
+        """The refusal outranks its record: a recorder that blows up entirely
+        must leave the 4xx standing, not replace it with a 500."""
+        def _boom(*args, **kwargs):
+            raise RuntimeError("recorder down")
+
+        monkeypatch.setattr(manual_store, "record_refusal_durably", _boom)
+        app = _app(_base_db(tmp_path))
+        response = await post(
+            app, "/api/manual-orders", json=_body(contracts=501), headers=AUTH,
+        )
+        assert response.status_code == 422
+
+    def test_an_unwritable_database_falls_back_to_the_journal(self, tmp_path):
+        """`record_loop_failure_durably`'s precedent: an append beside the
+        database that no lock can refuse, naming what the database refused
+        with. Returns 'journal_only' -- never raises."""
+        bare = tmp_path / "no-tables.db"
+        sqlite3.connect(bare).close()  # a real SQLite file with no schema
+        outcome = manual_store.record_refusal_durably(
+            bare,
+            created_ms=1,
+            check_number=3,
+            check_name="cooloff",
+            http_status=423,
+            detail="resting",
+        )
+        assert outcome == "journal_only"
+        journal = tmp_path / "manual_order_refusals.jsonl"
+        line = journal.read_text(encoding="utf-8").strip()
+        assert '"check_name": "cooloff"' in line
+        assert "db_refused_with" in line
+
+    def test_a_writable_database_records(self, tmp_path):
+        path = _base_db(tmp_path)
+        outcome = manual_store.record_refusal_durably(
+            path,
+            created_ms=2,
+            check_number=10,
+            check_name="netting_guard",
+            http_status=422,
+            detail="held",
+            ticker=TICKER,
+            side="no",
+            ask_tenths=450,
+        )
+        assert outcome == "recorded"
+        (row,) = self._refusals(path)
+        assert (row["check_name"], row["side"], row["ask_tenths"]) == (
+            "netting_guard", "no", 450,
+        )
+
+    def test_gate_py_never_reads_the_refusals_table_either(self):
+        """The identical boundary `manual_orders` carries: a refusal must not
+        move the live-trading interlock's counter. Substring chosen so a
+        future `manual_order_refusals` join cannot hide behind the existing
+        `manual_orders` pin, which does not match this table's name."""
+        source = (REPO / "backend" / "gate.py").read_text(encoding="utf-8")
+        assert "manual_order_refusals" not in source
+        assert "refusal" not in source.lower()

@@ -4658,372 +4658,419 @@ def create_app(
         11. reserve-then-check under the write lock, in `manual_orders`
         12. place IOC at the ceiling-bounded ask via the shared OrderPlacer
         """
-        # 0.
-        unreachable = _manual_reachable()
-        if unreachable is not None:
-            raise HTTPException(status_code=403, detail=unreachable)
+        # Every refusal below is recorded durably before it propagates
+        # (schema v29, `manual_order_refusals`): reservation happens at
+        # check 11, so until 2026-08-30 every earlier refusal left zero
+        # trace and the desk could not say which of its own brakes fired.
+        # `refusal_ctx` is the check pointer -- updated at the top of
+        # each numbered check, so a raise mid-check is attributed to the
+        # check that was running rather than parsed out of the message.
+        refusal_ctx: dict = {"check": 0, "name": "reachability"}
+        try:
+            # 0.
+            unreachable = _manual_reachable()
+            if unreachable is not None:
+                raise HTTPException(status_code=403, detail=unreachable)
 
-        # 1.
-        existing = manual_store.find_by_idempotency_key(
-            conn, request.idempotency_key
-        )
-        if existing is not None:
-            stored = manual_store.replay_response(existing)
-            if stored is None:
+            # 1.
+            refusal_ctx.update(check=1, name="idempotency_replay")
+            existing = manual_store.find_by_idempotency_key(
+                conn, request.idempotency_key
+            )
+            if existing is not None:
+                stored = manual_store.replay_response(existing)
+                if stored is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"this idempotency key was used by an order whose "
+                            f"outcome was never stored (row {existing['id']}, "
+                            f"status {existing['status']!r}). Check the record "
+                            f"before retrying with a fresh key — 'we do not know "
+                            f"whether it went' must not resolve to 'it did not'."
+                        ),
+                    )
+                stored["replayed"] = True
+                return stored
+
+            now = db.now_ms()
+
+            # 2.
+            refusal_ctx.update(check=2, name="desk_lockout")
+            lockout_release = bet_estimates.lockout_until(conn, now_ms=now)
+            if lockout_release is not None:
+                release_iso = datetime.fromtimestamp(
+                    lockout_release / 1000, timezone.utc
+                ).strftime("%H:%M UTC on %Y-%m-%d")
                 raise HTTPException(
-                    status_code=409,
+                    status_code=423,
                     detail=(
-                        f"this idempotency key was used by an order whose "
-                        f"outcome was never stored (row {existing['id']}, "
-                        f"status {existing['status']!r}). Check the record "
-                        f"before retrying with a fresh key — 'we do not know "
-                        f"whether it went' must not resolve to 'it did not'."
+                        f"You said not tonight. The desk is locked until "
+                        f"{release_iso}, and there is no early unlock — that is "
+                        f"the point."
                     ),
                 )
-            stored["replayed"] = True
-            return stored
 
-        now = db.now_ms()
-
-        # 2.
-        lockout_release = bet_estimates.lockout_until(conn, now_ms=now)
-        if lockout_release is not None:
-            release_iso = datetime.fromtimestamp(
-                lockout_release / 1000, timezone.utc
-            ).strftime("%H:%M UTC on %Y-%m-%d")
-            raise HTTPException(
-                status_code=423,
-                detail=(
-                    f"You said not tonight. The desk is locked until "
-                    f"{release_iso}, and there is no early unlock — that is "
-                    f"the point."
-                ),
-            )
-
-        # 3.
-        cooloff_release = manual_store.cooloff_until_ms(conn, now_ms=now)
-        if cooloff_release is not None:
-            raise HTTPException(
-                status_code=423,
-                detail=(
-                    f"The buy control is resting after your last order. It "
-                    f"unlocks in {max(0, cooloff_release - now) // 1000}s. "
-                    f"No override — the cool-off is the safeguard, not a "
-                    f"suggestion."
-                ),
-            )
-
-        ticker = request.ticker.strip().upper()
-
-        # 4.
-        combo = _is_combo(ticker)
-        if combo and not request.combo_acknowledged:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "combination (KXMVE) markets need the acknowledgement "
-                    "before this door opens: every combination book this "
-                    "repo has ever read had NO YES BID — 40 of 40, across "
-                    "three runs on two dates — so you can enter and you "
-                    "cannot exit (ADR 0012 §5). The fee model also "
-                    "undercharges on combos (ADR 0046); a hedged coefficient "
-                    "prices this order and it is not a measurement of what "
-                    "Kalshi charges. Send `combo_acknowledged` only if that "
-                    "is the bet you mean to make."
-                ),
-            )
-        # **The STRUCTURAL ceilings, not the binding one.** What bounds the
-        # bet is money (check 9); these stop a market priced at a tenth of a
-        # cent turning a few dollars into a count that moves a thin book on
-        # its own. A combination is held tighter because the deepest resting
-        # bid this repo has ever measured on one was 18 units (ADR 0012 §5),
-        # so a far larger count could not fill anyway.
-        if combo and request.contracts > COMBO_MAX_CONTRACTS:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"a combination order is capped at "
-                    f"{COMBO_MAX_CONTRACTS} contracts on this path, against "
-                    f"an order for {request.contracts}. Combination books are "
-                    f"enter-only and the deepest resting bid ever measured "
-                    f"here was 18 units, so a larger count could not fill. "
-                    f"What bounds the BET is the ${max_spend_dollars():.2f} "
-                    f"spend cap, checked below."
-                ),
-            )
-        if request.contracts > MANUAL_ORDER_MAX_CONTRACTS:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"this path is capped at {MANUAL_ORDER_MAX_CONTRACTS} "
-                    f"contracts, against an order for {request.contracts}. "
-                    f"That is a structural ceiling, not the bet size: what "
-                    f"bounds the bet is the ${max_spend_dollars():.2f} spend "
-                    f"cap and the cap derived from your balance, whichever is "
-                    f"tighter."
-                ),
-            )
-
-        # 5.
-        daily_pnl = bets_module.venue_daily_realised_pnl_dollars(
-            conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
-        )
-        if daily_pnl is None:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "today's realised P&L cannot be read (the venue mirror "
-                    "is stale or unpolled), so the daily-loss switch cannot "
-                    "be applied. Refusing — 'cannot read the losses' must "
-                    "never resolve to 'no losses' (ADR 0064)."
-                ),
-            )
-
-        # 6.
-        risk_now = risk
-        if risk.underived:
-            risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
-        if (
-            risk_now is None
-            or risk_now.max_position_dollars is None
-            or risk_now.max_exposure_dollars is None
-            or risk_now.max_daily_loss_dollars is None
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "the account balance has never been observed, so no cap "
-                    "can be derived. Refusing — 'cannot determine the "
-                    "bankroll' must never resolve to a typed default."
-                ),
-            )
-        if daily_pnl <= -abs(risk_now.max_daily_loss_dollars):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"the daily-loss switch has fired: ${daily_pnl:.2f} "
-                    f"realised today against a "
-                    f"${risk_now.max_daily_loss_dollars:.2f} line. No more "
-                    f"buys today, through this door."
-                ),
-            )
-
-        # 7.
-        try:
-            quote = await live_quotes().fetch(ticker, observed_ms=now)
-        except ConfigError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except QuoteUnavailable as exc:
-            raise HTTPException(
-                status_code=404 if exc.permanent else 503, detail=str(exc)
-            ) from exc
-        ask = _tradeable_ask(quote.ask_tenths(request.side))
-        if ask is None:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"no live ask on the {request.side} side — there is no "
-                    f"price to buy at. An empty book does not report 'no ask'; "
-                    f"it reports the endpoint (a 0c or 100c derived ask), and "
-                    f"neither is a price anyone can pay."
-                ),
-            )
-        if ask > request.max_price_tenths:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"the live ask is {format_price(ask)}, above your "
-                    f"{format_price(request.max_price_tenths)} ceiling. "
-                    f"Refused, never re-priced — raise the ceiling only if "
-                    f"you still want it at the new price."
-                ),
-            )
-        if quote.price_grid is None:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "the live payload carried no readable price grid; "
-                    "refusing rather than assuming whole cents."
-                ),
-            )
-
-        # 8.
-        depth = quote.depth_at_ask(request.side)
-        if depth is None or depth < request.contracts:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"only {0 if depth is None else int(depth)} contracts "
-                    f"rest at the ask against an order for "
-                    f"{request.contracts}. An IOC for more than the book "
-                    f"holds part-fills at best."
-                ),
-            )
-
-        # 9. Build at the live ask (bounded by the ceiling above), IOC.
-        try:
-            order = OrderRequest(
-                ticker=ticker,
-                side=request.side,
-                action="buy",
-                count=request.contracts,
-                limit_price_tenths=ask,
-                price_grid=quote.price_grid,
-                time_in_force="immediate_or_cancel",
-            )
-        except OrderRefused as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        worst_case = _manual_worst_case_dollars(order, combo=combo)
-        if worst_case is None:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "the fee on this order could not be computed, so its "
-                    "worst-case cost cannot be checked against your per-bet "
-                    "cap. Refusing — an unreadable fee must never resolve to "
-                    "no fee."
-                ),
-            )
-        # **The binding check, and it names WHICH bound it hit.** Two
-        # independent ceilings -- 10% of the observed balance (ADR 0045) and
-        # the spend cap -- and the tighter wins. "$3 cap" and "your balance
-        # only supports $0.54" are different problems with different remedies,
-        # and a refusal that does not say which one sends the reader to fix
-        # the wrong thing.
-        cap_dollars, binding = _manual_cap_dollars(risk_now)
-        if worst_case > cap_dollars:
-            reason = (
-                f"the ${max_spend_dollars():.2f} cap this path is set to"
-                if binding == "spend"
-                else (
-                    f"the ${cap_dollars:.2f} per-bet cap derived from your "
-                    f"balance (10% of it, never a number you type)"
+            # 3.
+            refusal_ctx.update(check=3, name="cooloff")
+            cooloff_release = manual_store.cooloff_until_ms(conn, now_ms=now)
+            if cooloff_release is not None:
+                raise HTTPException(
+                    status_code=423,
+                    detail=(
+                        f"The buy control is resting after your last order. It "
+                        f"unlocks in {max(0, cooloff_release - now) // 1000}s. "
+                        f"No override — the cool-off is the safeguard, not a "
+                        f"suggestion."
+                    ),
                 )
-            )
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"{request.contracts} contracts at {format_price(ask)} "
-                    f"costs at most ${worst_case:.2f}, over {reason}."
-                ),
-            )
 
-        # 10. A LIVE positions read, not the 12-hour mirror. The per-row
-        #     shape was observed 2026-08-30 (`position_fp`, a fixed-point
-        #     string, fractional — see `rest.positions()`), so the guard
-        #     compares the quantity the venue reports instead of refusing on
-        #     ticker alone: until then a market Joe had EXITED still refused
-        #     re-entry, because the bare endpoint returns zero-quantity rows
-        #     for every market ever traded. A row too unreadable to name a
-        #     ticker, or naming this ticker with a quantity that will not
-        #     parse, still refuses — unreadable resolves to a refusal, never
-        #     to zero.
-        #
-        #     **And the read is stamped, because it is a real one.**
-        #     `poll_log` means "the venue was asked and this is what it
-        #     said", and this asked the venue — so throwing the observation
-        #     away (which this route did until 2026-08-29) left the
-        #     open-positions count claiming to be older than the newest read
-        #     actually taken. What the stamp does NOT establish, and the
-        #     reason it supplements `portfolio_poll.poll_positions` and never
-        #     substitutes for it: it is taken BEFORE the order, so it does
-        #     not include the bet being placed, and it fires only when Joe
-        #     bets — a night with no taps leaves no row here at all. It is
-        #     also not derived from anything local; a synthetic row would
-        #     poison three registered tripwires and the daily-loss kill
-        #     switch, which `odds/sweeplog.py` refuses for the same reason.
-        positions_read_ms = db.now_ms()
-        try:
-            position_rows = await live_quotes().portfolio_positions()
-        except (ConfigError, QuoteUnavailable) as exc:
-            await _stamp_positions_read(
-                app_config.db_path,
-                now_ms=positions_read_ms,
-                ok=False,
-                error=repr(exc),
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"could not read your open positions, so 'this buy does "
-                    f"not close an existing position' cannot be verified: "
-                    f"{exc}. Kalshi nets — refusing rather than guessing."
-                ),
-            ) from exc
-        await _stamp_positions_read(
-            app_config.db_path,
-            now_ms=positions_read_ms,
-            ok=True,
-            row_count=len(position_rows),
-        )
-        for row in position_rows:
-            row_ticker = row.get("ticker") if isinstance(row, dict) else None
-            if row_ticker is None:
+            ticker = request.ticker.strip().upper()
+
+            # 4.
+            refusal_ctx.update(check=4, name="structural_ceilings")
+            combo = _is_combo(ticker)
+            if combo and not request.combo_acknowledged:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "a position row came back too unreadable to name a "
-                        "ticker, so 'this buy does not close an existing "
-                        "position' cannot be verified. Refusing rather than "
-                        "guessing."
+                        "combination (KXMVE) markets need the acknowledgement "
+                        "before this door opens: every combination book this "
+                        "repo has ever read had NO YES BID — 40 of 40, across "
+                        "three runs on two dates — so you can enter and you "
+                        "cannot exit (ADR 0012 §5). The fee model also "
+                        "undercharges on combos (ADR 0046); a hedged coefficient "
+                        "prices this order and it is not a measurement of what "
+                        "Kalshi charges. Send `combo_acknowledged` only if that "
+                        "is the bet you mean to make."
                     ),
                 )
-            if row_ticker != ticker:
-                continue
-            quantity = parse_position_fp(row.get("position_fp"))
-            if quantity is None:
+            # **The STRUCTURAL ceilings, not the binding one.** What bounds the
+            # bet is money (check 9); these stop a market priced at a tenth of a
+            # cent turning a few dollars into a count that moves a thin book on
+            # its own. A combination is held tighter because the deepest resting
+            # bid this repo has ever measured on one was 18 units (ADR 0012 §5),
+            # so a far larger count could not fill anyway.
+            if combo and request.contracts > COMBO_MAX_CONTRACTS:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "the venue reports a row for this market but its "
-                        "quantity would not parse, so whether you already "
-                        "hold a position here cannot be verified. Refusing "
-                        "rather than guessing."
+                        f"a combination order is capped at "
+                        f"{COMBO_MAX_CONTRACTS} contracts on this path, against "
+                        f"an order for {request.contracts}. Combination books are "
+                        f"enter-only and the deepest resting bid ever measured "
+                        f"here was 18 units, so a larger count could not fill. "
+                        f"What bounds the BET is the ${max_spend_dollars():.2f} "
+                        f"spend cap, checked below."
                     ),
                 )
-            if quantity != 0:
+            if request.contracts > MANUAL_ORDER_MAX_CONTRACTS:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "you already hold a position this order could net "
-                        "against. Kalshi nets buys against opposite "
-                        "holdings, and this record must not book a close as "
-                        "an open. Manage the existing position in the "
-                        "Kalshi app first."
+                        f"this path is capped at {MANUAL_ORDER_MAX_CONTRACTS} "
+                        f"contracts, against an order for {request.contracts}. "
+                        f"That is a structural ceiling, not the bet size: what "
+                        f"bounds the bet is the ${max_spend_dollars():.2f} spend "
+                        f"cap and the cap derived from your balance, whichever is "
+                        f"tighter."
                     ),
                 )
 
-        # 11. ADR 0018's SECOND barrier, wired here rather than left for the
-        #     arming commit to remember: `OrderPlacer.__init__` refuses when
-        #     `dry_run` is False and no REST client was passed, so flipping
-        #     the constant alone produces a 503 and not an order. The client
-        #     is the app's one shared `KalshiRestClient` (`combo_api`), built
-        #     on first use and closed in the lifespan — never a second one
-        #     per request, which would cost a PEM re-parse and an SSL setup
-        #     on the request that spends money.
-        #
-        #     Built ONLY when the path is armed. `combo_api()` calls
-        #     `KalshiConfig.load()`, which raises on a keyless instance, and
-        #     a dry run must keep working everywhere it works today.
-        placer_rest = None
-        if not manual_store.MANUAL_ORDERS_ARE_DRY_RUNS:
+            # 5.
+            refusal_ctx.update(check=5, name="daily_loss_switch")
+            daily_pnl = bets_module.venue_daily_realised_pnl_dollars(
+                conn, now_ms=now, day_start_hour=odds.budget_day_start_utc_hour
+            )
+            if daily_pnl is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "today's realised P&L cannot be read (the venue mirror "
+                        "is stale or unpolled), so the daily-loss switch cannot "
+                        "be applied. Refusing — 'cannot read the losses' must "
+                        "never resolve to 'no losses' (ADR 0064)."
+                    ),
+                )
+
+            # 6.
+            refusal_ctx.update(check=6, name="derived_caps")
+            risk_now = risk
+            if risk.underived:
+                risk_now = risk.with_observed_balance(db.latest_balance_tenths(conn))
+            if (
+                risk_now is None
+                or risk_now.max_position_dollars is None
+                or risk_now.max_exposure_dollars is None
+                or risk_now.max_daily_loss_dollars is None
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "the account balance has never been observed, so no cap "
+                        "can be derived. Refusing — 'cannot determine the "
+                        "bankroll' must never resolve to a typed default."
+                    ),
+                )
+            if daily_pnl <= -abs(risk_now.max_daily_loss_dollars):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"the daily-loss switch has fired: ${daily_pnl:.2f} "
+                        f"realised today against a "
+                        f"${risk_now.max_daily_loss_dollars:.2f} line. No more "
+                        f"buys today, through this door."
+                    ),
+                )
+
+            # 7.
+            refusal_ctx.update(check=7, name="live_quote_and_ceiling")
             try:
-                placer_rest = combo_api()
+                quote = await live_quotes().fetch(ticker, observed_ms=now)
             except ConfigError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except QuoteUnavailable as exc:
+                raise HTTPException(
+                    status_code=404 if exc.permanent else 503, detail=str(exc)
+                ) from exc
+            ask = _tradeable_ask(quote.ask_tenths(request.side))
+            refusal_ctx["ask_tenths"] = ask
+            if ask is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"no live ask on the {request.side} side — there is no "
+                        f"price to buy at. An empty book does not report 'no ask'; "
+                        f"it reports the endpoint (a 0c or 100c derived ask), and "
+                        f"neither is a price anyone can pay."
+                    ),
+                )
+            if ask > request.max_price_tenths:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"the live ask is {format_price(ask)}, above your "
+                        f"{format_price(request.max_price_tenths)} ceiling. "
+                        f"Refused, never re-priced — raise the ceiling only if "
+                        f"you still want it at the new price."
+                    ),
+                )
+            if quote.price_grid is None:
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        f"the manual path is armed but this instance holds "
-                        f"no Kalshi credentials: {exc}. Nothing was sent."
+                        "the live payload carried no readable price grid; "
+                        "refusing rather than assuming whole cents."
+                    ),
+                )
+
+            # 8.
+            refusal_ctx.update(check=8, name="depth_at_ask")
+            depth = quote.depth_at_ask(request.side)
+            if depth is None or depth < request.contracts:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"only {0 if depth is None else int(depth)} contracts "
+                        f"rest at the ask against an order for "
+                        f"{request.contracts}. An IOC for more than the book "
+                        f"holds part-fills at best."
+                    ),
+                )
+
+            # 9. Build at the live ask (bounded by the ceiling above), IOC.
+            refusal_ctx.update(check=9, name="per_bet_cap")
+            try:
+                order = OrderRequest(
+                    ticker=ticker,
+                    side=request.side,
+                    action="buy",
+                    count=request.contracts,
+                    limit_price_tenths=ask,
+                    price_grid=quote.price_grid,
+                    time_in_force="immediate_or_cancel",
+                )
+            except OrderRefused as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            worst_case = _manual_worst_case_dollars(order, combo=combo)
+            if worst_case is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "the fee on this order could not be computed, so its "
+                        "worst-case cost cannot be checked against your per-bet "
+                        "cap. Refusing — an unreadable fee must never resolve to "
+                        "no fee."
+                    ),
+                )
+            # **The binding check, and it names WHICH bound it hit.** Two
+            # independent ceilings -- 10% of the observed balance (ADR 0045) and
+            # the spend cap -- and the tighter wins. "$3 cap" and "your balance
+            # only supports $0.54" are different problems with different remedies,
+            # and a refusal that does not say which one sends the reader to fix
+            # the wrong thing.
+            cap_dollars, binding = _manual_cap_dollars(risk_now)
+            if worst_case > cap_dollars:
+                reason = (
+                    f"the ${max_spend_dollars():.2f} cap this path is set to"
+                    if binding == "spend"
+                    else (
+                        f"the ${cap_dollars:.2f} per-bet cap derived from your "
+                        f"balance (10% of it, never a number you type)"
+                    )
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{request.contracts} contracts at {format_price(ask)} "
+                        f"costs at most ${worst_case:.2f}, over {reason}."
+                    ),
+                )
+
+            # 10. A LIVE positions read, not the 12-hour mirror. The per-row
+            refusal_ctx.update(check=10, name="netting_guard")
+            #     shape was observed 2026-08-30 (`position_fp`, a fixed-point
+            #     string, fractional — see `rest.positions()`), so the guard
+            #     compares the quantity the venue reports instead of refusing on
+            #     ticker alone: until then a market Joe had EXITED still refused
+            #     re-entry, because the bare endpoint returns zero-quantity rows
+            #     for every market ever traded. A row too unreadable to name a
+            #     ticker, or naming this ticker with a quantity that will not
+            #     parse, still refuses — unreadable resolves to a refusal, never
+            #     to zero.
+            #
+            #     **And the read is stamped, because it is a real one.**
+            #     `poll_log` means "the venue was asked and this is what it
+            #     said", and this asked the venue — so throwing the observation
+            #     away (which this route did until 2026-08-29) left the
+            #     open-positions count claiming to be older than the newest read
+            #     actually taken. What the stamp does NOT establish, and the
+            #     reason it supplements `portfolio_poll.poll_positions` and never
+            #     substitutes for it: it is taken BEFORE the order, so it does
+            #     not include the bet being placed, and it fires only when Joe
+            #     bets — a night with no taps leaves no row here at all. It is
+            #     also not derived from anything local; a synthetic row would
+            #     poison three registered tripwires and the daily-loss kill
+            #     switch, which `odds/sweeplog.py` refuses for the same reason.
+            positions_read_ms = db.now_ms()
+            try:
+                position_rows = await live_quotes().portfolio_positions()
+            except (ConfigError, QuoteUnavailable) as exc:
+                await _stamp_positions_read(
+                    app_config.db_path,
+                    now_ms=positions_read_ms,
+                    ok=False,
+                    error=repr(exc),
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"could not read your open positions, so 'this buy does "
+                        f"not close an existing position' cannot be verified: "
+                        f"{exc}. Kalshi nets — refusing rather than guessing."
                     ),
                 ) from exc
-        try:
-            placer = OrderPlacer(
-                rest=placer_rest,
-                dry_run=manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
+            await _stamp_positions_read(
+                app_config.db_path,
+                now_ms=positions_read_ms,
+                ok=True,
+                row_count=len(position_rows),
             )
-        except OrderRefused as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            for row in position_rows:
+                row_ticker = row.get("ticker") if isinstance(row, dict) else None
+                if row_ticker is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "a position row came back too unreadable to name a "
+                            "ticker, so 'this buy does not close an existing "
+                            "position' cannot be verified. Refusing rather than "
+                            "guessing."
+                        ),
+                    )
+                if row_ticker != ticker:
+                    continue
+                quantity = parse_position_fp(row.get("position_fp"))
+                if quantity is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "the venue reports a row for this market but its "
+                            "quantity would not parse, so whether you already "
+                            "hold a position here cannot be verified. Refusing "
+                            "rather than guessing."
+                        ),
+                    )
+                if quantity != 0:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "you already hold a position this order could net "
+                            "against. Kalshi nets buys against opposite "
+                            "holdings, and this record must not book a close as "
+                            "an open. Manage the existing position in the "
+                            "Kalshi app first."
+                        ),
+                    )
+
+            # 11. ADR 0018's SECOND barrier, wired here rather than left for the
+            refusal_ctx.update(check=11, name="placer_arming")
+            #     arming commit to remember: `OrderPlacer.__init__` refuses when
+            #     `dry_run` is False and no REST client was passed, so flipping
+            #     the constant alone produces a 503 and not an order. The client
+            #     is the app's one shared `KalshiRestClient` (`combo_api`), built
+            #     on first use and closed in the lifespan — never a second one
+            #     per request, which would cost a PEM re-parse and an SSL setup
+            #     on the request that spends money.
+            #
+            #     Built ONLY when the path is armed. `combo_api()` calls
+            #     `KalshiConfig.load()`, which raises on a keyless instance, and
+            #     a dry run must keep working everywhere it works today.
+            placer_rest = None
+            if not manual_store.MANUAL_ORDERS_ARE_DRY_RUNS:
+                try:
+                    placer_rest = combo_api()
+                except ConfigError as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            f"the manual path is armed but this instance holds "
+                            f"no Kalshi credentials: {exc}. Nothing was sent."
+                        ),
+                    ) from exc
+            try:
+                placer = OrderPlacer(
+                    rest=placer_rest,
+                    dry_run=manual_store.MANUAL_ORDERS_ARE_DRY_RUNS,
+                )
+            except OrderRefused as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        except HTTPException as exc:
+            # Forensics beside the refusal, never in its way: the
+            # recorder runs on a throwaway connection, falls back to a
+            # journal line, and swallows its own errors -- and even a
+            # recorder that blows up entirely must leave the 4xx
+            # standing, not convert it into a 500.
+            try:
+                await run_in_threadpool(
+                    manual_store.record_refusal_durably,
+                    app_config.db_path,
+                    created_ms=db.now_ms(),
+                    check_number=refusal_ctx["check"],
+                    check_name=refusal_ctx["name"],
+                    http_status=exc.status_code,
+                    detail=str(exc.detail),
+                    ticker=request.ticker.strip().upper(),
+                    side=request.side,
+                    requested_contracts=request.contracts,
+                    max_price_tenths=request.max_price_tenths,
+                    idempotency_key=request.idempotency_key,
+                    ask_tenths=refusal_ctx.get("ask_tenths"),
+                )
+            except Exception:  # noqa: BLE001 -- the refusal outranks its record
+                logger.exception("refusal recording raised; the 4xx stands")
+            raise
 
         submitted_ms = db.now_ms()
         try:
