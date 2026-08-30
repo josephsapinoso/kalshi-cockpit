@@ -2928,3 +2928,21 @@ class TestH4SpansAreUnwindowedAndUnjoined:
         for section in payload["sections"]:
             for col in section["columns"]:
                 assert "delta" not in col and "diff" not in col
+
+
+class TestTheCandidateScanCopyDoesNotDrift:
+    """The inspector's copy of the parlay candidate SQL is byte-identical.
+
+    Same convention as `_ACTIONABLE_PREDICATE`, and for the same reason: this
+    script imports nothing from `backend`, because `python /app/scripts/...`
+    puts `/app/scripts` on `sys.path` and not `/app`. Two copies of one
+    statement is the drift `tasks/lessons.md` records -- and a query plan
+    measured for SQL nobody runs is worse than no plan at all, because it
+    reads as evidence.
+    """
+
+    def test_the_copy_matches_the_statement_the_route_runs(self):
+        from backend.parlays import CANDIDATE_SQL
+        from scripts.inspect_live_db import _SQL_PARLAY_CANDIDATES
+
+        assert _SQL_PARLAY_CANDIDATES == CANDIDATE_SQL

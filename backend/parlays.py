@@ -236,27 +236,12 @@ def end_of_desk_day_ms(now_ms: int) -> int:
     return int(rollover.timestamp() * 1000)
 
 
-def ladder_candidates(
-    conn, *, now_ms: int, max_odds_age_ms: Optional[int] = None
-) -> tuple[list[CandidateLeg], dict[str, int]]:
-    """Every buyable YES side with a fresh-enough-to-consider consensus.
-
-    Pre-game only AND tonight only, by the sportsbook's clock
-    (`MIN(odds_snapshots.commence_ms)` per fixture — the scorer's own
-    definition; Kalshi's `commence_ms` runs three hours late and is never read
-    here). The upper bound is `end_of_desk_day_ms`: a parlay settles when its
-    last leg does, and Joe's rule is that his finish out with the evening
-    games. Freshest `fair_prices` row per
-    (link, market, outcome, point). Freshness itself is judged in
-    `build_ladder`; this function only refuses what can never be a leg.
-
-    `max_odds_age_ms` is not a filter here — it only widens the scan floor so
-    the query can never be tighter than the freshness rule the caller will
-    apply. Pass the same value you pass `build_ladder`.
-    """
-    horizon_ms = max(_CANDIDATE_SCAN_FLOOR_MS, max_odds_age_ms or 0)
-    rows = conn.execute(
-        """
+#: The candidate scan, as a module constant so an instrument can time and
+#: EXPLAIN **this** statement rather than a copy of it that drifted.
+#: `scripts/inspect_live_db.py parlay-candidates-timing` imports it; a
+#: second transcription in that file is how a plan gets measured for SQL
+#: nobody runs.
+CANDIDATE_SQL = """
         SELECT computed_ms, market, outcome_name, outcome_point,
                outcome_description,
                p_multiplicative, p_additive, p_power, p_shin,
@@ -338,8 +323,30 @@ def ladder_candidates(
         )
         WHERE rn = 1
         ORDER BY computed_ms DESC
-        """,
-        (now_ms - horizon_ms, now_ms),
+        """
+
+
+def ladder_candidates(
+    conn, *, now_ms: int, max_odds_age_ms: Optional[int] = None
+) -> tuple[list[CandidateLeg], dict[str, int]]:
+    """Every buyable YES side with a fresh-enough-to-consider consensus.
+
+    Pre-game only AND tonight only, by the sportsbook's clock
+    (`MIN(odds_snapshots.commence_ms)` per fixture — the scorer's own
+    definition; Kalshi's `commence_ms` runs three hours late and is never read
+    here). The upper bound is `end_of_desk_day_ms`: a parlay settles when its
+    last leg does, and Joe's rule is that his finish out with the evening
+    games. Freshest `fair_prices` row per
+    (link, market, outcome, point). Freshness itself is judged in
+    `build_ladder`; this function only refuses what can never be a leg.
+
+    `max_odds_age_ms` is not a filter here — it only widens the scan floor so
+    the query can never be tighter than the freshness rule the caller will
+    apply. Pass the same value you pass `build_ladder`.
+    """
+    horizon_ms = max(_CANDIDATE_SCAN_FLOOR_MS, max_odds_age_ms or 0)
+    rows = conn.execute(
+        CANDIDATE_SQL, (now_ms - horizon_ms, now_ms)
     ).fetchall()
 
     excluded: dict[str, int] = {}
