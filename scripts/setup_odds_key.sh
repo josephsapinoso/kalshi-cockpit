@@ -240,7 +240,7 @@ probe_key() {
 
 TOTAL_STAGES=4
 
-banner "The Odds API — install the 20K key"
+banner "The Odds API — install or rotate the 20K key"
 
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage "Paste the key, and prove it works"
@@ -331,9 +331,16 @@ fi
 
 say ""
 say "Next, and not done by this script:"
-note "  - ODDS_DAILY_CREDIT_BUDGET is still 16 in fly.live.toml. Raising it"
-note "    needs a deploy, which is a separate step."
-note "  - Watch the next full pass: the 'sweep decision' line should stop"
-note "    saying 'not enough for another 6-credit call'."
+note "  - REVOKE THE OLD KEY at https://the-odds-api.com/account/ once you have"
+note "    seen a sweep succeed on the new one. Until you do, both are live and"
+note "    the compromised one still spends your quota."
+note "  - Watch the next sweep land:"
+note "      python scripts/inspect_live_db.py credits-day"
+note "    Calls should resume, and the sweep log should carry no 401s."
+note "  - The budget needs no change. fly.live.toml has carried"
+note "    ODDS_DAILY_CREDIT_BUDGET = 700 since 2026-08-23, with the attention"
+note "    slice at 300. An earlier version of this note said 16 and told you to"
+note "    raise it; that was true when this wizard was written for the first"
+note "    install and has been false since."
 
 finish
