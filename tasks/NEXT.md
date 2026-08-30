@@ -361,9 +361,33 @@ and `candidate_rows` is flat, the WAL is the whole story.
 
 ### Open, in priority order
 
-1. **Deploy.** Not done deliberately: a schema migration and the instrument
-   built to diagnose the WAL cannot ship to that box in one act. Needs a clean
-   tree and someone watching.
+1. ~~Deploy.~~ **DONE 2026-08-30T01:53Z at Joe's call.** `fe239d6` is live and
+   `/api/health` reports that sha. Schema v28 applied -- proven functionally by
+   `manual-orders-audit` running, since it selects the new columns. The
+   per-pass instrument is writing `wal_kb`, `db_kb`, `candidate_rows`,
+   `candidate_ms`, `leg_price_link_ms`, `leg_store_quotes_ms`, and the reader
+   parses the old rows beside the new ones as designed.
+
+   **Two findings the deploy produced, both bigger than the deploy.**
+
+   **(a) `manual_orders` has ZERO rows. Not thin -- empty.** No hand bet has
+   ever been placed through the desk, in the four days since
+   `MANUAL_ORDERS_ARE_DRY_RUNS = False` on 2026-08-26. `first_submitted_ms` is
+   NULL. Meanwhile `venue_settlements` and `fills` carry real rows tagged
+   `venue_hand` -- so Joe bets, in the Kalshi app, not through this. The armed
+   buy path is built-but-never-called at the USER level rather than the code
+   level, which is the same defect this repo has been caught by four times
+   wearing different clothes. It also settles the dashboard question: there was
+   never anything to put on a screen.
+
+   **(b) The restart reset the WAL, and that is the measurement's baseline.**
+   It was 220MiB before the deploy and is 14.4MiB minutes after it, with
+   `wal_kb: 4` on the first pass. So the 220MiB is growth over uptime, and
+   every container death has been silently resetting it. That is consistent
+   with the WAL being a CAUSE of the slowdown that precedes a death rather
+   than a symptom of it -- and it means the clean curve from ~0 is now being
+   recorded for the first time. **Do not checkpoint or VACUUM.** Let it grow
+   and read `wal_kb` against `leg_store_quotes_ms`.
 2. **Read the WAL series** once deployed, then intervene.
 3. ~~`ODDS_API_KEY` rotation~~ — **DONE 2026-08-30T01:44Z, verified.** Joe
    rotated at the vendor (which kills the old key on regeneration) and ran
