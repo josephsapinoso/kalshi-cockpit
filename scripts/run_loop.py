@@ -116,6 +116,7 @@ from backend.parlays import (  # noqa: E402
     combo_eligibility_is_due,
     refresh_combo_eligibility,
 )
+from backend.bid_watch import watch_bids_forever  # noqa: E402
 from backend.hedge_watch import watch_hedges_forever  # noqa: E402
 from backend.kalshi.quotes import LiveQuoteSource  # noqa: E402
 from backend.runner import run_once, run_quote_pass  # noqa: E402
@@ -989,6 +990,23 @@ async def main() -> int:
             name="hedge-watch",
         )
 
+        # **The deadline on a resting bid is only real because this runs.**
+        # `combo_orders.cancel_after_ms` is the earliest leg's kickoff, frozen
+        # when the bid was placed; without a loop reading it, it is a column
+        # nothing consults -- the "built but never called" failure this repo
+        # has recorded four times. A fill after kickoff is a bet on a game
+        # under way at a price computed before it started, and a combination
+        # gives no way out of one.
+        #
+        # A factory rather than a client, for the reason the hedge watcher
+        # takes one: this task owns the only connection it may use, and a
+        # Kalshi client built eagerly would take a keyless instance down for a
+        # feature it does not expose.
+        bid_task = asyncio.create_task(
+            watch_bids_forever(args.db, lambda: KalshiRestClient(kalshi_config)),
+            name="bid-watch",
+        )
+
         def window_now():
             """The window as of *this instant*, from one expression.
 
@@ -1415,6 +1433,12 @@ async def main() -> int:
             hedge_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await hedge_task
+            # Cancelled with the rest for the same reason: `entrypoint.sh`
+            # tears the container down when the runner exits, and a watcher
+            # outliving a dead runner would hold the database half-alive.
+            bid_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await bid_task
             await hedge_quotes.aclose()
             log.info(
                 "loop state at exit: %s tempo: %s", state.as_dict(), tempo.as_dict()

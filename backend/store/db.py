@@ -46,7 +46,9 @@ from ..core.prices import is_valid_price
 #: v29 (2026-08-30) adds `manual_order_refusals` -- a pure new table, so no
 #: migration step; it joins `_TABLELESS_VERSIONS` below. Allocated on `main`
 #: in the merge window per the v23 lesson above.
-SCHEMA_VERSION = 29
+#: v30 (2026-08-30) adds `combo_orders` -- the resting bids the desk places on
+#: a combination market (ADR 0084). Also a pure new table, so also tableless.
+SCHEMA_VERSION = 30
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -655,8 +657,9 @@ _QUANTITIES_ARE_REAL_UNDO = (
 #: the two places.
 #:
 #: - v22 `loop_failures`, v23 `parlay_card_candidates`, v24 the hedge tables,
-#:   v27 `combo_eligible_events`, v29 `manual_order_refusals`.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29)
+#:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
+#:   v30 `combo_orders`.
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

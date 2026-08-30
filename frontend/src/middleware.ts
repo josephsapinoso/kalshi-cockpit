@@ -48,6 +48,12 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/lockout",
   "/pass",
   "/parlay-lookup",
+  // Both spend-adjacent: `/parlay-bid` rests a real bid, `/parlay-bid-cancel`
+  // takes it back. Exact-match handlers, which is why the cancel carries its
+  // id in the body rather than the path -- a dynamic segment would miss this
+  // set and fall through to the HTML login redirect a fetch reads as success.
+  "/parlay-bid",
+  "/parlay-bid-cancel",
   "/desk-attention",
   "/hedge-position",
   "/hedge-resolve",

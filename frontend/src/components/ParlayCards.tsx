@@ -13,6 +13,8 @@ import LeagueTag from "@/components/LeagueTag";
 import ParlayDifficulty from "@/components/ParlayDifficulty";
 import ManualTicket from "@/components/ManualTicket";
 import PriceOnKalshi from "@/components/PriceOnKalshi";
+import RestingBid from "@/components/RestingBid";
+import RestingBids from "@/components/RestingBids";
 import RefreshWhenPriced from "@/components/RefreshWhenPriced";
 import { anAutomaticBuyIsComing } from "@/lib/nextOddsWindow";
 import StaleOddsExit from "@/components/StaleOddsExit";
@@ -63,6 +65,13 @@ export default function ParlayCards({
 }) {
   return (
     <div className="space-y-8">
+      {/*
+        ABOVE the cards, deliberately. A bid already standing in his name is
+        money at risk right now; a card is a thing he might buy. The panel
+        renders nothing at all when there are none, so it costs the cards no
+        space on the ordinary day.
+      */}
+      <RestingBids />
       <div className="grid gap-6 lg:grid-cols-3">
         {ladder.cards.map((card) => (
           <Card key={card.key} card={card} />
@@ -162,6 +171,13 @@ function Card({ card }: { card: ParlayCardData }) {
           )}
           <Stakes card={card} />
           <PriceOnKalshi card={card} />
+          {/*
+            Below the price read, above the leg-by-leg buys. The order is the
+            argument: see what Kalshi charges, then decide what YOU will pay,
+            then -- only if the combination is not what you wanted -- buy the
+            legs separately, which is a different bet.
+          */}
+          <RestingBid card={card} />
           <LegBuys card={card} />
         </>
       )}

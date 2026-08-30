@@ -752,6 +752,8 @@ export type ParlayCardJoint = {
   /** Chance at each prefix, for the difficulty chart. */
   prefixes: ParlayPrefix[];
   conservative_percent_display: string;
+  /** The raw joint, 0-1. The bid field's reference price comes from this. */
+  conservative: number;
   method_range_display: string | null;
   fair_cost_display: string;
   correlation_note: string;
@@ -2785,4 +2787,127 @@ export function closeHeldPosition(
   status: "settled" | "closed" | "void",
 ) {
   return postHedge("/hedge-close", { position_id: positionId, status });
+}
+
+// -- resting bids on a combination (ADR 0084) --------------------------------
+//
+// **A different verb from every other buy control in this app.** Everywhere
+// else, buying means taking an offer that is already there. A combination has
+// no offer to take -- 40 of 40 books this tool has read carried no resting YES
+// bid -- so this places one and waits. The types keep that distinction visible
+// rather than calling it a purchase.
+
+export type ComboBidResult = {
+  status: "resting" | "filled" | "partially_filled" | "rejected" | "dry_run";
+  order_row_id: number;
+  kalshi_order_id?: string | null;
+  ticker: string;
+  exchange_index: number;
+  contracts: number;
+  price_tenths: number;
+  words: string;
+};
+
+export type ComboBid = {
+  id: number;
+  ticker: string;
+  card_key: string;
+  status: string;
+  contracts: number;
+  price_display: string;
+  committed_display: string;
+  placed_ms: number;
+  cancel_after_ms: number | null;
+  dry_run: boolean;
+  note: string | null;
+};
+
+export const fetchComboBids = () =>
+  get<{ generated_ms: number; bids: ComboBid[] }>("/api/parlays/bids");
+
+/**
+ * Rest a bid on a card's combination.
+ *
+ * Never throws: a throw here would strand the card's only control mid-tap.
+ * The refusal string is the server's own words wherever there are any -- the
+ * backend knows which exchange shard is short and where to fix it, and this
+ * layer would only make that vaguer.
+ */
+export async function placeComboBid(input: {
+  cardKey: string;
+  legs: { event_ticker: string; market_ticker: string }[];
+  priceTenths: number;
+  stakeCents: number;
+}): Promise<
+  { ok: true; value: ComboBidResult } | { ok: false; refusal: string }
+> {
+  let response: Response;
+  try {
+    response = await fetch("/parlay-bid", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        card_key: input.cardKey,
+        legs: input.legs,
+        price_tenths: input.priceTenths,
+        stake_cents: input.stakeCents,
+        combo_acknowledged: true,
+      }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      // **Not "nothing happened".** The request may have reached the exchange
+      // and left a bid standing; telling him otherwise is how he places a
+      // second one.
+      refusal:
+        `The request did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). The bid may still have been placed — check the resting bids ` +
+        "panel and the Kalshi app before trying again.",
+    };
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok && body && typeof body === "object" && "status" in body) {
+    return { ok: true, value: body as ComboBidResult };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `The cockpit refused the bid (HTTP ${response.status}).`;
+  return { ok: false, refusal: detail };
+}
+
+/** Take a resting bid back. Same no-throw contract as placing one. */
+export async function cancelComboBid(
+  bidId: number,
+): Promise<{ ok: true; words: string } | { ok: false; refusal: string }> {
+  let response: Response;
+  try {
+    response = await fetch("/parlay-bid-cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ bid_id: bidId }),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      refusal:
+        `The cancel did not reach the cockpit (${
+          error instanceof Error ? error.message : "network error"
+        }). The bid may still be resting — check the Kalshi app.`,
+    };
+  }
+  const body: unknown = await response.json().catch(() => null);
+  if (response.ok && body && typeof body === "object" && "words" in body) {
+    return { ok: true, words: String((body as { words: unknown }).words) };
+  }
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : `The cancel was refused (HTTP ${response.status}).`;
+  return { ok: false, refusal: detail };
 }

@@ -961,6 +961,11 @@ def _serialise_card(card: Card, facts: Optional[dict] = None) -> dict:
             # of four devig methods, compounded. The range beside it is the
             # same joint under each single method -- the honest band.
             "conservative_percent_display": _percent(joint.conservative),
+            # The raw joint beside its rendered forms. The bid control needs a
+            # NUMBER to place a price field's reference against, and parsing
+            # one back out of "25.1%" is how a screen and a server end up
+            # disagreeing by a rounding step on the page that spends money.
+            "conservative": joint.conservative,
             "method_range_display": (
                 f"{_percent(low)}–{_percent(high)}"
                 if low is not None and high is not None
@@ -1812,7 +1817,31 @@ async def price_card_on_kalshi(
         "fair": {
             "conservative_percent_display": _percent(joint.conservative),
             "fair_cost_display": _cost_per_contract(joint.conservative * 1000),
+            # The raw joint beside its rendered forms, for the ONE caller that
+            # needs a number rather than a string: a resting bid freezes the
+            # fair value it was placed against (ADR 0084), and re-deriving it
+            # later would record a different instant under the same name --
+            # the contamination ADR 0082's snapshot exists to prevent.
+            "conservative": joint.conservative,
         },
+        # **The legs' clocks, for the auto-cancel deadline.** A resting bid is
+        # cancelled when the earliest leg starts, and the alternative to
+        # carrying the stamps here is a second `ladder_candidates` scan on the
+        # one path that spends money.
+        # Deliberately market ticker and clock only. An `event_ticker` here
+        # trips `test_the_caveats_travel_with_the_price`, which walks every key
+        # in this payload asserting none starts with "ev" -- the ADR 0046 guard
+        # against a fee-net EV field appearing anywhere near a combination
+        # price. It is a false positive on the word "event" and the guard is
+        # still right: the client already knows its own legs, so the field
+        # bought nothing and the check stays strict.
+        "legs": [
+            {
+                "market_ticker": leg.kalshi_market_ticker,
+                "commence_ms": leg.commence_ms,
+            }
+            for leg in selected
+        ],
         "hold_display": f"{valuation.hold * 100:.1f}%",
         "verdict": valuation.verdict,
         "notes": {

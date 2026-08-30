@@ -64,6 +64,7 @@ from ..core.ev import breakeven_win_rate, edge_after_fees_tenths
 from ..core.fees import combo_taker_fee
 from ..core.prices import (
     PRICE_MAX,
+    format_dollars,
     format_price,
     format_probability,
     is_valid_price,
@@ -108,6 +109,13 @@ from ..odds.timing import (
     window_status,
 )
 from ..parlays import LookupRefused, build_ladder_payload, price_card_on_kalshi
+from ..combo_bids import place_resting_bid
+from ..store.combo_orders import (
+    TERMINAL_STATUSES as TERMINAL_COMBO_STATUSES,
+    ComboOrderRefused,
+    record_cancel as record_combo_cancel,
+    working_orders as working_combo_bids,
+)
 from ..portfolio_poll import log_poll_attempt
 from ..playbook import read_playbook
 from ..runner import book_quotes_for_event
@@ -349,6 +357,46 @@ class ParlayRequest(BaseModel):
 class ParlayLookupLeg(BaseModel):
     event_ticker: str
     market_ticker: str
+
+
+class ComboBidRequest(BaseModel):
+    """One resting bid on a card's combination (ADR 0084).
+
+    **`price_tenths` is Joe's own number and is never re-priced.** A
+    combination book has no offer to hit -- 40 of 40 books this repo has read
+    carried no resting YES bid -- so this order becomes the offer, and the
+    price it rests at is a choice rather than a quote. The server snaps it to
+    the venue's grid and refuses anything the grid cannot express; it does not
+    move it towards fair value in either direction.
+
+    `acknowledgement` is typed through before the confirm unlocks, the same
+    friction the hand-bet ticket carries (ADR 0073): this is the first order
+    shape in the repo that can fill while nobody is watching.
+    """
+
+    card_key: str
+    legs: list[ParlayLookupLeg] = Field(min_length=2)
+    #: Tenths of a cent, the project's unit everywhere in the risk path.
+    price_tenths: int = Field(gt=0, lt=1000)
+    #: What he is willing to commit if the whole bid is taken, in cents.
+    stake_cents: int = Field(gt=0, le=1000)
+    #: The same field, the same default and the same reason as
+    #: `ManualOrderRequest.combo_acknowledged`: a client that has never heard
+    #: of combinations refuses one rather than resting a bid on it silently.
+    #: Every bid this route can place is on a combination, so it is never
+    #: optional here.
+    combo_acknowledged: bool = False
+
+
+class ComboBidCancelRequest(BaseModel):
+    """Take one resting bid back. The row id, not the venue's order id.
+
+    The desk's own id is the addressable one because the row exists before the
+    request leaves: a bid whose create timed out has a row and no
+    `kalshi_order_id`, and that is exactly the bid most in need of cancelling.
+    """
+
+    reason: str = "cancelled from the desk"
 
 
 class ParlayLookupRequest(BaseModel):
@@ -2758,6 +2806,189 @@ def create_app(
             raise HTTPException(
                 status_code=exc.status_code, detail=exc.detail
             ) from exc
+        finally:
+            write_conn.close()
+
+    @app.post("/api/parlays/bid", dependencies=[Depends(require_auth)])
+    async def parlay_bid(request: ComboBidRequest) -> dict:
+        """Rest a bid on this card's combination at Joe's chosen price.
+
+        The desk's one control that commits money to a combination, and it
+        rests rather than buys because there is nothing to buy: no combination
+        book this repo has read carried a resting YES bid (ADR 0012 section 5).
+
+        Refusals are words, and the one that matters most is the shard: Kalshi
+        keeps collateral per exchange shard and will not move it for an order,
+        so a $2 bid against a $21 account is refused when the combinations
+        shard holds a penny. The venue says `insufficient_balance`; the desk
+        says which shard, how much is on it, and where to fix it.
+        """
+        if not request.combo_acknowledged:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "a combination is enter-only: every combination book this "
+                    "repo has read had no YES bid on the other side, 40 of 40, "
+                    "so the only exit is the outcome. The fee model is "
+                    "unverified (ADR 0046). Send `combo_acknowledged` only if "
+                    "that is understood."
+                ),
+            )
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        now = db.now_ms()
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            return await place_resting_bid(
+                write_conn,
+                card_key=request.card_key,
+                requested_legs=[
+                    (l.event_ticker, l.market_ticker) for l in request.legs
+                ],
+                price_tenths=request.price_tenths,
+                stake_tenths=request.stake_cents * 10,
+                now_ms=now,
+                max_odds_age_ms=staleness.max_odds_age_s * 1000,
+                api=api,
+            )
+        except ComboOrderRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        except LookupRefused as exc:
+            raise HTTPException(
+                status_code=exc.status_code, detail=exc.detail
+            ) from exc
+        finally:
+            write_conn.close()
+
+    @app.get("/api/parlays/bids")
+    def parlay_bids(conn=Depends(get_conn)) -> dict:
+        """Every resting bid that is or might still be working.
+
+        Unauthenticated for the reason `/api/parlays` is: it reads the desk's
+        own record and mutates nothing. A bid that can fill while nobody is
+        watching has to be visible without a login prompt in the way.
+        """
+        rows = working_combo_bids(conn)
+        return {
+            "generated_ms": db.now_ms(),
+            "bids": [
+                {
+                    "id": row["id"],
+                    "ticker": row["ticker"],
+                    "card_key": row["card_key"],
+                    "status": row["status"],
+                    "contracts": row["count"],
+                    "price_display": format_price(row["limit_price_tenths"]),
+                    "committed_display": format_dollars(
+                        row["count"] * row["limit_price_tenths"]
+                    ),
+                    "placed_ms": row["placed_ms"],
+                    "cancel_after_ms": row["cancel_after_ms"],
+                    "dry_run": bool(row["dry_run"]),
+                    # Said on every row rather than once at the top: a person
+                    # scanning a list of "resting" bids will otherwise read the
+                    # word as "working towards a fill".
+                    "note": (
+                        "Resting. Nobody has to take it."
+                        if row["status"] == "resting" else None
+                    ),
+                }
+                for row in rows
+            ],
+        }
+
+    @app.post(
+        "/api/parlays/bids/{bid_id}/cancel",
+        dependencies=[Depends(require_auth)],
+    )
+    async def parlay_bid_cancel(
+        bid_id: int, request: ComboBidCancelRequest
+    ) -> dict:
+        """Take one resting bid back.
+
+        **The shard comes from the stored row, never re-read from the market.**
+        A cancel is most needed exactly when the market has become unreadable,
+        and a cancel without its shard returns 404 for an order that is
+        demonstrably resting (measured 2026-08-30).
+        """
+        try:
+            api = combo_api()
+        except ConfigError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no Kalshi credentials on this instance: {exc}",
+            ) from exc
+
+        write_conn = db.open_db(app_config.db_path)
+        try:
+            row = write_conn.execute(
+                "SELECT * FROM combo_orders WHERE id = ?", (bid_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, f"no bid with id {bid_id}")
+            if row["status"] in TERMINAL_COMBO_STATUSES:
+                raise HTTPException(
+                    409,
+                    "that bid is already " + str(row["status"])
+                    + " and cannot be cancelled.",
+                )
+            if not row["kalshi_order_id"]:
+                # A bid whose create never came back. Nothing to cancel at the
+                # venue by id -- and refusing here would be wrong, because this
+                # is the row most in need of attention. It is marked cancelled
+                # locally with the reason on it, and the words say to check.
+                record_combo_cancel(
+                    write_conn, bid_id, now_ms=db.now_ms(), reduced_by=None,
+                    reason="no exchange order id; cancelled locally only",
+                )
+                return {
+                    "status": "cancelled_locally",
+                    "words": (
+                        "This bid has no exchange order id -- its request left "
+                        "the desk and never came back. It is marked cancelled "
+                        "here, but it may be resting on Kalshi: check the "
+                        "Kalshi app before placing another."
+                    ),
+                }
+            try:
+                response = await api.cancel_order(
+                    row["kalshi_order_id"],
+                    exchange_index=row["exchange_index"],
+                )
+            except Exception as exc:                             # noqa: BLE001
+                raise HTTPException(
+                    502,
+                    f"the cancel did not go through ({exc}). The bid may still "
+                    f"be resting; try again or cancel it in the Kalshi app.",
+                ) from exc
+            reduced = (
+                response.get("reduced_by") if isinstance(response, dict) else None
+            )
+            try:
+                reduced_by = None if reduced is None else float(reduced)
+            except (TypeError, ValueError):
+                reduced_by = None
+            record_combo_cancel(
+                write_conn, bid_id, now_ms=db.now_ms(),
+                reduced_by=reduced_by, reason=request.reason,
+            )
+            withdrawn = 0.0 if reduced_by is None else reduced_by
+            return {
+                "status": "cancelled",
+                "reduced_by": reduced_by,
+                "words": (
+                    f"Cancelled. {withdrawn:g} contracts were still working "
+                    f"and are now withdrawn."
+                ),
+            }
         finally:
             write_conn.close()
 

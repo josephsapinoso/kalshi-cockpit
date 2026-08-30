@@ -1795,3 +1795,67 @@ CREATE INDEX IF NOT EXISTS idx_parlay_position_legs_position
     ON parlay_position_legs(position_id, leg_index);
 CREATE INDEX IF NOT EXISTS idx_parlay_position_legs_ticker
     ON parlay_position_legs(ticker) WHERE ticker IS NOT NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- Resting bids on a combination market (v30, 2026-08-30, ADR 0084).
+-- ---------------------------------------------------------------------------
+--
+-- **A different shape of order from anything else in this database.** Every
+-- real order this project had ever sent was immediate-or-cancel: it filled
+-- against visible depth or it died, and nothing outlived the request. A
+-- combination has no visible depth to fill against -- no resting YES bid on
+-- 40 of 40 books this repo has read (ADR 0012 section 5) -- so the only way in
+-- is to BECOME the offer and wait. That order outlives the request, can fill
+-- while nobody is looking, and has to be cancellable. Hence a table.
+--
+-- Deliberately NOT `manual_orders`. That table's rows are all IOC and its
+-- audit query reports on them as such; mixing a row that can still be working
+-- into a census of orders that are necessarily finished would make every count
+-- in `manual-orders-audit` ambiguous. Same boundary, same reason, as ADR 0063
+-- keeping `manual_orders` out of `orders`.
+--
+-- `gate.py` may never read this table. A resting bid is Joe's discretion, not
+-- evidence, and the live-trading interlock counts neither.
+CREATE TABLE IF NOT EXISTS combo_orders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_order_id     TEXT NOT NULL UNIQUE,
+    kalshi_order_id     TEXT UNIQUE,
+    placed_ms           INTEGER NOT NULL,
+    -- The minted combination this bid rests on, and the card it came from.
+    ticker              TEXT NOT NULL,
+    card_key            TEXT NOT NULL,
+    -- JSON array of {event_ticker, market_ticker}: the legs as tapped. The
+    -- same shape `parlay_lookups.selected_legs` carries, for the same reason.
+    selected_legs       TEXT NOT NULL,
+    -- **The shard, recorded rather than re-derived.** A cancel needs it as a
+    -- query parameter and the venue 404s without it; re-reading the market at
+    -- cancel time would fail exactly when the market is gone, which is one of
+    -- the moments a cancel matters most.
+    exchange_index      INTEGER NOT NULL,
+    count               INTEGER NOT NULL,
+    -- What Joe chose to pay, snapped to the venue's grid. Integer tenths of a
+    -- cent, like every other price in the risk path.
+    limit_price_tenths  INTEGER NOT NULL,
+    -- The card's conservative joint at the moment of the bid, frozen. Not a
+    -- pointer: `fair_prices` moves, and a fair value re-derived later is a
+    -- different number presented as the same one (the ADR 0082 lesson).
+    fair_joint          REAL,
+    -- When this bid stops being wanted: the earliest leg's commence_ms. A
+    -- resting bid that fills after a leg has started is a bet on a game
+    -- already in progress at a price computed before it began.
+    cancel_after_ms     INTEGER,
+    status              TEXT NOT NULL,
+    request_body_json   TEXT NOT NULL,
+    response_body_json  TEXT,
+    error_text          TEXT,
+    dry_run             INTEGER NOT NULL DEFAULT 1,
+    -- Set when the desk (or Joe) takes it back. `reduced_by` is the venue's
+    -- own word for how much of it was still working at that moment.
+    cancelled_ms        INTEGER,
+    cancel_reduced_by   REAL,
+    cancel_reason       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_combo_orders_status
+    ON combo_orders(status, placed_ms DESC);
