@@ -16,10 +16,16 @@ import type { ParlayCardData } from "@/lib/api";
  * for someone to take it.
  *
  * **The words never promise a fill, and that is the whole design.** A resting
- * bid is an offer standing, not a bet placed. A screen that said "bought" or
- * showed a payout would be describing a position he does not have, and on an
- * enter-only market with no counterparty in evidence that is the most likely
- * outcome, not the edge case.
+ * order is a BUY that has not happened yet. A screen that said "bought" would
+ * be describing a position he does not have, and on an enter-only market with
+ * no counterparty in evidence that is the most likely outcome, not the edge
+ * case.
+ *
+ * **And it never uses the sell-side word for what he is doing.** In market
+ * language that word names the SELL side, and the first version of this copy
+ * read to Joe as having sold him something ("i don't want to make a bid to
+ * sell"). He is buying. A screen that leaves a person unsure which side of a
+ * trade they are on has failed at the one job ADR 0071 gives this desk.
  *
  * Three things are Joe's to choose and one is not:
  *
@@ -105,12 +111,12 @@ export default function RestingBid({ card }: { card: ParlayCardData }) {
           onClick={() => setOpen(true)}
           className="rounded border border-border px-3 py-1.5 text-sm font-semibold"
         >
-          Bid on this parlay
+          Buy this parlay at your price
         </button>
         <p className="mt-1 text-[11px] leading-snug text-muted">
-          Nobody is offering this combination, so you cannot buy it outright.
-          This puts <em>your</em> price on the exchange and waits for someone
-          to take it.
+          Nobody is selling this combination right now, so you cannot buy it
+          outright. This puts <em>your</em> buy price on the exchange and waits
+          for a seller. If the parlay hits, each contract pays $1.00.
         </p>
       </div>
     );
@@ -118,11 +124,33 @@ export default function RestingBid({ card }: { card: ParlayCardData }) {
 
   return (
     <div className="mt-3 space-y-2 border-t border-border pt-3">
-      <p className="text-sm font-semibold">Rest a bid</p>
+      <p className="text-sm font-semibold">Place a buy order</p>
+
+      {/*
+        **Said BEFORE the fields, not after the tap.** Joe placed a real order
+        and then went looking for it under Positions in the Kalshi app,
+        reasonably: on a sportsbook a parlay is accepted the moment you place
+        it. Kalshi is an exchange, so it is not, and the screen owed him that
+        before he typed a price rather than as an explanation afterwards.
+      */}
+      <div className="rounded border border-border p-2 text-xs leading-snug text-muted">
+        <p>
+          <strong>Kalshi is an exchange, not a sportsbook.</strong> A
+          sportsbook always takes your parlay. Here, a real person or market
+          maker has to <em>sell</em> it to you, and on a combination that
+          often nobody does — every combination book this tool has read was
+          empty on both sides.
+        </p>
+        <p className="mt-1">
+          So this order may sit and never fill. It shows in Kalshi under{" "}
+          <strong>Orders</strong>, not Positions, until someone sells to you.
+          Nothing is spent unless it fills.
+        </p>
+      </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-muted">
-          Your price (cents)
+          Your buy price (cents)
           <input
             inputMode="decimal"
             value={price}
@@ -155,12 +183,23 @@ export default function RestingBid({ card }: { card: ParlayCardData }) {
       )}
 
       {ready && (
-        <p className="text-sm tabular">
-          {contracts} contracts at {(priceTenths / 10).toFixed(1)}c ={" "}
-          {"$"}
-          {((contracts * priceTenths) / 1000).toFixed(2)} committed if the whole
-          bid is taken.
-        </p>
+        <>
+          <p className="text-sm tabular">
+            {contracts} contracts at {(priceTenths / 10).toFixed(1)}c ={" "}
+            {"$"}
+            {((contracts * priceTenths) / 1000).toFixed(2)} if it all fills.
+          </p>
+          {/*
+            **The upside, stated.** No version of this screen said what
+            winning pays, and the sell-side wording read to Joe as having sold
+            something. A settled YES contract pays $1.00, so the payout is the
+            contract count in dollars -- arithmetic, not a projection, and it
+            is the number he came for.
+          */}
+          <p className="text-sm tabular font-semibold">
+            If the parlay hits: {"$"}{contracts.toFixed(2)} back.
+          </p>
+        </>
       )}
       {priceOk && stakeOk && contracts === 0 && (
         <p className="text-sm text-accent-2">
@@ -190,7 +229,7 @@ export default function RestingBid({ card }: { card: ParlayCardData }) {
             disabled={!ready}
             className="rounded bg-accent-fill px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
           >
-            Place resting bid
+            Place buy order
           </button>
           <button
             onClick={() => setOpen(false)}
@@ -214,8 +253,10 @@ export default function RestingBid({ card }: { card: ParlayCardData }) {
       )}
 
       <p className="text-[11px] leading-snug text-muted">
-        The desk cancels this automatically when the first game starts. It is
-        an offer standing, not a bet placed — nobody has to take it.
+        You are <strong>buying</strong>. If the parlay hits, every contract
+        pays $1.00. The order waits until someone sells to you at your price —
+        until then you hold nothing — and the desk withdraws it when the first
+        game starts.
       </p>
     </div>
   );

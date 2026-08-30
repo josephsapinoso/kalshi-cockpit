@@ -58,11 +58,12 @@ export default function RestingBids() {
       aria-label="Resting bids"
       className="mb-6 rounded border border-border p-4"
     >
-      <h2 className="text-sm font-semibold">Your bids on the exchange</h2>
+      <h2 className="text-sm font-semibold">Your buy orders on the exchange</h2>
       <p className="mt-1 text-xs leading-snug text-muted">
-        These are offers standing in your name. Nobody has to take them — and
-        on a combination, nobody has ever been observed bidding on the other
-        side. Each one is withdrawn automatically when its first game starts.
+        These are <strong>buy</strong> orders waiting for a seller, not
+        positions you hold. Each fills only if someone sells to you at your
+        price, and on a combination nobody has ever been observed doing so.
+        Each is withdrawn automatically when its first game starts.
       </p>
 
       <ul className="mt-3 space-y-3">
@@ -84,7 +85,7 @@ export default function RestingBids() {
               disabled={busy === bid.id}
               className="mt-2 min-h-[44px] rounded border border-border px-3 text-sm font-semibold disabled:opacity-40"
             >
-              {busy === bid.id ? "Withdrawing…" : "Withdraw this bid"}
+              {busy === bid.id ? "Cancelling…" : "Cancel this order"}
             </button>
           </li>
         ))}

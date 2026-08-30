@@ -3,8 +3,8 @@
 ADR 0084. The one control on the parlay desk that commits money to a
 combination, and the reason it has to be a RESTING bid rather than a buy:
 a combination book carries no resting YES bid on 40 of 40 books this repo has
-read (ADR 0012 section 5), so there is nothing to hit. You become the offer or
-you do not get in.
+read (ADR 0012 section 5), so there is nothing to buy from. The desk places a
+limit BUY that waits for a seller instead of taking one that is already there.
 
 **Built on the lookup path rather than beside it.** The route prices the card
 first -- the same `price_card_on_kalshi` the "Price on Kalshi" button calls --
@@ -246,11 +246,13 @@ def _words_for(status: str, contracts: int, price_tenths: int) -> str:
     cost = contracts * price_tenths / 1000.0
     if status == store_bids.STATUS_RESTING:
         return (
-            f"Your bid is resting: {contracts} contracts at "
-            f"{price_tenths / 10:.1f}c, ${cost:.2f} committed if all of it is "
-            f"taken. Nobody has to take it -- no combination book this tool "
-            f"has read had a resting bid on the other side -- so treat this as "
-            f"an offer standing, not a bet placed. It is cancelled "
+            f"Your BUY order is waiting: {contracts} contracts at "
+            f"{price_tenths / 10:.1f}c, ${cost:.2f} if it all fills. If the "
+            f"parlay hits, each contract pays $1.00 -- "
+            f"${contracts:.2f} back. You are the buyer; the order fills only "
+            f"when someone sells to you at that price, and on a combination "
+            f"nobody may. Until it fills you hold nothing -- it shows in "
+            f"Kalshi under Orders, not Positions. It is withdrawn "
             f"automatically when the first game starts."
         )
     if status == store_bids.STATUS_FILLED:

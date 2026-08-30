@@ -2897,7 +2897,7 @@ def create_app(
                     # scanning a list of "resting" bids will otherwise read the
                     # word as "working towards a fill".
                     "note": (
-                        "Resting. Nobody has to take it."
+                        "Waiting for a seller. You hold nothing yet."
                         if row["status"] == "resting" else None
                     ),
                 }

@@ -280,7 +280,7 @@ class TestTheShardIsWhatPaysForIt:
         body = (await _post(
             app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
         )).json()
-        assert "Nobody has to take it" in body["words"]
+        assert "on a combination nobody may" in body["words"]
 
     async def test_an_unreadable_shard_refuses_rather_than_assuming_zero(
         self, build
@@ -321,7 +321,9 @@ class TestTheRecordAndTheCancel:
 
         listed = (await _get(app, "/api/parlays/bids")).json()
         assert [b["id"] for b in listed["bids"]] == [placed["order_row_id"]]
-        assert listed["bids"][0]["note"] == "Resting. Nobody has to take it."
+        assert listed["bids"][0]["note"] == (
+            "Waiting for a seller. You hold nothing yet."
+        )
 
         cancelled = await _post(
             app, f"/api/parlays/bids/{placed['order_row_id']}/cancel",
@@ -469,3 +471,85 @@ class TestTheCatalogueIsNotOnThePath:
         assert response.status_code == 502
         assert "did not describe it" in response.json()["detail"]
         assert api.created == []
+
+
+class TestTheScreenSaysWhichSideOfTheTradeHeIsOn:
+    """Joe read the first version of this copy as having SOLD something.
+
+    His words: "i don't want to make a bid to sell. I want to win money if the
+    parlay succeeds." He was buying -- `side: yes, action: buy`, confirmed at
+    the venue -- but the words said "an offer standing", and in market language
+    an offer is the sell side.
+
+    A screen that leaves a person unsure which side of a trade they are on has
+    failed at the one job ADR 0071 gives this desk: price transparency at the
+    moment of a bet. Same shape as the CLAUDE.md correction where a refresh
+    banner told him closing the page would buy fresher books -- copy that is
+    literally defensible and read backwards is still wrong.
+    """
+
+    async def test_the_words_say_buy_and_never_say_offer(self, build):
+        app, _, _ = build()
+        body = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        words = body["words"]
+        assert "BUY order" in words
+        assert "offer" not in words.lower(), (
+            "in market language an offer is the SELL side"
+        )
+
+    async def test_the_words_state_what_winning_pays(self, build):
+        """The number he came for, and no version of this screen had it.
+
+        A settled YES contract pays $1.00, so the payout is the contract count
+        in dollars. Arithmetic, not a projection.
+        """
+        app, _, _ = build()
+        body = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        assert "$1.00" in body["words"], "say what a winning contract pays"
+        assert "parlay hits" in body["words"]
+
+    async def test_the_words_still_refuse_to_promise_a_fill(self, build):
+        """Correcting the buy/sell confusion may not oversell the position.
+
+        He holds nothing until someone sells to him, and on a combination
+        nobody has ever been observed doing so.
+        """
+        app, _, _ = build()
+        body = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        assert "until it fills you hold nothing" in body["words"].lower()
+
+    def test_no_user_facing_surface_calls_a_buy_an_offer(self):
+        """Pinned across the screen too, not just the wire.
+
+        The card control and the orders panel are where he was actually
+        reading. `parlay-bid-cancel/route.ts` is exempt: its "offer standing"
+        is a comment about a stale order, not text a person sees.
+        """
+        root = ROOT / "frontend" / "src" / "components"
+        for name in ("RestingBid.tsx", "RestingBids.tsx"):
+            source = (root / name).read_text(encoding="utf-8")
+            assert "offer standing" not in source, name
+            assert "Nobody is offering" not in source, name
+
+    async def test_the_words_say_where_to_look_for_it(self, build):
+        """Joe went looking under Positions and found nothing, reasonably.
+
+        On a sportsbook a parlay is accepted the moment it is placed. On an
+        exchange it is an order until someone sells, and the screen owes him
+        that distinction in the words he reads after tapping.
+        """
+        app, _, _ = build()
+        body = (await _post(
+            app, "/api/parlays/bid", _bid(await _legs(app)), HEADERS
+        )).json()
+
+        assert "Orders, not Positions" in body["words"]
