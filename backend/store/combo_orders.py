@@ -51,14 +51,32 @@ from typing import Any, Optional, Sequence
 
 from ..kalshi.rest import EXCHANGE_INDEX_COMBOS
 
-#: Live orders may be placed only when this is False, and flipping it is a code
-#: change with a commit behind it -- the `MANUAL_ORDERS_ARE_DRY_RUNS`
-#: convention (ADR 0063), for the same reason: an environment variable is a
-#: thing somebody can nudge at 2am.
-#:
-#: **Starts True.** A resting order is the first order shape in this repo that
-#: can fill while nobody is watching, so it rehearses dry before it is armed.
-COMBO_ORDERS_ARE_DRY_RUNS = True
+# **This is the line that rests real money on the exchange.**
+#
+# ARMED 2026-08-30, on Joe's word, in his own message: "the exchange is done.
+# arm the switch." Its one blocking precondition was discharged first and was
+# verified rather than taken on trust -- `GET /portfolio/balance` read
+# shard 1 at $21.4100, up from $0.0100, so a bid on a combination can now
+# actually be paid for. Kalshi keeps collateral per exchange shard and will
+# not move it for an order (ADR 0084).
+#
+# From here `POST /api/parlays/bid` places a real good-till-cancelled bid.
+# What still bounds it, all server-side and none of it waivable from a client:
+# the enter-only acknowledgement, the shard's own balance, the $3 spend
+# ceiling shared with the hand-bet path, the 250-contract structural ceiling,
+# the reserve-then-check write that records the intent BEFORE the request
+# leaves, and `bid_watch` withdrawing every bid when its first leg starts.
+#
+# **What this does NOT arm.** `ORDERS_ARE_DRY_RUNS` is still True, so the
+# engine path is untouched; `gate.py` still cannot read this table; and
+# nothing here moves the live-trading interlock's populations.
+#
+# To disarm, set this back to True and deploy. One line, revertible on its
+# own, which is why it lands in a commit of its own -- the
+# `MANUAL_ORDERS_ARE_DRY_RUNS` convention (ADR 0063), for the same reason an
+# environment variable was refused: a switch somebody can nudge at 2am is not
+# a decision with a commit behind it.
+COMBO_ORDERS_ARE_DRY_RUNS = False
 
 #: The most a single resting bid may commit, in tenths of a cent.
 #:

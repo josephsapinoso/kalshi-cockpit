@@ -369,17 +369,23 @@ class TestTheRecordAndTheCancel:
 
 
 class TestTheSwitch:
-    def test_resting_bids_are_dry_runs_until_a_commit_arms_them(self):
-        """The first order shape that can fill while nobody is watching.
+    def test_the_armed_state_is_stated_here_so_a_flip_is_never_silent(self):
+        """The switch is ARMED, on Joe's word, 2026-08-30.
 
-        `MANUAL_ORDERS_ARE_DRY_RUNS` was flipped in a commit of its own so the
-        arming was reviewable and revertible on its own; this switch follows
-        that convention, and this test is what makes arming it a deliberate
-        act rather than a diff nobody noticed.
+        This test asserted `is True` until the moment it was armed, which is
+        the point of writing it that way: flipping the constant turns this red
+        and the flip has to be acknowledged in the same commit. It is not a
+        rubber stamp on the value -- it is the thing that makes arming a
+        decision somebody made rather than a diff nobody noticed.
+
+        Its blocking precondition was verified, not assumed: shard 1 read
+        $21.4100 (up from $0.0100), so a bid on a combination can be paid for.
+
+        To disarm: set the constant True and change this to `is True`.
         """
         from backend.store.combo_orders import COMBO_ORDERS_ARE_DRY_RUNS
 
-        assert COMBO_ORDERS_ARE_DRY_RUNS is True
+        assert COMBO_ORDERS_ARE_DRY_RUNS is False
 
     def test_arming_this_door_did_not_arm_the_engine(self):
         """The engine path stays dry, and the interlock stays untouched.
