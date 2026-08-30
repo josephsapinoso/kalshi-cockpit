@@ -40,6 +40,37 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-30 - When you change a cadence, re-read every predicate that compares against a timestamp it produces
+
+`_absence_provable` (`backend/estimate_match.py`) requires a successful
+settlements poll postdating `match_status_ms`. When ADR 0064 moved
+settlements from the 12-hour mirror to the 300s clock, that proof went from
+"satisfied twice a day" to "satisfied within minutes" -- while the ladder
+consuming it still advances once per 12h. Two clocks bounding one quantity;
+the tightening one moved and nothing that read it was revisited. Not a bug
+today. It is the shape that bites when someone relaxes the 12h and finds the
+next bound already binding, symptom unchanged -- the same family as the
+attention/floor predicate with two spellings (2026-08-29).
+
+**Pattern: a cadence change is not local. Grep for every predicate that
+compares against a timestamp the changed clock produces, and re-derive what
+each one now means, before shipping the new interval.**
+
+## 2026-08-30 - A test that names a symbol is not a guard on that symbol
+
+`tests/test_portfolio_poll.py` mentioned `run_match_pass` in a docstring and
+an assertion message, and on that basis the wiring was asserted to be
+"pinned". Stubbing `run_match_pass` to an async no-op left all 333 tests in
+the area green: if the production call were deleted, the suite would not
+notice. The claim felt confirmed because a test *named* the thing -- the
+same mechanism as reading a test's name instead of its assertions, and it
+fails in the flattering direction every time.
+
+**Pattern: to claim a guard exists, disable the thing and watch it fail.
+Reading test names is not the check. This file already says every guard is
+verified by disabling it; the addition is that the rule applies to guards
+you BELIEVE exist, not only guards you are writing.**
+
 ## 2026-08-30 - A failure recorder that shares the failing resource records exactly the failures that don't matter
 
 The recording loop's failure table, its failure hook and its dying alert all

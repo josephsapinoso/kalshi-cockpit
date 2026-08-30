@@ -236,7 +236,115 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-30 (latest) — the hour-long silences are a poisoned connection, and the ticket takes dollars
+## 2026-08-30 (latest) — the positions payload was observed, a refusal became a record, and two lanes closed two backlog items
+
+**Committed on `main` through ADR 0083 (`a45d088`, `ffc50c1`, `977cc4d`,
+`21da67e` + the ADR/session-files commit). Suite: 5243 passed / 10 xfailed in 10:49,
+collected on this tree with ONE qualification stated rather than hidden:
+`tasks/NEXT.md` (this file) was edited while the run was in flight. No code
+or test file moved; the only tests that read this file
+(`test_session_files_are_readable`, `test_parallel_lanes_do_not_collide`)
+were re-run on the final tree and pass. The +35 over 5208 is the two lanes'
+guards plus tonight's refusal/positions tests.
+NOT DEPLOYED — live is on `91a66f1`; check `/api/health` `git_sha`.**
+
+### Read this first
+
+**Joe has NOT yet used the dollar buy ticket.** `manual_orders` is still
+zero rows (verified via `manual-orders-audit` this session). He holds a
+live position updated 02:01Z tonight — placed in the Kalshi app. His
+feedback on the ticket, when it comes, outranks everything below.
+
+### The positions payload was finally observed (A0) — and it convicted check 10
+
+`scripts/capture_positions_fixture.py` (new, committed) captured
+`/portfolio/positions` twice against production. The quantity field is
+**`position_fp`, a fixed-point STRING, fractional** (`'22.88'` live); the
+docs' `position` int does not exist on the wire. **The bare endpoint
+returns zero-quantity rows for exited markets** — 2 bare vs 1 with
+`count_filter=position`, the zero row a market exited three days earlier.
+So until tonight, check 10 refused re-entry to any market Joe had ever
+left, and "Open now: N" counted "ever traded". Fixed in `a45d088`:
+`rest.positions()` now sends `count_filter=position`, paginates, and
+raises on a renamed envelope instead of the `or []`; check 10 compares the
+parsed quantity (zero passes — proven by mutation; unparseable refuses).
+Captures live in gitignored `data/captures/`; the committed test row is
+synthetic with observed field names/types (ADR 0035 precedent).
+
+### A refused hand bet is a record now (schema v29, `21da67e`)
+
+All ~23 pre-reservation refusal branches on `/api/manual-orders` wrote
+nothing until tonight. New append-only `manual_order_refusals` table:
+check number/name, the exact detail Joe saw, request values, live ask when
+known. One try/except with a check pointer, not 23 edits. A recording
+failure can never turn a 422 into a 500 (throwaway connection → journal
+fallback `manual_order_refusals.jsonl` → route swallows recorder crashes).
+`gate.py` never reads it (pinned). Read it on live with:
+
+    flyctl ssh console -a kalshi-cockpit -C "python /app/scripts/inspect_live_db.py manual-order-refusals"
+
+**ADR 0083** records both decisions and the generalised rule: an armed
+path records its own refusals durably; three instances of the
+log-line-only pattern in three days (refused bet, failed match pass,
+poisoned connection).
+
+### Two lanes merged (worktree agents, disjoint files)
+
+- **Item 4 closed** (`977cc4d`): `run_match_pass` is in `MUST_HAVE_CALLERS`;
+  a mirror pass must carry the matcher's own summary (an async no-op stub
+  went red where all 333 area tests had stayed green — the wiring was
+  decoration before); matcher failures land in `poll_log`
+  (`endpoint='match'`, own commit, proven red both ways).
+  `MIRROR_INTERVAL_S` untouched per the standing ruling. Context read this
+  session: `bet_estimates` has exactly 1 matched row ever, and
+  `venue_settlements` has 27 rows (26 out_of_scope) — `outcome_win`'s
+  population is n=1 and nothing reads the column; the fix protects the
+  record, not a number anyone consumes.
+- **Item 7 closed** (`ffc50c1`): `mart_suppression_audit` verdict floor is
+  now the shared `min_scored_recommendations` var (300, like both
+  siblings); sub-floor rows say "insufficient sample — displayed, not
+  judged". Guard doubled (dbt + pytest source check, both proven red)
+  because the demo lake has zero scored rows and a dbt-only guard is
+  vacuously green in CI. ADR 0065 §3 amended in place: display gate never
+  verdict gate; 63.2 points resolvable bias at G=30; `n` counts
+  games/clusters.
+
+### Also in the record
+
+- Two lessons at the top of `tasks/lessons.md`: (1) a cadence change must
+  re-derive every predicate comparing against a timestamp it produces —
+  `_absence_provable` vs ADR 0064's 300s settlements clock is the live
+  example; (2) a test that NAMES a symbol is not a guard on it — disable
+  and watch it fail before claiming coverage.
+- Live health verified at session start: recorder writing (8s age),
+  `91a66f1` deployed 04:04Z, WAL curve recording from zero.
+
+### Open, carried forward
+
+1. **Deploy decision is Joe's** — everything above is committed, not
+   deployed. Deploying restarts the container and RESETS the WAL series
+   (thread 1); the read wants ~a day of uptime that started 04:04Z. If Joe
+   is about to bet through the desk, the check-10 fix matters more than
+   the WAL series (his one live position would have FALSE-REFUSED any
+   re-entry ticket on that market; and note the netting guard now
+   correctly refuses new buys on the market he entered at 02:01Z while he
+   holds it).
+2. **WAL read** (2026-08-29 item 2) — unchanged, needs uptime; do NOT
+   checkpoint or VACUUM.
+3. **Watch `loop_failures.jsonl` after the next wedge** — the traceback in
+   it is the missing half of the poisoned-connection diagnosis.
+4. `fair_prices` unbounded, 546MB — retention freeze LIFTED but fix the
+   write rate first (`run_pricing_pass` re-inserts every 15s against odds
+   refreshing 10–60 min); deferred deliberately, ~70MB/day against ~3GB
+   free.
+5. ADR 0065 §3 floor — CLOSED by item 7 above.
+6. Refused-bet recording — CLOSED by v29 above.
+7. `_absence_provable` two-clock shape — recorded as a lesson, no code
+   change owed until someone touches the 12h ladder.
+
+---
+
+## 2026-08-30 — the hour-long silences are a poisoned connection, and the ticket takes dollars
 
 **Committed on `main`. Suite: 5208 passed / 10 xfailed in 11:07, collected on
 this exact tree with nothing edited after the run started. Deployed: check
