@@ -236,7 +236,94 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ---
 
-## 2026-08-29 (latest) — the signal test could never have answered its own question, and twelve lanes landed
+## 2026-08-30 (latest) — the hour-long silences are a poisoned connection, and the ticket takes dollars
+
+**Committed on `main`. Suite: 5208 passed / 10 xfailed in 11:07, collected on
+this exact tree with nothing edited after the run started. Deployed: check
+`/api/health` `git_sha` rather than this sentence.**
+
+### The Discord alerts are explained, and the explanation inverts a documented reading
+
+Two heartbeat alerts fired (20:10/20:28 Pacific, 2026-08-29): no quote for
+43/61 minutes. Diagnosis, taken while the evidence lived:
+`docs/measurements/2026-08-30-the-wedge-is-a-poisoned-connection.md`. The
+short form:
+
+- A pass died between statements (the 600s deadline cancels mid-await;
+  nothing on the failure path rolled back) and left a half-read cursor. With
+  something long-lived still referencing it, the runner's shared connection
+  kept a stale WAL read snapshot.
+- The portfolio poller's own connection committed every 5 minutes through
+  the whole wedge (13/13 in `poll_log`) — which is the discriminating fact:
+  no held write lock can produce that split. This is SQLITE_BUSY_SNAPSHOT
+  wearing the generic "database is locked" message; the busy timeout never
+  runs.
+- Every write on the poisoned connection then failed instantly: the next
+  pass, `record_loop_failure` (five times — **`loop_failures` is empty
+  across the exact window it exists to explain**), and the dying
+  FAILURE_LOOP_DIED alert (`alerts.py _claim`, same error). Five strikes,
+  `LoopFailed`, exit 1 at 03:28:32Z, entrypoint teardown, restart at
+  03:28:53Z cured it. Not OOM. The same signature ran 00:28→01:13 on
+  `c9ca0cd`, so it predates the deploy.
+
+**What shipped:** `db.record_loop_failure_durably` — journal to
+`/data/loop_failures.jsonl` FIRST (a file no lock can refuse, with the
+traceback that otherwise lives in a ~10-minute log buffer), rollback second
+(cures the open-transaction half; measured NOT to cure the referenced-cursor
+half on 3.11), throwaway-connection fallback third — and the fallback is the
+diagnosis: the journal states in words whether the connection or the
+database refused. The dying alert got the same fallback.
+`tests/test_poisoned_connection_is_cured.py` pins the mechanism against a
+real WAL file, including the two negative results (refcount-freed cursors
+do not poison; rollback alone does not cure).
+
+**Not established:** what held the cursor reference. The journal's
+tracebacks will name the failing await at the next occurrence. Next
+occurrence still costs ~62 min of outage (5 strikes × 900s) before the
+restart cures it — judged acceptable tonight over hacking a fast-death
+path in; revisit if it recurs weekly.
+
+### The WAL read (thread 1): no day accumulated, and the deaths are why
+
+The curve reset at the 01:53Z deploy and again at the 03:28Z wedge-death
+(`wal_kb: 4` on the fresh boot). Partial series from the 96 minutes that
+ran: WAL 4KB → 26MB in ~15 min → 32MB by 02:40, flat through the wedge;
+`leg_store_quotes_ms` stayed 128–825ms throughout — **no latency signal at
+these sizes**. Recorder untouched — no checkpoint, no VACUUM. The read
+needs a day the container has not yet survived; the poisoned-connection
+death is currently the thing cutting the series short.
+
+### The buy ticket takes dollars (thread 2 — Joe's ruling)
+
+"Confusing. Let me just buy it and help me with putting in the amount in
+dollars." Done in `ManualTicket.tsx`, client-side only (the route already
+took `contracts` 1–1000, server-side caps unchanged):
+
+- The contracts stepper is gone. The primary control is **"Amount, in
+  dollars"**; the conversion is shown, not hidden: "Buys 11 contracts at
+  43¢ each = $4.73, plus the fee. Whole contracts only, rounded down."
+- Rounds DOWN, always — the tool never spends more than the typed number.
+  Too small an amount names the smallest bet instead of buying 1.
+- An untouched ticket starts at 0 contracts, so confirm is dead until an
+  amount is typed (the old default silently made "1" optional).
+- The per-bet cap names itself when it binds ("your per-bet cap, not your
+  typed amount, set the size").
+- Max price demoted to a `<details>` disclosure, default = live ask.
+- Confirm button carries the cost: "Confirm — buy 11 YES for $4.73".
+- Pinned in `tests/test_buy_controls.py::TestTheAmountIsTypedInDollars`.
+
+The estimate-first step and order token are unchanged — server-enforced,
+ADR 0065.
+
+### Open, carried forward
+
+The 2026-08-29 list below stands (WAL read is item 2 there, still waiting
+on uptime). New: watch `loop_failures.jsonl` after the next wedge; the
+traceback in it is the missing half of tonight's diagnosis.
+
+---
+
+## 2026-08-29 — the signal test could never have answered its own question, and twelve lanes landed
 
 **Pushed `2d63da5..975385e`, 27 commits, suite 5186 passed / 0 failed, tree
 clean, origin clean. NOT DEPLOYED — live is still on `c9ca0cd`.**

@@ -191,7 +191,9 @@ export default function ManualTicket({
       market.sides.yes.ask_tenths !== null ? "yes" : "no";
     setSide(defaultSide);
     setComboOk(false);
-    setContracts(1);
+    // 0 until a dollar amount is typed: the confirm stays disabled, so an
+    // untouched ticket cannot buy "1" by default.
+    setContracts(0);
     setMaxPriceTenths(market.sides[defaultSide].ask_tenths);
     setPhase({ name: "ticket", market });
   };
@@ -332,7 +334,7 @@ export default function ManualTicket({
           side={side}
           setSide={(s) => {
             setSide(s);
-            setContracts(1);
+            setContracts(0);
             setMaxPriceTenths(phase.market.sides[s].ask_tenths);
           }}
           contracts={contracts}
@@ -484,31 +486,39 @@ function TicketBody({
 
       {note && <p className="max-w-[65ch] text-xs text-muted">{note}</p>}
 
-      <div className="flex flex-wrap items-center gap-4">
-        <Stepper
-          label="Contracts"
-          value={contracts}
-          onChange={setContracts}
-          min={1}
-          max={ceiling ?? 1}
-          disabled={sending}
-        />
-        <Stepper
-          label="Max price (c)"
-          value={maxPriceTenths === null ? 0 : Math.round(maxPriceTenths / 10)}
-          onChange={(cents) => setMaxPriceTenths(cents * 10)}
-          min={1}
-          max={99}
-          disabled={sending}
-        />
-      </div>
-      <p className="max-w-[65ch] text-xs text-muted">
-        The order goes out at the live ask, immediate-or-cancel, and is
-        refused — never re-priced — if the ask has moved above your max. The
-        server prices the fee-inclusive worst case when you confirm and says
-        &ldquo;at most&rdquo;, because the exact fee on this venue is still
-        being measured.
-      </p>
+      <DollarAmount
+        askTenths={facts.ask_tenths}
+        askDisplay={facts.ask_display}
+        ceiling={ceiling}
+        contracts={contracts}
+        setContracts={setContracts}
+        disabled={sending}
+      />
+
+      <details className="max-w-[65ch]">
+        <summary className="cursor-pointer text-xs font-semibold text-muted">
+          Max price (set to the live ask)
+        </summary>
+        <div className="mt-2">
+          <Stepper
+            label="Max price (c)"
+            value={
+              maxPriceTenths === null ? 0 : Math.round(maxPriceTenths / 10)
+            }
+            onChange={(cents) => setMaxPriceTenths(cents * 10)}
+            min={1}
+            max={99}
+            disabled={sending}
+          />
+          <p className="mt-2 max-w-[65ch] text-xs text-muted">
+            The order goes out at the live ask, immediate-or-cancel, and is
+            refused — never re-priced — if the ask has moved above this. The
+            server prices the fee-inclusive worst case when you confirm and
+            says &ldquo;at most&rdquo;, because the exact fee on this venue
+            is still being measured.
+          </p>
+        </div>
+      </details>
 
       {market.is_combo && (
         <div className="rounded-xl border border-negative/50 bg-negative/10 p-3">
@@ -562,8 +572,132 @@ function TicketBody({
         disabled={!canConfirm}
         className="min-h-12 w-full rounded-xl bg-accent-fill px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
       >
-        {sending ? "Sending…" : `Confirm — buy ${contracts} ${side.toUpperCase()}`}
+        {sending
+          ? "Sending…"
+          : contracts >= 1 && facts.ask_tenths !== null
+            ? `Confirm — buy ${contracts} ${side.toUpperCase()} for ${dollars(
+                contracts * facts.ask_tenths,
+              )}`
+            : `Confirm — buy ${side.toUpperCase()}`}
       </button>
+    </div>
+  );
+}
+
+/** Tenths of a cent -> "$4.73". Display only: the money path stays integer
+ *  tenths end to end (`core/prices.py`), and the server re-derives every
+ *  figure from the ask it actually gets. */
+function dollars(tenths: number): string {
+  return (tenths / 1000).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+/** The amount control, in dollars, because that is how Joe thinks about a
+ *  bet ("about five bucks on this"), while the venue transacts in contracts
+ *  that each cost the ask. The conversion is shown, never hidden: the point
+ *  is to teach the mapping, not to abstract it away. Rounds DOWN — the tool
+ *  must never spend more than the number typed. */
+function DollarAmount({
+  askTenths,
+  askDisplay,
+  ceiling,
+  contracts,
+  setContracts,
+  disabled,
+}: {
+  askTenths: number | null;
+  askDisplay: string | null;
+  ceiling: number | null;
+  contracts: number;
+  setContracts: (n: number) => void;
+  disabled: boolean;
+}) {
+  const [text, setText] = useState("");
+  const uid = useId();
+  const amountId = `manual-dollars-${uid}`;
+
+  const parsed = Number.parseFloat(text.replace(",", "."));
+  const amountTenths =
+    Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 1000) : null;
+
+  // Derived here AND pushed up: the parent owns what is sent, this control
+  // owns how it was arrived at. Recomputed when the side (and so the ask)
+  // changes, keeping the typed dollars.
+  useEffect(() => {
+    if (askTenths === null || amountTenths === null) {
+      setContracts(0);
+      return;
+    }
+    const affordable = Math.floor(amountTenths / askTenths);
+    setContracts(Math.min(affordable, ceiling ?? affordable));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountTenths, askTenths, ceiling]);
+
+  const affordable =
+    askTenths === null || amountTenths === null
+      ? null
+      : Math.floor(amountTenths / askTenths);
+  const capped =
+    affordable !== null && ceiling !== null && affordable > ceiling;
+
+  return (
+    <div>
+      <label
+        htmlFor={amountId}
+        className="text-xs font-semibold uppercase tracking-widest text-muted"
+      >
+        Amount, in dollars
+      </label>
+      <div className="mt-1 flex items-center gap-2">
+        <span className="text-lg font-semibold text-muted">$</span>
+        <input
+          id={amountId}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="5"
+          disabled={disabled || askTenths === null}
+          className="w-28 rounded-xl border bg-background px-3 py-2.5 text-lg font-semibold disabled:opacity-40"
+        />
+      </div>
+      {askTenths !== null && amountTenths !== null && (
+        <p className="mt-2 max-w-[65ch] text-xs text-muted">
+          {contracts >= 1 ? (
+            <>
+              Buys{" "}
+              <span className="font-semibold text-foreground">
+                {contracts}{" "}
+                <Term k="contract">
+                  {contracts === 1 ? "contract" : "contracts"}
+                </Term>
+              </span>{" "}
+              at {askDisplay} each = {dollars(contracts * askTenths)}, plus
+              the fee. Whole contracts only, rounded down — the rest of your{" "}
+              {dollars(amountTenths)} stays in your pocket.
+            </>
+          ) : (
+            <>
+              Not enough: one contract costs {askDisplay}, so the smallest
+              bet here is {dollars(askTenths)}.
+            </>
+          )}
+          {capped && ceiling !== null && (
+            <>
+              {" "}
+              Capped at {ceiling} — your per-bet cap, not your typed amount,
+              set the size.
+            </>
+          )}
+        </p>
+      )}
+      {askTenths !== null && amountTenths === null && text.trim() !== "" && (
+        <p className="mt-2 max-w-[65ch] text-xs text-muted">
+          Type a dollar amount, like 5 or 2.50.
+        </p>
+      )}
     </div>
   );
 }

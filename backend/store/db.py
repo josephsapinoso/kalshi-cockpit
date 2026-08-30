@@ -1385,6 +1385,134 @@ def record_loop_failure(
     conn.commit()
 
 
+def record_loop_failure_durably(
+    conn: sqlite3.Connection,
+    *,
+    db_path: str | Path,
+    journal_path: str | Path,
+    failed_ms: int,
+    pass_number: int,
+    consecutive_failures: int,
+    error: str,
+    pass_kind: Optional[str] = None,
+    exc: Optional[BaseException] = None,
+) -> str:
+    """Record a pass failure so that NO failure mode can erase the record.
+
+    Why `record_loop_failure` alone is not enough, learned 2026-08-30: a pass
+    that raises or is cancelled between statements leaves its transaction or
+    cursor open on the shared connection, and if anything long-lived still
+    references that cursor, the connection keeps a stale WAL read snapshot.
+    Every later write on it -- the next pass, the failure row, the dying
+    alert -- then fails instantly with "database is locked"
+    (SQLITE_BUSY_SNAPSHOT: the busy timeout never runs, because waiting
+    cannot make a stale snapshot fresh). Five strikes ended the process and
+    `loop_failures` showed an unbroken silence across the exact window it
+    exists to explain, twice in one night.
+
+    Three layers, in the order they run:
+
+    1. **The journal file, first.** An append beside the database that no
+       lock can refuse. Carries the traceback, which otherwise lives only in
+       a log stream with ~10 minutes of retention.
+    2. **The cure attempt.** `rollback()` closes an open transaction, which
+       is the reachable half of the poison. (The unreachable half -- a
+       cursor still referenced by something long-lived -- rollback cannot
+       reset since 3.11; measured, not assumed.)
+    3. **The row, with a fallback that also diagnoses.** The insert runs on
+       the shared connection; if that is refused, a THROWAWAY connection
+       tries the same insert. Fresh-connection success while the shared one
+       refuses proves the poison is in the connection, not the database --
+       and the journal says so, which turns the next incident into a
+       one-line read. Both refusing is a different, worse fact, and the
+       journal says that instead.
+
+    Returns one of `"recorded"`, `"recorded_on_fresh_connection"`,
+    `"journal_only"` -- callers log it; nothing here raises.
+    """
+    import json
+    import traceback as tb
+
+    def _journal(payload: dict) -> None:
+        try:
+            with open(journal_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload) + "\n")
+        except OSError:
+            # Telemetry must never be why the failure record dies.
+            pass
+
+    _journal(
+        {
+            "ms": int(failed_ms),
+            "pass_number": int(pass_number),
+            "consecutive_failures": int(consecutive_failures),
+            "pass_kind": pass_kind,
+            "error": error,
+            "traceback": (
+                "".join(tb.format_exception(exc)) if exc is not None else None
+            ),
+        }
+    )
+
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        pass
+
+    try:
+        record_loop_failure(
+            conn,
+            failed_ms=failed_ms,
+            pass_number=pass_number,
+            consecutive_failures=consecutive_failures,
+            error=error,
+            pass_kind=pass_kind,
+        )
+        return "recorded"
+    except sqlite3.Error as shared_refused:
+        try:
+            fresh = sqlite3.connect(
+                str(db_path), timeout=BUSY_TIMEOUT_MS / 1000.0
+            )
+            try:
+                record_loop_failure(
+                    fresh,
+                    failed_ms=failed_ms,
+                    pass_number=pass_number,
+                    consecutive_failures=consecutive_failures,
+                    error=error,
+                    pass_kind=pass_kind,
+                )
+            finally:
+                fresh.close()
+            _journal(
+                {
+                    "ms": int(failed_ms),
+                    "diagnosis": (
+                        f"the shared connection refused the failure row "
+                        f"({shared_refused}) but a fresh connection wrote "
+                        f"it: the shared connection is poisoned -- a stale "
+                        f"read snapshot something still references. The "
+                        f"database is fine. A process restart cures it."
+                    ),
+                }
+            )
+            return "recorded_on_fresh_connection"
+        except sqlite3.Error as fresh_refused:
+            _journal(
+                {
+                    "ms": int(failed_ms),
+                    "diagnosis": (
+                        f"the database itself refuses writes: shared "
+                        f"connection said {shared_refused!r}, a fresh "
+                        f"connection said {fresh_refused!r}. This is not "
+                        f"the poisoned-connection case."
+                    ),
+                }
+            )
+            return "journal_only"
+
+
 def loop_failures_since(
     conn: sqlite3.Connection, *, since_ms: int
 ) -> list[sqlite3.Row]:

@@ -245,9 +245,12 @@ class TestTheLoopWiresItUp:
         source = self._source()
         block = source[source.index("def record_failure("):]
         block = block[: block.index("def take_refresh_requests(")]
-        assert "db.record_loop_failure(" in block, (
+        assert "db.record_loop_failure_durably(" in block, (
             "a hook that only logged would die with the container, which is "
-            "the exact failure that made 2026-08-25 undiagnosable"
+            "the exact failure that made 2026-08-25 undiagnosable -- and "
+            "since 2026-08-30 it must be the durable form, because the "
+            "direct write dies with the poisoned connection it is trying "
+            "to describe"
         )
 
     def test_the_error_text_comes_off_the_loop_state(self):

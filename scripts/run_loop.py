@@ -72,7 +72,9 @@ import contextlib
 import json
 import logging
 import os
+import sqlite3
 import sys
+import traceback
 import time
 from pathlib import Path
 from typing import Optional
@@ -628,6 +630,15 @@ async def main() -> int:
     # second, differently-shaped line per pass would break every reader that
     # counts them.
     walk_log = Path(args.db).resolve().parent / "loop_walk.jsonl"
+    # A FILE beside the db, because the table cannot hold the failure class
+    # that matters most. On 2026-08-30 five consecutive passes failed with
+    # "database is locked", and `record_loop_failure` -- which writes to the
+    # same database over the same connection -- failed with the same error
+    # five times, so the table shows an unbroken silence across the exact
+    # window it exists to explain. The tracebacks went to stdout, whose
+    # retention is ~10 minutes. This journal takes the write the lock cannot
+    # refuse.
+    failure_log = Path(args.db).resolve().parent / "loop_failures.jsonl"
     kalshi_config = KalshiConfig.load()
     odds_config = OddsConfig.load()
     risk = RiskConfig.load()
@@ -746,15 +757,30 @@ async def main() -> int:
 
         The third line is two states, not one, and separating them needs an
         instrument this record still does not have.
+
+        **Durably, since 2026-08-30, because this function used to be unable
+        to record the one failure class that kills the loop.** Five passes
+        failed with "database is locked" on a poisoned shared connection, and
+        the row below failed with the same error five times -- the table
+        showed silence across the exact window it exists to explain.
+        `record_loop_failure_durably` journals to a file no lock can refuse,
+        attempts the rollback cure, and falls back to a throwaway connection
+        for the row; its docstring carries the mechanism.
         """
-        db.record_loop_failure(
+        outcome = db.record_loop_failure_durably(
             conn,
+            db_path=args.db,
+            journal_path=failure_log,
             failed_ms=db.now_ms(),
             pass_number=loop_state.passes_attempted,
             consecutive_failures=loop_state.consecutive_failures,
             error=loop_state.last_error or f"{type(_exc).__name__}: {_exc}",
             pass_kind=in_flight_kind[0],
+            exc=_exc,
         )
+        if outcome != "recorded":
+            log.warning("loop failure recorded as %s -- see %s",
+                        outcome, failure_log)
 
     def take_refresh_requests(stamp: int) -> list[ManualRefresh]:
         """Taps this pass should serve, and move the watermark past them.
@@ -1271,7 +1297,32 @@ async def main() -> int:
             # The last thing this process does. The loop dying is precisely the
             # failure the Board cannot show -- it keeps serving the record it
             # already has, which reads as a calm market.
-            await alerter.failure(FAILURE_LOOP_DIED, str(exc), now_ms=db.now_ms())
+            #
+            # Rollback first: the alerter shares this connection, and on
+            # 2026-08-30 this exact call died on the poisoned connection's
+            # "database is locked", so the one alert that explains a dead loop
+            # never went out. And because rollback cannot cure the
+            # referenced-cursor half of the poison (see
+            # `record_loop_failure_durably`), a refusal retries once on a
+            # throwaway connection -- the same fallback the failure row has.
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
+            try:
+                await alerter.failure(
+                    FAILURE_LOOP_DIED, str(exc), now_ms=db.now_ms()
+                )
+            except sqlite3.Error:
+                log.exception(
+                    "the dying alert was refused on the shared connection; "
+                    "retrying on a fresh one"
+                )
+                fresh = db.connect(args.db)
+                try:
+                    await Alerter(fresh, discord).failure(
+                        FAILURE_LOOP_DIED, str(exc), now_ms=db.now_ms()
+                    )
+                finally:
+                    fresh.close()
             raise
         finally:
             # The poller dies with the loop, by design: the entrypoint restarts

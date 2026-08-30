@@ -190,6 +190,60 @@ class TestTheComboAcknowledgementGatesTheConfirm:
         assert "market.max_contracts" in ticket
 
 
+class TestTheAmountIsTypedInDollars:
+    """Joe's 2026-08-30 ruling on the ticket: "confusing. Let me just buy it
+    and help me with putting in the amount in dollars." The venue transacts
+    in contracts; Joe thinks in dollars; the control takes dollars and SHOWS
+    the conversion rather than hiding it — the desk's job is to teach the
+    mapping, not to abstract it away (ADR 0071: price transparency)."""
+
+    def test_the_primary_input_is_dollars_not_a_contracts_stepper(self):
+        ticket = source("components/ManualTicket.tsx")
+        assert "Amount, in dollars" in ticket
+        assert 'label="Contracts"' not in ticket, (
+            "the contracts stepper was the confusing control; the dollar "
+            "input replaced it rather than joining it"
+        )
+
+    def test_the_conversion_rounds_down_and_says_so(self):
+        """The tool must never spend more than the number typed. Rounding a
+        $5 bet at 43c up to 12 contracts would spend $5.16."""
+        ticket = source("components/ManualTicket.tsx")
+        assert "Math.floor(amountTenths / askTenths)" in ticket
+        assert "rounded down" in ticket
+
+    def test_an_untouched_ticket_cannot_buy_one_by_default(self):
+        """`contracts` starts at 0 and the confirm needs >= 1, so a ticket
+        opened and confirmed without typing an amount buys nothing — the
+        old default of 1 made the amount optional."""
+        ticket = source("components/ManualTicket.tsx")
+        assert "setContracts(0);" in ticket
+        assert "contracts >= 1" in ticket
+
+    def test_too_small_an_amount_names_the_smallest_bet(self):
+        ticket = source("components/ManualTicket.tsx")
+        assert "the smallest\n              bet here is" in ticket.replace(
+            "\r\n", "\n"
+        ) or "the smallest bet here is" in " ".join(ticket.split())
+
+    def test_the_per_bet_cap_names_itself_when_it_binds(self):
+        """$100 typed against a small cap must not silently buy less — the
+        line says the cap set the size, not the typed amount."""
+        ticket = source("components/ManualTicket.tsx")
+        assert "your per-bet cap, not your typed amount" in ticket
+
+    def test_the_confirm_button_carries_the_dollar_cost(self):
+        ticket = source("components/ManualTicket.tsx")
+        assert "for ${dollars(" in ticket
+
+    def test_the_money_math_is_integer_tenths(self):
+        """`core/prices.py`'s rule reaches the client: the conversion is
+        `Math.round(parsed * 1000)` into tenths, and division happens only
+        for display."""
+        ticket = source("components/ManualTicket.tsx")
+        assert "Math.round(parsed * 1000)" in ticket
+
+
 # --------------------------------------------------------------------------
 # The search route.
 # --------------------------------------------------------------------------

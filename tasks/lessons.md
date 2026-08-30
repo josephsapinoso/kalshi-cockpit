@@ -40,6 +40,33 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-30 - A failure recorder that shares the failing resource records exactly the failures that don't matter
+
+The recording loop's failure table, its failure hook and its dying alert all
+wrote through the same database connection the passes used. When that
+connection itself became the failure — a stale WAL snapshot poisoning every
+write on it — five passes failed, five failure rows failed with the same
+error, and the one alert that explains a dead loop died of the cause it was
+naming. The table's documented reading ("no rows across a gap = wedged or
+gone") was inverted by the one failure class that kills the process.
+
+The pattern: **a failure path must not depend on anything the success path
+depends on.** Ask of every recorder, alerter and journal: "what happens when
+the thing it records THROUGH is the thing that broke?" The fix here is the
+general shape — a file append first (no lock can refuse it), the shared
+resource second, a throwaway replacement third; and the fallback doubles as
+the diagnosis, because "the fresh connection wrote what the shared one
+refused" is itself the finding.
+
+Corollary, measured the same night: `sqlite3.Connection.rollback()` stopped
+resetting open statements in CPython 3.11, so "rollback on the failure path"
+cures only the open-transaction half of an abandoned pass; a cursor still
+referenced by something long-lived holds its read snapshot until the process
+dies. Do not write "rollback fixes it" without the test that poisons a real
+WAL file and watches it fail.
+
+---
+
 ## 2026-08-29 - A local autouse fixture over module state protects one file and exposes every other
 
 `run_kalshi_pass` acquired two module-level counters, and the lane that added
