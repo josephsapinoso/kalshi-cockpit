@@ -19,11 +19,14 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from backend.config import KalshiConfig
 from backend.kalshi.auth import KalshiAuth, signed_path
+from decimal import Decimal
+
 from backend.kalshi.rest import (
     ORDERBOOK_KEY,
     KalshiAPIError,
     KalshiRestClient,
     MalformedOrderbookResponse,
+    parse_position_fp,
 )
 
 BASE = "https://api.test.kalshi.com/trade-api/v2"
@@ -603,3 +606,120 @@ class TestMarketsForOneEventCannotComeBackShort:
         async with api:
             markets = await api.markets_for_event("EV")
         assert [m["ticker"] for m in markets] == ["EV-A"]
+
+
+# The exact per-row shape observed on the production account, 2026-08-30, by
+# scripts/capture_positions_fixture.py. SYNTHETIC VALUES, real field names and
+# types -- the verbatim capture is a real account's exposure and stays out of
+# a public repo (data/captures/, gitignored). The shape assertion is what is
+# committed, per the MLBAM precedent in ADR 0035.
+OBSERVED_POSITION_ROW = {
+    "ticker": "KXMLBGAME-26AUG30TEST-AAA",
+    "position_fp": "22.88",
+    "market_exposure_dollars": "7.641920",
+    "total_traded_dollars": "7.641920",
+    "fees_paid_dollars": "0.070000",
+    "realized_pnl_dollars": "0.000000",
+    "last_updated_ts": "2026-08-30T02:01:05.541282Z",
+    "exchange_index": 1,
+}
+
+
+class TestPositionsAskForTheVenueOwnNonZeroCut:
+    """`positions()` was `payload.get("market_positions") or []` -- one bare,
+    unpaginated call.
+
+    Measured 2026-08-30 against production: the bare endpoint returns
+    zero-quantity rows for markets already exited (2 bare vs 1 with
+    `count_filter=position`), so every reader -- check 10's netting guard,
+    "Open now: N" -- was counting markets Joe had left. And the `or []`
+    meant a renamed envelope read as "no open positions", which fails the
+    netting guard open.
+
+    WHAT THIS DOES NOT ESTABLISH: what the venue's filter does to a row
+    that flips to zero mid-session, and anything about `event_positions`.
+    """
+
+    @respx.mock
+    async def test_count_filter_is_on_the_wire_and_pages_are_walked(self, api):
+        """The venue's own non-zero cut, on every page. The cursor came back
+        empty on the account observed; pagination is followed anyway because
+        a real position past page 1 fails the netting guard open."""
+        second = dict(OBSERVED_POSITION_ROW, ticker="KXMLBGAME-26AUG30TEST-BBB")
+        route = respx.get(f"{BASE}/portfolio/positions").mock(
+            side_effect=[
+                httpx.Response(200, json={
+                    "market_positions": [OBSERVED_POSITION_ROW],
+                    "event_positions": [],
+                    "cursor": "more",
+                }),
+                httpx.Response(200, json={
+                    "market_positions": [second],
+                    "event_positions": [],
+                    "cursor": "",
+                }),
+            ]
+        )
+        async with api as client:
+            rows = await client.positions()
+        assert [r["ticker"] for r in rows] == [
+            "KXMLBGAME-26AUG30TEST-AAA", "KXMLBGAME-26AUG30TEST-BBB",
+        ]
+        for call in route.calls:
+            assert call.request.url.params["count_filter"] == "position"
+
+    @respx.mock
+    async def test_a_renamed_positions_envelope_raises(self, api):
+        """`or []` read this exact response as 'no open positions' -- the
+        one answer that waves every bet through the netting guard."""
+        respx.get(f"{BASE}/portfolio/positions").mock(
+            return_value=httpx.Response(
+                200, json={"positionz": [OBSERVED_POSITION_ROW], "cursor": ""}
+            )
+        )
+        async with api as client:
+            with pytest.raises(KalshiAPIError, match="renamed"):
+                await client.positions()
+
+    @respx.mock
+    async def test_a_genuinely_empty_positions_list_returns_cleanly(self, api):
+        respx.get(f"{BASE}/portfolio/positions").mock(
+            return_value=httpx.Response(
+                200, json={"market_positions": [], "cursor": ""}
+            )
+        )
+        async with api as client:
+            assert await client.positions() == []
+
+    def test_the_observed_shape_still_parses(self):
+        """Shape assertion for the 2026-08-30 capture: the quantity field is
+        `position_fp` and it parses to an exact decimal. If Kalshi renames or
+        retypes it, this is the test that names the day the shape moved."""
+        assert parse_position_fp(
+            OBSERVED_POSITION_ROW["position_fp"]
+        ) == Decimal("22.88")
+
+
+class TestParsePositionFp:
+    """Unreadable resolves to None, never 0 (CLAUDE.md) -- in the netting
+    guard, a substituted zero is 'no position here', the fail-open answer."""
+
+    def test_the_observed_string_is_exact(self):
+        assert parse_position_fp("22.88") == Decimal("22.88")
+
+    def test_zero_is_zero_not_none(self):
+        """'0.00' is a real venue answer -- an exited market -- and must stay
+        distinguishable from unreadable."""
+        assert parse_position_fp("0.00") == Decimal("0")
+
+    def test_the_sign_survives(self):
+        """Negative is a NO-side holding; a guard that drops the sign would
+        wave a YES buy past a short position."""
+        assert parse_position_fp("-3.50") == Decimal("-3.50")
+
+    def test_an_integer_is_accepted(self):
+        assert parse_position_fp(3) == Decimal("3")
+
+    @pytest.mark.parametrize("junk", [None, "not a number", "", True, 2.5, {}])
+    def test_everything_unreadable_is_none(self, junk):
+        assert parse_position_fp(junk) is None

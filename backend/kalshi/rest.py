@@ -36,6 +36,7 @@ import asyncio
 import logging
 import random
 import time
+from decimal import Decimal, InvalidOperation
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlencode
 
@@ -171,6 +172,26 @@ def _require_list(payload: dict, key: str, path: str) -> list[dict]:
             f"'there are none'.",
         )
     return payload[key] or []
+
+
+def parse_position_fp(value: Any) -> Optional[Decimal]:
+    """The venue's position quantity off a `/portfolio/positions` row, or
+    `None` when unreadable -- never 0 (CLAUDE.md: callers refuse rather than
+    substitute).
+
+    Observed 2026-08-30 on the production account: `position_fp` is a
+    fixed-point **string** (`'22.88'`, `'0.00'`) and genuinely fractional, so
+    `int()` would misread a real position and `float` would carry binary
+    noise into an equality-with-zero test. Per Kalshi's convention the sign
+    is the side (positive long YES, negative short); callers deciding "is
+    there a position at all" compare against zero, not against positive.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    try:
+        return Decimal(value)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 class _RateLimiter:
@@ -581,8 +602,37 @@ class KalshiRestClient:
         return await self.get("/portfolio/balance")
 
     async def positions(self) -> list[dict]:
-        payload = await self.get("/portfolio/positions")
-        return payload.get("market_positions") or []
+        """Open market positions -- non-zero only, every page, rename-loud.
+
+        The per-row shape was observed for the first time on 2026-08-30
+        (`scripts/capture_positions_fixture.py`, two calls against the
+        production account). What the wire actually carries:
+
+        - envelope `{"cursor", "event_positions", "market_positions"}`;
+        - the quantity field is **`position_fp`, a fixed-point STRING**
+          (`'22.88'`, `'0.00'`) -- fractional, so any reader parses Decimal
+          and never `int()`; the docs' legacy `position` int is absent;
+        - **the bare endpoint returns zero-quantity rows**: 2 bare vs 1 with
+          `count_filter=position`, and the zero row was a market exited three
+          days earlier. Without the filter, every market ever traded reads as
+          "open" -- check 10 refuses re-entry to markets Joe already exited
+          and "Open now: N" inflates.
+
+        Three fixes travel together, because after one binds the next is the
+        limit: `count_filter="position"` (the venue's own non-zero cut),
+        pagination (a real position past page 1 fails the netting guard
+        open), and `paginate`'s missing-key raise instead of the `or []`
+        this ended with -- a renamed envelope read as "no open positions",
+        the defect this repo has now hit five times.
+        """
+        return [
+            row
+            async for row in self.paginate(
+                "/portfolio/positions",
+                "market_positions",
+                count_filter="position",
+            )
+        ]
 
     async def orders(
         self, *, ticker: Optional[str] = None, status: Optional[str] = None

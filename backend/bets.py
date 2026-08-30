@@ -355,15 +355,20 @@ def open_positions(conn: sqlite3.Connection, *, now_ms: int) -> dict:
     The largest hole the 2026-08-22 review found: Joe could not see what was
     at risk on any screen. There is **no per-position mirror table** to read
     -- `portfolio_poll` counts the `/portfolio/positions` rows and refuses to
-    parse them (the per-row shape has never been observed on this account;
-    five parsers in this repo's history were written against imagined wire
-    formats). So this serves exactly what the record carries, and says so:
+    parse them (the per-row shape went unobserved on this account until
+    2026-08-30 -- `scripts/capture_positions_fixture.py` -- and five parsers
+    in this repo's history were written against imagined wire formats). So
+    this serves exactly what the record carries, and says so:
 
     - **`count`** -- `poll_log.row_count` of the newest successful
       'positions' poll: the number of `market_positions` rows the venue
-      returned, counted and not parsed. Whether the venue includes settled
-      or zero-count rows in that list is unobserved; the count is "position
-      rows at the venue", not a parsed claim about each one.
+      returned, counted and not parsed. Observed 2026-08-30: the bare
+      endpoint DOES include zero-quantity rows for markets already exited
+      (2 bare vs 1 filtered on this account), so until that date this
+      number was inflated. `rest.positions()` now asks the venue for its
+      own non-zero cut (`count_filter=position`), so from the first poll
+      after that deploy the count means "open now" rather than "ever
+      traded" -- still counted, not parsed.
     - **`value_tenths`/`value_display`** -- the newest snapshot's
       `portfolio_value_tenths`, the venue's own `portfolio_value` from the
       balance payload (5-minute cadence). Its unit is pinned only at zero

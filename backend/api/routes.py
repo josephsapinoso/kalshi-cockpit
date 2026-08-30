@@ -89,7 +89,7 @@ from ..gate import (
 )
 from ..kalshi.candles import parse_chart_candle
 from ..kalshi.orders import OrderPlacer, OrderRefused, OrderRequest
-from ..kalshi.rest import KalshiRestClient
+from ..kalshi.rest import KalshiRestClient, parse_position_fp
 from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 from ..live import QuoteHub, sse
 from ..logging_setup import configure_logging
@@ -4909,9 +4909,15 @@ def create_app(
             )
 
         # 10. A LIVE positions read, not the 12-hour mirror. The per-row
-        #     shape has never been observed (portfolio_poll counts, it does
-        #     not parse), so the guard is deliberately blunt: any row naming
-        #     this ticker — or any row too unreadable to name one — refuses.
+        #     shape was observed 2026-08-30 (`position_fp`, a fixed-point
+        #     string, fractional — see `rest.positions()`), so the guard
+        #     compares the quantity the venue reports instead of refusing on
+        #     ticker alone: until then a market Joe had EXITED still refused
+        #     re-entry, because the bare endpoint returns zero-quantity rows
+        #     for every market ever traded. A row too unreadable to name a
+        #     ticker, or naming this ticker with a quantity that will not
+        #     parse, still refuses — unreadable resolves to a refusal, never
+        #     to zero.
         #
         #     **And the read is stamped, because it is a real one.**
         #     `poll_log` means "the venue was asked and this is what it
@@ -4952,15 +4958,38 @@ def create_app(
         )
         for row in position_rows:
             row_ticker = row.get("ticker") if isinstance(row, dict) else None
-            if row_ticker is None or row_ticker == ticker:
+            if row_ticker is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "a position row came back too unreadable to name a "
+                        "ticker, so 'this buy does not close an existing "
+                        "position' cannot be verified. Refusing rather than "
+                        "guessing."
+                    ),
+                )
+            if row_ticker != ticker:
+                continue
+            quantity = parse_position_fp(row.get("position_fp"))
+            if quantity is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "the venue reports a row for this market but its "
+                        "quantity would not parse, so whether you already "
+                        "hold a position here cannot be verified. Refusing "
+                        "rather than guessing."
+                    ),
+                )
+            if quantity != 0:
                 raise HTTPException(
                     status_code=422,
                     detail=(
                         "you already hold a position this order could net "
-                        "against (or a position row was unreadable). Kalshi "
-                        "nets buys against opposite holdings, and this "
-                        "record must not book a close as an open. Manage "
-                        "the existing position in the Kalshi app first."
+                        "against. Kalshi nets buys against opposite "
+                        "holdings, and this record must not book a close as "
+                        "an open. Manage the existing position in the "
+                        "Kalshi app first."
                     ),
                 )
 

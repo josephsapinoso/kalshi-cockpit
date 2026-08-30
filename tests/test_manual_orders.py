@@ -3,9 +3,9 @@
 Every check is server-side and every test here drives the route the way a
 client would — the demo-unreachability halves, the lockout and cool-off 423s,
 the KXMVE refusal, the daily-loss switch over the venue mirror, the derived
-caps, the price ceiling, the depth check, the netting guard against an
-unobserved positions shape, and the reserve-then-check transaction in
-`manual_orders`. Plus the two separation pins that make ADR 0063 an
+caps, the price ceiling, the depth check, the netting guard over the
+`position_fp` shape observed 2026-08-30, and the reserve-then-check
+transaction in `manual_orders`. Plus the two separation pins that make ADR 0063 an
 architecture rather than a promise: `gate.py` never reads the table, and no
 production call site passes the dry-run constant as anything but itself.
 
@@ -571,16 +571,63 @@ class TestTheGuardsRefuse:
         assert "per-bet cap" in response.json()["detail"]
 
     async def test_holding_the_ticker_refuses_the_buy(self, tmp_path):
-        """Kalshi nets; a buy that closes a position must not book an open."""
-        quotes = StubQuotes(positions=[{"ticker": TICKER, "position": "1"}])
+        """Kalshi nets; a buy that closes a position must not book an open.
+
+        The row is the shape observed 2026-08-30: `position_fp`, a
+        fixed-point string, fractional. The old fixture said `"position":
+        "1"` — a field name that has never been seen on the wire.
+        """
+        quotes = StubQuotes(
+            positions=[{"ticker": TICKER, "position_fp": "22.88"}]
+        )
         app = _app(_base_db(tmp_path), quotes=quotes)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
         assert response.status_code == 422
         assert "nets" in response.json()["detail"]
 
+    async def test_a_short_position_refuses_the_buy_too(self, tmp_path):
+        """`position_fp` is signed — negative is a NO-side holding, and a YES
+        buy against it is exactly the netting the guard exists to catch."""
+        quotes = StubQuotes(
+            positions=[{"ticker": TICKER, "position_fp": "-3.00"}]
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        assert "nets" in response.json()["detail"]
+
+    async def test_an_exited_market_no_longer_refuses_the_buy(
+        self, tmp_path, records_only
+    ):
+        """Observed 2026-08-30: the bare endpoint returns `position_fp:
+        '0.00'` rows for markets already exited. Until this date the guard
+        compared ticker alone, so re-entering a market Joe had exited was
+        refused as if he still held it — a false refusal on the desk's core
+        function. The venue's zero is 'no position', and the bet proceeds.
+        """
+        quotes = StubQuotes(
+            positions=[{"ticker": TICKER, "position_fp": "0.00"}]
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 200, response.text
+
+    async def test_a_matching_row_with_an_unparseable_quantity_refuses(
+        self, tmp_path
+    ):
+        """Unreadable resolves to a refusal, never to zero — a quantity that
+        will not parse must not read as 'no position here'."""
+        quotes = StubQuotes(
+            positions=[{"ticker": TICKER, "position_fp": "not a number"}]
+        )
+        app = _app(_base_db(tmp_path), quotes=quotes)
+        response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)
+        assert response.status_code == 422
+        assert "cannot be verified" in response.json()["detail"]
+
     async def test_an_unreadable_position_row_refuses_too(self, tmp_path):
-        """The per-row shape has never been observed; a row that cannot name
-        its ticker cannot prove it is not this one."""
+        """A row that cannot name its ticker cannot prove it is not this
+        one."""
         quotes = StubQuotes(positions=[{"mystery": True}])
         app = _app(_base_db(tmp_path), quotes=quotes)
         response = await post(app, "/api/manual-orders", json=_body(), headers=AUTH)

@@ -474,9 +474,11 @@ async def poll_positions(
     """The positions count alone, so it can run on the 5-minute cadence too.
 
     **Still COUNTED, NOT PARSED**, and moving the clock changes nothing about
-    that: the per-row shape has never been observed on this account, the count
-    lands in `poll_log.row_count`, and the first non-empty payload should be
-    captured before anyone writes a parser.
+    that: the count lands in `poll_log.row_count`. The per-row shape WAS
+    captured 2026-08-30 (`scripts/capture_positions_fixture.py`), and what
+    changed here as a result is upstream -- `rest.positions()` now returns
+    the venue's own non-zero cut, so this count stopped including markets
+    already exited.
 
     Extracted from `poll_portfolio` (2026-08-29) for the reason `poll_fills`
     and `poll_settlements` were extracted before it: a consumer refuses on a

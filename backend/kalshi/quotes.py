@@ -317,9 +317,12 @@ class LiveQuoteSource:
         API failures become `QuoteUnavailable`, `ConfigError` passes through
         so "no credentials" stays distinguishable from "no answer".
 
-        The per-row shape has NEVER been observed (`portfolio_poll` counts
-        rows, it does not parse them) — callers must treat each row as
-        untrusted and refuse on anything unreadable rather than defaulting.
+        The per-row shape was observed 2026-08-30
+        (`scripts/capture_positions_fixture.py`): the quantity is
+        `position_fp`, a fixed-point string, and `rest.positions()` now
+        returns non-zero rows only, every page. Callers still treat each row
+        as untrusted and refuse on anything unreadable rather than
+        defaulting — observation licenses a parser, not trust.
         """
         api = self._api()
         try:
