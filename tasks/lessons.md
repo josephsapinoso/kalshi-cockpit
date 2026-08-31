@@ -54,6 +54,33 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A tool that reports success has not necessarily done anything; measure the state it claims to have set
+
+The 390px check was skipped for a whole session because `resize_window`
+returned *"Successfully resized window containing tab ... to 390x844 pixels"*
+and the page stayed at desktop width. Three calls, three successes, no change.
+Chrome ignores the resize on a maximised window and the tool reports the
+request, not the result. The next screenshot came back 1568 wide and was read
+as "the resize did not take" only after the third try.
+
+One line settles it, and it is the state rather than the return value:
+
+    window.innerWidth        // 1045, not 390
+
+**Pattern: a tool's success message is a claim about the CALL, not about the
+world. When the whole point of a step is to put the system into a state, read
+the state back before doing the work that depends on it.** This is the same
+discipline as `/api/health`'s `git_sha` after a deploy, and as "read the output,
+not the exit status" -- the general form is that the confirmation and the effect
+are separate things, and only one of them is what you needed.
+
+The workaround, worth keeping because the same-origin trick generalises to any
+authed page: replace the document with a `<iframe width=390 src="/the-page">`
+on the SAME origin. The frame gets a genuine viewport at that width -- real
+media queries, real layout -- and the session cookie flows because it is not a
+third-party frame. Make the iframe very tall and scroll the OUTER page; a
+short frame clips, and its own `scrollTo` does not respond.
+
 ## 2026-08-31 - Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
 
 The slate row's `StatusLine` voices one warning by fixed priority, and its
@@ -2249,6 +2276,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- A tool that reports success has not necessarily done anything; measure the state it claims to have set
 - Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
 - A test named for a relationship between two artifacts must read both of them
 - A number cannot be checked against itself, so put a second independent rendering of it on the same row
