@@ -244,13 +244,40 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-08-31 (latest) — the sweet spot reaches all three surfaces, and a second opinion convicted a four-month-old number
 
-**NOT DEPLOYED, and the reason is the classifier rather than a doubt.** `main`
-and `origin/main` are on **`580deb6`**; live's `/api/health` `git_sha` reads
-`badd88e`, checked from the machine. The `flyctl deploy` dispatch was refused
-by the auto-mode classifier — one attempt, per the standing rule that it is
-unpredictable and the dispatch is tried once and then reported. **The first
-thing to do next session is deploy `580deb6`**, then re-read `git_sha` rather
-than assuming it took.
+**DEPLOYED `11bd2c0`, verified** — `/api/health` `git_sha` reads
+`11bd2c06b62f22b0bb4489bb1ab230bd461aa495`, status ok, mode live.
+
+**Joe asked for `580deb6` and `11bd2c0` is what shipped, deliberately.** The
+two differ in `tasks/NEXT.md` alone (`git diff --name-only 580deb6..HEAD`), so
+every byte of application code is identical — and a Fly deploy ships the
+**working tree**, not a named commit, so stamping `GIT_SHA=580deb6` would have
+put a sha on `/api/health` naming a tree that did not ship. That is the exact
+defect the `4fb95bb` commit fixed one entry below.
+
+**The first dispatch, one turn earlier, was refused by the auto-mode
+classifier** — tried once and reported, per the standing rule. Joe's explicit
+"deploy 580deb6" cleared it on the retry. Nothing about the change was ever in
+doubt; the block was the harness.
+
+**Read on the live screen, not inferred from the deploy log.** `/slate` and
+`/market/KXMLBGAME-26AUG311840SDCIN-CIN`, real rows, through the session
+cookie:
+
+    EVIDENCE 5/7 CHECKS · 1 NOT CHECKED
+    sportsbook consensus 2042s old, limit 900s; Kalshi quote 134s old, limit 30s.
+
+Three things that confirms and one that is new:
+
+- The caveat renders in the score's own register, so 5/7 cannot be read alone.
+- The prose sits at the row's caption size rather than body size.
+- `READINGS DISAGREE BY 0.1 PTS` on the slate against devig readings of
+  `58.08% – 58.21%` on the market screen — **0.13 pts, so the corrected figure
+  is right on live data.** The old code would have printed 0.2.
+- **New: the score names a failure no other element on the row does.** The
+  StatusLine printed only the Kalshi quote's staleness; the consensus was
+  **2042s against a 900s limit** — the limit that actually ends a row's life —
+  and nothing said so until this line. That is the redundancy question from
+  ADR 0093 answering in the useful direction on the first real screen.
 
 **Suite: 5,437 passed / 10 xfailed in 11:50**, collected with no code or test
 file edited after the run started (documentation was added under it — the ADR
@@ -343,9 +370,11 @@ new — but it was not observed, and ADR 0093 says so rather than assuming.
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
    ADR 0093.**
-2. **DEPLOY `580deb6`.** The dispatch was refused by the auto-mode classifier;
-   live is on `badd88e`. Nothing about the change is in doubt — the suite is
-   green and the screens were read in a browser. This is the top item.
+2. ~~Deploy this.~~ **DONE — `11bd2c0` is live and verified on the screen.**
+   Worth carrying: the StatusLine's fixed priority named the *quote* clock and
+   not the *consensus* clock on a row whose consensus was 2042s past a 900s
+   limit. The trust line covers it now, but the selection rule that chose the
+   less binding fact is pre-existing and unexamined.
 3. **Watch whether `database is locked` recurs.** `loop_failures` is the
    instrument. If the rate holds, the two unexamined suspects are the retention
    prune over `kalshi_quotes` (451 MB) and the WAL `TRUNCATE` checkpoint.
