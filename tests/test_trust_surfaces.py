@@ -402,6 +402,29 @@ class TestTheSweetSpotIsNeverRenderedBare:
         block = self._block()
         assert "on this leg passed" not in block
 
+    def test_the_prose_can_break_an_unbreakable_token(self):
+        """The failure list embeds `suppressed_reason` verbatim.
+
+        That is often several codes joined by commas with no spaces
+        (`stale_odds,too_few_books,no_market_width,...`), which reaches a
+        line-breaker as ONE token. Measured on live at 390px: this span ran to
+        `scrollWidth` 404 inside a 327px column and pushed the document to 428
+        against a 390 viewport -- the slate scrolled sideways on a phone.
+
+        Data-dependent, so an identical read an hour earlier measured a clean
+        375 and saw nothing. That is why this is pinned in source rather than
+        trusted to a browser check.
+
+        Mutation observed red: drop `break-words` from the outer span.
+        """
+        block = self._block()
+        i = block.index("<span className={`block")
+        j = block.index("}>", i)
+        assert "break-words" in block[i:j], (
+            "the prose cannot break, so a multi-code suppression reason "
+            "scrolls the page sideways at 390px"
+        )
+
     def test_no_colour_and_no_sort(self):
         """Red means lose (ADR 0081); a failing evidence check is not a loss.
         And ADR 0071 s2.5 bars ranking by a per-row fact."""

@@ -279,8 +279,13 @@ Three things that confirms and one that is new:
   and nothing said so until this line. That is the redundancy question from
   ADR 0093 answering in the useful direction on the first real screen.
 
-**Suite: 5,445 passed / 10 xfailed in 12:31** on the tree with the panel
-size and the wrapping fix. The **+1 over 5,444 is the one new wrapping
+**Suite: 5,446 passed / 10 xfailed in 10:56** on the final tree. The **+2
+over 5,444 is the two wrapping guards** — one on the footer span, one on
+`TrustNote`'s prose; the size bump moved no test, which is right for a
+styling prop.
+
+**Superseded: 5,445 passed / 10 xfailed in 12:31** on the tree with the panel
+size and the FIRST wrapping fix — the one that did not move the number. The **+1 over 5,444 is the one new wrapping
 guard**; the size bump moved no test, which is right for a styling prop.
 The 5,444 below was the status-line tree:
 
@@ -401,14 +406,39 @@ legs share one `text-[11px]` list. The slate row now passes `size="panel"`
 `compact`. Re-measured at 390px after deploying: score **12px**, prose 12px,
 263px of 390, **0 of 100 wrapped**.
 
-**And the re-measurement found a real defect that was not mine.**
-`documentElement.scrollWidth` came back **428** against a 390px viewport —
-the slate scrolled sideways on a phone. The cause is in the refusal-summary
-footer, not in anything this session wrote: a `suppressed_reason` is often
-several codes joined by commas with no spaces
-(`stale_odds,too_few_books,no_market_width,...`), which is one unbreakable
-token, and the footer's span lacked `break-words` while the row-level span has
-carried it since it was written. Fixed, both spans now asserted together.
+**And the re-measurement found the slate scrolling sideways on a phone —
+`documentElement.scrollWidth` 428 against a 390px viewport. The first
+diagnosis was wrong, and the correction is the part worth reading.**
+
+The cause is a `suppressed_reason` joined from several codes with no spaces
+(`stale_odds,too_few_books,no_market_width,...`), which reaches a line-breaker
+as ONE token with no break opportunity in it. Two elements render that string
+and neither could break it:
+
+- the **refusal-summary footer's** code span — found first, fixed first, and
+  it was genuinely missing `break-words` while the row-level span rendering
+  the same string had carried it since it was written;
+- **`TrustNote`'s own failure prose**, which embeds `suppressed_reason`
+  verbatim — **this session's own element, and the one actually setting 428.**
+
+**Fixing the footer and re-measuring is what found the second one.** The
+number did not move: still 428, with every footer code now inside the column
+at 351. Walking `scrollWidth > clientWidth` down the tree landed on
+`TrustNote`'s span at **404 inside a 327px column**. A leaf-overflow scan had
+missed it both times, because the span's own box is 327 wide — it is the
+*text inside it* that overflows, so no element's `getBoundingClientRect()`
+ever reported a right edge past 390.
+
+Two things to carry, and the second is the method:
+
+- **A fix that does not move the number has not been shown to work.** Fixing
+  the footer, re-measuring, and finding 428 unchanged is what stopped a wrong
+  diagnosis from shipping as a finished one.
+- **Overflow does not always have an element you can find by its rect.**
+  `getBoundingClientRect().right > viewport` finds a wide *box*; it cannot
+  find text overflowing a correctly-sized box. Walk `scrollWidth >
+  clientWidth` instead — that is what located it in one pass after two failed
+  scans.
 
 **It is data-dependent, which is why the earlier 390px read at 375 saw
 nothing** — the same page, the same width, an hour apart, and no long

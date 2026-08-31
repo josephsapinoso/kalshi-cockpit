@@ -68,8 +68,19 @@ export default function TrustNote({
   // `text-[11px]` is exactly what the card was already rendering, so extracting
   // this changed nothing there.
   const prose = size === "panel" ? "text-xs" : "text-[11px] leading-relaxed";
+  // **`break-words`, and it is load-bearing rather than defensive.** The
+  // failure list embeds `suppressed_reason` verbatim, and that is often
+  // several codes joined by commas with no spaces —
+  // `stale_odds,too_few_books,no_market_width,edge_within_method_spread` — so
+  // it reaches a line-breaker as ONE token with no break opportunity in it.
+  //
+  // Measured on live at a true 390px viewport, 2026-08-31: this span ran to
+  // `scrollWidth` 404 inside a 327px column and pushed the whole document to
+  // 428 against a 390 viewport, so the slate scrolled sideways on a phone.
+  // It is data-dependent — an identical read an hour earlier measured a clean
+  // 375, because no row on the slate then carried a long multi-code reason.
   return (
-    <span className={`block text-muted ${prose}`}>
+    <span className={`block break-words text-muted ${prose}`}>
       {/*
         **The unknown count sits INSIDE the styled span, not after it, and that
         is the whole point of this element.** Shipped 2026-08-31 with the count

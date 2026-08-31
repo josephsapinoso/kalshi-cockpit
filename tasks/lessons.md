@@ -54,6 +54,60 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects
+
+The slate scrolled sideways at 390px. Two scans for the culprit -- every
+element whose `getBoundingClientRect().right` exceeded the viewport -- found
+only the nav, which is a legitimate `overflow-x-auto` scroller. Both scans were
+looking for the wrong thing.
+
+The offender was a `<span>` exactly **327px** wide, correctly sized, sitting
+inside its column with a right edge nowhere near the viewport. Its *text* ran
+to 404. A rect describes the box; it says nothing about content spilling out of
+a box that is itself the right size. So the element could never appear in a
+rect-based scan, at any viewport, however wrong it was.
+
+One walk found it in a single pass:
+
+    for (const el of root.querySelectorAll('*'))
+      if (el.scrollWidth > el.clientWidth + 0.5) report(el)
+
+filtering out the elements where that is intended -- a real scroller has
+`overflowX !== 'visible'`.
+
+**Pattern: `rect.right > viewport` finds a box that is too wide.
+`scrollWidth > clientWidth` finds content too wide for its box. They are
+different defects and the second is the one that hides**, because every
+element involved measures correctly.
+
+The cause underneath was a machine-joined string
+(`stale_odds,too_few_books,no_market_width,...`) with no break opportunity in
+it, and the fix was `break-words`. See the entry below for why the same page
+measured clean an hour earlier.
+
+## 2026-08-31 - A fix that does not move the number has not been shown to work
+
+Having found one element that could not wrap a machine-joined string, I fixed
+it, redeployed, and re-measured. `documentElement.scrollWidth` was **still
+428** -- the exact number it had been before -- while the element I had fixed
+now sat correctly inside the column.
+
+The fix was real. The diagnosis was half of one. A *second* element rendered
+the same string, and it was the one actually setting 428 -- and it was in the
+code I had written that day, which is the direction I was least likely to look
+after finding a plausible culprit elsewhere.
+
+**Pattern: the confirming measurement is the one that finds the second cause.
+Re-run the exact measurement that produced the symptom, and treat an unmoved
+number as a live finding rather than as a stale reading.** The temptation is to
+explain it away -- caching, the wrong build, the data changed -- and each of
+those is checkable in seconds, which is what makes skipping the check
+inexcusable.
+
+The failure mode has a name in this file already: it is *one predicate with two
+spellings*, and *two renderings of one value must wrap the same way*. What is
+new is the procedure -- **fix, re-measure, and require the number to move.**
+
 ## 2026-08-31 - A layout measurement measures tonight's data as much as the CSS, so one clean read is not a clean bill
 
 The slate was measured at a true 390px viewport and came back clean:
@@ -2304,6 +2358,8 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects
+- A fix that does not move the number has not been shown to work
 - A layout measurement measures tonight's data as much as the CSS, so one clean read is not a clean bill
 - A tool that reports success has not necessarily done anything; measure the state it claims to have set
 - Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
