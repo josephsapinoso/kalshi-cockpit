@@ -10,6 +10,9 @@
  *
  * The demo instance has no `APP_AUTH_TOKEN` and is therefore ungated, which is
  * what the portfolio link needs.
+ *
+ * **It also sets the framing headers, on every response including the demo's.**
+ * See `FRAME_HEADERS` below.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -60,16 +63,65 @@ const JSON_ROUTE_HANDLERS = new Set([
   "/hedge-close",
 ]);
 
+/**
+ * Refuse to be framed by anyone but ourselves.
+ *
+ * **The exposure this closes.** Until 2026-08-31 the live cockpit sent neither
+ * header, so any page on the internet could load it in an invisible iframe,
+ * float a decoy over it, and have a signed-in reader click a control they
+ * could not see. The controls behind this gate include `POST /api/manual-
+ * orders`, which sends a REAL immediate-or-cancel order to Kalshi
+ * (`MANUAL_ORDERS_ARE_DRY_RUNS = false` since 2026-08-26, ADR 0073), and the
+ * bid and hedge paths beside it. Server-side re-validation does not help: a
+ * clickjacked click is a genuine click from a genuine session, and every
+ * check passes.
+ *
+ * **`self`, not `DENY`, and the reason is that it costs nothing.** An attacker
+ * cannot serve a page from this origin, so same-origin framing is not a way
+ * in; `DENY` would block only *our own* embedding and buys no security for it.
+ * One thing it keeps working is the 390px verification harness recorded in
+ * `tasks/NEXT.md` — a same-origin iframe is the only way found so far to get a
+ * true phone viewport against an authed page, and `DENY` would have deleted
+ * that tool in exchange for nothing.
+ *
+ * **Both headers, deliberately.** `frame-ancestors` supersedes
+ * `X-Frame-Options` and wins wherever both are understood; the legacy header
+ * stays for anything that does not implement CSP. They say the same thing, so
+ * they cannot disagree.
+ *
+ * **This is not a full CSP and does not pretend to be.** A `script-src` or
+ * `style-src` on this app is a separate change with a real chance of breaking
+ * a page, and shipping it inside a framing fix would mean one deploy that
+ * cannot be reasoned about. Framing is the exposure that was found; framing is
+ * what this closes.
+ */
+const FRAME_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  ["Content-Security-Policy", "frame-ancestors 'self'"],
+  ["X-Frame-Options", "SAMEORIGIN"],
+];
+
+/**
+ * Applied to EVERY return path, including the demo's ungated one and the 401.
+ *
+ * Set on one funnel rather than at each `return`, because this middleware has
+ * five exits and a header added at four of them is a header that is absent
+ * exactly where somebody later adds a sixth.
+ */
+function withFrameHeaders(response: NextResponse): NextResponse {
+  for (const [name, value] of FRAME_HEADERS) response.headers.set(name, value);
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const secret = sessionSecret();
   // No shared secret configured -- this is the demo. Nothing to protect.
-  if (!secret) return NextResponse.next();
+  if (!secret) return withFrameHeaders(NextResponse.next());
 
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname)) return withFrameHeaders(NextResponse.next());
 
   if (await verifySession(request.cookies.get(COOKIE_NAME)?.value, secret)) {
-    return NextResponse.next();
+    return withFrameHeaders(NextResponse.next());
   }
 
   // An API caller gets a status code it can act on. Redirecting these would
@@ -80,9 +132,11 @@ export async function middleware(request: NextRequest) {
   // -- but it is called by `fetch` and answers JSON, so it needs this branch
   // and not the redirect below.
   if (pathname.startsWith("/api/") || JSON_ROUTE_HANDLERS.has(pathname)) {
-    return NextResponse.json(
-      { detail: "Not authenticated. Sign in at /login." },
-      { status: 401 },
+    return withFrameHeaders(
+      NextResponse.json(
+        { detail: "Not authenticated. Sign in at /login." },
+        { status: 401 },
+      ),
     );
   }
 
@@ -90,7 +144,7 @@ export async function middleware(request: NextRequest) {
   // Preserved so a deep link survives the round trip -- the difference between
   // opening a phone notification and landing where you meant to.
   if (pathname !== "/") login.searchParams.set("next", pathname);
-  return NextResponse.redirect(login);
+  return withFrameHeaders(NextResponse.redirect(login));
 }
 
 export const config = {

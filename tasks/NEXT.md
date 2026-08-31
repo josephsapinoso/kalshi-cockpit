@@ -279,7 +279,11 @@ Three things that confirms and one that is new:
   and nothing said so until this line. That is the redundancy question from
   ADR 0093 answering in the useful direction on the first real screen.
 
-**Suite: 5,446 passed / 10 xfailed in 10:56** on the final tree. The **+2
+**Suite: 5,458 passed / 10 xfailed in 12:21** on the final tree. The **+12
+over 5,446 is `tests/test_frame_headers.py` entirely** — that file collects
+exactly 12 items and no other test file changed.
+
+**Superseded: 5,446 passed / 10 xfailed in 10:56**, before the framing headers. The **+2
 over 5,444 is the two wrapping guards** — one on the footer span, one on
 `TrustNote`'s prose; the size bump moved no test, which is right for a
 styling prop.
@@ -551,6 +555,49 @@ to carry:**
   for (swap the branches, leave the comment) left it **green**. Caught by
   running the mutation. It now reads both and compares them to each other.
 
+### The cockpit refuses to be framed — Joe's ask, same session
+
+Found incidentally: the same-origin iframe used for the 390px read worked
+because **nothing stopped it**. The live instance sent neither
+`X-Frame-Options` nor a CSP `frame-ancestors`, so any page on the internet
+could load the signed-in cockpit in an invisible frame, float a decoy over it,
+and collect a click the reader could not see.
+
+**Server-side re-validation is not a defence against this one**, which is what
+makes it worth the deploy rather than a note: `POST /api/manual-orders` sends
+a real immediate-or-cancel order (`MANUAL_ORDERS_ARE_DRY_RUNS = false` since
+2026-08-26, ADR 0073), and a clickjacked click is a genuine click from a
+genuine session — valid cookie, fresh order token, every check passes.
+
+Set in `frontend/src/middleware.ts`, which runs **before** the `/api` rewrite,
+so one place covers every page and every proxied route. Three decisions:
+
+- **`'self'`, not `DENY`.** An attacker cannot serve a page from this origin,
+  so same-origin framing is not a way in; `DENY` would block only our own
+  embedding and buys no security for it. It also keeps the 390px harness
+  working — the one known way to get a true phone viewport against an authed
+  page, and `DENY` would have deleted that tool in exchange for nothing.
+- **Both headers.** `frame-ancestors` supersedes `X-Frame-Options` where both
+  are understood; the legacy one covers anything without CSP. They say the
+  same thing and a test pins that they cannot disagree.
+- **Not a full CSP, deliberately.** No `script-src`, no `style-src`. Those
+  have a real chance of breaking a page, and shipping them inside a framing
+  fix makes one deploy that cannot be reasoned about. A test refuses any other
+  directive.
+
+Applied through one funnel rather than at each `return`, because the
+middleware has **five** exits — including the demo's ungated one, which is the
+instance an attacker can reach with no password at all — and a header set on
+four of them is absent exactly where somebody adds a sixth. The guard counts
+bare `NextResponse` returns rather than asserting a number, so a sixth exit
+fails it until it is wrapped.
+
+**One thing the tests had to learn, and it is the third time today.** They
+first grepped the raw file and three failed — on the *comments*, which discuss
+`DENY`, `script-src` and `style-src` by name to explain why each was rejected.
+A guard on the code must not be able to read the comment; `_source()` strips
+comments before asserting.
+
 ### Still open
 
 1. ~~The slate row and market detail surfaces for the sweet spot.~~ **DONE —
@@ -566,12 +613,7 @@ to carry:**
 7. ~~Read the phone.~~ **DONE — 390px verified on live, both surfaces**, with
    the same-origin iframe method recorded above. Reuse it; `resize_window` is
    a no-op that reports success.
-8. **The cockpit can be framed.** No `X-Frame-Options`, no CSP
-   `frame-ancestors` anywhere in the repo or on the live response. The app is
-   behind auth and has a real-money confirm button, so a clickjacking frame is
-   a real if unglamorous exposure. One header in the proxy/middleware. Not
-   done — it is a security change to a live money instance and was not what
-   was asked for.
+8. ~~The cockpit can be framed.~~ **DONE — see the section below.**
 9. ~~The sweet spot renders at 9.6px on the slate row, the smallest text
    there.~~ **DONE — Joe took it. The slate row passes `size="panel"` (12px),
    matching the gloss and status lines beside it.** The parlay card keeps

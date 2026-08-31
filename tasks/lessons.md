@@ -54,6 +54,31 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A guard on the code must not be able to read the comment beside it
+
+Three tests on a new middleware failed the moment they were written, and the
+code was correct. They asserted that the response does not carry `DENY`, a
+`script-src` or a `style-src` -- and the comment above the code named all three,
+explaining why each had been rejected. The guard matched the prose that exists
+to justify the guard.
+
+The mirror image of it happened earlier the same day: a test named for a match
+between a docstring and the code read only the docstring, and stayed green
+through the exact change it was written to catch.
+
+**Pattern: a guard about behaviour must read only the code. Comments are where
+the alternatives get named, so any source-scanning guard whose subject is "this
+must NOT appear" will eventually match its own rationale -- and one whose
+subject is "this MUST appear" will eventually be satisfied by prose alone.**
+Strip comments before asserting; it is four lines.
+
+    raw = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)   # block comments
+    raw = re.sub(r"^\s*//.*$", "", raw, flags=re.M)    # line comments
+
+The failure is loud in the first direction and silent in the second, which is
+the one to fear: a test that fails on a comment gets noticed in seconds, and a
+test that passes on a comment is a guard that was never installed.
+
 ## 2026-08-31 - Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects
 
 The slate scrolled sideways at 390px. Two scans for the culprit -- every
@@ -2358,6 +2383,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- A guard on the code must not be able to read the comment beside it
 - Text can overflow a correctly-sized box, so hunt overflow with scrollWidth and not with rects
 - A fix that does not move the number has not been shown to work
 - A layout measurement measures tonight's data as much as the CSS, so one clean read is not a clean bill
