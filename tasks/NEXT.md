@@ -279,6 +279,11 @@ Three things that confirms and one that is new:
   and nothing said so until this line. That is the redundancy question from
   ADR 0093 answering in the useful direction on the first real screen.
 
+**Suite: 5,445 passed / 10 xfailed in 12:31** on the tree with the panel
+size and the wrapping fix. The **+1 over 5,444 is the one new wrapping
+guard**; the size bump moved no test, which is right for a styling prop.
+The 5,444 below was the status-line tree:
+
 **Suite: 5,444 passed / 10 xfailed in 10:39** on the tree with the status-line
 fix. The **+7 over 5,437 is the new `tests/test_slate_status_line.py`
 entirely**, collected rather than reasoned about: that file holds exactly 7
@@ -388,14 +393,28 @@ read could not show because the window was open by then:
     EVIDENCE 6/7 CHECKS · 1 NOT CHECKED
     sportsbook consensus 944s old, limit 900s.
 
-**One observation, not a defect, and it is Joe's call.** On the slate the score
-renders at **9.6px** — the smallest text on the row, 0.8px under the
-`READINGS DISAGREE BY` line directly above it. The two read as a matched pair
-of mono caption lines, which is coherent; but it does mean the sweet spot, the
-thing he asked for, is the quietest element on the row. It inherited
-`text-[0.6rem]` from the parlay card, where six legs share one card. Changing
-it is a one-word edit (`size="panel"`, already built and used on the market
-screen, 12px).
+**The score was the smallest text on the row, and Joe took the fix.** It
+rendered at **9.6px**, 0.8px under the `READINGS DISAGREE BY` line directly
+above it — it had inherited `text-[0.6rem]` from the parlay card, where six
+legs share one `text-[11px]` list. The slate row now passes `size="panel"`
+(12px), matching the gloss and status lines beside it; the card keeps
+`compact`. Re-measured at 390px after deploying: score **12px**, prose 12px,
+263px of 390, **0 of 100 wrapped**.
+
+**And the re-measurement found a real defect that was not mine.**
+`documentElement.scrollWidth` came back **428** against a 390px viewport —
+the slate scrolled sideways on a phone. The cause is in the refusal-summary
+footer, not in anything this session wrote: a `suppressed_reason` is often
+several codes joined by commas with no spaces
+(`stale_odds,too_few_books,no_market_width,...`), which is one unbreakable
+token, and the footer's span lacked `break-words` while the row-level span has
+carried it since it was written. Fixed, both spans now asserted together.
+
+**It is data-dependent, which is why the earlier 390px read at 375 saw
+nothing** — the same page, the same width, an hour apart, and no long
+multi-code reason on the slate at the time. A layout measurement is a
+measurement of *tonight's data* as much as of the CSS; one clean read is not a
+clean bill.
 
 **And one security finding, incidental to the method.** The live app sends
 **no `X-Frame-Options` and no CSP `frame-ancestors`** — which is why the iframe

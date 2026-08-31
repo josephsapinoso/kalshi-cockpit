@@ -35,6 +35,7 @@ WHAT THESE TESTS DO NOT ESTABLISH
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,49 @@ class TestTheBindingClockIsNamedFirst:
         quote = body.index("row.quote_age_now_ms > maxQuoteAgeMs")
         drift = body.index("row.kalshi_drift_tenths")
         assert quote < drift
+
+
+class TestALongRefusalCodeCannotScrollTheSlateSideways:
+    """A `suppressed_reason` is often several codes joined by commas with no
+    spaces, which is one unbreakable token to a line-breaker.
+
+    Measured on live 2026-08-31 in a true 390px viewport: the footer's code
+    span pushed `documentElement.scrollWidth` to **428** against a 390px
+    viewport, so the whole page scrolled sideways on a phone. It is
+    data-dependent -- it appears only when a row carries a long multi-code
+    reason -- which is why an earlier read of the same page at the same width
+    measured 375 and saw nothing.
+
+    The row-level span has carried `w-full break-words` since it was written
+    and never overflowed. Only the footer's copy lacked it.
+    """
+
+    @staticmethod
+    def _code_spans() -> list[str]:
+        """Every `className` that styles a refusal code, however it is wrapped.
+
+        Matched on the class attribute rather than on a line, because the
+        markup is multi-line: a line-based scan silently found nothing once
+        the span was reformatted, which is a guard going quiet rather than
+        red.
+        """
+        source = SLATE_PAGE.read_text(encoding="utf-8")
+        values = re.findall(r'className="([^"]*)"', source)
+        return [v for v in values if "font-mono" in v and "text-accent-2" in v]
+
+    def test_every_refusal_code_span_can_break(self):
+        """Mutation observed red: drop `break-words` from either span.
+
+        Both the row's and the footer's, asserted together: they render the
+        same string and disagreed about wrapping for as long as both existed.
+        """
+        spans = self._code_spans()
+        assert len(spans) >= 2, f"expected both spans, found {len(spans)}"
+        for v in spans:
+            assert "break-words" in v, (
+                f"a refusal code renders in a span that cannot break, so a "
+                f"multi-code reason scrolls the page sideways at 390px: {v!r}"
+            )
 
 
 class TestTheDocstringDescribesTheCodeItSitsOn:

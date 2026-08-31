@@ -638,7 +638,24 @@ function RefusalSummary({
       <ul className="mt-3 space-y-2 border-l pl-4">
         {ordered.map(([reason, count]) => (
           <li key={reason}>
-            <span className="font-mono text-xs text-accent-2">{reason}</span>
+            {/* **`break-words`, and it is not decoration.** A
+                `suppressed_reason` is often several codes joined by commas
+                with no spaces —
+                `stale_odds,too_few_books,no_market_width,...` — which is one
+                unbreakable token to a line-breaker. Without this the footer
+                pushed the whole page's `scrollWidth` to 428 at a 390px
+                viewport, so the SLATE SCROLLED SIDEWAYS on a phone. Measured
+                on live 2026-08-31 while verifying something else; it is
+                data-dependent, so it appears only on nights when a row
+                carries a long multi-code reason.
+
+                The row-level span at the top of this file has carried
+                `w-full break-words` since it was written and does not
+                overflow — this is the same fix, and the two are now
+                consistent. */}
+            <span className="break-words font-mono text-xs text-accent-2">
+              {reason}
+            </span>
             <span className="tabular ml-2 text-xs text-muted">× {count}</span>
             {glossSentence(reason) && (
               <span className="block max-w-[65ch] text-xs leading-snug text-muted">

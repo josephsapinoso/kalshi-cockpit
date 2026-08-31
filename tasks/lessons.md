@@ -54,6 +54,34 @@ writing an entry, not after.
 
 ---
 
+## 2026-08-31 - A layout measurement measures tonight's data as much as the CSS, so one clean read is not a clean bill
+
+The slate was measured at a true 390px viewport and came back clean:
+`documentElement.scrollWidth` 375 against a 390 viewport, nothing overflowing.
+An hour later, same page, same width, same build: **428**, and the page
+scrolled sideways on a phone.
+
+Nothing about the CSS had changed. What changed was the data. A
+`suppressed_reason` is often several codes joined by commas with no spaces --
+`stale_odds,too_few_books,no_market_width,...` -- which is one unbreakable
+token to a line-breaker, and the footer's span lacked `break-words`. On the
+first read no row carried a long multi-code reason, so the defect was not on
+the page to find.
+
+**Pattern: a layout check is conditional on the content that happened to be
+rendered. Passing once proves the CSS survives THAT data, not that it survives
+the data.** Where the content is generated rather than authored -- codes joined
+into one token, an unusually long team name, a number with more digits than
+usual -- the check has to be re-run against the shape that stresses it, or the
+stressing shape has to be seeded deliberately.
+
+The cheap version of that discipline: when a string is machine-joined, assume
+it will one day arrive with no break opportunity in it, and put `break-words`
+on it the first time. The row-level span in this same file had carried it since
+it was written and never overflowed; only the footer's copy, rendering the same
+string, lacked it. **Two renderings of one value must wrap the same way**, and
+they disagreed for as long as both existed.
+
 ## 2026-08-31 - A tool that reports success has not necessarily done anything; measure the state it claims to have set
 
 The 390px check was skipped for a whole session because `resize_window`
@@ -2276,6 +2304,7 @@ the lessons' own headings, taken verbatim; keep it that way, so regenerating it
 is a script and not a judgement.
 
 ### 2026-08-31 — in this file, above
+- A layout measurement measures tonight's data as much as the CSS, so one clean read is not a clean bill
 - A tool that reports success has not necessarily done anything; measure the state it claims to have set
 - Code and its own comment agreeing is not verification; both can be wrong together about the rule they serve
 - A test named for a relationship between two artifacts must read both of them
