@@ -856,6 +856,28 @@ class TestTheSweetSpotIsNeverRenderedBare:
         for banned in ("good bet", "rating", "grade"):
             assert banned not in block, banned
 
+    def test_the_unknown_count_shares_the_scores_own_styled_span(self):
+        """Words are not enough; the TYPOGRAPHY has to carry them too.
+
+        Shipped 2026-08-31 with the count outside the styled span, rendering
+        `EVIDENCE 7/7 CHECKS · 1 not checked` -- a loud perfect score with a
+        lowercase footnote. Every wording test passed. A reader stops at 7/7.
+
+        The fix is that the unknown lives inside the same
+        `font-mono uppercase` span, so it cannot be skimmed past, and this
+        asserts the nesting rather than the presence.
+
+        Mutation observed red: move `{unknown > 0 && ...}` back outside the
+        closing `</span>`.
+        """
+        block = self._block()
+        i = block.index("evidence {trust.passed}/{trust.known} checks")
+        j = block.index("</span>", i)
+        assert "unknown > 0" in block[i:j], (
+            "the unknown count is rendered outside the score's own span; it "
+            "reads as a footnote to a perfect score"
+        )
+
     def test_the_unknown_count_is_shown_not_folded_in(self):
         """`total - known` is how many checks nobody ran.
 

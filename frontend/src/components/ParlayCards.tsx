@@ -285,7 +285,9 @@ function LegFacts({ leg }: { leg: ParlayCardLeg }) {
       </span>
       {" · "}
       <span title="Books behind the consensus, after anchoring">
-        {leg.book_count === null ? MISSING : `${leg.book_count} books`}
+        {leg.book_count === null
+          ? MISSING
+          : `${leg.book_count} book${leg.book_count === 1 ? "" : "s"}`}
       </span>
       {" · "}
       <span title="How far the four devig readings sit apart">
@@ -506,10 +508,24 @@ function TrustNote({ leg }: { leg: ParlayCardLeg }) {
   const failures = trust.checks.filter((c) => c.state === "fail");
   return (
     <span className="block text-muted">
+      {/*
+        **The unknown count sits INSIDE the styled span, not after it, and that
+        is the whole point of this element.** Shipped 2026-08-31 with the count
+        outside it, which rendered as
+
+            EVIDENCE 7/7 CHECKS · 1 not checked
+
+        — a loud perfect score with a lowercase footnote. The words were right
+        and the typography subordinated them, which defeated the rule by a
+        route no wording test could see: a reader stops at 7/7. Caught by
+        looking at the live screen, which is the only thing that would have.
+
+        Same register, one phrase, so the gap cannot be skimmed past.
+      */}
       <span className="font-mono text-[0.6rem] uppercase tracking-wide">
         evidence {trust.passed}/{trust.known} checks
+        {unknown > 0 && <> · {unknown} not checked</>}
       </span>
-      {unknown > 0 && <> · {unknown} not checked</>}
       {failures.length > 0 && (
         <span className="block">
           {failures.map((f) => f.detail).join("; ")}.
