@@ -244,8 +244,22 @@ and do not re-run the channel diagnostic (A17.6/A17.11).
 
 ## 2026-08-31 (latest) — the Scout reaches the parlay legs, and the budget says it can only flag them
 
-**Live is on `9832834`. `main` carries the scout slice, ADR 0088 — written,
-tested, NOT deployed.**
+**Live is on `cd9e842` — the scout slice is DEPLOYED and verified.** Health
+ok, six passes since boot, no post-boot errors, and `candidate_ms` holds at
+**58-63 ms**, so the v31 index survives the deploy.
+
+**Two readings I got wrong on the live box tonight, both corrected before they
+reached this file, and both the same shape — a distribution read off the
+convenient slice:**
+
+- The recent `loop-rss` tail looked like passes 14-18 MINUTES apart. It was
+  the boot region, which is mostly `kind=full`; full and quote passes run on
+  different clocks. Over 2.4 h the real distribution is **30 quote + 10 full,
+  median gap 19 s, min 16 s**. `pass-gaps` — the committed detector for
+  exactly this — reported 0 gaps over its 1200 s threshold the whole time.
+- The index before/after split on deploy wall-clock (see the previous entry).
+
+**Read the instrument that exists before reading a tail by eye.**
 
 ### The Scout on the parlay legs — ADR 0088
 
@@ -327,6 +341,15 @@ That version goes red.
 7. **Time the v31 index build at boot.** The grace period went 40s → 120s to
    cover it and the deploy succeeded, so the build is bounded below the failure
    point — but the deploy log was never read for the actual duration.
+8. **`OperationalError: database is locked` on FULL passes, four times in 24 h**
+   and NOT caused by anything shipped tonight: 2026-08-30 07:25Z, 09:10Z,
+   22:13Z and 2026-08-31 00:55Z — three of the four predate the index
+   (23:34Z). Each carries `consecutive_failures` 2-3, so the loop recovers.
+   The same contention shows on the checkpoint beside it
+   (`wal_ckpt_error: database table is locked`, 00:56Z), which is benign by
+   design: a PASSIVE checkpoint that cannot get the lock retries next pass.
+   `loop_failures` is recording them correctly, which is the part that works.
+   **Nobody has looked at what holds the write lock during a full pass.**
 
 ---
 
